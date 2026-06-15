@@ -23,7 +23,7 @@ func newService(st *store.Store) *Workers {
 		Workers:  st.Workers,
 		Roles:    rolesSvc,
 		Lines:    st.ReportingLines,
-		Topology: &topology.Reconciler{Store: st, Now: fixedClock},
+		Topology: topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
 	})
 }
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
@@ -63,18 +63,18 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := string(topology.DMStreamID("w-rep", "w-mgr"))
+	want := string(channels.DMStreamID("w-rep", "w-mgr"))
 	if out.StreamID != want {
 		t.Fatalf("streamId = %q, want %q", out.StreamID, want)
 	}
 	// The event landed on the channel.
-	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", topology.DMStreamID("w-rep", "w-mgr"), 10)
+	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr"), 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
 	// Both parties are subscribers (provisioned by topology, not by dm).
 	for _, id := range []orgchart.WorkerID{"w-mgr", "w-rep"} {
-		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, topology.DMStreamID("w-rep", "w-mgr")); err != nil {
+		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMStreamID("w-rep", "w-mgr")); err != nil {
 			t.Fatalf("%s not subscribed to DM channel: %v", id, err)
 		}
 	}
@@ -98,10 +98,10 @@ func TestDM_RefusesWithoutReportingLine(t *testing.T) {
 		t.Fatalf("err = %v, want it to mention `managers` and `reports`", err)
 	}
 	// No channel was created and no event written.
-	if _, gerr := deps.Store.Streams.Get(ctx, "org-test", topology.DMStreamID("w-rep", "w-mgr")); gerr == nil {
+	if _, gerr := deps.Store.Streams.Get(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr")); gerr == nil {
 		t.Fatal("dm must NOT create the channel on the refusal path")
 	}
-	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", topology.DMStreamID("w-rep", "w-mgr"), 10)
+	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr"), 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (nothing written on refusal)", len(events))
 	}

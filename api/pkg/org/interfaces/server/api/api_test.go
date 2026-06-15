@@ -61,7 +61,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	}
 	hub := wakebus.New(ps)
 	reg := configregistry.New(st.Configs)
-	topo := &topology.Reconciler{Store: st, Now: clock}
+	topo := topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: clock})
 
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools})
 

@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // Managers is the upward, escalation-direction read: who you report to,
@@ -81,7 +81,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 		out = append(out, managerView{
 			ID:         w.ID(),
 			Role:       w.RoleID(),
-			DMStreamID: topology.DMStreamID(caller, m),
+			DMStreamID: channels.DMStreamID(caller, m),
 		})
 	}
 	return json.Marshal(managersResult{Managers: out})

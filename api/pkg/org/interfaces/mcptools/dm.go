@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // DM sends a direct message to a single other Worker over the 1:1
@@ -29,7 +29,7 @@ import (
 // stream), not something any Worker can do implicitly to anyone.
 //
 // The Stream ID is deterministic from the sorted pair
-// (topology.DMStreamID), so A→B and B→A land on the same Stream and the
+// (channels.DMStreamID), so A→B and B→A land on the same Stream and the
 // back-and-forth stays ordered in one place. The managers / reports
 // read tools hand back that same id so callers know which channel to use.
 type DM struct {
@@ -84,7 +84,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	// the caller has no reporting relationship with the recipient — say
 	// so plainly rather than silently minting a channel that the org
 	// never sanctioned.
-	streamID := topology.DMStreamID(sender, recipient)
+	streamID := channels.DMStreamID(sender, recipient)
 	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf(

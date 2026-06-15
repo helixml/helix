@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // Reports is the downward, delegation-direction read: who reports to
@@ -90,18 +90,18 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		view := reportView{
 			ID:         w.ID(),
 			Role:       w.RoleID(),
-			DMStreamID: topology.DMStreamID(caller, r),
+			DMStreamID: channels.DMStreamID(caller, r),
 			Manages:    len(subReports) > 0,
 		}
 		if view.Manages {
-			ts := topology.TeamStreamID(r)
+			ts := channels.TeamStreamID(r)
 			view.TeamStreamID = &ts
 		}
 		result.Reports = append(result.Reports, view)
 	}
 	// Only advertise a team stream once there is someone to brief.
 	if len(result.Reports) > 0 {
-		ts := topology.TeamStreamID(caller)
+		ts := channels.TeamStreamID(caller)
 		result.TeamStreamID = &ts
 	}
 	return json.Marshal(result)

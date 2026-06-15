@@ -1,18 +1,17 @@
-// Package topology is the pure domain rule that turns the org's
-// reporting graph into communication channels: the per-Worker
-// activation Stream (who observes a Worker's transcript), the
+// Package channels is the pure domain rule that turns the org's
+// reporting graph into the communication channels it requires: the
+// per-Worker activation Stream (who observes a Worker's transcript), the
 // per-manager team Stream (the downward broadcast channel a manager
 // briefs their reports on), and the per-edge DM channel (the 1:1 a
 // manager and report message on).
 //
 // Everything here is a PURE function over the reporting graph — no I/O,
 // fully table-tested. It answers "what Streams and Subscriptions does
-// this graph imply?" and nothing else. The application-layer
+// this graph require?" and nothing else. The application-layer
 // Reconciler (application/topology) loads the graph from the store,
-// calls DesiredTopology, diffs the desired set against what's
-// persisted, and applies create/subscribe/unsubscribe/delete
-// idempotently.
-package topology
+// calls Required, diffs the required set against what's persisted, and
+// applies create/subscribe/unsubscribe/delete idempotently.
+package channels
 
 import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -30,10 +29,10 @@ func TeamStreamID(managerID orgchart.WorkerID) streaming.StreamID {
 
 // DMStreamID returns the deterministic Stream ID for a 1:1 channel
 // between two Workers, ordered by string compare so A→B and B→A share
-// one Stream. DM channels are a topology concern — the reconciler
-// provisions one per reporting edge (manager ↔ report), so the `dm`
-// tool can assume the channel exists rather than creating it. The
-// managers / reports read tools hand this id back so a Worker can
+// one Stream. DM channels follow the reporting graph — the reconciler
+// provisions one per reporting edge (manager ↔ report), so a Worker can
+// assume the channel to a manager or direct report already exists. The
+// managers / reports read paths hand this id back so a Worker can
 // escalate up / message a report 1:1 along an existing channel.
 func DMStreamID(a, b orgchart.WorkerID) streaming.StreamID {
 	pair := sortedPair(a, b)
@@ -48,65 +47,64 @@ func sortedPair(a, b orgchart.WorkerID) [2]string {
 	return p
 }
 
-// DesiredStream is a Stream the topology wants to exist. The reconciler
-// builds a streaming.Stream from it when the row is missing; the fields
-// are immutable once created, so an existing row is never rewritten.
-type DesiredStream struct {
+// Channel is a communication channel the reporting structure requires.
+// The reconciler builds a streaming.Stream from it when the row is
+// missing; the fields are immutable once created, so an existing row is
+// never rewritten. Its ID is the id of the Stream that realises it.
+type Channel struct {
 	ID          streaming.StreamID
 	Name        string
 	Description string
-	// CreatedBy owns the Stream. Activation Streams are owned by the
-	// Worker they transcribe; team Streams by the manager.
+	// CreatedBy owns the channel. Activation channels are owned by the
+	// Worker they transcribe; team channels by the manager.
 	CreatedBy orgchart.WorkerID
 }
 
-// SubKey identifies one desired (Worker subscribes to Stream) edge.
-type SubKey struct {
+// Membership identifies one required (Worker is a member of Channel) edge.
+type Membership struct {
 	WorkerID orgchart.WorkerID
 	StreamID streaming.StreamID
 }
 
-// Spec is the complete set of Streams and Subscriptions a reporting
-// graph implies. It is the output of the pure DesiredTopology function.
-type Spec struct {
-	Streams map[streaming.StreamID]DesiredStream
-	Subs    map[SubKey]struct{}
+// Set is the complete collection of channels and memberships a reporting
+// graph requires. It is the output of the pure Required function.
+type Set struct {
+	Channels map[streaming.StreamID]Channel
+	Members  map[Membership]struct{}
 }
 
-// DesiredTopology computes the Streams and Subscriptions the given
-// reporting graph implies. Pure: no I/O, deterministic, table-tested.
+// Required computes the channels and memberships the given reporting
+// graph requires. Pure: no I/O, deterministic, table-tested.
 //
 // Rules (reporting is many-to-many):
 //
 //   - Activation Stream `s-activations-W` exists for Worker W iff W is
 //     an AI Worker OR W has no managers (the root — typically the
-//     human owner). Subscribers are W's managers, so every manager
-//     observes the transcript of each Worker reporting to them. A
-//     manager-less *human* (the owner) observes its own transcript so
-//     its chat turns still surface on the Streams page — no
-//     special-casing by id, it falls out of "no managers". A
-//     manager-less AI gets a subscriber-less stream (never self-
-//     subscribed: that would re-trigger it indefinitely).
+//     human owner). Members are W's managers, so every manager observes
+//     the transcript of each Worker reporting to them. A manager-less
+//     *human* (the owner) observes its own transcript so its chat turns
+//     still surface on the Streams page — no special-casing by id, it
+//     falls out of "no managers". A manager-less AI gets a member-less
+//     stream (never self-subscribed: that would re-trigger it
+//     indefinitely).
 //
 //   - Team Stream `s-team-M` exists for Worker M iff M has ≥1 direct
-//     report. Subscribers are M plus all of M's direct reports. A
-//     Worker with two managers is therefore a member of two team
-//     Streams — correct: either manager can brief it. No reports → no
-//     team Stream (lazy).
+//     report. Members are M plus all of M's direct reports. A Worker
+//     with two managers is therefore a member of two team Streams —
+//     correct: either manager can brief it. No reports → no team Stream
+//     (lazy).
 //
 //   - DM Stream `s-dm-<pair>` exists for every reporting edge (M, R),
 //     with members exactly {M, R}. This is the 1:1 channel a Worker
 //     escalates up / messages a report down on. DMs are deliberately
 //     tied to the reporting graph: a Worker can only DM the people it
 //     shares a reporting line with (its managers and its direct
-//     reports), not arbitrary peers — the `dm` tool assumes the channel
-//     exists and refuses when it doesn't. Peer-to-peer or skip-level
-//     reach is a deliberate, explicitly-created stream, not an implicit
-//     DM.
-func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) Spec {
-	spec := Spec{
-		Streams: map[streaming.StreamID]DesiredStream{},
-		Subs:    map[SubKey]struct{}{},
+//     reports), not arbitrary peers. Peer-to-peer or skip-level reach
+//     is a deliberate, explicitly-created Stream, not an implicit DM.
+func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
+	set := Set{
+		Channels: map[streaming.StreamID]Channel{},
+		Members:  map[Membership]struct{}{},
 	}
 
 	exists := make(map[orgchart.WorkerID]struct{}, len(workers))
@@ -131,14 +129,14 @@ func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) 
 		// DM channel for this reporting edge: members exactly {M, R}.
 		dmID := DMStreamID(l.ManagerID, l.ReportID)
 		pair := sortedPair(l.ManagerID, l.ReportID)
-		spec.Streams[dmID] = DesiredStream{
+		set.Channels[dmID] = Channel{
 			ID:          dmID,
 			Name:        "dm: " + pair[0] + " ↔ " + pair[1],
-			Description: dmStreamDescription(pair[0], pair[1]),
+			Description: dmChannelDescription(pair[0], pair[1]),
 			CreatedBy:   orgchart.WorkerID(pair[0]),
 		}
-		spec.Subs[SubKey{WorkerID: l.ManagerID, StreamID: dmID}] = struct{}{}
-		spec.Subs[SubKey{WorkerID: l.ReportID, StreamID: dmID}] = struct{}{}
+		set.Members[Membership{WorkerID: l.ManagerID, StreamID: dmID}] = struct{}{}
+		set.Members[Membership{WorkerID: l.ReportID, StreamID: dmID}] = struct{}{}
 	}
 
 	for _, w := range workers {
@@ -149,10 +147,10 @@ func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) 
 		// root (the human owner).
 		if w.Kind() == orgchart.WorkerKindAI || len(managers) == 0 {
 			sid := activation.StreamID(wid)
-			spec.Streams[sid] = DesiredStream{
+			set.Channels[sid] = Channel{
 				ID:          sid,
 				Name:        "Activations: " + string(wid),
-				Description: activationStreamDescription(wid),
+				Description: activationChannelDescription(wid),
 				CreatedBy:   wid,
 			}
 			observers := managers
@@ -163,7 +161,7 @@ func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) 
 				observers = []orgchart.WorkerID{wid}
 			}
 			for _, m := range observers {
-				spec.Subs[SubKey{WorkerID: m, StreamID: sid}] = struct{}{}
+				set.Members[Membership{WorkerID: m, StreamID: sid}] = struct{}{}
 			}
 		}
 
@@ -171,38 +169,45 @@ func DesiredTopology(workers []orgchart.Worker, lines []orgchart.ReportingLine) 
 		reports := reportsByManager[wid]
 		if len(reports) > 0 {
 			sid := TeamStreamID(wid)
-			spec.Streams[sid] = DesiredStream{
+			set.Channels[sid] = Channel{
 				ID:          sid,
 				Name:        "Team: " + string(wid),
-				Description: teamStreamDescription(wid),
+				Description: teamChannelDescription(wid),
 				CreatedBy:   wid,
 			}
-			spec.Subs[SubKey{WorkerID: wid, StreamID: sid}] = struct{}{}
+			set.Members[Membership{WorkerID: wid, StreamID: sid}] = struct{}{}
 			for _, r := range reports {
-				spec.Subs[SubKey{WorkerID: r, StreamID: sid}] = struct{}{}
+				set.Members[Membership{WorkerID: r, StreamID: sid}] = struct{}{}
 			}
 		}
 	}
-	return spec
+	return set
 }
 
-func activationStreamDescription(workerID orgchart.WorkerID) string {
+// The channel descriptions below describe what each channel IS, in the
+// org's own terms (who observes it, who publishes, who may use it). They
+// deliberately name no tools: how a Worker reads or writes a channel is
+// the interface layer's concern (the MCP tool descriptions own that), and
+// the domain must not pin itself to that surface.
+
+func activationChannelDescription(workerID orgchart.WorkerID) string {
 	return "Per-message activation transcript for " + string(workerID) +
-		" — assistant text, tool calls, tool results, chat turns. " +
-		"Read with read_events or worker_log to audit / tail."
+		" — assistant text, tool calls, tool results, and chat turns, in " +
+		"order. The Worker's managers observe it; it is how the org audits " +
+		"and tails what the Worker did."
 }
 
-func teamStreamDescription(managerID orgchart.WorkerID) string {
+func teamChannelDescription(managerID orgchart.WorkerID) string {
 	return "Team broadcast channel for " + string(managerID) +
-		" and their direct reports. The manager publishes here to brief " +
-		"the whole team in one post; every report receives it. Discover " +
-		"it via the `reports` tool."
+		" and their direct reports. The manager publishes once here to " +
+		"brief the whole team; every direct report receives it."
 }
 
-func dmStreamDescription(a, b string) string {
+func dmChannelDescription(a, b string) string {
 	return "Direct 1:1 channel between " + a + " and " + b +
-		" — provisioned because they share a reporting line. Either " +
-		"escalates up / messages down here via the `dm` tool; both read " +
-		"it with read_events. Reporting pairs only — there is no implicit " +
-		"DM channel between arbitrary Workers."
+		", provisioned because they share a reporting line — used to " +
+		"escalate up or direct a report down. Reporting pairs only: a " +
+		"Worker may DM its managers and direct reports, never an arbitrary " +
+		"peer. Peer or skip-level reach is a deliberately, explicitly " +
+		"created Stream, not an implicit DM."
 }

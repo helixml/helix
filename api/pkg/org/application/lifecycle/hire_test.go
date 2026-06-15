@@ -22,7 +22,7 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 func newHireService(st *store.Store, envsDir string) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:    st,
-		Topology: &topology.Reconciler{Store: st, Now: hireClock},
+		Topology: topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: hireClock}),
 		EnvsDir:  envsDir,
 		Now:      hireClock,
 		NewID:    func() string { return "id" },

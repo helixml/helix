@@ -66,7 +66,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 		t.Fatalf("precondition: activation stream not seeded: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: &topology.Reconciler{Store: st}}
+	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})}
 	if err := svc.Fire(ctx, orgID, worker.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("create subscription: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: &topology.Reconciler{Store: st}}
+	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Topology: topology.NewReconciler(topology.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})}
 	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}

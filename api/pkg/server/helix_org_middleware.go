@@ -134,7 +134,12 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// Workers hired before the topology reconciler was wired
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
-		rec := &topology.Reconciler{Store: s.orgStore}
+		rec := topology.NewReconciler(topology.Deps{
+			Workers:        s.orgStore.Workers,
+			ReportingLines: s.orgStore.ReportingLines,
+			Streams:        s.orgStore.Streams,
+			Subscriptions:  s.orgStore.Subscriptions,
+		})
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
 		}

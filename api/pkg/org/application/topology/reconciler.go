@@ -8,34 +8,60 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	domaintopology "github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // Reconciler converges the persisted Streams/Subscriptions onto the
-// desired topology implied by the reporting graph. It needs only the
-// store — no runtime, no disk — which is what keeps it table-testable
-// and lets every structural mutation depend on it without pulling in
-// the heavyweight lifecycle service.
+// channels the reporting graph requires. It depends only on the four
+// narrow repositories it actually touches — Workers, ReportingLines,
+// Streams, Subscriptions — never the whole *store.Store (CLAUDE.md
+// helix-org philosophy: small interfaces, ≤4 collaborators). That is what
+// keeps it table-testable and lets every structural mutation depend on it
+// without pulling in the heavyweight lifecycle service.
 type Reconciler struct {
-	Store *store.Store
+	workers store.Workers
+	lines   store.ReportingLines
+	streams store.Streams
+	subs    store.Subscriptions
+	now     func() time.Time
+}
+
+// Deps are the constructor-injected collaborators for NewReconciler.
+// ReportingLines is optional: a store that doesn't wire it yields a graph
+// with no reporting edges (activation streams only).
+type Deps struct {
+	Workers        store.Workers
+	ReportingLines store.ReportingLines
+	Streams        store.Streams
+	Subscriptions  store.Subscriptions
 	// Now seams the clock for tests. Falls back to time.Now().UTC().
 	Now func() time.Time
 }
 
-func (r *Reconciler) now() time.Time {
-	if r != nil && r.Now != nil {
-		return r.Now()
+// NewReconciler builds a Reconciler from its narrow repositories. A nil
+// Workers repo (the "not wired" case) yields a Reconciler whose methods
+// no-op, so runtimes/tests that don't wire topology degrade gracefully.
+func NewReconciler(deps Deps) *Reconciler {
+	now := deps.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
 	}
-	return time.Now().UTC()
+	return &Reconciler{
+		workers: deps.Workers,
+		lines:   deps.ReportingLines,
+		streams: deps.Streams,
+		subs:    deps.Subscriptions,
+		now:     now,
+	}
 }
 
 // Reconcile settles the activation/team Streams touched by a change to
 // the given affected Worker(s). It loads the whole graph, computes the
-// desired topology, then — only for the Streams owned by the affected
-// Workers and their one-hop managers/reports — diffs desired vs actual
+// required channels, then — only for the Streams owned by the affected
+// Workers and their one-hop managers/reports — diffs required vs actual
 // and applies create-stream / subscribe / unsubscribe / delete-stream
 // idempotently.
 //
@@ -50,34 +76,34 @@ func (r *Reconciler) now() time.Time {
 //   - add/remove W→M line → Reconcile(org, W, M)
 //   - fire W (managers M…)→ Reconcile(org, W, M…)  (capture M… first)
 //
-// A nil or store-less Reconciler is a no-op, so runtimes/tests that
-// don't wire topology degrade gracefully.
+// A nil or unwired Reconciler is a no-op, so runtimes/tests that don't
+// wire topology degrade gracefully.
 func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...orgchart.WorkerID) error {
-	if r == nil || r.Store == nil {
+	if r == nil || r.workers == nil {
 		return nil
 	}
 	if len(affected) == 0 {
 		return nil
 	}
 
-	workers, err := r.Store.Workers.List(ctx, orgID)
+	workers, err := r.workers.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("topology: list workers: %w", err)
 	}
 	var lines []orgchart.ReportingLine
-	if r.Store.ReportingLines != nil {
-		lines, err = r.Store.ReportingLines.List(ctx, orgID)
+	if r.lines != nil {
+		lines, err = r.lines.List(ctx, orgID)
 		if err != nil {
 			return fmt.Errorf("topology: list reporting lines: %w", err)
 		}
 	}
 
-	desired := domaintopology.DesiredTopology(workers, lines)
+	required := channels.Required(workers, lines)
 
-	// Bucket desired subscribers by stream so each ensure is O(members).
-	desiredSubs := map[streaming.StreamID][]orgchart.WorkerID{}
-	for k := range desired.Subs {
-		desiredSubs[k.StreamID] = append(desiredSubs[k.StreamID], k.WorkerID)
+	// Bucket required members by stream so each ensure is O(members).
+	requiredMembers := map[streaming.StreamID][]orgchart.WorkerID{}
+	for k := range required.Members {
+		requiredMembers[k.StreamID] = append(requiredMembers[k.StreamID], k.WorkerID)
 	}
 
 	// Index the (current) graph to find each affected Worker's one-hop
@@ -95,19 +121,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	relevant := map[streaming.StreamID]struct{}{}
 	for _, a := range affected {
 		relevant[activation.StreamID(a)] = struct{}{}
-		relevant[domaintopology.TeamStreamID(a)] = struct{}{}
+		relevant[channels.TeamStreamID(a)] = struct{}{}
 		// A manager's team stream gains/loses this Worker as a member,
 		// and the manager↔this-Worker DM channel is created/kept.
 		for _, m := range managersByReport[a] {
-			relevant[domaintopology.TeamStreamID(m)] = struct{}{}
-			relevant[domaintopology.DMStreamID(a, m)] = struct{}{}
+			relevant[channels.TeamStreamID(m)] = struct{}{}
+			relevant[channels.DMStreamID(a, m)] = struct{}{}
 		}
 		// A report's activation stream gains/loses this Worker as an
 		// observer, and the this-Worker↔report DM channel is
 		// created/kept.
 		for _, rep := range reportsByManager[a] {
 			relevant[activation.StreamID(rep)] = struct{}{}
-			relevant[domaintopology.DMStreamID(a, rep)] = struct{}{}
+			relevant[channels.DMStreamID(a, rep)] = struct{}{}
 		}
 	}
 	// All-pairs of the affected set covers DM-channel *teardown*: when a
@@ -116,10 +142,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	// their DM channel. Both endpoints are passed in `affected`
 	// (add/remove-parent pass (report, manager); fire passes
 	// (firedID, ex-managers…)), so the pair is named here and the diff
-	// below deletes the now-undesired channel.
+	// below deletes the now-unrequired channel.
 	for i := 0; i < len(affected); i++ {
 		for j := i + 1; j < len(affected); j++ {
-			relevant[domaintopology.DMStreamID(affected[i], affected[j])] = struct{}{}
+			relevant[channels.DMStreamID(affected[i], affected[j])] = struct{}{}
 		}
 	}
 
@@ -129,18 +155,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	now := r.now()
+	now := r.clock()
 	for _, sid := range ids {
-		ds, want := desired.Streams[sid]
+		ch, want := required.Channels[sid]
 		if !want {
 			// The Stream should not exist. Delete it (subscriptions
 			// cascade with the row). Absent already → fine.
-			if err := r.Store.Streams.Delete(ctx, orgID, sid); err != nil && !errors.Is(err, store.ErrNotFound) {
+			if err := r.streams.Delete(ctx, orgID, sid); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("topology: delete stream %q: %w", sid, err)
 			}
 			continue
 		}
-		if err := r.ensureStream(ctx, orgID, ds, desiredSubs[sid], now); err != nil {
+		if err := r.ensureStream(ctx, orgID, ch, requiredMembers[sid], now); err != nil {
 			return err
 		}
 	}
@@ -149,15 +175,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 
 // ReconcileAll converges the full topology for every Worker in the org.
 // Call at server startup so Workers hired before the reconciler was
-// wired (or before a new topology rule was added) get their activation,
+// wired (or before a new channel rule was added) get their activation,
 // team, and DM Streams created or corrected idempotently. Internally
 // loads every Worker ID and delegates to Reconcile so the scoping and
 // create/delete/subscribe logic stays in one place.
 func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
-	if r == nil || r.Store == nil {
+	if r == nil || r.workers == nil {
 		return nil
 	}
-	workers, err := r.Store.Workers.List(ctx, orgID)
+	workers, err := r.workers.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("topology: ReconcileAll list workers: %w", err)
 	}
@@ -171,33 +197,40 @@ func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
 	return r.Reconcile(ctx, orgID, ids...)
 }
 
+func (r *Reconciler) clock() time.Time {
+	if r != nil && r.now != nil {
+		return r.now()
+	}
+	return time.Now().UTC()
+}
+
 // ensureStream converges one managed Stream: create it if missing,
-// subscribe every desired member, and unsubscribe anyone the desired
+// subscribe every required member, and unsubscribe anyone the required
 // set no longer includes (the load-bearing half — this is what fixes
 // the reparent desync where an old manager stayed subscribed).
-func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ds domaintopology.DesiredStream, members []orgchart.WorkerID, now time.Time) error {
-	stream, err := newDesiredStream(ds, now, orgID)
+func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.WorkerID, now time.Time) error {
+	stream, err := streamForChannel(ch, now, orgID)
 	if err != nil {
-		return fmt.Errorf("topology: build stream %q: %w", ds.ID, err)
+		return fmt.Errorf("topology: build stream %q: %w", ch.ID, err)
 	}
-	if err := EnsureStreamWithMembers(ctx, r.Store, stream, now, members...); err != nil {
-		return fmt.Errorf("topology: ensure stream %q: %w", ds.ID, err)
+	if err := r.ensureStreamWithMembers(ctx, stream, now, members...); err != nil {
+		return fmt.Errorf("topology: ensure stream %q: %w", ch.ID, err)
 	}
 
-	desiredSet := make(map[orgchart.WorkerID]struct{}, len(members))
+	requiredSet := make(map[orgchart.WorkerID]struct{}, len(members))
 	for _, m := range members {
-		desiredSet[m] = struct{}{}
+		requiredSet[m] = struct{}{}
 	}
-	actual, err := r.Store.Subscriptions.ListForStream(ctx, orgID, ds.ID)
+	actual, err := r.subs.ListForStream(ctx, orgID, ch.ID)
 	if err != nil {
-		return fmt.Errorf("topology: list subscribers of %q: %w", ds.ID, err)
+		return fmt.Errorf("topology: list subscribers of %q: %w", ch.ID, err)
 	}
 	for _, sub := range actual {
-		if _, ok := desiredSet[orgchart.WorkerID(sub.WorkerID)]; ok {
+		if _, ok := requiredSet[orgchart.WorkerID(sub.WorkerID)]; ok {
 			continue
 		}
-		if err := r.Store.Subscriptions.Delete(ctx, orgID, orgchart.WorkerID(sub.WorkerID), ds.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("topology: unsubscribe %q from %q: %w", sub.WorkerID, ds.ID, err)
+		if err := r.subs.Delete(ctx, orgID, orgchart.WorkerID(sub.WorkerID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("topology: unsubscribe %q from %q: %w", sub.WorkerID, ch.ID, err)
 		}
 	}
 	return nil

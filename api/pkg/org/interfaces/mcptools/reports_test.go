@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // TestReports_TeamStreamAndDMStreams: jane has two reports; the reports
@@ -27,7 +27,7 @@ func TestReports_TeamStreamAndDMStreams(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamStreamID == nil || *got.TeamStreamID != topology.TeamStreamID("w-jane") {
+	if got.TeamStreamID == nil || *got.TeamStreamID != channels.TeamStreamID("w-jane") {
 		t.Fatalf("teamStreamId = %v, want s-team-w-jane", got.TeamStreamID)
 	}
 	if len(got.Reports) != 2 {
@@ -40,7 +40,7 @@ func TestReports_TeamStreamAndDMStreams(t *testing.T) {
 		if r.TeamStreamID != nil {
 			t.Fatalf("non-managing report %s must not carry a teamStreamId", r.ID)
 		}
-		wantDM := topology.DMStreamID("w-jane", r.ID)
+		wantDM := channels.DMStreamID("w-jane", r.ID)
 		if r.DMStreamID != wantDM {
 			t.Fatalf("report %s dmStreamId = %q, want %q", r.ID, r.DMStreamID, wantDM)
 		}
@@ -70,11 +70,11 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	if !jane.Manages {
 		t.Fatalf("w-jane should be flagged manages:true")
 	}
-	if jane.TeamStreamID == nil || *jane.TeamStreamID != topology.TeamStreamID("w-jane") {
+	if jane.TeamStreamID == nil || *jane.TeamStreamID != channels.TeamStreamID("w-jane") {
 		t.Fatalf("w-jane teamStreamId = %v, want s-team-w-jane", jane.TeamStreamID)
 	}
-	if jane.DMStreamID != topology.DMStreamID("w-owner", "w-jane") {
-		t.Fatalf("w-jane dmStreamId = %q, want %q", jane.DMStreamID, topology.DMStreamID("w-owner", "w-jane"))
+	if jane.DMStreamID != channels.DMStreamID("w-owner", "w-jane") {
+		t.Fatalf("w-jane dmStreamId = %q, want %q", jane.DMStreamID, channels.DMStreamID("w-owner", "w-jane"))
 	}
 }
 

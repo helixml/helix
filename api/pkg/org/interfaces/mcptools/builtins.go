@@ -222,7 +222,13 @@ func DefaultDeps(s *store.Store) Config {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
-	c.Topology = &topology.Reconciler{Store: s, Now: c.Now}
+	c.Topology = topology.NewReconciler(topology.Deps{
+		Workers:        s.Workers,
+		ReportingLines: s.ReportingLines,
+		Streams:        s.Streams,
+		Subscriptions:  s.Subscriptions,
+		Now:            c.Now,
+	})
 	c.Queries = queries.New(queries.Deps{
 		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
 		Streams: s.Streams, Subscriptions: s.Subscriptions, Events: s.Events,

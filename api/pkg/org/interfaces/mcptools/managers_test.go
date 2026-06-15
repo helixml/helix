@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
-	"github.com/helixml/helix/api/pkg/org/domain/topology"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
@@ -77,8 +77,8 @@ func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
 	if !ok {
 		t.Fatalf("w-jane missing from managers: %+v", got.Managers)
 	}
-	if jane.DMStreamID != topology.DMStreamID("w-li", "w-jane") {
-		t.Fatalf("jane dmStreamId = %q, want %q", jane.DMStreamID, topology.DMStreamID("w-li", "w-jane"))
+	if jane.DMStreamID != channels.DMStreamID("w-li", "w-jane") {
+		t.Fatalf("jane dmStreamId = %q, want %q", jane.DMStreamID, channels.DMStreamID("w-li", "w-jane"))
 	}
 	if jane.Role != "r-x" {
 		t.Fatalf("jane role = %q, want r-x", jane.Role)

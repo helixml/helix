@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	domaintopology "github.com/helixml/helix/api/pkg/org/domain/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	memorystore "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
@@ -20,10 +20,10 @@ const orgID = "org-test"
 
 func fixedNow() time.Time { return time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC) }
 
-// The pure DesiredTopology / stream-id derivation tests live with the
-// domain function in domain/topology. The tests below exercise the
-// application-layer Reconciler and EnsureStreamWithMembers against the
-// memory store.
+// The pure Required / stream-id derivation tests live with the domain
+// function in domain/channels. The tests below exercise the
+// application-layer Reconciler and its ensureStreamWithMembers primitive
+// against the memory store.
 
 func ai(id orgchart.WorkerID) orgchart.Worker {
 	w, err := orgchart.NewAIWorker(id, "r-x", "#", orgID)
@@ -66,7 +66,7 @@ func eq(a, b []orgchart.WorkerID) bool {
 func newRec(t *testing.T) (*Reconciler, *store.Store) {
 	t.Helper()
 	st := memorystore.New()
-	return &Reconciler{Store: st, Now: fixedNow}, st
+	return NewReconciler(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow}), st
 }
 
 func seedWorker(t *testing.T, st *store.Store, w orgchart.Worker) {
@@ -117,7 +117,7 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
 		t.Fatalf("after first hire, s-team-w-jane = %v, want [w-jane w-li]", got)
 	}
 	// w-li's activation stream is observed by jane.
@@ -131,7 +131,7 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-sam"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li", "w-sam"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li", "w-sam"}) {
 		t.Fatalf("after second hire, s-team-w-jane = %v, want [w-jane w-li w-sam]", got)
 	}
 }
@@ -157,10 +157,10 @@ func TestReconcile_AddSecondManager(t *testing.T) {
 		t.Fatalf("reconcile add manager: %v", err)
 	}
 
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-bob")); !eq(got, []orgchart.WorkerID{"w-bob", "w-li"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-bob")); !eq(got, []orgchart.WorkerID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob = %v, want [w-bob w-li]", got)
 	}
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane (unchanged) = %v, want [w-jane w-li]", got)
 	}
 	if got := streamMembers(t, st, activation.StreamID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
@@ -181,7 +181,7 @@ func TestReconcile_RemoveManager(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile initial: %v", err)
 	}
-	if !streamExists(t, st, domaintopology.TeamStreamID("w-jane")) {
+	if !streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("precondition: s-team-w-jane should exist")
 	}
 
@@ -193,7 +193,7 @@ func TestReconcile_RemoveManager(t *testing.T) {
 		t.Fatalf("reconcile remove: %v", err)
 	}
 
-	if streamExists(t, st, domaintopology.TeamStreamID("w-jane")) {
+	if streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be torn down (jane has 0 reports)")
 	}
 	// jane no longer observes w-li's transcript.
@@ -224,7 +224,7 @@ func TestReconcile_RemoveManager_KeepsStreamWhenOtherReports(t *testing.T) {
 		t.Fatalf("reconcile remove: %v", err)
 	}
 
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-sam"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-sam"}) {
 		t.Fatalf("s-team-w-jane = %v, want [w-jane w-sam]", got)
 	}
 }
@@ -255,7 +255,7 @@ func TestReconcile_FireReport(t *testing.T) {
 		t.Fatalf("reconcile fire: %v", err)
 	}
 
-	if streamExists(t, st, domaintopology.TeamStreamID("w-jane")) {
+	if streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be gone after firing its only report")
 	}
 	if streamExists(t, st, activation.StreamID("w-li")) {
@@ -280,7 +280,7 @@ func TestReconcile_FireManager(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile li: %v", err)
 	}
-	if !streamExists(t, st, domaintopology.TeamStreamID("w-jane")) {
+	if !streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("precondition: s-team-w-jane should exist")
 	}
 
@@ -293,7 +293,7 @@ func TestReconcile_FireManager(t *testing.T) {
 		t.Fatalf("reconcile fire: %v", err)
 	}
 
-	if streamExists(t, st, domaintopology.TeamStreamID("w-jane")) {
+	if streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be torn down")
 	}
 	// w-li still exists and keeps its own activation stream.
@@ -313,12 +313,12 @@ func TestReconcile_Idempotent(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile 1: %v", err)
 	}
-	before := streamMembers(t, st, domaintopology.TeamStreamID("w-jane"))
+	before := streamMembers(t, st, channels.TeamStreamID("w-jane"))
 
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile 2: %v", err)
 	}
-	after := streamMembers(t, st, domaintopology.TeamStreamID("w-jane"))
+	after := streamMembers(t, st, channels.TeamStreamID("w-jane"))
 	if !eq(before, after) {
 		t.Fatalf("idempotency broken: before=%v after=%v", before, after)
 	}
@@ -335,6 +335,7 @@ func TestReconcile_Idempotent(t *testing.T) {
 // must be exactly one stream with exactly one subscription.
 func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
 	st := memorystore.New()
+	rec := NewReconciler(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedNow})
 	ctx := context.Background()
 	const sid = streaming.StreamID("s-team-w-race")
 	stream, err := streaming.NewStream(sid, "Team: race", "", "w-race", fixedNow(), transport.Transport{}, orgID)
@@ -351,7 +352,7 @@ func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			<-start // release all at once to maximise interleaving
-			errs[idx] = EnsureStreamWithMembers(ctx, st, stream, fixedNow(), "w-member")
+			errs[idx] = rec.ensureStreamWithMembers(ctx, stream, fixedNow(), "w-member")
 		}(i)
 	}
 	close(start)
@@ -389,7 +390,7 @@ func TestReconcile_OwnerWithReport(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-jane"); err != nil {
 		t.Fatalf("reconcile jane: %v", err)
 	}
-	if got := streamMembers(t, st, domaintopology.TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-jane", "w-owner"}) {
+	if got := streamMembers(t, st, channels.TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-jane", "w-owner"}) {
 		t.Fatalf("s-team-w-owner = %v, want [w-jane w-owner]", got)
 	}
 	// Owner's own activation stream survived the team-stream creation.

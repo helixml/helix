@@ -114,7 +114,13 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 	// so the rule gives it a self-observed activation Stream (its chat
 	// turns surface on the Streams page) and no team Stream yet (no
 	// reports until it hires).
-	rec := &topology.Reconciler{Store: s, Now: func() time.Time { return now }}
+	rec := topology.NewReconciler(topology.Deps{
+		Workers:        s.Workers,
+		ReportingLines: s.ReportingLines,
+		Streams:        s.Streams,
+		Subscriptions:  s.Subscriptions,
+		Now:            func() time.Time { return now },
+	})
 	if err := rec.Reconcile(ctx, params.OrganizationID, owner.ID()); err != nil {
 		return Result{}, fmt.Errorf("owner topology: %w", err)
 	}
