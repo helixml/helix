@@ -9,6 +9,8 @@
 use gst::glib;
 
 mod ext_image_copy_capture;
+mod gl_blit;
+mod metrics;
 mod pipewire_stream;
 mod pipewiresrc;
 

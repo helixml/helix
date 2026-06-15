@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -21,6 +22,8 @@ import (
 // @Tags    knowledge
 
 // @Success 200 {array} types.Knowledge
+// @Param organization_id query string false "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge."
+// @Param app_id query string false "Filter by app ID"
 // @Router /api/v1/knowledge [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) ([]*types.Knowledge, *system.HTTPError) {
@@ -28,12 +31,31 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	user := getRequestUser(r)
 
 	appID := r.URL.Query().Get("app_id")
+	orgID := r.URL.Query().Get("organization_id")
 
-	knowledges, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
-		Owner:     user.ID,
-		OwnerType: user.Type,
-		AppID:     appID,
-	})
+	query := &store.ListKnowledgeQuery{
+		AppID: appID,
+	}
+
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		if _, err := s.authorizeOrgMember(ctx, user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to view this organization")
+		}
+		query.OwnerType = types.OwnerTypeOrg
+		query.Owner = org.ID
+	} else {
+		query.OwnerType = user.Type
+		query.Owner = user.ID
+	}
+
+	knowledges, err := s.Store.ListKnowledge(ctx, query)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

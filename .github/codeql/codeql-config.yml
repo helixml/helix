@@ -1,0 +1,35 @@
+name: "Helix CodeQL config"
+
+# Use the focused security suite. The default suite is broad; `security-extended`
+# adds higher-recall security queries without the maintainability/quality noise
+# that the `security-and-quality` suite drags in (unused-variable, etc).
+queries:
+  - uses: security-extended
+
+# Strip out anything that is not a security finding. CodeQL tags every query;
+# excluding by tag removes whole noise classes in one go regardless of language.
+query-filters:
+  - exclude:
+      tags contain: maintainability
+  - exclude:
+      tags contain: quality
+
+# Skip generated, vendored, and third-party code. These dominate alert counts
+# and we do not own the fixes.
+paths-ignore:
+  - "**/*_test.go"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"
+  - "**/testdata/**"
+  - "**/mocks/**"
+  - "**/*_mock.go"
+  - "**/mock_*.go"
+  - "api/pkg/openapi/**"
+  - "frontend/src/api/api.ts"
+  - "frontend/dist/**"
+  - "frontend/node_modules/**"
+  - "vendor/**"
+  - "**/*.generated.go"
+  - "**/*.pb.go"

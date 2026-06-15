@@ -1,25 +1,3 @@
-# Common runner configuration (YAML anchor, not a service)
-x-runner-config: &runner-config
-  restart: always
-  entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
-  env_file:
-    - .env
-  environment:
-    # Explicitly set Go cache paths for clarity
-    - GOMODCACHE=/go/pkg/mod
-    - GOCACHE=/root/.cache/go-build
-    # Prevent automatic toolchain downloads
-    - GOTOOLCHAIN=local
-  volumes:
-    - .:/workspace/helix
-    - ~/.cache/huggingface:/root/.cache/huggingface
-    # Go caches for faster development
-    - go-pkg-mod:/go/pkg/mod
-    - go-build-cache:/root/.cache/go-build
-    - go-sdk-cache:/root/.cache/go
-    # comment these out if you don't have appropriate repos checked out
-    # - ../axolotl:/workspace/axolotl
-
 services:
   api:
     build:
@@ -615,61 +593,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-  # GPU-enabled runner (for LLM inference)
-  runner_gpu:
-    <<: *runner-config
-    profiles: ["runner_gpu"]
-    entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
-      args:
-        TAG: 2025-08-13c-large
-    environment:
-      # Runner configuration
-      - API_HOST=http://api:8080
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - RUNNER_ID=dev-gpu-runner
-      - LOG_LEVEL=debug
-      - HELIX_COMMAND=runner
-      # Prevent toolchain downloads
-      - GOTOOLCHAIN=local
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-  # AMD GPU runner (for LLM inference with ROCm)
-  runner_gpu_amd:
-    <<: *runner-config
-    profiles: ["runner_gpu_amd"]
-    entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
-      args:
-        TAG: 2025-08-13c-large
-    environment:
-      # Runner configuration
-      - API_HOST=http://api:8080
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - RUNNER_ID=dev-gpu-runner-amd
-      - LOG_LEVEL=debug
-      - HELIX_COMMAND=runner
-      # Prevent toolchain downloads
-      - GOTOOLCHAIN=local
-      # ROCm configuration
-      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
-    devices:
-      - /dev/kfd
-      - /dev/dri
-    group_add:
-      - video
-      - render
 
   demos:
     profiles: ["demos"]

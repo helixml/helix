@@ -41,10 +41,15 @@ func LookupOrganization(ctx context.Context, apiClient client.Client, orgRef str
 }
 
 // ResolveOrganization resolves an organization flag to an org ID.
-// If orgFlag is provided, it looks up the org by name or ID.
-// If orgFlag is empty, it defaults to the user's first organization.
+// Resolution order:
+//  1. orgFlag, if non-empty (name or ID)
+//  2. $HELIX_ORG, if set (name or ID)
+//  3. the user's first organization
 // Returns empty string if no org is found (backward-compatible).
 func ResolveOrganization(ctx context.Context, apiClient client.Client, orgFlag string) (string, error) {
+	if orgFlag == "" {
+		orgFlag = os.Getenv("HELIX_ORG")
+	}
 	if orgFlag != "" {
 		org, err := LookupOrganization(ctx, apiClient, orgFlag)
 		if err != nil {
@@ -65,12 +70,16 @@ func ResolveOrganization(ctx context.Context, apiClient client.Client, orgFlag s
 }
 
 // ResolveOrganizationInteractive resolves an organization for interactive CLI use.
-// Rules:
-//   - If orgFlag is provided, look it up by name or ID (same as ResolveOrganization).
-//   - If orgFlag is empty and the user belongs to exactly one org, use it and print a note.
-//   - If orgFlag is empty and the user belongs to multiple orgs, prompt interactively.
-//   - If orgFlag is empty and the user has no orgs, return an error.
+// Resolution order:
+//  1. orgFlag, if non-empty (name or ID)
+//  2. $HELIX_ORG, if set (name or ID)
+//  3. the user's only organization, if they belong to exactly one
+//  4. interactive prompt, if they belong to multiple
+//  5. error, if they belong to none
 func ResolveOrganizationInteractive(ctx context.Context, apiClient client.Client, orgFlag string) (string, error) {
+	if orgFlag == "" {
+		orgFlag = os.Getenv("HELIX_ORG")
+	}
 	if orgFlag != "" {
 		org, err := LookupOrganization(ctx, apiClient, orgFlag)
 		if err != nil {

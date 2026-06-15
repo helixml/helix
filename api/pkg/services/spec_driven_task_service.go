@@ -411,17 +411,16 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		OwnerType:      types.OwnerTypeUser,
 	}
 
-	// Guard against duplicate session creation (issue #10 from ZFS deployment).
-	// Two concurrent requests can both reach this point before either has written
-	// planning_session_id to the DB. Re-read the task to see if a sibling already won the race.
-	if freshTask, readErr := s.store.GetSpecTask(ctx, task.ID); readErr == nil && freshTask.PlanningSessionID != "" {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("existing_session_id", freshTask.PlanningSessionID).
-			Msg("Planning session already created by concurrent request — skipping duplicate creation")
-		return
-	}
-
+	// Create the session first so we have a real session ID to claim with. If
+	// we lose the atomic claim below, we delete this orphan and return — the
+	// winning caller's session is the one that ends up driving the desktop.
+	//
+	// This is more wasteful than a pre-claim (we burn a session row when we
+	// lose) but avoids the rollback footgun: if we claimed first and
+	// CreateSession failed, planning_session_id would point at a non-existent
+	// session and future retries would silently noop on the read-then-write
+	// guard. With this ordering, the claim is the single source of truth and
+	// no retry path can be left in a half-claimed state.
 	session, err = s.store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
@@ -429,16 +428,39 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Update task with session ID
-	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: About to update task with session ID")
-	task.PlanningSessionID = session.ID
-	err = s.store.UpdateSpecTask(ctx, task)
+	// Atomically claim the planning_session_id slot. Two concurrent callers
+	// (orchestrator ticker + status-change subscription firing on the same
+	// task within milliseconds) each get to here with their own session, but
+	// only one wins this single-statement UPDATE. The loser deletes its
+	// orphan session and returns BEFORE reaching StartDesktop — preventing
+	// the workspace-volume race that corrupts the spec-task's git clone.
+	// Replaces the read-then-write TOCTOU guard that issue #10 of the
+	// 2026-03-18 ZFS deployment design doc attempted to close.
+	claimed, err := s.store.SetPlanningSessionIDIfEmpty(ctx, task.ID, session.ID)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
-		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to claim planning_session_id; rolling back session")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan session after claim error")
+		}
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to claim planning_session_id: %v", err))
 		return
 	}
-	log.Debug().Str("task_id", task.ID).Msg("DEBUG: Task updated with session ID")
+	if !claimed {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("orphan_session_id", session.ID).
+			Msg("Lost race to claim planning_session_id; deleting orphan session and bailing before StartDesktop")
+		if _, delErr := s.store.DeleteSession(ctx, session.ID); delErr != nil {
+			log.Warn().Err(delErr).Str("session_id", session.ID).Msg("Failed to delete orphan session after losing claim")
+		}
+		return
+	}
+
+	// We won the claim. Mirror the DB write into the in-memory task struct so
+	// the rest of this function (env var building, audit logging) sees the
+	// canonical planning_session_id.
+	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Claimed planning_session_id atomically")
+	task.PlanningSessionID = session.ID
 
 	// Kick off git-identity sync in the background. The desktop container
 	// isn't up yet; the async helper polls until it can reach the container,
@@ -519,20 +541,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Build list of all repository IDs to clone from project
-	repositoryIDs := []string{}
-	for _, repo := range projectRepos {
-		if repo.ID != "" {
-			repositoryIDs = append(repositoryIDs, repo.ID)
-		}
-	}
-
-	// Determine primary repository from project configuration
-	primaryRepoID := project.DefaultRepoID
-	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Use first project repo as fallback if no default set
-		primaryRepoID = projectRepos[0].ID
-	}
+	// Repository fields are populated below via zedAgent.SetRepoContext after
+	// the agent struct is constructed.
 
 	// API key creation is deferred to OnBeforeCreate hook (inside StartDesktop's
 	// session lock) to prevent races with concurrent StopDesktop.
@@ -600,21 +610,20 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	zedAgent := &types.DesktopAgent{
-		OrganizationID:      orgID,
-		SessionID:           session.ID,
-		UserID:              task.CreatedBy,
-		Input:               "Initialize Zed development environment for spec generation",
-		ProjectID:           task.ProjectID, // For golden Docker cache overlay
-		ProjectPath:         "workspace",    // Use relative path
-		SpecTaskID:          task.ID,        // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,  // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,  // ALL project repos to checkout
-		DisplayWidth:        displayWidth,
-		DisplayHeight:       displayHeight,
-		DisplayRefreshRate:  displayRefreshRate,
-		Resolution:          resolution,
-		ZoomLevel:           zoomLevel,
-		DesktopType:         desktopType,
+		OrganizationID: orgID,
+		SessionID:      session.ID,
+		UserID:         task.CreatedBy,
+		Input:          "Initialize Zed development environment for spec generation",
+		ProjectID:      task.ProjectID, // For golden Docker cache overlay
+		ProjectPath:    "workspace",    // Use relative path
+		SpecTaskID:     task.ID,        // For task-scoped workspace
+		// RepositoryIDs / PrimaryRepositoryID set by SetRepoContext below.
+		DisplayWidth:       displayWidth,
+		DisplayHeight:      displayHeight,
+		DisplayRefreshRate: displayRefreshRate,
+		Resolution:         resolution,
+		ZoomLevel:          zoomLevel,
+		DesktopType:        desktopType,
 		Env: envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
@@ -633,6 +642,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		BaseBranch:    task.BaseBranch,
 		WorkingBranch: task.BranchName, // For existing mode: checkout this; for new mode: create this
 	}
+	zedAgent.SetRepoContext(projectRepos, project.DefaultRepoID)
 	log.Debug().Str("task_id", task.ID).Str("session_id", session.ID).Msg("DEBUG: Created ZedAgent struct")
 
 	// Check if executor is nil

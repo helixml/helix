@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -338,6 +339,9 @@ func (s *OIDCSuite) TestValidateUserToken_WaitlistedNewUser_CallsOnNewUser() {
 			s.True(u.Waitlisted)
 			return u, nil
 		})
+	// No pending invitations — waitlist stays true.
+	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).
+		Return([]*types.OrganizationMembership{}, nil)
 	// Auto-join lookup (no matching domain)
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 
@@ -376,6 +380,9 @@ func (s *OIDCSuite) TestValidateUserToken_NotWaitlisted_DoesNotCallOnNewUser() {
 			s.False(u.Waitlisted)
 			return u, nil
 		})
+	// Always called on new-user path; no invitations match here.
+	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).
+		Return([]*types.OrganizationMembership{}, nil)
 	// Auto-join lookup
 	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
 
@@ -428,6 +435,167 @@ func (m *mockEventHandler) OnNewUser(user *types.User) {
 	if m.onNewUser != nil {
 		m.onNewUser(user)
 	}
+}
+
+func (s *OIDCSuite) TestValidateUserToken_NewUser_ConsumesInvitation_BypassesWaitlist() {
+	// A new user registering via OIDC whose email has a pending org invitation
+	// should: (a) have the invitation consumed in the same flow, (b) be marked
+	// onboarding-complete so they skip the create-org wizard, (c) have the
+	// waitlist flag cleared, and (d) NOT trigger OnNewUser (since the invite
+	// is an implicit vouch — they don't need admin approval).
+	handler := &mockEventHandler{
+		onNewUser: func(_ *types.User) {
+			s.Fail("OnNewUser should not be called when an invitation is consumed")
+		},
+	}
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+		Waitlist:     true, // waitlist on globally, but invitee should bypass
+		EventHandler: handler,
+	})
+	s.NoError(err)
+
+	// New user — not in DB.
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+
+	// CreateUser is called with Waitlisted=true (global setting). The OIDC
+	// handler flips it back to false in-memory and persists via UpdateUser.
+	var createdUser *types.User
+	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, u *types.User) (*types.User, error) {
+			s.True(u.Waitlisted, "user should initially be waitlisted")
+			s.False(u.OnboardingCompleted, "user should initially not be onboarded")
+			createdUser = u
+			return u, nil
+		})
+
+	// Pending invitation matches — return one consumed membership.
+	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, u *types.User) ([]*types.OrganizationMembership, error) {
+			s.Equal("test-user-id", u.ID)
+			return []*types.OrganizationMembership{
+				{OrganizationID: "org-from-invite", UserID: u.ID, Role: types.OrganizationRoleMember},
+			}, nil
+		})
+
+	// UpdateUser must be called to persist the cleared waitlist + onboarded
+	// flag — without it the user would re-land on /waitlist after their first
+	// session refresh.
+	s.mockStore.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, u *types.User) (*types.User, error) {
+			s.False(u.Waitlisted, "waitlist must be cleared after consuming invitation")
+			s.True(u.OnboardingCompleted, "onboarding must be marked complete")
+			s.False(u.OnboardingCompletedAt.IsZero(), "onboarding completion timestamp must be set")
+			return u, nil
+		})
+
+	// Auto-join domain lookup runs after.
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	s.NotNil(createdUser)
+	// Returned user reflects the cleared waitlist (read off the in-memory
+	// pointer, which CreateUser returned and we then mutated).
+	s.False(user.Waitlisted, "validated user must not be waitlisted")
+}
+
+func (s *OIDCSuite) TestValidateUserToken_NewUser_NoInvitation_StaysWaitlisted() {
+	// Symmetric to the above: a new user with NO pending invitation in waitlist
+	// mode must remain waitlisted, OnNewUser fires, and UpdateUser is NOT
+	// called (no state to persist).
+	var capturedUser *types.User
+	handler := &mockEventHandler{
+		onNewUser: func(u *types.User) { capturedUser = u },
+	}
+
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+		Waitlist:     true,
+		EventHandler: handler,
+	})
+	s.NoError(err)
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
+	// No invitations match.
+	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).
+		Return([]*types.OrganizationMembership{}, nil)
+	// No UpdateUser expected — nothing to flip.
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
+	s.True(user.Waitlisted, "without an invitation, waitlist must still apply")
+	s.NotNil(capturedUser, "OnNewUser must fire for waitlisted new users")
+}
+
+func (s *OIDCSuite) TestValidateUserToken_NewUser_InvitationError_DoesNotFailRegistration() {
+	// If invitation consumption errors out (e.g. transient DB issue), the
+	// OIDC login MUST still succeed — the user has already been created and
+	// the invitation is best-effort. We just log and move on.
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+	})
+	s.NoError(err)
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound)
+	s.mockStore.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, u *types.User) (*types.User, error) { return u, nil })
+	s.mockStore.EXPECT().ConsumePendingInvitations(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("transient db error"))
+	// No UpdateUser — error path skips it.
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err, "invitation errors must not fail OIDC login")
+	s.NotNil(user)
+}
+
+func (s *OIDCSuite) TestValidateUserToken_ExistingUser_DoesNotConsumeInvitations() {
+	// Invitation consumption is gated to *new* users. An existing user
+	// logging back in should not re-trigger the flow (their invitation was
+	// already consumed on first login).
+	client, err := NewOIDCClient(s.ctx, OIDCConfig{
+		ProviderURL:  s.mockOIDCServer.URL(),
+		ClientID:     "api",
+		ClientSecret: "REPLACE_ME",
+		RedirectURL:  "http://localhost:8080/callback",
+		Audience:     "test-aud",
+		Store:        s.mockStore,
+	})
+	s.NoError(err)
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:    "test-user-id",
+		Email: "test@example.com",
+	}, nil)
+	// ConsumePendingInvitations must NOT be called — gomock will fail the
+	// test if it is, since we haven't set an expectation.
+	s.mockStore.EXPECT().GetOrganizationByDomain(gomock.Any(), "example.com").Return(nil, store.ErrNotFound)
+
+	user, err := client.ValidateUserToken(s.ctx, s.testToken)
+	s.NoError(err)
+	s.NotNil(user)
 }
 
 func (s *OIDCSuite) TestTokenOperations() {

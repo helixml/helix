@@ -29,8 +29,7 @@ import (
 // RunnerState is what the router knows about one connected runner
 // (a Helix sandbox post-absorption). Populated from sandbox HTTP heartbeats.
 type RunnerState struct {
-	ID            string
-	URL           string               // e.g. "http://10.0.0.5:8081" — where to forward inference
+	ID            string               // sandbox id; dispatch reaches it over its RevDial tunnel
 	Status        string               // "running" | "starting" | "pulling" | "assigning" | "failed" | ""
 	ActiveProfile *types.RunnerProfile // nil if no profile assigned
 	GPUs          []types.GPUStatus    // per-GPU inventory (vendor, arch, total VRAM, ...)

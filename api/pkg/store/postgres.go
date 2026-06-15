@@ -33,6 +33,15 @@ type PostgresStore struct {
 	pubsub pubsub.PubSub
 }
 
+// GormDB returns the underlying *gorm.DB so adjacent subsystems
+// (notably the embedded helix-org org-store, H4.3) can land their
+// own tables in the same Postgres database without opening a
+// second connection pool. The connection lifecycle stays owned by
+// PostgresStore; callers must not call (*sql.DB).Close on it.
+func (s *PostgresStore) GormDB() *gorm.DB {
+	return s.gdb
+}
+
 func NewPostgresStore(
 	cfg config.Store,
 	pubsub pubsub.PubSub,
@@ -157,6 +166,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.TeamMembership{},
 		&types.Role{},
 		&types.OrganizationMembership{},
+		&types.OrganizationInvitation{},
 		&types.AccessGrant{},
 		&types.AccessGrantRoleBinding{},
 		&types.UserMeta{},
@@ -236,6 +246,10 @@ func (s *PostgresStore) runMigrations() error {
 	}
 
 	if err := createFK(s.gdb, types.OrganizationMembership{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.OrganizationInvitation{}, types.Organization{}, "organization_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

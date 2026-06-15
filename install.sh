@@ -134,6 +134,8 @@ SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
+UPGRADE_MODE=false   # --upgrade: skip GPU/Docker/Caddy work; just bump HELIX_VERSION + recreate
+DRY_RUN=false        # --dry-run: only meaningful with --upgrade today; print what would change and exit
 
 # Enhanced environment detection
 detect_environment() {
@@ -259,6 +261,11 @@ Options:
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
   --cli-install-path <path> Specify custom installation path for the CLI binary (default: /usr/local/bin/helix)
+  --upgrade                Upgrade an existing controlplane install: pin HELIX_VERSION in
+                           $INSTALL_DIR/.env to --helix-version (or the latest stable if omitted),
+                           pull new images and recreate containers. Skips GPU/Docker/Caddy work.
+  --dry-run                With --upgrade, print the planned changes and exit without writing
+                           anything or recreating containers.
 
 Examples:
 
@@ -306,6 +313,13 @@ Examples:
 
 15. Install sandbox node (RevDial client with direct WebSocket streaming):
     ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+
+16. Upgrade an existing controlplane to a specific version (skips GPU/Docker/Caddy checks):
+    ./install.sh --upgrade --helix-version 2.11.14
+
+17. Upgrade to the latest stable release; preview first without changing anything:
+    ./install.sh --upgrade --dry-run
+    ./install.sh --upgrade -y
 
 EOF
 }
@@ -468,6 +482,20 @@ while [[ $# -gt 0 ]]; do
         --helix-version)
             HELIX_VERSION="$2"
             shift 2
+            ;;
+        --upgrade=*)
+            # Shorthand: --upgrade=2.11.14 is equivalent to --upgrade --helix-version 2.11.14
+            UPGRADE_MODE=true
+            HELIX_VERSION="${1#*=}"
+            shift
+            ;;
+        --upgrade)
+            UPGRADE_MODE=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
             ;;
         --cli-install-path=*)
             CLI_INSTALL_PATH="${1#*=}"
@@ -783,6 +811,112 @@ else
     LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
     echo "Using latest Helix version: $LATEST_RELEASE"
     echo
+fi
+
+# --------------------------------------------------------------------------
+# do_upgrade: lightweight controlplane upgrade path.
+#
+# Why this exists: a full re-run of install.sh re-checks the GPU, re-installs
+# Docker if missing, and re-writes the Caddy config. None of that is needed
+# when the only thing changing is the controlplane image tag. This function
+# does the minimum: pin HELIX_VERSION in $INSTALL_DIR/.env, pull the new
+# images, recreate the containers.
+#
+# Scope: controlplane only. --runner and --sandbox have their own start
+# scripts and image-pinning conventions; we refuse cleanly if combined.
+# --------------------------------------------------------------------------
+do_upgrade() {
+    # Refuse combinations we do not handle in this PR. The runner ships as a
+    # generated runner.sh; the sandbox image is pinned in a separate compose
+    # stack. Each needs its own minimal upgrade path - tracked separately.
+    if [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
+        echo "Error: --upgrade currently only supports the controlplane." >&2
+        echo "       For runner upgrades, re-run install.sh with --runner --helix-version <ver>." >&2
+        echo "       For sandbox upgrades, re-run install.sh with --sandbox --helix-version <ver>." >&2
+        exit 1
+    fi
+
+    if [ ! -f "$INSTALL_DIR/.env" ] || [ ! -f "$INSTALL_DIR/docker-compose.yaml" ]; then
+        echo "Error: no controlplane install detected at $INSTALL_DIR." >&2
+        echo "       Expected $INSTALL_DIR/.env and $INSTALL_DIR/docker-compose.yaml." >&2
+        echo "       Run a full install first: ./install.sh --controlplane" >&2
+        exit 1
+    fi
+
+    local current_version
+    current_version=$(grep -E '^HELIX_VERSION=' "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+    if [ -z "$current_version" ]; then
+        current_version="(unset, docker-compose default)"
+    fi
+
+    local target_version="$LATEST_RELEASE"
+
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ Helix controlplane upgrade"
+    echo "├───────────────────────────────────────────────────────────────────────────"
+    echo "│ Install dir:      $INSTALL_DIR"
+    echo "│ Current version:  $current_version"
+    echo "│ Target version:   $target_version"
+    echo "└───────────────────────────────────────────────────────────────────────────"
+    echo
+
+    if [ "$current_version" = "$target_version" ]; then
+        echo "Already at $target_version. Nothing to do."
+        # Still useful to recreate-if-drifted on the same tag, but that is
+        # an explicit ask: re-run docker compose up -d manually if needed.
+        exit 0
+    fi
+
+    echo "Planned actions:"
+    echo "  1. Back up $INSTALL_DIR/.env to $INSTALL_DIR/.env.bak.<timestamp>"
+    echo "  2. Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
+    echo "  3. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
+    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
+    echo
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "--dry-run set. Exiting without making changes."
+        exit 0
+    fi
+
+    if [ "$AUTO_APPROVE" != true ]; then
+        printf "Proceed with upgrade? [y/N]: "
+        read -r answer
+        case "$answer" in
+            y|Y|yes|YES) ;;
+            *) echo "Aborted."; exit 1 ;;
+        esac
+    fi
+
+    local backup="$INSTALL_DIR/.env.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$INSTALL_DIR/.env" "$backup"
+    echo "Backed up .env to $backup"
+
+    # Rewrite HELIX_VERSION in place. If the line is absent, append it.
+    if grep -qE '^HELIX_VERSION=' "$INSTALL_DIR/.env"; then
+        sed -i.tmp "s|^HELIX_VERSION=.*|HELIX_VERSION=${target_version}|" "$INSTALL_DIR/.env"
+        rm -f "$INSTALL_DIR/.env.tmp"
+    else
+        printf '\nHELIX_VERSION=%s\n' "$target_version" >> "$INSTALL_DIR/.env"
+    fi
+    echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
+
+    cd "$INSTALL_DIR" || exit 1
+    echo
+    echo "Pulling new images..."
+    $DOCKER_CMD compose pull
+    echo
+    echo "Recreating containers..."
+    $DOCKER_CMD compose up -d --remove-orphans
+
+    echo
+    echo "Upgrade complete. Running containers:"
+    $DOCKER_CMD compose ps
+    exit 0
+}
+
+if [ "$UPGRADE_MODE" = true ]; then
+    do_upgrade
 fi
 
 # Function to check for NVIDIA GPU

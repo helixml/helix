@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/datatypes"
 )
 
 type ListProjectsQuery struct {
@@ -234,6 +235,12 @@ type Store interface {
 	DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error
 	ListOrganizationMemberships(ctx context.Context, query *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error)
 
+	CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error)
+	GetOrganizationInvitation(ctx context.Context, q *GetOrganizationInvitationQuery) (*types.OrganizationInvitation, error)
+	ListOrganizationInvitations(ctx context.Context, query *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error)
+	DeleteOrganizationInvitation(ctx context.Context, id string) error
+	ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error)
+
 	CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
 	GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error)
 	UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error)
@@ -283,6 +290,20 @@ type Store interface {
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	// UpdateInteractionStreamingFields persists only the columns the
+	// websocket streaming layer owns: response content, the Zed message
+	// offset/id pair, and updated. It deliberately does NOT touch state,
+	// completed, or error so that a streaming flush cannot clobber a
+	// concurrent transition written by handleTurnCancelled /
+	// handleMessageCompleted. See the lost-update fix in
+	// websocket_external_agent_sync.go.
+	UpdateInteractionStreamingFields(ctx context.Context, interactionID string, generationID int, responseMessage string, responseEntries datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error
+	// MarkInteractionCompleteIfWaiting atomically transitions an interaction
+	// from Waiting → Complete and sets completed=now. Returns true if the row
+	// was transitioned, false if the row was already in a terminal state (no
+	// change made). Used by the streaming transition handler so it cannot
+	// resurrect a cancelled or errored turn as falsely "complete".
+	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 	// ListStuckWaitingInteractions returns up to `limit` interactions that
@@ -536,6 +557,13 @@ type Store interface {
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	TransitionSpecTaskStatus(ctx context.Context, taskID string, fromStatuses []types.SpecTaskStatus, newStatus types.SpecTaskStatus, extraFields map[string]any) (bool, error)
+	// SetPlanningSessionIDIfEmpty atomically claims a spec task's planning_session_id
+	// slot. Returns true if this caller won the claim (row updated), false if another
+	// caller had already set planning_session_id to a non-empty value. The single SQL
+	// statement closes the TOCTOU window that a read-then-write guard leaves open and
+	// is the primary defence against two concurrent StartSpecGeneration calls each
+	// creating a session and spawning a dev container against the same workspace.
+	SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
@@ -753,6 +781,9 @@ type Store interface {
 	ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error)
 	DeregisterSandboxInstance(ctx context.Context, id string) error
 	UpdateSandboxInstanceStatus(ctx context.Context, id string, status string) error
+	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
+	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
+	UpdateSandboxInstanceNetwork(ctx context.Context, id, ipAddress, hostname string, lastSeen time.Time) error
 	MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error)
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error

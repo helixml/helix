@@ -12,6 +12,11 @@
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
 FROM golang:1.25-bookworm@sha256:bbb255b0e131db500cf0520adc97441d2260cf629c7fa7e39e025ddf53995a24 AS go-builder
+# APP_VERSION is the release tag (or short commit SHA) baked into binaries via
+# -ldflags so data.GetHelixVersion() returns a real value instead of "<unknown>".
+# The runner's heartbeat ships this field to the control plane, where it gates
+# desktop-version matching and shows up in the admin Agent Sandbox dropdown.
+ARG APP_VERSION="v0.0.0+unknown"
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -21,10 +26,10 @@ COPY api/ ./api/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
-# Build sandbox-heartbeat (disk monitoring)
+# Build sandbox-heartbeat (disk monitoring + helix_version heartbeat to the control plane)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+    CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=${APP_VERSION}" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
 # Build compose-manager (sandbox-absorbs-runner pivot: applies operator-assigned
 # runner profiles by running `docker compose` against the inner dockerd).
 RUN --mount=type=cache,target=/go/pkg/mod \

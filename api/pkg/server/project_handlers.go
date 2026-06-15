@@ -55,6 +55,7 @@ func (s *HelixAPIServer) listProjects(_ http.ResponseWriter, r *http.Request) ([
 	}
 
 	s.populateActiveAgentSessions(projects)
+	s.populateProjectOwners(r.Context(), projects)
 
 	return projects, nil
 }
@@ -95,6 +96,7 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 
 	// Org owners see all projects
 	if orgMembership.Role == types.OrganizationRoleOwner {
+		s.populateProjectOwners(ctx, projects)
 		return projects, nil
 	}
 
@@ -107,7 +109,30 @@ func (s *HelixAPIServer) listOrganizationProjects(ctx context.Context, user *typ
 		authorizedProjects = append(authorizedProjects, project)
 	}
 
+	s.populateProjectOwners(ctx, authorizedProjects)
 	return authorizedProjects, nil
+}
+
+func (s *HelixAPIServer) populateProjectOwners(ctx context.Context, projects []*types.Project) {
+	ownersByID := make(map[string]*types.User)
+	for _, project := range projects {
+		if project == nil || project.UserID == "" {
+			continue
+		}
+		owner, ok := ownersByID[project.UserID]
+		if !ok {
+			var err error
+			owner, err = s.Store.GetUser(ctx, &store.GetUserQuery{ID: project.UserID})
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", project.UserID).Str("project_id", project.ID).Msg("failed to populate project owner")
+				continue
+			}
+			ownersByID[project.UserID] = owner
+		}
+		if owner != nil {
+			project.User = *owner
+		}
+	}
 }
 
 // getProject godoc
@@ -264,6 +289,8 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 			project.StartupScriptFromYAML = true
 		}
 	}
+
+	s.populateProjectOwners(r.Context(), []*types.Project{project})
 
 	return project, nil
 }

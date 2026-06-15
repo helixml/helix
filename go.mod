@@ -28,7 +28,6 @@ require (
 	github.com/function61/holepunch-server v0.0.0-20210312073819-8f5e8775e813
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/getsentry/sentry-go v0.25.0
-	github.com/glebarez/sqlite v1.11.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-gst/go-gst v1.4.0
 	github.com/go-rod/rod v0.116.2
@@ -73,7 +72,6 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
-	github.com/tylermmorton/tmpl v1.1.0
 	github.com/xanzy/go-gitlab v0.115.0
 	go.uber.org/mock v0.4.0
 	gocloud.dev v0.41.0
@@ -134,7 +132,6 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
-	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/go-git/v5 v5.17.2 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
@@ -185,7 +182,6 @@ require (
 	github.com/otiai10/gosseract/v2 v2.4.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
-	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
@@ -213,10 +209,6 @@ require (
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
-	modernc.org/libc v1.22.5 // indirect
-	modernc.org/mathutil v1.5.0 // indirect
-	modernc.org/memory v1.5.0 // indirect
-	modernc.org/sqlite v1.23.1 // indirect
 )
 
 require (

@@ -530,14 +530,20 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// findAllWorkspaces finds all git repositories in the workspace directory
+// findAllWorkspaces finds all git repositories in the workspace directory.
+//
+// Resolution order: WORKSPACE_DIR env var (explicit override — used by
+// the container executor AND by unit tests for isolation) THEN the
+// default /home/retro/work. Without this priority, tests that set
+// WORKSPACE_DIR to a temp dir would still pick up the dev machine's
+// real /home/retro/work and do destructive git ops against actual
+// repos.
 func findAllWorkspaces() []WorkspaceInfo {
 	var workspaces []WorkspaceInfo
 
-	// Get the base work directory
 	workDirs := []string{
-		"/home/retro/work",
 		os.Getenv("WORKSPACE_DIR"),
+		"/home/retro/work",
 	}
 
 	var baseDir string
