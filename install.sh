@@ -136,6 +136,9 @@ GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
 UPGRADE_MODE=false   # --upgrade: skip GPU/Docker/Caddy work; just bump HELIX_VERSION + recreate
 DRY_RUN=false        # --dry-run: only meaningful with --upgrade today; print what would change and exit
+VHOST_TLS_MODE=""           # --vhost-tls-mode: off | auto (enables embedded LE termination)
+LETSENCRYPT_EMAIL=""        # --letsencrypt-email: ACME contact when --vhost-tls-mode=auto
+CLOUDFLARE_API_TOKEN=""     # --cloudflare-api-token: scoped CF token for DNS-01 challenge
 
 # Enhanced environment detection
 detect_environment() {
@@ -252,6 +255,9 @@ Options:
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
+  --vhost-tls-mode <mode>  Embedded TLS termination for project web services + sandbox previews: 'off' (default, rely on upstream proxy) or 'auto' (certmagic + Let's Encrypt on :443)
+  --letsencrypt-email <email>  ACME registration email; required when --vhost-tls-mode=auto
+  --cloudflare-api-token <token>  Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit). Selects the DNS-01 ACME challenge via Cloudflare — required when Helix is behind a Cloudflare proxy (orange-cloud), since HTTP-01/TLS-ALPN-01 cannot reach the origin in that setup. Implies --vhost-tls-mode=auto if not already set.
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
@@ -457,6 +463,30 @@ while [[ $# -gt 0 ]]; do
             ;;
         --hf-token)
             HF_TOKEN="$2"
+            shift 2
+            ;;
+        --vhost-tls-mode=*)
+            VHOST_TLS_MODE="${1#*=}"
+            shift
+            ;;
+        --vhost-tls-mode)
+            VHOST_TLS_MODE="$2"
+            shift 2
+            ;;
+        --letsencrypt-email=*)
+            LETSENCRYPT_EMAIL="${1#*=}"
+            shift
+            ;;
+        --letsencrypt-email)
+            LETSENCRYPT_EMAIL="$2"
+            shift 2
+            ;;
+        --cloudflare-api-token=*)
+            CLOUDFLARE_API_TOKEN="${1#*=}"
+            shift
+            ;;
+        --cloudflare-api-token)
+            CLOUDFLARE_API_TOKEN="$2"
             shift 2
             ;;
         --providers-management-enabled=*)
@@ -1804,6 +1834,24 @@ EOF
         API_HOST="http://localhost:8080"
     fi
 
+    # Embedded TLS / ACME validation. A Cloudflare token implies DNS-01
+    # via Cloudflare, which only makes sense when TLS termination is on
+    # — so we auto-flip the mode rather than making the operator pass
+    # two flags. A missing email is a hard error in auto mode because
+    # certmagic rejects empty ACME registration contacts.
+    if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$VHOST_TLS_MODE" ]; then
+        VHOST_TLS_MODE="auto"
+        echo "Note: --cloudflare-api-token implies --vhost-tls-mode=auto"
+    fi
+    if [ "$VHOST_TLS_MODE" = "auto" ] && [ -z "$LETSENCRYPT_EMAIL" ]; then
+        echo "Error: --vhost-tls-mode=auto requires --letsencrypt-email <email>." >&2
+        exit 1
+    fi
+    if [ -n "$VHOST_TLS_MODE" ] && [ "$VHOST_TLS_MODE" != "auto" ] && [ "$VHOST_TLS_MODE" != "off" ]; then
+        echo "Error: --vhost-tls-mode must be 'off' or 'auto' (got '$VHOST_TLS_MODE')." >&2
+        exit 1
+    fi
+
     if [ -f "$ENV_FILE" ]; then
         echo ".env file already exists. Reusing existing secrets."
 
@@ -1966,6 +2014,26 @@ EOF
     if [ -n "$HF_TOKEN" ]; then
         cat << EOF >> "$ENV_TARGET"
 HF_TOKEN=$HF_TOKEN
+EOF
+    fi
+
+    # Embedded TLS / ACME settings (vhost_tls.go in the api server).
+    # The .tls.yaml compose overlay is auto-included when
+    # HELIX_VHOST_TLS_MODE=auto (see helix_compose_args above).
+    if [ -n "$VHOST_TLS_MODE" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_TLS_MODE=$VHOST_TLS_MODE
+EOF
+    fi
+    if [ -n "$LETSENCRYPT_EMAIL" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
+EOF
+    fi
+    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare
+HELIX_VHOST_CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN
 EOF
     fi
     # Add embeddings provider configuration (default provider for direct
