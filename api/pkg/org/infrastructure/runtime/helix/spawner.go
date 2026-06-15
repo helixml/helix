@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/agent"
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -41,7 +42,7 @@ type SpawnerConfig struct {
 	Snapshotter SessionPreamble
 	// Mirror is the transcript writer; the spawner Ensure()s it per
 	// activation. nil disables mirroring (tests / app-only wirings).
-	Mirror *Mirror
+	Mirror      *Mirror
 	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See WorkerProject.Runtime for the
@@ -120,12 +121,12 @@ type SpawnerConfig struct {
 	// per-config semaphore of size MaxInflight.
 	Sem         chan struct{}
 	PollInitial time.Duration // default 250ms
-	PollMax           time.Duration // default 30s
-	Logger            *slog.Logger
-	Store             *store.Store
-	Hub               *streamhub.Hub
-	Now               func() time.Time
-	NewID             func() string
+	PollMax     time.Duration // default 30s
+	Logger      *slog.Logger
+	Store       *store.Store
+	Hub         *streamhub.Hub
+	Now         func() time.Time
+	NewID       func() string
 }
 
 // Spawner returns an runtime.Spawner that runs each activation as a
@@ -178,7 +179,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if mandate == "" {
 			mandate = DefaultHelixSpecsMandate
 		}
-		prompt := agent.BuildPrompt(workerID, mandate, triggers)
+		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
 
 		// Acquire global slot. The dispatcher serialises per-Worker, so
 		// blocking here only delays one Worker behind the rest of the
@@ -222,7 +223,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}
 			publishActivationEvent(ctx, cfg, orgID, workerID, streamID, body)
 		}
-		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
+		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
 
 		// Two deadlines, two phases. Startup work (project apply, MCP
 		// re-attach, secret injection, session creation, transcript WS
@@ -509,7 +510,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 			}
 		} else if IsTerminalOutput(out) {
 			if out.Status == "error" {
-				return fmt.Errorf("session error: %s", agent.OneLine(out.Output, 500))
+				return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
 			}
 			return nil
 		}
@@ -530,8 +531,8 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // for the lifetime of the activation; the EntryStream's dedup state
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
-	publish func(body string)
-	stream  *EntryStream
+	publish     func(body string)
+	stream      *EntryStream
 	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 
@@ -604,10 +605,10 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 }
 
 // publishActivationEvent is a thin wrapper around the shared
-// agent.PublishActivationEvent so the helix spawner's call sites
+// activations.PublishActivationEvent so the helix spawner's call sites
 // stay terse. The owner-chat bridge uses the same shared helper
 // directly — both paths produce identical event shapes on
 // s-activations-<workerID>.
 func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
-	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
+	_, _ = activations.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
 }

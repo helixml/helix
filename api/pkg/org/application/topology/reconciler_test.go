@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	domaintopology "github.com/helixml/helix/api/pkg/org/domain/topology"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
@@ -21,7 +22,7 @@ func TestReconcile_DMChannelCreatedPerEdge(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	dm := DMStreamID("w-jane", "w-li")
+	dm := domaintopology.DMStreamID("w-jane", "w-li")
 	if !streamExists(t, st, dm) {
 		t.Fatalf("DM channel %q should exist after wiring the edge", dm)
 	}
@@ -42,7 +43,7 @@ func TestReconcile_DMChannelTornDownOnEdgeRemoval(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile add: %v", err)
 	}
-	dm := DMStreamID("w-jane", "w-li")
+	dm := domaintopology.DMStreamID("w-jane", "w-li")
 	if !streamExists(t, st, dm) {
 		t.Fatalf("precondition: DM channel should exist")
 	}
@@ -70,7 +71,7 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	dm := DMStreamID("w-jane", "w-li")
+	dm := domaintopology.DMStreamID("w-jane", "w-li")
 
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
 	if err := st.Workers.Delete(ctx, orgID, "w-li"); err != nil {
@@ -146,7 +147,7 @@ func TestReconcileAll_CatchesUpMissingTeamStream(t *testing.T) {
 		t.Fatalf("ReconcileAll: %v", err)
 	}
 
-	team := TeamStreamID("w-owner")
+	team := domaintopology.TeamStreamID("w-owner")
 	if !streamExists(t, st, team) {
 		t.Fatalf("s-team-w-owner should exist after ReconcileAll")
 	}
@@ -175,7 +176,7 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	if err := rec.Reconcile(ctx, orgID, "w-sam", "w-bob"); err != nil {
 		t.Fatalf("reconcile bob subtree: %v", err)
 	}
-	before := streamMembers(t, st, TeamStreamID("w-bob"))
+	before := streamMembers(t, st, domaintopology.TeamStreamID("w-bob"))
 
 	// Now mutate jane's subtree only (fire li) and reconcile just it.
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
@@ -187,7 +188,7 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	}
 
 	// bob's team stream is untouched.
-	after := streamMembers(t, st, TeamStreamID("w-bob"))
+	after := streamMembers(t, st, domaintopology.TeamStreamID("w-bob"))
 	if !eq(before, after) {
 		t.Fatalf("unrelated subtree disturbed: s-team-w-bob before=%v after=%v", before, after)
 	}

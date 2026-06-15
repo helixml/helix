@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/agent"
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -213,7 +213,7 @@ func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.
 		if body == "" {
 			return
 		}
-		_, _ = agent.PublishActivationEvent(ctx, m.cfg.Store, m.cfg.Hub, m.cfg.NewID, m.cfg.Now, m.cfg.Logger, orgID, workerID, body)
+		_, _ = activations.PublishActivationEvent(ctx, m.cfg.Store, m.cfg.Hub, m.cfg.NewID, m.cfg.Now, m.cfg.Logger, orgID, workerID, body)
 	}
 	b := newBridge(publish)
 	ch, err := SubscribeSessionUpdates(ctx, m.cfg.PubSub, m.cfg.Snapshotter, ownerID, sessionID)

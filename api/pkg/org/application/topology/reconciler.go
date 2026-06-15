@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	domaintopology "github.com/helixml/helix/api/pkg/org/domain/topology"
 )
 
 // Reconciler converges the persisted Streams/Subscriptions onto the
@@ -71,7 +72,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 		}
 	}
 
-	desired := DesiredTopology(workers, lines)
+	desired := domaintopology.DesiredTopology(workers, lines)
 
 	// Bucket desired subscribers by stream so each ensure is O(members).
 	desiredSubs := map[streaming.StreamID][]orgchart.WorkerID{}
@@ -94,19 +95,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	relevant := map[streaming.StreamID]struct{}{}
 	for _, a := range affected {
 		relevant[activation.StreamID(a)] = struct{}{}
-		relevant[TeamStreamID(a)] = struct{}{}
+		relevant[domaintopology.TeamStreamID(a)] = struct{}{}
 		// A manager's team stream gains/loses this Worker as a member,
 		// and the manager↔this-Worker DM channel is created/kept.
 		for _, m := range managersByReport[a] {
-			relevant[TeamStreamID(m)] = struct{}{}
-			relevant[DMStreamID(a, m)] = struct{}{}
+			relevant[domaintopology.TeamStreamID(m)] = struct{}{}
+			relevant[domaintopology.DMStreamID(a, m)] = struct{}{}
 		}
 		// A report's activation stream gains/loses this Worker as an
 		// observer, and the this-Worker↔report DM channel is
 		// created/kept.
 		for _, rep := range reportsByManager[a] {
 			relevant[activation.StreamID(rep)] = struct{}{}
-			relevant[DMStreamID(a, rep)] = struct{}{}
+			relevant[domaintopology.DMStreamID(a, rep)] = struct{}{}
 		}
 	}
 	// All-pairs of the affected set covers DM-channel *teardown*: when a
@@ -118,7 +119,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	// below deletes the now-undesired channel.
 	for i := 0; i < len(affected); i++ {
 		for j := i + 1; j < len(affected); j++ {
-			relevant[DMStreamID(affected[i], affected[j])] = struct{}{}
+			relevant[domaintopology.DMStreamID(affected[i], affected[j])] = struct{}{}
 		}
 	}
 
@@ -174,7 +175,7 @@ func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
 // subscribe every desired member, and unsubscribe anyone the desired
 // set no longer includes (the load-bearing half — this is what fixes
 // the reparent desync where an old manager stayed subscribed).
-func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ds DesiredStream, members []orgchart.WorkerID, now time.Time) error {
+func (r *Reconciler) ensureStream(ctx context.Context, orgID string, ds domaintopology.DesiredStream, members []orgchart.WorkerID, now time.Time) error {
 	stream, err := newDesiredStream(ds, now, orgID)
 	if err != nil {
 		return fmt.Errorf("topology: build stream %q: %w", ds.ID, err)
