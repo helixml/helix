@@ -202,6 +202,15 @@ type Compute struct {
 	// hiding the ~90s cold-start latency from the user.
 	ScaleUpHeadroomMin int `envconfig:"HELIX_COMPUTE_SCALEUP_HEADROOM_MIN" default:"0"`
 
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it (D4).
+	// Default 10m. Hosts are never dropped below Floor.
+	//
+	// The idle timer is tracked in-memory: Manager restart resets it,
+	// so a fleet mid-scale-down sees one extra IdleTimeout window of
+	// grace before convergence resumes.
+	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog

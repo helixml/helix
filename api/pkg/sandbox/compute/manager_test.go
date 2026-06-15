@@ -964,6 +964,224 @@ func TestD3SurvivesHeartbeatFlap(t *testing.T) {
 
 // --- end D3 tests --------------------------------------------------------
 
+// --- D4 (idle deprovision) tests ----------------------------------------
+
+// newD4Manager builds a Manager with D4 enabled and a fake clock so
+// tests can advance time without sleeping. Floor=1, Max=3 by default
+// (D3 active so we can test the no-deprovision-during-scale-up
+// interaction too).
+func newD4Manager(t *testing.T, idleTimeout time.Duration) (*Manager, *StubProvider, *fakeStore, *fakeClock) {
+	t.Helper()
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	clk := &fakeClock{now: time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)}
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     3,
+		ScaleUpHeadroomMin:      1,
+		IdleTimeout:             idleTimeout,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.now = clk.Now
+	return m, stub, store, clk
+}
+
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time         { return c.now }
+func (c *fakeClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+
+func TestD4DeprovisionsIdleAboveFloor(t *testing.T) {
+	// Ready_count=2, Floor=1, one host idle for > IdleTimeout: the
+	// idle host is deprovisioned, dropping us to Floor.
+	m, _, store, clk := newD4Manager(t, 10*time.Minute)
+	seedReadyRow(t, store, "sbx_busy", 5, 10)
+	seedReadyRow(t, store, "sbx_idle", 0, 10)
+
+	// First cycle: idle row gets tracked but not yet timed-out.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("cycle 1: expected idle window in flight, got %d rows", len(rows))
+	}
+
+	// Advance past IdleTimeout, reconcile again.
+	clk.Advance(11 * time.Minute)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	rows, _ = store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("cycle 2: expected idle host shed, got %d rows", len(rows))
+	}
+	if rows[0].ID != "sbx_busy" {
+		t.Fatalf("wrong host shed; kept %q, expected sbx_busy", rows[0].ID)
+	}
+}
+
+func TestD4NeverDropsBelowFloor(t *testing.T) {
+	// Ready_count=1, Floor=1, host idle for > IdleTimeout: must NOT
+	// be deprovisioned because that would violate Floor.
+	m, _, store, clk := newD4Manager(t, 10*time.Minute)
+	seedReadyRow(t, store, "sbx_lonely_idle", 0, 10)
+
+	// Track + advance.
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	clk.Advance(30 * time.Minute)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("Floor=1 must be preserved; got %d rows", len(rows))
+	}
+}
+
+func TestD4DoesNotShedBusyHosts(t *testing.T) {
+	// Two Ready hosts, BOTH have active sandboxes (zero idle): never
+	// gets a candidate even after a long time.
+	m, _, store, clk := newD4Manager(t, 1*time.Minute)
+	seedReadyRow(t, store, "sbx_busy_a", 3, 10)
+	seedReadyRow(t, store, "sbx_busy_b", 7, 10)
+
+	_ = m.Reconcile(context.Background())
+	clk.Advance(10 * time.Minute)
+	_ = m.Reconcile(context.Background())
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("busy hosts must not be shed; got %d rows", len(rows))
+	}
+}
+
+func TestD4IdleTimerResetsWhenHostGetsWork(t *testing.T) {
+	// Host goes idle, accumulates ~half the window, then picks up a
+	// sandbox session. Timer must reset; subsequent idle accumulation
+	// starts from zero.
+	//
+	// Note on test mechanics: the fakeStore's ListSandboxInstances
+	// returns deep copies, so mutating the returned slice doesn't
+	// persist. Use RegisterSandboxInstance to overwrite (it does a
+	// fresh copy into the store).
+	m, _, store, clk := newD4Manager(t, 10*time.Minute)
+	seedReadyRow(t, store, "sbx_busy", 5, 10)
+	seedReadyRow(t, store, "sbx_flapping", 0, 10)
+
+	// Cycle 1: flapping is idle. Tracker records the time.
+	_ = m.Reconcile(context.Background())
+	clk.Advance(5 * time.Minute) // half-window
+	// Now the host picks up a session. Overwrite the row in the store.
+	seedReadyRow(t, store, "sbx_flapping", 2, 10)
+	// Cycle 2: tracker should drop the entry because ActiveSandboxes>0.
+	_ = m.Reconcile(context.Background())
+	// Sandbox finishes; back to idle.
+	seedReadyRow(t, store, "sbx_flapping", 0, 10)
+	clk.Advance(5 * time.Minute)
+	// Cycle 3: tracker re-arms with NOW as idle-since (not the
+	// original cycle-1 time). Only 5 min has accumulated; no shed.
+	_ = m.Reconcile(context.Background())
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("timer should have reset; expected 2 rows still, got %d", len(rows))
+	}
+
+	// Now wait out the full window from the second idle-start.
+	// (Tracker armed at cycle 3, time T+10. Need to reach T+20+ for
+	// the 10-minute window to elapse. Already at T+10, advance 11
+	// more minutes for safety margin.)
+	clk.Advance(11 * time.Minute)
+	_ = m.Reconcile(context.Background())
+	rows, _ = store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("after full window post-reset, expected shed; got %d rows", len(rows))
+	}
+}
+
+func TestD4SkipsWhenScaleUpProvisionedThisCycle(t *testing.T) {
+	// If D3 just provisioned a host this cycle (demand pressure),
+	// don't immediately deprovision an idle host in the same cycle.
+	// Wait for the next cycle to re-evaluate.
+	//
+	// Constructing the scenario: D3 fires when (sum_max - sum_active)
+	// < HeadroomMin. We need demand pressure AND an idle host AND for
+	// the headroom math to still come out below the threshold. Idle
+	// host with a small MaxSandboxes (e.g. 1) contributes only 1 free
+	// slot; a fully-busy big host contributes 0. Total headroom = 1,
+	// below HeadroomMin=2 -> D3 fires.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	clk := &fakeClock{now: time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)}
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     3,
+		ScaleUpHeadroomMin:      2, // headroom 1 < 2 -> D3 fires
+		IdleTimeout:             1 * time.Minute,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	m.now = clk.Now
+
+	// Idle host with capacity-1 (so it contributes only 1 free slot),
+	// already past the idle window.
+	seedReadyRow(t, store, "sbx_idle", 0, 1)
+	// Fully-busy host - 0 free slots.
+	seedReadyRow(t, store, "sbx_full", 10, 10)
+	m.idleSince["sbx_idle"] = clk.now.Add(-5 * time.Minute)
+
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	// Should see: 2 original + 1 new (D3 provisioning), 0 deprovisioned.
+	provCount := 0
+	for _, r := range rows {
+		if r.ComputeState == string(StateProvisioning) {
+			provCount++
+		}
+	}
+	if provCount != 1 {
+		t.Fatalf("D3 should have fired (provisioning=1); got provCount=%d (rows=%d)", provCount, len(rows))
+	}
+	if len(rows) != 3 {
+		t.Fatalf("D4 should have skipped this cycle; expected 3 rows total, got %d", len(rows))
+	}
+}
+
+func TestD4IdleTimerSurvivesAcrossReconciles(t *testing.T) {
+	// The idle-since map persists across Reconcile calls (within one
+	// Manager lifetime). A host idle across many cycles should be
+	// counted, not have its timer reset each cycle.
+	m, _, store, clk := newD4Manager(t, 10*time.Minute)
+	seedReadyRow(t, store, "sbx_busy", 5, 10)
+	seedReadyRow(t, store, "sbx_idle", 0, 10)
+
+	// Run multiple short cycles totalling > IdleTimeout.
+	for i := 0; i < 6; i++ {
+		_ = m.Reconcile(context.Background())
+		clk.Advance(2 * time.Minute)
+	}
+	_ = m.Reconcile(context.Background())
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("idle-tracker should persist across cycles; expected shed by now, got %d rows", len(rows))
+	}
+}
+
+// --- end D4 tests --------------------------------------------------------
+
+
 type failingProvider struct{ name string }
 
 func (f *failingProvider) Name() string { return f.name }

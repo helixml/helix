@@ -109,6 +109,25 @@ type ManagerConfig struct {
 	//
 	// Ignored when Max == 0 (D3 disabled).
 	ScaleUpHeadroomMin int
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it to
+	// converge back toward Floor. Default 10m if unset. Zero disables
+	// idle deprovision (D4) entirely; in that mode the Manager only
+	// scales UP from Floor, never DOWN.
+	//
+	// The idle timer is tracked in-memory and resets on Manager
+	// restart. An operator restarting Helix while a fleet is in
+	// scale-down may see one extra IdleTimeout window of grace before
+	// the converge-back resumes. Acceptable trade-off for v1; if
+	// the timer needs to survive restarts (multi-instance HA), the
+	// "idle_since" timestamp moves to the sandbox_instance row.
+	//
+	// Hosts are never deprovisioned below Floor: the converge target
+	// is Floor, not zero. An operator running Floor=0 and Max>0
+	// (pure on-demand, no warm baseline) gets full scale-down to
+	// zero hosts once all sandboxes drain.
+	IdleTimeout time.Duration
 }
 
 // validate returns an error if cfg is missing required fields or has
@@ -143,6 +162,10 @@ func (cfg ManagerConfig) validate() error {
 		return fmt.Errorf("compute.ManagerConfig.ScaleUpHeadroomMin must be >= 0, got %d",
 			cfg.ScaleUpHeadroomMin)
 	}
+	if cfg.IdleTimeout < 0 {
+		return fmt.Errorf("compute.ManagerConfig.IdleTimeout must be >= 0, got %s",
+			cfg.IdleTimeout)
+	}
 	return nil
 }
 
@@ -169,6 +192,19 @@ type Manager struct {
 	// at a time; an external trigger that arrives while a cycle is
 	// running will block on this mutex.
 	mu sync.Mutex
+
+	// idleSince maps a sandbox ID to the time it was first observed
+	// with zero active sandbox sessions. Populated and cleared inside
+	// Reconcile (under mu). Used by the D4 idle-deprovision arm to
+	// enforce a hysteresis window: a host must be continuously idle
+	// for IdleTimeout before it becomes a deprovision candidate.
+	// On Manager restart the map starts empty; one IdleTimeout window
+	// of grace before scale-down resumes is acceptable for v1.
+	idleSince map[string]time.Time
+
+	// now is the clock source. Defaults to time.Now; tests inject a
+	// fake clock to drive the idle-window logic without sleeping.
+	now func() time.Time
 }
 
 // NewManager validates cfg and constructs a Manager. Returns an error
@@ -198,10 +234,21 @@ func NewManager(provider Provider, store SandboxStore, cfg ManagerConfig) (*Mana
 		// disabling scale-up despite the operator setting Max.
 		cfg.ScaleUpHeadroomMin = 1
 	}
+	if cfg.IdleTimeout == 0 {
+		// Zero means "default", not "disabled". To disable D4
+		// explicitly, operators set IdleTimeout to a very large
+		// value or simply run without it in the env (zero stays
+		// zero only when the config struct is initialized inline
+		// without the env-loader, e.g. in tests). 10m matches the
+		// YD POC's idleNodeTimeout convention for warm-pool hosts.
+		cfg.IdleTimeout = 10 * time.Minute
+	}
 	return &Manager{
-		provider: provider,
-		store:    store,
-		cfg:      cfg,
+		provider:  provider,
+		store:     store,
+		cfg:       cfg,
+		idleSince: make(map[string]time.Time),
+		now:       time.Now,
 	}, nil
 }
 
@@ -270,19 +317,142 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	}
 
 	needed := m.computeNeeded(rows)
-	if needed <= 0 {
-		return nil
-	}
+	var firstErr error
 	// Each Provision is independent; we surface the first error but
 	// keep going so a transient upstream blip doesn't permanently
 	// stall the cluster at a partial fill.
-	var firstErr error
 	for i := 0; i < needed; i++ {
 		if err := m.provisionOne(ctx); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("provision: %w", err)
 		}
 	}
+
+	// D4: idle deprovision. Skipped when D3 just provisioned anything
+	// this cycle - no sense racing the new host into Terminating
+	// before it even reaches Ready. The next cycle re-evaluates.
+	if needed == 0 {
+		if err := m.tryDeprovisionIdle(ctx, rows); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("deprovision idle: %w", err)
+		}
+	}
 	return firstErr
+}
+
+// tryDeprovisionIdle is the D4 scale-down arm. Updates the idle-since
+// tracker against the current Ready rows, then deprovisions one host
+// per cycle if a Ready host has been continuously idle for >= IdleTimeout
+// AND deprovisioning won't drop ready_count below Floor.
+//
+// One host per cycle (mirrors D3's single-step) so a fleet doesn't
+// drain abruptly; sustained low demand walks the cluster down toward
+// Floor over multiple cycles.
+//
+// The idle map is also pruned of rows that have left the Ready set
+// (e.g. already terminated by another path, or transitioned to Failed)
+// so it doesn't accumulate stale entries across the Manager's lifetime.
+func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxInstance) error {
+	if m.cfg.IdleTimeout <= 0 {
+		// Disabled by config.
+		return nil
+	}
+
+	now := m.now()
+	readyByID := make(map[string]*types.SandboxInstance)
+	readyCount := 0
+	for _, r := range rows {
+		if !isReady(r) {
+			continue
+		}
+		readyByID[r.ID] = r
+		readyCount++
+	}
+
+	// Update tracker: mark currently-idle Ready rows; clear busy ones;
+	// prune entries whose row is no longer Ready (could have gone to
+	// Failed/Terminated via another code path).
+	for _, r := range rows {
+		if !isReady(r) {
+			continue
+		}
+		if r.ActiveSandboxes == 0 {
+			if _, tracked := m.idleSince[r.ID]; !tracked {
+				m.idleSince[r.ID] = now
+			}
+		} else {
+			delete(m.idleSince, r.ID)
+		}
+	}
+	for id := range m.idleSince {
+		if _, stillReady := readyByID[id]; !stillReady {
+			delete(m.idleSince, id)
+		}
+	}
+
+	// Can we shed any? Only above Floor.
+	if readyCount <= m.cfg.Floor {
+		return nil
+	}
+
+	// Pick the longest-idle candidate that has crossed the IdleTimeout
+	// window. Single deprovision per cycle.
+	var candidate *types.SandboxInstance
+	var candidateIdleSince time.Time
+	for id, idleAt := range m.idleSince {
+		if now.Sub(idleAt) < m.cfg.IdleTimeout {
+			continue
+		}
+		r := readyByID[id]
+		if r == nil {
+			continue
+		}
+		if candidate == nil || idleAt.Before(candidateIdleSince) {
+			candidate = r
+			candidateIdleSince = idleAt
+		}
+	}
+	if candidate == nil {
+		return nil
+	}
+
+	idleFor := now.Sub(candidateIdleSince)
+	log.Info().
+		Str("sandbox_id", candidate.ID).
+		Str("provider_id", candidate.ProviderID).
+		Dur("idle_for", idleFor).
+		Int("ready_count_before", readyCount).
+		Int("floor", m.cfg.Floor).
+		Msg("compute manager deprovisioning idle host (D4)")
+
+	if candidate.ProviderID != "" {
+		handle := &Handle{
+			ProviderName: candidate.Provider,
+			ProviderID:   candidate.ProviderID,
+			SandboxID:    candidate.ID,
+		}
+		// Force=false: this is a graceful scale-down, not a stuck-row
+		// rollback. The Provider's Deprovision is expected to drain
+		// any in-flight workload (per its own semantics) before the
+		// host is reaped upstream.
+		if err := m.provider.Deprovision(ctx, handle, DeprovisionOpts{
+			Force:  false,
+			Reason: "idle deprovision (D4)",
+		}); err != nil {
+			// Log but keep going - the row removal below still happens
+			// so the next cycle won't re-pick the same candidate.
+			// Upstream orphan is possible if Deprovision fails; the
+			// Provider's own cleanup-on-abort (e.g. PR #2579 for YD)
+			// is the safety net.
+			log.Warn().
+				Err(err).
+				Str("sandbox_id", candidate.ID).
+				Msg("compute manager Deprovision during idle-shed failed; removing row anyway")
+		}
+	}
+	delete(m.idleSince, candidate.ID)
+	if err := m.store.DeregisterSandboxInstance(ctx, candidate.ID); err != nil {
+		return fmt.Errorf("deregister %s: %w", candidate.ID, err)
+	}
+	return nil
 }
 
 // computeNeeded returns how many additional Provision calls this cycle
