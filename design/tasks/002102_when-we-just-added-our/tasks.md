@@ -1,0 +1,13 @@
+# Implementation Tasks: Cloudflare DNS-01 ACME Challenge for Let's Encrypt
+
+- [ ] Add `github.com/libdns/cloudflare` to `go.mod` (`cd api && go get github.com/libdns/cloudflare@latest && go mod tidy`).
+- [ ] Add the two new env-var fields to `config.WebServer` in `api/pkg/config/config.go`: `VHostACMEDNSProvider` (envconfig `HELIX_VHOST_ACME_DNS_PROVIDER`) and `VHostCloudflareAPIToken` (envconfig `HELIX_VHOST_CLOUDFLARE_API_TOKEN`), both with `description:` strings matching design §1.
+- [ ] Create `api/pkg/server/vhost_tls_dns.go` with `buildACMEChallengeSolver(ws config.WebServer) (acmez.Solver, string, error)` per design §2 — handles `""`, `"cloudflare"`, and unsupported provider values; emits the "token-set-but-provider-missing" warning.
+- [ ] Update `startCertMagicListener` in `api/pkg/server/vhost_tls.go` to call `buildACMEChallengeSolver`, set `issuerTmpl.DNS01Solver` when non-nil, and include the challenge description in the existing "vhost TLS auto mode enabled" log line.
+- [ ] In the same function: skip the `:80` HTTP-challenge goroutine when `DNS01Solver != nil` (design §3). Add a one-line log noting the :80 listener was skipped because DNS-01 is in use.
+- [ ] Write `api/pkg/server/vhost_tls_dns_test.go` covering every row of the validation matrix in design §5 (empty provider, cloudflare with/without token, unsupported provider, token-without-provider warning).
+- [ ] Add a small test (or extend an existing `vhost_tls_test.go` if one exists) asserting the :80 listener is not started when DNS-01 is configured. Either refactor listener spawning to a function that returns the listener specs without binding, or inject a `net.Listen` shim — pick whichever is shorter.
+- [ ] Add `HELIX_VHOST_ACME_DNS_PROVIDER` and `HELIX_VHOST_CLOUDFLARE_API_TOKEN` to `charts/helix-controlplane/values-example.yaml` as commented examples with a one-line "use this if behind Cloudflare" hint.
+- [ ] Documentation: grep `/home/retro/work/docs/` for any existing Let's Encrypt / vhost-TLS page. If one exists, append a "Behind Cloudflare" subsection covering token permissions (Zone:Zone:Read + Zone:DNS:Edit), the API-token-not-key note, and the two new env vars. If none exists, add a new `docs/learn/vhost-tls.mdx` covering the full `HELIX_VHOST_TLS_MODE` flow (off vs auto, HTTP-01 vs DNS-01 selection, port requirements per design Operational Notes).
+- [ ] Verify build: `cd /home/retro/work/helix/api && CGO_ENABLED=1 go build ./pkg/server/ ./pkg/config/`.
+- [ ] Manual smoke test on a real deploy behind Cloudflare: set the env vars, restart Helix, request a fresh hostname through `vhost_routes`, watch the API log for the `dns-01 via cloudflare` line and a successful cert issuance for that hostname.
