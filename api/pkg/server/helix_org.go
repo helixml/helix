@@ -136,6 +136,17 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 	}, nil
 }
 
+// SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
+// manual-activate use case can populate the response's session id without
+// the activations service touching the store.
+func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID orgchart.WorkerID) (string, error) {
+	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
+	if err != nil {
+		return "", err
+	}
+	return s.SessionID, nil
+}
+
 // orgServices bundles the application services the REST adapter (and the
 // per-Worker MCP server) consume. Assembled once by buildOrgServices at
 // the composition root — the "Module struct holds the assembled
@@ -166,7 +177,9 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *streamh
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
 		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Environments: st.Environments, Activations: st.Activations}),
-		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: deps.Now, NewID: deps.NewID}),
+		// Activations is built at the composition root (not here) because
+		// the Activate use case needs the project ensurer + dispatcher +
+		// session resolver, which aren't available in this builder.
 	}
 }
 
@@ -468,6 +481,19 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher)
+	// The activations service owns the manual-activate command (REST
+	// activateWorker delegates to it). Built here because it needs the
+	// project ensurer, the dispatcher's DispatchManual, and a session
+	// resolver — collaborators only assembled at the composition root.
+	svc.Activations = activations.New(activations.Deps{
+		Repo:       st.Activations,
+		Now:        deps.Now,
+		NewID:      deps.NewID,
+		Ensurer:    projectApplier,
+		Dispatcher: dispatcher,
+		Sessions:   orgWorkerRuntime{st: st},
+		EnvsDir:    envsDir,
+	})
 	apiDeps := helixorgapi.Deps{
 		Streams:       svc.Streams,
 		Roles:         svc.Roles,

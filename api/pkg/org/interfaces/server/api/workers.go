@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
-	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
@@ -340,12 +339,8 @@ func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/orgs/{org}/workers/{id}/activate [post]
 func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if a.deps.ProjectEnsurer == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("project ensurer not wired"))
-		return
-	}
-	if a.deps.Dispatcher == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("dispatcher not wired"))
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("activate is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -358,72 +353,29 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
 	}
-	// The id becomes a path segment under EnvsDir below — reject any
-	// traversal before it reaches the filesystem (path injection).
-	if err := orgchart.ValidID(string(id)); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("worker id: %w", err))
-		return
-	}
+	// Confirm the Worker exists for a clean 404 before the activate
+	// command runs its project/dispatch side effects.
 	if _, err := a.deps.Queries.GetWorker(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
 		return
 	}
-	// Every identity in helix-org (human or AI, owner or hired) has a
-	// chat agent and a desktop; activation runs the same pipeline for
-	// all of them. No kind gating — the UI calls this for any worker
-	// the operator clicks Restart Desktop on.
-
-	// 1. Synchronously ensure the project + MCP attach. Side effect:
-	// dynamicProjectApplier.Ensure re-attaches the helix-org MCP on
-	// the agent app, which is the immediate user-visible fix the
-	// operator clicked Start Desktop for.
-	projectID, agentAppID, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, id)
+	// The activate command (ensure project + MCP attach → read session →
+	// pre-allocate audit row → enqueue on the per-Worker queue) is owned
+	// by the activations service; the handler just maps the result.
+	res, err := a.deps.Activations.Activate(ctx, orgID, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("ensure project for %s: %w", id, err))
-		return
-	}
-
-	// 2. Look up the persisted session id (may be empty if this is
-	// the first activation). The UI uses it to navigate straight to
-	// the desktop viewer; on first activation, it'll wait for the
-	// next state refresh. Read via the WorkerSessions port so the
-	// handler never touches the store.
-	var sessionID string
-	if a.deps.WorkerRuntime != nil {
-		if info, err := a.deps.WorkerRuntime.State(ctx, orgID, id); err == nil {
-			sessionID = info.SessionID
-		}
-	}
-
-	// 3. Pre-allocate the audit row so the response can carry the
-	// activation_id synchronously. Mirrors hire_worker's pattern —
-	// the Spawner picks the row up (matched by Trigger.ActivationID)
-	// and Completes it when the activation finishes, rather than
-	// minting a sibling. Empty id when the activations service is
-	// unwired — the Spawner then mints its own.
-	var activationID activation.ID
-	if a.deps.Activations != nil {
-		activationID, err = a.deps.Activations.PrepareManual(ctx, orgID, id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+		if errors.Is(err, activations.ErrActivateUnavailable) {
+			writeError(w, http.StatusNotImplemented, err)
 			return
 		}
+		writeError(w, errStatus(err), err)
+		return
 	}
-
-	// 4. Enqueue. The dispatcher's per-Worker queue coalesces with
-	// any in-flight activation, so a double-click on Start Desktop
-	// folds into a single follow-up rather than two parallel runs.
-	envPath := ""
-	if a.deps.EnvsDir != "" {
-		envPath = filepath.Join(a.deps.EnvsDir, string(id))
-	}
-	a.deps.Dispatcher.DispatchManual(ctx, orgID, id, envPath, activationID)
-
 	writeJSON(w, http.StatusAccepted, WorkerActivateDTO{
-		ActivationID: string(activationID),
-		ProjectID:    projectID,
-		AgentAppID:   agentAppID,
-		SessionID:    sessionID,
+		ActivationID: string(res.ActivationID),
+		ProjectID:    res.ProjectID,
+		AgentAppID:   res.AgentAppID,
+		SessionID:    res.SessionID,
 	})
 }
 

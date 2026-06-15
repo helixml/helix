@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -66,6 +67,20 @@ func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, wid org
 	f.lastActivation = actID
 }
 
+// wireActivate rebuilds deps.Activations with the test ensurer +
+// dispatcher so the activate use case (which lives in the activations
+// service now, not the handler) exercises the fakes.
+func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.ManualDispatcher, envsDir string) orgapi.Deps {
+	deps.Activations = activations.New(activations.Deps{
+		Repo:       st.Activations,
+		NewID:      func() string { return "act-1" },
+		Ensurer:    ensurer,
+		Dispatcher: disp,
+		EnvsDir:    envsDir,
+	})
+	return deps
+}
+
 // TestActivateWorker_HappyPath pins the bug-fix contract: POST
 // /workers/{id}/activate runs the ensureProject pipeline (which
 // re-attaches the helix-org MCP), enqueues a manual activation, and
@@ -82,9 +97,7 @@ func TestActivateWorker_HappyPath(t *testing.T) {
 
 	ensurer := &fakeEnsurer{projectID: "prj_alice", agentApp: "app_alice", repoID: "repo_alice"}
 	disp := &fakeDispatcher{}
-	deps.ProjectEnsurer = ensurer
-	deps.Dispatcher = disp
-	deps.EnvsDir = "/tmp/helix-org-envs"
+	deps = wireActivate(deps, st, ensurer, disp, "/tmp/helix-org-envs")
 
 	h := orgapi.Handler(deps)
 	rec := do(t, h, "POST", "/workers/w-alice/activate", nil)
@@ -155,8 +168,7 @@ func TestActivateWorker_AllowsHumanWorker(t *testing.T) {
 
 	ensurer := &fakeEnsurer{projectID: "prj_human", agentApp: "app_human"}
 	disp := &fakeDispatcher{}
-	deps.ProjectEnsurer = ensurer
-	deps.Dispatcher = disp
+	deps = wireActivate(deps, st, ensurer, disp, "")
 	h := orgapi.Handler(deps)
 
 	rec := do(t, h, "POST", "/workers/w-human/activate", nil)
@@ -184,8 +196,7 @@ func TestActivateWorker_EnsureFailureDoesNotEnqueue(t *testing.T) {
 
 	ensurer := &fakeEnsurer{err: errors.New("apply project failed")}
 	disp := &fakeDispatcher{}
-	deps.ProjectEnsurer = ensurer
-	deps.Dispatcher = disp
+	deps = wireActivate(deps, st, ensurer, disp, "")
 	h := orgapi.Handler(deps)
 
 	rec := do(t, h, "POST", "/workers/w-alice/activate", nil)
