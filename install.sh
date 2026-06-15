@@ -813,6 +813,24 @@ else
     echo
 fi
 
+# Return docker compose -f flags as an array. Always includes the main
+# compose file; appends docker-compose.tls.yaml when
+# HELIX_VHOST_TLS_MODE=auto is set in $INSTALL_DIR/.env (or the shell
+# environment). Result is assigned to HELIX_COMPOSE_ARGS by the caller.
+helix_compose_args() {
+    HELIX_COMPOSE_ARGS=(-f docker-compose.yaml)
+    local mode=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        mode=$(grep -E '^[[:space:]]*HELIX_VHOST_TLS_MODE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    mode="${HELIX_VHOST_TLS_MODE:-$mode}"
+    if [ "$mode" = "auto" ] && [ -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        HELIX_COMPOSE_ARGS+=(-f docker-compose.tls.yaml)
+        echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
+    fi
+}
+
 # --------------------------------------------------------------------------
 # do_upgrade: lightweight controlplane upgrade path.
 #
@@ -902,16 +920,17 @@ do_upgrade() {
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
 
     cd "$INSTALL_DIR" || exit 1
+    helix_compose_args
     echo
     echo "Pulling new images..."
-    $DOCKER_CMD compose pull
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" pull
     echo
     echo "Recreating containers..."
-    $DOCKER_CMD compose up -d --remove-orphans
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
 
     echo
     echo "Upgrade complete. Running containers:"
-    $DOCKER_CMD compose ps
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
     exit 0
 }
 
@@ -1675,6 +1694,19 @@ if [ "$CONTROLPLANE" = true ]; then
     fi
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
+    # docker-compose.tls.yaml is an opt-in overlay that exposes :443 (and
+    # :80) on the api container. It's only applied when
+    # HELIX_VHOST_TLS_MODE=auto is set in .env (see helix_compose_args
+    # below). Download it unconditionally so it's available if the
+    # operator turns TLS on later.
+    echo -e "\nDownloading docker-compose.tls.yaml..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    fi
+    echo "docker-compose.tls.yaml has been downloaded to $INSTALL_DIR/docker-compose.tls.yaml"
+
     # Create database creation script
     cat << EOF > "$INSTALL_DIR/scripts/postgres/postgres-db.sh"
 #!/bin/bash
@@ -2142,10 +2174,11 @@ CADDYEOF"
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
@@ -2786,10 +2819,11 @@ EOF
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
