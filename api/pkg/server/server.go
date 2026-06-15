@@ -44,6 +44,7 @@ import (
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/sandbox"
+	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
 	"github.com/helixml/helix/api/pkg/server/spa"
@@ -162,8 +163,7 @@ type HelixAPIServer struct {
 	anthropicProxy             *anthropic.Proxy
 	auditLogService            *services.AuditLogService
 	adminAlerter               *notification.AdminAlerter
-	exposedPortManager         *ExposedPortManager // Tracks exposed ports for session dev containers
-	wg                         sync.WaitGroup      // Control for goroutines to enable tests
+	wg                         sync.WaitGroup // Control for goroutines to enable tests
 	summaryService             *SummaryService
 	goldenBuildService         *services.GoldenBuildService
 	syncEventHook              SyncEventHook      // optional test hook, nil in production
@@ -174,6 +174,9 @@ type HelixAPIServer struct {
 	activeStreamProxiesMu sync.Mutex
 	// Sandboxes API: ephemeral user-created containers
 	sandboxController *sandbox.Controller
+
+	// Project web service orchestrator (provision → bootstrap → cutover)
+	webServiceController *webservice.Controller
 
 	// computeManager pre-provisions sandbox HOSTS via a cloud
 	// compute.Provider (currently only yellowdog). Nil when
@@ -408,6 +411,8 @@ func NewServer(
 		sandboxAPIURL,
 		"/data/workspaces/sandboxes",
 	)
+	apiServer.webServiceController = webservice.New(store, apiServer.sandboxController)
+	go webservice.NewDomainVerifier(store).Start(context.Background())
 
 	// Bootstrap the compute subsystem (cloud-side host provisioning).
 	// Returns (nil, nil) when HELIX_COMPUTE_PROVIDER is unset, leaving
@@ -495,9 +500,6 @@ func NewServer(
 	// Initialize MCP Gateway for authenticated MCP proxying
 	apiServer.mcpGateway = NewMCPGateway()
 
-	// Initialize exposed port manager for dev container service exposure
-	apiServer.initExposedPortManager()
-
 	// Register Kodit MCP backend (code intelligence)
 	apiServer.mcpGateway.RegisterBackend("kodit", kr.mcpBackend) //nolint:staticcheck // mcpBackend is package-private but accessible within this package
 
@@ -537,6 +539,11 @@ func NewServer(
 		apiServer.trigger,
 	)
 	log.Info().Msg("Initialized Git HTTP server (native git via gitcmd)")
+
+	// Wire project-web-service auto-deploy: a successful push to a repo's
+	// default branch triggers webservice.Controller.Redeploy on every
+	// project that uses this repo as primary AND has web service enabled.
+	apiServer.gitHTTPServer.SetOnDefaultBranchPush(apiServer.onDefaultBranchPushForWebService)
 
 	// Initialize Project Repository Service (startup scripts stored in code repos at .helix/startup.sh)
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -741,16 +748,23 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Set up the HTTP handler, optionally wrapping with subdomain proxy
 	var handler http.Handler = apiServer.router
 
-	// Configure subdomain-based virtual hosting for dev container ports
-	subdomainConfig := parseDevSubdomainConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
-	if subdomainConfig.Enabled {
+	// Configure name-based virtual hosting (project web services + sandbox
+	// preview tokens). Reuses existing DEV_SUBDOMAIN as the base and
+	// SERVER_URL as the canonical hostname. The middleware is a no-op
+	// fall-through when DEV_SUBDOMAIN is unset.
+	vhostCfg := parseVHostConfig(apiServer.Cfg.WebServer.DevSubdomain, apiServer.Cfg.WebServer.URL)
+	if vhostCfg.Enabled {
 		log.Info().
-			Str("dev_subdomain", subdomainConfig.DevSubdomain).
-			Str("base_domain", subdomainConfig.BaseDomain).
-			Msg("Subdomain proxy enabled for dev container ports")
+			Str("base_domain", vhostCfg.BaseDomain).
+			Int("canonical_hostnames", len(vhostCfg.CanonicalHostnames)).
+			Msg("vhost middleware enabled (project web services + preview tokens)")
+	}
+	handler = NewVHostMiddleware(vhostCfg, apiServer, apiServer.router)
 
-		subdomainMiddleware := NewSubdomainProxyMiddleware(subdomainConfig, apiServer.router, apiServer.router)
-		handler = subdomainMiddleware
+	// Optional certmagic-based HTTPS on :443 + :80, alongside the plain
+	// HTTP listener below. No-op when HELIX_VHOST_TLS_MODE=off (default).
+	if err := apiServer.startCertMagicListener(ctx, vhostCfg, handler); err != nil {
+		log.Error().Err(err).Msg("vhost TLS auto mode failed to start; continuing without it")
 	}
 
 	srv := &http.Server{
@@ -980,6 +994,11 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// apiServer.registerSecurityRoutes(subRouter)
 
 	// OpenAI API compatible routes
+	// Domain ownership verification (HTTP-01-style). Public on purpose:
+	// the operator's DNS verifier must reach us without auth and the
+	// only thing we return is the token from the URL.
+	router.HandleFunc("/.well-known/helix-domain-verify/{token}", apiServer.domainVerificationResponse).Methods(http.MethodGet)
+
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
@@ -1022,12 +1041,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
 
-	// Port exposure for dev containers - expose services running inside dev containers
-	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.exposeSessionPort)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/sessions/{id}/expose", system.Wrapper(apiServer.listExposedPorts)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/expose/{port}", system.Wrapper(apiServer.unexposeSessionPort)).Methods(http.MethodDelete)
-	// Proxy to exposed port (no auth for now - TODO: add optional auth)
-	subRouter.PathPrefix("/sessions/{id}/proxy/{port}").HandlerFunc(apiServer.proxyToSessionPort)
+	// Preview-token URLs for sharing a session's running port over a
+	// random share-* subdomain.
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens", system.Wrapper(apiServer.listSessionPreviewTokens)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens", system.Wrapper(apiServer.mintSessionPreviewToken)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens/{token_id}/rotate", system.Wrapper(apiServer.rotateSessionPreviewToken)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/preview-tokens/{token_id}", system.Wrapper(apiServer.deleteSessionPreviewToken)).Methods(http.MethodDelete)
 
 	// Session TOC and turn-based navigation for agent context retrieval
 	authRouter.HandleFunc("/sessions/{id}/toc", system.Wrapper(apiServer.getSessionTOC)).Methods(http.MethodGet)
@@ -1513,6 +1532,14 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects/{id}/guidelines-history", system.Wrapper(apiServer.getProjectGuidelinesHistory)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/move", system.Wrapper(apiServer.moveProject)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/usage", system.Wrapper(apiServer.getProjectUsage)).Methods(http.MethodGet)
+
+	// Project web service hosting (name-based virtual hosting + custom domains).
+	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.getProjectWebService)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.putProjectWebService)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/web-service/active-sandbox", system.Wrapper(apiServer.setActiveWebServiceSandbox)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/deploy", system.Wrapper(apiServer.deployProjectWebService)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/domains", system.Wrapper(apiServer.addProjectWebServiceDomain)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/domains/{domain_id}", system.Wrapper(apiServer.deleteProjectWebServiceDomain)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/build", system.Wrapper(apiServer.triggerGoldenBuild)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/docker-cache/cancel", system.Wrapper(apiServer.cancelGoldenBuild)).Methods(http.MethodPost)

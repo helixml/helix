@@ -102,6 +102,7 @@ import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
 import ForkAgentControl from "../session/ForkAgentControl";
+import SharePreviewSection from "./SharePreviewSection";
 import {
   Panel,
   Group as PanelGroup,
@@ -1175,6 +1176,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       )}
 
       <Divider sx={{ my: 2 }} />
+
+      {/* Share preview URLs — only meaningful once a session exists */}
+      {activeSessionId && (
+        <>
+          <SharePreviewSection sessionId={activeSessionId} />
+          <Divider sx={{ my: 2 }} />
+        </>
+      )}
 
       {/* Priority */}
       <Box sx={{ mb: 4 }}>

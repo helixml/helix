@@ -864,6 +864,10 @@ export interface ServerActivateTrialResponse {
   user?: TypesUser;
 }
 
+export interface ServerAddDomainRequest {
+  hostname?: string;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: ServerGPUInfoWithSandbox[];
@@ -945,6 +949,10 @@ export interface ServerCreateTopUpRequest {
   org_id?: string;
 }
 
+export interface ServerDeployWebServiceRequest {
+  commit_sha?: string;
+}
+
 export interface ServerDevContainerWithClients {
   clients?: GithubComHelixmlHelixApiPkgServerClientInfo[];
   container_id?: string;
@@ -976,35 +984,6 @@ export interface ServerDevContainerWithClients {
   /** First ~80 chars of original prompt */
   task_prompt?: string;
   video_stats?: ServerVideoStreamingStats;
-}
-
-export interface ServerExposePortRequest {
-  name?: string;
-  port?: number;
-  /** defaults to "http" */
-  protocol?: string;
-}
-
-export interface ServerExposePortResponse {
-  /** for random port mode */
-  allocated_port?: number;
-  name?: string;
-  port?: number;
-  protocol?: string;
-  session_id?: string;
-  status?: string;
-  urls?: string[];
-}
-
-export interface ServerExposedPort {
-  created_at?: string;
-  name?: string;
-  port?: number;
-  /** "http" or "tcp" */
-  protocol?: string;
-  /** "active", "inactive" */
-  status?: string;
-  url?: string;
 }
 
 export interface ServerForkSessionRequest {
@@ -1405,9 +1384,8 @@ export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
 
-export interface ServerListExposedPortsResponse {
-  exposed_ports?: ServerExposedPort[];
-  session_id?: string;
+export interface ServerMintPreviewTokenRequest {
+  port?: number;
 }
 
 export interface ServerModelSubstitution {
@@ -1459,6 +1437,19 @@ export interface ServerProjectGooseRecipe {
   title?: string;
 }
 
+export interface ServerProjectWebServiceResponse {
+  /**
+   * CNAMETarget is the hostname customers should add as the value of
+   * their CNAME record when registering a custom domain — i.e. the
+   * canonical Helix hostname parsed from SERVER_URL. Empty when the
+   * vhost feature is not configured on this instance.
+   */
+  cname_target?: string;
+  deploys?: TypesWebServiceDeploy[];
+  domains?: TypesVHostRoute[];
+  state?: TypesProjectWebServiceState;
+}
+
 export interface ServerPromptPinRequest {
   pinned?: boolean;
 }
@@ -1473,6 +1464,11 @@ export interface ServerPushPullResponse {
   message?: string;
   repository_id?: string;
   success?: boolean;
+}
+
+export interface ServerPutProjectWebServiceRequest {
+  container_port?: number;
+  enabled?: boolean;
 }
 
 export interface ServerQuickCreateProjectRequest {
@@ -1600,6 +1596,10 @@ export interface ServerSessionTOCResponse {
   session_id?: string;
   session_name?: string;
   total_turns?: number;
+}
+
+export interface ServerSetActiveSandboxRequest {
+  sandbox_id?: string;
 }
 
 export interface ServerSharePointSiteResolveRequest {
@@ -4503,6 +4503,16 @@ export interface TypesProjectWIPLimits {
   review?: number;
 }
 
+export interface TypesProjectWebServiceState {
+  active_sandbox_id?: string;
+  /** port the project's web app binds to inside its container */
+  container_port?: number;
+  created_at?: string;
+  enabled?: boolean;
+  project_id?: string;
+  updated_at?: string;
+}
+
 export interface TypesPromptHistoryEntry {
   /** Content */
   content?: string;
@@ -6991,6 +7001,39 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesVHostRoute {
+  created_at?: string;
+  /** always lowercased */
+  hostname?: string;
+  id?: string;
+  /**
+   * IsDefault is true for project default subdomains (<slug>.<base>).
+   * User-added custom domains and preview tokens are false.
+   */
+  is_default?: boolean;
+  /** destination port inside the container */
+  port?: number;
+  rotated_at?: string;
+  target_id?: string;
+  target_kind?: TypesVHostTargetKind;
+  /**
+   * VerificationToken is only meaningful for custom domains awaiting
+   * DNS-based verification. Null for default and preview rows.
+   */
+  verification_token?: string;
+  /**
+   * VerifiedAt is non-null once the route is usable. Auto-set for default
+   * subdomains and preview tokens; set after DNS verification for custom
+   * domains.
+   */
+  verified_at?: string;
+}
+
+export enum TypesVHostTargetKind {
+  VHostTargetProjectWebService = "project_web_service",
+  VHostTargetSandboxPreview = "sandbox_preview",
+}
+
 export interface TypesWIPLimits {
   implementation?: number;
   planning?: number;
@@ -7012,6 +7055,26 @@ export interface TypesWallet {
   subscription_status?: StripeSubscriptionStatus;
   updated_at?: string;
   user_id?: string;
+}
+
+export interface TypesWebServiceDeploy {
+  commit_sha?: string;
+  error?: string;
+  finished_at?: string;
+  id?: string;
+  log_path?: string;
+  project_id?: string;
+  sandbox_id?: string;
+  started_at?: string;
+  status?: TypesWebServiceDeployStatus;
+}
+
+export enum TypesWebServiceDeployStatus {
+  WebServiceDeployStatusPending = "pending",
+  WebServiceDeployStatusBuilding = "building",
+  WebServiceDeployStatusLive = "live",
+  WebServiceDeployStatusFailed = "failed",
+  WebServiceDeployStatusSuperseded = "superseded",
 }
 
 export interface TypesWebsiteCrawler {
@@ -13020,6 +13083,126 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Return enable/disable state, hostnames, and recent deploys for a project's web service.
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceDetail
+     * @summary Get project web service state
+     * @request GET:/api/v1/projects/{id}/web-service
+     * @secure
+     */
+    v1ProjectsWebServiceDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerProjectWebServiceResponse, any>({
+        path: `/api/v1/projects/${id}/web-service`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceUpdate
+     * @summary Update project web service state
+     * @request PUT:/api/v1/projects/{id}/web-service
+     * @secure
+     */
+    v1ProjectsWebServiceUpdate: (id: string, body: ServerPutProjectWebServiceRequest, params: RequestParams = {}) =>
+      this.request<ServerProjectWebServiceResponse, any>({
+        path: `/api/v1/projects/${id}/web-service`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Manual deploy primitive — set the sandbox that vhost requests route to.
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceActiveSandboxCreate
+     * @summary Point a project web service at a sandbox
+     * @request POST:/api/v1/projects/{id}/web-service/active-sandbox
+     * @secure
+     */
+    v1ProjectsWebServiceActiveSandboxCreate: (
+      id: string,
+      body: ServerSetActiveSandboxRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesProjectWebServiceState, any>({
+        path: `/api/v1/projects/${id}/web-service/active-sandbox`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceDeployCreate
+     * @summary Trigger an auto-deploy of the project's web service
+     * @request POST:/api/v1/projects/{id}/web-service/deploy
+     * @secure
+     */
+    v1ProjectsWebServiceDeployCreate: (id: string, body: ServerDeployWebServiceRequest, params: RequestParams = {}) =>
+      this.request<TypesWebServiceDeploy, any>({
+        path: `/api/v1/projects/${id}/web-service/deploy`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceDomainsCreate
+     * @summary Add a custom domain to a project web service
+     * @request POST:/api/v1/projects/{id}/web-service/domains
+     * @secure
+     */
+    v1ProjectsWebServiceDomainsCreate: (id: string, body: ServerAddDomainRequest, params: RequestParams = {}) =>
+      this.request<TypesVHostRoute, any>({
+        path: `/api/v1/projects/${id}/web-service/domains`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Projects
+     * @name V1ProjectsWebServiceDomainsDelete
+     * @summary Remove a custom domain from a project web service
+     * @request DELETE:/api/v1/projects/{id}/web-service/domains/{domain_id}
+     * @secure
+     */
+    v1ProjectsWebServiceDomainsDelete: (id: string, domainId: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, any>({
+        path: `/api/v1/projects/${id}/web-service/domains/${domainId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns a sorted list of unique labels across all spec tasks in a project
      *
      * @tags spec-driven-tasks
@@ -14429,56 +14612,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns all ports currently exposed from the session's dev container
-     *
-     * @tags sessions
-     * @name V1SessionsExposeDetail
-     * @summary List exposed ports for a session
-     * @request GET:/api/v1/sessions/{id}/expose
-     */
-    v1SessionsExposeDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServerListExposedPortsResponse, string>({
-        path: `/api/v1/sessions/${id}/expose`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Makes a port from the session's dev container accessible via a public URL
-     *
-     * @tags sessions
-     * @name V1SessionsExposeCreate
-     * @summary Expose a port from the session's dev container
-     * @request POST:/api/v1/sessions/{id}/expose
-     */
-    v1SessionsExposeCreate: (id: string, request: ServerExposePortRequest, params: RequestParams = {}) =>
-      this.request<ServerExposePortResponse, string>({
-        path: `/api/v1/sessions/${id}/expose`,
-        method: "POST",
-        body: request,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Removes public access to a previously exposed port
-     *
-     * @tags sessions
-     * @name V1SessionsExposeDelete
-     * @summary Unexpose a port from the session's dev container
-     * @request DELETE:/api/v1/sessions/{id}/expose/{port}
-     */
-    v1SessionsExposeDelete: (id: string, port: number, params: RequestParams = {}) =>
-      this.request<Record<string, string>, string>({
-        path: `/api/v1/sessions/${id}/expose/${port}`,
-        method: "DELETE",
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.
      *
      * @tags sessions
@@ -14606,6 +14739,80 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesSessionOutputResponse, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/output`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsPreviewTokensDetail
+     * @summary List session preview tokens
+     * @request GET:/api/v1/sessions/{id}/preview-tokens
+     * @secure
+     */
+    v1SessionsPreviewTokensDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesVHostRoute[], any>({
+        path: `/api/v1/sessions/${id}/preview-tokens`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mints a share-<adj>-<noun>-<8hex> hostname pointing at the session's container on the given port.
+     *
+     * @tags Sessions
+     * @name V1SessionsPreviewTokensCreate
+     * @summary Mint a preview token for a session port
+     * @request POST:/api/v1/sessions/{id}/preview-tokens
+     * @secure
+     */
+    v1SessionsPreviewTokensCreate: (id: string, body: ServerMintPreviewTokenRequest, params: RequestParams = {}) =>
+      this.request<TypesVHostRoute, any>({
+        path: `/api/v1/sessions/${id}/preview-tokens`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsPreviewTokensDelete
+     * @summary Revoke a session preview token
+     * @request DELETE:/api/v1/sessions/{id}/preview-tokens/{token_id}
+     * @secure
+     */
+    v1SessionsPreviewTokensDelete: (id: string, tokenId: string, params: RequestParams = {}) =>
+      this.request<Record<string, boolean>, any>({
+        path: `/api/v1/sessions/${id}/preview-tokens/${tokenId}`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Sessions
+     * @name V1SessionsPreviewTokensRotateCreate
+     * @summary Rotate a session preview token hostname
+     * @request POST:/api/v1/sessions/{id}/preview-tokens/{token_id}/rotate
+     * @secure
+     */
+    v1SessionsPreviewTokensRotateCreate: (id: string, tokenId: string, params: RequestParams = {}) =>
+      this.request<TypesVHostRoute, any>({
+        path: `/api/v1/sessions/${id}/preview-tokens/${tokenId}/rotate`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,

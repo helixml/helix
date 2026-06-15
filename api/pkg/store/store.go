@@ -874,4 +874,24 @@ type Store interface {
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
+
+	// VHost routes — hostname → routable target (project web service or sandbox preview).
+	CreateVHostRoute(ctx context.Context, r *types.VHostRoute) error
+	GetVHostRouteByHostname(ctx context.Context, hostname string) (*types.VHostRoute, error)
+	GetVHostRouteByID(ctx context.Context, id string) (*types.VHostRoute, error)
+	ListVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) ([]*types.VHostRoute, error)
+	DeleteVHostRoute(ctx context.Context, id string) error
+	DeleteVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) error
+	RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error
+	MarkVHostRouteVerified(ctx context.Context, id string) error
+
+	// Project web service state and deploy history.
+	UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error
+	GetProjectWebServiceState(ctx context.Context, projectID string) (*types.ProjectWebServiceState, error)
+	SetActiveWebServiceSandbox(ctx context.Context, projectID, sandboxID string) error
+	CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error
+	UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]interface{}) error
+	ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error)
+	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
+	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
 }

@@ -668,6 +668,18 @@ type WebServer struct {
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
 	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
 	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
+
+	// VHostTLSMode controls embedded TLS termination for project web
+	// services and sandbox preview tokens. "off" (default) means Helix
+	// listens HTTP only and a reverse proxy in front terminates TLS.
+	// "auto" enables certmagic — Helix binds :443 + :80 and issues
+	// per-hostname Let's Encrypt certs on demand for any hostname
+	// registered in vhost_routes or matching SERVER_URL.
+	VHostTLSMode string `envconfig:"HELIX_VHOST_TLS_MODE" default:"off" description:"TLS termination mode for vhost-routed traffic: 'off' (rely on upstream) or 'auto' (embed certmagic + Let's Encrypt)."`
+
+	// VHostLetsEncryptEmail is the ACME registration email used by
+	// certmagic when VHostTLSMode=auto. Required in that mode.
+	VHostLetsEncryptEmail string `envconfig:"HELIX_VHOST_LETSENCRYPT_EMAIL" description:"ACME registration email used by certmagic when HELIX_VHOST_TLS_MODE=auto."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
