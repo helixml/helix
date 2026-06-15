@@ -43,7 +43,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -185,7 +185,7 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -294,7 +294,7 @@ func TestStreamMembers(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -364,7 +364,7 @@ func TestInviteWorkers(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -458,7 +458,7 @@ func TestDM(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -585,7 +585,7 @@ func TestReadsOverMCP(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -704,7 +704,7 @@ func TestWorkerLog(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -817,7 +817,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -990,7 +990,7 @@ func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
@@ -1037,7 +1037,7 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
 	deps.EnvsDir = envsDir
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())

@@ -137,7 +137,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	// the caller + stream exist, idempotent get-or-create). After this,
 	// plain read_events also includes this Worker's transcript.
 	caller := inv.Caller.ID()
-	if _, _, err := t.deps.subscriptionsService().Subscribe(ctx, orgID, caller, streamID); err != nil {
+	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, caller, streamID); err != nil {
 		return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, streamID, err)
 	}
 

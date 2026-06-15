@@ -42,7 +42,7 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	}
 	streamID := streaming.StreamID(args.StreamID)
 	workerID := inv.Caller.ID()
-	if err := t.deps.subscriptionsService().Unsubscribe(ctx, orgID, workerID, streamID); err != nil {
+	if err := t.deps.Subscriptions.Unsubscribe(ctx, orgID, workerID, streamID); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})

@@ -225,7 +225,7 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 	if err := reg.Register(mcptools.Ping{}); err != nil {
 		t.Fatalf("register ping: %v", err)
 	}
-	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s)); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s).Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 

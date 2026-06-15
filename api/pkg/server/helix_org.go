@@ -155,7 +155,7 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps mcptools.Deps, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *streamhub.Hub, dispatcher *dispatch.Dispatcher) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
@@ -413,7 +413,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
 	}
 

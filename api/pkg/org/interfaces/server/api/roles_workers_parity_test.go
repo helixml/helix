@@ -23,7 +23,7 @@ func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID fu
 	deps.Now = clock
 	deps.NewID = newID
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, deps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	return reg

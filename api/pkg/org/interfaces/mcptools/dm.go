@@ -105,7 +105,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	// Delegate to the publishing service — the single owner of the
 	// append → notify → dispatch trio. dm must NOT reimplement it (that
 	// is how the DM fan-out drifts from every other publish path).
-	event, err := t.deps.publishingService().Publish(ctx, orgID, streamID, string(sender), msg)
+	event, err := t.deps.Publishing.Publish(ctx, orgID, streamID, string(sender), msg)
 	if err != nil {
 		return nil, err
 	}

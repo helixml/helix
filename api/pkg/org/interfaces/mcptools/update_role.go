@@ -62,7 +62,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	// Content-only patch: the service preserves Tools and Streams (the
 	// old inline path here rebuilt the Role with only Content and
 	// silently wiped both — see application/roles).
-	if _, err := t.deps.rolesService().Update(ctx, orgID, roleID, roles.UpdateParams{Content: &args.Content}); err != nil {
+	if _, err := t.deps.Roles.Update(ctx, orgID, roleID, roles.UpdateParams{Content: &args.Content}); err != nil {
 		return nil, fmt.Errorf("update role: %w", err)
 	}
 

@@ -47,7 +47,7 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 	mcpDeps.Now = clock
 	mcpDeps.NewID = newID
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, mcpDeps); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, mcpDeps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 	createStream, err := reg.Get(mcptools.CreateStreamName)

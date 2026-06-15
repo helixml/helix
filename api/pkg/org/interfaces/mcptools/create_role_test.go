@@ -17,7 +17,7 @@ import (
 // and a caller Worker whose OrganizationID create_role reads. We do NOT
 // pre-create r-owner because the test invokes create_role directly —
 // the tool only checks Caller.OrganizationID, not Role.Tools.
-func newCreateRoleCaller(t *testing.T, orgID string) (Deps, orgchart.Worker) {
+func newCreateRoleCaller(t *testing.T, orgID string) (Config, orgchart.Worker) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	deps := DefaultDeps(st)
@@ -36,10 +36,10 @@ func newCreateRoleCaller(t *testing.T, orgID string) (Deps, orgchart.Worker) {
 
 // invokeCreateRole runs the tool and reads back the created Role from
 // the store so tests can assert on Role.Tools directly.
-func invokeCreateRole(t *testing.T, deps Deps, caller orgchart.Worker, args string) orgchart.Role {
+func invokeCreateRole(t *testing.T, deps Config, caller orgchart.Worker, args string) orgchart.Role {
 	t.Helper()
 	ctx := context.Background()
-	out, err := (&CreateRole{deps: deps}).Invoke(ctx, tool.Invocation{
+	out, err := (&CreateRole{deps: deps.Build()}).Invoke(ctx, tool.Invocation{
 		Caller: caller,
 		Args:   json.RawMessage(args),
 	})

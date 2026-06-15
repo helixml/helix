@@ -16,7 +16,7 @@ import (
 // seedReportingGraph wires a small graph: owner → jane → {li, sam}, plus
 // li also reporting to bob. Returns store-backed Deps. Shared by the
 // managers_test and reports_test suites.
-func seedReportingGraph(t *testing.T) Deps {
+func seedReportingGraph(t *testing.T) Config {
 	t.Helper()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
@@ -56,7 +56,7 @@ func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart
 func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-li", "r-x", "#", "org-test")
-	tl := &Managers{deps: deps}
+	tl := &Managers{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
@@ -93,7 +93,7 @@ func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
 func TestManagers_OwnerHasNone(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-x", "#", "org-test")
-	tl := &Managers{deps: deps}
+	tl := &Managers{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
@@ -120,7 +120,7 @@ func TestManagers_SkipsDanglingManager(t *testing.T) {
 	// store (bypassing the worker-existence check a real hire would do).
 	addReportingLine(t, deps.Store, "w-ghost", "w-sam")
 	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
-	tl := &Managers{deps: deps}
+	tl := &Managers{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {

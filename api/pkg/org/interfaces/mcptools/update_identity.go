@@ -55,7 +55,7 @@ func (t *UpdateIdentity) Invoke(ctx context.Context, inv tool.Invocation) (json.
 		return nil, fmt.Errorf("update_identity: caller has no OrgID")
 	}
 
-	if _, err := t.deps.workersService().UpdateIdentity(ctx, orgID, orgchart.WorkerID(args.WorkerID), args.Content); err != nil {
+	if _, err := t.deps.Workers.UpdateIdentity(ctx, orgID, orgchart.WorkerID(args.WorkerID), args.Content); err != nil {
 		return nil, fmt.Errorf("worker %q: %w", args.WorkerID, err)
 	}
 	// Mirror the new identity into the Worker's Environment so a running

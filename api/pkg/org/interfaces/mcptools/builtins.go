@@ -47,174 +47,173 @@ type EventDispatcher interface {
 	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, activationID activation.ID)
 }
 
-// Deps bundles the stores, clocks, and configuration tools need.
-//
-// EnvsDir is the directory under which each Worker's Environment lives:
-// HireWorker creates <EnvsDir>/<workerId>/ at hire time and writes the
-// role.md / identity.md / agent.md trio into it.
-//
-// Hub is optional: if set, event-emitting tools (publish) will
-// call its Notify method so any long-poll readers blocked on those
-// streams wake up immediately.
-//
-// Dispatcher is optional: if set, event-emitting tools also call its
-// Dispatch method so subscribed AI Workers get re-activated. Tests
-// that don't exercise the runtime can leave it nil. The dispatcher
-// itself owns the Spawner.
-//
-// Workspace is required (use runtime.NoopWorkspaceSync{} for tests).
-// update_role and update_identity call MirrorFile on it after
-// persisting to the DB so the per-runtime view of role/identity stays
-// in sync with the canonical domain copy.
+// Deps is the MCP tool surface — the pre-built application services and
+// read facade every tool delegates to, the MCP-side mirror of the REST
+// api.Deps. Tools never touch a store repository: reads go through
+// Queries, writes through the aggregate services. Built once by
+// Config.Build() at the composition root and handed to RegisterBuiltins.
 type Deps struct {
-	Store *store.Store
 	// Queries is the read facade every read tool projects from — the
 	// same one the REST read handlers use, so the two surfaces can't
-	// drift on read semantics. Tools never touch Store directly for
-	// reads.
-	Queries    *queries.Queries
-	Now        Clock
-	NewID      IDGen
-	EnvsDir    string
-	Hub        *streamhub.Hub
-	Dispatcher EventDispatcher
-	Workspace  runtime.WorkspaceSync
-	// HireHook runs runtime-side bookkeeping after a new Worker is
-	// created (hire_worker invokes it once the Worker row is in the
-	// store). Pick the right impl at wiring time — the helix runtime
-	// uses helix.Hire to persist the hiring user; claude / dev
-	// runtimes use runtime.NoopHireHook.
-	HireHook runtime.HireHook
+	// drift on read semantics.
+	Queries       *queries.Queries
+	Roles         *roles.Roles
+	Streams       *streams.Streams
+	Workers       *workers.Workers
+	Subscriptions *subscriptions.Subscriptions
+	Publishing    *publishing.Publishing
+	// Lifecycle owns Hire (the MCP hire_worker tool delegates here, the
+	// same service the REST POST /workers handler drives).
+	Lifecycle *lifecycle.Service
 
-	// ProjectConfig is the read/write port for a Worker's helix
-	// project configuration (startup script, skills, etc). Backs
-	// the get_worker_project + configure_worker_project MCP tools.
-	// Wire the helix runtime impl in production; tests + claude/dev
-	// runtimes can leave it nil — the default is NoopProjectConfig
-	// which returns ErrProjectConfigUnsupported. The MCP tool wraps
-	// that into a friendly error message.
+	// Workspace is the per-runtime file-mirror port: update_role /
+	// update_identity call MirrorFile after the service persists, so the
+	// running session sees the change before the next activation.
+	Workspace runtime.WorkspaceSync
+	// ProjectConfig backs get_worker_project + configure_worker_project
+	// (owner-only read/patch of a Worker's helix project config).
 	ProjectConfig runtime.ProjectConfig
+	// CredentialProviders is the registry mint_credential dispatches on.
+	CredentialProviders map[string]credential.Provider
+	// Hub lets the long-poll read tools (read_events, worker_log) block
+	// on new events. It is a broadcaster, not a store.
+	Hub *streamhub.Hub
+}
 
-	// Topology reconciles the activation/team Streams implied by the
-	// reporting graph. hire_worker calls it after writing the new
-	// Worker + reporting line so the hire's activation Stream and the
-	// manager's team Stream materialise from one declarative pass. A
-	// nil Reconciler is a no-op (tests / runtimes without topology),
-	// but DefaultDeps wires one so the standard path is always covered.
-	Topology *topology.Reconciler
-
-	// CredentialProviders is the registry the mint_credential MCP tool
-	// dispatches on. Keys are provider names (e.g. "github", "slack")
-	// matching the agent-supplied `provider` arg; values are minted
-	// on-demand by the per-transport Provider implementation. Wire
-	// providers in helix-org's bootstrap (api/pkg/server/helix_org.go)
-	// — adding a new provider is a new file in its transport package
-	// plus one map entry there, with no edits to mint_credential.
-	//
-	// nil/empty map is allowed: mint_credential will register and report
-	// the empty list to callers; the same shape DefaultDeps installs
-	// for tests that do not exercise the credential path.
+// Config carries the construction seams the composition root supplies to
+// assemble the tool Deps: the store + clock/id-gen + topology + the
+// runtime collaborators. Build() turns it into a Deps. This is the only
+// place store repositories are read — a composition convenience (the
+// same shape as server.NewFromStore), never reached from a tool.
+//
+// EnvsDir is the directory under which each Worker's Environment lives.
+// Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
+// Workspace defaults to a no-op for tests.
+type Config struct {
+	Store               *store.Store
+	Queries             *queries.Queries
+	Now                 Clock
+	NewID               IDGen
+	EnvsDir             string
+	Hub                 *streamhub.Hub
+	Dispatcher          EventDispatcher
+	Workspace           runtime.WorkspaceSync
+	HireHook            runtime.HireHook
+	ProjectConfig       runtime.ProjectConfig
+	Topology            *topology.Reconciler
 	CredentialProviders map[string]credential.Provider
 }
 
-// subscriptionsService builds the subscription application service from
-// the tool deps. The MCP subscribe/unsubscribe/invite_workers tools are
-// thin adapters over it.
-func (d Deps) subscriptionsService() *subscriptions.Subscriptions {
+// Build assembles the application services from the config and returns
+// the lean tool Deps. Reads from the store happen only here.
+func (c Config) Build() Deps {
+	return Deps{
+		Queries:             c.Queries,
+		Roles:               c.rolesService(),
+		Streams:             c.streamsService(),
+		Workers:             c.workersService(),
+		Subscriptions:       c.subscriptionsService(),
+		Publishing:          c.publishingService(),
+		Lifecycle:           c.lifecycleService(),
+		Workspace:           c.Workspace,
+		ProjectConfig:       c.ProjectConfig,
+		CredentialProviders: c.CredentialProviders,
+		Hub:                 c.Hub,
+	}
+}
+
+// subscriptionsService builds the subscription application service.
+func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
-		Subscriptions: d.Store.Subscriptions,
-		Streams:       d.Store.Streams,
-		Workers:       d.Store.Workers,
-		Now:           d.Now,
+		Subscriptions: c.Store.Subscriptions,
+		Streams:       c.Store.Streams,
+		Workers:       c.Store.Workers,
+		Now:           c.Now,
 	})
 }
 
-// publishingService builds the publish application service from the tool
-// deps. Hub/Dispatcher are assigned only when non-nil to avoid wrapping
-// a typed-nil *streamhub.Hub in the Notifier interface (which would make
-// the nil check inside the service pass and then panic).
-func (d Deps) publishingService() *publishing.Publishing {
+// publishingService builds the publish application service. Hub/Dispatcher
+// are assigned only when non-nil to avoid wrapping a typed-nil in the
+// Notifier interface (which would make the nil check inside the service
+// pass and then panic).
+func (c Config) publishingService() *publishing.Publishing {
 	pd := publishing.Deps{
-		Streams: d.Store.Streams,
-		Events:  d.Store.Events,
-		Now:     d.Now,
-		NewID:   d.NewID,
+		Streams: c.Store.Streams,
+		Events:  c.Store.Events,
+		Now:     c.Now,
+		NewID:   c.NewID,
 	}
-	if d.Hub != nil {
-		pd.Hub = d.Hub
+	if c.Hub != nil {
+		pd.Hub = c.Hub
 	}
-	if d.Dispatcher != nil {
-		pd.Dispatcher = d.Dispatcher
+	if c.Dispatcher != nil {
+		pd.Dispatcher = c.Dispatcher
 	}
 	return publishing.New(pd)
 }
 
-// workersService builds the worker-mutation application service from
-// the tool deps. UpdateRole delegates to the roles service so the
-// held-Role content rewrite preserves tools/streams.
-func (d Deps) workersService() *workers.Workers {
+// workersService builds the worker-mutation application service. UpdateRole
+// delegates to the roles service so the held-Role content rewrite preserves
+// tools/streams.
+func (c Config) workersService() *workers.Workers {
 	return workers.New(workers.Deps{
-		Workers:  d.Store.Workers,
-		Roles:    d.rolesService(),
-		Lines:    d.Store.ReportingLines,
-		Topology: d.Topology,
+		Workers:  c.Store.Workers,
+		Roles:    c.rolesService(),
+		Lines:    c.Store.ReportingLines,
+		Topology: c.Topology,
 	})
 }
 
-// lifecycleService builds the worker-lifecycle service (Hire/Fire) from
-// the tool deps. The MCP hire_worker tool is a thin adapter over its
-// Hire, so the hire semantics (env dir, reporting line, topology
-// reconcile, hire dispatch) live in exactly one place — shared with the
-// REST POST /workers handler. Only the Hire-relevant fields are wired
-// here (the MCP surface never fires Workers, so Helix/Mirror/Owner stay
-// nil).
-func (d Deps) lifecycleService() *lifecycle.Service {
+// lifecycleService builds the worker-lifecycle service (Hire) for the MCP
+// surface. The hire semantics (env dir, reporting line, topology reconcile,
+// hire dispatch) live in exactly one place — shared with the REST POST
+// /workers handler. Only the Hire-relevant fields are wired (the MCP
+// surface never fires Workers, so Helix/Mirror/Owner stay nil).
+func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
-		Store:    d.Store,
-		Topology: d.Topology,
-		HireHook: d.HireHook,
-		EnvsDir:  d.EnvsDir,
-		Now:      d.Now,
-		NewID:    d.NewID,
+		Store:    c.Store,
+		Topology: c.Topology,
+		HireHook: c.HireHook,
+		EnvsDir:  c.EnvsDir,
+		Now:      c.Now,
+		NewID:    c.NewID,
 	}
-	// d.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
+	// c.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.
-	if d.Dispatcher != nil {
-		svc.Dispatcher = d.Dispatcher
+	if c.Dispatcher != nil {
+		svc.Dispatcher = c.Dispatcher
 	}
 	return svc
 }
 
-// rolesService builds the role-mutation application service from the
-// tool deps, injecting BaseReadTools as the universal baseline so the
-// MCP create_role tool and the REST role handlers union the same set.
-func (d Deps) rolesService() *roles.Roles {
+// rolesService builds the role-mutation application service, injecting
+// BaseReadTools as the universal baseline so the MCP create_role tool and
+// the REST role handlers union the same set.
+func (c Config) rolesService() *roles.Roles {
 	return roles.New(roles.Deps{
-		Roles:     d.Store.Roles,
-		Now:       d.Now,
-		NewID:     d.NewID,
+		Roles:     c.Store.Roles,
+		Now:       c.Now,
+		NewID:     c.NewID,
 		BaseTools: BaseReadTools,
 	})
 }
 
-// streamsService builds the stream-mutation application service from
-// the tool deps. The MCP stream tools are thin adapters over it, so the
-// create/update/delete logic lives in exactly one place (shared with
-// the REST handlers).
-func (d Deps) streamsService() *streams.Streams {
+// streamsService builds the stream-mutation application service.
+func (c Config) streamsService() *streams.Streams {
 	return streams.New(streams.Deps{
-		Streams: d.Store.Streams,
-		Now:     d.Now,
-		NewID:   d.NewID,
+		Streams: c.Store.Streams,
+		Now:     c.Now,
+		NewID:   c.NewID,
 	})
 }
 
-// DefaultDeps wires production defaults: real UUIDs and wall-clock time,
-// and a no-op WorkspaceSync that callers replace with the runtime-
-// specific implementation. EnvsDir, Hub, and Dispatcher are
-// left zero — production callers wire them in cmd/helix-org/serve.go.
-func DefaultDeps(s *store.Store) Deps {
-	d := Deps{
+// DefaultDeps wires production defaults into a Config: real UUIDs and
+// wall-clock time, a no-op WorkspaceSync that callers replace with the
+// runtime-specific implementation, and the Queries facade + Topology
+// built off the store. EnvsDir, Hub, and Dispatcher are left zero —
+// composition callers wire them in before calling Build().
+func DefaultDeps(s *store.Store) Config {
+	c := Config{
 		Store:               s,
 		Now:                 func() time.Time { return time.Now().UTC() },
 		NewID:               uuid.NewString,
@@ -223,13 +222,13 @@ func DefaultDeps(s *store.Store) Deps {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
-	d.Topology = &topology.Reconciler{Store: s, Now: d.Now}
-	d.Queries = queries.New(queries.Deps{
+	c.Topology = &topology.Reconciler{Store: s, Now: c.Now}
+	c.Queries = queries.New(queries.Deps{
 		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
 		Streams: s.Streams, Subscriptions: s.Subscriptions, Events: s.Events,
 		Environments: s.Environments, Activations: s.Activations,
 	})
-	return d
+	return c
 }
 
 // RegisterBuiltins registers every built-in tool on the registry —

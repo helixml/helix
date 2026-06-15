@@ -111,7 +111,7 @@ func (t *CreateStream) Invoke(ctx context.Context, inv tool.Invocation) (json.Ra
 			Config: args.Transport.Config,
 		}
 	}
-	s, err := t.deps.streamsService().Create(ctx, orgID, streams.CreateParams{
+	s, err := t.deps.Streams.Create(ctx, orgID, streams.CreateParams{
 		ID:          args.ID,
 		Name:        args.Name,
 		Description: args.Description,

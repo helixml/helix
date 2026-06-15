@@ -60,7 +60,7 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 	}
 	// The service validates the stream + every worker up front and
 	// subscribes each (idempotent per worker).
-	if err := t.deps.subscriptionsService().Invite(ctx, orgID, streamID, workerIDs); err != nil {
+	if err := t.deps.Subscriptions.Invite(ctx, orgID, streamID, workerIDs); err != nil {
 		return nil, err
 	}
 

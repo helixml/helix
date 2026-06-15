@@ -48,7 +48,7 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	}
 	streamID := streaming.StreamID(args.StreamID)
 	workerID := inv.Caller.ID()
-	if _, _, err := t.deps.subscriptionsService().Subscribe(ctx, orgID, workerID, streamID); err != nil {
+	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, workerID, streamID); err != nil {
 		return nil, err
 	}
 	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})

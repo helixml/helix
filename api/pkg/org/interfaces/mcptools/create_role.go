@@ -56,7 +56,7 @@ func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	// The service unions the caller-supplied tools with the universal
 	// baseline (caller order preserved, baseline appended, deduped) so a
 	// Role can never miss the read primitives every Worker needs.
-	r, err := t.deps.rolesService().Create(ctx, orgID, roles.CreateParams{
+	r, err := t.deps.Roles.Create(ctx, orgID, roles.CreateParams{
 		ID:      args.ID,
 		Content: args.Content,
 		Tools:   args.Tools,

@@ -41,7 +41,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
 	deps := DefaultDeps(st)
-	tl := &Publish{deps: deps}
+	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
 		"streamId": "s-github",
@@ -85,7 +85,7 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
 	deps := DefaultDeps(st)
-	tl := &Publish{deps: deps}
+	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
 		"streamId": "s-general",

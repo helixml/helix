@@ -16,7 +16,7 @@ import (
 // dmTestEnv seeds two workers and (optionally) a reporting line between
 // them, reconciling topology so the DM channel exists exactly when a
 // reporting relationship does. Returns Deps + the two workers.
-func dmTestEnv(t *testing.T, wireLine bool) (Deps, orgchart.Worker, orgchart.Worker) {
+func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.Worker, orgchart.Worker) {
 	t.Helper()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
@@ -49,7 +49,7 @@ func dmTestEnv(t *testing.T, wireLine bool) (Deps, orgchart.Worker, orgchart.Wor
 func TestDM_DeliversOverExistingChannel(t *testing.T) {
 	deps, _, rep := dmTestEnv(t, true)
 	ctx := context.Background()
-	tl := &DM{deps: deps}
+	tl := &DM{deps: deps.Build()}
 
 	args, _ := json.Marshal(dmArgs{ToWorkerID: "w-mgr", Body: "blocked — need a decision"})
 	raw, err := tl.Invoke(ctx, tool.Invocation{Caller: rep, Args: args})
@@ -86,7 +86,7 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 func TestDM_RefusesWithoutReportingLine(t *testing.T) {
 	deps, _, rep := dmTestEnv(t, false) // no line wired
 	ctx := context.Background()
-	tl := &DM{deps: deps}
+	tl := &DM{deps: deps.Build()}
 
 	args, _ := json.Marshal(dmArgs{ToWorkerID: "w-mgr", Body: "hi"})
 	_, err := tl.Invoke(ctx, tool.Invocation{Caller: rep, Args: args})
@@ -111,7 +111,7 @@ func TestDM_RefusesWithoutReportingLine(t *testing.T) {
 func TestDM_RejectsSelfAndUnknownRecipient(t *testing.T) {
 	deps, _, rep := dmTestEnv(t, true)
 	ctx := context.Background()
-	tl := &DM{deps: deps}
+	tl := &DM{deps: deps.Build()}
 
 	self, _ := json.Marshal(dmArgs{ToWorkerID: "w-rep", Body: "x"})
 	if _, err := tl.Invoke(ctx, tool.Invocation{Caller: rep, Args: self}); err == nil {

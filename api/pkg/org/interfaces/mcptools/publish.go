@@ -78,7 +78,7 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	// The service owns the append→notify→dispatch trio and rejects
 	// github-transport streams (inbound only — act on the repo with `gh`
 	// from the Environment) with ErrPublishToGitHub.
-	event, err := t.deps.publishingService().Publish(ctx, orgID, streamID, string(inv.Caller.ID()), msg)
+	event, err := t.deps.Publishing.Publish(ctx, orgID, streamID, string(inv.Caller.ID()), msg)
 	if err != nil {
 		return nil, err
 	}

@@ -55,7 +55,7 @@ func (f *fakeDispatcher) hireCount() int {
 	return len(f.hires)
 }
 
-func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, orgchart.Worker) {
+func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Worker) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
@@ -96,7 +96,7 @@ func newHireTestEnv(t *testing.T) (Deps, *fakeDispatcher, string, orgchart.Worke
 func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	t.Parallel()
 	deps, dispatcher, envsDir, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	// Hire under a manager — the canonical case (only the owner is
 	// parentless). A managed human still gets NO activation stream:
@@ -160,7 +160,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 func TestHireWorkerReturnsActivationID(t *testing.T) {
 	t.Parallel()
 	deps, dispatcher, _, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
@@ -215,7 +215,7 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	t.Parallel()
 	deps, dispatcher, _, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	// Hire under w-owner (the canonical case): the manager observes the
 	// hire's transcript because it is the manager, derived from the
@@ -256,7 +256,7 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 func TestHireWorkerEnvDirCreated(t *testing.T) {
 	t.Parallel()
 	deps, _, envsDir, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
@@ -282,7 +282,7 @@ func TestHireWorkerEnvDirCreated(t *testing.T) {
 func TestHireWorkerMissingIdentityRejected(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
@@ -330,7 +330,7 @@ func TestHireWorkerInvokesHireHandlerWithUserID(t *testing.T) {
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
 	deps.HireHook = hook
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -359,7 +359,7 @@ func TestHireWorkerSkipsHireHandlerWithoutUserID(t *testing.T) {
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{}
 	deps.HireHook = hook
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
@@ -384,7 +384,7 @@ func TestHireWorkerHireHandlerErrorIsFatal(t *testing.T) {
 	deps, _, _, caller := newHireTestEnv(t)
 	hook := &captureHireHandler{failErr: errors.New("boom")}
 	deps.HireHook = hook
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -414,7 +414,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 	// end-to-end. NoopHireHook is the default and would skip the
 	// SaveHiringUser side-effect.
 	deps.HireHook = &runtimehelix.Hire{Store: deps.Store}
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	ctx := runtimehelix.WithUserID(context.Background(), "u-phil")
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -443,7 +443,7 @@ func TestHireWorkerPersistsHiringUserFromContext(t *testing.T) {
 func TestHireWorkerWithoutUserIDDoesNotPersist(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",
@@ -495,7 +495,7 @@ func propNames(m map[string]*jsonschema.Schema) []string {
 func TestHireWorkerInheritsCallerOrgID(t *testing.T) {
 	t.Parallel()
 	deps, _, _, caller := newHireTestEnv(t)
-	tl := &HireWorker{deps: deps}
+	tl := &HireWorker{deps: deps.Build()}
 
 	args, _ := json.Marshal(hireWorkerArgs{
 		ID:              "w-alice",

@@ -17,7 +17,7 @@ import (
 func TestReports_TeamStreamAndDMStreams(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-jane", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
+	tl := &Reports{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
@@ -53,7 +53,7 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	deps := seedReportingGraph(t)
 	// w-owner's only report is w-jane, who manages li + sam.
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
+	tl := &Reports{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
@@ -83,7 +83,7 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 func TestReports_NoReportsNullTeamStream(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
-	tl := &Reports{deps: deps}
+	tl := &Reports{deps: deps.Build()}
 
 	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
 	if err != nil {
