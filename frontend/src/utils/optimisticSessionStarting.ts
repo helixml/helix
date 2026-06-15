@@ -9,9 +9,16 @@ import { GET_SESSION_QUERY_KEY } from '../services/sessionService'
 const QUERY_VARIANTS = ['full', 'skip'] as const
 
 // Synchronously flip the cached session config to external_agent_status="starting"
-// when the user submits a chat to a paused desktop. The next 3s poll brings the
-// authoritative backend value, harmlessly overwriting this optimistic state to
-// "starting" (boot in flight), "running" (already up), or "absent" (failed).
+// when the user submits a chat to a paused desktop. The next useSandboxState 3s
+// poll reconciles to the authoritative backend value — by which point the
+// backend's synchronous syncPromptHistory mark has already written "starting"
+// to the DB row, so the optimistic patch and the refetch agree.
+//
+// We deliberately do NOT call invalidateQueries here: an immediate refetch
+// races the asynchronous wake goroutine on the backend and overwrites the
+// optimistic write with a still-stale "stopped" row, causing the spinner to
+// flicker off before the 3s poll catches up. See spec
+// 002047_yet-again-sending-a/design.md for the full race analysis.
 //
 // No-op when the cache already shows "starting" or "running" (avoids stomping
 // fresher state from a poll that landed between the user's keystrokes and the
@@ -47,8 +54,4 @@ export function optimisticallyMarkSessionStarting(
       },
     )
   }
-  // Belt-and-braces: a prefix-matching invalidate kicks the next poll a bit
-  // earlier than waiting for the 3s tick. The optimistic state above already
-  // shows the spinner; this just shortens the time until it's confirmed.
-  queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
 }
