@@ -12,11 +12,11 @@
 - [x] Confirm the existing persistent-sandbox sticky guard in `pickHostForSandbox` already pins the single web-service sandbox to its runner and fails loudly when that runner is offline. Confirmed (`controller_provision.go:336+`): a `Persistent` sandbox with a recorded `HostDeviceID` re-binds to that host and returns an error if it is offline. Regression test added in Tests section.
 
 ## Web service controller (in-place recreate, single writer)
-- [ ] Replace new-sandbox-per-deploy: `Redeploy`/`runDeploy` get-or-create the project's single `Persistent=true, Purpose=web-service, TimeoutSeconds=-1` sandbox and reuse it across deploys.
-- [ ] Deploy steps: exec `git fetch && git checkout <sha>` in `/workspace`; **stop the running app**; then start `.helix/startup.sh`. Guarantee the old app is stopped before the new one starts (single writer of `/data`).
-- [ ] `runBootstrap`/start: export `HELIX_WEB_SERVICE_DATA_DIR=/data` to the startup script.
-- [ ] Record the previously-live SHA; on readiness failure, roll back to it and restart so the site returns to last-known-good against intact `/data`.
-- [ ] After first provision, record the bound runner onto `ProjectWebServiceState.HostDeviceID`.
+- [~] Replace new-sandbox-per-deploy: `Redeploy`/`runDeploy` get-or-create the project's single `Persistent=true, Purpose=web-service, TimeoutSeconds=-1` sandbox and reuse it across deploys.
+- [~] Deploy steps: exec `git fetch && git checkout <sha>` in `/workspace`; **stop the running app**; then start `.helix/startup.sh`. Guarantee the old app is stopped before the new one starts (single writer of `/data`).
+- [~] `runBootstrap`/start: export `HELIX_WEB_SERVICE_DATA_DIR=/data` to the startup script.
+- [~] Record the previously-live SHA; on readiness failure, roll back to it and restart so the site returns to last-known-good against intact `/data`.
+- [~] After first provision, record the bound runner onto `ProjectWebServiceState.HostDeviceID`.
 
 ## API / UI surfacing
 - [ ] Expose the pinned runner and `/data` location on the web-service GET endpoint and in `WebServiceTab.tsx`.
