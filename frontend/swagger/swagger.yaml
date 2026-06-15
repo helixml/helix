@@ -1321,6 +1321,11 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  server.AddDomainRequest:
+    properties:
+      hostname:
+        type: string
+    type: object
   server.AgentSandboxesDebugResponse:
     properties:
       dev_containers:
@@ -1456,6 +1461,11 @@ definitions:
       org_id:
         type: string
     type: object
+  server.DeployWebServiceRequest:
+    properties:
+      commit_sha:
+        type: string
+    type: object
   server.DevContainerWithClients:
     properties:
       clients:
@@ -1515,53 +1525,6 @@ definitions:
         type: string
       video_stats:
         $ref: '#/definitions/server.VideoStreamingStats'
-    type: object
-  server.ExposePortRequest:
-    properties:
-      name:
-        type: string
-      port:
-        type: integer
-      protocol:
-        description: defaults to "http"
-        type: string
-    type: object
-  server.ExposePortResponse:
-    properties:
-      allocated_port:
-        description: for random port mode
-        type: integer
-      name:
-        type: string
-      port:
-        type: integer
-      protocol:
-        type: string
-      session_id:
-        type: string
-      status:
-        type: string
-      urls:
-        items:
-          type: string
-        type: array
-    type: object
-  server.ExposedPort:
-    properties:
-      created_at:
-        type: string
-      name:
-        type: string
-      port:
-        type: integer
-      protocol:
-        description: '"http" or "tcp"'
-        type: string
-      status:
-        description: '"active", "inactive"'
-        type: string
-      url:
-        type: string
     type: object
   server.ForkSessionRequest:
     properties:
@@ -2240,14 +2203,10 @@ definitions:
       license_key:
         type: string
     type: object
-  server.ListExposedPortsResponse:
+  server.MintPreviewTokenRequest:
     properties:
-      exposed_ports:
-        items:
-          $ref: '#/definitions/server.ExposedPort'
-        type: array
-      session_id:
-        type: string
+      port:
+        type: integer
     type: object
   server.ModelSubstitution:
     properties:
@@ -2325,6 +2284,26 @@ definitions:
       title:
         type: string
     type: object
+  server.ProjectWebServiceResponse:
+    properties:
+      cname_target:
+        description: |-
+          CNAMETarget is the hostname customers should add as the value of
+          their CNAME record when registering a custom domain — i.e. the
+          canonical Helix hostname parsed from SERVER_URL. Empty when the
+          vhost feature is not configured on this instance.
+        type: string
+      deploys:
+        items:
+          $ref: '#/definitions/types.WebServiceDeploy'
+        type: array
+      domains:
+        items:
+          $ref: '#/definitions/types.VHostRoute'
+        type: array
+      state:
+        $ref: '#/definitions/types.ProjectWebServiceState'
+    type: object
   server.PromptPinRequest:
     properties:
       pinned:
@@ -2345,6 +2324,13 @@ definitions:
       repository_id:
         type: string
       success:
+        type: boolean
+    type: object
+  server.PutProjectWebServiceRequest:
+    properties:
+      container_port:
+        type: integer
+      enabled:
         type: boolean
     type: object
   server.QuickCreateProjectRequest:
@@ -2546,6 +2532,11 @@ definitions:
         type: string
       total_turns:
         type: integer
+    type: object
+  server.SetActiveSandboxRequest:
+    properties:
+      sandbox_id:
+        type: string
     type: object
   server.SharePointSiteResolveRequest:
     properties:
@@ -7292,6 +7283,22 @@ definitions:
       review:
         type: integer
     type: object
+  types.ProjectWebServiceState:
+    properties:
+      active_sandbox_id:
+        type: string
+      container_port:
+        description: port the project's web app binds to inside its container
+        type: integer
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      project_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
   types.PromptHistoryEntry:
     properties:
       content:
@@ -11332,6 +11339,49 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  types.VHostRoute:
+    properties:
+      created_at:
+        type: string
+      hostname:
+        description: always lowercased
+        type: string
+      id:
+        type: string
+      is_default:
+        description: |-
+          IsDefault is true for project default subdomains (<slug>.<base>).
+          User-added custom domains and preview tokens are false.
+        type: boolean
+      port:
+        description: destination port inside the container
+        type: integer
+      rotated_at:
+        type: string
+      target_id:
+        type: string
+      target_kind:
+        $ref: '#/definitions/types.VHostTargetKind'
+      verification_token:
+        description: |-
+          VerificationToken is only meaningful for custom domains awaiting
+          DNS-based verification. Null for default and preview rows.
+        type: string
+      verified_at:
+        description: |-
+          VerifiedAt is non-null once the route is usable. Auto-set for default
+          subdomains and preview tokens; set after DNS verification for custom
+          domains.
+        type: string
+    type: object
+  types.VHostTargetKind:
+    enum:
+    - project_web_service
+    - sandbox_preview
+    type: string
+    x-enum-varnames:
+    - VHostTargetProjectWebService
+    - VHostTargetSandboxPreview
   types.WIPLimits:
     properties:
       implementation:
@@ -11371,6 +11421,41 @@ definitions:
       user_id:
         type: string
     type: object
+  types.WebServiceDeploy:
+    properties:
+      commit_sha:
+        type: string
+      error:
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: string
+      log_path:
+        type: string
+      project_id:
+        type: string
+      sandbox_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/types.WebServiceDeployStatus'
+    type: object
+  types.WebServiceDeployStatus:
+    enum:
+    - pending
+    - building
+    - live
+    - failed
+    - superseded
+    type: string
+    x-enum-varnames:
+    - WebServiceDeployStatusPending
+    - WebServiceDeployStatusBuilding
+    - WebServiceDeployStatusLive
+    - WebServiceDeployStatusFailed
+    - WebServiceDeployStatusSuperseded
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -19427,6 +19512,174 @@ paths:
       summary: Get project token usage
       tags:
       - Projects
+  /api/v1/projects/{id}/web-service:
+    get:
+      description: Return enable/disable state, hostnames, and recent deploys for
+        a project's web service.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ProjectWebServiceResponse'
+      security:
+      - BearerAuth: []
+      summary: Get project web service state
+      tags:
+      - Projects
+    put:
+      consumes:
+      - application/json
+      description: Toggle web service enable/disable and update container_port. Enabling
+        pre-seeds the default subdomain.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.PutProjectWebServiceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ProjectWebServiceResponse'
+      security:
+      - BearerAuth: []
+      summary: Update project web service state
+      tags:
+      - Projects
+  /api/v1/projects/{id}/web-service/active-sandbox:
+    post:
+      consumes:
+      - application/json
+      description: Manual deploy primitive — set the sandbox that vhost requests route
+        to.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Active sandbox request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.SetActiveSandboxRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ProjectWebServiceState'
+      security:
+      - BearerAuth: []
+      summary: Point a project web service at a sandbox
+      tags:
+      - Projects
+  /api/v1/projects/{id}/web-service/deploy:
+    post:
+      consumes:
+      - application/json
+      description: Provisions a fresh sandbox, clones the primary repo at the requested
+        SHA, runs .helix/startup.sh, and cuts routing over once it's up.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Deploy request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.DeployWebServiceRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/types.WebServiceDeploy'
+      security:
+      - BearerAuth: []
+      summary: Trigger an auto-deploy of the project's web service
+      tags:
+      - Projects
+  /api/v1/projects/{id}/web-service/domains:
+    post:
+      consumes:
+      - application/json
+      description: Insert an unverified domain row. Verification happens out-of-band
+        via the .well-known endpoint.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Domain to add
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.AddDomainRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.VHostRoute'
+      security:
+      - BearerAuth: []
+      summary: Add a custom domain to a project web service
+      tags:
+      - Projects
+  /api/v1/projects/{id}/web-service/domains/{domain_id}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Domain row ID
+        in: path
+        name: domain_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove a custom domain from a project web service
+      tags:
+      - Projects
   /api/v1/projects/{projectId}/labels:
     get:
       description: Returns a sorted list of unique labels across all spec tasks in
@@ -21433,106 +21686,6 @@ paths:
       summary: Update Claude credentials for a session
       tags:
       - Claude
-  /api/v1/sessions/{id}/expose:
-    get:
-      description: Returns all ports currently exposed from the session's dev container
-      parameters:
-      - description: Session ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.ListExposedPortsResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Session not found
-          schema:
-            type: string
-      summary: List exposed ports for a session
-      tags:
-      - sessions
-    post:
-      consumes:
-      - application/json
-      description: Makes a port from the session's dev container accessible via a
-        public URL
-      parameters:
-      - description: Session ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Port to expose
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.ExposePortRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.ExposePortResponse'
-        "400":
-          description: Bad request
-          schema:
-            type: string
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Session not found
-          schema:
-            type: string
-      summary: Expose a port from the session's dev container
-      tags:
-      - sessions
-  /api/v1/sessions/{id}/expose/{port}:
-    delete:
-      description: Removes public access to a previously exposed port
-      parameters:
-      - description: Session ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Port number
-        in: path
-        name: port
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            type: string
-        "404":
-          description: Session or port not found
-          schema:
-            type: string
-      summary: Unexpose a port from the session's dev container
-      tags:
-      - sessions
   /api/v1/sessions/{id}/fork:
     post:
       consumes:
@@ -21737,6 +21890,109 @@ paths:
       security:
       - BearerAuth: []
       summary: Get session output
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/preview-tokens:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.VHostRoute'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List session preview tokens
+      tags:
+      - Sessions
+    post:
+      consumes:
+      - application/json
+      description: Mints a share-<adj>-<noun>-<8hex> hostname pointing at the session's
+        container on the given port.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Port to expose
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/server.MintPreviewTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.VHostRoute'
+      security:
+      - BearerAuth: []
+      summary: Mint a preview token for a session port
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/preview-tokens/{token_id}:
+    delete:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Token row ID
+        in: path
+        name: token_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revoke a session preview token
+      tags:
+      - Sessions
+  /api/v1/sessions/{id}/preview-tokens/{token_id}/rotate:
+    post:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Token row ID
+        in: path
+        name: token_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.VHostRoute'
+      security:
+      - BearerAuth: []
+      summary: Rotate a session preview token hostname
       tags:
       - Sessions
   /api/v1/sessions/{id}/rdp-connection:

@@ -262,6 +262,13 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	// Revoke any preview-token vhost routes pointing at this session
+	// before the session row disappears; otherwise the share-* URLs
+	// would 502 with no path to clean them up.
+	if err := apiServer.Store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetSandboxPreview, session.ID); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to revoke preview tokens before session delete")
+	}
+
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 

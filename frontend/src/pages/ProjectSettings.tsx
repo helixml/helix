@@ -53,6 +53,7 @@ import Skills from "../components/app/Skills";
 import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
+import WebServiceTab from "../components/project/WebServiceTab";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import {
   AppsContext,
@@ -1839,10 +1840,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />
-          <Typography variant="h6">Skills</Typography>
+          <Typography variant="h6">MCPs & APIs</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure skills for this project. These overlay on top of agent-level skills.
+          Configure MCPs and APIs for this project. These overlay on top of agent-level MCPs and APIs.
         </Typography>
         <Divider sx={{ mb: 2 }} />
         <Skills
@@ -1957,6 +1958,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Container maxWidth="lg" sx={{ px: 2 }}>
         {tab ==="general" && renderGeneralTab()}
         {tab ==="sandbox" && renderSandboxTab()}
+        {tab ==="web-service" && <WebServiceTab projectId={projectId} />}
         {tab ==="agents" && renderAgentsTab()}
         {tab ==="board" && renderBoardTab()}
         {tab ==="secrets" && renderSecretsTab()}
