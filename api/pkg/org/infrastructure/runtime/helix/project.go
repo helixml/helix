@@ -127,11 +127,7 @@ type WorkerProject struct {
 	Model    string
 	// Credentials selects the in-sandbox auth source for the runtime.
 	Credentials string
-	// AgentMD is the org-wide agent policy pushed verbatim to
-	// `.context/agent.md` on every Worker's helix-specs branch. Empty
-	// string skips the push.
-	AgentMD string
-	Logger  *slog.Logger
+	Logger      *slog.Logger
 }
 
 // Ensure applies a Helix project for the given Worker if one
@@ -322,11 +318,6 @@ func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgch
 			a.Logger.Warn("republish worker files: create helix-specs branch", "worker", workerID, "err", err)
 		}
 	}
-	if a.AgentMD != "" {
-		if err := a.Workspace.WriteOrgFile(ctx, repoID, "agent.md", a.AgentMD, "republish .context/agent.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: agent.md", "worker", workerID, "err", err)
-		}
-	}
 	if roleContent != "" {
 		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "role.md", roleContent, "republish role.md"); err != nil && a.Logger != nil {
 			a.Logger.Warn("republish worker files: role.md", "worker", workerID, "err", err)
@@ -338,4 +329,3 @@ func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgch
 		}
 	}
 }
-

@@ -56,11 +56,6 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
-	// AgentMD is the org-wide agent.md policy text pushed to
-	// `.context/agent.md` on each per-Worker project's helix-specs
-	// branch. The spawner's activation prompt tells every Worker to
-	// read it first. Embedded by main.go from agent/policy.md.
-	AgentMD string
 	// MCPAuthBearer is the fallback bearer the spawner passes to
 	// AttachHelixOrgMCP when no per-activation user bearer is on ctx.
 	// It ends up as the `Authorization: Bearer <value>` header on the
@@ -389,7 +384,6 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 		Provider:    c.Provider,
 		Model:       c.Model,
 		Credentials: c.Credentials,
-		AgentMD:     c.AgentMD,
 		Logger:      c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, orgID, workerID)

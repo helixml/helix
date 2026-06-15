@@ -18,10 +18,9 @@ import (
 // via MCP under the "helix" server (tool names appear as
 // mcp__helix__<name>); Claude figures the rest out from tools/list.
 //
-// `mandate` is the static text the agent reads first — for the local
-// claude runtime it's the embedded briefing.WorkerPolicy, for the Helix runtime
-// it's a short pointer at the helix-specs branch (which carries the
-// real policy text).
+// `mandate` is the static text the agent reads first — for the Helix
+// runtime it's a short pointer at the helix-specs branch, which carries
+// the real policy text the Worker reads before acting.
 func BuildPrompt(workerID orgchart.WorkerID, mandate string, triggers []activation.Trigger) string {
 	var ctx strings.Builder
 
