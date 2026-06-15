@@ -21,11 +21,8 @@
 package dispatch
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
-	"net/http"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -35,63 +32,63 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
-// outboundTimeout caps how long an outbound webhook POST may take. A
-// hung target must not stall the dispatcher. 5 seconds is generous for
-// HTTP and short enough that local listeners (nc, requestbin) which
-// don't speak HTTP back fail fast and the next event isn't blocked.
-const outboundTimeout = 5 * time.Second
-
-// EmailEmitter is the subset of an email transport the dispatcher
-// invokes for outbound emit on email-kind Streams. Defining it here
-// keeps the dispatcher decoupled from any specific provider package.
-type EmailEmitter interface {
-	Emit(ctx context.Context, event streaming.Event) error
+// OutboundEmitter delivers an Event outbound for a Stream whose
+// Transport is configured for it (webhook POST, email send, …). One
+// implementation per outbound-capable transport Kind lives in that
+// transport's infrastructure package; the composition root registers
+// them with RegisterOutbound. This keeps the provider-specific delivery
+// mechanism (HTTP, email API) out of the dispatcher — the dispatcher
+// only owns the routing policy (which events emit, to which Kind).
+//
+// Emit runs on its own goroutine (the dispatcher fires it with a
+// background context, since the send outlives the request); the
+// implementation bounds its own time and logs its own failures. A nil
+// Config / absent outbound target is a no-op the implementation handles.
+type OutboundEmitter interface {
+	Emit(ctx context.Context, stream streaming.Stream, event streaming.Event) error
 }
 
 // Dispatcher routes Events to subscribed AI Workers and runs the
-// configured Spawner for each one. It also emits outbound webhook
-// POSTs and outbound email sends for Streams whose Transport is
-// configured for them.
+// configured Spawner for each one. It also fans Events out to the
+// registered outbound emitter for the Stream's Transport Kind (webhook,
+// email, …) — but it knows nothing about how each transport delivers;
+// that lives behind the OutboundEmitter port.
 //
 // The per-Worker coalescing logic (one in-flight Spawn per Worker,
 // bursts folded into the next batch) moved out to
 // activation.Queue in B5.10; Dispatcher delegates Enqueue to its
-// embedded Queue and focuses on the event/transport-side fan-out.
+// embedded Queue and focuses on the event-side fan-out.
 type Dispatcher struct {
-	store        *store.Store
-	queue        *activation.Queue
-	logger       *slog.Logger
-	httpClient   *http.Client
-	emailEmitter EmailEmitter
+	store    *store.Store
+	queue    *activation.Queue
+	logger   *slog.Logger
+	outbound map[transport.Kind]OutboundEmitter
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
-// (useful for tests). logger must be non-nil. The internal HTTP client
-// uses a fixed timeout suitable for outbound webhook POSTs; tests that
-// need to substitute a fake transport can replace it via SetHTTPClient.
+// (useful for tests). logger must be non-nil. Outbound emitters are
+// registered separately via RegisterOutbound.
 func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatcher {
 	var spawn activation.Spawn
 	if spawner != nil {
 		spawn = activation.Spawn(spawner)
 	}
 	return &Dispatcher{
-		store:      s,
-		queue:      activation.NewQueue(spawn, logger),
-		logger:     logger,
-		httpClient: &http.Client{Timeout: outboundTimeout},
+		store:    s,
+		queue:    activation.NewQueue(spawn, logger),
+		logger:   logger,
+		outbound: map[transport.Kind]OutboundEmitter{},
 	}
 }
 
-// SetHTTPClient replaces the HTTP client used for outbound webhook
-// POSTs. Intended for tests only.
-func (d *Dispatcher) SetHTTPClient(c *http.Client) { d.httpClient = c }
-
-// SetEmailEmitter wires in the email transport's outbound emitter.
-// Constructor injection isn't an option because the email transport
-// also takes a Dispatcher (for inbound activation), so the wiring
-// goes Dispatcher.New → Transport.New → Dispatcher.SetEmailEmitter.
-// Nil is allowed (email-kind streams will then no-op on outbound).
-func (d *Dispatcher) SetEmailEmitter(e EmailEmitter) { d.emailEmitter = e }
+// RegisterOutbound wires the outbound emitter for a transport Kind.
+// Late-binding (rather than constructor injection) because some
+// transports also take the Dispatcher for inbound activation, so the
+// wiring is Dispatcher.New → Transport.New → RegisterOutbound. Kinds
+// with no registered emitter no-op on outbound.
+func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e OutboundEmitter) {
+	d.outbound[kind] = e
+}
 
 // DispatchHire fires a hire-time activation for a freshly-created AI
 // Worker. Returns immediately; the activation runs on a goroutine with
@@ -234,53 +231,16 @@ func (d *Dispatcher) emitOutbound(ctx context.Context, e streaming.Event) {
 		// the append-side code path has already logged anything material.
 		return
 	}
-	switch stream.Transport.Kind {
-	case transport.KindWebhook:
-		cfg, err := stream.Transport.WebhookConfig()
-		if err != nil {
-			d.logger.Warn("dispatch.emit.config", "stream", e.StreamID, "err", err)
-			return
+	emitter, ok := d.outbound[stream.Transport.Kind]
+	if !ok {
+		return // local stream, or a transport with no outbound emitter
+	}
+	// Fire on a goroutine with a background context: the delivery must
+	// outlive the request that triggered Dispatch. The emitter owns its
+	// own timeout, config parsing, and failure logging.
+	go func() { //nolint:gosec // intentional: the send outlives the triggering request
+		if err := emitter.Emit(context.Background(), stream, e); err != nil {
+			d.logger.Warn("dispatch.emit", "stream", e.StreamID, "event", e.ID, "kind", stream.Transport.Kind, "err", err)
 		}
-		if cfg.OutboundURL == "" {
-			return
-		}
-		go d.postOutbound(cfg.OutboundURL, e) //nolint:gosec // intentional: the POST outlives the request that triggered Dispatch
-	case transport.KindEmail:
-		if d.emailEmitter == nil {
-			return
-		}
-		go func() { //nolint:gosec // intentional: the send outlives the request that triggered Dispatch
-			if err := d.emailEmitter.Emit(context.Background(), e); err != nil {
-				d.logger.Warn("dispatch.emit.email", "stream", e.StreamID, "event", e.ID, "err", err)
-			}
-		}()
-	}
-}
-
-// postOutbound is the synchronous body of emitOutbound, split out so
-// tests can call it directly and so the goroutine has a clean entry
-// point. It uses a fresh background context bounded by outboundTimeout
-// (via the http.Client) — the originating request context is
-// deliberately not propagated, since the POST must outlive the
-// request.
-func (d *Dispatcher) postOutbound(targetURL string, e streaming.Event) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, targetURL, bytes.NewBufferString(e.Body))
-	if err != nil {
-		d.logger.Warn("dispatch.emit.build", "stream", e.StreamID, "url", targetURL, "err", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("X-Helix-Stream", string(e.StreamID))
-	req.Header.Set("X-Helix-Event", string(e.ID))
-	resp, err := d.httpClient.Do(req)
-	if err != nil {
-		d.logger.Warn("dispatch.emit.do", "stream", e.StreamID, "url", targetURL, "err", err)
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		d.logger.Warn("dispatch.emit.status", "stream", e.StreamID, "url", targetURL, "status", resp.StatusCode)
-		return
-	}
-	d.logger.Info("dispatch.emit.ok", "stream", e.StreamID, "url", targetURL, "status", resp.StatusCode)
+	}()
 }

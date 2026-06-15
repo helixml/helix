@@ -36,6 +36,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
@@ -414,6 +415,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Now:           deps.Now,
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
+	// Outbound webhook delivery is a transport concern, not the
+	// dispatcher's: register the webhook emitter so KindWebhook streams
+	// POST their events. Slack/email emitters register the same way.
+	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
 	deps.Dispatcher = dispatcher
 
 	// streamCron drives KindCron streams. Same call sequence as the

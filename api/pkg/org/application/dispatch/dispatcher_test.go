@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 )
 
 // caught is one POST observed by the test catcher.
@@ -93,6 +94,10 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Register the real webhook outbound emitter so these tests exercise
+	// the dispatch→webhook wiring end-to-end. The HTTP-mechanics edge
+	// cases live in the webhook package's own tests.
+	d.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	return d, s
 }
 
@@ -341,7 +346,9 @@ func TestDispatchTolerates_UnreachableHost(t *testing.T) {
 	seedWebhookStream(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Use a tiny client timeout so the test runs fast.
-	d.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-dead", "void"))
@@ -364,7 +371,9 @@ func TestDispatchHonoursClientTimeout(t *testing.T) {
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
 	seedWebhookStream(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
-	d.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-slow", "patience"))
