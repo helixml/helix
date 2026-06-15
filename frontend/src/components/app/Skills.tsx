@@ -323,7 +323,7 @@ const CUSTOM_API_SKILL: ISkill = {
   id: 'new-custom-api',
   icon: <ApiIcon />,
   name: 'New API',
-  description: 'Add your own OpenAPI based integration. Any HTTP endpoint can become a skill for your agent.',
+  description: 'Add your own OpenAPI based integration. Any HTTP endpoint can become a tool for your agent.',
   type: SKILL_TYPE_HTTP_API,
   categories: [SKILL_CATEGORY_CORE],
   skill: {
@@ -1245,14 +1245,17 @@ const Skills: React.FC<SkillsProps> = ({
       {!hideHeader && (
         <>
           <Typography variant="h6" sx={{ mb: 2 }}>
-            💡 Skills
+            💡 MCPs & APIs
           </Typography>
-          {/* Add a paragraph with info about skills */}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Extend the capabilities of the AI with custom functions, APIs and workflows.
+            Extend the capabilities of the AI with MCP servers, custom APIs and workflows.
           </Typography>
         </>
       )}
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Changes to MCPs and APIs take effect in <strong>new sessions</strong>. Restart any active session to pick up updates.
+      </Alert>
 
       {/* Search and Category Tabs */}
       <Box sx={{ mb: 3 }}>
@@ -1260,7 +1263,7 @@ const Skills: React.FC<SkillsProps> = ({
         <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
           <TextField
             size="small"
-            placeholder="Search skills..."
+            placeholder="Search MCPs and APIs..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             InputProps={{
@@ -1304,7 +1307,7 @@ const Skills: React.FC<SkillsProps> = ({
                   onClick={() => handleOpenDialog(CUSTOM_MCP_SKILL)}
                   sx={{ textTransform: 'none' }}
                 >
-                  Add MCP Skill
+                  Add MCP
                 </Button>
               </Box>
             }
