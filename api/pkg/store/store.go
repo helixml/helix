@@ -278,6 +278,18 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	// MarkSessionStartingIfIdle atomically flips external_agent_status to
+	// "starting" + status_message to "Starting Desktop..." for a session,
+	// but only if its current status is neither "starting" nor "running".
+	// Targeted JSONB merge so it cannot race with the streaming path's
+	// full-row writes. Returns true when a row was updated.
+	MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error)
+	// ClearSessionStartingStatus reverts a "starting" session back to empty
+	// status + empty message, but only when the current status is
+	// "starting". Used by the auto-wake worker on retry exhaustion so the
+	// spinner reverts to "Desktop Paused" instead of staying on
+	// "Starting Desktop..." forever.
+	ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error)
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
 	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
