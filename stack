@@ -11,6 +11,28 @@ export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:=""}
 
+# Auto-include docker-compose.tls.yaml when embedded TLS is enabled
+# via the .env file (HELIX_VHOST_TLS_MODE=auto) or the shell. The
+# overlay adds :443 / :80 host port mappings to the api service so the
+# certmagic listener inside the container is reachable.
+COMPOSE_TLS_OVERLAY_ARGS=()
+function detect_tls_overlay() {
+  local mode=""
+  if [[ -f "$DIR/.env" ]]; then
+    # Last assignment wins; tolerate quoted values and trailing whitespace.
+    mode=$(grep -E '^[[:space:]]*HELIX_VHOST_TLS_MODE[[:space:]]*=' "$DIR/.env" 2>/dev/null \
+      | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+  fi
+  # Shell-exported env wins over .env, matching how docker compose
+  # resolves variables.
+  mode="${HELIX_VHOST_TLS_MODE:-$mode}"
+  if [[ "$mode" == "auto" ]]; then
+    COMPOSE_TLS_OVERLAY_ARGS=(-f docker-compose.tls.yaml)
+    echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
+  fi
+}
+detect_tls_overlay
+
 # Smart --load logic has been consolidated into the docker wrapper
 # (desktop/shared/docker-buildx-wrapper.sh), which intercepts both
 # 'docker build' and 'docker buildx build' and applies smart --load
@@ -167,13 +189,13 @@ function setup_sandbox_profile() {
 function build() {
   if [[ -n "$WITH_DEMOS" ]]; then
     echo "🔨 Building demos"
-    docker compose -f docker-compose.dev.yaml --profile demos build
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos build
     return
   fi
 
   # No profiles specified, just build everything
   echo "🔨 Building all services"
-  docker compose -f docker-compose.dev.yaml build
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" build
 }
 
 function static-compile() {
@@ -397,11 +419,11 @@ function _start_services() {
   if [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
     echo "🚀 Starting services with demos profile"
-    docker compose -f docker-compose.dev.yaml --profile demos up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos up -d
   else
     # No special profiles
     echo "🚀 Starting base services"
-    docker compose -f docker-compose.dev.yaml up -d
+    docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d
   fi
 
   sleep 2
@@ -537,11 +559,11 @@ function stop() {
     if [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
       echo "🔄 Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     else
       # Include all profiles when no environment variables are set
       echo "🔄 Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
+      docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     fi
   else
     # Create exclude list for display and grep pattern
@@ -592,7 +614,7 @@ function up() {
   # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
   # Profile 'code-nvidia' = NVIDIA GPU, 'code-amd-intel' = AMD/Intel GPU
 
-  docker compose -f docker-compose.dev.yaml up -d $@
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d $@
 }
 
 function build-zed-agent() {
@@ -660,7 +682,7 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  docker compose -f docker-compose.dev.yaml up -d --build $@
+  docker compose -f docker-compose.dev.yaml "${COMPOSE_TLS_OVERLAY_ARGS[@]}" up -d --build $@
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
