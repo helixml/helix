@@ -119,13 +119,26 @@ up.
   elsewhere. Document that backups/replication (out of scope) are the only
   protection.
 
-### Stateless services note
-Apps that keep no on-disk state (external/managed DB, nothing under `/data`)
-have no single-writer constraint and could in principle keep blue/green for
-zero-downtime deploys. That is **not** built here: detecting "stateless" is
-unreliable and the safe default is in-place. Blue/green-for-stateless is a
-possible future opt-in flag, explicitly chosen by the operator who knows their
-app writes nothing to `/data`.
+### Blue/green and scaling → external Kubernetes
+Built-in web-service hosting is deliberately the simple case: one app plus its
+database, on one pinned runner, with durable local-disk state. It is **not** a
+general orchestrator, and we will not bolt blue/green or multi-replica scaling
+onto the single-runner sandbox model — that path leads straight back to the
+single-writer / shared-volume problems above.
+
+Users who genuinely need zero-downtime blue/green deploys, rolling updates, or
+horizontal scaling should point Helix at an **external Kubernetes cluster** they
+configure; the cluster handles deploy strategy, replica management, and
+storage (PVCs / managed DBs) properly. The two models are complementary:
+
+- **Sandbox hosting (this design):** zero-config, single-runner, in-place
+  deploys with a brief restart window, durable on the runner's local disk.
+  Best for small apps, internal tools, prototypes-that-stuck.
+- **External Kubernetes:** operator-managed, supports blue/green and scale,
+  durability is the cluster's responsibility.
+
+So "stateless apps could keep blue/green" is answered by *use Kubernetes for
+that*, not by adding a fragile opt-in flag to the sandbox path.
 
 ### Alternative considered: shared `/data` + blue/green
 Mount the same per-project `/data` into both the old and new sandboxes during a

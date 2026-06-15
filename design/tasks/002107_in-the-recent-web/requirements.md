@@ -97,4 +97,9 @@ permanent loss of that single runner's disk.
   local disk remains the storage substrate; only pinning + a stable volume are
   added here).
 - Automated backups/snapshots of the data volume (note as a follow-up).
-- Multi-runner / horizontally-scaled web services.
+- Blue/green / zero-downtime deploys, rolling updates, and multi-runner /
+  horizontally-scaled web services. These are served by pointing Helix at an
+  **external Kubernetes cluster** the user configures — the cluster owns deploy
+  strategy, replicas, and storage. Built-in sandbox hosting stays the simple
+  single-runner, in-place model. See design.md "Blue/green and scaling →
+  external Kubernetes".
