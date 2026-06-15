@@ -200,6 +200,21 @@ Without (1), my fix is wired correctly and Helix injects `default_mode: "yolo"` 
 
 **Concrete recommendation:** Land this PR (task 002098) AND re-land task 001804 together. Either alone is insufficient; both are necessary to actually close the user-visible bug.
 
+## Final live A/B proof — v0.4.1 vs v0.14.4 ACP behaviour under YOLO
+
+Built qwen-code v0.14.4 fresh from the `feature/001804-we-havent-updated-qwen` branch (`npm install && npm run build` in `/home/retro/work/qwen-code/`), copied the resulting `dist/cli.js` into the live `ubuntu-external-01kv53y2pjty3x48egnnn2hmzx` container at `/tmp/cli-v0.14.4.js`, and re-ran the ACP driver script (`/tmp/acp_driver.py`) that sends the exact ACP wire protocol Zed sends: `initialize → authenticate → session/new → session/set_mode("yolo") → session/prompt`. The driver records every `session/request_permission` that qwen sends back, and every `fs/write_text_file` that qwen requests to perform. Both runs used the same fake OpenAI server (returning a streamed `write_file` tool call), same prompt, same starting state (`hello.txt` removed first).
+
+| qwen version | `set_mode("yolo")` accepted? | `request_permission` count | `fs/write_text_file` calls | File on disk after | Diagnosis |
+|---|---|---|---|---|---|
+| **v0.4.1** (current production, pinned in `sandbox-versions.txt`) | yes — `{"modeId": "yolo"}` | **1** — qwen sent a permission request despite yolo | 0 | NO | The v0.4.1 ACP `Session.runTool` path (`cli.js:365380-365445`) has no YOLO guard before `client.requestPermission`. YOLO is honored in `coreToolScheduler` but the ACP runner bypasses it. |
+| **v0.14.4** (built from task 001804's feature branch) | yes — `{}` | **0** | **1** — wrote `/home/retro/work/hello.txt` | YES — contents `'Hello from qwen YOLO'` | The L3/L4/L5 permission flow (`Session.ts:850-958`) forces `defaultPermission = 'allow'` under YOLO → `needsConfirmation = false` → no permission round-trip. |
+
+Both runs were against the live Helix-provisioned desktop container (`helix-ubuntu:a4dfd0`) — the *only* difference between runs is the qwen-code binary version. This proves the combined fix end-to-end:
+
+- The Helix-side change in this PR (`default_mode: "yolo"` in `agent_servers.qwen`) is necessary — without it, qwen-code defaults to `default` mode and prompts for everything.
+- The qwen-code upgrade from task 001804 is necessary — without it, qwen ignores YOLO for the ACP `Session.runTool` path.
+- Together they close the user-reported bug: qwen agents in Helix spec-task sandboxes will edit files autonomously, no permission prompts.
+
 **For the inner Helix picker bug** (orthogonal, hit during reproduction setup): on `/onboarding`, `AdvancedModelPicker` shows "No chat models available or still loading" because of a guard interaction in `AdvancedModelPicker.tsx:234`. On `/orgs/.../agents/...` it works fine. Tracked as a future cleanup, not blocking this task.
 
 ## Phase 1 Audit Results (2026-06-12)
