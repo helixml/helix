@@ -81,7 +81,7 @@ func TestPublishParity_RESTvsMCP(t *testing.T) {
 	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seedStreamAndOwner(t, restStore, clock)
 	h := orgapi.Handler(restDeps)
-	rec := do(t, h, "POST", "/streams/s-1/publish", orgapi.PublishRequest{Body: "hello world", Subject: "hi"})
+	rec := do(t, h, "POST", "/streams/s-1/publish", orgapi.PublishRequest{Body: "hello world", Subject: "hi", As: "w-owner"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST publish: %d body=%s", rec.Code, rec.Body)
 	}

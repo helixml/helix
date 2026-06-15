@@ -11,7 +11,6 @@ import (
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
@@ -213,7 +212,7 @@ func (p *WebhookProvisioner) ensureWebhookSecret(ctx context.Context, orgID stri
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 	// Persist as the system owner — secret bootstrap is helix self-care.
-	if err := p.configs.Set(ctx, orgID, "transport.github", string(out), orgchart.WorkerID("w-owner")); err != nil {
+	if err := p.configs.Set(ctx, orgID, "transport.github", string(out)); err != nil {
 		return "", fmt.Errorf("persist secret: %w", err)
 	}
 	return cfg.WebhookSecret, nil

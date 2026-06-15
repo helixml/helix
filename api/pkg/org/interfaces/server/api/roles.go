@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -171,8 +170,6 @@ func (a *apiHandler) deleteRole(w http.ResponseWriter, r *http.Request) {
 	switch err := a.deps.Lifecycle.DeleteRole(r.Context(), orgID, id); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, lifecycle.ErrOwnerRoleProtected), errors.Is(err, lifecycle.ErrOwnerProtected):
-		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, errStatus(err), err)
 	}

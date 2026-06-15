@@ -8,7 +8,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -108,7 +107,7 @@ func (k *helixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("encode api key: %w", err)
 	}
-	if err := k.configs.Set(ctx, orgID, "helix.api_key", string(payload), orgchart.WorkerID("w-owner")); err != nil {
+	if err := k.configs.Set(ctx, orgID, "helix.api_key", string(payload)); err != nil {
 		return "", fmt.Errorf("save api key to config: %w", err)
 	}
 	log.Info().

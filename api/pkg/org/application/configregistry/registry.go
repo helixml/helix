@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
@@ -155,10 +154,7 @@ func (r *Registry) IsConfigured(ctx context.Context, orgID, key string) bool {
 // Set validates the value against the registered Spec and upserts the
 // row. Unknown keys (not registered) are rejected — the registry is
 // the source of truth for what's settable.
-//
-// updatedBy is the WorkerID for the audit column; empty is allowed
-// today (auth not yet wired) but reserved.
-func (r *Registry) Set(ctx context.Context, orgID, key, value string, updatedBy orgchart.WorkerID) error {
+func (r *Registry) Set(ctx context.Context, orgID, key, value string) error {
 	spec, ok := r.Spec(key)
 	if !ok {
 		return fmt.Errorf("unknown config key %q (no subsystem has registered it)", key)
@@ -166,7 +162,7 @@ func (r *Registry) Set(ctx context.Context, orgID, key, value string, updatedBy 
 	if err := validateValue(spec, value); err != nil {
 		return fmt.Errorf("validate %q: %w", key, err)
 	}
-	cfg, err := config.New(key, value, time.Now().UTC(), updatedBy, orgID)
+	cfg, err := config.New(key, value, time.Now().UTC(), orgID)
 	if err != nil {
 		return err
 	}

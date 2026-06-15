@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	helixorgconfig "github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
@@ -40,8 +39,8 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	registerHelixOrgConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
+	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
+	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 
 	_, _, projectSvc, _ := newInProcTestSetup(t)
 	hub := wakebus.New(pubsub.NewNoop())
@@ -78,8 +77,8 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 	registerHelixOrgConfigSpecs(reg)
 
 	const orgID = "org-test"
-	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`, orgchart.WorkerID("")))
-	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`, orgchart.WorkerID("")))
+	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
+	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 
 	_, err := buildHelixOrgSpawnerConfig(ctx, orgID, spawnerDeps{
 		Cfg: reg,

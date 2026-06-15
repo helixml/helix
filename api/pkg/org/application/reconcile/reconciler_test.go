@@ -370,31 +370,31 @@ func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
 	}
 }
 
-// TestReconcile_OwnerWithReport mirrors the owner TDD row: the owner with
-// a direct report has both a self-observed transcript and a team
-// stream containing the owner + report.
-func TestReconcile_OwnerWithReport(t *testing.T) {
+// TestReconcile_RootWithReport: a manager-less root worker with a direct
+// report has a transcript (unobserved — no self-subscribe) and a team
+// stream containing the root + report.
+func TestReconcile_RootWithReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-owner"))
-	// Owner bootstrap reconcile mints its self-observed transcript.
-	if err := rec.Reconcile(ctx, orgID, "w-owner"); err != nil {
-		t.Fatalf("reconcile owner: %v", err)
+	seedWorker(t, st, human("w-root"))
+	// The root's first reconcile mints its (unobserved) transcript.
+	if err := rec.Reconcile(ctx, orgID, "w-root"); err != nil {
+		t.Fatalf("reconcile root: %v", err)
 	}
-	if got := streamMembers(t, st, activation.TranscriptID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
-		t.Fatalf("owner activation observers = %v, want [w-owner]", got)
+	if got := streamMembers(t, st, activation.TranscriptID("w-root")); len(got) != 0 {
+		t.Fatalf("root transcript observers = %v, want none (no self-subscribe)", got)
 	}
 
 	seedWorker(t, st, ai("w-jane"))
-	addLine(t, st, "w-owner", "w-jane")
+	addLine(t, st, "w-root", "w-jane")
 	if err := rec.Reconcile(ctx, orgID, "w-jane"); err != nil {
 		t.Fatalf("reconcile jane: %v", err)
 	}
-	if got := streamMembers(t, st, channels.TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-jane", "w-owner"}) {
-		t.Fatalf("s-team-w-owner = %v, want [w-jane w-owner]", got)
+	if got := streamMembers(t, st, channels.TeamStreamID("w-root")); !eq(got, []orgchart.WorkerID{"w-jane", "w-root"}) {
+		t.Fatalf("s-team-w-root = %v, want [w-jane w-root]", got)
 	}
-	// Owner's own transcript survived the team-stream creation.
-	if got := streamMembers(t, st, activation.TranscriptID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
-		t.Fatalf("owner activation observers after report = %v, want [w-owner]", got)
+	// The root's own transcript survived the team-stream creation.
+	if !streamExists(t, st, activation.TranscriptID("w-root")) {
+		t.Fatalf("root transcript should still exist after report")
 	}
 }

@@ -79,14 +79,12 @@ type Set struct {
 // Rules (reporting is many-to-many):
 //
 //   - Transcript `s-transcript-W` exists for Worker W iff W is
-//     an AI Worker OR W has no managers (the root — typically the
-//     human owner). Members are W's managers, so every manager observes
-//     the transcript of each Worker reporting to them. A manager-less
-//     *human* (the owner) observes its own transcript so its chat turns
-//     still surface on the Streams page — no special-casing by id, it
-//     falls out of "no managers". A manager-less AI gets a member-less
-//     stream (never self-subscribed: that would re-trigger it
-//     indefinitely).
+//     an AI Worker OR W has no managers (a top-level root worker — so its
+//     own chat turns still have a home). Members are W's managers, so
+//     every manager observes the transcript of each Worker reporting to
+//     them. A manager-less worker gets a member-less stream — no worker
+//     is ever self-subscribed (for an AI that would re-trigger it
+//     indefinitely, and a transcript is observe-only regardless).
 //
 //   - Team Stream `s-team-M` exists for Worker M iff M has ≥1 direct
 //     report. Members are M plus all of M's direct reports. A Worker
@@ -143,8 +141,11 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 		wid := w.ID()
 		managers := managersByReport[wid]
 
-		// Transcript: AI Workers always, plus the manager-less
-		// root (the human owner).
+		// Transcript: AI Workers always, plus any manager-less root
+		// worker (so a top-level worker's turns still have a home).
+		// Observers are the worker's managers; a manager-less worker has
+		// none. No worker is ever self-subscribed — for an AI that would
+		// re-trigger it forever, and a transcript is observe-only anyway.
 		if w.Kind() == orgchart.WorkerKindAI || len(managers) == 0 {
 			sid := activation.TranscriptID(wid)
 			set.Channels[sid] = Channel{
@@ -153,14 +154,7 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 				Description: transcriptChannelDescription(wid),
 				CreatedBy:   wid,
 			}
-			observers := managers
-			if len(observers) == 0 && w.Kind() == orgchart.WorkerKindHuman {
-				// The owner observes its own transcript. AI Workers are
-				// never self-subscribed (re-trigger loop), so a
-				// manager-less AI simply has no observer.
-				observers = []orgchart.WorkerID{wid}
-			}
-			for _, m := range observers {
+			for _, m := range managers {
 				set.Members[Membership{WorkerID: m, StreamID: sid}] = struct{}{}
 			}
 		}

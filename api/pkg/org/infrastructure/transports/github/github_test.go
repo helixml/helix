@@ -40,7 +40,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -96,7 +95,7 @@ func newTestTransport(t *testing.T) (*githubtransport.Transport, *store.Store, *
 func setGitHubConfig(t *testing.T, reg *configregistry.Registry, token, secret string) {
 	t.Helper()
 	val, _ := json.Marshal(map[string]string{"token": token, "webhook_secret": secret})
-	if err := reg.Set(context.Background(), "org-test", "transport.github", string(val), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.github", string(val)); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 }

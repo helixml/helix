@@ -60,9 +60,6 @@ type ProjectEnsurer interface {
 
 // Deps is the JSON API's wiring.
 //
-// Owner is the WorkerID hardcoded as "w-owner"; plumbed through so
-// publish attribution stays consistent with the React publish form.
-//
 // PublicURL / DBPath / EnvsDir are the operational state the settings
 // page surfaces (today they come from CLI flags; the SaaS embedding
 // leaves PublicURL empty).
@@ -100,7 +97,6 @@ type Deps struct {
 	// → POST /github/webhook returns 503.
 	GitHubInbound func(orgID string) http.Handler
 
-	Owner     string
 	PublicURL string
 	DBPath    string
 	EnvsDir   string

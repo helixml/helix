@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -13,7 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
@@ -83,9 +79,9 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	s.mu.Unlock()
 
 	// singleflight collapses concurrent first-load callers for the
-	// same orgID into a single bootstrap.Run; losers wait for the
-	// winner and inherit its (err) result. This prevents the
-	// duplicate-key race described on bootstrapFlight.
+	// same orgID into a single setup run; losers wait for the winner and
+	// inherit its (err) result. This prevents duplicate-key races on the
+	// per-org setup below.
 	_, err, _ := s.bootstrapFlight.Do(orgID, func() (any, error) {
 		// Re-check under the flight: if a prior flight already
 		// finished and flipped the flag, return immediately so we
@@ -98,27 +94,10 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, nil
 		}
 
-		envsDir := filepath.Join(s.envsRoot, orgID)
-		ownerEnvPath := filepath.Join(envsDir, "w-owner")
-		if err := osMkdirAll(ownerEnvPath); err != nil {
-			return nil, err
-		}
-
-		switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
-			EnvironmentPath: ownerEnvPath,
-			OrganizationID:  orgID,
-			OwnerRoleTools:  mcptools.OwnerRoleTools(),
-		}); {
-		case err == nil:
-			log.Info().
-				Str("org_id", orgID).
-				Str("worker_id", string(result.WorkerID)).
-				Msg("helix-org bootstrap created owner")
-		case errors.Is(err, bootstrap.ErrAlreadyInitialised):
-			// expected on subsequent boots after a previous bootstrap
-		default:
-			return nil, err
-		}
+		// No owner is seeded — orgs start empty. The human creates the
+		// first Role + Worker from the chart UI. This first-request hook
+		// only provisions the per-org service api_key and converges any
+		// graph that already exists (a no-op on a brand-new empty org).
 
 		// Provision a per-org Helix service api_key. Tied to the
 		// first admin user found — see helixAPIKeys.Service for the
@@ -164,12 +143,6 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		return nil, nil
 	})
 	return err
-}
-
-// osMkdirAll is a tiny indirection so tests can stub if needed; for
-// now it just calls os.MkdirAll with the canonical mode.
-func osMkdirAll(path string) error {
-	return os.MkdirAll(path, 0o750)
 }
 
 // withHelixOrgScope wraps the helix-org handler chain. It resolves

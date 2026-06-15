@@ -136,7 +136,7 @@ func (a *apiHandler) createStream(w http.ResponseWriter, r *http.Request) {
 		ID:          strings.TrimSpace(req.ID),
 		Name:        req.Name,
 		Description: req.Description,
-		CreatedBy:   a.deps.Owner,
+		CreatedBy:   strings.TrimSpace(req.As),
 		Transport:   tr,
 	})
 	if err != nil {
@@ -518,7 +518,7 @@ func (a *apiHandler) publishToStream(w http.ResponseWriter, r *http.Request) {
 		Subject: strings.TrimSpace(req.Subject),
 		Body:    req.Body,
 	}
-	ev, err := a.deps.Publishing.Publish(ctx, orgID, streamID, a.deps.Owner, msg)
+	ev, err := a.deps.Publishing.Publish(ctx, orgID, streamID, strings.TrimSpace(req.As), msg)
 	if err != nil {
 		if errors.Is(err, publishing.ErrPublishToGitHub) {
 			writeError(w, http.StatusConflict, err)

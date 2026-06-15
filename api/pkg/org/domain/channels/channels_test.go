@@ -58,21 +58,22 @@ func eq(a, b []orgchart.WorkerID) bool {
 	return true
 }
 
-// TestRequired_OwnerObservesOwn: the manager-less human owner gets a
-// self-observed transcript and (with no reports) no team stream.
-// This is the "no special-casing by id" rule.
-func TestRequired_OwnerObservesOwn(t *testing.T) {
-	set := Required([]orgchart.Worker{human("w-owner")}, nil)
+// TestRequired_ManagerlessRootHasUnobservedTranscript: a manager-less
+// root worker gets a transcript (so its own chat turns have a home) with
+// NO observers — never self-subscribed — and, with no reports, no team
+// stream.
+func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
+	set := Required([]orgchart.Worker{human("w-root")}, nil)
 
-	actStream := activation.TranscriptID("w-owner")
-	if _, ok := set.Channels[actStream]; !ok {
-		t.Fatalf("owner transcript missing")
+	tx := activation.TranscriptID("w-root")
+	if _, ok := set.Channels[tx]; !ok {
+		t.Fatalf("manager-less root transcript missing")
 	}
-	if got := membersOf(set, actStream); !eq(got, []orgchart.WorkerID{"w-owner"}) {
-		t.Fatalf("owner activation observers = %v, want [w-owner]", got)
+	if got := membersOf(set, tx); len(got) != 0 {
+		t.Fatalf("manager-less root transcript observers = %v, want none (no self-subscribe)", got)
 	}
-	if _, ok := set.Channels[TeamStreamID("w-owner")]; ok {
-		t.Fatalf("owner with no reports must NOT have a team stream")
+	if _, ok := set.Channels[TeamStreamID("w-root")]; ok {
+		t.Fatalf("root with no reports must NOT have a team stream")
 	}
 }
 

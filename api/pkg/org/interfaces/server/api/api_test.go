@@ -75,7 +75,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
 		// tests don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Reconciler: topo, Owner: "w-owner",
+			Store: st, Reconciler: topo,
 			EnvsDir: t.TempDir(), Now: clock, NewID: newID,
 		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
@@ -84,7 +84,6 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
 		Configs:       reg,
 		Hub:           hub,
-		Owner:         "w-owner",
 	}
 	return deps, st, reg
 }
@@ -187,7 +186,7 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	h := orgapi.Handler(deps)
 
 	rawValue := `{"token":"sekrit-XXXX","from":"ops@example.com"}`
-	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue, orgchart.WorkerID("w-owner")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue); err != nil {
 		t.Fatalf("set value: %v", err)
 	}
 
@@ -427,7 +426,7 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 		repo          = "octocat/hello-world"
 	)
 	rawCfg, _ := json.Marshal(map[string]any{"token": token, "webhook_secret": webhookSecret})
-	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg)); err != nil {
 		t.Fatalf("set transport.github: %v", err)
 	}
 	streamCfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"issues"}})
@@ -595,7 +594,7 @@ func TestGetStream_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
 	// before Set will accept the value.
 	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
 	if err := reg.Set(context.Background(), "org-test", "streams.public_url",
-		`"https://helix.example.com"`, orgchart.WorkerID("w-owner")); err != nil {
+		`"https://helix.example.com"`); err != nil {
 		t.Fatalf("set streams.public_url: %v", err)
 	}
 

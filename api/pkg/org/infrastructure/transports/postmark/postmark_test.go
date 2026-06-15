@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -65,7 +64,7 @@ func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordi
 func setPostmarkConfig(t *testing.T, reg *configregistry.Registry, token, inbound, from string) {
 	t.Helper()
 	val, _ := json.Marshal(map[string]string{"token": token, "inbound": inbound, "from": from})
-	if err := reg.Set(context.Background(), "org-test", "transport.postmark", string(val), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", string(val)); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 }

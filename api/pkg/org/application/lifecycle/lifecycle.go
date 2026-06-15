@@ -56,10 +56,6 @@ type Service struct {
 	Helix   HelixRuntime
 	Logger  *slog.Logger
 	EnvsDir string
-	// Owner is the WorkerID of the embedded owner (typically "w-owner").
-	// Fire refuses to delete the owner so the alpha can't be bricked by
-	// a UI misclick.
-	Owner orgchart.WorkerID
 
 	// Reconciler reconciles the activation/team Streams after the Worker
 	// row is gone — it tears down the fired Worker's own Streams and
@@ -243,14 +239,6 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	return HireResult{WorkerID: id, ActivationID: hireActID}, nil
 }
 
-// ErrOwnerProtected is returned by Fire when the caller targets the
-// embedded owner Worker. The REST layer maps it to 409 Conflict.
-var ErrOwnerProtected = errors.New("cannot fire the owner worker")
-
-// ErrOwnerRoleProtected is returned by DeleteRole when the caller
-// targets the embedded owner role (`r-owner`). REST maps to 409.
-var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
-
 // Fire tears down a Worker end-to-end:
 //
 //  1. Read the Helix-runtime state (project + app IDs) before clearing.
@@ -283,9 +271,6 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
-	}
-	if id == s.Owner {
-		return ErrOwnerProtected
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
@@ -366,18 +351,13 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 
 // DeleteRole tears down a Role end-to-end:
 //
-//  1. Refuse if id is the canonical owner role ("r-owner").
-//  2. Fire every Worker whose RoleID matches id (each Worker gets
+//  1. Fire every Worker whose RoleID matches id (each Worker gets
 //     the full Fire cascade — project teardown, env removal,
-//     subscriptions, the worker row). Refuses if the owner Worker
-//     holds this role.
-//  3. Delete the Role row.
+//     subscriptions, the worker row).
+//  2. Delete the Role row.
 func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.RoleID) error {
 	if id == "" {
 		return errors.New("role id is empty")
-	}
-	if id == orgchart.RoleID("r-owner") {
-		return ErrOwnerRoleProtected
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
@@ -397,9 +377,6 @@ func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.Role
 }
 
 // fireWorkersWithRole fires every Worker holding the given Role.
-// Honours the owner-protect rule: if the owner Worker holds the
-// Role, refuse the whole operation — bringing the owner down with
-// a role deletion is always wrong.
 func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID orgchart.RoleID) error {
 	workers, err := s.Store.Workers.List(ctx, orgID)
 	if err != nil {
@@ -408,9 +385,6 @@ func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID 
 	for _, w := range workers {
 		if w.RoleID() != roleID {
 			continue
-		}
-		if w.ID() == s.Owner {
-			return ErrOwnerProtected
 		}
 		if err := s.Fire(ctx, orgID, w.ID()); err != nil {
 			s.logger().Warn("fire worker for role teardown", "role", roleID, "worker", w.ID(), "err", err)

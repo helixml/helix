@@ -31,6 +31,7 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 		ID:          "s-parity",
 		Name:        "parity",
 		Description: "shared-service parity",
+		As:          "w-owner", // the worker the human is acting as (matches the MCP caller below)
 		Transport: &orgapi.TransportRequestField{
 			Kind:   "webhook",
 			Config: map[string]interface{}{"outbound_url": "https://example.com/in"},

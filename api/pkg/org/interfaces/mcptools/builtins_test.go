@@ -12,10 +12,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -963,29 +964,38 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	}
 }
 
-// TestBootstrapOwnerHasBaselineReadsOverMCP is the §13 regression test
-// for helixml/helix#2546. It drives the production bootstrap (so the
-// owner Role is created from the same defaults the real server would
-// use) and asserts the w-owner MCP surface includes every BaseReadTools
-// entry — most importantly `managers` and `reports`, the two tools the
-// QA report observed missing.
-func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
+// seedActingWorker creates a Role (with the baseline read tools injected,
+// exactly as the chart's New-Role flow does via the roles service) and a
+// human Worker holding it, so a test can connect to the MCP surface AS
+// that worker. Replaces the old bootstrap-owner seed now that orgs start
+// empty.
+func seedActingWorker(t *testing.T, s *store.Store, orgID, workerID, roleID string, tools []tool.Name) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := roles.New(roles.Deps{Roles: s.Roles, BaseTools: mcptools.BaseReadTools}).
+		Create(ctx, orgID, roles.CreateParams{ID: roleID, Content: "# " + roleID, Tools: tools}); err != nil {
+		t.Fatalf("seed role %s: %v", roleID, err)
+	}
+	w, err := orgchart.NewHumanWorker(orgchart.WorkerID(workerID), orgchart.RoleID(roleID), "# "+workerID, orgID)
+	if err != nil {
+		t.Fatalf("build worker %s: %v", workerID, err)
+	}
+	if err := s.Workers.Create(ctx, w); err != nil {
+		t.Fatalf("create worker %s: %v", workerID, err)
+	}
+}
+
+// TestWorkerRoleBaselineReadsOverMCP is the §13 regression test for
+// helixml/helix#2546: a Worker whose Role was created through the roles
+// service (baseline injected) exposes every BaseReadTools entry on its
+// MCP surface — most importantly `managers` and `reports`, the two tools
+// the QA report observed missing.
+func TestWorkerRoleBaselineReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
-	ownerEnv := filepath.Join(envsDir, "w-owner")
-	if err := os.MkdirAll(ownerEnv, 0o750); err != nil {
-		t.Fatalf("mkdir owner env: %v", err)
-	}
-
-	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
-		EnvironmentPath: ownerEnv,
-		OrganizationID:  "org-test",
-		OwnerRoleTools:  mcptools.OwnerRoleTools(),
-	}); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
+	seedActingWorker(t, s, "org-test", "w-boss", "r-boss", mcptools.OwnerRoleTools())
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
@@ -996,7 +1006,7 @@ func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
-	session := connectMCP(t, srv.URL, "w-owner")
+	session := connectMCP(t, srv.URL, "w-boss")
 	res, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -1007,7 +1017,7 @@ func TestBootstrapOwnerHasBaselineReadsOverMCP(t *testing.T) {
 	}
 	for _, name := range mcptools.BaseReadTools {
 		if !got[name] {
-			t.Errorf("baseline tool %q missing from w-owner MCP surface; got: %+v", name, got)
+			t.Errorf("baseline tool %q missing from w-boss MCP surface; got: %+v", name, got)
 		}
 	}
 }
@@ -1022,17 +1032,9 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 
 	s := orggorm.GetOrgTestDB(t)
 	envsDir := t.TempDir()
-	ownerEnv := filepath.Join(envsDir, "w-owner")
-	if err := os.MkdirAll(ownerEnv, 0o750); err != nil {
-		t.Fatalf("mkdir owner env: %v", err)
-	}
-	if _, err := bootstrap.Run(context.Background(), s, bootstrap.Params{
-		EnvironmentPath: ownerEnv,
-		OrganizationID:  "org-test",
-		OwnerRoleTools:  mcptools.OwnerRoleTools(),
-	}); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
+	// Seed a manager worker to act as (the chart's New-Role → Add-Worker
+	// entry point, now that there is no auto-seeded owner).
+	seedActingWorker(t, s, "org-test", "w-owner", "r-owner", mcptools.OwnerRoleTools())
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)

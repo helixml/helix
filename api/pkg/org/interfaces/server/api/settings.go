@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 )
 
 // ---- Settings -----------------------------------------------------------
@@ -28,7 +27,6 @@ func (a *apiHandler) listSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := SettingsResponse{
-		Owner:     a.deps.Owner,
 		PublicURL: a.deps.PublicURL,
 		DBPath:    a.deps.DBPath,
 		EnvsDir:   a.deps.EnvsDir,
@@ -91,7 +89,7 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := a.deps.Configs.Set(r.Context(), orgID, key, req.Value, orgchart.WorkerID(a.deps.Owner)); err != nil {
+	if err := a.deps.Configs.Set(r.Context(), orgID, key, req.Value); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

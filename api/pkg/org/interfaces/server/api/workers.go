@@ -164,8 +164,6 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 	switch err := a.deps.Lifecycle.Fire(r.Context(), orgID, id); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, lifecycle.ErrOwnerProtected):
-		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, errStatus(err), err)
 	}

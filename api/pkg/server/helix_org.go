@@ -204,10 +204,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	if err := os.MkdirAll(orgRoot, 0o750); err != nil {
 		return nil, fmt.Errorf("create helix-org dir %q: %w", orgRoot, err)
 	}
+	// Per-Worker env directories are created on hire (lifecycle.Hire);
+	// the org starts empty, so nothing is provisioned here beyond the
+	// shared envs root.
 	envsDir := filepath.Join(orgRoot, "envs")
-	ownerEnvPath := filepath.Join(envsDir, "w-owner")
-	if err := os.MkdirAll(ownerEnvPath, 0o750); err != nil {
-		return nil, fmt.Errorf("create owner env %q: %w", ownerEnvPath, err)
+	if err := os.MkdirAll(envsDir, 0o750); err != nil {
+		return nil, fmt.Errorf("create envs dir %q: %w", envsDir, err)
 	}
 
 	// Open the org store against helix's Postgres connection. The
@@ -464,7 +466,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Helix:   inProcClient,
 		Logger:  logger,
 		EnvsDir: envsDir,
-		Owner:   "w-owner",
 		// Single topology reconciler shared with the tools registry and
 		// the REST handlers — one owner of activation/team Stream
 		// lifecycle across hire, reparent, and fire.
@@ -535,7 +536,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Configs:        configReg,
 		Hub:            bc,
 		Dispatcher:     dispatcher,
-		Owner:          "w-owner",
 		DBPath:         orgRoot,
 		EnvsDir:        envsDir,
 		Lifecycle:      lifecycleSvc,
