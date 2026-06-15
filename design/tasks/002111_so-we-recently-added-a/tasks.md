@@ -1,9 +1,9 @@
 # Implementation Tasks: In-Place Agent Switching via New Zed Threads
 
-## Spike — gates the config strategy (do first)
-- [ ] Generate a Zed `settings.json` with ~100 `agent_servers` + the union of representative MCP `context_servers`
+## Spike — gates the config strategy (do first; PAUSE for interactive decision)
+- [~] Generate a Zed `settings.json` with ~100 `agent_servers` + the union of representative MCP `context_servers`
 - [ ] Measure cold Zed startup time, `npx`/process count, memory, and time-to-first-thread
-- [ ] Record findings; decide **Strategy A (all agents up front)** vs **Strategy B (selective/lazy + restart)**
+- [ ] Record findings; **PAUSE and report CPU/startup impact to the reviewer before deciding** Strategy A (all agents up front) vs Strategy B (selective/lazy + restart)
 - [ ] If Strategy B: confirm the daemon can rewrite config + restart Zed fast enough for an interactive switch
 
 ## Settings-Sync daemon — Zed lifecycle ownership
