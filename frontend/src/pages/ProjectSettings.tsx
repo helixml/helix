@@ -53,6 +53,7 @@ import Skills from "../components/app/Skills";
 import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
+import WebServiceTab from "../components/project/WebServiceTab";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import {
   AppsContext,
@@ -1957,6 +1958,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Container maxWidth="lg" sx={{ px: 2 }}>
         {tab ==="general" && renderGeneralTab()}
         {tab ==="sandbox" && renderSandboxTab()}
+        {tab ==="web-service" && <WebServiceTab projectId={projectId} />}
         {tab ==="agents" && renderAgentsTab()}
         {tab ==="board" && renderBoardTab()}
         {tab ==="secrets" && renderSecretsTab()}
