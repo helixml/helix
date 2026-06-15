@@ -20,10 +20,10 @@ func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UT
 func newService(st *store.Store) *Workers {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: fixedClock, NewID: func() string { return "id" }})
 	return New(Deps{
-		Workers:  st.Workers,
-		Roles:    rolesSvc,
-		Lines:    st.ReportingLines,
-		Topology: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
+		Workers:    st.Workers,
+		Roles:      rolesSvc,
+		Lines:      st.ReportingLines,
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
 	})
 }
 

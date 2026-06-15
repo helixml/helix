@@ -79,7 +79,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
-	// The DM channel must already exist. Topology provisions one per
+	// The DM channel must already exist. The reconciler provisions one per
 	// reporting edge; we do NOT create it here. A missing channel means
 	// the caller has no reporting relationship with the recipient — say
 	// so plainly rather than silently minting a channel that the org

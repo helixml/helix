@@ -489,7 +489,7 @@ func TestDM(t *testing.T) {
 	// before either party DMs the other.
 	line, _ := orgchart.NewReportingLine("org-test", "w-alice", "w-bob")
 	mustCreate(t, s.ReportingLines.Add(ctx, line))
-	if err := deps.Topology.Reconcile(ctx, "org-test", "w-bob", "w-alice"); err != nil {
+	if err := deps.Reconciler.Reconcile(ctx, "org-test", "w-bob", "w-alice"); err != nil {
 		t.Fatalf("reconcile DM topology: %v", err)
 	}
 

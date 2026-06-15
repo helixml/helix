@@ -61,11 +61,11 @@ type Service struct {
 	// a UI misclick.
 	Owner orgchart.WorkerID
 
-	// Topology reconciles the activation/team Streams after the Worker
+	// Reconciler reconciles the activation/team Streams after the Worker
 	// row is gone — it tears down the fired Worker's own Streams and
 	// collapses an ex-manager's team Stream when its last report just
 	// left. nil is a no-op (tests without topology wiring).
-	Topology *reconcile.Reconciler
+	Reconciler *reconcile.Reconciler
 
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.
@@ -208,9 +208,9 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 
 	// Reconcile the activation/team Streams implied by the new Worker and
 	// its reporting line (mints the hire's activation Stream + the
-	// manager's team Stream from one declarative pass). A nil Topology is
+	// manager's team Stream from one declarative pass). A nil Reconciler is
 	// a no-op (the Reconciler guards its own nil receiver).
-	if err := s.Topology.Reconcile(ctx, orgID, id); err != nil {
+	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {
 		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
 	}
 
@@ -355,9 +355,9 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// its last report just left. Best-effort: a failure here leaves a
 	// dangling Stream row, not a half-deleted worker, so we log and
 	// continue rather than failing the Fire.
-	if s.Topology != nil {
+	if s.Reconciler != nil {
 		affected := append([]orgchart.WorkerID{id}, exManagers...)
-		if err := s.Topology.Reconcile(ctx, orgID, affected...); err != nil {
+		if err := s.Reconciler.Reconcile(ctx, orgID, affected...); err != nil {
 			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
 		}
 	}

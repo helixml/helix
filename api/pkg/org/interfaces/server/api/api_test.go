@@ -69,13 +69,13 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
 		Roles:   rolesSvc,
 		Workers: workers.New(workers.Deps{
-			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: topo,
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: topo,
 		}),
 		// Hire + Fire live on the lifecycle service. EnvsDir/Now/NewID
 		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
 		// tests don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Topology: topo, Owner: "w-owner",
+			Store: st, Reconciler: topo, Owner: "w-owner",
 			EnvsDir: t.TempDir(), Now: clock, NewID: newID,
 		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),

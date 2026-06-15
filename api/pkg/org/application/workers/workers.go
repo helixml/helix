@@ -40,10 +40,10 @@ var ErrReportingLinesUnavailable = errors.New("reporting lines not wired")
 
 // Workers owns the worker-mutation use cases.
 type Workers struct {
-	workers  store.Workers
-	roles    *roles.Roles
-	lines    store.ReportingLines
-	topology *reconcile.Reconciler
+	workers    store.Workers
+	roles      *roles.Roles
+	lines      store.ReportingLines
+	reconciler *reconcile.Reconciler
 }
 
 // Deps are the constructor-injected collaborators for New.
@@ -53,21 +53,21 @@ type Deps struct {
 	// "a Worker's capability is its Role" content rewrite reuses the
 	// roles RMW (tools/streams preserved) instead of duplicating it.
 	Roles *roles.Roles
-	// Lines + Topology back AddParent/RemoveParent. Lines may be nil
+	// Lines + Reconciler back AddParent/RemoveParent. Lines may be nil
 	// (AddParent/RemoveParent then return ErrReportingLinesUnavailable);
-	// Topology may be nil (no-op reconcile, handled by the Reconciler
+	// Reconciler may be nil (no-op reconcile, handled by the Reconciler
 	// itself).
-	Lines    store.ReportingLines
-	Topology *reconcile.Reconciler
+	Lines      store.ReportingLines
+	Reconciler *reconcile.Reconciler
 }
 
 // New constructs the Workers service.
 func New(deps Deps) *Workers {
 	return &Workers{
-		workers:  deps.Workers,
-		roles:    deps.Roles,
-		lines:    deps.Lines,
-		topology: deps.Topology,
+		workers:    deps.Workers,
+		roles:      deps.Roles,
+		lines:      deps.Lines,
+		reconciler: deps.Reconciler,
 	}
 }
 
@@ -131,7 +131,7 @@ func (s *Workers) AddParent(ctx context.Context, orgID string, reportID, manager
 		return fmt.Errorf("add reporting line: %w", err)
 	}
 	// Pass both endpoints so the manager's team stream is in scope.
-	if err := s.topology.Reconcile(ctx, orgID, reportID, managerID); err != nil {
+	if err := s.reconciler.Reconcile(ctx, orgID, reportID, managerID); err != nil {
 		return fmt.Errorf("reconcile topology: %w", err)
 	}
 	return nil
@@ -177,7 +177,7 @@ func (s *Workers) RemoveParent(ctx context.Context, orgID string, reportID, mana
 	}
 	// Both endpoints named — the ex-manager is no longer in
 	// ListManagers(report), so it must be explicit to fall in scope.
-	if err := s.topology.Reconcile(ctx, orgID, reportID, managerID); err != nil {
+	if err := s.reconciler.Reconcile(ctx, orgID, reportID, managerID); err != nil {
 		return fmt.Errorf("reconcile topology: %w", err)
 	}
 	return nil

@@ -81,7 +81,7 @@ type Deps struct {
 }
 
 // Config carries the construction seams the composition root supplies to
-// assemble the tool Deps: the store + clock/id-gen + topology + the
+// assemble the tool Deps: the store + clock/id-gen + reconciler + the
 // runtime collaborators. Build() turns it into a Deps. This is the only
 // place store repositories are read — a composition convenience (the
 // same shape as server.NewFromStore), never reached from a tool.
@@ -100,7 +100,7 @@ type Config struct {
 	Workspace           runtime.WorkspaceSync
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
-	Topology            *reconcile.Reconciler
+	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
 }
 
@@ -157,10 +157,10 @@ func (c Config) publishingService() *publishing.Publishing {
 // tools/streams.
 func (c Config) workersService() *workers.Workers {
 	return workers.New(workers.Deps{
-		Workers:  c.Store.Workers,
-		Roles:    c.rolesService(),
-		Lines:    c.Store.ReportingLines,
-		Topology: c.Topology,
+		Workers:    c.Store.Workers,
+		Roles:      c.rolesService(),
+		Lines:      c.Store.ReportingLines,
+		Reconciler: c.Reconciler,
 	})
 }
 
@@ -171,12 +171,12 @@ func (c Config) workersService() *workers.Workers {
 // surface never fires Workers, so Helix/Mirror/Owner stay nil).
 func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
-		Store:    c.Store,
-		Topology: c.Topology,
-		HireHook: c.HireHook,
-		EnvsDir:  c.EnvsDir,
-		Now:      c.Now,
-		NewID:    c.NewID,
+		Store:      c.Store,
+		Reconciler: c.Reconciler,
+		HireHook:   c.HireHook,
+		EnvsDir:    c.EnvsDir,
+		Now:        c.Now,
+		NewID:      c.NewID,
 	}
 	// c.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.
@@ -209,7 +209,7 @@ func (c Config) streamsService() *streams.Streams {
 
 // DefaultDeps wires production defaults into a Config: real UUIDs and
 // wall-clock time, a no-op WorkspaceSync that callers replace with the
-// runtime-specific implementation, and the Queries facade + Topology
+// runtime-specific implementation, and the Queries facade + Reconciler
 // built off the store. EnvsDir, Hub, and Dispatcher are left zero —
 // composition callers wire them in before calling Build().
 func DefaultDeps(s *store.Store) Config {
@@ -222,7 +222,7 @@ func DefaultDeps(s *store.Store) Config {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
-	c.Topology = reconcile.New(reconcile.Deps{
+	c.Reconciler = reconcile.New(reconcile.Deps{
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
 		Streams:        s.Streams,

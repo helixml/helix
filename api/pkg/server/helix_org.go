@@ -174,7 +174,7 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 		Roles:   rolesSvc,
 		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners}),
 		Workers: workers.New(workers.Deps{
-			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		}),
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
@@ -468,8 +468,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// Single topology reconciler shared with the tools registry and
 		// the REST handlers — one owner of activation/team Stream
 		// lifecycle across hire, reparent, and fire.
-		Topology: deps.Topology,
-		Mirror:   mirror, // Fire stops the fired worker's subscription
+		Reconciler: deps.Reconciler,
+		Mirror:     mirror, // Fire stops the fired worker's subscription
 		// Hire collaborators (the create half of the lifecycle). REST POST
 		// /workers and the MCP hire_worker tool both drive Hire through
 		// this service, so the hire semantics live in one place.

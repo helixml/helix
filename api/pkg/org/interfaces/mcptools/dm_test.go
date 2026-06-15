@@ -34,8 +34,8 @@ func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.Worker, orgchart.W
 	deps := DefaultDeps(st)
 	if wireLine {
 		addReportingLine(t, st, "w-mgr", "w-rep")
-		// Topology provisions the DM channel for the new edge.
-		if err := deps.Topology.Reconcile(ctx, "org-test", "w-rep", "w-mgr"); err != nil {
+		// Reconciler provisions the DM channel for the new edge.
+		if err := deps.Reconciler.Reconcile(ctx, "org-test", "w-rep", "w-mgr"); err != nil {
 			t.Fatalf("reconcile: %v", err)
 		}
 	}

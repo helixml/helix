@@ -21,11 +21,11 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 // (Helix / Mirror / Owner) stay nil — these tests never fire.
 func newHireService(st *store.Store, envsDir string) *lifecycle.Service {
 	return &lifecycle.Service{
-		Store:    st,
-		Topology: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: hireClock}),
-		EnvsDir:  envsDir,
-		Now:      hireClock,
-		NewID:    func() string { return "id" },
+		Store:      st,
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: hireClock}),
+		EnvsDir:    envsDir,
+		Now:        hireClock,
+		NewID:      func() string { return "id" },
 	}
 }
 
@@ -68,7 +68,7 @@ func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 	if len(managers) != 1 || managers[0] != "w-boss" {
 		t.Fatalf("reporting line not wired: %v", managers)
 	}
-	// Topology reconcile created the hire's activation stream.
+	// The reconciler created the hire's activation stream.
 	if _, err := st.Streams.Get(ctx, "org-test", "s-activations-w-new"); err != nil {
 		t.Fatalf("activation stream not reconciled: %v", err)
 	}
