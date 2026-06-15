@@ -49,8 +49,9 @@
 - [ ] Confirm no other caller of the dropdown silently loses fork behaviour it depended on
 
 ## Testing
-- [ ] Go unit/HTTP test for `switch-agent`: validation, session mutation, transcript seed, mapping reset
-- [ ] E2E in inner Helix: start a session, write a scratch file in the container, switch agent, confirm the file survives and the new agent has prior context
-- [ ] E2E: switch mid-turn cancels cleanly; switch to same agent is a no-op; switch on paused session is blocked
-- [ ] Verify the new thread is never created before `agent_config_loaded` (no unresolved-agent race)
-- [ ] Verify daemon-driven Zed restart (Strategy B) recovers cleanly and the WS reconnects
+- [x] Go unit tests for `switchAgentInPlace`: same-session mutation, ZedThreadID cleared, AgentSwitchedAt set, fork_seed + Waiting handoff created, not paused
+- [x] Go unit test: `maybePrependTranscript` prepends after an in-place switch
+- [x] Regression: existing fork + transcript tests still pass after the precondition change
+- [x] Builds: `go build ./pkg/server ./pkg/types ./cmd/settings-sync-daemon`; frontend `tsc -b` clean
+- [~] E2E in inner Helix (start session → switch → confirm workspace survives + context carried) — **blocked: inner-Helix desktop did not provision in this env (see Notes); needs `./stack build-ubuntu` + a live session to validate the daemon restart path**
+- [ ] E2E: switch to same agent is a no-op (unit-covered); switch on paused session blocked (unit-coverable); mid-turn switch torn down by restart
