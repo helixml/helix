@@ -38,10 +38,11 @@
 - [x] No new command type / no `agent_config_loaded` emission needed → **no `ZED_COMMIT` bump**
 
 ## Frontend — rewire the dropdown to a toggle
-- [ ] Point `ForkAgentControl` confirm action at the new `switch-agent` mutation instead of `useForkSession`
-- [ ] Replace all "fork" wording with simple switch/toggle copy; remove the "child clones fresh" + commit/push warnings (workspace is preserved)
-- [ ] Keep the `AGENT_TYPE_ZED_EXTERNAL` eligible-agents filter and the paused-session guard
-- [ ] Add the generated API client method (`./stack update_openapi`)
+- [x] Renamed `ForkAgentControl` → `SwitchAgentControl`; confirm action calls new `useSwitchAgent` mutation (`v1SessionsSwitchAgentCreate`)
+- [x] Replaced all "fork" wording with switch copy; removed workspace-dirty warnings + commit/push checkbox (workspace is preserved in place)
+- [x] Kept `AGENT_TYPE_ZED_EXTERNAL` filter and paused-session guard; dropped the `onForked`-navigate (session id unchanged → optional `onSwitched`)
+- [x] Ran `./stack update_openapi` → generated `v1SessionsSwitchAgentCreate` + types; updated `SpecTaskDetailContent` usage
+- [x] Frontend typecheck (`tsc -b`) passes
 
 ## Fork path preservation
 - [ ] Leave `POST /sessions/{id}/fork` and all `fork_*` handlers/markers intact and working
