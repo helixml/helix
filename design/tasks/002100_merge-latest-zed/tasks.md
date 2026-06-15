@@ -99,36 +99,37 @@
 - [x] Pre-flight: `go mod tidy` in `helix-ws-test-server/` — no-op (already tidy)
 - [x] Copy fresh binary into `e2e-test/zed-binary`
 - [x] Run E2E `zed-agent`: first attempt timed out at Phase 9 (zed-agent latency, ~73s to first token, exceeded 90s phase budget). **Retry PASSED**: all phases green, store validation PASSED, 14 interactions / 0 interrupted/cancelled / response entries isolation PASSED / thread title sync PASSED. Phase 9 latency flake is consistent with the documented "one retry permitted" policy (lesson from 001996 Phase 1 npm-install bootstrap flake — applies to any single-phase API-latency hiccup).
-- [~] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — in progress
-- [ ] Phase 9 (PR #60 retry-loop gate) — pass (implicit via claude-personality green)
-- [ ] Phase 15 (PR #55 emit gate) — pass
-- [ ] Phase 16 (PR #56 Fix 1a + PR #57) — pass
-- [ ] Phase 17 (Fix 1b draft-suppression gate) — pass
+- [x] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — first attempt: `zed-agent` PASSED all 15 phases; `claude` failed Phase 1 with 0 events (npm-install bootstrap flake, documented retry-permitted from 001996). **Retry PASSED both rounds**: `[zed-agent] PASSED`, `[claude] PASSED`, `[store] PASSED`. 28 interactions / 0 interrupted/cancelled / response entries isolation across 8 sessions / thread title sync across 3 sessions.
+- [x] Phase 9 (PR #60 retry-loop gate) — explicit PASS for zed-agent ("Received 2 completions -- thread recovered from rapid cancel (correct)"); claude personality green end-to-end (rapid-cancel territory survived for both agents)
+- [x] Phase 15 (PR #55 emit gate) — explicit PASS for zed-agent ("82 assistant message_added samples; longest gap 407ms; 22% in final 20%"); claude personality green end-to-end
+- [x] Phase 16 (PR #56 Fix 1a + PR #57) — explicit PASS ("0 spontaneous user_created_thread events — Fix 1a deferred-emit working as expected")
+- [x] Phase 17 (Fix 1b draft-suppression gate) — implicit PASS via claude personality green and no spurious child processes (run completed; store accumulation 28 interactions / 0 interrupted/cancelled)
 
 ## Update `portingguide.md`
 
-- [ ] New `## Merge 002100 (2026-06-15)` section appended at top of merge-history list
-- [ ] Window summary subsection: "21 upstream commits over 3 days; smallest catch-up window in this series."
-- [ ] Conflict-resolution subsections written (or explicit "0 conflicts, auto-merge clean" note)
-- [ ] Helix-surface auto-merge survival check subsection (per-area confirmation)
-- [ ] `1e017d04b9` agent menu link removal — Fix 1b position re-verification subsection
-- [ ] `f39cf25c0b` extensions_ui chip filter — three `// HELIX:` bypass marker survival subsection
-- [ ] PR #60 retry-loop survival check subsection
-- [ ] Cargo.toml / Cargo.lock notes (objc2 bumps + async-process patch)
-- [ ] Commit-history table extended with this merge's commits
-- [ ] No new rebase-checklist entries unless something actually broke (predict: none)
-- [ ] No stale entries discovered (or correct/delete them if so)
+- [x] New `## Merge 002100 (2026-06-15)` section appended at top of merge-history list (commit `952f59f2d6`)
+- [x] Window summary subsection: "25 upstream commits over 3 days; smallest catch-up window in this series" (originally predicted 21; upstream advanced 4 commits between planning and execution)
+- [x] Conflict-resolution subsection: 1 conflict on `settings_content/src/settings_content.rs` (both-sides-added-a-field)
+- [x] Helix-surface auto-merge survival check subsection (per-area confirmation written)
+- [x] `1e017d04b9` agent menu link removal — Fix 1b position re-verification subsection
+- [x] `f39cf25c0b` extensions_ui chip filter — three `// HELIX:` bypass marker survival subsection
+- [x] `26fc42721a` dev_container BuildKit setting — coexistence with Helix's `suggest_dev_container`
+- [x] PR #60 retry-loop survival check subsection
+- [x] Cargo.toml / Cargo.lock notes (objc2 bumps + async-process patch)
+- [x] Commit-history table extended with this merge's commits (`0098823efa` merge + `952f59f2d6` porting-guide entry)
+- [x] No new rebase-checklist entries required
+- [x] No stale entries discovered
 
 ## Re-merge Fork Main
 
-- [ ] Confirm `origin/main` did not advance during merge work; if it did, `git pull --rebase origin main` or `git merge origin/main` into the feature branch and re-run the build + critical-fix sweep
+- [x] Confirm `origin/main` did not advance during merge work — fork main still at `f82e1c6760` (verified at execution start)
 
 ## Finalise
 
-- [ ] Push Zed feature branch: `feature/002100-merge-latest-zed` to `origin`
-- [ ] Write `pull_request_zed.md` in this task directory
-- [ ] In `/home/retro/work/helix/`, create branch `feature/002100-merge-latest-zed`, bump `ZED_COMMIT` from `f82e1c676099470ecd17590878a00bd25b342f82` to the new merge HEAD
-- [ ] Push Helix branch: `feature/002100-merge-latest-zed`
-- [ ] Write `pull_request_helix.md` in this task directory
-- [ ] No force-push to main
-- [ ] No agent-initiated PRs (Helix UI handles)
+- [x] Pushed Zed feature branch: `feature/002100-merge-latest-zed` to `origin` (commits: `0098823efa` merge, `952f59f2d6` porting-guide entry, `5ed995947e` validation update)
+- [x] Wrote `pull_request_zed.md` in this task directory
+- [x] In `/home/retro/work/helix/`, created branch `feature/002100-merge-latest-zed`, bumped `ZED_COMMIT` from `f82e1c676099470ecd17590878a00bd25b342f82` to `5ed995947ee011d770e05f544cbc19a42faf258b` (the merge HEAD)
+- [x] Pushed Helix branch: `feature/002100-merge-latest-zed` (commit `52c881c77`)
+- [x] Wrote `pull_request_helix.md` in this task directory
+- [x] No force-push to main
+- [x] No agent-initiated PRs (Helix UI handles)
