@@ -44,6 +44,25 @@ echo "📍 Nesting depth=$DEPTH, address pool=10.${POOL_OCTET}.0.0/16"
 # GPU_VENDOR is set in docker-compose.yaml based on the sandbox profile
 if [[ "${GPU_VENDOR:-}" == "nvidia" ]]; then
     echo "🎮 GPU_VENDOR=nvidia - configuring NVIDIA container runtime"
+
+    # Rebuild the dynamic-linker cache so libnvidia-container-cli can find
+    # the driver libraries that the host's nvidia-container-toolkit mounted
+    # into this container via --gpus all. The toolkit consults the ld.so
+    # cache at container-create time (not at dockerd start), so refreshing
+    # it here — before dockerd is forked further down the script — means
+    # every subsequent `docker create` inherits the fresh cache.
+    #
+    # Without this, libnvidia-container-cli's lib resolution can fail
+    # silently in nested-DinD: the inner container ends up with no
+    # /dev/nvidia*, HELIX_RENDER_NODE=SOFTWARE, and nvh264enc fails to
+    # enter PLAYING.
+    #
+    # `|| true` is load-bearing under `set -e`: a failed cache rebuild
+    # mustn't abort dockerd startup. Stderr is silenced because the
+    # usual non-fatal complaints (e.g. unfindable symlinks under
+    # /usr/lib/nvidia) aren't actionable.
+    ldconfig >/dev/null 2>&1 || true
+
     cat > /etc/docker/daemon.json <<DAEMON_JSON
 {
   "runtimes": {

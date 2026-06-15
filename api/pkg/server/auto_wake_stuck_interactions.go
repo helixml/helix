@@ -190,44 +190,78 @@ const (
 	// defaultAutoWakeStuckThreshold is the minimum age of a
 	// `state=waiting` interaction before we consider it stuck.
 	//
-	// 60 s targets the dominant failure mode: agent emits a few early
+	// 180 s targets the dominant failure mode: agent emits a few early
 	// chunks (tool_call, thinking) then goes silent for minutes while
 	// claude-agent-acp buffers the rest of the turn on its outbound
-	// channel. The streaming-context gate below now requires
-	// `lastPublish` to be older than this same threshold before
-	// considering the session quiescent, so we don't false-positive on
-	// genuinely-still-streaming turns.
+	// channel. The streaming-context gate below requires `lastPublish`
+	// to be older than this same threshold before considering the
+	// session quiescent.
 	//
-	// False-positive cost: if the Anthropic API takes >60 s before the
-	// first chunk on a slow turn, we re-send the user's prompt. For
-	// idempotent prompts that's a cosmetic duplicate. For destructive
-	// ones (`rm`, `git push`) it's a real risk — but the auto-wake
-	// re-sends the *same prompt* the user already authorised, so worst
-	// case the agent runs the destructive op twice on its own work
-	// directory. Bounded by autoWakeMaxRetries.
+	// Why 180 s and not 60 s (the previous default):
+	//
+	// The agent emits ACP `session/update` events around tool calls,
+	// not during them. A single long synchronous tool — `git push`
+	// over a slow network, `npm install`, `gh pr view` on a chatty PR,
+	// `find /` over a large tree — produces zero streamed events for
+	// the entire duration. With a 60 s threshold the gate decayed
+	// past the cutoff during a normal ~90 s tool call, the worker
+	// fired, and the agent's mid-flight turn was interrupted by an
+	// unnecessary re-prompt. 180 s covers the realistic envelope of
+	// common synchronous tools with a 3× safety margin on the
+	// empirically-observed ~61 s gap.
+	//
+	// This is defence in depth. The load-bearing fix is at the org
+	// layer: the activation spawner no longer releases its per-Worker
+	// serialisation lane on a stale 5-min `ActivationTimeout`, so
+	// long-running healthy sessions no longer spawn a "decoy" empty
+	// `state=waiting` interaction on top of themselves. With that fix
+	// in place, the SQL filter has nothing to match on a healthy
+	// session — this threshold only matters for genuinely stuck rows.
+	//
+	// False-positive cost: if the Anthropic API takes >180 s before
+	// the first chunk on a slow turn, we re-send the user's prompt.
+	// For idempotent prompts that's a cosmetic duplicate. For
+	// destructive ones (`rm`, `git push`) it's a real risk — but the
+	// auto-wake re-sends the *same prompt* the user already
+	// authorised, so worst case the agent runs the destructive op
+	// twice on its own work directory. Bounded by autoWakeMaxRetries.
 	//
 	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
-	defaultAutoWakeStuckThreshold = 60 * time.Second
+	defaultAutoWakeStuckThreshold = 180 * time.Second
 
 	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
 
 	// defaultColdStartGracePeriod is how long we wait for an in-flight
-	// `StartDesktop` to bring up the dev container + Zed + claude-agent-acp
+	// container boot to bring up the dev container + Zed + claude-agent-acp
 	// before we count the wait against the cold-start retry budget.
 	//
-	// While `session.Metadata.ExternalAgentStatus == "starting"` the existing
-	// boot is in progress: re-kicking `autoStartDevContainerForSession` is
-	// a no-op (StartDesktop holds a per-session lock and bails when status
-	// is "running") but still increments AutoWakeCount on every scan tick.
-	// With autoWakeMaxRetries=2 and ~10s ticks the budget burned in <90s,
-	// while a cold helix-ubuntu boot routinely takes 90–150s. Result:
-	// `state=error` ("Agent never connected after auto-wake cold-start
-	// retries") fired ~30s before WS actually connected.
+	// While the container boot is in progress, re-kicking
+	// `autoStartDevContainerForSession` is a no-op (StartDesktop holds a
+	// per-session lock and short-circuits with "Dev container already
+	// running" once the container is up) but still increments
+	// AutoWakeCount on every scan tick. With autoWakeMaxRetries=2 and
+	// ~10s ticks the budget burned in <90s, while a cold helix-ubuntu
+	// boot routinely takes 90–150s. Result: `state=error` ("Agent never
+	// connected after auto-wake cold-start retries") fired ~30s before
+	// WS actually connected.
 	//
-	// Witnessed live on spt_01kreb7sevt5ecyagxhctv3ejh: container created
-	// at T+18s, retries exhausted at T+93s, WS connected at T+123s.
+	// "Container boot in progress" means `ExternalAgentStatus` in
+	// {"starting", "running"}. StartDesktop flips status to "running" the
+	// moment desktop-bridge is reachable (~T+25s on cold boot) — long
+	// before Zed inside the container has finished initialising GNOME,
+	// launched claude-agent-acp, and dialled the external-agent
+	// WebSocket back to the API (typically T+90–120s). The gate has to
+	// cover both substates or it engages too early to matter.
+	//
+	// Witnessed:
+	//   - spt_01kreb7sevt5ecyagxhctv3ejh: container created T+18s,
+	//     retries exhausted T+93s, WS connected T+123s.
+	//   - spt_01ktnvz9y1grjqaaa1rq72z5tx: container + bridge ready T+25s
+	//     (status→"running"), retries exhausted T+89s, WS connected
+	//     T+98s. The original "starting"-only gate never engaged because
+	//     status flipped to "running" 64s before the budget was burned.
 	//
 	// 5 min covers the realistic boot envelope (ZFS clone of large
 	// snapshots, golden cache unpack, GNOME + Zed init, claude-agent-acp
@@ -395,10 +429,23 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// Instead: skip only if the context exists AND its `lastPublish`
 	// (the most recent time we forwarded a chunk to the frontend) is
 	// within `threshold`. After `threshold` of in-context silence we
-	// treat the session as quiescent for wake-up purposes, which is
-	// what we want — tool-call cascades and thinking bursts touch
-	// `lastPublish` on every event, so an actively-streaming session
-	// will reliably stay above the threshold.
+	// treat the session as quiescent for wake-up purposes.
+	//
+	// Caveat — this gate cannot see *inside* a long synchronous tool
+	// call. The agent emits ACP `session/update` events around tool
+	// calls (assistant text → tool_call → tool_result → assistant
+	// text), not during them. A cascade of many short tools touches
+	// `lastPublish` on every event so the gate stays above the
+	// threshold reliably. But a *single* tool that runs for longer
+	// than `threshold` — `git push` over a slow network, `npm install`,
+	// a long `find` — produces no streamed events while it runs, so
+	// `lastPublish` decays past the cutoff and this gate stops
+	// protecting against false-positives. The 180 s default is
+	// calibrated to cover common slow-tool durations. The actual fix
+	// for the underlying problem (a decoy `state=waiting` row spawned
+	// on top of a still-running session when the org-layer activation
+	// timeout fired) lives in the org-layer spawner, not here — see
+	// `api/pkg/org/infrastructure/runtime/helix/spawner.go`.
 	apiServer.streamingContextsMu.RLock()
 	sctx := apiServer.streamingContexts[stuck.SessionID]
 	apiServer.streamingContextsMu.RUnlock()
@@ -529,13 +576,25 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
 //
 // Container-state-aware retry budget: before bumping AutoWakeCount we look
-// at `session.Metadata.ExternalAgentStatus`. If a `StartDesktop` is already
-// in flight ("starting") and the interaction is younger than the cold-start
-// grace period, we skip without touching the budget — the existing boot
-// will either finish (Zed dials home and pickupWaitingInteraction delivers)
-// or trip the StartDesktop hard timeout (20 min) and clear the status.
-// Re-kicking during the boot window only races against the existing
-// per-session lock and burns retry budget for nothing.
+// at `session.Metadata.ExternalAgentStatus`. If the container is in any
+// active boot substate ("starting" or "running") and the interaction is
+// younger than the cold-start grace period, we skip without touching the
+// budget — the existing boot will either finish (Zed dials home and
+// pickupWaitingInteraction delivers) or trip the StartDesktop hard
+// timeout (20 min) and clear the status.
+//
+// Why "running" counts as "still booting" here: StartDesktop sets status
+// to "running" the moment the container exists and desktop-bridge is
+// reachable, which on a cold boot is ~T+25s. Zed itself doesn't dial
+// the external-agent WebSocket back to the API until GNOME has come up
+// and claude-agent-acp has launched (typically T+90–120s). The 60–90s
+// gap between "running" and a live WS is the dominant cold-start
+// failure mode the grace period exists to cover — gating on "starting"
+// alone never engaged for it (see spt_01ktnvz9y1grjqaaa1rq72z5tx).
+//
+// Re-kicking during this window only races against StartDesktop's
+// per-session lock (which short-circuits with "Dev container already
+// running") and burns retry budget for nothing.
 func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *types.Interaction) {
 	// Load the session once for the two checks below: the
 	// StartDesktop-in-progress gate, and (on cap-exhaustion) the
@@ -550,17 +609,22 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		session = nil
 	}
 
-	// Skip if a StartDesktop is genuinely in progress and we're still
-	// inside the grace period.
+	// Skip if a container boot is genuinely in progress and we're still
+	// inside the grace period. Both "starting" and "running" count as
+	// in-progress here: see the function header for why the post-bridge,
+	// pre-WS substate ("running" with no live WS) is the case the grace
+	// period most often needs to cover.
 	if session != nil &&
-		session.Metadata.ExternalAgentStatus == "starting" &&
+		(session.Metadata.ExternalAgentStatus == "starting" ||
+			session.Metadata.ExternalAgentStatus == "running") &&
 		time.Since(stuck.Created) < coldStartGracePeriod() {
 		log.Debug().
 			Str("interaction_id", stuck.ID).
 			Str("session_id", stuck.SessionID).
+			Str("external_agent_status", session.Metadata.ExternalAgentStatus).
 			Dur("interaction_age", time.Since(stuck.Created)).
 			Dur("grace_period", coldStartGracePeriod()).
-			Msg("[AUTO_WAKE] StartDesktop in progress — deferring cold-start kick (no budget burn)")
+			Msg("[AUTO_WAKE] Container boot in progress (no WS yet) — deferring cold-start kick (no budget burn)")
 		return
 	}
 

@@ -105,7 +105,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     CARGO_TARGET_DIR=target-ubuntu25-v4 \
     ZED_COMMIT_SHA=${ZED_COMMIT_SHA} \
     RUSTFLAGS='-C link-arg=-s' \
-    cargo build \
+    nice -n 19 cargo build \
         $(if [ "$BUILD_TYPE" = "release" ]; then echo "--release"; else echo ""; fi) \
         --features external_websocket_sync \
     && CARGO_OUT_DIR=$(if [ "$BUILD_TYPE" = "release" ]; then echo "release"; else echo "debug"; fi) \

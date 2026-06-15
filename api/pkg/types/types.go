@@ -125,6 +125,34 @@ const (
 	FeedbackDislike Feedback = "dislike"
 )
 
+// Interaction.Trigger values for synthetic system interactions that are
+// not user-initiated (those use the default empty string or app-trigger
+// names like "slack", "crisp"). Used by the fork-and-pause flow.
+const (
+	// InteractionTriggerForkSeed marks the single synthetic divider
+	// interaction created on a forked child, carrying lineage metadata
+	// and (for the agent prepend path) a serialized blob of the parent
+	// transcript.
+	InteractionTriggerForkSeed = "fork_seed"
+
+	// InteractionTriggerForkInherited marks an interaction that was
+	// copied from a parent session at fork time. The child now owns
+	// these rows — they live on the child's SessionID — but their
+	// trigger value lets the UI hide destructive actions (regenerate,
+	// edit) and lets a future fork-of-fork still recognise its inherited
+	// vs. own turns when deciding what to copy forward.
+	InteractionTriggerForkInherited = "fork_inherited"
+
+	// InteractionTriggerForkHandoff marks the synthetic first turn fired
+	// automatically when a session is forked. Its prompt explicitly
+	// tells the new agent it's taking over a conversation, includes the
+	// full prior transcript (via maybePrependTranscript), and asks for
+	// a one-or-two-sentence acknowledgment. This turns the otherwise
+	// "cold agent until you first prompt" UX into "agent has visibly
+	// warmed up on the context by the time you arrive on the child".
+	InteractionTriggerForkHandoff = "fork_handoff"
+)
+
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
 
@@ -451,6 +479,18 @@ type SessionMetadata struct {
 	AssistantID    string            `json:"assistant_id"`
 	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
 	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
+
+	// Fork lineage — set on a session created by forking from a parent.
+	// See design/tasks/002081_kickoff-mid-session/design.md.
+	ParentSessionID       string    `json:"parent_session_id,omitempty"`
+	ForkedAt              time.Time `json:"forked_at,omitempty"`
+	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
+
+	// Pause state — sessions cannot accept new messages while paused.
+	// PausedReason is the only producer in v1: "forked_to:<child_id>".
+	Paused       bool      `json:"paused,omitempty"`
+	PausedReason string    `json:"paused_reason,omitempty"`
+	PausedAt     time.Time `json:"paused_at,omitempty"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -1071,6 +1111,15 @@ type ServerConfigForFrontend struct {
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
 	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
+	// ServerURL is the operator-configured public origin for this helix
+	// instance (env SERVER_URL → WebServer.URL). Empty when not
+	// configured; the frontend then falls back to
+	// `window.location.origin`. The github-stream New Stream dialog
+	// uses this to surface a webhook URL that's actually reachable by
+	// GitHub — `window.location.origin` is wrong whenever the user is
+	// hitting the app via localhost / a dev port that GitHub can't
+	// reach.
+	ServerURL string `json:"server_url,omitempty"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1902,6 +1951,31 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	}
 
 	return width, height, refreshRate
+}
+
+// SetRepoContext populates RepositoryIDs and PrimaryRepositoryID from the
+// given project repos. defaultRepoID is the project's preferred repo
+// (typically Project.DefaultRepoID); when empty the first repo wins.
+// No-op when repos is empty — caller-set values are preserved.
+func (z *DesktopAgent) SetRepoContext(repos []*GitRepository, defaultRepoID string) {
+	if len(repos) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		if repo != nil && repo.ID != "" {
+			ids = append(ids, repo.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	z.RepositoryIDs = ids
+	if defaultRepoID != "" {
+		z.PrimaryRepositoryID = defaultRepoID
+	} else {
+		z.PrimaryRepositoryID = ids[0]
+	}
 }
 
 // DesktopAgentAPIEnvVars returns the standard API-related environment variables
@@ -2892,6 +2966,7 @@ const (
 	EventPasswordResetRequest Event = 3
 	EventWaitlistApproved     Event = 4
 	EventTrialActivated       Event = 5
+	EventOrgInvitation        Event = 6
 )
 
 func (e Event) String() string {
@@ -2906,6 +2981,8 @@ func (e Event) String() string {
 		return "waitlist_approved"
 	case EventTrialActivated:
 		return "trial_activated"
+	case EventOrgInvitation:
+		return "org_invitation"
 	default:
 		return "unknown_event"
 	}
@@ -2931,11 +3008,25 @@ type Notification struct {
 	// will be applied at org-create time.
 	TrialPending bool
 
+	// OrgInvitation - populated for EventOrgInvitation emails.
+	OrgInvitation *OrgInvitationNotification `json:"org_invitation,omitempty"`
+
 	// If set, send to these emails instead of the session owner
 	Emails []string
 
 	// If set, POST notification payload to this URL
 	CallbackURL string
+}
+
+// OrgInvitationNotification carries the data the invitation email template
+// renders. Kept on the Notification rather than the template-data struct so
+// callers don't need to know about template internals.
+type OrgInvitationNotification struct {
+	OrganizationName        string
+	OrganizationDisplayName string
+	InviterName             string
+	Role                    string
+	AcceptURL               string
 }
 
 // SessionOutputResponse is returned by GET /sessions/{id}/output
@@ -3134,6 +3225,38 @@ type SandboxInstance struct {
 	// pulling weights from Hugging Face Hub. Empty once all services are
 	// healthy. Map key is compose service name.
 	ProfileProgress datatypes.JSON `json:"profile_progress,omitempty" gorm:"type:jsonb" swaggertype:"object,object"`
+
+	// --- Provider provenance fields ---
+	// Populated when this sandbox host was brought into existence by a
+	// compute provider (see api/pkg/sandbox/compute). Hosts that
+	// self-registered via the legacy WebSocket / operator-driven path
+	// leave these empty.
+
+	// Provider is the Name() of the compute.Provider that owns this host.
+	// E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+	Provider string `json:"provider,omitempty" gorm:"type:varchar(50);index:idx_sandbox_provider_id,priority:1"`
+
+	// ProviderID is the upstream system's opaque identifier for this
+	// host (e.g. a YellowDog work-requirement YDID). Forms a composite
+	// index with Provider so the reconciler can look hosts up cheaply.
+	ProviderID string `json:"provider_id,omitempty" gorm:"type:varchar(255);index:idx_sandbox_provider_id,priority:2"`
+
+	// ProviderMetadata is provider-specific opaque data for
+	// reconciliation, debugging, and admin display. Examples for YD:
+	// worker-pool ID, compute requirement ID, region, public IP.
+	ProviderMetadata datatypes.JSON `json:"provider_metadata,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ComputeState tracks the provider's view of the host's provisioning
+	// lifecycle. Distinct from Status (which is the heartbeat-derived
+	// online/offline/degraded view). Values: "provisioning" | "ready" |
+	// "terminating" | "terminated" | "failed". See compute.State for
+	// the canonical enum. Empty for self-registered hosts.
+	ComputeState string `json:"compute_state,omitempty" gorm:"type:varchar(50);index"`
+
+	// ProvisionedAt is when Helix asked the provider to bring this host
+	// up. Earlier than Created (which is the first heartbeat). Nil for
+	// self-registered hosts.
+	ProvisionedAt *time.Time `json:"provisioned_at,omitempty"`
 }
 
 // TableName returns the table name for GORM

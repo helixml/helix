@@ -23,8 +23,11 @@ func (c *HelixClient) ListOrganizationMembers(ctx context.Context, organizationI
 	return members, nil
 }
 
-// AddOrganizationMember adds a new member to an organization
-func (c *HelixClient) AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error) {
+// AddOrganizationMember adds a new member to an organization. The response
+// is either a created OrganizationMembership (when the user already exists)
+// or a pending OrganizationInvitation (when the email doesn't match any
+// user yet) — callers can inspect Invited to disambiguate.
+func (c *HelixClient) AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.AddOrganizationMemberResponse, error) {
 	url := fmt.Sprintf("/organizations/%s/members", organizationID)
 
 	body, err := json.Marshal(req)
@@ -32,13 +35,13 @@ func (c *HelixClient) AddOrganizationMember(ctx context.Context, organizationID 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	var membership *types.OrganizationMembership
-	err = c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(body), &membership)
+	var resp types.AddOrganizationMemberResponse
+	err = c.makeRequest(ctx, http.MethodPost, url, bytes.NewReader(body), &resp)
 	if err != nil {
 		return nil, fmt.Errorf("error adding organization member: %w", err)
 	}
 
-	return membership, nil
+	return &resp, nil
 }
 
 // UpdateOrganizationMember updates a member's role in an organization

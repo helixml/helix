@@ -754,6 +754,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction() {
 			suite.Equal("proj-456", req.ProjectID)
 			suite.Equal("Build the login page", req.Prompt)
 			suite.Equal("test-user", req.UserID)
+			// Cron-scheduled tasks must auto-start so they skip backlog
+			// regardless of the project's AutoStartBacklogTasks setting.
+			suite.True(req.AutoStart, "cron-triggered spec tasks must be created with AutoStart=true")
 			return &types.SpecTask{
 				ID:   "task-789",
 				Name: "Build the login page",

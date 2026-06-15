@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/gorilla/mux"
 
@@ -15,8 +16,23 @@ import (
 )
 
 // GrantCreditsRequest is the body for POST /admin/users/{id}/credits.
+//
+// org_id is required when the target user owns one or more organisations;
+// admins must pick explicitly which wallet receives the grant. It must be
+// omitted when the user owns no organisations (the grant is stashed on the
+// user and applied to their first owned org via consumeUserAdminCredits).
 type GrantCreditsRequest struct {
 	Credits float64 `json:"credits"`
+	OrgID   string  `json:"org_id,omitempty"`
+}
+
+// OwnedOrgSummary is the per-org payload returned by
+// GET /admin/users/{id}/owned-orgs. Kept narrow on purpose: the admin
+// dialog only needs id + name to populate its org picker.
+type OwnedOrgSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // GrantCreditsResponse describes the outcome of an admin credit grant.
@@ -91,12 +107,12 @@ func (s *HelixAPIServer) consumeUserAdminCredits(ctx context.Context, user *type
 
 // adminGrantCredits godoc
 // @Summary Grant credits to a user (Admin, cloud only)
-// @Description Adds credits to the wallet of the user's oldest owned org, or stashes the grant on the user for application at first org creation. Works regardless of subscription state, unlike adminActivateTrial.
+// @Description Adds credits to the wallet of an explicitly chosen organisation the user owns, or stashes the grant on the user when they own no organisations yet (the grant is applied to their first owned org on creation). Works regardless of subscription state.
 // @Tags    users
 // @Accept  json
 // @Produce json
 // @Param id path string true "User ID"
-// @Param request body GrantCreditsRequest true "Credits to grant (must be > 0)"
+// @Param request body GrantCreditsRequest true "Credits to grant (must be > 0) and the target org_id (required iff user owns ≥1 orgs)"
 // @Success 200 {object} GrantCreditsResponse
 // @Router /api/v1/admin/users/{id}/credits [post]
 // @Security BearerAuth
@@ -134,14 +150,18 @@ func (apiServer *HelixAPIServer) adminGrantCredits(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError404("user not found")
 	}
 
-	oldestOrg, err := oldestOwnedOrg(ctx, apiServer.Store, targetUserID)
+	ownedOrgs, err := apiServer.Store.ListOrganizations(ctx, &store.ListOrganizationsQuery{Owner: targetUserID})
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
 	}
 
 	// Path A: no owned org yet — stash on user, consumeUserAdminCredits applies
-	// it when the user creates their first org.
-	if oldestOrg == nil {
+	// it when the user creates their first org. Reject any org_id here since
+	// there's no org to validate it against.
+	if len(ownedOrgs) == 0 {
+		if body.OrgID != "" {
+			return nil, system.NewHTTPError400("user owns no organisations; remove org_id to stash the grant for their first owned org")
+		}
 		credits := body.Credits
 		targetUser.PendingAdminCreditsOnFirstOrg = &credits
 		updated, err := apiServer.Store.UpdateUser(ctx, targetUser)
@@ -156,11 +176,27 @@ func (apiServer *HelixAPIServer) adminGrantCredits(_ http.ResponseWriter, req *h
 		return &GrantCreditsResponse{User: updated, Status: "stashed"}, nil
 	}
 
-	// Path B: user already owns an org — apply directly, regardless of any
-	// active or absent Stripe subscription.
-	wallet, err := apiServer.getOrCreateWallet(ctx, targetUser, oldestOrg.ID)
+	// Path B: user owns one or more orgs. org_id MUST be supplied so the
+	// admin's intent is explicit; silent "oldest owned" picks land credits
+	// on the wrong wallet when the target user owns several orgs.
+	if body.OrgID == "" {
+		return nil, system.NewHTTPError400(fmt.Sprintf("org_id is required: user owns %d organisation(s), pick which one receives the grant", len(ownedOrgs)))
+	}
+
+	var selectedOrg *types.Organization
+	for _, org := range ownedOrgs {
+		if org.ID == body.OrgID {
+			selectedOrg = org
+			break
+		}
+	}
+	if selectedOrg == nil {
+		return nil, system.NewHTTPError400(fmt.Sprintf("user does not own organisation %s", body.OrgID))
+	}
+
+	wallet, err := apiServer.getOrCreateWallet(ctx, targetUser, selectedOrg.ID)
 	if err != nil {
-		return nil, system.NewHTTPError500("failed to get wallet for oldest owned org: " + err.Error())
+		return nil, system.NewHTTPError500("failed to get wallet for selected org: " + err.Error())
 	}
 
 	if _, err := apiServer.Store.UpdateWalletBalance(ctx, wallet.ID, body.Credits, types.TransactionMetadata{
@@ -172,10 +208,52 @@ func (apiServer *HelixAPIServer) adminGrantCredits(_ http.ResponseWriter, req *h
 	log.Info().
 		Str("admin_id", adminUser.ID).
 		Str("target_user_id", targetUserID).
-		Str("org_id", oldestOrg.ID).
+		Str("org_id", selectedOrg.ID).
 		Str("wallet_id", wallet.ID).
 		Float64("credits", body.Credits).
 		Msg("admin granted credits to org wallet")
 
-	return &GrantCreditsResponse{User: targetUser, OrgID: oldestOrg.ID, Status: "applied"}, nil
+	return &GrantCreditsResponse{User: targetUser, OrgID: selectedOrg.ID, Status: "applied"}, nil
+}
+
+// listUserOwnedOrgs godoc
+// @Summary List a user's owned organisations (Admin, cloud only)
+// @Description Returns the organisations the target user is the owner of, sorted by creation time ascending. Used by the admin "Grant credits" dialog to populate its org picker.
+// @Tags    users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {array} OwnedOrgSummary
+// @Router /api/v1/admin/users/{id}/owned-orgs [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listUserOwnedOrgs(_ http.ResponseWriter, req *http.Request) ([]OwnedOrgSummary, error) {
+	ctx := req.Context()
+	adminUser := getRequestUser(req)
+	if !adminUser.Admin {
+		return nil, system.NewHTTPError403("only admins can list a user's owned organisations")
+	}
+	if apiServer.Cfg.Edition != "cloud" {
+		return nil, system.NewHTTPError400("only available on the cloud edition")
+	}
+
+	targetUserID := mux.Vars(req)["id"]
+	if targetUserID == "" {
+		return nil, system.NewHTTPError400("user ID is required")
+	}
+
+	orgs, err := apiServer.Store.ListOrganizations(ctx, &store.ListOrganizationsQuery{Owner: targetUserID})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
+	}
+
+	sort.Slice(orgs, func(i, j int) bool { return orgs[i].CreatedAt.Before(orgs[j].CreatedAt) })
+
+	out := make([]OwnedOrgSummary, 0, len(orgs))
+	for _, org := range orgs {
+		out = append(out, OwnedOrgSummary{
+			ID:          org.ID,
+			Name:        org.Name,
+			DisplayName: org.DisplayName,
+		})
+	}
+	return out, nil
 }

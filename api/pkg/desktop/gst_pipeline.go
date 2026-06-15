@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,6 +79,13 @@ type GstPipeline struct {
 	// Frame drop tracking for diagnostics
 	framesReceived atomic.Uint64 // Frames received from appsink
 	framesDropped  atomic.Uint64 // Frames dropped due to full channel
+
+	// Encoder-output cadence measurement (appsink callback, BEFORE the Go
+	// channels) — isolates encoder jitter from Go-side channel/scheduling jitter.
+	// Only touched in onNewSample (single GStreamer streaming thread), no lock.
+	appsinkLastSample time.Time
+	appsinkIntervalUs []int64
+	appsinkLastLog    time.Time
 }
 
 // NewGstPipeline creates a new GStreamer pipeline from a pipeline string.
@@ -212,6 +220,28 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 		return gst.FlowEOS
 	}
 
+	// Encoder-output interval (appsink callback, before any Go channel). This is
+	// the cadence the encoder produces frames at — compare to B.create (encoder
+	// input) to isolate encoder jitter, and to the Go send loop to isolate
+	// Go-channel jitter.
+	{
+		now := time.Now()
+		if !g.appsinkLastSample.IsZero() {
+			g.appsinkIntervalUs = append(g.appsinkIntervalUs, now.Sub(g.appsinkLastSample).Microseconds())
+		}
+		g.appsinkLastSample = now
+		if g.appsinkLastLog.IsZero() {
+			g.appsinkLastLog = now
+		}
+		if now.Sub(g.appsinkLastLog) >= 5*time.Second && len(g.appsinkIntervalUs) > 0 {
+			p50, p95, p99, mx, burst := percentilesMsFromUs(g.appsinkIntervalUs)
+			fmt.Printf("[METRIC] ENC.appsink  n=%d p50=%d p95=%d p99=%d max=%d burst<8ms=%d\n",
+				len(g.appsinkIntervalUs), p50, p95, p99, mx, burst)
+			g.appsinkIntervalUs = g.appsinkIntervalUs[:0]
+			g.appsinkLastLog = now
+		}
+	}
+
 	sample := sink.PullSample()
 	if sample == nil {
 		return gst.FlowOK
@@ -322,7 +352,18 @@ func (g *GstPipeline) watchBus(ctx context.Context) {
 		// exception") because the message references elements that are no
 		// longer in a valid state. Deterministic Unref keeps the C-side
 		// lifetimes tight.
+		//
+		// CRITICAL: bus.TimedPop returns a *Message wrapped via go-gst's
+		// FromGstMessageUnsafeFull — the wrapper does NOT take an extra ref
+		// (the C call already transferred one) but DOES install a finalizer
+		// that calls gst_message_unref. If we just call msg.Unref() we drop
+		// the only ref to zero and free the C struct, then later the GC
+		// finalizer runs gst_message_unref a second time on freed memory —
+		// either tripping the "REFCOUNT_VALUE > 0" assertion or, worse,
+		// corrupting the heap once GStreamer reuses the slot. Disarm the
+		// finalizer first so only our explicit Unref decrements the refcount.
 		g.handleBusMessage(msg)
+		runtime.SetFinalizer(msg, nil)
 		msg.Unref()
 		if !g.running.Load() {
 			return

@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -6,12 +6,31 @@ import Fade from "@mui/material/Fade";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 
 import useAccount from "../hooks/useAccount";
+import useRouter from "../hooks/useRouter";
 
 const ACCENT = "#00e891";
 const BG = "#0d0d1a";
 
 export default function Waitlist() {
   const account = useAccount();
+  const router = useRouter();
+
+  // If the user lands on /waitlist but their account is no longer
+  // waitlisted (e.g. admin approved them, or an org invitation was
+  // accepted on registration), bounce them to root and let the global
+  // redirect chain in account.tsx route them to onboarding / orgs / app
+  // home as appropriate. The page-level effect handles the case where
+  // the user-state was loaded with waitlisted=false on initial mount —
+  // none of the other redirects pull a user *off* /waitlist, only push
+  // them onto it.
+  useEffect(() => {
+    if (!account.initialized || !account.user) return;
+    if (account.user.waitlisted) return;
+    // 'orgs' is a safe landing page — the global redirect chain in
+    // account.tsx will further push to /onboarding if the user still
+    // needs to set things up.
+    router.navigateReplace("orgs");
+  }, [account.initialized, account.user, router]);
 
   const handleLogout = useCallback(() => {
     account.onLogout();

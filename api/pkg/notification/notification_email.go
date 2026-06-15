@@ -36,11 +36,15 @@ var waitlistApprovedTemplate string
 //go:embed templates/trial_activated.html
 var trialActivatedTemplate string
 
+//go:embed templates/org_invitation.html
+var orgInvitationTemplate string
+
 var cronTriggerCompleteTmpl = template.Must(template.New("taskComplete").Parse(taskCompleteTemplate))
 var cronTriggerFailedTmpl = template.Must(template.New("taskFailed").Parse(taskFailedTemplate))
 var passwordResetRequestTmpl = template.Must(template.New("passwordResetRequest").Parse(passwordResetRequestTemplate))
 var waitlistApprovedTmpl = template.Must(template.New("waitlistApproved").Parse(waitlistApprovedTemplate))
 var trialActivatedTmpl = template.Must(template.New("trialActivated").Parse(trialActivatedTemplate))
+var orgInvitationTmpl = template.Must(template.New("orgInvitation").Parse(orgInvitationTemplate))
 
 type Email struct {
 	cfg     *config.Notifications
@@ -81,10 +85,12 @@ func (e *Email) Notify(ctx context.Context, n *Notification) error {
 		return err
 	}
 
+	log.Ctx(ctx).Debug().Str("email", n.Email).Str("title", title).Str("event", n.Event.String()).Msg("dispatching email via transport")
 	err = client.Send(ctx, title, message)
 	if err != nil {
 		return fmt.Errorf("failed to send email to %s: %w", n.Email, err)
 	}
+	log.Ctx(ctx).Info().Str("email", n.Email).Str("title", title).Str("event", n.Event.String()).Msg("email dispatched")
 
 	return nil
 }
@@ -231,6 +237,20 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		}
 
 		return fmt.Sprintf("Your Helix trial is active - %d days included", n.TrialDays), buf.String(), nil
+	case types.EventOrgInvitation:
+		if n.OrgInvitation == nil {
+			return "", "", fmt.Errorf("org_invitation payload missing for EventOrgInvitation")
+		}
+		var buf bytes.Buffer
+		err = orgInvitationTmpl.Execute(&buf, n.OrgInvitation)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to execute template: %w", err)
+		}
+		displayName := n.OrgInvitation.OrganizationDisplayName
+		if displayName == "" {
+			displayName = n.OrgInvitation.OrganizationName
+		}
+		return fmt.Sprintf("You've been invited to %s on Helix", displayName), buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}

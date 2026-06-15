@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
@@ -181,7 +182,7 @@ func TestAdminGrantCredits_HasOrgWithWallet_TopsUp(t *testing.T) {
 		})
 
 	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
-	body, _ := json.Marshal(GrantCreditsRequest{Credits: 50})
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 50, OrgID: "org-1"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
 	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
 	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
@@ -193,6 +194,133 @@ func TestAdminGrantCredits_HasOrgWithWallet_TopsUp(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "applied", resp.Status)
 	assert.Equal(t, "org-1", resp.OrgID)
+}
+
+// User owns 3 orgs; admin picks the middle one. Verifies that the chosen
+// wallet receives the credit and the others are untouched.
+func TestAdminGrantCredits_MultipleOrgs_AppliesToSelected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	adminUser := &types.User{ID: "admin-1", Admin: true}
+	targetUser := &types.User{ID: "target-1", Email: "t@example.com"}
+	orgA := &types.Organization{ID: "org-a", Owner: "target-1"}
+	orgB := &types.Organization{ID: "org-b", Owner: "target-1"}
+	orgC := &types.Organization{ID: "org-c", Owner: "target-1"}
+	walletB := &types.Wallet{ID: "wal-b", OrgID: "org-b"}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target-1"}).Return(targetUser, nil)
+	mockStore.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return([]*types.Organization{orgA, orgB, orgC}, nil)
+	mockStore.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-b"}).Return(orgB, nil)
+	mockStore.EXPECT().GetWalletByOrg(gomock.Any(), "org-b").Return(walletB, nil)
+	mockStore.EXPECT().UpdateWalletBalance(gomock.Any(), "wal-b", 30.0, gomock.Any()).Return(walletB, nil)
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 30, OrgID: "org-b"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
+
+	rr := httptest.NewRecorder()
+	resp, httpErr := server.adminGrantCredits(rr, req)
+
+	require.Nil(t, httpErr)
+	assert.Equal(t, "applied", resp.Status)
+	assert.Equal(t, "org-b", resp.OrgID)
+}
+
+// User owns ≥1 orgs but admin didn't pass org_id -- handler rejects rather
+// than silently picking. This is the core determinism guarantee.
+func TestAdminGrantCredits_HasOrgs_MissingOrgID_Rejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	adminUser := &types.User{ID: "admin-1", Admin: true}
+	targetUser := &types.User{ID: "target-1"}
+	orgs := []*types.Organization{
+		{ID: "org-a", Owner: "target-1"},
+		{ID: "org-b", Owner: "target-1"},
+	}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target-1"}).Return(targetUser, nil)
+	mockStore.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return(orgs, nil)
+	// Critical: no UpdateWalletBalance, no GetOrganization, no UpdateUser.
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 50}) // OrgID omitted
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
+
+	rr := httptest.NewRecorder()
+	_, httpErr := server.adminGrantCredits(rr, req)
+
+	require.NotNil(t, httpErr)
+	he, ok := httpErr.(*system.HTTPError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, he.StatusCode)
+	assert.Contains(t, he.Error(), "org_id is required")
+}
+
+// Admin picks an org the user doesn't own (typo, wrong dropdown value, or
+// an org owned by someone else entirely). Reject.
+func TestAdminGrantCredits_OrgIDNotOwnedByUser_Rejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	adminUser := &types.User{ID: "admin-1", Admin: true}
+	targetUser := &types.User{ID: "target-1"}
+	ownedOrg := &types.Organization{ID: "org-a", Owner: "target-1"}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target-1"}).Return(targetUser, nil)
+	mockStore.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return([]*types.Organization{ownedOrg}, nil)
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 50, OrgID: "org-someone-else"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
+
+	rr := httptest.NewRecorder()
+	_, httpErr := server.adminGrantCredits(rr, req)
+
+	require.NotNil(t, httpErr)
+	he, ok := httpErr.(*system.HTTPError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, he.StatusCode)
+	assert.Contains(t, he.Error(), "does not own")
+}
+
+// Admin tries to pass org_id when user owns no orgs (the stash path).
+// Reject so the admin's intent isn't ambiguous (stash now vs apply later).
+func TestAdminGrantCredits_NoOrg_OrgIDProvided_Rejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	adminUser := &types.User{ID: "admin-1", Admin: true}
+	targetUser := &types.User{ID: "target-1"}
+
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: "target-1"}).Return(targetUser, nil)
+	mockStore.EXPECT().ListOrganizations(gomock.Any(), gomock.Any()).Return([]*types.Organization{}, nil)
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 50, OrgID: "org-anything"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
+
+	rr := httptest.NewRecorder()
+	_, httpErr := server.adminGrantCredits(rr, req)
+
+	require.NotNil(t, httpErr)
+	he, ok := httpErr.(*system.HTTPError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, he.StatusCode)
+	assert.Contains(t, he.Error(), "user owns no organisations")
 }
 
 // Verifies the "subscription state is irrelevant" promise: a wallet with an
@@ -221,7 +349,7 @@ func TestAdminGrantCredits_HasOrgWithActiveSubscription_StillTopsUp(t *testing.T
 	mockStore.EXPECT().UpdateWalletBalance(gomock.Any(), "wal-1", 25.0, gomock.Any()).Return(wallet, nil)
 
 	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
-	body, _ := json.Marshal(GrantCreditsRequest{Credits: 25})
+	body, _ := json.Marshal(GrantCreditsRequest{Credits: 25, OrgID: "org-1"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/target-1/credits", bytes.NewReader(body))
 	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
 	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
@@ -255,4 +383,57 @@ func TestAdminGrantCredits_UserNotFound(t *testing.T) {
 	he, ok := httpErr.(*system.HTTPError)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusNotFound, he.StatusCode)
+}
+
+func TestListUserOwnedOrgs_ReturnsSortedSummaries(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	adminUser := &types.User{ID: "admin-1", Admin: true}
+	t0 := time.Now().Add(-72 * time.Hour)
+	t1 := t0.Add(time.Hour)
+	t2 := t1.Add(time.Hour)
+	// Returned in arbitrary order; handler must sort by CreatedAt ascending.
+	orgs := []*types.Organization{
+		{ID: "org-c", Name: "c", DisplayName: "Org C", CreatedAt: t2, Owner: "target-1"},
+		{ID: "org-a", Name: "a", DisplayName: "Org A", CreatedAt: t0, Owner: "target-1"},
+		{ID: "org-b", Name: "b", DisplayName: "Org B", CreatedAt: t1, Owner: "target-1"},
+	}
+
+	mockStore.EXPECT().
+		ListOrganizations(gomock.Any(), &store.ListOrganizationsQuery{Owner: "target-1"}).
+		Return(orgs, nil)
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/target-1/owned-orgs", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), adminUser))
+
+	rr := httptest.NewRecorder()
+	resp, httpErr := server.listUserOwnedOrgs(rr, req)
+
+	require.Nil(t, httpErr)
+	require.Len(t, resp, 3)
+	assert.Equal(t, "org-a", resp[0].ID)
+	assert.Equal(t, "org-b", resp[1].ID)
+	assert.Equal(t, "org-c", resp[2].ID)
+	assert.Equal(t, "Org A", resp[0].DisplayName)
+}
+
+func TestListUserOwnedOrgs_NonAdminRejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockStore := store.NewMockStore(ctrl)
+
+	server := &HelixAPIServer{Store: mockStore, Cfg: cloudBillingCfg()}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/target-1/owned-orgs", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "target-1"})
+	req = req.WithContext(setTestRequestUser(req.Context(), &types.User{ID: "u-1", Admin: false}))
+
+	_, httpErr := server.listUserOwnedOrgs(httptest.NewRecorder(), req)
+	require.NotNil(t, httpErr)
+	he, ok := httpErr.(*system.HTTPError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusForbidden, he.StatusCode)
 }

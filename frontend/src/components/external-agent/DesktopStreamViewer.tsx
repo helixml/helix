@@ -2862,6 +2862,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           framesDropped: isScreenshotMode ? 0 : wsStats.framesDropped,
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
+          schedulerJitterP50Ms: wsStats.schedulerJitterP50Ms,
+          schedulerJitterP99Ms: wsStats.schedulerJitterP99Ms,
+          schedulerJitterMaxMs: wsStats.schedulerJitterMaxMs,
           isHighLatency: wsStats.isHighLatency,
           batchingRatio: 0,
           avgBatchSize: 0,
@@ -2878,6 +2881,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           renderJitterMs: wsStats.renderJitterMs,
           avgReceiveIntervalMs: wsStats.avgReceiveIntervalMs,
           avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
+          receiveIntervalSamples: wsStats.receiveIntervalSamples,
+          renderIntervalSamples: wsStats.renderIntervalSamples,
+          playoutBufferMs: wsStats.playoutBufferMs,
+          playoutState: wsStats.playoutState,
           // Debug flags
           usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
           // Decoder health

@@ -1,17 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useApi from "../hooks/useApi";
-import { DashboardData } from "../types/dashboard";
-
-export const dashboardQueryKey = () => ["dashboard"];
-
-export function useGetDashboardData() {
-    return useQuery({
-        queryKey: dashboardQueryKey(),
-        queryFn: async (): Promise<DashboardData> => ({ runners: [] }),
-        enabled: true,
-        staleTime: Infinity,
-    });
-}
 
 /**
  * User list query parameters interface
@@ -258,6 +246,34 @@ export interface ActivateTrialInput {
 export interface GrantCreditsInput {
     userId: string;
     credits: number;
+    // org_id is REQUIRED when the user owns one or more orgs; omitted only
+    // when the grant is stashed against a user who owns no orgs yet.
+    orgId?: string;
+}
+
+export interface OwnedOrgSummary {
+    id: string;
+    name: string;
+    display_name?: string;
+}
+
+/**
+ * Hook to fetch the organisations a target user owns (cloud edition, admin
+ * only). Used by the Grant Credits dialog to populate its org picker so the
+ * admin's choice is explicit rather than a silent "oldest owned" pick.
+ */
+export function useAdminUserOwnedOrgs(userId: string | undefined, enabled: boolean) {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: ["admin-user-owned-orgs", userId],
+        enabled: !!userId && enabled,
+        queryFn: async () => {
+            const response = await apiClient.v1AdminUsersOwnedOrgsDetail(userId!);
+            return (response.data as OwnedOrgSummary[]) ?? [];
+        },
+    });
 }
 
 /**
@@ -300,6 +316,7 @@ export function useAdminGrantCredits() {
         mutationFn: async (input: GrantCreditsInput) => {
             const response = await apiClient.v1AdminUsersCreditsCreate(input.userId, {
                 credits: input.credits,
+                org_id: input.orgId,
             });
             return response.data;
         },

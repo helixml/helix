@@ -20,6 +20,7 @@ import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
+import HelixOrgSidebar from "../components/orgs/HelixOrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
@@ -427,6 +428,17 @@ const Layout: FC<{
     switch (routeName) {
       case "org_projects":
         return <ProjectsSidebar />;
+
+      case "helix_org_root":
+      case "helix_org_chart":
+      case "helix_org_roles":
+      case "helix_org_role_detail":
+      case "helix_org_workers":
+      case "helix_org_worker_detail":
+      case "helix_org_settings":
+      case "helix_org_streams":
+      case "helix_org_stream_detail":
+        return <HelixOrgSidebar />;
 
       case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
