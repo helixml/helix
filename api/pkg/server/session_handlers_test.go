@@ -452,6 +452,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerNoOrg() {
 	}
 
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -482,6 +483,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerInOrg() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -512,6 +514,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgOwnerNotSessionOwner() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -610,6 +613,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
 			},
 		},
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)

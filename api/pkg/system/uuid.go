@@ -53,6 +53,8 @@ const (
 	RunnerProfilePrefix        = "rprof_"
 	SpecTaskAttachmentPrefix   = "att_"
 	OrgInvitationPrefix        = "oin_"
+	VHostRoutePrefix           = "vhr_"
+	WebServiceDeployPrefix     = "wsd_"
 )
 
 func GenerateUUID() string {
@@ -240,6 +242,14 @@ func GenerateSpecTaskAttachmentID() string {
 
 func GenerateOrgInvitationID() string {
 	return fmt.Sprintf("%s%s", OrgInvitationPrefix, newID())
+}
+
+func GenerateVHostRouteID() string {
+	return fmt.Sprintf("%s%s", VHostRoutePrefix, newID())
+}
+
+func GenerateWebServiceDeployID() string {
+	return fmt.Sprintf("%s%s", WebServiceDeployPrefix, newID())
 }
 
 // GenerateGitRepositoryID mints a unique id for a git repository row.
