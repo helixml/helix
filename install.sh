@@ -918,8 +918,9 @@ do_upgrade() {
     echo "Planned actions:"
     echo "  1. Back up $INSTALL_DIR/.env to $INSTALL_DIR/.env.bak.<timestamp>"
     echo "  2. Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
-    echo "  3. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
-    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
+    echo "  3. Fetch docker-compose.tls.yaml from release $target_version if missing"
+    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
+    echo "  5. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
     echo
 
     if [ "$DRY_RUN" = true ]; then
@@ -950,6 +951,24 @@ do_upgrade() {
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
 
     cd "$INSTALL_DIR" || exit 1
+
+    # If upgrading from a release that predates docker-compose.tls.yaml,
+    # fetch it so embedded-TLS upgrades work end-to-end. Only fetched
+    # when missing — never overwrites an existing file (operator may
+    # have local edits, however unlikely on a 4-line overlay).
+    if [ ! -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        echo "Fetching docker-compose.tls.yaml from release $target_version..."
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        else
+            sudo curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        fi
+    fi
+
     helix_compose_args
     echo
     echo "Pulling new images..."
