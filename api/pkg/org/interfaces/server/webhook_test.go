@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -52,7 +53,7 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 // the supplied dispatcher (may be nil) into a Server. Returns the
 // running httptest.Server plus the store + broadcaster so tests can
 // seed streams and observe wakeups.
-func newWebhookServer(t *testing.T, dispatcher server.Dispatcher) (*httptest.Server, *store.Store, *streamhub.Hub) {
+func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest.Server, *store.Store, *streamhub.Hub) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	bc := newStreamhub(t)

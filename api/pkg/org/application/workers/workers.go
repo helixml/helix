@@ -1,15 +1,14 @@
 // Package workers is the application service that owns the structural
 // Worker-mutation use cases that the MCP tools and REST handlers used
-// to implement independently: UpdateIdentity (per-Worker persona) and
-// UpdateRole (rewrite the content of the Role a Worker holds).
+// to implement independently: Hire (create a Worker + its env, activation
+// stream and hire dispatch), UpdateIdentity (per-Worker persona),
+// UpdateRole (rewrite the content of the Role a Worker holds), and the
+// reporting-line edges (AddParent / RemoveParent).
 //
-// Hire is intentionally NOT here yet. Unlike the other mutations, hire
-// already has a single implementation (tools.HireWorker; the REST POST
-// /workers handler delegates to it via a synthetic invocation), so it
-// has no drift to fix — and relocating its ~9 collaborators churns the
-// composition root. That relocation rides with the composition-root
-// phase (design §5.4 / Phase G), where the wiring is being reworked
-// anyway.
+// Hire is the create half of the worker lifecycle; its mirror image,
+// Fire, lives in the lifecycle service. Both REST and the MCP
+// hire_worker tool delegate here, so the hire semantics (env dir,
+// activation stream, hire dispatch) cannot drift between callers.
 //
 // The service depends on the narrow store.Workers repository plus the
 // roles application service (UpdateRole rewrites the held Role's content

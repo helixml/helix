@@ -2,12 +2,13 @@
 // composes store + runtime + on-disk state when a Worker is created
 // or destroyed.
 //
-// Hire is intentionally not yet a lifecycle method — the canonical
-// hire path is api/pkg/org/tools.HireWorker (an MCP tool), which the
-// REST layer drives via a synthetic Invocation. Fire has no MCP
-// counterpart by design (the LLM should not be able to delete
-// workers from chat), so it lives here as a plain Go service callable
-// from REST handlers only.
+// Today this package owns Fire (and the DeleteRole cascade). Hire
+// currently lives in the workers application service
+// (workers.Workers.Hire) — its mirror-image, the create half of the
+// same lifecycle. Consolidating Hire here alongside Fire is a
+// follow-up. Fire has no MCP counterpart by design (the LLM should not
+// be able to delete workers from chat), so it is a plain Go service
+// callable from REST handlers only.
 package lifecycle
 
 import (

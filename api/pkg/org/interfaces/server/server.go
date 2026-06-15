@@ -23,10 +23,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
-// Dispatcher fans an Event out to subscribed AI Workers. Alias of the
-// publishing service's port so callers (and tests) keep a stable name.
-type Dispatcher = publishing.Dispatcher
-
 // Server wires the MCP + webhook handlers over the application services.
 type Server struct {
 	queries    *queries.Queries
@@ -53,7 +49,7 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *tools.Registr
 // itself never holds the store — this just keeps the wiring (and tests)
 // terse. broadcaster/dispatcher may be nil (the publish trio then skips
 // the corresponding step).
-func NewFromStore(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher Dispatcher, logger *slog.Logger) *Server {
+func NewFromStore(s *store.Store, registry *tools.Registry, broadcaster *streamhub.Hub, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
 		Roles:          s.Roles,
 		Workers:        s.Workers,
