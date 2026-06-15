@@ -65,20 +65,6 @@ So that I find out at startup, not when my first cert fails to issue.
 - Setting DNS-01 vars while `HELIX_VHOST_TLS_MODE != auto` triggers a
   startup warning (ignored, but operator clearly told).
 
-### As an operator, I want documentation of exactly which Cloudflare token permissions are required
-
-So that I can scope the token tightly and don't have to guess.
-
-**Acceptance:**
-- Docs in the helix repo describe the minimum permission set:
-  `Zone:Zone:Read` + `Zone:DNS:Edit` scoped to the specific zone(s)
-  covering hostnames Helix will issue certs for.
-- Docs note the single-token vs dual-token (`ZoneToken` +
-  `APIToken`) options offered by `github.com/libdns/cloudflare`. v1
-  ships single-token only; dual-token is a follow-up if anyone asks.
-- Docs explicitly call out: API **tokens** only, not legacy global
-  API **keys**. (libdns/cloudflare rejects keys.)
-
 ## Out of Scope
 
 - Other DNS providers (Route53, Google Cloud DNS, DigitalOcean, etc.).

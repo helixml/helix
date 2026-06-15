@@ -183,20 +183,13 @@ Validation matrix at startup:
   logic into a function that returns the listeners it would start
   (without actually binding) — pick whichever is shorter.
 
-### 7. Documentation
+### 7. Helm values
 
-Two doc surfaces update:
-
-1. The Helm chart's `values-example.yaml` gains commented examples for
-   the two new env vars under the existing web-server section, with a
-   brief note pointing operators behind Cloudflare to DNS-01.
-2. `docs/learn/helm-install.mdx` (or wherever LE setup is documented
-   today — `grep -li letsencrypt /home/retro/work/docs/` came up
-   empty, so this may be a fresh page under `docs/learn/` describing
-   the whole `HELIX_VHOST_TLS_MODE` flow). Tasks.md lists writing the
-   docs page as its own item; whoever picks it up should grep first
-   and either extend an existing operator-deployment page or add a
-   `docs/learn/vhost-tls.mdx`.
+`charts/helix-controlplane/values-example.yaml` gains commented examples
+for the two new env vars under the existing web-server section, with a
+brief note pointing operators behind Cloudflare to DNS-01. End-user
+docs in the `docs` repo are handled by the separate docs agent — the
+PR description carries the necessary context (see tasks.md last item).
 
 ## Data Model
 
