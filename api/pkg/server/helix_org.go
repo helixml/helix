@@ -168,7 +168,7 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streams.InboundProvisioner) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streams.Inbound) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
@@ -488,7 +488,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// later) plugs in here; the streams service dispatches on the
 	// stream's Kind. The github API specifics live in the github
 	// transport infra package, not the application layer.
-	inboundProvisioners := map[transport.Kind]streams.InboundProvisioner{
+	inboundProvisioners := map[transport.Kind]streams.Inbound{
 		transport.KindGitHub: githubtransport.NewWebhookProvisioner(
 			configReg,
 			githubtransport.TokenResolver(gitHubTokenResolver),

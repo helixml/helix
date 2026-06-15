@@ -24,6 +24,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -32,27 +33,11 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
-// OutboundEmitter delivers an Event outbound for a Stream whose
-// Transport is configured for it (webhook POST, email send, …). One
-// implementation per outbound-capable transport Kind lives in that
-// transport's infrastructure package; the composition root registers
-// them with RegisterOutbound. This keeps the provider-specific delivery
-// mechanism (HTTP, email API) out of the dispatcher — the dispatcher
-// only owns the routing policy (which events emit, to which Kind).
-//
-// Emit runs on its own goroutine (the dispatcher fires it with a
-// background context, since the send outlives the request); the
-// implementation bounds its own time and logs its own failures. A nil
-// Config / absent outbound target is a no-op the implementation handles.
-type OutboundEmitter interface {
-	Emit(ctx context.Context, stream streaming.Stream, event streaming.Event) error
-}
-
 // Dispatcher routes Events to subscribed AI Workers and runs the
 // configured Spawner for each one. It also fans Events out to the
-// registered outbound emitter for the Stream's Transport Kind (webhook,
-// email, …) — but it knows nothing about how each transport delivers;
-// that lives behind the OutboundEmitter port.
+// registered streams.Outbound emitter for the Stream's Transport Kind
+// (webhook, email, …) — but it knows nothing about how each transport
+// delivers; that lives behind the streams.Outbound port.
 //
 // The per-Worker coalescing logic (one in-flight Spawn per Worker,
 // bursts folded into the next batch) moved out to
@@ -62,7 +47,7 @@ type Dispatcher struct {
 	store    *store.Store
 	queue    *activation.Queue
 	logger   *slog.Logger
-	outbound map[transport.Kind]OutboundEmitter
+	outbound map[transport.Kind]streams.Outbound
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -77,16 +62,16 @@ func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatch
 		store:    s,
 		queue:    activation.NewQueue(spawn, logger),
 		logger:   logger,
-		outbound: map[transport.Kind]OutboundEmitter{},
+		outbound: map[transport.Kind]streams.Outbound{},
 	}
 }
 
-// RegisterOutbound wires the outbound emitter for a transport Kind.
-// Late-binding (rather than constructor injection) because some
+// RegisterOutbound wires the streams.Outbound emitter for a transport
+// Kind. Late-binding (rather than constructor injection) because some
 // transports also take the Dispatcher for inbound activation, so the
 // wiring is Dispatcher.New → Transport.New → RegisterOutbound. Kinds
 // with no registered emitter no-op on outbound.
-func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e OutboundEmitter) {
+func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streams.Outbound) {
 	d.outbound[kind] = e
 }
 

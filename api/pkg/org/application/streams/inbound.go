@@ -9,27 +9,27 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
-// InboundProvisioner registers / inspects the provider-side inbound hook
+// Inbound registers / inspects the provider-side inbound hook
 // for a Stream whose Transport needs external wiring (GitHub today, Slack
 // next). One implementation per transport Kind lives in that transport's
 // infrastructure package; the composition root registers them by Kind.
 // This keeps the per-provider API specifics out of the application layer
 // — the streams service just dispatches on the Stream's transport Kind.
-type InboundProvisioner interface {
+type Inbound interface {
 	// Install registers (or adopts) the inbound hook and returns its
 	// coordinates plus the transport-config JSON to persist on the Stream
 	// (provider hook id/url merged in). A nil Config means "nothing to
 	// persist". Failures should be a *Failure so the adapter can map the
 	// HTTP status.
-	Install(ctx context.Context, orgID string, stream streaming.Stream) (Inbound, error)
+	Install(ctx context.Context, orgID string, stream streaming.Stream) (InstallResult, error)
 	// Status reports the live hook state. Read-only; "can't tell"
 	// conditions degrade to InboundState{State:"unknown"} rather than an
 	// error.
 	Status(ctx context.Context, orgID string, stream streaming.Stream) (InboundState, error)
 }
 
-// Inbound is the result of a successful Install.
-type Inbound struct {
+// InstallResult is the result of a successful Install.
+type InstallResult struct {
 	WebhookID      int64
 	WebhookHTMLURL string
 	PayloadURL     string
@@ -85,18 +85,18 @@ var ErrInboundUnsupported = errors.New("transport does not support inbound webho
 // and persists the resulting transport config. It dispatches on the
 // Stream's transport Kind — every transport that needs external
 // registration plugs in a provisioner without touching this seam.
-func (s *Streams) InstallInbound(ctx context.Context, orgID string, id streaming.StreamID) (Inbound, error) {
+func (s *Streams) InstallInbound(ctx context.Context, orgID string, id streaming.StreamID) (InstallResult, error) {
 	stream, err := s.streams.Get(ctx, orgID, id)
 	if err != nil {
-		return Inbound{}, err
+		return InstallResult{}, err
 	}
 	p, ok := s.provisioners[stream.Transport.Kind]
 	if !ok {
-		return Inbound{}, &Failure{Kind: FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", ErrInboundUnsupported, stream.Transport.Kind)}
+		return InstallResult{}, &Failure{Kind: FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", ErrInboundUnsupported, stream.Transport.Kind)}
 	}
 	inbound, err := p.Install(ctx, orgID, stream)
 	if err != nil {
-		return Inbound{}, err
+		return InstallResult{}, err
 	}
 	if inbound.Config != nil {
 		if _, err := s.Update(ctx, orgID, id, UpdateParams{
@@ -104,7 +104,7 @@ func (s *Streams) InstallInbound(ctx context.Context, orgID string, id streaming
 			Description: stream.Description,
 			Transport:   &TransportPatch{Config: inbound.Config},
 		}); err != nil {
-			return Inbound{}, &Failure{Kind: FailInternal, Err: fmt.Errorf("persist hook onto stream %q: %w", id, err)}
+			return InstallResult{}, &Failure{Kind: FailInternal, Err: fmt.Errorf("persist hook onto stream %q: %w", id, err)}
 		}
 	}
 	return inbound, nil

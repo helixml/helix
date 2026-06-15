@@ -18,7 +18,7 @@ import (
 )
 
 // WebhookProvisioner is the GitHub implementation of
-// streams.InboundProvisioner: it registers / inspects the repo webhook
+// streams.Inbound: it registers / inspects the repo webhook
 // for a github-transport Stream. It is the single home for the
 // GitHub-API specifics (payload-URL resolution, loopback refusal, the
 // auto-generated webhook secret, the repo webhook upsert/find) — the
@@ -44,59 +44,59 @@ func fail(kind streams.FailKind, format string, args ...any) *streams.Failure {
 
 // Install registers (or adopts) the repo webhook for the github stream
 // and returns the hook coordinates + the transport config to persist.
-func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, stream streaming.Stream) (streams.Inbound, error) {
+func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, stream streaming.Stream) (streams.InstallResult, error) {
 	publicURL := p.resolvePublicURL(ctx, orgID)
 	if publicURL == "" {
-		return streams.Inbound{}, fail(streams.FailPrecondition, "no public URL configured for helix. Set `streams.public_url` on the helix-org Settings page (or SERVER_URL in helix's .env), then re-install the webhook.")
+		return streams.InstallResult{}, fail(streams.FailPrecondition, "no public URL configured for helix. Set `streams.public_url` on the helix-org Settings page (or SERVER_URL in helix's .env), then re-install the webhook.")
 	}
 	if u, err := url.Parse(publicURL); err == nil {
 		host := strings.ToLower(u.Hostname())
 		if host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" {
-			return streams.Inbound{}, fail(streams.FailPrecondition, "public URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set `streams.public_url` on the helix-org Settings page to a publicly reachable hostname (cloudflared / ngrok / reverse proxy), or update SERVER_URL in helix's .env and restart the api container", publicURL)
+			return streams.InstallResult{}, fail(streams.FailPrecondition, "public URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set `streams.public_url` on the helix-org Settings page to a publicly reachable hostname (cloudflared / ngrok / reverse proxy), or update SERVER_URL in helix's .env and restart the api container", publicURL)
 		}
 	}
 
 	cfg, err := stream.Transport.GitHubConfig()
 	if err != nil {
-		return streams.Inbound{}, fail(streams.FailBadRequest, "parse github config: %w", err)
+		return streams.InstallResult{}, fail(streams.FailBadRequest, "parse github config: %w", err)
 	}
 	if cfg.Repo == "" {
-		return streams.Inbound{}, fail(streams.FailBadRequest, "stream's github config has no repo set; edit the stream first")
+		return streams.InstallResult{}, fail(streams.FailBadRequest, "stream's github config has no repo set; edit the stream first")
 	}
 	if len(cfg.Events) == 0 {
 		cfg.Events = []string{"*"}
 	}
 	owner, repoName, ferr := splitRepo(cfg.Repo)
 	if ferr != nil {
-		return streams.Inbound{}, ferr
+		return streams.InstallResult{}, ferr
 	}
 
 	token, ferr := p.resolveToken(ctx, orgID)
 	if ferr != nil {
-		return streams.Inbound{}, ferr
+		return streams.InstallResult{}, ferr
 	}
 	secret, err := p.ensureWebhookSecret(ctx, orgID)
 	if err != nil {
-		return streams.Inbound{}, fail(streams.FailInternal, "ensure webhook secret: %w", err)
+		return streams.InstallResult{}, fail(streams.FailInternal, "ensure webhook secret: %w", err)
 	}
 	payloadURL := p.payloadURL(publicURL, orgID, stream.ID)
 
 	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
 	if err != nil {
-		return streams.Inbound{}, fail(streams.FailInternal, "build github client: %w", err)
+		return streams.InstallResult{}, fail(streams.FailInternal, "build github client: %w", err)
 	}
 	hook, err := client.UpsertWebhook(owner, repoName, "web", payloadURL, cfg.Events, secret)
 	if err != nil {
-		return streams.Inbound{}, fail(streams.FailUpstream, "create github webhook: %w", err)
+		return streams.InstallResult{}, fail(streams.FailUpstream, "create github webhook: %w", err)
 	}
 	htmlURL := githubclient.WebhookSettingsURL(owner, repoName, hook.ID)
 	cfg.WebhookID = hook.ID
 	cfg.WebhookHTMLURL = htmlURL
 	cfgRaw, err := json.Marshal(cfg)
 	if err != nil {
-		return streams.Inbound{}, fail(streams.FailInternal, "re-marshal config: %w", err)
+		return streams.InstallResult{}, fail(streams.FailInternal, "re-marshal config: %w", err)
 	}
-	return streams.Inbound{
+	return streams.InstallResult{
 		WebhookID:      hook.ID,
 		WebhookHTMLURL: htmlURL,
 		PayloadURL:     payloadURL,
@@ -229,7 +229,7 @@ func splitRepo(repo string) (owner, name string, ferr *streams.Failure) {
 }
 
 // compile-time assertion that the provisioner satisfies the port.
-var _ streams.InboundProvisioner = (*WebhookProvisioner)(nil)
+var _ streams.Inbound = (*WebhookProvisioner)(nil)
 
 // guard against transport.KindGitHub drifting — referenced so the import
 // is used even if the provisioner is registered by string elsewhere.
