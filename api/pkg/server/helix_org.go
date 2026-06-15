@@ -16,11 +16,9 @@ import (
 	"github.com/gorilla/mux"
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
-	githubclient "github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
-	"github.com/helixml/helix/api/pkg/org/application/githubwebhook"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
@@ -32,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -149,38 +148,6 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 	return s.SessionID, nil
 }
 
-// githubWebhookClient adapts the concrete github client to the
-// githubwebhook.Client port, so the application service stays free of a
-// dependency on pkg/github. Each call builds a short-lived client for
-// the supplied token (the same per-request shape the inline handler
-// used). The hook HTML URL is the deterministic settings URL, matching
-// the previous behaviour.
-type githubWebhookClient struct{}
-
-func (githubWebhookClient) Upsert(ctx context.Context, token, owner, repo, payloadURL string, events []string, secret string) (githubwebhook.Hook, error) {
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
-	if err != nil {
-		return githubwebhook.Hook{}, fmt.Errorf("build github client: %w", err)
-	}
-	hook, err := client.UpsertWebhook(owner, repo, "web", payloadURL, events, secret)
-	if err != nil {
-		return githubwebhook.Hook{}, err
-	}
-	return githubwebhook.Hook{ID: hook.ID, HTMLURL: githubclient.WebhookSettingsURL(owner, repo, hook.ID), Active: hook.Active}, nil
-}
-
-func (githubWebhookClient) Find(ctx context.Context, token, owner, repo, payloadURL string) (githubwebhook.Hook, bool, error) {
-	client, err := githubclient.NewGithubClient(githubclient.ClientOptions{Ctx: ctx, Token: token})
-	if err != nil {
-		return githubwebhook.Hook{}, false, fmt.Errorf("build github client: %w", err)
-	}
-	hook, found, err := client.FindWebhook(owner, repo, payloadURL)
-	if err != nil || !found {
-		return githubwebhook.Hook{}, found, err
-	}
-	return githubwebhook.Hook{ID: hook.ID, HTMLURL: githubclient.WebhookSettingsURL(owner, repo, hook.ID), Active: hook.Active}, true, nil
-}
-
 // orgServices bundles the application services the REST adapter (and the
 // per-Worker MCP server) consume. Assembled once by buildOrgServices at
 // the composition root — the "Module struct holds the assembled
@@ -200,11 +167,11 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streams.InboundProvisioner) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
-		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID}),
+		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners}),
 		Workers: workers.New(workers.Deps{
 			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Topology: deps.Topology,
 		}),
@@ -511,10 +478,23 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// by the gitHubIntegration adapter rather than inline closures here.
 	gitHubInt := newGitHubIntegration(helixStore, cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.AppSlug, cfg.APIServer.Cfg.GitHub.WebURL())
 
+	// Inbound-webhook provisioners, keyed by transport Kind. Each
+	// transport that needs external registration (github now, slack
+	// later) plugs in here; the streams service dispatches on the
+	// stream's Kind. The github API specifics live in the github
+	// transport infra package, not the application layer.
+	inboundProvisioners := map[transport.Kind]streams.InboundProvisioner{
+		transport.KindGitHub: githubtransport.NewWebhookProvisioner(
+			configReg,
+			githubtransport.TokenResolver(gitHubTokenResolver),
+			cfg.APIServer.Cfg.WebServer.URL,
+		),
+	}
+
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
-	svc := buildOrgServices(st, deps, bc, dispatcher)
+	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
 	// The activations service owns the manual-activate command (REST
 	// activateWorker delegates to it). Built here because it needs the
 	// project ensurer, the dispatcher's DispatchManual, and a session
@@ -562,17 +542,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// PAT into transport.github. The resolver lives in
 		// helix_org_github.go.
 		GitHubTokenResolver: gitHubTokenResolver,
-		// GitHubWebhook owns the install-webhook + webhook-status use cases.
-		// The github API surface is behind the githubWebhookClient adapter so
-		// the application service doesn't import pkg/github.
-		GitHubWebhook: githubwebhook.New(githubwebhook.Deps{
-			Queries:         svc.Queries,
-			Streams:         svc.Streams,
-			Configs:         configReg,
-			Token:           githubwebhook.TokenResolver(gitHubTokenResolver),
-			Client:          githubWebhookClient{},
-			PublicServerURL: cfg.APIServer.Cfg.WebServer.URL,
-		}),
 		// GitHubIdentity lets the repo picker tell app mode from oauth mode
 		// so it lists the installation's repos (not /user/repos) when the
 		// bot is installed. Adapts the server-side resolver into the org

@@ -29,6 +29,10 @@ type Streams struct {
 	streams store.Streams
 	now     func() time.Time
 	newID   func() string
+	// provisioners is the per-transport-Kind inbound-webhook registry the
+	// InstallInbound / InboundStatus seam dispatches on. nil/empty → those
+	// endpoints report the transport as unsupported.
+	provisioners map[transport.Kind]InboundProvisioner
 }
 
 // Deps are the constructor-injected collaborators for New. Grouping
@@ -37,6 +41,11 @@ type Deps struct {
 	Streams store.Streams
 	Now     func() time.Time
 	NewID   func() string
+	// Provisioners maps a transport Kind to its inbound-webhook
+	// provisioner (GitHub today, Slack next). Each impl lives in that
+	// transport's infrastructure package; the composition root registers
+	// them here. Optional.
+	Provisioners map[transport.Kind]InboundProvisioner
 }
 
 // New constructs the Streams service. Now/NewID fall back to wall-clock
@@ -47,7 +56,7 @@ func New(deps Deps) *Streams {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Streams{streams: deps.Streams, now: now, newID: deps.NewID}
+	return &Streams{streams: deps.Streams, now: now, newID: deps.NewID, provisioners: deps.Provisioners}
 }
 
 // CreateParams describes a new Stream. ID is optional — when empty a

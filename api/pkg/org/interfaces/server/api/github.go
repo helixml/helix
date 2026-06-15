@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	githubclient "github.com/helixml/helix/api/pkg/github"
-	"github.com/helixml/helix/api/pkg/org/application/githubwebhook"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
@@ -306,8 +306,8 @@ type GitHubWebhookStatusResponse struct {
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/streams/{id}/github/install-webhook [post]
 func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.deps.GitHubWebhook == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("github webhook integration is not wired in this deployment"))
+	if a.deps.Streams == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("streams service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -320,9 +320,11 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	res, err := a.deps.GitHubWebhook.Install(r.Context(), orgID, streamID)
+	// Generic seam: the streams service dispatches to the registered
+	// inbound provisioner for the stream's transport (github today).
+	res, err := a.deps.Streams.InstallInbound(r.Context(), orgID, streamID)
 	if err != nil {
-		writeError(w, githubWebhookStatus(err), err)
+		writeError(w, inboundFailStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, InstallGitHubWebhookResponse{
@@ -332,19 +334,20 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// githubWebhookStatus maps a githubwebhook.Failure to its HTTP code.
-// Non-Failure errors fall through to errStatus (500 / 404).
-func githubWebhookStatus(err error) int {
-	var f *githubwebhook.Failure
+// inboundFailStatus maps a streams.Failure (from the inbound-provisioning
+// seam) to its HTTP code. Non-Failure errors fall through to errStatus
+// (404 for a missing stream, else 500).
+func inboundFailStatus(err error) int {
+	var f *streams.Failure
 	if errors.As(err, &f) {
 		switch f.Kind {
-		case githubwebhook.FailBadRequest:
+		case streams.FailBadRequest:
 			return http.StatusBadRequest
-		case githubwebhook.FailPrecondition:
+		case streams.FailPrecondition:
 			return http.StatusPreconditionFailed
-		case githubwebhook.FailUpstream:
+		case streams.FailUpstream:
 			return http.StatusBadGateway
-		case githubwebhook.FailNotFound:
+		case streams.FailNotFound:
 			return http.StatusNotFound
 		default:
 			return http.StatusInternalServerError
@@ -369,8 +372,8 @@ func githubWebhookStatus(err error) int {
 // @Security ApiKeyAuth
 // @Router /api/v1/orgs/{org}/streams/{id}/github/webhook-status [get]
 func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Request) {
-	if a.deps.GitHubWebhook == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("github webhook integration is not wired in this deployment"))
+	if a.deps.Streams == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("streams service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -383,9 +386,9 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
 		return
 	}
-	res, err := a.deps.GitHubWebhook.Status(r.Context(), orgID, streamID)
+	res, err := a.deps.Streams.InboundStatus(r.Context(), orgID, streamID)
 	if err != nil {
-		writeError(w, githubWebhookStatus(err), err)
+		writeError(w, inboundFailStatus(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, GitHubWebhookStatusResponse{
