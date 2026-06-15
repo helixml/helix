@@ -1370,9 +1370,6 @@ trigger:
     include:
       - refs/heads/main
       - refs/tags/*
-      # TEMPORARY: validate Phase 9 claude-acp force-reset fix on PR before merge.
-      # REMOVE before merging helix#2616.
-      - refs/heads/fix/phase9-claude-acp-force-reset
 
 volumes:
   - name: dockersocket
