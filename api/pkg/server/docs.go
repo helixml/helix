@@ -10151,7 +10151,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).",
                 "consumes": [
                     "application/json"
                 ],

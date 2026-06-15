@@ -24,21 +24,21 @@ import (
 
 // fakeHelixClient is a deterministic stand-in for Client.
 type fakeHelixClient struct {
-	mu             sync.Mutex
-	startCalls     int32
-	sendCalls      int32
-	outputCalls    int32
-	subscribeCalls int32
+	mu                 sync.Mutex
+	startCalls         int32
+	sendCalls          int32
+	outputCalls        int32
+	subscribeCalls     int32
 	startSessionID     string
 	sessionOwner       string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
 	exploratorySession string // returned by ExploratorySession; the mirror polls this to track the worker's current session
-	startErr        error
-	sendErr         error
-	outputs         []types.SessionOutputResponse
-	updatesFactory  func() <-chan types.WebsocketEvent
-	lastStartParams StartSessionParams
-	lastSendSID     string
-	lastSendBody    string
+	startErr           error
+	sendErr            error
+	outputs            []types.SessionOutputResponse
+	updatesFactory     func() <-chan types.WebsocketEvent
+	lastStartParams    StartSessionParams
+	lastSendSID        string
+	lastSendBody       string
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -556,7 +556,7 @@ func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	ps.publish(t, topic, complete)
 
 	if !waitForSegment(t, s, wid, "assistant: hi there") {
-		t.Fatal("post-activation session turn not mirrored to the activation stream")
+		t.Fatal("post-activation session turn not mirrored to the transcript")
 	}
 }
 
@@ -593,7 +593,7 @@ func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 // MUST create an activation row at start and complete it with
 // StatusOK at end, so the audit/replay surface stays in sync with
 // the transcript stream. The id derives from cfg.NewID with the
-// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptStreamID
+// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptID
 // is the canonical StreamID derivation; Outcome.Status reflects the
 // Spawner's return value.
 func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
@@ -621,8 +621,8 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	if a.ID != activation.ID("a-id") {
 		t.Errorf("row.ID = %q, want a-id (from NewID stub)", a.ID)
 	}
-	if a.TranscriptStreamID != activation.StreamID(wid) {
-		t.Errorf("row.TranscriptStreamID = %q, want %q", a.TranscriptStreamID, activation.StreamID(wid))
+	if a.TranscriptID != activation.TranscriptID(wid) {
+		t.Errorf("row.TranscriptID = %q, want %q", a.TranscriptID, activation.TranscriptID(wid))
 	}
 	if !a.IsCompleted() {
 		t.Fatalf("row not marked completed; EndedAt = %v", a.EndedAt)

@@ -122,19 +122,19 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 		t.Fatalf("ceo identity = %q", ceoWorker.IdentityContent())
 	}
 
-	// hire_worker also creates the activation stream and subscribes
+	// hire_worker also creates the transcript and subscribes
 	// the hiring Worker's POSITION (not the worker itself) — sub
 	// rows are now position-anchored. w-owner is in p-root.
-	if _, err := s.Streams.Get(ctx, "org-test", "s-activations-w-ceo"); err != nil {
-		t.Fatalf("activation stream missing for w-ceo: %v", err)
+	if _, err := s.Streams.Get(ctx, "org-test", "s-transcript-w-ceo"); err != nil {
+		t.Fatalf("transcript missing for w-ceo: %v", err)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", "s-activations-w-ceo"); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", "s-transcript-w-ceo"); err != nil {
 		t.Fatalf("owner position not subscribed to w-ceo activations: %v", err)
 	}
 	// The new Worker's own position is intentionally NOT subscribed
 	// — otherwise self-published events would loop the dispatcher.
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-activations-w-ceo"); err == nil {
-		t.Fatalf("p-ceo should NOT be subscribed to its own worker's activation stream")
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-transcript-w-ceo"); err == nil {
+		t.Fatalf("p-ceo should NOT be subscribed to its own worker's transcript")
 	}
 
 	// Stand in for the CEO's hire activation: subscribe to the
@@ -727,10 +727,10 @@ func TestWorkerLog(t *testing.T) {
 	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
-	// Pre-create the activation stream + seed a couple of events. In
+	// Pre-create the transcript + seed a couple of events. In
 	// production hire_worker creates the stream and the spawner
 	// publishes events; here we shortcut.
-	streamID := streaming.StreamID("s-activations-w-bot")
+	streamID := streaming.StreamID("s-transcript-w-bot")
 	stream, _ := streaming.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, stream))
 	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
@@ -796,7 +796,7 @@ func TestWorkerLog(t *testing.T) {
 		t.Fatalf("worker_log on unknown worker should error")
 	}
 
-	// Human Worker has no activation stream — clear error, not a generic
+	// Human Worker has no transcript — clear error, not a generic
 	// "stream not found".
 	if _, err := invokeTool(t, ownerSession, mcptools.WorkerLogName, map[string]any{
 		"workerId": "w-owner",
@@ -840,7 +840,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
-	streamID := activation.StreamID("w-bot")
+	streamID := activation.TranscriptID("w-bot")
 	str, _ := streaming.NewStream(streamID, "Activations: w-bot", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, str))
 
@@ -951,7 +951,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	// Worker's activation IDs.
 	other, _ := orgchart.NewAIWorker("w-other", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, other))
-	otherStream, _ := streaming.NewStream(activation.StreamID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
+	otherStream, _ := streaming.NewStream(activation.TranscriptID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Streams.Create(ctx, otherStream))
 	a3, _ := activation.New("a-3", "w-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a3))

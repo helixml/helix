@@ -76,7 +76,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 // in the alpha; per-user hires arrive when multi-tenant lands.
 //
 // @Summary Helix-org: hire worker
-// @Description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+// @Description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
 // @Tags HelixOrg
 // @Accept json
 // @Produce json

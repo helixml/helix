@@ -207,7 +207,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	}
 
 	// Reconcile the activation/team Streams implied by the new Worker and
-	// its reporting line (mints the hire's activation Stream + the
+	// its reporting line (mints the hire's transcript + the
 	// manager's team Stream from one declarative pass). A nil Reconciler is
 	// a no-op (the Reconciler guards its own nil receiver).
 	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {

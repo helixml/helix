@@ -31,7 +31,7 @@ func newHireService(st *store.Store, envsDir string) *lifecycle.Service {
 
 // TestHire_CreatesWorkerEnvAndReconciles: Hire creates the worker +
 // environment row, wires the reporting line to the parent, and
-// reconciles topology (the hire's activation stream materialises with
+// reconciles topology (the hire's transcript materialises with
 // the manager subscribed).
 func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 	t.Parallel()
@@ -68,9 +68,9 @@ func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 	if len(managers) != 1 || managers[0] != "w-boss" {
 		t.Fatalf("reporting line not wired: %v", managers)
 	}
-	// The reconciler created the hire's activation stream.
-	if _, err := st.Streams.Get(ctx, "org-test", "s-activations-w-new"); err != nil {
-		t.Fatalf("activation stream not reconciled: %v", err)
+	// The reconciler created the hire's transcript.
+	if _, err := st.Streams.Get(ctx, "org-test", "s-transcript-w-new"); err != nil {
+		t.Fatalf("transcript not reconciled: %v", err)
 	}
 }
 

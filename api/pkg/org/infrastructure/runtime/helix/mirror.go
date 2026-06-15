@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
@@ -38,7 +37,7 @@ type MirrorConfig struct {
 // Mirror is the single writer of worker transcript segments: it keeps
 // one subscription per tracked worker pointed at that worker's current
 // session and republishes every settled entry (plus the user prompt)
-// onto s-activations-<worker>. Every turn — spawner activation, inline
+// onto s-transcript-<worker>. Every turn — spawner activation, inline
 // chat, anything on /sessions/chat — flows through the session topic, so
 // one subscriber captures them all.
 //
@@ -196,7 +195,7 @@ func (m *Mirror) resolveSession(ctx context.Context, orgID string, workerID orgc
 }
 
 // subscribe attaches a bridge to one session's topic and pumps its
-// frames onto the activation stream until ctx fires. The first subscribe
+// frames onto the transcript until ctx fires. The first subscribe
 // is synchronous so a frame published right after isn't raced.
 func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.WorkerID, sessionID string) {
 	ownerID := ""
@@ -209,11 +208,12 @@ func (m *Mirror) subscribe(ctx context.Context, orgID string, workerID orgchart.
 			ownerID = owner
 		}
 	}
+	rec := newTranscriptRecorder(m.cfg.Store, m.cfg.Hub, m.cfg.NewID, m.cfg.Now, m.cfg.Logger)
 	publish := func(body string) {
 		if body == "" {
 			return
 		}
-		_, _ = activations.PublishActivationEvent(ctx, m.cfg.Store, m.cfg.Hub, m.cfg.NewID, m.cfg.Now, m.cfg.Logger, orgID, workerID, body)
+		_, _ = rec.Record(ctx, orgID, workerID, body)
 	}
 	b := newBridge(publish)
 	ch, err := SubscribeSessionUpdates(ctx, m.cfg.PubSub, m.cfg.Snapshotter, ownerID, sessionID)

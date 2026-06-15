@@ -17,7 +17,7 @@ import (
 // WorkerLog reads a single AI Worker's activation transcript — assistant
 // text, tool calls, tool results — newest first. It's a shortcut over
 // the underlying primitives: resolves the deterministic activation
-// Stream (s-activations-<workerID>), auto-subscribes the caller (so
+// Stream (s-transcript-<workerID>), auto-subscribes the caller (so
 // the agent doesn't have to chain subscribe + read_events), then
 // returns the events scoped to that one Worker.
 //
@@ -38,7 +38,7 @@ func (t *WorkerLog) Description() string {
 	return "Read a Worker's activation log — assistant text, tool calls, tool results — " +
 		"newest first. Reach for this whenever the user wants to watch/audit/tail/" +
 		"observe what a named Worker is doing or did. Auto-subscribes the caller to " +
-		"the Worker's activation Stream on first call; subsequent calls reuse the " +
+		"the Worker's transcript on first call; subsequent calls reuse the " +
 		"subscription. Same since/wait/limit semantics as read_events but scoped to " +
 		"one Worker. Pass activationId to narrow further to a single activation's " +
 		"transcript (the time window between that activation's start and end). " +
@@ -102,9 +102,9 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 			target, wkr.Kind())
 	}
 
-	streamID := activation.StreamID(target)
+	streamID := activation.TranscriptID(target)
 	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
-		return nil, fmt.Errorf("activation stream for %q: %w", target, err)
+		return nil, fmt.Errorf("transcript for %q: %w", target, err)
 	}
 
 	var actWindow *struct {
@@ -211,7 +211,7 @@ func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.
 	return out
 }
 
-// fresh returns events on the activation stream newer than `since`
+// fresh returns events on the transcript newer than `since`
 // (exclusive), newest-first, up to `limit`. Empty `since` means
 // "return everything up to limit".
 func (t *WorkerLog) fresh(ctx context.Context, orgID string, streamID streaming.StreamID, limit int, since streaming.EventID) ([]streaming.Event, error) {

@@ -10,9 +10,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// TestDispatchActivationStreamSpawnsSubscribedWorker pins the auto-
-// spawn-on-activation-stream-event wiring: when a Message event lands
-// on an activation Stream (`s-activations-<workerID>`) and a position
+// TestDispatchTranscriptEventSpawnsSubscribedWorker pins the auto-
+// spawn-on-transcript-event wiring: when a Message event lands
+// on an transcript (`s-transcript-<workerID>`) and a position
 // is subscribed to that stream, every AI Worker currently filling that
 // position must get an activation enqueued — which is what triggers
 // the helix Spawner to provision the per-Worker project and open a
@@ -21,7 +21,7 @@ import (
 // This is the regression we need to pin after the position-anchored
 // subscriptions refactor (7f3bc73e2). The fan-out path is:
 //
-//	publish on s-activations-<X>
+//	publish on s-transcript-<X>
 //	  → Dispatch lists Subscriptions.ListForStream
 //	  → resolves each (position, current AI workers in that position)
 //	  → Queue.Enqueue per worker
@@ -33,18 +33,18 @@ import (
 // the full chain to catch a regression that drops the spawn at the
 // end of it (e.g. a position with workers but no Enqueue, or a worker
 // resolved via the position-map but skipped before the Enqueue line).
-func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
+func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
 
 	// A fresh AI worker w-newhire at its own Position. The activation
-	// stream `s-activations-w-newhire` is the per-Worker transcript
+	// stream `s-transcript-w-newhire` is the per-Worker transcript
 	// stream that hire_worker creates in production.
 	seedAIWorker(t, s, "w-newhire")
-	streamID := activation.StreamID("w-newhire")
+	streamID := activation.TranscriptID("w-newhire")
 	seedWebhookStream(t, s, streamID, transport.LocalTransport())
 	// The new worker's OWN position is subscribed to its OWN activation
-	// stream, so any event published to s-activations-w-newhire fans
+	// stream, so any event published to s-transcript-w-newhire fans
 	// out to w-newhire and triggers a Spawn — the desktop auto-starts
 	// without the operator having to click "Open Human Desktop".
 	seedSubscription(t, s, "w-newhire", streamID)
@@ -72,7 +72,7 @@ func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {
-		t.Fatalf("activations = %d, want 1 (event on s-activations-<W> must spawn W); got %+v", len(got), got)
+		t.Fatalf("activations = %d, want 1 (event on s-transcript-<W> must spawn W); got %+v", len(got), got)
 	}
 	if got[0].WorkerID != "w-newhire" {
 		t.Fatalf("spawned worker = %q, want %q", got[0].WorkerID, "w-newhire")

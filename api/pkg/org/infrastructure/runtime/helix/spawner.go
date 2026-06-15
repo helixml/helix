@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/transcript"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -133,7 +133,7 @@ type SpawnerConfig struct {
 // global semaphore slot, ensure a live session exists, open the live
 // transcript WebSocket, then poll for completion. New transcript
 // segments arriving on the WebSocket are diffed against a per-call
-// dedup map and republished onto s-activations-<workerID> in the
+// dedup map and republished onto s-transcript-<workerID> in the
 // canonical transcript line shape (assistant: …, tool_use foo: …,
 // tool_result: …) so observers see one format regardless of which
 // Worker fired.
@@ -211,12 +211,12 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}()
 		}
 
-		streamID := activation.StreamID(workerID)
+		streamID := activation.TranscriptID(workerID)
 		publish := func(body string) {
 			if body == "" {
 				return
 			}
-			publishActivationEvent(ctx, cfg, orgID, workerID, streamID, body)
+			recordTranscript(ctx, cfg, orgID, workerID, streamID, body)
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
 
@@ -554,7 +554,7 @@ func (b *bridge) apply(u types.WebsocketEvent) {
 // onEvent renders one settled EntryStream event into the canonical
 // activation-transcript line shape. The owner-chat bridge in
 // server/chat uses the same TranscriptBody helper to publish
-// identical lines to s-activations-w-owner.
+// identical lines to s-transcript-w-owner.
 func (b *bridge) onEvent(e Event) {
 	if body := TranscriptBody(e); body != "" {
 		b.publish(body)
@@ -564,7 +564,7 @@ func (b *bridge) onEvent(e Event) {
 // TranscriptBody renders one Helix WS event into the line shape every
 // Worker's activation transcript uses (assistant: …, tool_use foo:
 // …, tool_result: …). Exported so the owner-chat bridge in
-// server/chat can produce identical lines for s-activations-w-owner
+// server/chat can produce identical lines for s-transcript-w-owner
 // without duplicating the rendering. Empty string for kinds that
 // shouldn't appear on the transcript.
 //
@@ -598,11 +598,25 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 	return activation.TranscriptSegment{}, false
 }
 
-// publishActivationEvent is a thin wrapper around the shared
-// activations.PublishActivationEvent so the helix spawner's call sites
-// stay terse. The owner-chat bridge uses the same shared helper
-// directly — both paths produce identical event shapes on
-// s-activations-<workerID>.
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
-	_, _ = activations.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
+// recordTranscript records one turn onto the Worker's transcript via the
+// shared transcript.Recorder so the helix spawner's call sites stay
+// terse. The owner-chat bridge records through the same recorder — both
+// paths produce identical event shapes on s-transcript-<workerID>.
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
+	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
+}
+
+// newTranscriptRecorder builds a transcript.Recorder from the loose
+// store/hub/clock collaborators the runtime configs carry. A nil store
+// yields a no-op recorder; a nil hub means no live wake (the typed-nil
+// guard mirrors publishing's Hub handling).
+func newTranscriptRecorder(st *store.Store, hub *wakebus.Bus, newID func() string, now func() time.Time, logger *slog.Logger) *transcript.Recorder {
+	d := transcript.Deps{NewID: newID, Now: now, Logger: logger}
+	if st != nil {
+		d.Events = st.Events
+	}
+	if hub != nil {
+		d.Notifier = hub
+	}
+	return transcript.New(d)
 }

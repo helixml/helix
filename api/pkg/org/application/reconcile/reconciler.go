@@ -45,7 +45,7 @@ type Reconciler struct {
 
 // Deps are the constructor-injected collaborators for New.
 // ReportingLines is optional: a store that doesn't wire it yields a graph
-// with no reporting edges (activation streams only).
+// with no reporting edges (transcripts only).
 type Deps struct {
 	Workers        store.Workers
 	ReportingLines store.ReportingLines
@@ -82,7 +82,7 @@ func New(deps Deps) *Reconciler {
 // Scoping to the affected Workers' streams (rather than every stream in
 // the org) is what keeps Reconcile from touching DM streams or
 // operator-created streams: the only Stream ids it ever considers are
-// `s-activations-<id>` and `s-team-<id>` for the affected Workers and
+// `s-transcript-<id>` and `s-team-<id>` for the affected Workers and
 // their immediate neighbours.
 //
 // Callers announce what changed:
@@ -121,7 +121,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	}
 
 	// Index the (current) graph to find each affected Worker's one-hop
-	// neighbours — their team/activation streams can move too.
+	// neighbours — their team/transcripts can move too.
 	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
 	reportsByManager := map[orgchart.WorkerID][]orgchart.WorkerID{}
 	for _, l := range lines {
@@ -134,7 +134,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	// neighbours — never an operator-created stream.
 	relevant := map[streaming.StreamID]struct{}{}
 	for _, a := range affected {
-		relevant[activation.StreamID(a)] = struct{}{}
+		relevant[activation.TranscriptID(a)] = struct{}{}
 		relevant[channels.TeamStreamID(a)] = struct{}{}
 		// A manager's team stream gains/loses this Worker as a member,
 		// and the manager↔this-Worker DM channel is created/kept.
@@ -142,11 +142,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 			relevant[channels.TeamStreamID(m)] = struct{}{}
 			relevant[channels.DMStreamID(a, m)] = struct{}{}
 		}
-		// A report's activation stream gains/loses this Worker as an
+		// A report's transcript gains/loses this Worker as an
 		// observer, and the this-Worker↔report DM channel is
 		// created/kept.
 		for _, rep := range reportsByManager[a] {
-			relevant[activation.StreamID(rep)] = struct{}{}
+			relevant[activation.TranscriptID(rep)] = struct{}{}
 			relevant[channels.DMStreamID(a, rep)] = struct{}{}
 		}
 	}
@@ -263,7 +263,7 @@ func (r *Reconciler) convergeStream(ctx context.Context, orgID string, ch channe
 // Subscriptions are worker-anchored; members must be existing Workers.
 //
 // Concurrency-safe by design. The Stream id is deterministic
-// (s-dm-<pair>, s-team-<id>, s-activations-<id>), so two callers can
+// (s-dm-<pair>, s-team-<id>, s-transcript-<id>), so two callers can
 // race on the same id — two simultaneous DMs between the same pair, two
 // reconciles touching one manager's team stream. A plain check-then-act
 // would let the loser of the race hit the row's unique constraint and

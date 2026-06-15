@@ -645,7 +645,7 @@ const buildGraph = (
   //    worker-anchored, so subscribers carries Worker ids — one dashed
   //    edge per subscribed Worker. Streams sit in column(s) to the right
   //    of the org tree. Each stream is vertically anchored to the
-  //    "subject" Worker: for activation streams (`s-activations-<id>`)
+  //    "subject" Worker: for transcripts (`s-transcript-<id>`)
   //    that's the encoded worker; otherwise created_by. Streams whose
   //    subject isn't on the chart park in an orphan strip below.
   //
@@ -659,7 +659,7 @@ const buildGraph = (
   //    each column places each stream at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
   if (streams.length > 0) {
-    const ACTIVATION_PREFIX = 's-activations-'
+    const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
     for (const group of groups) {
       const ro = roleOrigin.get(group.roleId)
@@ -692,8 +692,8 @@ const buildGraph = (
     const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
     for (const s of streams) {
       let subjectWorker: string | undefined
-      if (s.id.startsWith(ACTIVATION_PREFIX)) {
-        subjectWorker = s.id.slice(ACTIVATION_PREFIX.length)
+      if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
+        subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
       } else if (s.created_by) {
         subjectWorker = s.created_by
       }

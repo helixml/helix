@@ -135,7 +135,7 @@ workers, so the list must be filterable, not grouped).
 
 ## §6. Streams list, detail, live tail
 
-Every **AI** Worker has an auto-created `s-activations-<workerID>`
+Every **AI** Worker has an auto-created `s-transcript-<workerID>`
 stream (humans don't need spawner activation, so `w-owner` is the
 only human with one — seeded at bootstrap so chat lands
 somewhere). Both kinds of hierarchy stream are derived from the
@@ -147,12 +147,12 @@ surface lives at `…/helix-org/streams`.
 
 1. **Streams list** — columns ID / Name / Transport / Subscribers
    / Created. Every AI worker has a matching
-   `s-activations-<workerID>` row, plus `s-activations-w-owner`. Any
+   `s-transcript-<workerID>` row, plus `s-transcript-w-owner`. Any
    Worker that has at least one direct report also shows an
    `s-team-<managerID>` row.
 2. **Subscribers column** shows worker ids (not position ids).
    For a freshly-hired `w-ai-1` (parent `w-owner`),
-   `s-activations-w-ai-1`'s subscriber list is `[w-owner]` — its
+   `s-transcript-w-ai-1`'s subscriber list is `[w-owner]` — its
    **manager** is subscribed, because activation-stream observers are
    derived from the reporting line, not from whoever clicked hire — and
    explicitly NOT `[w-ai-1]` (a worker subscribed to its own activation
@@ -227,13 +227,13 @@ Role does NOT inherit.
 ## §9. Stream delete
 
 Firing a worker removes both kinds of hierarchy stream it owns —
-its `s-activations-<workerID>` stream and, if it was a manager, its
+its `s-transcript-<workerID>` stream and, if it was a manager, its
 `s-team-<workerID>` team stream. Topology owns the teardown (Fire
 reconciles after the row is gone; there is no inline stream delete).
 
 1. Hire a fresh AI `w-cleanup`. Its activation stream row + an
-   entry in `s-activations-w-cleanup`'s subscriber list appear.
-2. Fire `w-cleanup`. `s-activations-w-cleanup` row disappears
+   entry in `s-transcript-w-cleanup`'s subscriber list appear.
+2. Fire `w-cleanup`. `s-transcript-w-cleanup` row disappears
    from the Streams list within ~1s (`lifecycle.Fire` →
    `topology.Reconcile`). Events on that stream survive in
    `org_events` as an audit trail.
@@ -242,12 +242,12 @@ reconciles after the row is gone; there is no inline stream delete).
    `s-team-w-cleanup-mgr` now exists (subscribers
    `[w-cleanup-mgr, w-cleanup-rep]`). Fire `w-cleanup-mgr` (the
    confirm dialog notes its report loses its manager). Both
-   `s-activations-w-cleanup-mgr` **and** `s-team-w-cleanup-mgr`
+   `s-transcript-w-cleanup-mgr` **and** `s-team-w-cleanup-mgr`
    disappear from the Streams list:
    `SELECT id FROM org_streams WHERE id IN
-   ('s-activations-w-cleanup-mgr','s-team-w-cleanup-mgr')` returns
+   ('s-transcript-w-cleanup-mgr','s-team-w-cleanup-mgr')` returns
    zero rows. `w-cleanup-rep` survives, keeping its own
-   `s-activations-w-cleanup-rep`.
+   `s-transcript-w-cleanup-rep`.
 
 ## §10. Chat: inline transcript
 
@@ -341,10 +341,10 @@ now reconcile the activation/team streams the edge implies (see 3a).
    - **Topology side-effects** (the new manager edge wires the comms
      channels — and they exist ONLY because the edge was wired; the
      orphan workers from step 1 had no team/DM streams, only their own
-     `s-activations-<id>`). `s-activations-w-alice` now has `w-owner` as
+     `s-transcript-<id>`). `s-transcript-w-alice` now has `w-owner` as
      a subscriber (the manager observes the report's transcript):
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner}`. The manager's team
+     stream_id='s-transcript-w-alice'` → `{w-owner}`. The manager's team
      stream now exists with both of them:
      `SELECT worker_id FROM org_subscriptions WHERE
      stream_id='s-team-w-owner'` → `{w-owner, w-alice}`. And the 1:1 DM
@@ -365,7 +365,7 @@ now reconcile the activation/team streams the edge implies (see 3a).
    report_id='w-alice'` → two rows.
    - **Both managers now observe the transcript.**
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner, w-carol}`. And
+     stream_id='s-transcript-w-alice'` → `{w-owner, w-carol}`. And
      `w-carol`'s team stream now exists:
      `SELECT worker_id FROM org_subscriptions WHERE
      stream_id='s-team-w-carol'` → `{w-carol, w-alice}`.
@@ -376,7 +376,7 @@ now reconcile the activation/team streams the edge implies (see 3a).
    `[w-owner]`.
    - **The ex-manager is unsubscribed — this is the bug this PR fixes.**
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner}` only (NOT
+     stream_id='s-transcript-w-alice'` → `{w-owner}` only (NOT
      `{w-owner, w-carol}` — the old bug left `w-carol` subscribed after
      the edge was removed). `s-team-w-carol` is gone (w-carol has no
      other reports), and so is the DM channel for the dropped edge:
@@ -561,9 +561,9 @@ mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"creat
    org-b must return `r-secret-bbb` and **never** `r-secret-aaa` /
    `SECRET-A-DATA`; `list_roles` on org-a is the mirror image. Same for
    `list_workers` and `list_streams` — org-a's unique stream ids
-   (e.g. `s-dummy-*`, `s-activations-<an org-a-only worker>`) must be
+   (e.g. `s-dummy-*`, `s-transcript-<an org-a-only worker>`) must be
    absent from org-b's list. The only ids that may appear in both lists
-   are generic per-org rows (`s-activations-w-owner`, `s-team-w-owner`) —
+   are generic per-org rows (`s-transcript-w-owner`, `s-team-w-owner`) —
    those are each org's *own* row that happens to share an id, not a leak;
    confirm the row's `org_id` and content are the reader's, not the
    other's.

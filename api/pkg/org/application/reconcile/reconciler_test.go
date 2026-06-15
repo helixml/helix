@@ -120,9 +120,9 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
 		t.Fatalf("after first hire, s-team-w-jane = %v, want [w-jane w-li]", got)
 	}
-	// w-li's activation stream is observed by jane.
-	if got := streamMembers(t, st, activation.StreamID("w-li")); !eq(got, []orgchart.WorkerID{"w-jane"}) {
-		t.Fatalf("s-activations-w-li = %v, want [w-jane]", got)
+	// w-li's transcript is observed by jane.
+	if got := streamMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.WorkerID{"w-jane"}) {
+		t.Fatalf("s-transcript-w-li = %v, want [w-jane]", got)
 	}
 
 	// Second report.
@@ -138,7 +138,7 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 
 // TestReconcile_AddSecondManager mirrors the addWorkerParent TDD row:
 // adding a second manager adds the report to the new team stream and
-// the new manager to the report's activation stream, WITHOUT disturbing
+// the new manager to the report's transcript, WITHOUT disturbing
 // the first manager's membership (the many-to-many invariant).
 func TestReconcile_AddSecondManager(t *testing.T) {
 	rec, st := newRec(t)
@@ -163,15 +163,15 @@ func TestReconcile_AddSecondManager(t *testing.T) {
 	if got := streamMembers(t, st, channels.TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane (unchanged) = %v, want [w-jane w-li]", got)
 	}
-	if got := streamMembers(t, st, activation.StreamID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
-		t.Fatalf("s-activations-w-li = %v, want [w-bob w-jane]", got)
+	if got := streamMembers(t, st, activation.TranscriptID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
+		t.Fatalf("s-transcript-w-li = %v, want [w-bob w-jane]", got)
 	}
 }
 
 // TestReconcile_RemoveManager mirrors the removeWorkerParent TDD row:
 // dropping w-li→w-jane removes w-li from s-team-w-jane, tears the stream
 // down if jane now has no reports, and unsubscribes jane from
-// s-activations-w-li.
+// s-transcript-w-li.
 func TestReconcile_RemoveManager(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
@@ -197,8 +197,8 @@ func TestReconcile_RemoveManager(t *testing.T) {
 		t.Fatalf("s-team-w-jane should be torn down (jane has 0 reports)")
 	}
 	// jane no longer observes w-li's transcript.
-	if got := streamMembers(t, st, activation.StreamID("w-li")); len(got) != 0 {
-		t.Fatalf("s-activations-w-li observers = %v, want none after losing its only manager", got)
+	if got := streamMembers(t, st, activation.TranscriptID("w-li")); len(got) != 0 {
+		t.Fatalf("s-transcript-w-li observers = %v, want none after losing its only manager", got)
 	}
 }
 
@@ -258,8 +258,8 @@ func TestReconcile_FireReport(t *testing.T) {
 	if streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be gone after firing its only report")
 	}
-	if streamExists(t, st, activation.StreamID("w-li")) {
-		t.Fatalf("s-activations-w-li should be gone after firing w-li")
+	if streamExists(t, st, activation.TranscriptID("w-li")) {
+		t.Fatalf("s-transcript-w-li should be gone after firing w-li")
 	}
 }
 
@@ -296,9 +296,9 @@ func TestReconcile_FireManager(t *testing.T) {
 	if streamExists(t, st, channels.TeamStreamID("w-jane")) {
 		t.Fatalf("s-team-w-jane should be torn down")
 	}
-	// w-li still exists and keeps its own activation stream.
-	if !streamExists(t, st, activation.StreamID("w-li")) {
-		t.Fatalf("w-li should keep its own activation stream")
+	// w-li still exists and keeps its own transcript.
+	if !streamExists(t, st, activation.TranscriptID("w-li")) {
+		t.Fatalf("w-li should keep its own transcript")
 	}
 }
 
@@ -371,17 +371,17 @@ func TestEnsureStreamWithMembers_ConcurrentCreateRace(t *testing.T) {
 }
 
 // TestReconcile_OwnerWithReport mirrors the owner TDD row: the owner with
-// a direct report has both a self-observed activation stream and a team
+// a direct report has both a self-observed transcript and a team
 // stream containing the owner + report.
 func TestReconcile_OwnerWithReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
 	seedWorker(t, st, human("w-owner"))
-	// Owner bootstrap reconcile mints its self-observed activation stream.
+	// Owner bootstrap reconcile mints its self-observed transcript.
 	if err := rec.Reconcile(ctx, orgID, "w-owner"); err != nil {
 		t.Fatalf("reconcile owner: %v", err)
 	}
-	if got := streamMembers(t, st, activation.StreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
+	if got := streamMembers(t, st, activation.TranscriptID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
 		t.Fatalf("owner activation observers = %v, want [w-owner]", got)
 	}
 
@@ -393,8 +393,8 @@ func TestReconcile_OwnerWithReport(t *testing.T) {
 	if got := streamMembers(t, st, channels.TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-jane", "w-owner"}) {
 		t.Fatalf("s-team-w-owner = %v, want [w-jane w-owner]", got)
 	}
-	// Owner's own activation stream survived the team-stream creation.
-	if got := streamMembers(t, st, activation.StreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
+	// Owner's own transcript survived the team-stream creation.
+	if got := streamMembers(t, st, activation.TranscriptID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner"}) {
 		t.Fatalf("owner activation observers after report = %v, want [w-owner]", got)
 	}
 }

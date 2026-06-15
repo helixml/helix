@@ -36,14 +36,14 @@ import (
 // Concrete topics are "<prefix>.<orgID>.<streamID>". The org segment is
 // REQUIRED: stream IDs are unique only within an org (the store keys
 // streams by the composite (id, org_id)), so two orgs routinely share a
-// stream id — every org's owner activation stream is
-// `s-activations-w-owner`, and user-named streams like `s-general`
+// stream id — every org's owner transcript is
+// `s-transcript-w-owner`, and user-named streams like `s-general`
 // collide trivially. Without the org token, one org's Notify would wake
 // the other org's subscribers on a colliding id. The per-org wildcard
 // form "<prefix>.<orgID>.>" matches every per-stream topic in one org,
 // used by SubscribeAll.
 //
-// Org IDs (`org_…`) and stream IDs (`s-activations-w-alice` etc.) are
+// Org IDs (`org_…`) and stream IDs (`s-transcript-w-alice` etc.) are
 // kebab/underscore tokens that never contain NATS-special characters
 // (`.`, `*`, `>`, whitespace), so passing each as a single subject
 // token is safe.

@@ -1,6 +1,6 @@
 // Package channels is the pure domain rule that turns the org's
 // reporting graph into the communication channels it requires: the
-// per-Worker activation Stream (who observes a Worker's transcript), the
+// per-Worker transcript (the append-only log of a Worker's activations), the
 // per-manager team Stream (the downward broadcast channel a manager
 // briefs their reports on), and the per-edge DM channel (the 1:1 a
 // manager and report message on).
@@ -22,7 +22,7 @@ import (
 // TeamStreamID returns the deterministic Stream ID for a manager's team
 // broadcast channel — the downward channel a manager publishes to so
 // every direct report receives the post in one shot. Mirrors the
-// `s-activations-<id>` convention in domain/activation.
+// `s-transcript-<id>` convention in domain/activation.
 func TeamStreamID(managerID orgchart.WorkerID) streaming.StreamID {
 	return streaming.StreamID("s-team-" + string(managerID))
 }
@@ -78,7 +78,7 @@ type Set struct {
 //
 // Rules (reporting is many-to-many):
 //
-//   - Activation Stream `s-activations-W` exists for Worker W iff W is
+//   - Transcript `s-transcript-W` exists for Worker W iff W is
 //     an AI Worker OR W has no managers (the root — typically the
 //     human owner). Members are W's managers, so every manager observes
 //     the transcript of each Worker reporting to them. A manager-less
@@ -143,14 +143,14 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 		wid := w.ID()
 		managers := managersByReport[wid]
 
-		// Activation Stream: AI Workers always, plus the manager-less
+		// Transcript: AI Workers always, plus the manager-less
 		// root (the human owner).
 		if w.Kind() == orgchart.WorkerKindAI || len(managers) == 0 {
-			sid := activation.StreamID(wid)
+			sid := activation.TranscriptID(wid)
 			set.Channels[sid] = Channel{
 				ID:          sid,
-				Name:        "Activations: " + string(wid),
-				Description: activationChannelDescription(wid),
+				Name:        "Transcript: " + string(wid),
+				Description: transcriptChannelDescription(wid),
 				CreatedBy:   wid,
 			}
 			observers := managers
@@ -190,7 +190,7 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 // the interface layer's concern (the MCP tool descriptions own that), and
 // the domain must not pin itself to that surface.
 
-func activationChannelDescription(workerID orgchart.WorkerID) string {
+func transcriptChannelDescription(workerID orgchart.WorkerID) string {
 	return "Per-message activation transcript for " + string(workerID) +
 		" — assistant text, tool calls, tool results, and chat turns, in " +
 		"order. The Worker's managers observe it; it is how the org audits " +

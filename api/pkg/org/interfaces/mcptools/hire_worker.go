@@ -35,11 +35,11 @@ import (
 // Stream, not Channel.)
 //
 // For AI Workers, hire_worker also creates the per-Worker activation
-// Stream (s-activations-<workerID>) and subscribes the hiring Worker to
+// Stream (s-transcript-<workerID>) and subscribes the hiring Worker to
 // it. The Spawner publishes one event per assistant message, tool call,
 // and tool result to that Stream — the hiring Worker can audit their
 // hires by calling read_events on it. The new Worker themselves is
-// intentionally never subscribed to their own activation Stream
+// intentionally never subscribed to their own transcript
 // (otherwise self-published events would re-trigger them indefinitely).
 type HireWorker struct {
 	deps Deps

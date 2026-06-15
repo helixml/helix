@@ -108,10 +108,10 @@ func Run(ctx context.Context, s *store.Store, params Params) (Result, error) {
 		return Result{}, fmt.Errorf("create owner environment: %w", err)
 	}
 
-	// Mint the owner's activation Stream via the topology reconciler —
+	// Mint the owner's transcript via the topology reconciler —
 	// the same single owner of activation/team Stream lifecycle every
 	// other mutation routes through. The owner is the manager-less root,
-	// so the rule gives it a self-observed activation Stream (its chat
+	// so the rule gives it a self-observed transcript (its chat
 	// turns surface on the Streams page) and no team Stream yet (no
 	// reports until it hires).
 	rec := reconcile.New(reconcile.Deps{

@@ -133,7 +133,7 @@ func indentBlock(s, prefix string) string {
 }
 
 // DescribeTrigger returns a short label for one activation.Trigger — used for
-// activation-stream markers and structured logging.
+// transcript markers and structured logging.
 func DescribeTrigger(t activation.Trigger) string {
 	switch t.Kind {
 	case activation.TriggerHire:
@@ -148,7 +148,7 @@ func DescribeTrigger(t activation.Trigger) string {
 }
 
 // DescribeTriggers labels the activation marker that gets published
-// to the worker's activation stream. A single trigger reuses
+// to the worker's transcript. A single trigger reuses
 // DescribeTrigger verbatim so observers see no change for the common
 // case; a coalesced batch summarises as "batch of N" with each
 // trigger's individual description joined by "; ".

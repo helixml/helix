@@ -91,7 +91,7 @@ func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, string, orgchart.Wor
 
 // TestHireWorkerHumanCreatesRowsAndSkipsActivation verifies that a
 // human hire writes Worker + Environment rows, but does NOT create an
-// activation Stream and does NOT call DispatchHire. This is today's
+// transcript and does NOT call DispatchHire. This is today's
 // behaviour we MUST preserve through the B4 refactor.
 func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	t.Parallel()
@@ -99,7 +99,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	tl := &HireWorker{deps: deps.Build()}
 
 	// Hire under a manager — the canonical case (only the owner is
-	// parentless). A managed human still gets NO activation stream:
+	// parentless). A managed human still gets NO transcript:
 	// topology mints those for AI Workers and the manager-less root
 	// only.
 	args, _ := json.Marshal(hireWorkerArgs{
@@ -138,9 +138,9 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	if env.Path != wantPath {
 		t.Errorf("env path = %q, want %q", env.Path, wantPath)
 	}
-	// Human hires do NOT get an activation Stream.
-	if _, err := deps.Store.Streams.Get(ctx, "org-test", streaming.StreamID("s-activations-w-renee")); err == nil {
-		t.Fatalf("human hire must NOT create activation stream")
+	// Human hires do NOT get an transcript.
+	if _, err := deps.Store.Streams.Get(ctx, "org-test", streaming.StreamID("s-transcript-w-renee")); err == nil {
+		t.Fatalf("human hire must NOT create transcript")
 	}
 	// Human hires do NOT trigger the dispatcher.
 	if n := dispatcher.hireCount(); n != 0 {
@@ -148,8 +148,8 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 	}
 }
 
-// TestHireWorkerAICreatesActivationStreamAndDispatches verifies an AI
-// hire ALSO creates the activation Stream, subscribes the hiring
+// TestHireWorkerAICreatesTranscriptAndDispatches verifies an AI
+// hire ALSO creates the transcript, subscribes the hiring
 // Worker to it, and calls DispatchHire. This is the full AI-hire
 // recipe.
 // TestHireWorkerReturnsActivationID pins B5.8: a successful AI hire
@@ -193,8 +193,8 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 	if row.WorkerID != "w-alice" {
 		t.Errorf("row.WorkerID = %q, want w-alice", row.WorkerID)
 	}
-	if row.TranscriptStreamID != activation.StreamID("w-alice") {
-		t.Errorf("row.TranscriptStreamID = %q, want %q", row.TranscriptStreamID, activation.StreamID("w-alice"))
+	if row.TranscriptID != activation.TranscriptID("w-alice") {
+		t.Errorf("row.TranscriptID = %q, want %q", row.TranscriptID, activation.TranscriptID("w-alice"))
 	}
 	if len(row.Triggers) != 1 || row.Triggers[0].Kind != activation.TriggerHire {
 		t.Errorf("row.Triggers = %+v, want one hire trigger", row.Triggers)
@@ -212,7 +212,7 @@ func TestHireWorkerReturnsActivationID(t *testing.T) {
 	}
 }
 
-func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
+func TestHireWorkerAICreatesTranscriptAndDispatches(t *testing.T) {
 	t.Parallel()
 	deps, dispatcher, _, caller := newHireTestEnv(t)
 	tl := &HireWorker{deps: deps.Build()}
@@ -232,18 +232,18 @@ func TestHireWorkerAICreatesActivationStreamAndDispatches(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	streamID := activation.StreamID("w-alice")
+	streamID := activation.TranscriptID("w-alice")
 	if _, err := deps.Store.Streams.Get(ctx, "org-test", streamID); err != nil {
-		t.Fatalf("activation stream missing: %v", err)
+		t.Fatalf("transcript missing: %v", err)
 	}
 	// The manager (w-owner) is subscribed (subs are worker-anchored).
 	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
-		t.Fatalf("manager not subscribed to activation stream: %v", err)
+		t.Fatalf("manager not subscribed to transcript: %v", err)
 	}
-	// New worker is NOT subscribed to its own activation stream
+	// New worker is NOT subscribed to its own transcript
 	// (would loop the dispatcher when the new worker publishes).
 	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-alice", streamID); err == nil {
-		t.Fatalf("new worker must NOT be subscribed to its own activation stream")
+		t.Fatalf("new worker must NOT be subscribed to its own transcript")
 	}
 	// Dispatcher was called once.
 	if n := dispatcher.hireCount(); n != 1 {

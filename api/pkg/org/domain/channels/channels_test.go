@@ -59,14 +59,14 @@ func eq(a, b []orgchart.WorkerID) bool {
 }
 
 // TestRequired_OwnerObservesOwn: the manager-less human owner gets a
-// self-observed activation stream and (with no reports) no team stream.
+// self-observed transcript and (with no reports) no team stream.
 // This is the "no special-casing by id" rule.
 func TestRequired_OwnerObservesOwn(t *testing.T) {
 	set := Required([]orgchart.Worker{human("w-owner")}, nil)
 
-	actStream := activation.StreamID("w-owner")
+	actStream := activation.TranscriptID("w-owner")
 	if _, ok := set.Channels[actStream]; !ok {
-		t.Fatalf("owner activation stream missing")
+		t.Fatalf("owner transcript missing")
 	}
 	if got := membersOf(set, actStream); !eq(got, []orgchart.WorkerID{"w-owner"}) {
 		t.Fatalf("owner activation observers = %v, want [w-owner]", got)
@@ -76,7 +76,7 @@ func TestRequired_OwnerObservesOwn(t *testing.T) {
 	}
 }
 
-// TestRequired_AIObservedByManagers: an AI worker's activation stream is
+// TestRequired_AIObservedByManagers: an AI worker's transcript is
 // subscribed by ALL its managers (many-to-many).
 func TestRequired_AIObservedByManagers(t *testing.T) {
 	workers := []orgchart.Worker{human("w-owner"), ai("w-jane"), ai("w-bob"), ai("w-li")}
@@ -89,7 +89,7 @@ func TestRequired_AIObservedByManagers(t *testing.T) {
 	set := Required(workers, lines)
 
 	// w-li observed by both jane and bob.
-	if got := membersOf(set, activation.StreamID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
+	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
 		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
 	}
 	// w-li is a member of BOTH team streams.
@@ -102,21 +102,21 @@ func TestRequired_AIObservedByManagers(t *testing.T) {
 }
 
 // TestRequired_AINoSelfSubscribe: a manager-less AI is never subscribed
-// to its own activation stream (would re-trigger forever).
+// to its own transcript (would re-trigger forever).
 func TestRequired_AINoSelfSubscribe(t *testing.T) {
 	set := Required([]orgchart.Worker{ai("w-rogue")}, nil)
-	if got := membersOf(set, activation.StreamID("w-rogue")); len(got) != 0 {
+	if got := membersOf(set, activation.TranscriptID("w-rogue")); len(got) != 0 {
 		t.Fatalf("manager-less AI activation observers = %v, want none", got)
 	}
 }
 
 // TestRequired_HumanWithManagerNoActivation: a human worker that has a
-// manager gets NO activation stream (only AIs and the root do).
+// manager gets NO transcript (only AIs and the root do).
 func TestRequired_HumanWithManagerNoActivation(t *testing.T) {
 	workers := []orgchart.Worker{human("w-owner"), human("w-renee")}
 	set := Required(workers, []orgchart.ReportingLine{line("w-owner", "w-renee")})
-	if _, ok := set.Channels[activation.StreamID("w-renee")]; ok {
-		t.Fatalf("managed human must NOT get an activation stream")
+	if _, ok := set.Channels[activation.TranscriptID("w-renee")]; ok {
+		t.Fatalf("managed human must NOT get an transcript")
 	}
 	// And the owner now has a team stream containing renee.
 	if got := membersOf(set, TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner", "w-renee"}) {

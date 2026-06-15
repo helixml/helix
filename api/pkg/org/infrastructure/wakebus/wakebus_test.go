@@ -341,7 +341,7 @@ func TestConcurrent_SubscribeNotifyUnsubscribe_RaceFree(t *testing.T) { // B11
 // cross-tenant wake leak (design/2026-06-09-org-multitenancy-spawner-leak.md).
 //
 // Stream IDs are unique only within an org, so two orgs share ids like
-// `s-general` and `s-activations-w-owner`. The wake topic must include
+// `s-general` and `s-transcript-w-owner`. The wake topic must include
 // the org, otherwise one org's Notify wakes the other org's subscriber
 // on a colliding id. Here both orgs subscribe to the SAME id; a Notify
 // for org-a must wake only org-a.

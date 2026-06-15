@@ -5,7 +5,7 @@
 //   - Trigger / TriggerKind: why a Spawner was invoked (lifted from
 //     helix-org/agent in B3c).
 //   - StreamID(workerID): the canonical derivation of the per-Worker
-//     activation Stream ID (`s-activations-<workerID>`), lifted from
+//     transcript ID (`s-transcript-<workerID>`), lifted from
 //     helix-org/agent in B5.1.
 //
 // The full Activation aggregate (planned for the remainder of B5)

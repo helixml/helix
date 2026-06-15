@@ -14,25 +14,25 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
-// TestFire_RemovesWorkersActivationStream pins the regression behind
-// "we still see s-activations-w-ai-1 and s-activations-w-test-ai
+// TestFire_RemovesWorkersTranscript pins the regression behind
+// "we still see s-transcript-w-ai-1 and s-transcript-w-test-ai
 // even though those workers are gone": the Fire cascade tore down
 // subscriptions, environment, runtime state, and the worker
-// row — but left the per-Worker activation Stream
-// (s-activations-<workerID>) lying around, so the Streams page kept
+// row — but left the per-Worker transcript
+// (s-transcript-<workerID>) lying around, so the Streams page kept
 // rendering ghost rows for workers that no longer existed and the
 // chart's orphan strip filled up with dashed pseudo-nodes.
 //
 // Activation events themselves are still audit-retained (the
 // `org_events` rows survive); only the Stream row is cleaned up so
 // the UI surfaces stop showing it as an active channel.
-func TestFire_RemovesWorkersActivationStream(t *testing.T) {
+func TestFire_RemovesWorkersTranscript(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 	const orgID = "org-test"
 
-	// Seed a role + worker + their activation stream the same way
+	// Seed a role + worker + their transcript the same way
 	// hire_worker would.
 	role, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 	if err := st.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	streamID := activation.StreamID(worker.ID())
+	streamID := activation.TranscriptID(worker.ID())
 	stream, err := streaming.NewStream(
 		streamID, "Activations: w-ghost", "test",
 		worker.ID(), time.Now().UTC(),
@@ -63,7 +63,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 
 	// Sanity: the stream is there before we fire.
 	if _, err := st.Streams.Get(ctx, orgID, streamID); err != nil {
-		t.Fatalf("precondition: activation stream not seeded: %v", err)
+		t.Fatalf("precondition: transcript not seeded: %v", err)
 	}
 
 	svc := &lifecycle.Service{Store: st, Owner: "w-owner", Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})}
@@ -73,7 +73,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 
 	// The stream row must be gone.
 	if _, err := st.Streams.Get(ctx, orgID, streamID); err == nil {
-		t.Fatalf("activation stream %q still exists after Fire — orphan regression", streamID)
+		t.Fatalf("transcript %q still exists after Fire — orphan regression", streamID)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestFire_RemovesWorkersActivationStream(t *testing.T) {
 //     now-deleted worker. With reporting lines, firing the manager must
 //     drop every line that references it (the gorm store does this with
 //     ON DELETE CASCADE; the memory store mirrors it).
-//   - F5: firing a worker deleted its s-activations-<id> stream but
+//   - F5: firing a worker deleted its s-transcript-<id> stream but
 //     left OTHER workers' subscriptions to that stream behind.
 func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 	t.Parallel()
@@ -124,9 +124,9 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("add reporting line: %v", err)
 	}
 
-	// The manager's activation stream + an outside subscriber (mirrors
+	// The manager's transcript + an outside subscriber (mirrors
 	// the hiring caller auto-subscribed to a new hire's activations).
-	mgrStream := activation.StreamID(mgr.ID())
+	mgrStream := activation.TranscriptID(mgr.ID())
 	stream, err := streaming.NewStream(mgrStream, "Activations: w-mgr", "test", mgr.ID(), time.Now().UTC(), transport.Transport{}, orgID)
 	if err != nil {
 		t.Fatalf("new stream: %v", err)
@@ -156,7 +156,7 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("w-report still reports to %v after firing its manager, want none (F8 dangling-line regression)", managers)
 	}
 
-	// F5: no subscription may reference the deleted activation stream.
+	// F5: no subscription may reference the deleted transcript.
 	subs, err := st.Subscriptions.ListForStream(ctx, orgID, mgrStream)
 	if err != nil {
 		t.Fatalf("list subscriptions for stream: %v", err)

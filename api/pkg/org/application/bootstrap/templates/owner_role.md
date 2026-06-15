@@ -32,7 +32,7 @@ when a delegated Worker publishes back — you have to look. After any
 
 1. Identify the stream(s) where the reply is expected — usually the
    same stream you published to, or the recipient's
-   `s-activations-<workerID>` stream if you DM'd them.
+   `s-transcript-<workerID>` stream if you DM'd them.
 2. Call `read_events` on each with `wait` set (up to 60 seconds) to
    block until something lands. Use `since` to ignore your own
    just-published event.
