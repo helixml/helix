@@ -7,10 +7,10 @@
 - [x] Skim `002029_merge-latest-zed/`, `001996_merge-latest-zed/`, `001980_merge-latest-zed/` for additional context on critical-fix preservation patterns
 - [x] Verify upstream remote: present (`upstream → https://github.com/zed-industries/zed.git`)
 - [x] `git fetch upstream && git fetch origin`
-- [~] Verify divergence at runtime (re-confirm numbers)
-- [ ] Confirm Helix-only commits since 002077: `git log f82e1c6760..origin/main --no-merges` — expected empty. If non-empty, read each commit before merging.
-- [ ] Pull `origin/main` first in case fork main moved
-- [ ] Create feature branch: `feature/002100-merge-latest-zed` from current fork main
+- [x] Verify divergence at runtime: **25** upstream commits (4 more than planning's 21 — `a31d3505da` git stash optimisation + `26fc42721a` dev_container BuildKit setting + `c578f4d12b` agent terminal shell-error fix + `832ab56db8` dev_container `$VAR` expansion). Upstream HEAD now `a31d3505da`. Fork HEAD still `f82e1c6760`.
+- [x] Confirm Helix-only commits since 002077: **0** (empty — fork main has not moved)
+- [x] Pull `origin/main` — already up to date
+- [x] Create feature branch `feature/002100-merge-latest-zed` from `f82e1c6760`
 
 ## Pre-Merge Reconnaissance
 
@@ -18,28 +18,28 @@
 
 ## Merge Execution
 
-- [ ] `git merge upstream/main` — expected 0–2 manual conflicts (predicted: only `Cargo.lock`; possibly a trivial `Cargo.toml` block if anyone added a Helix-side `[patch.crates-io]` since last check)
-- [ ] For any `Cargo.lock` conflict: `git checkout --theirs Cargo.lock && git add Cargo.lock` — regenerates on next build
-- [ ] For any `.github/workflows/` conflict: accept upstream (`--theirs` or `git rm` as appropriate)
-- [ ] For any `Cargo.toml` conflict (likely from upstream's new `[patch.crates-io] async-process = …` entry): keep both sides — Helix's workspace members + `objc2`/`objc2-app-kit` upstream bumps + the new `async-process` patch
-- [ ] **Auto-merge inspection (mandatory regardless of conflict count)**:
-  - [ ] `crates/agent_ui/src/agent_panel.rs` — confirm `1e017d04b9` deleted the `Rules Library` menu entry near line 5690 and that Fix 1b (cfg-gated `return;`) is still the FIRST statement of `BaseView::Uninitialized` in `ensure_thread_initialized`
-  - [ ] `crates/extensions_ui/src/extensions_ui.rs` — confirm `f39cf25c0b` restructured the chip filter (`.filter_map` → `.filter().map()`) and the three Helix `// HELIX: External agent …` bypass markers survived (line numbers will shift; `grep -n "HELIX: External agent"` should report 3 hits)
-  - [ ] `crates/agent_ui/src/threads_archive_view.rs` / `completion_provider.rs` / `config_options.rs` — Helix has no patches here; confirm clean apply
-  - [ ] `Cargo.toml` — confirm Helix workspace members (`crates/cloud_api_types`, `crates/external_websocket_sync`) and `rust-embed` `debug-embed` feature intact alongside the new `objc2`/`objc2-app-kit` versions and `async-process` patch
-- [ ] **Critical-fix sanity check** (auto-merge survival):
-  - [ ] Fix #1: `load_session` / `pending_sessions` shared-task pattern in `crates/agent/src/agent.rs` — file unchanged upstream this window
-  - [ ] Fix #3: `content_only` in `crates/acp_thread/src/acp_thread.rs` — file unchanged upstream
-  - [ ] Fix #6/#9: `stopped_emitted_for_task` guard sites in `acp_thread.rs` — unchanged
-  - [ ] Fix #8: `drop(turn.send_task)` — unchanged
-  - [ ] Fix #11: entity-identity guard at top of `load_agent_thread` in `agent_panel.rs` — file changed only in menu region
-- [ ] **PR #50** `session_creation_chain` + `_settings_subscription` intact in `agent_servers/src/acp.rs` (file unchanged upstream)
-- [ ] **PR #55** streaming-reveal `EntryUpdated` emit intact in `acp_thread.rs` (file unchanged upstream)
-- [ ] **PR #56 Fix 1a** deferred `UserCreatedThread` plumbing intact in `external_websocket_sync/src/thread_service.rs` (file unchanged either way)
-- [ ] **PR #56 Fix 1b** cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized` in `agent_panel.rs::ensure_thread_initialized`
-- [ ] **PR #60** `ede_diagnostic` retry block intact in `external_websocket_sync/src/thread_service.rs::handle_follow_up_message` (file unchanged either way)
-- [ ] No conflict markers remain (`grep -rn "<<<<<<<\|=======\|>>>>>>>" .` returns 0)
-- [ ] Commit the merge
+- [x] `git merge upstream/main` — **1 manual conflict** in `crates/settings_content/src/settings_content.rs` (both-sides-added-a-field on `RemoteSettingsContent`: Helix's `suggest_dev_container: Option<bool>` vs upstream's new `dev_container_use_buildkit: Option<bool>` from `26fc42721a`). Kept both. All other files auto-merged.
+- [x] No `Cargo.lock` conflict (upstream's `async-process` patch landed cleanly — Helix had no prior `[patch.crates-io]` entry)
+- [x] No `.github/workflows/` conflict (auto-merged `release.yml`, `release_nightly.yml`, `run_bundling.yml`)
+- [x] No `Cargo.toml` conflict (objc2 / objc2-app-kit bumps + async-process patch auto-merged)
+- [x] **Auto-merge inspection** — all confirmed:
+  - [x] `agent_panel.rs` — Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized` at line 5420 (immediately after Helix Fix 1b comment block). `1e017d04b9`'s `Rules Library` menu deletion landed cleanly in different region.
+  - [x] `extensions_ui.rs` — three `// HELIX: External agent` bypass markers intact at lines 226, 248, 1518 (unchanged from pre-merge — `f39cf25c0b` restructured a different region around the chip filter at upstream line ~1738)
+  - [x] `threads_archive_view.rs` / `completion_provider.rs` / `config_options.rs` — Helix has no patches; upstream changes applied cleanly
+  - [x] `Cargo.toml` — `cloud_api_types`, `external_websocket_sync`, `rust-embed`'s `debug-embed` all intact
+- [x] **Critical-fix sanity check (all intact)**:
+  - [x] Fix #1: `pending_sessions: HashMap<...>` field + `load_session` shared-task path intact in `agent/src/agent.rs:399/572/1612/1627/1637`
+  - [x] Fix #3: `content_only` at `acp_thread.rs:262`
+  - [x] Fix #6/#9: `stopped_emitted_for_task` guards at `acp_thread.rs:2793/2837/2929`
+  - [x] Fix #8: `drop(turn.send_task)` at `acp_thread.rs:2980`
+  - [x] Fix #11: entity-identity guard via `ThreadMetadataStore` / `external_websocket_sync::get_thread` at `agent_panel.rs:4623+`
+- [x] **PR #50** `session_creation_chain: Rc<RefCell<...>>` (line 438) + `_settings_subscription: Subscription` (line 439) coexist in `agent_servers/src/acp.rs`
+- [x] **PR #55** `EntryUpdated` — 16 occurrences in `acp_thread.rs` (intact; no upstream churn this window)
+- [x] **PR #56 Fix 1a** deferred `UserCreatedThread` plumbing intact in `external_websocket_sync/src/thread_service.rs` (file unchanged either way)
+- [x] **PR #56 Fix 1b** cfg-gated `return;` at `agent_panel.rs:5420-5425`, IS the FIRST statement inside the `BaseView::Uninitialized` branch
+- [x] **PR #60** `ede_diagnostic` retry block intact at `thread_service.rs:1734/1761` (file unchanged either way — 0 upstream commits)
+- [x] No conflict markers remain
+- [x] Merge committed: `0098823efa`
 
 ## Sweep for Silent Drift (auto-merged files)
 
