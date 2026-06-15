@@ -8,12 +8,12 @@
 - [x] Replace the hard-coded `setTimeout(300)` with bounded adaptive polling: snapshot the pre-copy clipboard hash (in parallel with forwarding Ctrl+C), then poll `v1ExternalAgentsClipboardDetail` every ~30 ms for up to ~500 ms, return as soon as the hash differs
 - [x] Use `ClipboardItem.supports("image/png")` to feature-detect image support; on browsers that lack it, drop the image representation and write text-only
 - [x] Replace `clipboardWriteText(text)` with `clipboardWrite({ mime, text? | base64? })` so the dispatcher can carry images as well as text. Update all call sites
-- [~] Extend `clipboardReadText` to `clipboardReadAny` returning `{ mime: "text/plain" | "image/png" | "empty", text?, base64? }`; feed image results into the paste-upload path so paste-image-into-iframe works
+- [x] Extend `clipboardReadText` to `clipboardReadAny` returning `{ mime: "text/plain" | "image/png" | "empty", text?, base64? }`; feed image results into the paste-upload path so paste-image-into-iframe works
 - [x] Feature-detect `ClipboardItem` and `navigator.clipboard.write`; fall back to the existing text-only path when missing
 - [x] Fix the misleading toast: show green "Copied text" / "Copied image" only when the local clipboard write actually succeeds; error variant when the local write fails or is rejected
 - [x] Remove the 2.7-second background polling `useEffect`
 - [x] Delete the `lastRemoteClipboardHash` ref and all references
-- [ ] Delete the `lastAutoSyncedText` ref and the paste-flow short-circuit that reads it
+- [x] Delete the `lastAutoSyncedText` ref and the paste-flow short-circuit that reads it
 - [x] Preserve existing `[Clipboard]` / `[Paste DEBUG]` logging; added `[Clipboard] poll resolved in NNms` log inside the new poll loop
 
 ## macOS Wails app (for-mac/)
@@ -43,6 +43,6 @@
 
 ## Build & release
 
-- [ ] `cd frontend && yarn build` succeeds with no new TypeScript errors and no unused-symbol warnings
+- [x] `cd frontend && yarn build` succeeds with no new TypeScript errors and no unused-symbol warnings — verified clean build (1m 45s, 21644 modules)
 - [ ] `for-mac` cgo build succeeds on macOS (Apple Silicon + Intel)
 - [ ] Open PR against `helixml/helix` with a concise description and manual test results, calling out: auto-sync removal, ClipboardItem-with-Promise + dual MIME, bounded polling, and the new iframe image bridge
