@@ -278,6 +278,52 @@ No changes to:
    on an exploratory `zed_external` session and confirm the
    end-to-end wake still works.
 
+## Implementation notes (added during build-out)
+
+- **Single-statement gated UPDATE beats SELECT-then-UPDATE.** The
+  original sketch was: fetch the session row, branch on
+  `external_agent_status`, conditionally column-update. Replaced
+  with a single `UPDATE … WHERE COALESCE(config->>'external_agent_status','') NOT IN ('starting','running')`.
+  Atomic at the DB level, one round-trip, no race with hydra's own
+  status writes. Returns `RowsAffected==0` when the guard skipped the
+  row — caller logs no-op.
+- **No `prior_status` in the INFO log.** The guarded UPDATE doesn't
+  return the prior value, and a separate SELECT before/after would race
+  the UPDATE. `session_id` + `spec_task_id` is enough to correlate with
+  the hydra-side `setExternalAgentStatus` logs.
+- **Helper extraction skipped.** Original sketch said "extract the
+  canonical-session lookup so it runs in the handler before the
+  goroutine dispatch". The existing `processPendingPromptsForIdleSessions`
+  goroutine keeps its own `GetSpecTask` call — they're independent
+  concerns and pulling out a shared lookup would couple unrelated code
+  paths with no benefit. `markCanonicalSessionStartingForSync` calls
+  `GetSpecTask` independently; both are cheap reads.
+- **Empty `PlanningSessionID` is DEBUG, not WARN.** Fresh spec tasks
+  exist in a brief window before the planning session is wired up; a
+  WARN log spams noise during normal operation. The empty case is
+  expected and silent.
+- **`MockStore.ClearSessionStartingStatus` must be expected even when
+  nothing is cleared.** The exhaustion path in `maybeKickColdStart`
+  always calls the clear helper; the *DB* gates whether anything
+  actually changes. Existing `TestMarksAsErrorAfterMaxRetries` needed a
+  `Return(false, nil)` expectation to satisfy gomock — the new
+  `TestClearsStartingStatusOnExhaustion` covers the `Return(true, nil)`
+  branch.
+- **`yarn build` blocked by `frontend/dist` bind mount.** The dist dir
+  is owned by root because it's bind-mounted into the production
+  frontend container. CLAUDE.md: "NEVER `rm -rf frontend/dist` —
+  breaks the bind mount". Used `yarn tsc` instead — meaningful check
+  for our TypeScript edits.
+- **Memorystore is partial.** `api/pkg/store/memorystore/memorystore.go`
+  doesn't implement the full `Store` interface (e.g. no
+  `ClearStaleStartingSessions`) — it's a test fixture, not a real
+  store. New helpers were not added there. If a future e2e test needs
+  them, add stubs at that point.
+- **`getConnection` defensive nil-check.** Other call sites in
+  `websocket_external_agent_sync.go` use the pattern
+  `if exists && conn != nil`, so the new helper matches that to avoid
+  a nil-pointer hazard if the map ever ends up with a nil entry.
+
 ## Notes for future-me / cloned tasks
 
 - This is the third visible attempt to fix this. The pattern keeps

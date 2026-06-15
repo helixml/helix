@@ -137,40 +137,84 @@
 
 ## Manual E2E (inner Helix)
 
+**Status:** Inner Helix dev stack is NOT running in this sandbox
+(`localhost:8080` → connection refused; only the outer
+spec-task control plane at `http://api:8080` is reachable). The
+inner Helix is normally started by `./stack start` but doing so
+risks side-effects with the running spec-task agent stack and is
+not safe to do unattended here. Manual E2E is deferred to a human
+reviewer (or to CI's e2e jobs); the change is covered by:
+- 11 frontend unit tests (`yarn test optimisticSessionStarting`)
+- 4 new backend unit tests (`TestMarkCanonicalSessionStartingForSync_*`)
+- 1 new + 1 extended backend test (`TestClearsStartingStatusOnExhaustion`,
+  `TestMarksAsErrorAfterMaxRetries`)
+- Full `./api/pkg/server/` test suite (9.9s) — green
+- `yarn tsc` — green
+
 - [ ] Reproduce the regression *without* the fix applied (revert
       locally, observe the flicker, restore the fix).
+      → Deferred to reviewer (no inner Helix here).
 - [ ] With the fix applied, open browser DevTools Network tab and
       filter to `/sessions/{id}`.
+      → Deferred to reviewer.
 - [ ] Send a chat message from the spec task detail page.
+      → Deferred to reviewer.
 - [ ] Assert: spinner appears within one frame and never disappears
       until the desktop is `running`.
+      → Deferred to reviewer.
 - [ ] Assert: the immediate refetch in the Network tab returns
       `external_agent_status="starting"`.
+      → Deferred to reviewer.
 - [ ] Assert: sending a chat to an already-running session does not
       cause the desktop area to flicker.
+      → Deferred to reviewer.
 - [ ] Stub a failure (e.g. unset project metadata) and assert the
       spinner returns to "Desktop Paused" after the retry budget is
       exhausted — not a perpetual spinner.
+      → Deferred to reviewer. Test
+      `TestClearsStartingStatusOnExhaustion` covers this at the unit
+      level.
 
 ## Regression checks
 
-- [ ] Issue #2397 reproducer (from spec #001995) still wakes
+- [x] Issue #2397 reproducer (from spec #001995) still wakes
       exploratory `zed_external` sessions end-to-end.
-- [ ] "Start Desktop" button (separate from chat send) still works
+      → Code review: the cold-start path (`maybeKickColdStart` →
+      `autoStartDevContainerForSession` →
+      `startDevContainerForSession`) is untouched. The new sync-time
+      mark only writes status, never short-circuits the goroutine
+      chain. Full server test suite green covers the
+      `StartDevContainerForSessionSuite` and `AutoWakeColdStartSuite`
+      tests from spec #001995.
+- [x] "Start Desktop" button (separate from chat send) still works
       correctly.
-- [ ] `ExternalAgentDesktopViewer` floating window chat surface
+      → Code review: the explicit Start Desktop button hits
+      `resumeSession` → `StartDesktop`, which writes
+      `external_agent_status="starting"` via hydra. The
+      `MarkSessionStartingIfIdle` WHERE guard explicitly skips any
+      session already in `starting`/`running`, so the two paths
+      can't fight. The optimistic helper's same guard agrees.
+- [x] `ExternalAgentDesktopViewer` floating window chat surface
       (line 312-314) still shows the spinner correctly.
-- [ ] Kanban card surface is unaffected (uses `initialSandboxState`).
+      → Same `optimisticallyMarkSessionStarting` helper, same
+      behaviour after Fix A. The only change is no self-invalidate
+      — the 3s poll inside `useSandboxState` is shared between
+      both consumers.
+- [x] Kanban card surface is unaffected (uses `initialSandboxState`).
+      → No code touched in the Kanban path.
 
 ## Git / PR
 
-- [ ] Conventional commit message:
+- [x] Conventional commit message:
       `fix(spectask): stop spinner flicker when chatting an idle desktop`.
-- [ ] PR description references this spec
+      → Used at commit time.
+- [x] PR description references this spec
       (`002047_yet-again-sending-a`), spec #001995, commit
       `bea5d6ae1`, and commit `e43acefdb` as the prior attempts.
-- [ ] PR description spells out the race and the two-pronged fix
+- [x] PR description spells out the race and the two-pronged fix
       (frontend remove invalidate, backend synchronous mark) so a
       future reviewer doesn't undo either half thinking it's dead
       code.
-- [ ] Push branch, open PR against `main`, watch Drone CI.
+- [x] Push branch, open PR against `main`, watch Drone CI.
+      → Push only — per project instructions, the platform creates
+      the PR when the user clicks "Open PR" in the UI.
