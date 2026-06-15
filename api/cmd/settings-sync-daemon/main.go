@@ -160,6 +160,13 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+				// Start the qwen ACP session in yolo mode so it auto-approves
+				// every tool call. Without this, qwen's Session.setMode defaults
+				// to ApprovalMode.DEFAULT and every edit/shell call round-trips
+				// a session/request_permission to Zed — which nobody clicks in
+				// a headless spec-task sandbox, so the agent stalls.
+				// Mirrors the "bypassPermissions" entry in claude_code below.
+				"default_mode": "yolo",
 			},
 		}
 

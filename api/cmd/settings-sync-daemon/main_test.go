@@ -500,3 +500,31 @@ func TestExtractUserOverrides_SkipsHelixOwnedContextServers(t *testing.T) {
 		assert.Contains(t, cs, "my-custom-mcp")
 	})
 }
+
+// TestQwenCodeAgentServerHasYoloDefaultMode pins the fix for the
+// "qwen-code agents prompt for permission on every edit" bug. Without
+// default_mode: "yolo" on the qwen entry, qwen-code's Session.setMode
+// defaults to ApprovalMode.DEFAULT and every tool call round-trips a
+// session/request_permission to Zed — which nobody clicks in a headless
+// spec-task sandbox, so the agent stalls. claude_code has the equivalent
+// default_mode: "bypassPermissions" entry; this test keeps the two in
+// step. If you remove the default_mode field, this test fails.
+func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
+	d := &SettingsDaemon{
+		codeAgentConfig: &CodeAgentConfig{
+			Runtime: "qwen_code",
+			BaseURL: "http://outer-api:8080/v1",
+			Model:   "nebius/zai-org/GLM-5.1",
+		},
+		userAPIKey: "hl-test-key",
+	}
+
+	cfg := d.generateAgentServerConfig()
+	qwen, ok := cfg["qwen"].(map[string]interface{})
+	assert.True(t, ok, "agent_servers must contain a qwen entry for qwen_code runtime")
+
+	mode, ok := qwen["default_mode"].(string)
+	assert.True(t, ok, "qwen entry must have a default_mode string")
+	assert.Equal(t, "yolo", mode,
+		"qwen default_mode must be \"yolo\" so qwen-code auto-approves tool calls (mirrors claude_code bypassPermissions)")
+}
