@@ -539,6 +539,238 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 
 // failingProvider is a minimal Provider that always errors out of
 // Provision, used to verify rollback semantics.
+// --- D3 (on-demand scale-up) tests ----------------------------------------
+
+// newD3Manager builds a Manager with Floor=1 and a configurable Max +
+// ScaleUpHeadroomMin so the test can assert on scale-up behaviour.
+func newD3Manager(t *testing.T, floor, max, headroomMin int) (*Manager, *StubProvider, *fakeStore) {
+	t.Helper()
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   floor,
+		Max:                     max,
+		ScaleUpHeadroomMin:      headroomMin,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 5, // give D3 headroom on the per-cycle cap
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m, stub, store
+}
+
+// seedReadyRow inserts a Ready stub-owned row with the given capacity.
+// Used to set up scenarios where headroom and demand can be controlled
+// independently from the per-cycle provision flow.
+func seedReadyRow(t *testing.T, store *fakeStore, id string, active, max int) {
+	t.Helper()
+	err := store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:              id,
+		Provider:        "stub",
+		ComputeState:    string(StateReady),
+		Status:          "online",
+		ActiveSandboxes: active,
+		MaxSandboxes:    max,
+	})
+	if err != nil {
+		t.Fatalf("seedReadyRow: %v", err)
+	}
+}
+
+func TestNewManagerValidatesD3Inputs(t *testing.T) {
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	good := ManagerConfig{
+		Floor:              1,
+		ReconcileInterval:  time.Second,
+		HealthCheckTimeout: time.Second,
+	}
+	cases := []struct {
+		name    string
+		cfg     ManagerConfig
+		wantErr string
+	}{
+		{
+			name: "negative max",
+			cfg: ManagerConfig{
+				Floor: 1, Max: -1,
+				ReconcileInterval: time.Second, HealthCheckTimeout: time.Second,
+			},
+			wantErr: "Max must be >= 0",
+		},
+		{
+			name: "max less than floor",
+			cfg: ManagerConfig{
+				Floor: 5, Max: 3,
+				ReconcileInterval: time.Second, HealthCheckTimeout: time.Second,
+			},
+			wantErr: "must be >= Floor",
+		},
+		{
+			name: "negative headroom min",
+			cfg: ManagerConfig{
+				Floor: 1, Max: 2, ScaleUpHeadroomMin: -1,
+				ReconcileInterval: time.Second, HealthCheckTimeout: time.Second,
+			},
+			wantErr: "ScaleUpHeadroomMin must be >= 0",
+		},
+	}
+	_ = good // ensure the helper is still referenced
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewManager(stub, store, tc.cfg)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestD3DisabledWhenMaxZero(t *testing.T) {
+	// Max=0 keeps the pre-D3 floor-only behaviour even when headroom
+	// would justify scaling. Backward-compatibility guarantee for
+	// existing operators upgrading to a Helix that ships D3.
+	m, _, store := newD3Manager(t, 1, 0, 1)
+	// Seed one Ready row at full capacity (zero headroom). With D3
+	// enabled this would trigger scale-up; with Max=0 it must not.
+	seedReadyRow(t, store, "sbx_full", 10, 10)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("Max=0 must not provision beyond Floor; got %d rows", len(rows))
+	}
+}
+
+func TestD3ScalesUpWhenHeadroomBelowMin(t *testing.T) {
+	// Floor=1, Max=3, HeadroomMin=2: a single Ready host using 9/10
+	// slots leaves 1 free, which is below 2. Manager must provision
+	// one more host this cycle.
+	m, _, store := newD3Manager(t, 1, 3, 2)
+	seedReadyRow(t, store, "sbx_busy", 9, 10)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("expected D3 to provision a 2nd host; got %d rows", len(rows))
+	}
+	provisioning := 0
+	for _, r := range rows {
+		if r.ComputeState == string(StateProvisioning) {
+			provisioning++
+		}
+	}
+	if provisioning != 1 {
+		t.Fatalf("expected exactly 1 provisioning row, got %d", provisioning)
+	}
+}
+
+func TestD3DoesNotScaleWhenHeadroomSufficient(t *testing.T) {
+	// Floor=1, Max=3, HeadroomMin=2: a Ready host at 5/10 leaves 5
+	// free slots, well above the threshold. No provision this cycle.
+	m, _, store := newD3Manager(t, 1, 3, 2)
+	seedReadyRow(t, store, "sbx_light", 5, 10)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("headroom sufficient; expected no new provision, got %d rows", len(rows))
+	}
+}
+
+func TestD3RespectsMaxCeiling(t *testing.T) {
+	// Floor=1, Max=2, HeadroomMin=2: two Ready hosts both at full
+	// capacity (zero headroom). Demand pressure exists but Max is
+	// already reached - no further provision.
+	m, _, store := newD3Manager(t, 1, 2, 2)
+	seedReadyRow(t, store, "sbx_full_1", 10, 10)
+	seedReadyRow(t, store, "sbx_full_2", 10, 10)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("Max ceiling violated; expected 2 rows, got %d", len(rows))
+	}
+}
+
+func TestD3CountsProvisioningTowardMax(t *testing.T) {
+	// A Provisioning row contributes no live sandbox slots (so it
+	// doesn't satisfy demand) BUT it does count toward Max (so we
+	// don't double-provision while the first is on its way).
+	// Floor=1, Max=2, HeadroomMin=2: one Ready full host + one
+	// Provisioning host already in flight = total owned 2 = Max.
+	// D3 must NOT provision a third even though headroom is 0.
+	m, _, store := newD3Manager(t, 1, 2, 2)
+	seedReadyRow(t, store, "sbx_full", 10, 10)
+	provAt := time.Now()
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:            "sbx_in_flight",
+		Provider:      "stub",
+		ComputeState:  string(StateProvisioning),
+		Status:        "offline",
+		ProviderID:    "provider-id-1",
+		MaxSandboxes:  10,
+		ProvisionedAt: &provAt,
+	})
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 2 {
+		t.Fatalf("Provisioning should count toward Max; got %d rows", len(rows))
+	}
+}
+
+func TestD3StillSatisfiesFloorWhenDemandLow(t *testing.T) {
+	// Edge case: Floor=2, Max=3, HeadroomMin=1, but no Ready hosts
+	// yet (cold boot). Floor pressure must still bring us to 2 even
+	// though there is no demand signal to compute headroom from.
+	m, _, store := newD3Manager(t, 2, 3, 1)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	// Floor=2 with MaxConcurrentProvisions=5: one cycle provisions 2.
+	if len(rows) != 2 {
+		t.Fatalf("Floor must be satisfied independent of demand; got %d rows", len(rows))
+	}
+}
+
+func TestD3DefaultHeadroomMinWhenScaleUpEnabled(t *testing.T) {
+	// Convenience default: if operator sets Max > Floor but forgets
+	// ScaleUpHeadroomMin, NewManager defaults it to 1. Without the
+	// default, headroom < 0 can never be true and D3 silently does
+	// nothing.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     3,
+		ScaleUpHeadroomMin:      0, // operator forgot
+		ReconcileInterval:       time.Second,
+		HealthCheckTimeout:      time.Second,
+		MaxConcurrentProvisions: 5,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	// Use ID-by-ref to peek at the resolved default.
+	if m.cfg.ScaleUpHeadroomMin != 1 {
+		t.Fatalf("expected ScaleUpHeadroomMin to default to 1 when Max>Floor; got %d", m.cfg.ScaleUpHeadroomMin)
+	}
+}
+
+// --- end D3 tests --------------------------------------------------------
+
 type failingProvider struct{ name string }
 
 func (f *failingProvider) Name() string { return f.name }

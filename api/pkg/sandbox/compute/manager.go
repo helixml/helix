@@ -83,6 +83,32 @@ type ManagerConfig struct {
 	// startup; carries the helix-sandbox image tag, default
 	// MaxSandboxes per host, and any provider-specific Labels.
 	SpecTemplate Spec
+
+	// Max is the hard ceiling on the number of Manager-owned hosts
+	// (Ready + Provisioning combined). Zero (the default) disables
+	// on-demand scale-up - the Manager only maintains Floor and
+	// ignores demand pressure. Set Max > Floor to allow the Manager
+	// to provision extra hosts when sandbox-session demand exhausts
+	// the headroom on existing Ready hosts.
+	//
+	// Must be >= Floor when non-zero. The validation rejects Max
+	// values that would prevent the Manager from satisfying Floor.
+	Max int
+
+	// ScaleUpHeadroomMin is the minimum number of free sandbox slots
+	// the Manager tries to keep available across all Ready hosts.
+	// When (sum(MaxSandboxes) - sum(ActiveSandboxes)) drops below
+	// this value AND total owned is below Max, the Manager
+	// provisions an additional host.
+	//
+	// Default 1 if unset (and Max > Floor) - "scale when 0 free slots
+	// remain", which is the minimum-cost setting. Operators serving
+	// bursty workloads can raise this (e.g. to 2 or 3) to provision
+	// the next host before the last slot is claimed, hiding the
+	// ~90s cold-start latency from the user.
+	//
+	// Ignored when Max == 0 (D3 disabled).
+	ScaleUpHeadroomMin int
 }
 
 // validate returns an error if cfg is missing required fields or has
@@ -96,6 +122,17 @@ func (cfg ManagerConfig) validate() error {
 	}
 	if cfg.HealthCheckTimeout <= 0 {
 		return errors.New("compute.ManagerConfig.HealthCheckTimeout must be > 0")
+	}
+	if cfg.Max < 0 {
+		return fmt.Errorf("compute.ManagerConfig.Max must be >= 0, got %d", cfg.Max)
+	}
+	if cfg.Max != 0 && cfg.Max < cfg.Floor {
+		return fmt.Errorf("compute.ManagerConfig.Max=%d must be >= Floor=%d (Max=0 disables scale-up)",
+			cfg.Max, cfg.Floor)
+	}
+	if cfg.ScaleUpHeadroomMin < 0 {
+		return fmt.Errorf("compute.ManagerConfig.ScaleUpHeadroomMin must be >= 0, got %d",
+			cfg.ScaleUpHeadroomMin)
 	}
 	return nil
 }
@@ -144,6 +181,13 @@ func NewManager(provider Provider, store SandboxStore, cfg ManagerConfig) (*Mana
 	}
 	if cfg.MaxProvisioningAge <= 0 {
 		cfg.MaxProvisioningAge = 30 * time.Minute
+	}
+	if cfg.Max > 0 && cfg.ScaleUpHeadroomMin <= 0 {
+		// Default the headroom-min only when scale-up is enabled.
+		// Leaving it at zero with Max>Floor would mean "scale when
+		// headroom < 0", which can never trigger - effectively
+		// disabling scale-up despite the operator setting Max.
+		cfg.ScaleUpHeadroomMin = 1
 	}
 	return &Manager{
 		provider: provider,
@@ -216,19 +260,9 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("re-list owned rows after refresh: %w", err)
 	}
 
-	available := 0
-	for _, r := range rows {
-		if isAvailable(r) {
-			available++
-		}
-	}
-
-	needed := m.cfg.Floor - available
+	needed := m.computeNeeded(rows)
 	if needed <= 0 {
 		return nil
-	}
-	if needed > m.cfg.MaxConcurrentProvisions {
-		needed = m.cfg.MaxConcurrentProvisions
 	}
 	// Each Provision is independent; we surface the first error but
 	// keep going so a transient upstream blip doesn't permanently
@@ -240,6 +274,92 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// computeNeeded returns how many additional Provision calls this cycle
+// should fire. Considers two pressures:
+//
+//   - Floor: keep at least Floor (Ready + Provisioning) hosts at all
+//     times. The original D1/D2 behaviour.
+//   - Demand (D3): when Max > Floor AND free sandbox slots across
+//     Ready hosts fall below ScaleUpHeadroomMin, provision one more
+//     host so the next sandbox request doesn't block. Bounded by Max
+//     and by MaxConcurrentProvisions.
+//
+// Returns the smaller of (sum of pressures, MaxConcurrentProvisions,
+// Max - available). Zero or negative means "no provisioning this cycle".
+//
+// Pre-condition: rows reflects the state AFTER refreshProvisioning -
+// so a row that transitioned to Ready this cycle is counted as Ready,
+// and a row that timed out is no longer counted.
+func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
+	available := 0
+	readyCapacity := 0
+	readyDemand := 0
+	for _, r := range rows {
+		if isAvailable(r) {
+			available++
+		}
+		if isReady(r) {
+			readyCapacity += int(r.MaxSandboxes)
+			readyDemand += int(r.ActiveSandboxes)
+		}
+	}
+
+	// Floor pressure: how many short of Floor are we?
+	floorNeed := m.cfg.Floor - available
+	if floorNeed < 0 {
+		floorNeed = 0
+	}
+
+	// Demand pressure (D3): only active when Max > Floor AND we've
+	// already reached Floor. While still filling Floor, the floor
+	// provisions ARE the response to demand-pressure (there's nothing
+	// to scale UP from yet); stacking a D3 provision on top would
+	// over-provision the cold-boot case. Once Floor is met, D3 takes
+	// over above-floor decisions.
+	//
+	// Headroom is computed over Ready hosts only - a Provisioning
+	// host contributes no sandbox slots until it comes online, so
+	// counting its planned capacity here would defeat the purpose
+	// (scale up to relieve immediate pressure, not to anticipate
+	// pressure that's already being addressed). The Provisioning
+	// count IS reflected in `available` below, which caps total
+	// in-flight Provision calls via Max.
+	demandNeed := 0
+	if m.cfg.Max > m.cfg.Floor && available >= m.cfg.Floor {
+		headroom := readyCapacity - readyDemand
+		if headroom < m.cfg.ScaleUpHeadroomMin {
+			// One additional host per cycle is enough: each cycle
+			// re-evaluates, so sustained demand will trigger
+			// repeated scale-ups until headroom is restored or Max
+			// is reached. Provisioning one-at-a-time also gives the
+			// operator a chance to observe the scale-up before the
+			// fleet doubles.
+			demandNeed = 1
+		}
+	}
+
+	totalNeed := floorNeed + demandNeed
+
+	// Hard ceiling: never let total owned (Ready + Provisioning + this
+	// cycle's plans) exceed Max. Max=0 means "unbounded except by
+	// Floor" - i.e. D3 disabled, only Floor provisions.
+	if m.cfg.Max > 0 {
+		room := m.cfg.Max - available
+		if room < 0 {
+			room = 0
+		}
+		if totalNeed > room {
+			totalNeed = room
+		}
+	}
+
+	// Per-cycle provisioning fan-out cap (D1/D2 behaviour preserved).
+	if totalNeed > m.cfg.MaxConcurrentProvisions {
+		totalNeed = m.cfg.MaxConcurrentProvisions
+	}
+	return totalNeed
 }
 
 // ownedRows returns all SandboxInstance rows that belong to this
@@ -506,6 +626,16 @@ func isAvailable(r *types.SandboxInstance) bool {
 	default:
 		return false
 	}
+}
+
+// isReady reports whether the row represents a host that is up,
+// registered, and currently accepting sandbox-session traffic.
+// Distinguished from isAvailable: provisioning hosts are "available"
+// (counted toward the Floor target so we don't double-provision) but
+// not "ready" (no live sandbox slots yet, so they don't contribute to
+// demand-headroom calculations).
+func isReady(r *types.SandboxInstance) bool {
+	return State(r.ComputeState) == StateReady
 }
 
 // newSandboxID returns a new globally-unique sandbox ID. Used as both
