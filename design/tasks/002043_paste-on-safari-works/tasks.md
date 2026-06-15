@@ -2,8 +2,8 @@
 
 ## Frontend (DesktopStreamViewer.tsx)
 
-- [ ] Reproduce the bug in Safari on macOS: select text in the remote desktop, press Cmd+C, paste into a native macOS app, confirm previous clipboard content is pasted (not the new selection) while the UI shows "Copied"
-- [ ] Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` (around lines 3905–4049) so the local clipboard write is initiated synchronously inside the user-gesture handler
+- [x] Reproduce the bug in Safari on macOS: select text in the remote desktop, press Cmd+C, paste into a native macOS app, confirm previous clipboard content is pasted (not the new selection) while the UI shows "Copied" — confirmed from user report + code trace
+- [~] Refactor the Cmd+C / Ctrl+C branch in `handleKeyDown` (around lines 3905–4049) so the local clipboard write is initiated synchronously inside the user-gesture handler
 - [ ] Construct a single `ClipboardItem` that declares **both** `text/plain` and `image/png` synchronously, with each MIME's `Promise<Blob>` resolving to the real Blob if the fetched type matches or a 0-byte Blob otherwise
 - [ ] Replace the hard-coded `setTimeout(300)` with bounded adaptive polling: snapshot the pre-copy clipboard hash (in parallel with forwarding Ctrl+C), then poll `v1ExternalAgentsClipboardDetail` every ~30 ms for up to ~500 ms, return as soon as the hash differs
 - [ ] Use `ClipboardItem.supports("image/png")` to feature-detect image support; on browsers that lack it, drop the image representation and write text-only
@@ -20,10 +20,10 @@
 
 - [x] Add `for-mac/clipboard_darwin.go` with cgo + AppKit (mirror `cursor_darwin.go` pattern). Implement `(a *App) SetClipboardImagePNG(base64PNG string) error` writing `NSPasteboardTypePNG`, and `(a *App) GetClipboardImagePNG() (string, error)` reading the same type and returning base64 or `""` — also fall back to NSPasteboardTypeTIFF and transcode to PNG, since macOS screenshots-to-clipboard land as TIFF
 - [x] Update `for-mac/frontend/wailsjs/go/main/App.d.ts` and `.js` to declare the two new methods (auto-generated normally by `wails dev`, but we hand-edit since we don't run wails here)
-- [~] Extend the `handleMessage` event handler in `for-mac/frontend/src/App.tsx`:
-  - [ ] Accept `{ type: "helix-clipboard-write", mime: "image/png", base64: string }` and call `SetClipboardImagePNG`
-  - [ ] For `helix-clipboard-read`, query `GetClipboardImagePNG` first; if non-empty respond with `mime: "image/png"`, else fall back to `ClipboardGetText` and respond with `mime: "text/plain"`, else `mime: "empty"`
-  - [ ] Keep accepting the old `{ type, text }` write shape (treat as `mime: "text/plain"`) for back-compat
+- [x] Extend the `handleMessage` event handler in `for-mac/frontend/src/App.tsx`:
+  - [x] Accept `{ type: "helix-clipboard-write", mime: "image/png", base64: string }` and call `SetClipboardImagePNG`
+  - [x] For `helix-clipboard-read`, query `GetClipboardImagePNG` first; if non-empty respond with `mime: "image/png"`, else fall back to `ClipboardGetText` and respond with `mime: "text/plain"`, else `mime: "empty"`
+  - [x] Keep accepting the old `{ type, text }` write shape (treat as `mime: "text/plain"`) for back-compat
 
 ## Manual testing
 
