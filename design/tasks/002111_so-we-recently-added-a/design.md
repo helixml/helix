@@ -82,12 +82,28 @@ Ran the real Zed binary headless under Xvfb with crafted `settings.json`:
 - **100 MCP `context_servers`: the real cost.** 100 processes at startup, ~3.9 GB
   RSS (≈13× baseline) — and those were do-nothing stubs; real MCPs cost more.
 
-**Implication / recommended hybrid:** pre-configure **all agents' `agent_servers`**
-(cheap → no per-switch reconfiguration needed, and users can pick any agent from
-Zed's own UI), but keep **MCP `context_servers` scoped to the selected agent**
-(rewritten on switch). The MCP discipline is required regardless because Zed
-shares context servers per-project (no per-agent isolation). **Paused here for
-the reviewer's interactive go/no-go on this hybrid before building.**
+**DECISION (reviewer-confirmed): Strategy B — fully selective. Configure ONLY the
+current agent in Zed.**
+
+The reviewer chose *not* to list all agents in Zed, even though the spike showed
+it's cheap. Rationale: listing all agents would invite users to switch from
+Zed's own UI, where the MCP surface would silently NOT follow them (Zed's
+`context_servers` are per-project/shared — only one agent's MCP surface can be
+live at a time, and it can't be scoped per-thread). Rather than ship that
+footgun, Zed only ever holds the current agent's `agent_servers` + its MCP
+`context_servers`.
+
+Consequences:
+- **The Helix dropdown is the only switch path.** No Zed-native multi-agent
+  picking is exposed/encouraged.
+- **On switch, the daemon rewrites Zed's config to the new agent (agent_servers +
+  MCP context_servers) and cleanly restarts the Zed process** — a restart is the
+  reliable way to swap the instance-wide MCP surface. Then a new thread is
+  created on the new agent and repopulated with the prior transcript.
+- This is closest to today's behaviour (the daemon already configures exactly one
+  agent); net-new work is daemon-owned Zed lifecycle + the switch endpoint +
+  new-thread-with-transcript repopulation.
+- "Configure all agents" / the hybrid are explicitly **not** built.
 
 ## Flow: in-place switch
 
@@ -106,9 +122,9 @@ POST /api/v1/sessions/{id}/switch-agent  { helix_app_id }      (NEW endpoint)
       runtime's ZedAgentName(); clear ZedThreadID + the acp_thread_id↔session
       mapping so the next message opens a NEW thread.
    5. Publish config_changed ───────────► Settings-Sync daemon
-          Strategy A: target already configured → no-op / quick verify.
-          Strategy B: rewrite settings.json for target agent, then daemon
-                      stops+restarts Zed cleanly.
+          Rewrite settings.json for target agent (its agent_servers + its MCP
+          context_servers), then daemon stops+restarts Zed cleanly so the new
+          MCP surface comes up correctly.
    6. Daemon emits "agent_config_loaded" over the WS sync protocol when the
       target agent is resolvable (and Zed is back up, in Strategy B).
         │

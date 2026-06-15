@@ -4,8 +4,7 @@
 - [x] Generate Zed `settings.json` variants with ~100 `agent_servers` and ~100 MCP `context_servers` (`spike/run_spike.sh`)
 - [x] Measure CPU, process count, and memory (real Zed under Xvfb) — see `spike/RESULTS.md`
 - [x] Record findings: **100 agent_servers ≈ free (0 procs, flat RSS); 100 MCP context_servers = ~3.9 GB / 100 procs (the real cost)**
-- [~] **PAUSED — awaiting reviewer go/no-go** on recommended **Hybrid**: all agents' `agent_servers` up front + MCP `context_servers` scoped to the selected agent
-- [ ] If Strategy B path is needed for MCP: confirm daemon can rewrite config + restart Zed fast enough for an interactive switch
+- [x] **DECISION (reviewer-confirmed): Strategy B — configure ONLY the current agent in Zed.** No all-agents listing, no Zed-native multi-agent picking. Helix dropdown is the sole switch path; daemon rewrites config (new agent's agent_servers + MCP context_servers) and cleanly restarts Zed, then a new thread is created and repopulated.
 
 ## Settings-Sync daemon — Zed lifecycle ownership
 - [ ] Add a Zed process supervisor to the daemon (launch, track PID, start/stop/restart, restart on crash)
