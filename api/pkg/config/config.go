@@ -182,6 +182,35 @@ type Compute struct {
 	// headroom for cross-region fallback and slow NVIDIA image pulls.
 	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
 
+	// Max is the hard ceiling on Manager-owned hosts (Ready +
+	// Provisioning combined). Zero (the default) disables on-demand
+	// scale-up - the Manager only maintains Floor and ignores demand
+	// pressure. Set Max > Floor to allow the Manager to provision
+	// extra hosts when sandbox-session demand exhausts the headroom
+	// on existing hosts. Must be >= Floor when non-zero.
+	Max int `envconfig:"HELIX_COMPUTE_MAX" default:"0"`
+
+	// ScaleUpHeadroomMin is the minimum number of free sandbox slots
+	// the Manager tries to keep available across all Ready hosts.
+	// When (sum(MaxSandboxes) - sum(ActiveSandboxes)) drops below this
+	// value AND total owned is below Max, the Manager provisions
+	// an additional host. Default 1 (provision when 0 slots remain)
+	// when Max > Floor; ignored when Max = 0 (D3 disabled).
+	//
+	// Operators serving bursty workloads can raise this (e.g. to 2-3)
+	// to provision the next host before the last slot is claimed,
+	// hiding the ~90s cold-start latency from the user.
+	ScaleUpHeadroomMin int `envconfig:"HELIX_COMPUTE_SCALEUP_HEADROOM_MIN" default:"0"`
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it (D4).
+	// Default 10m. Hosts are never dropped below Floor.
+	//
+	// The idle timer is tracked in-memory: Manager restart resets it,
+	// so a fleet mid-scale-down sees one extra IdleTimeout window of
+	// grace before convergence resumes.
+	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog

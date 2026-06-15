@@ -84,6 +84,9 @@ func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.
 		HealthCheckTimeout:      cfg.HealthCheckTimeout,
 		MaxConcurrentProvisions: cfg.MaxConcurrentProvisions,
 		MaxProvisioningAge:      cfg.MaxProvisioningAge,
+		Max:                     cfg.Max,
+		ScaleUpHeadroomMin:      cfg.ScaleUpHeadroomMin,
+		IdleTimeout:             cfg.IdleTimeout,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construct compute manager: %w", err)
@@ -92,6 +95,9 @@ func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.
 	log.Info().
 		Str("provider", provider.Name()).
 		Int("floor", cfg.Floor).
+		Int("max", cfg.Max).
+		Int("scaleup_headroom_min", cfg.ScaleUpHeadroomMin).
+		Dur("idle_timeout", cfg.IdleTimeout).
 		Dur("reconcile_interval", cfg.ReconcileInterval).
 		Dur("max_provisioning_age", cfg.MaxProvisioningAge).
 		Int("max_concurrent_provisions", cfg.MaxConcurrentProvisions).
