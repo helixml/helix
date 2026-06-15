@@ -18,19 +18,20 @@
 - [ ] Helix awaits this event before creating the new thread
 
 ## Backend — switch endpoint & session mutation
-- [ ] Add `POST /api/v1/sessions/{id}/switch-agent` handler (new file beside `session_fork_handlers.go`), swagger-annotated, taking `{ helix_app_id }`
-- [ ] Validate: session running (not paused), target app has a `zed_external` assistant, target runtime is Zed-compatible
-- [ ] No-op guard when target agent equals current agent
-- [ ] Cancel any in-flight turn (`cancel_current_turn`) before resetting the thread binding
-- [ ] Update session in place: set `ParentApp`, `Metadata.ZedAgentName` = new runtime's `ZedAgentName()`; clear `ZedThreadID`
-- [ ] Clear the acp_thread_id↔session mapping in `ExternalAgentWSManager` so the next message opens a new thread
-- [ ] Publish `config_changed` to trigger the daemon's config/lifecycle work
+- [x] Add `POST /api/v1/sessions/{id}/switch-agent` handler (`session_switch_agent_handlers.go`), swagger-annotated, taking `{ helix_app_id }`
+- [x] Validate: session running (not paused), `zed_external`, target resolvable via `resolveForkTarget`
+- [x] No-op guard when target agent equals current agent (same app AND same runtime)
+- [x] In-flight turn: torn down by the Zed restart — no explicit `cancel_current_turn` needed (documented)
+- [x] Update session in place: set `ParentApp`, `Metadata.CodeAgentRuntime`, `Metadata.ZedAgentName`, `AgentSwitchedAt`; clear `ZedThreadID`
+- [x] Thread binding lives in `session.Metadata.ZedThreadID` (DB), not an in-memory map — clearing it makes the next message open a new thread
+- [x] Publish `config_changed {field:"agent"}` to the session topic to trigger the daemon
 
 ## Backend — repopulate the new thread
-- [ ] Reuse the fork transcript serializer to snapshot the current thread's messages
-- [ ] On `agent_config_loaded`, queue a handoff `chat_message` with `acp_thread_id: null`, new `agent_name`, and the serialized transcript seed (reuse `maybePrependTranscript`/`fork_seed` style)
-- [ ] On `thread_created` from Zed, map the new acp_thread_id to the session and persist `ZedThreadID`
-- [ ] Verify `getZedConfig`/`buildCodeAgentConfig` resolve the new agent from `ParentApp` after the switch
+- [x] Reuse `serializeTranscript` to snapshot the current thread's messages onto a `fork_seed` interaction
+- [x] Create a Waiting `fork_handoff` interaction; delivered by existing `pickupWaitingInteraction` on Zed reconnect (new `agent_name` from `getAgentNameForSession`, `ZedThreadID=""` → new thread, `maybePrependTranscript` injects transcript)
+- [x] `maybePrependTranscript` extended to fire on in-place switch (`AgentSwitchedAt`), not just forks
+- [x] `thread_created` mapping + `ZedThreadID` persistence already handled by existing handler — reused as-is
+- [x] `getZedConfig`/`buildCodeAgentConfig` already resolve the agent from `ParentApp` — verified, no change needed
 
 ## Zed (Rust) — verify / minimal change
 - [ ] Verify `chat_message` + `acp_thread_id: null` creates a new thread bound to the supplied `agent_name` (dispatch `websocket_sync.rs:400`); no new command type if so
