@@ -175,6 +175,16 @@ controlplane:
     # - name: HELIX_VHOST_CLOUDFLARE_API_TOKEN
     #   value: "your-cloudflare-api-token"
 
+  # When HELIX_VHOST_TLS_MODE=auto, also expose :443 (and optionally :80) on
+  # the controlplane container and the Service so the embedded certmagic
+  # listener is reachable. With DNS-01 (e.g. provider=cloudflare) :80 is not
+  # used by the API server — set httpEnabled=false to avoid exposing it.
+  # vhostTLS:
+  #   enabled: true
+  #   httpsPort: 443
+  #   httpEnabled: false  # set true for HTTP-01, false for DNS-01
+  #   httpPort: 80
+
   # Extra volume mounts for controlplane
   # extraVolumeMounts:
   #   custom-config:

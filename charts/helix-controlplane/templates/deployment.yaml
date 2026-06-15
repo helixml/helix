@@ -62,6 +62,16 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.controlplane.vhostTLS.enabled }}
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            {{- if .Values.controlplane.vhostTLS.httpEnabled }}
+            - name: http-acme
+              containerPort: 80
+              protocol: TCP
+            {{- end }}
+            {{- end }}
           env:
             - name: SERVER_PORT
               value: "8080"
