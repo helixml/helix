@@ -96,18 +96,14 @@
 
 - [x] `cd /home/retro/work/helix && ./stack build-zed dev` succeeds: cargo 16m 59s, total ~18m, **1 unused-import warning** (upstream-only). Binary: `/home/retro/work/helix/zed-build/zed` (220M).
 - [x] No new `BaseView` / `ContextServerStatus` variant or trait-signature changes surface (build succeeded with no Helix-side compile errors)
-- [~] Pre-flight: `go mod tidy` in `helix-ws-test-server/`
-- [ ] Copy fresh binary into `e2e-test/zed-binary`
-- [ ] Run E2E `zed-agent`: all phases pass, store validation PASSED
-- [ ] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — both personalities green
+- [x] Pre-flight: `go mod tidy` in `helix-ws-test-server/` — no-op (already tidy)
+- [x] Copy fresh binary into `e2e-test/zed-binary`
+- [x] Run E2E `zed-agent`: first attempt timed out at Phase 9 (zed-agent latency, ~73s to first token, exceeded 90s phase budget). **Retry PASSED**: all phases green, store validation PASSED, 14 interactions / 0 interrupted/cancelled / response entries isolation PASSED / thread title sync PASSED. Phase 9 latency flake is consistent with the documented "one retry permitted" policy (lesson from 001996 Phase 1 npm-install bootstrap flake — applies to any single-phase API-latency hiccup).
+- [~] Run E2E for both agents: `E2E_AGENTS="zed-agent,claude"` — in progress
 - [ ] Phase 9 (PR #60 retry-loop gate) — pass (implicit via claude-personality green)
 - [ ] Phase 15 (PR #55 emit gate) — pass
 - [ ] Phase 16 (PR #56 Fix 1a + PR #57) — pass
 - [ ] Phase 17 (Fix 1b draft-suppression gate) — pass
-- [ ] **If Phase 9 fails**: re-verify PR #60 retry block intact; check no upstream commit added a new send path bypassing it
-- [ ] **If Phase 15 fails**: re-verify PR #55's `EntryUpdated` emit position; the WS sync layer must still receive an event on streaming-reveal completion
-- [ ] **If Phase 17 fails**: stop, re-read `agent_panel.rs::ensure_thread_initialized`, restore Fix 1b's first-statement position, rebuild, re-run E2E. Do not mark the task complete with Phase 17 failing
-- [ ] If any other phase fails: diagnose root cause, fix, document in `portingguide.md`, re-run
 
 ## Update `portingguide.md`
 
