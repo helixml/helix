@@ -302,7 +302,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 // and a row that timed out is no longer counted.
 func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	available := 0
-	readyCount := 0
+	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
 	for _, r := range rows {
@@ -310,7 +310,7 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 			available++
 		}
 		if isReady(r) {
-			readyCount++
+			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
 		}
@@ -322,39 +322,41 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		floorNeed = 0
 	}
 
-	// Demand pressure (D3): only fires when Max > Floor AND at least
-	// Floor hosts are READY (not just Provisioning). Gating on
-	// readyCount instead of available is the ultrareview fix for the
-	// cold-boot over-provisioning bug: during cold boot, available
-	// reaches Floor as soon as Floor stubs are inserted (still
-	// Provisioning), and readyCapacity stays 0 until ~90s boot - so
-	// headroom (0) was less than ScaleUpHeadroomMin every cycle and
-	// D3 fired all the way to Max with zero actual demand. Gating on
-	// readyCount means D3 only fires once Floor has come ONLINE.
+	// Demand pressure (D3): fires only when there's at least one
+	// REACHABLE Ready+online host to base the demand judgement on.
 	//
-	// Headroom is computed over Ready hosts only - a Provisioning
-	// host contributes no sandbox slots until it comes online.
+	// Why "at least one online host" and not "Floor satisfied":
+	//   - Cold boot (Floor=1, no hosts): readyOnlineCount=0 -> blocked.
+	//     Floor pressure fires instead. Once the first host comes
+	//     online, the gate flips and D3 can act. Prevents the original
+	//     cold-boot over-provisioning bug.
+	//   - Heartbeat flap (Floor=2, 1 host briefly offline):
+	//     readyOnlineCount=1, gate is true, D3 continues to act on
+	//     the remaining online host's headroom. The previous
+	//     "readyCount >= Floor" gate would have disabled D3 here,
+	//     blocking scale-up exactly when needed.
+	//   - Floor=0 cold boot: readyOnlineCount=0 -> blocked. Without
+	//     a Ready host to measure demand against, D3 has no signal.
+	//     Operators wanting "true cold-start scale on first request"
+	//     need either Floor>=1 or an event-driven provisioning path
+	//     (not implemented; would be a follow-up).
 	//
-	// demandNeed is the count of hosts needed to bring headroom up to
-	// ScaleUpHeadroomMin assuming each new host contributes the
-	// SpecTemplate's MaxSandboxes worth of slots. Was hard-coded to 1
-	// in the original D3 commit - the ultrareview pointed out that
-	// "one per cycle" leaves MaxConcurrentProvisions ineffective for
-	// real spike response. Now scales with the deficit. The outer cap
-	// (MaxConcurrentProvisions + Max-room) still bounds total Provision
-	// calls per cycle, so this is safe even when the deficit is large.
+	// demandNeed batches up to MaxConcurrentProvisions when the slot
+	// shortage is large, but never exceeds the actual shortage (so
+	// 1-slot pressure doesn't spawn N hosts). The earlier
+	// SpecTemplate-based ceil-div was unsafe because SpecTemplate is
+	// always zero-valued in production (bootstrap doesn't populate
+	// it), so the fallback constant 20 was always used - under-
+	// provisioning 4x on smaller-capacity hosts.
 	demandNeed := 0
-	if m.cfg.Max > m.cfg.Floor && readyCount >= m.cfg.Floor {
+	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 {
 		headroom := readyCapacity - readyDemand
 		if headroom < m.cfg.ScaleUpHeadroomMin {
 			slotsShort := m.cfg.ScaleUpHeadroomMin - headroom
-			capPerHost := defaultMaxSandboxes(m.cfg.SpecTemplate)
-			if capPerHost <= 0 {
-				capPerHost = 1 // defensive; defaultMaxSandboxes already returns 20
+			demandNeed = slotsShort
+			if demandNeed > m.cfg.MaxConcurrentProvisions {
+				demandNeed = m.cfg.MaxConcurrentProvisions
 			}
-			// Ceil-div: each new host brings capPerHost slots, but we
-			// need at LEAST one host per cycle of demand pressure.
-			demandNeed = (slotsShort + capPerHost - 1) / capPerHost
 			if demandNeed < 1 {
 				demandNeed = 1
 			}

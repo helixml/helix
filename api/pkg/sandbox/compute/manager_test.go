@@ -579,6 +579,26 @@ func seedReadyRow(t *testing.T, store *fakeStore, id string, active, max int) {
 	}
 }
 
+// seedReadyRowOffline is like seedReadyRow but inserts a row with
+// Status="offline" - simulates a host whose heartbeat has stopped
+// (briefly or permanently). D3 should EXCLUDE offline rows from
+// capacity math but still treat them as owned (so they count toward
+// Floor satisfaction and the Max ceiling).
+func seedReadyRowOffline(t *testing.T, store *fakeStore, id string, max, active int) {
+	t.Helper()
+	err := store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:              id,
+		Provider:        "stub",
+		ComputeState:    string(StateReady),
+		Status:          "offline",
+		ActiveSandboxes: active,
+		MaxSandboxes:    max,
+	})
+	if err != nil {
+		t.Fatalf("seedReadyRowOffline: %v", err)
+	}
+}
+
 func TestNewManagerValidatesD3Inputs(t *testing.T) {
 	store := newFakeStore()
 	stub := NewStubProvider("stub")
@@ -869,14 +889,18 @@ func TestD3IsReadyRejectsOfflineRows(t *testing.T) {
 func TestD3BatchesDemandNeedUpToMaxConcurrentProvisions(t *testing.T) {
 	// Regression: original demandNeed was hard-coded to 1 per cycle,
 	// making MaxConcurrentProvisions ineffective for spike response.
-	// Fix: scale demandNeed with the slot deficit, ceil-divided by
-	// per-host capacity, capped by MaxConcurrentProvisions and Max.
+	// Fix: demandNeed = min(MaxConcurrentProvisions, max(1, slotsShort)).
+	// The earlier ceil-by-SpecTemplate version was unsafe because
+	// SpecTemplate is always zero-valued in production (bootstrap
+	// doesn't populate it).
 	//
 	// Scenario: Floor=1, Max=10, HeadroomMin=20 (huge buffer demand),
 	// MaxConcurrentProvisions=4, one Ready+online host with MaxSandboxes=10
-	// fully utilized. Deficit = 20 - 0 = 20 slots. At 10 slots/host =
-	// 2 hosts needed by ceil-div. MaxConcurrentProvisions=4 allows 4.
-	// totalNeed = min(2, 4, Max-available=9) = 2.
+	// fully utilized. slotsShort = 20 - 0 = 20. demandNeed =
+	// min(MaxConcurrentProvisions=4, slotsShort=20) = 4. Total cycle
+	// fan-out: floor satisfied (1 seed Ready), so floorNeed=0,
+	// totalNeed = demandNeed = 4. Bounded again by per-cycle cap
+	// MaxConcurrentProvisions=4 and Max-room=9. Final: 4 new rows.
 	store := newFakeStore()
 	stub := NewStubProvider("stub")
 	m, err := NewManager(stub, store, ManagerConfig{
@@ -886,7 +910,6 @@ func TestD3BatchesDemandNeedUpToMaxConcurrentProvisions(t *testing.T) {
 		ReconcileInterval:       10 * time.Millisecond,
 		HealthCheckTimeout:      100 * time.Millisecond,
 		MaxConcurrentProvisions: 4,
-		SpecTemplate:            Spec{MaxSandboxes: 10},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -896,8 +919,46 @@ func TestD3BatchesDemandNeedUpToMaxConcurrentProvisions(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	rows, _ := store.ListSandboxInstances(context.Background())
-	if len(rows) != 3 { // 1 seed + 2 new (ceil(20/10) = 2)
-		t.Fatalf("expected demandNeed to batch up to 2 (slots short / capPerHost); got %d rows", len(rows))
+	if len(rows) != 5 { // 1 seed + 4 new (min(MaxConcurrentProvisions=4, slotsShort=20))
+		t.Fatalf("expected demandNeed batched to MaxConcurrentProvisions=4; got %d rows", len(rows))
+	}
+}
+
+func TestD3SurvivesHeartbeatFlap(t *testing.T) {
+	// Regression: the previous gate `readyCount >= Floor` silently
+	// disabled D3 when a single host flickered offline (heartbeat
+	// flap), exactly when scale-up is most needed. The new gate
+	// `readyOnlineCount > 0` keeps D3 active as long as at least one
+	// reachable host exists.
+	//
+	// Scenario: Floor=2, Max=4, HeadroomMin=2. Two seed rows: one
+	// Ready+online (slots full), one Ready+offline (heartbeat flap).
+	// readyOnlineCount=1 (the offline one is excluded from capacity
+	// math). Online host has 10/10 used -> headroom=0 < HeadroomMin=2
+	// -> demandNeed = min(MaxConcurrentProvisions=2, slotsShort=2) = 2.
+	// Floor: available=2 already (both seeds), so floorNeed=0.
+	// totalNeed = 0 + 2 = 2, capped by Max-room = 4-2 = 2. Expect 4 rows.
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   2,
+		Max:                     4,
+		ScaleUpHeadroomMin:      2,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		MaxConcurrentProvisions: 2,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	seedReadyRow(t, store, "sbx_online_busy", 10, 10)
+	seedReadyRowOffline(t, store, "sbx_offline_flap", 10, 0)
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 4 {
+		t.Fatalf("expected D3 to keep firing during heartbeat flap; got %d rows (want 4 = 2 seeds + 2 new)", len(rows))
 	}
 }
 
