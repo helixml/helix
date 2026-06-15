@@ -50,10 +50,10 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		return nil, fmt.Errorf("stream_members: caller has no OrgID")
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
+	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
-	subs, err := t.deps.Store.Subscriptions.ListForStream(ctx, orgID, streamID)
+	subs, err := t.deps.Queries.StreamSubscribers(ctx, orgID, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}

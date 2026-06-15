@@ -45,15 +45,15 @@ func (t *ListWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if orgID == "" {
 		return nil, fmt.Errorf("list_workers: caller has no OrgID")
 	}
-	workers, err := t.deps.Store.Workers.List(ctx, orgID)
+	workers, err := t.deps.Queries.ListWorkers(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list workers: %w", err)
 	}
 	// One List call builds the report → managers index, so we don't
 	// issue a ListManagers per worker.
 	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
-	if t.deps.Store.ReportingLines != nil {
-		lines, err := t.deps.Store.ReportingLines.List(ctx, orgID)
+	if t.deps.Queries.ReportingLinesWired() {
+		lines, err := t.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
 			return nil, fmt.Errorf("list reporting lines: %w", err)
 		}
@@ -99,13 +99,13 @@ func (t *GetWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("get_worker: caller has no OrgID")
 	}
-	w, err := t.deps.Store.Workers.Get(ctx, orgID, orgchart.WorkerID(args.ID))
+	w, err := t.deps.Queries.GetWorker(ctx, orgID, orgchart.WorkerID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", args.ID, err)
 	}
 	var managers []orgchart.WorkerID
-	if t.deps.Store.ReportingLines != nil {
-		managers, err = t.deps.Store.ReportingLines.ListManagers(ctx, orgID, w.ID())
+	if t.deps.Queries.ReportingLinesWired() {
+		managers, err = t.deps.Queries.ListManagers(ctx, orgID, w.ID())
 		if err != nil {
 			return nil, fmt.Errorf("list managers for %q: %w", args.ID, err)
 		}
@@ -153,7 +153,7 @@ func (t *GetWorkerEnvironment) Invoke(ctx context.Context, inv tool.Invocation) 
 	if orgID == "" {
 		return nil, fmt.Errorf("get_worker_environment: caller has no OrgID")
 	}
-	env, err := t.deps.Store.Environments.Get(ctx, orgID, orgchart.WorkerID(args.WorkerID))
+	env, err := t.deps.Queries.GetEnvironment(ctx, orgID, orgchart.WorkerID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("get environment for %q: %w", args.WorkerID, err)
 	}

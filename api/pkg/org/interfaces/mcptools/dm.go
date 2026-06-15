@@ -75,7 +75,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
 	}
-	if _, err := t.deps.Store.Workers.Get(ctx, orgID, recipient); err != nil {
+	if _, err := t.deps.Queries.GetWorker(ctx, orgID, recipient); err != nil {
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
@@ -85,7 +85,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	// so plainly rather than silently minting a channel that the org
 	// never sanctioned.
 	streamID := topology.DMStreamID(sender, recipient)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
+	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf(
 				"no DM channel with %q: you can only DM workers you share a reporting line with — "+
@@ -102,25 +102,12 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		To:   []string{string(recipient)},
 		Body: args.Body,
 	}
-	event, err := streaming.NewMessageEvent(
-		streaming.EventID("e-"+t.deps.NewID()),
-		streamID,
-		sender,
-		msg,
-		t.deps.Now(),
-		orgID,
-	)
+	// Delegate to the publishing service — the single owner of the
+	// append → notify → dispatch trio. dm must NOT reimplement it (that
+	// is how the DM fan-out drifts from every other publish path).
+	event, err := t.deps.publishingService().Publish(ctx, orgID, streamID, string(sender), msg)
 	if err != nil {
 		return nil, err
-	}
-	if err := t.deps.Store.Events.Append(ctx, event); err != nil {
-		return nil, err
-	}
-	if t.deps.Hub != nil {
-		t.deps.Hub.Notify(orgID, streamID)
-	}
-	if t.deps.Dispatcher != nil {
-		t.deps.Dispatcher.Dispatch(ctx, event)
 	}
 
 	return json.Marshal(map[string]string{

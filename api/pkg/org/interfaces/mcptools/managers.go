@@ -59,16 +59,16 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 		return nil, fmt.Errorf("managers: caller has no OrgID")
 	}
 	caller := orgchart.WorkerID(inv.Caller.ID())
-	if t.deps.Store.ReportingLines == nil {
+	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(managersResult{Managers: []managerView{}})
 	}
-	managerIDs, err := t.deps.Store.ReportingLines.ListManagers(ctx, orgID, caller)
+	managerIDs, err := t.deps.Queries.ListManagers(ctx, orgID, caller)
 	if err != nil {
 		return nil, fmt.Errorf("list managers: %w", err)
 	}
 	out := make([]managerView, 0, len(managerIDs))
 	for _, m := range managerIDs {
-		w, err := t.deps.Store.Workers.Get(ctx, orgID, m)
+		w, err := t.deps.Queries.GetWorker(ctx, orgID, m)
 		if err != nil {
 			// A line pointing at a worker that no longer exists is a
 			// dangling row, not a manager — skip it rather than report a

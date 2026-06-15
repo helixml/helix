@@ -68,22 +68,22 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	}
 	caller := orgchart.WorkerID(inv.Caller.ID())
 	result := reportsResult{Reports: []reportView{}}
-	if t.deps.Store.ReportingLines == nil {
+	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(result)
 	}
-	reportIDs, err := t.deps.Store.ReportingLines.ListReports(ctx, orgID, caller)
+	reportIDs, err := t.deps.Queries.ListReports(ctx, orgID, caller)
 	if err != nil {
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
 	for _, r := range reportIDs {
-		w, err := t.deps.Store.Workers.Get(ctx, orgID, r)
+		w, err := t.deps.Queries.GetWorker(ctx, orgID, r)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				continue
 			}
 			return nil, fmt.Errorf("get report %q: %w", r, err)
 		}
-		subReports, err := t.deps.Store.ReportingLines.ListReports(ctx, orgID, r)
+		subReports, err := t.deps.Queries.ListReports(ctx, orgID, r)
 		if err != nil {
 			return nil, fmt.Errorf("list sub-reports of %q: %w", r, err)
 		}

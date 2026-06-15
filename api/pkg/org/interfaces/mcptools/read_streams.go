@@ -55,7 +55,7 @@ func (t *ListStreams) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if orgID == "" {
 		return nil, fmt.Errorf("list_streams: caller has no OrgID")
 	}
-	streams, err := t.deps.Store.Streams.List(ctx, orgID)
+	streams, err := t.deps.Queries.ListStreams(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list streams: %w", err)
 	}
@@ -97,7 +97,7 @@ func (t *GetStream) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("get_stream: caller has no OrgID")
 	}
-	s, err := t.deps.Store.Streams.Get(ctx, orgID, streaming.StreamID(args.ID))
+	s, err := t.deps.Queries.GetStream(ctx, orgID, streaming.StreamID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get stream %q: %w", args.ID, err)
 	}
@@ -171,10 +171,10 @@ func (t *ListStreamEvents) Invoke(ctx context.Context, inv tool.Invocation) (jso
 		limit = listStreamEventsMaxLimit
 	}
 	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
+	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("stream %q: %w", streamID, err)
 	}
-	events, err := t.deps.Store.Events.ListForStream(ctx, orgID, streamID, limit)
+	events, err := t.deps.Queries.StreamEvents(ctx, orgID, streamID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", streamID, err)
 	}

@@ -80,7 +80,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
 		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
-		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Environments: st.Environments, Activations: st.Activations}),
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
 		Configs:       reg,
 		Hub:           hub,

@@ -46,7 +46,7 @@ func (t *ListRoles) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("list_roles: caller has no OrgID")
 	}
-	roles, err := t.deps.Store.Roles.List(ctx, orgID)
+	roles, err := t.deps.Queries.ListRoles(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
@@ -88,7 +88,7 @@ func (t *GetRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if orgID == "" {
 		return nil, fmt.Errorf("get_role: caller has no OrgID")
 	}
-	got, err := t.deps.Store.Roles.Get(ctx, orgID, orgchart.RoleID(args.ID))
+	got, err := t.deps.Queries.GetRole(ctx, orgID, orgchart.RoleID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get role %q: %w", args.ID, err)
 	}

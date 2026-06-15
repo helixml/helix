@@ -15,6 +15,8 @@ package queries
 import (
 	"context"
 
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -23,12 +25,14 @@ import (
 // Queries reads the org graph. Constructed once at the composition root
 // from the narrow read repositories.
 type Queries struct {
-	roles   store.Roles
-	workers store.Workers
-	lines   store.ReportingLines
-	streams store.Streams
-	subs    store.Subscriptions
-	events  store.Events
+	roles        store.Roles
+	workers      store.Workers
+	lines        store.ReportingLines
+	streams      store.Streams
+	subs         store.Subscriptions
+	events       store.Events
+	environments store.Environments
+	activations  activation.Repository
 }
 
 // Deps are the constructor-injected read repositories. Any may be nil if
@@ -42,17 +46,21 @@ type Deps struct {
 	Streams        store.Streams
 	Subscriptions  store.Subscriptions
 	Events         store.Events
+	Environments   store.Environments
+	Activations    activation.Repository
 }
 
 // New constructs the read facade.
 func New(deps Deps) *Queries {
 	return &Queries{
-		roles:   deps.Roles,
-		workers: deps.Workers,
-		lines:   deps.ReportingLines,
-		streams: deps.Streams,
-		subs:    deps.Subscriptions,
-		events:  deps.Events,
+		roles:        deps.Roles,
+		workers:      deps.Workers,
+		lines:        deps.ReportingLines,
+		streams:      deps.Streams,
+		subs:         deps.Subscriptions,
+		events:       deps.Events,
+		environments: deps.Environments,
+		activations:  deps.Activations,
 	}
 }
 
@@ -106,4 +114,30 @@ func (q *Queries) StreamEvents(ctx context.Context, orgID string, streamID strea
 
 func (q *Queries) AllEvents(ctx context.Context, orgID string, limit int) ([]streaming.Event, error) {
 	return q.events.ListAll(ctx, orgID, limit)
+}
+
+func (q *Queries) WorkerEvents(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
+	return q.events.ListForWorker(ctx, orgID, workerID, limit)
+}
+
+// ListReports returns the direct reports of the given manager.
+func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+	return q.lines.ListReports(ctx, orgID, managerID)
+}
+
+// FindSubscription returns the (worker, stream) subscription row, or
+// store.ErrNotFound (wrapped) when the worker is not subscribed.
+func (q *Queries) FindSubscription(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
+	return q.subs.Find(ctx, orgID, workerID, streamID)
+}
+
+// GetEnvironment returns a Worker's Environment row (env path), or
+// store.ErrNotFound (wrapped) when absent.
+func (q *Queries) GetEnvironment(ctx context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error) {
+	return q.environments.Get(ctx, orgID, workerID)
+}
+
+// GetActivation returns one activation audit row by id.
+func (q *Queries) GetActivation(ctx context.Context, orgID string, id activation.ID) (*activation.Activation, error) {
+	return q.activations.Get(ctx, orgID, id)
 }

@@ -162,10 +162,10 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 
 	// Resolve worker → subscribed streams.
-	if _, err := t.deps.Store.Workers.Get(ctx, orgID, workerID); err != nil {
+	if _, err := t.deps.Queries.GetWorker(ctx, orgID, workerID); err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", workerID, err)
 	}
-	subs, err := t.deps.Store.Subscriptions.ListForWorker(ctx, orgID, workerID)
+	subs, err := t.deps.Queries.WorkerSubscriptions(ctx, orgID, workerID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions for worker %q: %w", workerID, err)
 	}
@@ -196,7 +196,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 // fresh returns events newer than `since` (exclusive), newest-first, up
 // to `limit`. An empty `since` means "return everything".
 func (t *ReadEvents) fresh(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int, since streaming.EventID) ([]streaming.Event, error) {
-	events, err := t.deps.Store.Events.ListForWorker(ctx, orgID, workerID, limit)
+	events, err := t.deps.Queries.WorkerEvents(ctx, orgID, workerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", workerID, err)
 	}

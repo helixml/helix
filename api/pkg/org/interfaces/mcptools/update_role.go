@@ -71,7 +71,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	// This is a workspace side-effect, not store state, so it stays in
 	// the MCP adapter (the REST chart UI doesn't need it — the Spawner
 	// re-projects current Role state at the start of every activation).
-	workers, _ := t.deps.Store.Workers.List(ctx, orgID)
+	workers, _ := t.deps.Queries.ListWorkers(ctx, orgID)
 	for _, w := range workers {
 		if w.RoleID() != roleID {
 			continue

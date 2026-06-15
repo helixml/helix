@@ -3,7 +3,6 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
@@ -95,7 +93,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return nil, fmt.Errorf("worker_log: caller has no OrgID")
 	}
 	target := orgchart.WorkerID(args.WorkerID)
-	wkr, err := t.deps.Store.Workers.Get(ctx, orgID, target)
+	wkr, err := t.deps.Queries.GetWorker(ctx, orgID, target)
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", target, err)
 	}
@@ -105,7 +103,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	}
 
 	streamID := activation.StreamID(target)
-	if _, err := t.deps.Store.Streams.Get(ctx, orgID, streamID); err != nil {
+	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
 		return nil, fmt.Errorf("activation stream for %q: %w", target, err)
 	}
 
@@ -115,10 +113,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		open    bool
 	}
 	if args.ActivationID != "" {
-		if t.deps.Store.Activations == nil {
-			return nil, fmt.Errorf("activationId filter unsupported: store has no Activations repo")
-		}
-		a, err := t.deps.Store.Activations.Get(ctx, orgID, activation.ID(args.ActivationID))
+		a, err := t.deps.Queries.GetActivation(ctx, orgID, activation.ID(args.ActivationID))
 		if err != nil {
 			return nil, fmt.Errorf("activation %q: %w", args.ActivationID, err)
 		}
@@ -138,24 +133,12 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		actWindow = &w
 	}
 
-	// Auto-subscribe the caller. Subscriptions are worker-anchored;
-	// idempotent; harmless to re-run. After this, plain read_events
-	// also includes this Worker's transcript.
+	// Auto-subscribe the caller via the subscriptions service (validates
+	// the caller + stream exist, idempotent get-or-create). After this,
+	// plain read_events also includes this Worker's transcript.
 	caller := inv.Caller.ID()
-	if _, err := t.deps.Store.Workers.Get(ctx, orgID, caller); err != nil {
-		return nil, fmt.Errorf("get caller worker %q: %w", caller, err)
-	}
-	if _, err := t.deps.Store.Subscriptions.Find(ctx, orgID, caller, streamID); err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-		sub, err := streaming.NewSubscription(string(caller), streamID, t.deps.Now(), orgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := t.deps.Store.Subscriptions.Create(ctx, sub); err != nil {
-			return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, streamID, err)
-		}
+	if _, _, err := t.deps.subscriptionsService().Subscribe(ctx, orgID, caller, streamID); err != nil {
+		return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, streamID, err)
 	}
 
 	limit := args.Limit
@@ -232,7 +215,7 @@ func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.
 // (exclusive), newest-first, up to `limit`. Empty `since` means
 // "return everything up to limit".
 func (t *WorkerLog) fresh(ctx context.Context, orgID string, streamID streaming.StreamID, limit int, since streaming.EventID) ([]streaming.Event, error) {
-	events, err := t.deps.Store.Events.ListForStream(ctx, orgID, streamID, limit)
+	events, err := t.deps.Queries.StreamEvents(ctx, orgID, streamID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events on %q: %w", streamID, err)
 	}

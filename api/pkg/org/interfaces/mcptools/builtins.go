@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/application/streams"
@@ -66,7 +67,12 @@ type EventDispatcher interface {
 // persisting to the DB so the per-runtime view of role/identity stays
 // in sync with the canonical domain copy.
 type Deps struct {
-	Store      *store.Store
+	Store *store.Store
+	// Queries is the read facade every read tool projects from — the
+	// same one the REST read handlers use, so the two surfaces can't
+	// drift on read semantics. Tools never touch Store directly for
+	// reads.
+	Queries    *queries.Queries
 	Now        Clock
 	NewID      IDGen
 	EnvsDir    string
@@ -218,6 +224,11 @@ func DefaultDeps(s *store.Store) Deps {
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	d.Topology = &topology.Reconciler{Store: s, Now: d.Now}
+	d.Queries = queries.New(queries.Deps{
+		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
+		Streams: s.Streams, Subscriptions: s.Subscriptions, Events: s.Events,
+		Environments: s.Environments, Activations: s.Activations,
+	})
 	return d
 }
 
