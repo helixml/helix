@@ -2,12 +2,12 @@
 
 ## Setup
 
-- [ ] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **966 lines** as of start of task; latest entry `## Merge 002077 (2026-06-12)` at line 667
-- [ ] Read prior plan `002077_merge-latest-zed/` end-to-end (requirements.md, design.md, tasks.md, pull_request_zed.md, pull_request_helix.md) — closest precedent (mandatory)
-- [ ] Skim `002029_merge-latest-zed/`, `001996_merge-latest-zed/`, `001980_merge-latest-zed/` for additional context on critical-fix preservation patterns
-- [ ] Verify upstream remote: `cd /home/retro/work/zed && git remote -v`. If missing, add: `git remote add upstream https://github.com/zed-industries/zed.git`
-- [ ] `git fetch upstream && git fetch origin`
-- [ ] Verify divergence: at planning time, **21** commits to merge, fork HEAD `f82e1c6760`, upstream HEAD `cccc7b2d44` — re-confirm at runtime (numbers will shift if upstream advances)
+- [x] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference, **966 lines** as of start of task; latest entry `## Merge 002077 (2026-06-12)` at line 667
+- [x] Read prior plan `002077_merge-latest-zed/` end-to-end (requirements.md, design.md, tasks.md, pull_request_zed.md, pull_request_helix.md) — closest precedent (mandatory)
+- [x] Skim `002029_merge-latest-zed/`, `001996_merge-latest-zed/`, `001980_merge-latest-zed/` for additional context on critical-fix preservation patterns
+- [x] Verify upstream remote: present (`upstream → https://github.com/zed-industries/zed.git`)
+- [x] `git fetch upstream && git fetch origin`
+- [~] Verify divergence at runtime (re-confirm numbers)
 - [ ] Confirm Helix-only commits since 002077: `git log f82e1c6760..origin/main --no-merges` — expected empty. If non-empty, read each commit before merging.
 - [ ] Pull `origin/main` first in case fork main moved
 - [ ] Create feature branch: `feature/002100-merge-latest-zed` from current fork main
