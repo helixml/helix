@@ -2540,17 +2540,21 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		return s.addUserAPITokenToAgent(hookCtx, a, userID)
 	}
 
-	agentResp, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent)
-	if err != nil {
+	if _, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent); err != nil {
 		return nil, fmt.Errorf("failed to start external agent: %w", err)
 	}
 
-	if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
-		session.Metadata.DevContainerID = agentResp.DevContainerID
-		session.SandboxID = agentResp.SandboxID
-		if _, err := s.Controller.Options.Store.UpdateSession(ctx, *session); err != nil {
-			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
-		}
+	// StartDesktop has already persisted the container metadata onto the
+	// session row (container_name, external_agent_status="running",
+	// container_id, dev_container_id, sandbox_id). Re-fetch the fresh row
+	// instead of re-saving our stale in-memory copy: the in-memory struct was
+	// last written before StartDesktop ran, so persisting it back wipes
+	// container_name/external_agent_status and makes the desktop viewer render
+	// "paused" while the container is actually running.
+	if fresh, err := s.Store.GetSession(ctx, session.ID); err == nil {
+		session = fresh
+	} else {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to reload session after starting desktop; returning pre-start copy")
 	}
 
 	log.Info().
