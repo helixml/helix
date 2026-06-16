@@ -227,6 +227,7 @@ const OAuthProvidersTable: React.FC = () => {
         callback_url: window.location.origin + '/api/v1/oauth/flow/callback',
         enabled: true,
         created_at: new Date().toISOString(),
+        ...(templateType === 'slack' ? { slack_ingress_mode: 'rest' } : {}),
       });
       setIsEditing(false);
     }
@@ -871,13 +872,12 @@ const OAuthProvidersTable: React.FC = () => {
                       fullWidth
                       label="Ingress Mode"
                       name="slack_ingress_mode"
-                      value={currentProvider.slack_ingress_mode || ''}
+                      value={currentProvider.slack_ingress_mode || 'rest'}
                       onChange={handleInputChange}
                       SelectProps={{ native: true }}
                       InputLabelProps={{ shrink: true }}
-                      helperText="How inbound Slack events reach Helix. REST (Events API) serves many per-org installs; Socket Mode suits a single on-premise workspace with no inbound HTTP."
+                      helperText="How inbound Slack events reach Helix when this provider is enabled. REST (Events API) serves many per-org installs; Socket Mode suits a single on-premise workspace with no inbound HTTP. Use the Enabled toggle above to turn Slack off entirely."
                     >
-                      <option value="">(disabled — no inbound)</option>
                       <option value="rest">REST (Events API)</option>
                       <option value="socket">Socket Mode (WebSocket)</option>
                     </TextField>
