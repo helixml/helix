@@ -30,10 +30,13 @@ done
 # The daemon can be safely killed and will automatically restart within 2 seconds
 # tee to /var/log/helix-services/heartbeat.log so hydra's tailer surfaces
 # heartbeat output in the admin Runner Logs WS stream (see
-# 12-start-compose-manager.sh for the same pattern + rationale).
-mkdir -p /var/log/helix-services
+# 12-start-compose-manager.sh for the same pattern + rationale, plus
+# the `|| true` mkdir guard, truncate-on-boot, and SIGPIPE trap).
+mkdir -p /var/log/helix-services 2>/dev/null || true
+: > /var/log/helix-services/heartbeat.log 2>/dev/null || true
 
 (
+    trap '' PIPE
     while true; do
         echo "[$(date -Iseconds)] Starting heartbeat daemon..."
         /usr/local/bin/sandbox-heartbeat

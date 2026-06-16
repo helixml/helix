@@ -104,23 +104,37 @@ func StartServiceLogTailers(ctx context.Context, buf *LogBuffer, dir string) {
 	}()
 }
 
-// tailServiceLog follows a single log file, writing each appended line
-// into buf with a "[<basename-without-.log>] " prefix. Starts from
-// end-of-file. Survives transient read errors. Exits when ctx is done.
+// tailServiceLog follows a single log file, writing each newline-terminated
+// line into buf with a "[<basename-without-.log>] " prefix. Survives
+// transient read errors. Exits when ctx is done.
 //
-// Rotation is NOT handled: if a service rotates its log (rename + truncate
-// or remove + recreate), we'll keep reading the unlinked inode until
-// process exit. helix-sandbox today doesn't rotate, so this is fine.
-// If/when rotation gets added inside the sandbox, use inotify or
-// stat-based detection of size shrinkage to reopen.
+// Reads from the START of the file (NOT seek-to-end). The cont-init.d
+// wrappers truncate their respective files at boot, so on a fresh
+// helix-sandbox container the file is empty when this tailer opens it -
+// safe to read from the beginning. On hydra reconnect after its own
+// crash-and-supervisor-restart, the file may contain pre-restart
+// content; we replay that into the LogBuffer too (better to show stale
+// context on the admin UI than to silently swallow the diagnostic
+// content the operator most needs - if a service crashed before hydra
+// came back up, its last-words are exactly what we want surfaced).
+//
+// Partial-line buffering: if the producer writes "pulling layer abc... "
+// without a trailing newline, the previous version of this code shipped
+// the partial line, then shipped the rest on the next tick - resulting
+// in two LogBuffer entries with broken prefixes. We now accumulate
+// partials in `pending` and only Write when we have a complete line
+// terminator, with a safety cap (partialLineCap) so a producer that
+// writes a million bytes without a newline can't OOM us.
+//
+// Rotation is NOT handled: if a service rotates its log (rename +
+// recreate), we'll keep reading the unlinked inode until process exit.
+// helix-sandbox today doesn't rotate inside its lifetime. If/when that
+// changes, add stat-based detection of file-size shrinkage and reopen.
 func tailServiceLog(ctx context.Context, buf *LogBuffer, path string) {
 	prefix := "[" + strings.TrimSuffix(filepath.Base(path), ".log") + "] "
 
 	// Open create-if-missing so a tailer started before the producing
-	// service can still attach. O_RDONLY would race the producer on
-	// systems where O_CREAT semantics differ; here we want the file to
-	// exist with the producer's eventual ownership / mode (the producer
-	// opens with O_APPEND|O_CREATE itself in `tee -a`).
+	// service can still attach. O_RDONLY because we never write.
 	f, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0o644)
 	if err != nil {
 		log.Warn().Err(err).Str("path", path).
@@ -129,43 +143,67 @@ func tailServiceLog(ctx context.Context, buf *LogBuffer, path string) {
 	}
 	defer f.Close()
 
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		log.Warn().Err(err).Str("path", path).
-			Msg("tailServiceLog: seek-end failed; abandoning tailer for this file")
-		return
-	}
-
 	reader := bufio.NewReader(f)
 	poll := time.NewTicker(serviceLogTailPollInterval)
 	defer poll.Stop()
+
+	// Buffer for the trailing partial line (no \n yet). Flushed when a
+	// later read sees the terminator, OR when it grows past partialLineCap
+	// (defensive against producers that never newline-terminate).
+	var pending strings.Builder
+
+	flushComplete := func() {
+		// Drain everything available before sleeping again. We loop
+		// because bufio's read buffer may return EOF in the middle of a
+		// larger physical chunk if the producer is mid-write.
+		for {
+			line, err := reader.ReadString('\n')
+			if line != "" {
+				if strings.HasSuffix(line, "\n") {
+					// Complete line - prepend any pending partial,
+					// trim, ship.
+					if pending.Len() > 0 {
+						line = pending.String() + line
+						pending.Reset()
+					}
+					buf.Write(prefix + strings.TrimRight(line, "\r\n"))
+				} else {
+					// Partial line (only happens at EOF). Append to
+					// pending and bail to the cap check below.
+					pending.WriteString(line)
+					if pending.Len() > partialLineCap {
+						// Producer is misbehaving (or it's a binary
+						// blob). Flush what we have rather than buffer
+						// forever, mark with a [partial] suffix so the
+						// operator knows the line was cut.
+						buf.Write(prefix + pending.String() + " [partial: line exceeded cap]")
+						pending.Reset()
+					}
+				}
+			}
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				log.Debug().Err(err).Str("path", path).
+					Msg("tailServiceLog: read error; will retry next tick")
+				return
+			}
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-poll.C:
-			// Drain everything available before sleeping again.
-			for {
-				line, err := reader.ReadString('\n')
-				if line != "" {
-					// Trim trailing newline (added back by the
-					// LogBuffer consumers if they care about line
-					// framing). Keep partial lines without a
-					// trailing \n - bufio's ReadString returns them
-					// only on EOF, so they represent a producer that
-					// hasn't flushed yet; we ship them anyway to
-					// minimise latency on burst-tail.
-					buf.Write(prefix + strings.TrimRight(line, "\r\n"))
-				}
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Debug().Err(err).Str("path", path).
-						Msg("tailServiceLog: read error; will retry next tick")
-					break
-				}
-			}
+			flushComplete()
 		}
 	}
 }
+
+// partialLineCap bounds how much we'll buffer waiting for a newline.
+// Long enough for any realistic log line including JSON-encoded
+// heartbeat payloads or dockerd image-pull progress lines, short
+// enough to bound memory if a producer streams a binary blob.
+const partialLineCap = 256 * 1024 // 256 KiB

@@ -128,9 +128,13 @@ fi
 # dockerd output in the admin Runner Logs WS stream. dockerd's output
 # is noisy but invaluable when image pulls fail or the inner daemon
 # misbehaves on a YD-allocated host (see T-10 family of issues).
-mkdir -p /var/log/helix-services
+# `|| true` + truncate-on-boot + SIGPIPE trap below: see
+# 12-start-compose-manager.sh for the rationale.
+mkdir -p /var/log/helix-services 2>/dev/null || true
+: > /var/log/helix-services/dockerd.log 2>/dev/null || true
 
 (
+    trap '' PIPE
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true

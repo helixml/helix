@@ -14,10 +14,13 @@ echo "🚦 Starting inference-proxy on $LISTEN (active.yaml: $ACTIVE_YAML)"
 
 # tee to /var/log/helix-services/inference-proxy.log so hydra's tailer
 # can pick these lines up into the admin Runner Logs WS stream (see
-# 12-start-compose-manager.sh for the same pattern + rationale).
-mkdir -p /var/log/helix-services
+# 12-start-compose-manager.sh for the same pattern + rationale, plus
+# the `|| true` mkdir guard, truncate-on-boot, and SIGPIPE trap).
+mkdir -p /var/log/helix-services 2>/dev/null || true
+: > /var/log/helix-services/inference-proxy.log 2>/dev/null || true
 
 (
+    trap '' PIPE
     while true; do
         echo "[$(date -Iseconds)] Starting inference-proxy..."
         /usr/local/bin/inference-proxy --listen "$LISTEN" --compose "$ACTIVE_YAML"

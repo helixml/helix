@@ -13,19 +13,24 @@ import (
 // TestStartServiceLogTailers_AppendsToBufferWithPrefix verifies the happy
 // path: a wrapper writes lines to /var/log/helix-services/<svc>.log,
 // hydra's tailer picks them up, and they appear in the LogBuffer with the
-// "[<svc>] " prefix the admin UI consumes.
+// "[<svc>] " prefix the admin UI consumes. ALSO verifies that lines
+// written BEFORE the tailer starts are still captured (review #4: the
+// cont-init.d wrappers run dockerd/heartbeat before hydra, so their
+// startup output is already on disk when the tailer opens the file).
 func TestStartServiceLogTailers_AppendsToBufferWithPrefix(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "compose-manager.log")
 
-	// Create the file BEFORE starting the tailer to exercise the initial-
-	// scan code path. Append-mode so the tailer's seek-to-end positions
-	// just before any future writes.
-	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-	if err != nil {
-		t.Fatalf("create log file: %v", err)
+	// Pre-existing content written BEFORE the tailer starts. The tailer
+	// must replay this from the start of the file - it represents the
+	// boot-time output the operator most cares about for T-10-style debug.
+	preLines := []string{
+		"pre-tailer line 1: dockerd starting at t=0",
+		"pre-tailer line 2: NVIDIA runtime selected",
 	}
-	defer f.Close()
+	if err := os.WriteFile(logPath, []byte(strings.Join(preLines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("seed log file: %v", err)
+	}
 
 	buf := NewLogBuffer(64)
 
@@ -33,15 +38,22 @@ func TestStartServiceLogTailers_AppendsToBufferWithPrefix(t *testing.T) {
 	defer cancel()
 	StartServiceLogTailers(ctx, buf, dir)
 
-	// Give the tailer a moment to open the file + seek to end.
+	// Give the tailer a moment to open + read existing content.
 	time.Sleep(250 * time.Millisecond)
 
-	wantLines := []string{
-		"hello compose-manager",
-		"second line",
-		"third line with a UTF-8 char é",
+	// Now append more lines like a live producer would.
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
 	}
-	for _, line := range wantLines {
+	defer f.Close()
+
+	liveLines := []string{
+		"live line 1: compose-manager polling",
+		"live line 2: assignment fetched",
+		"live line 3 with UTF-8 char é",
+	}
+	for _, line := range liveLines {
 		if _, err := fmt.Fprintln(f, line); err != nil {
 			t.Fatalf("write line: %v", err)
 		}
@@ -50,24 +62,25 @@ func TestStartServiceLogTailers_AppendsToBufferWithPrefix(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	// Wait up to 3s for all lines to land in the buffer (poll interval
-	// is 500ms; 3s = 6 ticks of slack for CI jitter).
+	wantTotal := len(preLines) + len(liveLines)
 	deadline := time.Now().Add(3 * time.Second)
 	var snap []LogLine
 	for time.Now().Before(deadline) {
 		snap = buf.Snapshot(1024)
-		if len(snap) >= len(wantLines) {
+		if len(snap) >= wantTotal {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if len(snap) < len(wantLines) {
-		t.Fatalf("expected at least %d lines in buffer, got %d: %+v", len(wantLines), len(snap), snap)
+	if len(snap) < wantTotal {
+		t.Fatalf("expected at least %d lines in buffer (pre %d + live %d), got %d: %+v",
+			wantTotal, len(preLines), len(liveLines), len(snap), snap)
 	}
 
+	allWant := append(append([]string{}, preLines...), liveLines...)
 	prefix := "[compose-manager] "
-	for i, want := range wantLines {
+	for i, want := range allWant {
 		got := snap[i].Line
 		if !strings.HasPrefix(got, prefix) {
 			t.Errorf("line %d: expected prefix %q, got %q", i, prefix, got)
@@ -75,6 +88,69 @@ func TestStartServiceLogTailers_AppendsToBufferWithPrefix(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("line %d: expected to contain %q, got %q", i, want, got)
 		}
+	}
+}
+
+// TestTailServiceLog_PartialLinesAreBufferedAcrossPolls verifies the
+// review finding fix: a producer writing "foo " (no newline) followed
+// by "bar\n" later should produce ONE LogBuffer entry "foo bar", not
+// two fragments. The previous version of the tailer shipped the
+// partial on the first tick (bufio.ReadString returns content+EOF for
+// a partial), then shipped the rest on the next tick.
+func TestTailServiceLog_PartialLinesAreBufferedAcrossPolls(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "compose-manager.log")
+
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatalf("seed empty file: %v", err)
+	}
+
+	buf := NewLogBuffer(32)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	StartServiceLogTailers(ctx, buf, dir)
+	time.Sleep(250 * time.Millisecond)
+
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
+	}
+	defer f.Close()
+
+	// First half of the line - NO trailing newline. Producer hasn't
+	// flushed yet (think a docker pull progress bar mid-write).
+	if _, err := fmt.Fprint(f, "pulling layer abc... "); err != nil {
+		t.Fatalf("write partial: %v", err)
+	}
+	f.Sync()
+
+	// Let the tailer poll once (it will see the partial and buffer it).
+	time.Sleep(1 * time.Second)
+
+	// Second half + newline.
+	if _, err := fmt.Fprintln(f, "done in 42ms"); err != nil {
+		t.Fatalf("write completion: %v", err)
+	}
+	f.Sync()
+
+	// Wait for the combined line to land in the buffer.
+	deadline := time.Now().Add(3 * time.Second)
+	var snap []LogLine
+	for time.Now().Before(deadline) {
+		snap = buf.Snapshot(1024)
+		if len(snap) >= 1 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if len(snap) != 1 {
+		t.Fatalf("expected exactly 1 buffered line, got %d: %+v", len(snap), snap)
+	}
+	wantLine := "[compose-manager] pulling layer abc... done in 42ms"
+	if snap[0].Line != wantLine {
+		t.Fatalf("expected %q, got %q", wantLine, snap[0].Line)
 	}
 }
 
