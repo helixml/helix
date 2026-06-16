@@ -19,9 +19,9 @@
 - [x] Regenerate swagger/OpenAPI docs + TypeScript client for the secret endpoints (`./stack update_openapi` equivalent).
 
 ## Frontend
-- [ ] Regenerate the API client types so `scope` is available on secret create/list.
-- [ ] Add a Dev / Prod / Both scope selector (default Both) to the "Add Secret" dialog in `frontend/src/pages/ProjectSettings.tsx`.
-- [ ] Show each secret's scope (chip/label) in the secrets list, and update the helper text to mention dev vs prod injection.
+- [x] Regenerate the API client types so `scope` is available on secret create/list (`TypesSecretScope` enum + `scope` field).
+- [x] Add a Dev / Prod / Both scope selector (default Both) to the "Add Secret" dialog in `frontend/src/pages/ProjectSettings.tsx`.
+- [x] Show each secret's scope (chip/label) in the secrets list, and update the helper text to mention dev vs prod injection.
 
 ## Tests
 - [ ] Store test: same name allowed across differing scopes; rejected for same scope / `both` overlap.
