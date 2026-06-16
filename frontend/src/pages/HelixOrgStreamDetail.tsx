@@ -43,6 +43,7 @@ import {
   useHelixOrgStream,
   useGitHubWebhookStatus,
   useInstallGitHubWebhook,
+  useStreamMessageCount,
   useUpdateHelixOrgStream,
 } from '../services/helixOrgService'
 
@@ -55,6 +56,7 @@ const HelixOrgStreamDetail: FC = () => {
   const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Streams', routeName: 'helix_org_streams' })
 
   const { data: stream, isLoading } = useHelixOrgStream(streamId)
+  const { data: messageCount } = useStreamMessageCount(streamId)
   const updateStream = useUpdateHelixOrgStream()
 
   // Live event list. Seeded from the initial GET so the page renders
@@ -171,8 +173,11 @@ const HelixOrgStreamDetail: FC = () => {
               <Divider />
 
               <Box>
-                <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
-                  <Typography variant="h6">Messages</Typography>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2} sx={{ mb: 1 }}>
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Typography variant="h6">Messages</Typography>
+                    <MessageCountCard count={messageCount} />
+                  </Stack>
                   <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
                     newest first · up to 50 · live
                   </Typography>
@@ -607,6 +612,33 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
     </Paper>
   )
 }
+
+// MessageCountCard is the compact metric chip beside the Messages
+// header showing how many messages are waiting on the stream (meta.total
+// from the paginated messages endpoint). Undefined while the count query
+// is in flight — render an em-dash placeholder rather than 0 so a
+// loading state doesn't read as "empty stream".
+const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
+  <Paper
+    variant="outlined"
+    sx={{
+      px: 1.25,
+      py: 0.5,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      lineHeight: 1,
+      minWidth: 56,
+    }}
+  >
+    <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 700, lineHeight: 1.1 }}>
+      {count === undefined ? '—' : count.toLocaleString()}
+    </Typography>
+    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      waiting
+    </Typography>
+  </Paper>
+)
 
 const ReadOnlyRow: FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
   <Box>
