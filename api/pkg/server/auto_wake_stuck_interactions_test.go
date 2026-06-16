@@ -338,3 +338,117 @@ func TestAutoWakeStuckThresholdOverride(t *testing.T) {
 		t.Fatalf("zero env: want 180s default, got %s", got)
 	}
 }
+
+// AutoWakeWedgeBreakerSuite covers the session-scoped circuit breaker (Gate 1c):
+// once a session has accumulated >= threshold errored interactions since its last
+// completion, the wedged ACP thread cannot be recovered by re-sending, so the
+// worker stops waking it and marks the current row terminal. See
+// design/2026-06-15-wedged-acp-thread-autowake-flood.md.
+type AutoWakeWedgeBreakerSuite struct {
+	suite.Suite
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+}
+
+func TestAutoWakeWedgeBreakerSuite(t *testing.T) {
+	suite.Run(t, new(AutoWakeWedgeBreakerSuite))
+}
+
+func (s *AutoWakeWedgeBreakerSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{
+		Store:                  s.store,
+		externalAgentWSManager: NewExternalAgentWSManager(),
+		Controller: &controller.Controller{
+			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
+		},
+		streamingContexts: make(map[string]*streamingContext),
+	}
+}
+
+func (s *AutoWakeWedgeBreakerSuite) TearDownTest() { s.ctrl.Finish() }
+
+// connectOldWS registers a live WS connection whose ConnectedAt is old enough to
+// pass Gate 1 + the activity anchor, so maybeAutoWake reaches the breaker.
+func (s *AutoWakeWedgeBreakerSuite) connectOldWS(sessionID string) {
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID:   sessionID,
+		ConnectedAt: time.Now().Add(-10 * time.Minute),
+		SendChan:    make(chan types.ExternalAgentCommand, 10),
+	})
+}
+
+func errInteraction() *types.Interaction {
+	return &types.Interaction{State: types.InteractionStateError}
+}
+
+// TestBreakerTripsOnConsecutiveErrors: >= threshold errored interactions since
+// last completion → mark current row error, do NOT increment auto-wake count or
+// send anything.
+func (s *AutoWakeWedgeBreakerSuite) TestBreakerTripsOnConsecutiveErrors() {
+	s.connectOldWS("ses_wedge")
+	session := &types.Session{
+		ID:           "ses_wedge",
+		Owner:        "user-1",
+		GenerationID: 0,
+		Updated:      time.Now().Add(-10 * time.Minute),
+		Metadata:     types.SessionMetadata{AgentType: "zed_external", ZedThreadID: "t1"},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_wedge").Return(session, nil).AnyTimes()
+
+	// Newest-first: 3 errors, no completion → wedged (default threshold 3).
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{errInteraction(), errInteraction(), errInteraction()}, int64(3), nil)
+
+	var marked *types.Interaction
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, it *types.Interaction) (*types.Interaction, error) {
+			marked = it
+			return it, nil
+		})
+	// Strict controller: IncrementInteractionAutoWakeCount must NOT be called.
+
+	stuck := stuckInteraction("int-wedge", "ses_wedge", 0)
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Require().NotNil(marked, "expected the stuck interaction to be marked")
+	s.Equal(types.InteractionStateError, marked.State)
+	s.Contains(marked.Error, "wedged")
+}
+
+// TestBreakerDoesNotTripWhenRecentCompletion: a completion before the error run
+// means count resets below threshold → breaker does not trip; with the row at
+// the per-interaction cap it falls through to Gate 2 (exhaustion), which marks a
+// DIFFERENT error message.
+func (s *AutoWakeWedgeBreakerSuite) TestBreakerDoesNotTripWhenRecentCompletion() {
+	s.connectOldWS("ses_ok")
+	session := &types.Session{
+		ID:           "ses_ok",
+		Owner:        "user-1",
+		GenerationID: 0,
+		Updated:      time.Now().Add(-10 * time.Minute),
+		Metadata:     types.SessionMetadata{AgentType: "zed_external", ZedThreadID: "t1"},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_ok").Return(session, nil).AnyTimes()
+
+	// Newest-first: error, then a completion → only 1 error since completion (< 3).
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{errInteraction(), {State: types.InteractionStateComplete}, errInteraction()}, int64(3), nil)
+
+	var marked *types.Interaction
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, it *types.Interaction) (*types.Interaction, error) {
+			marked = it
+			return it, nil
+		})
+
+	// At the per-interaction cap → Gate 2 exhaustion path fires (not the breaker).
+	stuck := stuckInteraction("int-ok", "ses_ok", autoWakeMaxRetries)
+	s.server.maybeAutoWake(context.Background(), stuck)
+
+	s.Require().NotNil(marked)
+	s.Equal(types.InteractionStateError, marked.State)
+	s.NotContains(marked.Error, "wedged", "should be the Gate 2 exhaustion error, not the breaker error")
+}
