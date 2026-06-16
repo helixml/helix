@@ -243,6 +243,18 @@ func (s *PostgresStore) runMigrations() error {
 		return err
 	}
 
+	// One-time data fix: backfill secret scope for rows created before the
+	// column existed. AutoMigrate adds the column with default 'both', but
+	// pre-existing rows can end up NULL/empty depending on the driver, so we
+	// normalise them to 'both' (the backwards-compatible scope). Idempotent.
+	if s.gdb.Migrator().HasTable(&types.Secret{}) {
+		if err := s.gdb.WithContext(context.Background()).Exec(
+			"UPDATE secrets SET scope = 'both' WHERE scope IS NULL OR scope = ''",
+		).Error; err != nil {
+			return fmt.Errorf("failed to backfill secret scope: %w", err)
+		}
+	}
+
 	err = s.autoMigrateRoleConfig(context.Background())
 	if err != nil {
 		return err

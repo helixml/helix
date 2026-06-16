@@ -24,6 +24,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// ProjectSecretsGetter returns prod-scoped project secrets as `KEY=value`
+// env-var strings to inject into the web service container.
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+
 // Controller orchestrates project web service deploys.
 type Controller struct {
 	store         store.Store
@@ -32,6 +36,11 @@ type Controller struct {
 	provisionPoll time.Duration // poll interval while waiting
 	readinessWait time.Duration // upper bound for waiting for the app to bind to its port
 	readinessPoll time.Duration // poll interval while waiting
+
+	// getProjectSecrets, when set, supplies prod-scoped project secrets to
+	// inject into the web service container env. Optional — nil means no
+	// secrets are injected.
+	getProjectSecrets ProjectSecretsGetter
 }
 
 // New constructs a Controller. The defaults are sized for typical
@@ -45,6 +54,11 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		readinessWait: 90 * time.Second,
 		readinessPoll: 2 * time.Second,
 	}
+}
+
+// SetProjectSecretsGetter wires the prod-scoped secret injection callback.
+func (c *Controller) SetProjectSecretsGetter(getter ProjectSecretsGetter) {
+	c.getProjectSecrets = getter
 }
 
 // DeployRequest is the input to Redeploy.
@@ -129,7 +143,7 @@ func (c *Controller) runDeploy(
 		return
 	}
 
-	if err := c.runBootstrap(ctx, sb, repo, req.CommitSHA, state.ContainerPort); err != nil {
+	if err := c.runBootstrap(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort); err != nil {
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("bootstrap: %s", err))
 		// Leave the sandbox running so the operator can exec in and debug.
 		return
@@ -207,7 +221,7 @@ func (c *Controller) provisionSandbox(ctx context.Context, req DeployRequest, pr
 // sandbox that clones the repo, optionally checks out the requested
 // SHA, and runs `.helix/startup.sh`. The exec returns immediately —
 // `startup.sh` typically becomes the long-running web server process.
-func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, sha string, containerPort int) error {
+func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int) error {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return err
@@ -234,11 +248,27 @@ func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *
 		"fi",
 	}, "\n")
 
+	// Inject prod-scoped project secrets via the exec environment (NOT inlined
+	// into the shell script) so the values don't leak into command logs. The
+	// `exec env HELIX_WEB_SERVICE_PORT=... bash startup.sh` above inherits this
+	// process environment, so secrets propagate through to startup.sh.
+	env := []string{}
+	if c.getProjectSecrets != nil && projectID != "" {
+		secretEnv, err := c.getProjectSecrets(ctx, projectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sb.ID).Msg("failed to load prod project secrets, continuing without them")
+		} else if len(secretEnv) > 0 {
+			env = append(env, secretEnv...)
+			log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sb.ID).Msg("injected prod project secrets into web service env")
+		}
+	}
+
 	_, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
 		SandboxID: sb.ID,
 		Cmd:       "/bin/bash",
 		Args:      []string{"-c", script},
 		Cwd:       "/",
+		Env:       env,
 		Detached:  true,
 	})
 	return execErr

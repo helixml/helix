@@ -26928,6 +26928,10 @@ const docTemplate = `{
                     "description": "optional, if set, the secret will be available to the specified project",
                     "type": "string"
                 },
+                "scope": {
+                    "description": "optional, one of \"dev\", \"prod\", \"both\"; defaults to \"both\"",
+                    "type": "string"
+                },
                 "value": {
                     "type": "string"
                 }
@@ -32363,6 +32367,14 @@ const docTemplate = `{
                     "description": "optional, if set, the secret will be available as env var in project sessions",
                     "type": "string"
                 },
+                "scope": {
+                    "description": "Scope controls which environment a project secret is injected into.\nDefaults to \"both\" so pre-existing secrets keep their original behaviour.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SecretScope"
+                        }
+                    ]
+                },
                 "updated": {
                     "type": "string"
                 },
@@ -32373,6 +32385,19 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "types.SecretScope": {
+            "type": "string",
+            "enum": [
+                "dev",
+                "prod",
+                "both"
+            ],
+            "x-enum-varnames": [
+                "SecretScopeDev",
+                "SecretScopeProd",
+                "SecretScopeBoth"
+            ]
         },
         "types.ServerConfigForFrontend": {
             "type": "object",

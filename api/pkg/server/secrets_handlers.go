@@ -333,6 +333,16 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
+	// Resolve and validate the environment scope. Defaults to "both" so that
+	// callers (and older clients) that omit it keep the original behaviour.
+	scope := types.SecretScope(secretReq.Scope)
+	if scope == "" {
+		scope = types.SecretScopeBoth
+	}
+	if !scope.Valid() {
+		return nil, system.NewHTTPError400(fmt.Sprintf("invalid secret scope %q, must be one of: dev, prod, both", secretReq.Scope))
+	}
+
 	// Encrypt the secret value before storing
 	encryptionKey, err := s.getEncryptionKey()
 	if err != nil {
@@ -350,6 +360,7 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 		Name:      secretReq.Name,
 		Value:     []byte(encryptedValue),
 		ProjectID: projectID, // Associate with project
+		Scope:     scope,
 	}
 	secret.Owner = user.ID
 	secret.OwnerType = types.OwnerTypeUser
@@ -365,11 +376,18 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 	return createdSecret, nil
 }
 
-// GetProjectSecretsAsEnvVars retrieves project secrets and returns them as environment variables
-// This is used to inject secrets into desktop container environments
-func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string) ([]string, error) {
+// GetProjectSecretsAsEnvVars retrieves project secrets scoped to the given
+// target environment and returns them as `KEY=value` environment variable
+// strings. A secret is included when its scope matches the target or is "both".
+// The dev path (desktop containers) passes types.SecretScopeDev; the prod path
+// (web service deploys) passes types.SecretScopeProd.
+func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, projectID string, target types.SecretScope) ([]string, error) {
 	if projectID == "" {
 		return nil, nil
+	}
+
+	if target == "" {
+		target = types.SecretScopeBoth
 	}
 
 	secrets, err := s.Store.ListProjectSecrets(ctx, projectID)
@@ -388,6 +406,15 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, project
 
 	var envVars []string
 	for _, secret := range secrets {
+		// Skip secrets that don't apply to the requested environment.
+		scope := secret.Scope
+		if scope == "" {
+			scope = types.SecretScopeBoth
+		}
+		if !scope.AppliesTo(target) {
+			continue
+		}
+
 		// Decrypt the secret value
 		decrypted, err := crypto.DecryptAES256GCM(string(secret.Value), encryptionKey)
 		if err != nil {
@@ -397,7 +424,7 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, project
 
 		// Use the secret name as the env var name (uppercase, replace - with _)
 		envVars = append(envVars, fmt.Sprintf("%s=%s", secret.Name, string(decrypted)))
-		log.Debug().Str("name", secret.Name).Str("project_id", projectID).Msg("Injecting project secret as env var")
+		log.Debug().Str("name", secret.Name).Str("project_id", projectID).Str("scope", string(scope)).Str("target", string(target)).Msg("Injecting project secret as env var")
 	}
 
 	return envVars, nil

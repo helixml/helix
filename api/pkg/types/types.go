@@ -2428,11 +2428,40 @@ type LLMCall struct {
 	Error            string         `json:"error"`
 }
 
+// SecretScope controls which environment a project secret is injected into.
+// dev  -> interactive project sessions / spec tasks (desktop containers)
+// prod -> deployed web service containers
+// both -> injected into both environments (default; backwards-compatible)
+type SecretScope string
+
+const (
+	SecretScopeDev  SecretScope = "dev"
+	SecretScopeProd SecretScope = "prod"
+	SecretScopeBoth SecretScope = "both"
+)
+
+// Valid reports whether s is one of the recognised secret scopes.
+func (s SecretScope) Valid() bool {
+	switch s {
+	case SecretScopeDev, SecretScopeProd, SecretScopeBoth:
+		return true
+	default:
+		return false
+	}
+}
+
+// AppliesTo reports whether a secret with scope s should be injected into the
+// given target environment. A "both"-scoped secret applies everywhere.
+func (s SecretScope) AppliesTo(target SecretScope) bool {
+	return s == SecretScopeBoth || s == target
+}
+
 type CreateSecretRequest struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
 	AppID     string `json:"app_id"`
 	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
+	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "both"
 }
 
 type Secret struct {
@@ -2445,6 +2474,9 @@ type Secret struct {
 	Value     []byte `json:"value" yaml:"value" gorm:"type:bytea"`
 	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
 	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
+	// Scope controls which environment a project secret is injected into.
+	// Defaults to "both" so pre-existing secrets keep their original behaviour.
+	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'both';index"`
 }
 
 // LicenseKey represents a license key in the database
