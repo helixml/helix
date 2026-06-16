@@ -874,6 +874,7 @@ const OAuthProvidersTable: React.FC = () => {
                       value={currentProvider.slack_ingress_mode || ''}
                       onChange={handleInputChange}
                       SelectProps={{ native: true }}
+                      InputLabelProps={{ shrink: true }}
                       helperText="How inbound Slack events reach Helix. REST (Events API) serves many per-org installs; Socket Mode suits a single on-premise workspace with no inbound HTTP."
                     >
                       <option value="">(disabled — no inbound)</option>
