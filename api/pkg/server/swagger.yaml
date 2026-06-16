@@ -178,6 +178,60 @@ definitions:
       webhook_id:
         type: integer
     type: object
+  api.MessageAttributes:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      from:
+        type: string
+      has_message:
+        type: boolean
+      source:
+        type: string
+      stream_id:
+        type: string
+      subject:
+        type: string
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  api.MessageResource:
+    properties:
+      attributes:
+        $ref: '#/definitions/api.MessageAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  api.MessagesDocument:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.MessageResource'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/api.MessagesMeta'
+    type: object
+  api.MessagesMeta:
+    properties:
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   api.OrgOverview:
     properties:
       groups:
@@ -18020,6 +18074,42 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: live webhook status for a github stream'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/messages:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 1-based page number (default 1)
+        in: query
+        name: page[number]
+        type: integer
+      - description: page size (default 50, max 200)
+        in: query
+        name: page[size]
+        type: integer
+      produces:
+      - application/vnd.api+json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MessagesDocument'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a stream''s messages (JSON:API, paginated)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/streams/{id}/publish:

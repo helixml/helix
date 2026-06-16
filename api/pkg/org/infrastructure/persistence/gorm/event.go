@@ -74,6 +74,24 @@ func (r *eventsRepo) ListForStream(ctx context.Context, orgID string, streamID s
 	)
 }
 
+func (r *eventsRepo) PageForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error) {
+	return r.Repository.Find(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("stream_id", string(streamID)),
+		store.WithOrderDesc("created_at"),
+		store.WithOrderDesc("id"),
+		store.WithLimit(limit),
+		store.WithOffset(offset),
+	)
+}
+
+func (r *eventsRepo) CountForStream(ctx context.Context, orgID string, streamID streaming.StreamID) (int, error) {
+	return r.Repository.Count(ctx,
+		store.WithOrg(orgID),
+		store.WithCondition("stream_id", string(streamID)),
+	)
+}
+
 func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),

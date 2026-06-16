@@ -141,6 +141,36 @@ export interface ApiInstallGitHubWebhookResponse {
   webhook_id?: number;
 }
 
+export interface ApiMessageAttributes {
+  body?: string;
+  created_at?: string;
+  from?: string;
+  has_message?: boolean;
+  source?: string;
+  stream_id?: string;
+  subject?: string;
+  to?: string[];
+}
+
+export interface ApiMessageResource {
+  attributes?: ApiMessageAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ApiMessagesDocument {
+  data?: ApiMessageResource[];
+  links?: Record<string, string>;
+  meta?: ApiMessagesMeta;
+}
+
+export interface ApiMessagesMeta {
+  page?: number;
+  size?: number;
+  total?: number;
+  total_pages?: number;
+}
+
 export interface ApiOrgOverview {
   groups?: ApiRoleGroup[];
   roles?: ApiRoleBadge[];
@@ -12164,6 +12194,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/streams/${id}/github/webhook-status`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsStreamsMessagesDetail
+     * @summary Helix-org: list a stream's messages (JSON:API, paginated)
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/messages
+     * @secure
+     */
+    v1OrgsStreamsMessagesDetail: (
+      id: string,
+      org: string,
+      query?: {
+        /** 1-based page number (default 1) */
+        "page[number]"?: number;
+        /** page size (default 50, max 200) */
+        "page[size]"?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiMessagesDocument, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/messages`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

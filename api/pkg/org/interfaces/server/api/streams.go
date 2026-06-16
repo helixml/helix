@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/streams"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/interfaces/jsonapi"
 )
 
 // ---- Streams ------------------------------------------------------------
@@ -392,6 +393,92 @@ func eventCard(ev streaming.Event) EventCard {
 		}
 	}
 	return card
+}
+
+// messageResource maps an Event to a JSON:API `messages` resource.
+// Mirrors eventCard's decode: the parsed Message envelope when the
+// body holds Message JSON, the raw body otherwise.
+func messageResource(ev streaming.Event) jsonapi.Resource {
+	attrs := MessageAttributes{
+		StreamID:  string(ev.StreamID),
+		Source:    string(ev.Source),
+		CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+		Body:      ev.Body,
+	}
+	if msg, err := ev.Message(); err == nil {
+		attrs.HasMessage = true
+		attrs.From = msg.From
+		attrs.To = msg.To
+		attrs.Subject = msg.Subject
+		attrs.Body = msg.Body
+	}
+	return jsonapi.Resource{Type: "messages", ID: string(ev.ID), Attributes: attrs}
+}
+
+const (
+	streamMessagesDefaultPageSize = 50
+	streamMessagesMaxPageSize     = 200
+)
+
+// listStreamMessages returns the messages on one Stream as a paginated
+// JSON:API document, newest first. meta.total carries the full count;
+// links/meta carry the page-based pagination state. The JSON:API
+// document is assembled by composing independent components (TotalMeta,
+// Pagination) — see api/pkg/org/interfaces/jsonapi.
+//
+// @Summary Helix-org: list a stream's messages (JSON:API, paginated)
+// @Tags HelixOrg
+// @Produce application/vnd.api+json
+// @Param id path string true "Stream ID"
+// @Param page[number] query int false "1-based page number (default 1)"
+// @Param page[size] query int false "page size (default 50, max 200)"
+// @Success 200 {object} api.MessagesDocument
+// @Failure 400 {object} api.ErrorResponse
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/streams/{id}/messages [get]
+func (a *apiHandler) listStreamMessages(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.StreamID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+		return
+	}
+	page, err := jsonapi.PageParams(r, streamMessagesDefaultPageSize, streamMessagesMaxPageSize)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	// Unknown stream → 404 (don't silently return an empty page).
+	if _, err := a.deps.Queries.GetStream(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get stream %s: %w", id, err))
+		return
+	}
+	total, err := a.deps.Queries.CountStreamEvents(ctx, orgID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("count messages for %s: %w", id, err))
+		return
+	}
+	events, err := a.deps.Queries.PageStreamEvents(ctx, orgID, id, page.Limit(), page.Offset())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("list messages for %s: %w", id, err))
+		return
+	}
+	resources := make([]jsonapi.Resource, 0, len(events))
+	for _, ev := range events {
+		resources = append(resources, messageResource(ev))
+	}
+	doc := jsonapi.NewDocument(
+		resources,
+		jsonapi.TotalMeta{Total: total},
+		jsonapi.Pagination{Number: page.Number, Size: page.Size, Total: total, Query: r.URL.Query()},
+	)
+	jsonapi.Write(w, http.StatusOK, doc)
 }
 
 // streamEventsSSE pushes EventCard JSON arrays on every Hub.Notify.
