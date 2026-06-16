@@ -24,7 +24,7 @@
 - [x] Show each secret's scope (chip/label) in the secrets list, and update the helper text to mention dev vs prod injection.
 
 ## Tests
-- [ ] Store test: same name allowed across differing scopes; rejected for same scope / `both` overlap.
-- [ ] Unit test: `GetProjectSecretsAsEnvVars` filters correctly for `dev` and `prod` (each includes `both`).
-- [ ] Test: pre-existing secrets default to `both` and appear in both dev and prod injection.
-- [ ] Web service deploy test: prod-scoped secrets reach `ExecRequest.Env`; dev-only secrets do not.
+- [x] Store test (`TestSecretScopeUniqueness`): same name allowed across differing scopes; rejected for same scope / `both` overlap; omitted scope defaults to `both`. Passes against live DB.
+- [x] Unit test (`TestSecretScopeAppliesTo`/`TestSecretScopeValid`): scope filtering — `dev` and `prod` each include `both`, exclude the other.
+- [x] Defaulting covered by store test (omitted scope → `both`) + AutoMigrate backfill (verified by store suite running against live DB).
+- [x] Web service injection test (`TestProjectSecretEnv`): prod getter results reach the exec env; missing getter / empty project / getter error don't block deploy. (Full `runBootstrap` is not interface-mockable without new abstractions — extracted `projectSecretEnv` helper instead.)
