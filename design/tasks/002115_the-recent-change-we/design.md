@@ -1,0 +1,123 @@
+# Design: Fix Chrome Copy-Paste Regression in Remote Desktop Clipboard Sync
+
+## Where the bug lives
+
+Single file: `frontend/src/components/external-agent/DesktopStreamViewer.tsx`.
+
+Two spots:
+1. **Copy** — the gesture-anchored `ClipboardItem` build in the `handleKeyDown`
+   copy branch (currently ~lines 4121–4182). The image fallback is a zero-byte
+   Blob:
+   ```ts
+   const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+     if (d?.type === "image" && d.data) {
+       return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+     }
+     return new Blob([], { type: "image/png" });   // <-- invalid PNG, Chrome rejects whole write
+   });
+   ```
+2. **Read** — `clipboardReadAny()` (~lines 132–194) checks `image/png`
+   **before** `text/plain` in both the iframe branch and the
+   `navigator.clipboard.read()` branch.
+
+## Why Chrome breaks and Safari doesn't
+
+Chrome runs every image written to the clipboard through a decode/sanitize
+step (security: it re-encodes PNGs to strip exploits). A zero-byte Blob fails
+to decode, so the **entire** `navigator.clipboard.write([clipboardItem])`
+promise rejects — the valid `text/plain` representation in the same
+`ClipboardItem` is discarded with it. WebKit/Safari does not reject on the
+empty representation, so 002043's "empty Blob for the unused MIME" assumption
+held there but not on Chrome.
+
+This is confirmed by 002043's own design.md, which states the unused-type
+Blob is "zero-byte" and assumes destinations "either ignore a 0-byte
+representation or render nothing for it" — true for paste *consumers*, but
+not for Chrome's *write-side* sanitizer.
+
+## Fix
+
+Two coordinated changes, both unified across browsers (no UA sniffing):
+
+### 1. Make the image fallback a *valid* minimal PNG
+
+Replace the zero-byte image fallback with a constant 1×1 transparent PNG so
+Chrome's sanitizer accepts it and the write succeeds (the valid `text/plain`
+then survives). The text fallback stays an empty `text/plain` Blob — Chrome
+does not sanitize text, so an empty string is accepted.
+
+```ts
+// Minimal valid 1x1 transparent PNG. Chrome rejects the whole clipboard
+// write if any image/png representation fails to decode, so the
+// "no image this time" fallback must still be a decodable PNG, not 0 bytes.
+const PLACEHOLDER_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+
+const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+  if (d?.type === "image" && d.data) {
+    return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+  }
+  return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], { type: "image/png" });
+});
+```
+
+(Define the constant once near the other clipboard helpers at the top of the
+file; reuse `base64ToBytes`.)
+
+### 2. Prefer non-empty `text/plain` over `image/png` on read
+
+Change #1 means a *text* copy now leaves `{ text/plain: "...", image/png:
+1×1 placeholder }` on the system clipboard. Without a read change, pasting
+back into the remote would read `image/png` first and paste the transparent
+pixel instead of the text (US-3). Fix by preferring text when it is present
+**and non-empty**, falling back to image only otherwise. Apply in both
+branches of `clipboardReadAny()`:
+
+```ts
+// navigator.clipboard.read() branch:
+if (item.types.includes("text/plain")) {
+  const text = await (await item.getType("text/plain")).text();
+  if (text) return { mime: "text/plain", text };
+}
+if (item.types.includes("image/png")) {
+  const blob = await item.getType("image/png");
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+  return { mime: "image/png", base64 };
+}
+return { mime: "empty" };
+```
+
+Mirror the same precedence in the iframe `helix-clipboard-response` handler
+(prefer non-empty `text` over `base64`).
+
+Verify both round-trips after the reorder:
+- Copy text → clipboard `{text:"hi", img:1×1}` → read prefers non-empty text → pastes "hi". ✓
+- Copy image → clipboard `{text:"", img:realPNG}` → text empty → falls to image → pastes image. ✓
+- External image-only copy → no text → image. ✓
+- External text-only copy → text → text. ✓
+
+## Key decisions
+
+- **Keep the synchronous dual-MIME `ClipboardItem`.** It is what makes the
+  Safari fix work (gesture anchoring). We fix the *contents* of the
+  representations, not the architecture.
+- **Unified, no UA sniffing.** A browser-branch (await-then-single-MIME on
+  Chrome, sync-multi-MIME on Safari) would avoid putting a 1×1 pixel on the
+  clipboard at all, but adds fragile UA detection and a second code path.
+  Rejected in favour of the smaller, browser-agnostic fix.
+- **Accepted residual cost:** copying *text* and pasting into a local
+  *image-only* app yields a 1×1 transparent pixel. This is strictly better
+  than 002043's accepted "0-byte representation" cost and affects a rare flow.
+
+## Verification
+
+- Reproduce first on Chrome in the inner Helix (`http://localhost:8080`):
+  start a spec task with a desktop, select text in the remote, Ctrl+C, observe
+  the red "local clipboard blocked" toast and check the console for
+  `[Clipboard] local write blocked:` + the Chrome decode error.
+- After the fix: green "Copied text" toast; paste into a local field works;
+  paste back into the remote pastes text; image copy still works.
+- `cd frontend && yarn build` must pass (TS strict; `base64ToBytes` returns
+  `Uint8Array<ArrayBuffer>` which `Blob` accepts).
+- Manual Safari pass is deferred to the PR reviewer (no Safari in CI), as in
+  002043.
