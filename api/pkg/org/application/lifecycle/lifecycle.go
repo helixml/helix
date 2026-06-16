@@ -258,14 +258,20 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		return fmt.Errorf("get worker %q: %w", id, err)
 	}
 
-	// Capture the fired Worker's managers BEFORE deletion: the reporting
-	// lines cascade-drop with the Worker row, so ListManagers returns
-	// nothing afterward. We feed these ex-managers to the topology
-	// reconcile below so a manager's team Stream collapses when its last
-	// report leaves.
-	var exManagers []orgchart.WorkerID
+	// Capture the fired Worker's managers AND reports BEFORE deletion: the
+	// reporting lines cascade-drop with the Worker row, so the List* calls
+	// return nothing afterward. We feed both sets to the topology reconcile
+	// below. The ex-managers let a manager's team Stream collapse when its
+	// last report leaves. The ex-reports are needed for DM teardown: the
+	// reconciler's DM-channel cleanup is an all-pairs-of-affected scan, so
+	// to tear down `s-dm-<fired>-<report>` BOTH endpoints must be in the
+	// affected set — without the reports, firing a manager orphans every
+	// `s-dm-<manager>-<report>` channel (the report stays subscribed to a
+	// DM with a now-deleted worker).
+	var exManagers, exReports []orgchart.WorkerID
 	if s.Store.ReportingLines != nil {
 		exManagers, _ = s.Store.ReportingLines.ListManagers(ctx, orgID, id)
+		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
 	}
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
@@ -310,6 +316,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// continue rather than failing the Fire.
 	if s.Reconciler != nil {
 		affected := append([]orgchart.WorkerID{id}, exManagers...)
+		affected = append(affected, exReports...)
 		if err := s.Reconciler.Reconcile(ctx, orgID, affected...); err != nil {
 			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
 		}
