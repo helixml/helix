@@ -39,8 +39,6 @@ import {
   useListHelixOrgWorkers,
 } from '../services/helixOrgService'
 
-const OWNER_WORKER = 'w-owner'
-
 const HelixOrgWorkers: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -275,7 +273,6 @@ const HelixOrgWorkers: FC = () => {
           Open
         </MenuItem>
         <MenuItem
-          disabled={currentWorker?.id === OWNER_WORKER}
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
@@ -283,7 +280,7 @@ const HelixOrgWorkers: FC = () => {
           }}
         >
           <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-          {currentWorker?.id === OWNER_WORKER ? 'Owner — protected' : 'Fire'}
+          Fire
         </MenuItem>
       </Menu>
 

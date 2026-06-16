@@ -20,8 +20,8 @@
 package streaming
 
 // StreamID identifies a Stream. Convention: `s-<slug>` (e.g.
-// `s-general`, `s-inbox`). Activation streams use the deterministic
-// pattern `s-activations-<workerID>`.
+// `s-general`, `s-inbox`). Transcripts use the deterministic
+// pattern `s-transcript-<workerID>`.
 type StreamID = string
 
 // EventID identifies an Event. Convention: `e-<uuid>`.

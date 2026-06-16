@@ -30,7 +30,7 @@ const (
 	SegmentError SegmentKind = "error"
 
 	// SegmentUser is a user-bubble line. Emitted by the owner-chat
-	// path so the human's turns appear on s-activations-w-owner
+	// path so the human's turns appear on s-transcript-w-owner
 	// alongside the assistant's.
 	SegmentUser SegmentKind = "user"
 )

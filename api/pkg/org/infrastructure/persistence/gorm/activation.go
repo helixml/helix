@@ -15,15 +15,15 @@ import (
 )
 
 type activationRow struct {
-	ID                 string    `gorm:"primaryKey;type:text"`
-	OrgID              string    `gorm:"primaryKey;type:text;index"`
-	WorkerID           string    `gorm:"not null;index:idx_org_activations_worker_started"`
-	StartedAt          time.Time `gorm:"not null;index:idx_org_activations_worker_started,sort:desc"`
-	EndedAt            *time.Time
-	OutcomeStatus      string `gorm:"type:text"`
-	OutcomeError       string `gorm:"type:text"`
-	TranscriptStreamID string `gorm:"not null;type:text"`
-	TriggersJSON       string `gorm:"not null;type:text"`
+	ID            string    `gorm:"primaryKey;type:text"`
+	OrgID         string    `gorm:"primaryKey;type:text;index"`
+	WorkerID      string    `gorm:"not null;index:idx_org_activations_worker_started"`
+	StartedAt     time.Time `gorm:"not null;index:idx_org_activations_worker_started,sort:desc"`
+	EndedAt       *time.Time
+	OutcomeStatus string `gorm:"type:text"`
+	OutcomeError  string `gorm:"type:text"`
+	TranscriptID  string `gorm:"not null;type:text"`
+	TriggersJSON  string `gorm:"not null;type:text"`
 }
 
 func (activationRow) TableName() string { return "org_activations" }
@@ -36,15 +36,15 @@ func (activationMapper) ToRow(a *activation.Activation) (activationRow, error) {
 		return activationRow{}, fmt.Errorf("encode triggers for activation %q: %w", a.ID, err)
 	}
 	return activationRow{
-		ID:                 string(a.ID),
-		OrgID:              a.OrganizationID,
-		WorkerID:           string(a.WorkerID),
-		StartedAt:          a.StartedAt,
-		EndedAt:            a.EndedAt,
-		OutcomeStatus:      string(a.Outcome.Status),
-		OutcomeError:       a.Outcome.Error,
-		TranscriptStreamID: string(a.TranscriptStreamID),
-		TriggersJSON:       string(triggersJSON),
+		ID:            string(a.ID),
+		OrgID:         a.OrganizationID,
+		WorkerID:      string(a.WorkerID),
+		StartedAt:     a.StartedAt,
+		EndedAt:       a.EndedAt,
+		OutcomeStatus: string(a.Outcome.Status),
+		OutcomeError:  a.Outcome.Error,
+		TranscriptID:  string(a.TranscriptID),
+		TriggersJSON:  string(triggersJSON),
 	}, nil
 }
 
@@ -54,13 +54,13 @@ func (activationMapper) ToDomain(row activationRow) (*activation.Activation, err
 		return nil, fmt.Errorf("decode triggers for activation %q: %w", row.ID, err)
 	}
 	a := &activation.Activation{
-		ID:                 activation.ID(row.ID),
-		OrganizationID:     row.OrgID,
-		WorkerID:           orgchart.WorkerID(row.WorkerID),
-		Triggers:           triggers,
-		StartedAt:          row.StartedAt,
-		EndedAt:            row.EndedAt,
-		TranscriptStreamID: streaming.StreamID(row.TranscriptStreamID),
+		ID:             activation.ID(row.ID),
+		OrganizationID: row.OrgID,
+		WorkerID:       orgchart.WorkerID(row.WorkerID),
+		Triggers:       triggers,
+		StartedAt:      row.StartedAt,
+		EndedAt:        row.EndedAt,
+		TranscriptID:   streaming.StreamID(row.TranscriptID),
 	}
 	if row.OutcomeStatus != "" {
 		a.Outcome = activation.Outcome{

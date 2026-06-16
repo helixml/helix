@@ -1915,6 +1915,9 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 		[]*types.Interaction{{ID: "int-transient", State: types.InteractionStateWaiting, PromptID: "prompt-transient"}}, int64(1), nil,
 	)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	// First occurrence (retry_count below the recurrence threshold) → normal retry.
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-transient").
+		Return(&types.PromptHistoryEntry{ID: "prompt-transient", RetryCount: 0}, nil)
 	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-transient", gomock.Any()).Return(nil)
 
 	syncMsg := &types.SyncMessage{
@@ -1926,6 +1929,35 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 		},
 	}
 	err := s.server.handleThreadLoadError("ses_transient", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_RecurringFailure_CrashesRegardlessOfWording() {
+	// A thread_load_error that keeps failing across retries is terminal even when
+	// the wording isn't a known hard-crash marker (e.g. the dead-connection
+	// "send failed because receiver is gone"). Once retry_count reaches the
+	// recurrence threshold we crash-mark so Restart surfaces instead of looping.
+	s.server.contextMappings["thread-recur"] = "ses_recur"
+
+	session := &types.Session{ID: "ses_recur", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_recur").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-recur", State: types.InteractionStateWaiting, PromptID: "prompt-recur"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-recur").
+		Return(&types.PromptHistoryEntry{ID: "prompt-recur", RetryCount: acpWedgeCrashThreshold}, nil)
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-recur", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-recur",
+			"request_id":    "int-recur",
+			"error":         "Failed to send follow-up: Internal error: \"send failed because receiver is gone\"",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_recur", syncMsg)
 	s.NoError(err)
 }
 

@@ -5,7 +5,7 @@
 //   - Trigger / TriggerKind: why a Spawner was invoked (lifted from
 //     helix-org/agent in B3c).
 //   - StreamID(workerID): the canonical derivation of the per-Worker
-//     activation Stream ID (`s-activations-<workerID>`), lifted from
+//     transcript ID (`s-transcript-<workerID>`), lifted from
 //     helix-org/agent in B5.1.
 //
 // The full Activation aggregate (planned for the remainder of B5)
@@ -71,7 +71,7 @@ type Trigger struct {
 	// SourceKind is the orgchart.WorkerKind ("human" / "ai") of Source —
 	// looked up by the dispatcher at fan-out time and rendered into
 	// the activation prompt so the recipient can apply the org-wide
-	// policy (worker-policy.md) of de-prioritising AI-origin events.
+	// policy of de-prioritising AI-origin events.
 	// Empty when the event has no internal Source (system-emitted,
 	// or inbound from an external transport with no resolved Worker).
 	SourceKind orgchart.WorkerKind

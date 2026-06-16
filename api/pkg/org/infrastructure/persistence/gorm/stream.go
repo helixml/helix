@@ -126,7 +126,7 @@ func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
 // Delete removes the stream row and structurally cascades the
 // subscriptions that reference it: every worker-anchored row for this
 // stream is dropped in the same transaction, so firing a worker (which
-// deletes its s-activations-<id> stream) can't leave other workers'
+// deletes its s-transcript-<id> stream) can't leave other workers'
 // subscriptions pointing at a stream that no longer exists.
 func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

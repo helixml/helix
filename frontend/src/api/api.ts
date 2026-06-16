@@ -21,6 +21,12 @@ export interface ApiCreateRoleRequest {
 }
 
 export interface ApiCreateStreamRequest {
+  /**
+   * As is the Worker that creates the stream — the worker whose chat
+   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * cosmetic: it only anchors the node on the chart).
+   */
+  as?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -141,6 +147,12 @@ export interface ApiOrgOverview {
 }
 
 export interface ApiPublishRequest {
+  /**
+   * As is the Worker the message is sent as — the worker whose chat the
+   * human is in. Empty means human/system-origin (the dispatcher treats
+   * it as such). There is no global "owner" sender any more.
+   */
+  as?: string;
   body?: string;
   subject?: string;
   to?: string[];
@@ -174,8 +186,6 @@ export interface ApiSetSettingRequest {
 
 export interface ApiSettingsResponse {
   db_path?: string;
-  envs_dir?: string;
-  owner?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
@@ -12216,7 +12226,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersCreate
@@ -12367,6 +12377,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersRestartAgentCreate
+     * @summary Helix-org: restart a worker's agent session (recreate desktop container)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsWorkersRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/restart-agent`,
+        method: "POST",
         secure: true,
         ...params,
       }),

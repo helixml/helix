@@ -14,7 +14,7 @@ package dispatch_test
 //   - the per-Worker spawner config (frozen to the first org)
 //   - the activation Queue's serialisation lanes (keyed by workerID)
 //   - the transcript Mirror's tracker map (keyed by workerID)
-//   - the streamhub wake topics (keyed by streamID)
+//   - the wakebus wake topics (keyed by streamID)
 //
 // Every org's owner is "w-owner"; user-named streams like "s-general"
 // collide trivially. So the canonical trigger for this whole bug class
@@ -31,7 +31,7 @@ package dispatch_test
 //   - helix:       TestMirrorIsolatesSameWorkerIDAcrossOrgs,
 //                  TestSpawnerHonorsSharedSemaphore,
 //                  TestEnsureScopesProjectToParamOrg_NotStructOrgID
-//   - streamhub:   TestNotify_IsolatedAcrossOrgs,
+//   - wakebus:   TestNotify_IsolatedAcrossOrgs,
 //                  TestSubscribeAll_IsolatedAcrossOrgs
 
 import (
@@ -44,7 +44,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -82,13 +81,6 @@ func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.Wo
 	}
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("[%s] create worker: %v", orgID, err)
-	}
-	env, err := environment.New(workerID, t.TempDir(), now, orgID)
-	if err != nil {
-		t.Fatalf("[%s] new env: %v", orgID, err)
-	}
-	if err := s.Environments.Create(ctx, env); err != nil {
-		t.Fatalf("[%s] create env: %v", orgID, err)
 	}
 	// A local stream (no outbound) so Dispatch's only effect is the
 	// subscriber activation we're asserting on.
@@ -128,7 +120,7 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	seedTenant(t, s, "org-b", workerID, streamID)
 
 	rec := make(chan orgActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ []activation.Trigger) error {
 		rec <- orgActivation{OrgID: orgID, WorkerID: wid}
 		return nil
 	})
@@ -207,7 +199,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ []activation.Trigger) error {
 		entered <- orgID
 		<-release
 		return nil

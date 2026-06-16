@@ -16,13 +16,13 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 )
 
 // caught is one POST observed by the test catcher.
@@ -93,6 +93,10 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Register the real webhook outbound emitter so these tests exercise
+	// the dispatch→webhook wiring end-to-end. The HTTP-mechanics edge
+	// cases live in the webhook package's own tests.
+	d.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	return d, s
 }
 
@@ -109,7 +113,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -161,13 +165,6 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	}
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("create worker: %v", err)
-	}
-	env, err := environment.New(workerID, t.TempDir(), now, "org-test")
-	if err != nil {
-		t.Fatalf("new env: %v", err)
-	}
-	if err := s.Environments.Create(ctx, env); err != nil {
-		t.Fatalf("create env: %v", err)
 	}
 }
 
@@ -341,7 +338,9 @@ func TestDispatchTolerates_UnreachableHost(t *testing.T) {
 	seedWebhookStream(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Use a tiny client timeout so the test runs fast.
-	d.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-dead", "void"))
@@ -364,7 +363,9 @@ func TestDispatchHonoursClientTimeout(t *testing.T) {
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
 	seedWebhookStream(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
-	d.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-slow", "patience"))
@@ -596,7 +597,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
