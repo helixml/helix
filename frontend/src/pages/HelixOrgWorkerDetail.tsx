@@ -57,11 +57,11 @@ import useSnackbar from '../hooks/useSnackbar'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
-  useRestartWorkerAgent,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
   useListHelixOrgStreams,
   useListWorkerSubscriptions,
+  useRestartWorkerAgent,
   useSubscribeWorker,
   useUnsubscribeWorker,
   useUpdateWorkerIdentity,
