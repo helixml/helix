@@ -141,6 +141,16 @@ type Subscriptions interface {
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
 	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error)
+	// PageForStream returns a window of events on one Stream, newest
+	// first (same ordering as ListForStream), skipping offset rows and
+	// returning at most limit. Powers page-number pagination of the
+	// REST messages endpoint. offset/limit <= 0 are treated as "no
+	// skip" / "no cap" respectively.
+	PageForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error)
+	// CountForStream returns the total number of events on one Stream —
+	// the total-count meta the paginated messages endpoint surfaces,
+	// independent of any page window.
+	CountForStream(ctx context.Context, orgID string, streamID streaming.StreamID) (int, error)
 	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error)
 	ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error)
 	// ListAll returns events across every Stream in the given org,

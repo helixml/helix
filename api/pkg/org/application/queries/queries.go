@@ -112,6 +112,18 @@ func (q *Queries) AllEvents(ctx context.Context, orgID string, limit int) ([]str
 	return q.events.ListAll(ctx, orgID, limit)
 }
 
+// PageStreamEvents returns a page of events on a Stream, newest first,
+// for the paginated REST messages endpoint.
+func (q *Queries) PageStreamEvents(ctx context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error) {
+	return q.events.PageForStream(ctx, orgID, streamID, limit, offset)
+}
+
+// CountStreamEvents returns the total number of events on a Stream —
+// the total-count meta the paginated messages endpoint surfaces.
+func (q *Queries) CountStreamEvents(ctx context.Context, orgID string, streamID streaming.StreamID) (int, error) {
+	return q.events.CountForStream(ctx, orgID, streamID)
+}
+
 func (q *Queries) WorkerEvents(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
 	return q.events.ListForWorker(ctx, orgID, workerID, limit)
 }
