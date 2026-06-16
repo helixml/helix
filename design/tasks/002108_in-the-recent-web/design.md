@@ -37,11 +37,15 @@ field (`api/pkg/hydra/sandbox_ops.go:250`), so prod injection can be added.
 
 ## Key Decisions
 
-### 1. Add a `Scope` field, default `both`
+### 1. Add a `Scope` field, default `dev`
 Add to `types.Secret`:
 ```go
-Scope SecretScope `json:"scope" yaml:"scope" gorm:"type:varchar(16);default:'both';index"`
+Scope SecretScope `json:"scope" yaml:"scope" gorm:"type:varchar(16);default:'dev';index"`
 ```
+**Default `dev`** (user decision): Helix is primarily a dev platform with prod
+web hosting as a secondary feature, and dev-only also preserves the pre-feature
+behaviour *exactly* (project secrets were only ever injected into dev). Legacy
+rows are backfilled to `dev`, so nothing starts leaking into prod web services.
 with
 ```go
 type SecretScope string
@@ -51,12 +55,10 @@ const (
     SecretScopeBoth SecretScope = "both"
 )
 ```
-**Default `both`** means existing rows (and any request that omits scope) keep
-today's behaviour: injected into dev *and* now also flow to prod. GORM
-AutoMigrate adds the column with the default, so all pre-existing rows become
-`both` automatically — no hand-written migration. (Optionally a one-time
-`UPDATE secrets SET scope='both' WHERE scope IS NULL OR scope=''` guards
-against the rare NULL.)
+Any request that omits scope is coerced to `dev`. GORM AutoMigrate adds the
+column with the `dev` default; a one-time idempotent
+`UPDATE secrets SET scope='dev' WHERE scope IS NULL OR scope=''` backfills any
+legacy NULL/empty rows.
 
 ### 2. Filter at the env-var boundary, not in storage
 Change `GetProjectSecretsAsEnvVars` to take a scope:
@@ -124,10 +126,9 @@ Prod:    webservice.runBootstrap → getProjectSecrets(projectID, prod)
   happens only inside `GetProjectSecretsAsEnvVars`. Keep that boundary.
 - Do not inline secret values into the bootstrap shell script — use
   `ExecRequest.Env` so values don't land in command logs.
-- `both` (not `dev`) is the correct default for backward compatibility, but note
-  this is a slight behaviour change for the new prod path: pre-existing secrets
-  will now ALSO appear in prod web services. This matches user intent ("apply to
-  both") and is the safe least-surprise default.
+- Default is `dev` (user decision). This is the most backward-compatible choice:
+  pre-existing secrets were dev-only, and they stay dev-only — nothing newly
+  leaks into prod web services. Prod secrets are strictly opt-in.
 - Keep allowed-value validation centralized (a helper like
   `SecretScope.Valid()`).
 
@@ -164,6 +165,7 @@ Prod:    webservice.runBootstrap → getProjectSecrets(projectID, prod)
 - **Verification**: `go build ./pkg/...` clean; `go test ./pkg/types/
   ./pkg/webservice/` pass; store secret tests pass against the live dev Postgres
   (also exercises the backfill migration).
-- **Behaviour change**: default `both` means pre-existing secrets now also flow
-  into prod web services (previously prod received no secrets at all). This
-  matches the "apply to both" intent and is the least-surprising default.
+- **Default scope `dev`** (changed from an initial `both` after user feedback):
+  Helix is primarily a dev platform; prod web hosting is a secondary feature.
+  This also means pre-existing secrets keep their exact dev-only behaviour and
+  prod secrets are strictly opt-in — no behaviour change for existing users.

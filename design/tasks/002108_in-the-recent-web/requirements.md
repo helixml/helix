@@ -36,7 +36,8 @@ scoped `prod` or `both`, never `dev`-only secrets.
 
 **US-5 — Existing secrets keep working**
 As an existing user, all secrets I created before this change continue to behave
-exactly as before (injected into dev), with no manual migration.
+exactly as before (injected into dev only), with no manual migration. The
+default scope is `dev`, which preserves the original behaviour exactly.
 
 **US-6 — See and edit scope in the UI**
 As a project owner, the Secrets tab shows each secret's scope and lets me set it
@@ -45,7 +46,8 @@ when adding a secret.
 ## Acceptance Criteria
 
 - A `Secret` has a scope field with allowed values `dev`, `prod`, `both`.
-- Creating a project secret accepts an optional scope; default is `both`.
+- Creating a project secret accepts an optional scope; default is `dev`
+  (Helix is primarily a dev platform; this also preserves pre-feature behaviour).
 - Two secrets may share a name within one project **only** if their scopes
   differ (uniqueness is now scoped by `(owner, project_id, app_id, name, scope)`,
   or names with overlapping scopes are rejected — see design).
@@ -53,8 +55,8 @@ when adding a secret.
   `both`; excludes `prod`-only secrets.
 - Prod injection (web service deploy) includes secrets where scope is `prod` or
   `both`; excludes `dev`-only secrets.
-- All pre-existing secrets are treated as scope `both` after migration (so dev
-  behaviour is unchanged and they also flow to prod).
+- All pre-existing secrets are treated as scope `dev` after migration, so dev
+  behaviour is completely unchanged and they do NOT leak into prod web services.
 - The Secrets tab in Project Settings displays each secret's scope and the
   "Add Secret" dialog includes a scope selector (Dev / Prod / Both).
 - Secret values are never returned by the API; only metadata (name, scope) is

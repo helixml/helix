@@ -23,6 +23,9 @@
 - [x] Add a Dev / Prod / Both scope selector (default Both) to the "Add Secret" dialog in `frontend/src/pages/ProjectSettings.tsx`.
 - [x] Show each secret's scope (chip/label) in the secrets list, and update the helper text to mention dev vs prod injection.
 
+## Change default scope to `dev` (user feedback)
+- [x] Default scope is `dev` not `both` — Helix is primarily a dev platform; prod web hosting is secondary. Also strictly preserves pre-feature behaviour (legacy secrets were dev-only). Updated GORM default, CreateSecret default, backfill (`scope='dev'`), handler default, env coercion, frontend default + dialog order + label, and docs/tests. Builds + go/tsc tests green.
+
 ## Tests
 - [x] Store test (`TestSecretScopeUniqueness`): same name allowed across differing scopes; rejected for same scope / `both` overlap; omitted scope defaults to `both`. Passes against live DB.
 - [x] Unit test (`TestSecretScopeAppliesTo`/`TestSecretScopeValid`): scope filtering — `dev` and `prod` each include `both`, exclude the other.

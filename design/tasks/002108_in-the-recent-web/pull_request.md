@@ -10,18 +10,19 @@ the same key (e.g. a dev vs prod database URL), so this adds a per-secret
 **environment scope** — `dev`, `prod`, or `both` — that controls where each
 secret is injected.
 
-`both` is the default, so existing secrets keep working: they continue to flow
-to dev and now also reach the prod web service (previously prod got nothing).
+`dev` is the default, so existing secrets keep their exact behaviour (dev-only)
+and prod secrets are strictly opt-in. Helix is primarily a dev platform, with
+prod web hosting as a secondary feature.
 
 ## Changes
 
 - **Types**: new `SecretScope` (`dev`/`prod`/`both`) with `Valid()` and
   `AppliesTo()` helpers; `Scope` field on `Secret` (GORM `default:'both'`) and on
   `CreateSecretRequest`.
-- **Store**: `CreateSecret` defaults empty scope to `both` and allows the same
+- **Store**: `CreateSecret` defaults empty scope to `dev` and allows the same
   secret name across non-overlapping scopes (a `dev` and a `prod` secret can
   share a name), while still rejecting overlapping collisions. AutoMigrate adds
-  the column; a one-time idempotent backfill normalises legacy rows to `both`.
+  the column; a one-time idempotent backfill normalises legacy rows to `dev`.
 - **Injection**: `GetProjectSecretsAsEnvVars` now filters by target environment.
   The dev path (HydraExecutor) requests `dev`-scoped secrets; the web service
   deploy requests `prod`-scoped secrets and injects them via
