@@ -28,6 +28,11 @@ done
 # - Reports container disk usage
 # - Sends heartbeat every 30 seconds
 # The daemon can be safely killed and will automatically restart within 2 seconds
+# tee to /var/log/helix-services/heartbeat.log so hydra's tailer surfaces
+# heartbeat output in the admin Runner Logs WS stream (see
+# 12-start-compose-manager.sh for the same pattern + rationale).
+mkdir -p /var/log/helix-services
+
 (
     while true; do
         echo "[$(date -Iseconds)] Starting heartbeat daemon..."
@@ -36,7 +41,7 @@ done
         echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
+) 2>&1 | tee -a /var/log/helix-services/heartbeat.log | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
 echo "✅ Sandbox heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"

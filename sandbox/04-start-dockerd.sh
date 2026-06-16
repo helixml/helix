@@ -123,6 +123,13 @@ fi
 
 # Start dockerd with auto-restart supervisor loop in background
 # This ensures dockerd restarts if it crashes (which would break all sandboxes)
+#
+# tee to /var/log/helix-services/dockerd.log so hydra's tailer surfaces
+# dockerd output in the admin Runner Logs WS stream. dockerd's output
+# is noisy but invaluable when image pulls fail or the inner daemon
+# misbehaves on a YD-allocated host (see T-10 family of issues).
+mkdir -p /var/log/helix-services
+
 (
     while true; do
         # Clean up stale PID files before each restart attempt
@@ -135,7 +142,7 @@ fi
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | sed -u 's/^/[DOCKERD] /' &
+) 2>&1 | tee -a /var/log/helix-services/dockerd.log | sed -u 's/^/[DOCKERD] /' &
 
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"
