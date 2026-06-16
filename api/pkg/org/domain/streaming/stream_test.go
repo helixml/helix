@@ -24,7 +24,7 @@ func TestNewStream(t *testing.T) {
 		{"valid", "s-1", "general", "w-owner", now, false},
 		{"empty id", "", "general", "w-owner", now, true},
 		{"empty name", "s-1", "", "w-owner", now, true},
-		{"empty createdBy", "s-1", "general", "", now, true},
+		{"empty createdBy (allowed — cosmetic chart anchor only)", "s-1", "general", "", now, false},
 		{"zero createdAt", "s-1", "general", "w-owner", time.Time{}, true},
 	}
 

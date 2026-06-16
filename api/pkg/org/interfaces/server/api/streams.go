@@ -92,8 +92,10 @@ func (a *apiHandler) listStreams(w http.ResponseWriter, r *http.Request) {
 
 // createStream creates a new Stream. Mirrors the MCP create_stream
 // tool — same Transport shape, same "id auto-falls-back-to-s-<uuid>"
-// behaviour. CreatedBy is set to the embedded owner worker so REST
-// + chat creations are attributable.
+// behaviour. CreatedBy comes from req.As (the Worker the human is acting
+// as) and is optional — it is cosmetic, anchoring the stream's chart node
+// to a Worker. An operator creating a stream from the Streams tab (no
+// worker context) leaves it empty and the stream is unanchored.
 //
 // @Summary Helix-org: create a stream
 // @Tags HelixOrg
