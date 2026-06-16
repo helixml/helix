@@ -861,8 +861,26 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 				Str("sandbox_id", sandboxID).
 				Msg("Container no longer running on sandbox, cleaning up stale session entry")
 			h.mutex.Lock()
+			// Re-check membership under the write lock in case a concurrent
+			// StopDesktop already removed the session (and decremented).
+			_, stillTracked := h.sessions[sessionID]
 			delete(h.sessions, sessionID)
 			h.mutex.Unlock()
+			// Mirror the decrement that StopDesktop would have fired:
+			// the container is gone from the Runner, so the matching
+			// counter slot is gone too. Without this, sessions evicted
+			// via this stale-detection path would leak the counter up
+			// (autoscaler would never see them released). Same guards
+			// as the StopDesktop decrement: was-tracked, not a golden
+			// build, real Runner row.
+			if stillTracked && !session.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+				if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
+					log.Warn().Err(decErr).
+						Str("sandbox_id", sandboxID).
+						Str("session_id", sessionID).
+						Msg("Failed to decrement active_sandboxes on Runner after stale-session eviction")
+				}
+			}
 			return false
 		}
 	}
@@ -1415,22 +1433,14 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		return nil
 	}
 
-	if len(containerList.Containers) == 0 {
-		return nil
-	}
-
-	log.Info().
-		Str("sandbox_id", sandboxID).
-		Int("container_count", len(containerList.Containers)).
-		Msg("Discovered running containers from sandbox")
-
-	// Resync active_sandboxes from ground truth: hydra reported N
-	// running containers on this Runner. SET (not Increment) the DB
-	// counter to that exact value. This is the only authoritative path
-	// when there's been counter drift from missed Increment/Decrement
-	// (API restart, hydra-side internal deletes, etc.). Runs even if
-	// no NEW containers are added below - we still want the counter to
-	// match reality for the already-tracked ones.
+	// Resync active_sandboxes from ground truth FIRST, before any
+	// early-return on the empty-list case. hydra is the source of truth:
+	// if it reports 0 containers, the DB MUST become 0 too (otherwise a
+	// Runner that previously drifted up stays drifted forever after
+	// becoming empty - the exact failure mode this resync was added to
+	// prevent). SET (not Increment) writes the exact count, recovering
+	// from any drift accumulated by missed Increment/Decrement calls
+	// (API restart, hydra-side internal deletes, failed StopDesktop).
 	if sandboxID != "" && sandboxID != "local" {
 		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, len(containerList.Containers)); setErr != nil {
 			log.Warn().
@@ -1440,6 +1450,15 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 				Msg("Failed to set active_sandboxes from discovery; counter may be stale")
 		}
 	}
+
+	if len(containerList.Containers) == 0 {
+		return nil
+	}
+
+	log.Info().
+		Str("sandbox_id", sandboxID).
+		Int("container_count", len(containerList.Containers)).
+		Msg("Discovered running containers from sandbox")
 
 	// Collect containers that need to be added to our map
 	// We do this in two phases to avoid holding the lock during DB operations

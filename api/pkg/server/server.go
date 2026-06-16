@@ -2503,7 +2503,7 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Int("previous_container_count", instance.ActiveSandboxes).
-				Msg("Reset sandbox on reconnect (cleared stale container count)")
+				Msg("Reset sandbox on reconnect (flipped status to online; container count is preserved and will be resynced from hydra by DiscoverContainersFromSandbox)")
 		}
 		return
 	}
