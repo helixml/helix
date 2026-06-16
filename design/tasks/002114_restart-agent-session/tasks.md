@@ -5,10 +5,10 @@
 - [x] Refactor `restartCrashedAgentThread` (`POST /sessions/{id}/restart-agent`) into a thin wrapper: auth → load session → call `restartSessionContainer`.
 
 ## Backend — worker-scoped restart endpoint
-- [ ] Add `RestartSession(ctx, sessionID)` to `inProcHelixClient` that resolves the owning user and calls `restartSessionContainer`.
-- [ ] Add `POST /api/v1/orgs/{org}/workers/{id}/restart-agent` handler in `api/pkg/org/interfaces/server/api/workers.go`: resolve worker → resolve session id (reuse `orgWorkerRuntime.SessionID`/`LoadState`) → if session exists call restart primitive; if none, fall back to `Activations.Activate`.
-- [ ] Wire the new endpoint's dependency (restart port) through the org services composition in `helix_org.go`.
-- [ ] Register the route and add swagger annotations.
+- [x] Add `RestartSession(ctx, sessionID)` to `inProcHelixClient` (calls the `/sessions/{id}/restart-agent` handler, which delegates to `restartSessionContainer`).
+- [x] Add `POST /api/v1/orgs/{org}/workers/{id}/restart-agent` handler in `api/pkg/org/interfaces/server/api/workers.go`: resolve worker → resolve session id (via `WorkerRuntime.State`) → if session exists call restart primitive (new `SessionRestarter` port); if none, fall back to `Activations.Activate`.
+- [x] Wire the new `SessionRestarter` dependency (`inProcClient`) through the org api Deps in `helix_org.go`.
+- [x] Register the route and add swagger annotations.
 
 ## Frontend re-wiring
 - [ ] `./stack update_openapi` to regenerate the API client with the new endpoint.
