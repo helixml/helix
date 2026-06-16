@@ -144,6 +144,12 @@ Frontend (`helix` repo):
 - `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — `handleRestartSession` now makes a single `v1SessionsRestartAgentCreate(sessionId)` call; removed the frontend stop + `setTimeout(1000)` + resume sequence.
 - Regenerated client/swagger via `./stack update_openapi` (generated method: `v1OrgsWorkersRestartAgentCreate(id, org)`).
 
+Rebased onto main @ `c1865f862` (PR #2621, "re-fetch session after StartDesktop
+to avoid clobbering container metadata"). Clean rebase — #2621 touches
+`StartExternalAgentSession`, a different function from the `resumeSessionInternal`
+our `restartSessionContainer` calls, so there was no overlap. Rebuilt + re-ran
+all suites green afterwards.
+
 Gotchas discovered:
 - `swag` installs to `$(go env GOPATH)/bin`, which isn't on PATH by default — export it before `./stack update_openapi`.
 - `gcc` + `libc6-dev` were not preinstalled; needed for `CGO_ENABLED=1 go test ./pkg/server/...` (tree-sitter).
