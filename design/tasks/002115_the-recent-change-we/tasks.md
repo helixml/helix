@@ -7,8 +7,8 @@
 - [x] In `clipboardReadAny()` `navigator.clipboard.read()` branch, prefer non-empty `text/plain` over `image/png`
 - [x] In `clipboardReadAny()` iframe `helix-clipboard-response` branch, mirror the same precedence (non-empty `text` before `base64`)
 - [x] Run frontend type-check + build: `yarn tsc` passes (exit 0); `vite build` compiles all 21,652 modules and builds clean to a writable outDir
-- [ ] Add per-repo PR description (`pull_request_helix.md`), noting Safari manual verification is deferred to the reviewer (no Safari in CI)
-- [ ] Merge latest `origin/main` into the feature branch and push
+- [x] Add per-repo PR description (`pull_request_helix.md`), noting Safari manual verification is deferred to the reviewer (no Safari in CI)
+- [x] Merge latest `origin/main` into the feature branch (already up to date) and push `feature/002115-fix-chrome-copy-paste`
 
 ## Notes
 
