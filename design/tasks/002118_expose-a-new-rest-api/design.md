@@ -165,6 +165,29 @@ Add the minimum:
   generated OpenAPI/TS client stays valid (helix rule: always via generated
   client).
 
+## Implementation Notes
+
+- **Pagination links are query-only relative references** (e.g.
+  `?page[number]=2&page[size]=50`), not absolute paths. The helix-org REST
+  routes are registered with **flat patterns** and mounted two ways: standalone
+  (no prefix) and embedded in helix behind `stripOrgScopedPrefix`
+  (`api/pkg/server/helix_org_middleware.go`) which strips `/api/v1/orgs/{org}`
+  before the handler runs. So the handler never sees its own mount prefix. A
+  query-only relative reference resolves against the client's request URL
+  (RFC 3986 §5), giving correct links in **both** deployments without the org
+  package needing to import the server package or know `APIPrefix`. This also
+  keeps the dependency edge one-way (org never imports server).
+- **The gorm test DB is actually the memory store** (`gorm/testdb.go` →
+  `memory.New()`), by deliberate project choice — so the store pagination tests
+  live in the `gorm_test` package but exercise the shared interface contract
+  (which both backends satisfy identically).
+- Added a generic `Repository.Count` alongside the existing `Exists` for the
+  gorm `CountForStream`.
+- `Page` (request input, from `PageParams`) and `Pagination` (response
+  component) are deliberately separate: the handler parses a `Page`, calls the
+  store with `page.Offset()/page.Limit()`, then composes a `Pagination` from
+  `page` + the total count.
+
 ## Testing
 
 - `jsonapi` unit tests: `NewDocument` composition, `TotalMeta`, `Pagination`

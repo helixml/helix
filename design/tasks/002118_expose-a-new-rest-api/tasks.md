@@ -12,13 +12,13 @@
 - [x] Add `CountStreamEvents` and `PageStreamEvents` pass-throughs to `application/queries/queries.go`
 
 ## JSON:API composition helpers (new package)
-- [ ] Create `api/pkg/org/interfaces/jsonapi/` package
-- [ ] `Document`, `Meta`, `Links`, `Component` interface, and `NewDocument(data, components...)`
-- [ ] `TotalMeta` component (contributes `meta.total`) — meta via composition
-- [ ] `Pagination` component (contributes page `links` + page `meta`; `Offset()`/`Limit()` helpers) — pagination via composition
-- [ ] `PageParams(r, defaultSize, maxSize)` parser for `page[number]`/`page[size]` (400 on invalid)
-- [ ] `Write(w, status, doc)` setting `Content-Type: application/vnd.api+json`
-- [ ] Unit tests: composition, total, pagination links (first/middle/last/out-of-range), empty set
+- [x] Create `api/pkg/org/interfaces/jsonapi/` package
+- [x] `Document`, `Meta`, `Links`, `Component` interface, and `NewDocument(data, components...)`
+- [x] `TotalMeta` component (contributes `meta.total`) — meta via composition
+- [x] `Pagination` component (contributes page `links` + page `meta`) — pagination via composition
+- [x] `Page` + `PageParams(r, defaultSize, maxSize)` parser for `page[number]`/`page[size]` (400 on invalid; `Offset()`/`Limit()` helpers)
+- [x] `Write(w, status, doc)` setting `Content-Type: application/vnd.api+json`
+- [x] Unit tests: composition, total, pagination links (first/middle/last/out-of-range), empty set, query preservation
 
 ## Endpoint
 - [ ] Add `MessageResource` mapping from `streaming.Event` (decode `Message`) in `server/api`
