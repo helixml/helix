@@ -252,16 +252,7 @@ func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *
 	// into the shell script) so the values don't leak into command logs. The
 	// `exec env HELIX_WEB_SERVICE_PORT=... bash startup.sh` above inherits this
 	// process environment, so secrets propagate through to startup.sh.
-	env := []string{}
-	if c.getProjectSecrets != nil && projectID != "" {
-		secretEnv, err := c.getProjectSecrets(ctx, projectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sb.ID).Msg("failed to load prod project secrets, continuing without them")
-		} else if len(secretEnv) > 0 {
-			env = append(env, secretEnv...)
-			log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sb.ID).Msg("injected prod project secrets into web service env")
-		}
-	}
+	env := c.projectSecretEnv(ctx, projectID, sb.ID)
 
 	_, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
 		SandboxID: sb.ID,
@@ -272,6 +263,27 @@ func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *
 		Detached:  true,
 	})
 	return execErr
+}
+
+// projectSecretEnv returns the prod-scoped project secrets as `KEY=value`
+// env-var strings to inject into the web service container. Returns an empty
+// slice (never nil-panics) when no getter is wired, no project is set, or the
+// getter fails — a secret-load failure must not block a deploy.
+func (c *Controller) projectSecretEnv(ctx context.Context, projectID, sandboxID string) []string {
+	env := []string{}
+	if c.getProjectSecrets == nil || projectID == "" {
+		return env
+	}
+	secretEnv, err := c.getProjectSecrets(ctx, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("failed to load prod project secrets, continuing without them")
+		return env
+	}
+	if len(secretEnv) > 0 {
+		env = append(env, secretEnv...)
+		log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("injected prod project secrets into web service env")
+	}
+	return env
 }
 
 // waitForReady polls the container's configured port via the existing

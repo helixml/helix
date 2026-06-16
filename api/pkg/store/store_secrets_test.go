@@ -159,6 +159,73 @@ func (suite *PostgresStoreTestSuite) TestSecretScopedUniqueness() {
 	})
 }
 
+func (suite *PostgresStoreTestSuite) TestSecretScopeUniqueness() {
+	owner := "test-owner-" + system.GenerateUUID()
+	project := "proj-" + system.GenerateUUID()
+
+	// A "dev" and a "prod" secret with the same name in the same project are
+	// allowed because their environments don't overlap.
+	devSecret, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "API_KEY",
+		Owner:     owner,
+		Value:     []byte("dev-value"),
+		ProjectID: project,
+		Scope:     types.SecretScopeDev,
+	})
+	require.NoError(suite.T(), err)
+	assert.Equal(suite.T(), types.SecretScopeDev, devSecret.Scope)
+
+	prodSecret, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "API_KEY",
+		Owner:     owner,
+		Value:     []byte("prod-value"),
+		ProjectID: project,
+		Scope:     types.SecretScopeProd,
+	})
+	require.NoError(suite.T(), err)
+	assert.Equal(suite.T(), types.SecretScopeProd, prodSecret.Scope)
+
+	// A second "dev" secret with the same name must collide.
+	_, err = suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "API_KEY",
+		Owner:     owner,
+		Value:     []byte("dev-dup"),
+		ProjectID: project,
+		Scope:     types.SecretScopeDev,
+	})
+	require.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "already exists")
+
+	// A "both" secret overlaps every environment, so it collides with the
+	// existing dev/prod secrets of the same name.
+	_, err = suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "API_KEY",
+		Owner:     owner,
+		Value:     []byte("both-value"),
+		ProjectID: project,
+		Scope:     types.SecretScopeBoth,
+	})
+	require.Error(suite.T(), err)
+	assert.Contains(suite.T(), err.Error(), "already exists")
+
+	// An omitted scope must default to "both".
+	defaultProject := "proj-" + system.GenerateUUID()
+	defaulted, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
+		Name:      "OTHER_KEY",
+		Owner:     owner,
+		Value:     []byte("v"),
+		ProjectID: defaultProject,
+	})
+	require.NoError(suite.T(), err)
+	assert.Equal(suite.T(), types.SecretScopeBoth, defaulted.Scope)
+
+	suite.T().Cleanup(func() {
+		for _, id := range []string{devSecret.ID, prodSecret.ID, defaulted.ID} {
+			_ = suite.db.DeleteSecret(suite.ctx, id)
+		}
+	})
+}
+
 func (suite *PostgresStoreTestSuite) TestSecretDelete() {
 	secret := &types.Secret{
 		Name:  "delete-test-secret",
