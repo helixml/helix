@@ -326,6 +326,25 @@ operator un-pausing it.
    Desktop", "Restart Desktop", or a topbar "Start new chat" button —
    all removed. Chat happens inline; the only restart affordance is the
    Advanced accordion (§14).
+5. **The live desktop stream, not a Start-Desktop placeholder.** The inline
+   transcript is the *text* half; this is the *visual* half — chatting with
+   the worker drives a real GNOME/Zed desktop and the operator must be able to
+   **watch** it. From the worker detail page click the **Project** id in the
+   right rail (§15.2) → lands on the project's spec board
+   (`…/projects/<pid>/specs`). Because the worker you just chatted with (§10.3)
+   has a **running** exploratory session, the board's topbar shows **View
+   Human Desktop** — NOT **Open Human Desktop** (no session) or **Resume Human
+   Desktop** (session stopped). That label is itself the gate: if it reads
+   Open/Resume the desktop isn't live and the chat above didn't actually wake
+   it. Click **View Human Desktop** → routes to the `project-team-desktop`
+   page (`TeamDesktopPage`). Its `ExternalAgentDesktopViewer` (`mode="stream"`)
+   must render the **live streamed desktop** — the agent's actual screen,
+   updating — and must NOT show the **"Desktop Paused"** overlay with its
+   **Start Desktop** button (the paused/stopped state), nor stick on a
+   "Starting Desktop…" / "Desktop may have failed to start" spinner. Type into
+   this page's composer ("Send message to agent…") and the desktop visibly
+   reacts (Zed/agent activity on screen) — confirming the same session backs
+   both the worker-chat transcript and this desktop view.
 
 ## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
@@ -765,7 +784,11 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   otherwise. Sending a message dispatches via `POST …/sessions/chat`
   (the composer does NOT get stuck on "Message queue (saved locally)")
   and the worker's agent replies live in the transcript. No
-  desktop-launch / "Start new chat" buttons remain on the page.
+  desktop-launch / "Start new chat" buttons remain on the page. Following
+  the right-rail **Project** link → spec board → **View Human Desktop**
+  (the running-session label, not Open/Resume) opens `TeamDesktopPage` with
+  a **live** streamed desktop — never the "Desktop Paused" / **Start
+  Desktop** overlay.
 - §14 — every helix-org page's breadcrumb comes from the shared hook;
   the org-name crumb links to the chart from every page (list, detail,
   settings), and detail pages carry an org / Section / leaf trail with
