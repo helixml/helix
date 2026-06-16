@@ -12385,6 +12385,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsWorkersRestartAgentCreate
+     * @summary Helix-org: restart a worker's agent session (recreate desktop container)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsWorkersRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsWorkersRoleCreate
      * @summary Helix-org: update worker role
      * @request POST:/api/v1/orgs/{org}/workers/{id}/role
