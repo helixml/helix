@@ -14,9 +14,9 @@
 - [x] In `webservice` `runBootstrap`, fetch `prod`-scoped secrets and pass them via `ExecRequest.Env` (not inlined in the shell script); thread the project ID through.
 
 ## Backend — API handler
-- [~] In `createProjectSecret`, validate the requested scope (default `both`) and set it on the `Secret`.
-- [~] Confirm `listProjectSecrets` returns `scope` while still nil-ing out `value`.
-- [~] Regenerate swagger/OpenAPI docs for the secret endpoints.
+- [x] In `createProjectSecret`, validate the requested scope (default `both`) and set it on the `Secret`.
+- [x] Confirm `listProjectSecrets` returns `scope` while still nil-ing out `value` (Scope is JSON-serialised metadata; no change needed).
+- [x] Regenerate swagger/OpenAPI docs + TypeScript client for the secret endpoints (`./stack update_openapi` equivalent).
 
 ## Frontend
 - [ ] Regenerate the API client types so `scope` is available on secret create/list.
