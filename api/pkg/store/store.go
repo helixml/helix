@@ -799,6 +799,8 @@ type Store interface {
 	MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error)
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
+	SetSandboxContainerCount(ctx context.Context, id string, count int) error
+	BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error)
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
 	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)

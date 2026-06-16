@@ -198,16 +198,57 @@ func (s *PostgresStore) DecrementSandboxContainerCount(ctx context.Context, id s
 		UpdateColumn("active_sandboxes", s.gdb.Raw("GREATEST(active_sandboxes - 1, 0)")).Error
 }
 
-// ResetSandboxOnReconnect resets sandbox state when it reconnects
+// ResetSandboxOnReconnect resets sandbox state when it reconnects.
+//
+// Flips status back to online and refreshes last_seen so the heartbeat
+// reaper doesn't immediately mark the row offline again. We deliberately
+// do NOT zero active_sandboxes here: a brief RevDial blip on a healthy
+// Runner with N running containers must not silently produce a phantom
+// "free capacity" signal for the autoscaler. The corrective path is
+// DiscoverContainersFromSandbox, which queries hydra for the real
+// container list on every reconnect and calls SetSandboxContainerCount
+// to write the authoritative value.
 func (s *PostgresStore) ResetSandboxOnReconnect(ctx context.Context, id string) error {
 	return s.gdb.WithContext(ctx).
 		Model(&types.SandboxInstance{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":           "online",
-			"last_seen":        time.Now(),
-			"active_sandboxes": 0,
+			"status":    "online",
+			"last_seen": time.Now(),
 		}).Error
+}
+
+// SetSandboxContainerCount sets active_sandboxes to an explicit value.
+// Used by DiscoverContainersFromSandbox to write the authoritative
+// container count after querying hydra. Distinct from Increment /
+// Decrement which assume a known delta from the prior value; this
+// resyncs from ground truth, recovering from any drift caused by
+// API restarts, missed Increment/Decrement calls (e.g. hydra-side
+// internal deletes that bypass StopDesktop), or other inconsistencies.
+func (s *PostgresStore) SetSandboxContainerCount(ctx context.Context, id string, count int) error {
+	return s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("id = ?", id).
+		UpdateColumn("active_sandboxes", count).Error
+}
+
+// BackfillSandboxMaxSandboxes rewrites max_sandboxes on every existing
+// Runner row to the supplied value. Called once at API boot so a change
+// to HELIX_SANDBOX_MAX_DEV_CONTAINERS takes effect across the entire
+// fleet on next restart, not just for Runners that re-register after
+// the change. Returns the number of rows updated for logging.
+//
+// Idempotent: only writes rows where max_sandboxes already differs, so
+// repeat boots with the same config are no-ops.
+func (s *PostgresStore) BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error) {
+	res := s.gdb.WithContext(ctx).
+		Model(&types.SandboxInstance{}).
+		Where("max_sandboxes != ?", value).
+		UpdateColumn("max_sandboxes", value)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }
 
 // GetSandboxInstancesOlderThanHeartbeat returns sandbox hosts that haven't sent a heartbeat recently.
