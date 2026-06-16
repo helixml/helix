@@ -225,9 +225,12 @@ const HelixOrgWorkerDetail: FC = () => {
                 </Box>
 
                 {/* Chat panel — inline transcript (same view the spec-task
-                    page uses) plus the desktop launch buttons. The
-                    transcript auto-loads when the worker already has a
-                    session; otherwise the call to action provisions one. */}
+                    page uses). The transcript auto-loads when the worker
+                    already has a session; otherwise it shows an empty state.
+                    AI workers only: a human worker has no agent desktop /
+                    Human Desktop session to chat with, so the panel is hidden
+                    entirely for kind === 'human'. */}
+                {worker.kind === 'ai' && (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
@@ -285,6 +288,7 @@ const HelixOrgWorkerDetail: FC = () => {
                     )}
                   </Stack>
                 </Paper>
+                )}
 
                 <Box>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
