@@ -2,9 +2,9 @@
 
 ## Primary fix — `desktop/shared/helix-specs-create.sh` (`create_helix_specs_branch`)
 
-- [~] Normalize `RETURN_BRANCH` for the empty-repo case so it is never empty and prefers the intended default (`main`, falling back to the detected upstream default / `master` only when that is the repo's convention).
-- [~] Make the default-branch seed authoritative: for an empty repo, only push the `helix-specs` orphan **after** the default-branch seed push succeeds. If the seed fails, retry or skip helix-specs creation (and surface a clear error) so `helix-specs` is never the first/only branch on the empty upstream.
-- [ ] (Optional) After seeding, verify the upstream default did not resolve to `helix-specs` (e.g. `git ls-remote --symref origin HEAD`) and log/fail if it did.
+- [x] Normalize `RETURN_BRANCH` for the empty-repo case so it is never empty and prefers the intended default (`main`, falling back to the detected upstream default / `master` only when that is the repo's convention).
+- [x] Make the default-branch seed authoritative: for an empty repo, only push the `helix-specs` orphan **after** the default-branch seed push succeeds. If the seed fails, retry or skip helix-specs creation (and surface a clear error) so `helix-specs` is never the first/only branch on the empty upstream.
+- [x] (Optional) After seeding, verify the upstream default did not resolve to `helix-specs` (e.g. `git ls-remote --symref origin HEAD`) and log/fail if it did.
 
 ## Cleanup — `desktop/shared/helix-workspace-setup.sh`
 
