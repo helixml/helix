@@ -21,11 +21,11 @@
 - [x] Unit tests: composition, total, pagination links (first/middle/last/out-of-range), empty set, query preservation
 
 ## Endpoint
-- [ ] Add `MessageResource` mapping from `streaming.Event` (decode `Message`) in `server/api`
-- [ ] Implement `listStreamMessages` handler in `server/api/streams.go` (resolve org, 404 unknown stream, compose document)
-- [ ] Register `GET /streams/{id}/messages` in `server/api/api.go` `Routes()`
-- [ ] Add swagger annotations to the handler
-- [ ] Handler tests: full page, partial last page, empty (`total:0`), unknown stream (404), bad paging (400), `meta.total` across pages
+- [x] Add `MessageResource`/`MessageAttributes`/`MessagesDocument` DTOs + `messageResource` mapping in `server/api`
+- [x] Implement `listStreamMessages` handler in `server/api/streams.go` (resolve org, 404 unknown stream, compose document)
+- [x] Register `GET /streams/{id}/messages` in `server/api/api.go` `Routes()`
+- [x] Add swagger annotations to the handler
+- [x] Handler tests: first page, partial last page, beyond-last (empty), empty stream (`total:0`), unknown stream (404), bad paging (400), `meta.total` across pages
 
 ## Wiring & finalize
 - [ ] Run `./stack update_openapi` to regenerate OpenAPI + TS client
