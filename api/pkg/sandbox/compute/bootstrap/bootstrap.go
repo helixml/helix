@@ -41,7 +41,13 @@ import (
 // introduce parallel env vars. The Provider injects them into the
 // upstream task environment so helix-sandbox knows how to phone
 // home and how to authenticate.
-func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.SandboxStore) (*compute.Manager, error) {
+// Bootstrap signature note: maxSandboxesPerHost is the per-Runner ceiling
+// on inner dev containers, read from ServerConfig.SandboxMaxDevContainers
+// at the call site. Threaded in explicitly rather than via config.Compute
+// because the value originates from ServerConfig (used by both
+// Manager-provisioned and legacy auto-register paths) - putting it in
+// config.Compute would suggest it only affects ComputeManager.
+func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (*compute.Manager, error) {
 	if cfg.Provider == "" {
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil
@@ -79,6 +85,12 @@ func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.
 		return nil, fmt.Errorf("build %q provider: %w", cfg.Provider, err)
 	}
 
+	// SpecTemplate.MaxSandboxes is what Manager-provisioned Runner rows
+	// get written with (manager.go:892 reads m.cfg.SpecTemplate via
+	// defaultMaxSandboxes). Threading maxSandboxesPerHost in here ensures
+	// YD-provisioned and legacy auto-registered Runners share the same
+	// ceiling — without this, YD Runners would silently fall back to the
+	// hardcoded 20 in defaultMaxSandboxes regardless of operator config.
 	mgr, err := compute.NewManager(provider, store, compute.ManagerConfig{
 		Floor:                   cfg.Floor,
 		ReconcileInterval:       cfg.ReconcileInterval,
@@ -88,6 +100,9 @@ func Bootstrap(cfg config.Compute, serverURL, runnerToken string, store compute.
 		Max:                     cfg.Max,
 		ScaleUpHeadroomMin:      cfg.ScaleUpHeadroomMin,
 		IdleTimeout:             cfg.IdleTimeout,
+		SpecTemplate: compute.Spec{
+			MaxSandboxes: maxSandboxesPerHost,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construct compute manager: %w", err)
