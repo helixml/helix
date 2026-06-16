@@ -1,11 +1,11 @@
 # Implementation Tasks: Scope Project Secrets to Dev, Prod, or Both Environments
 
 ## Backend — types & storage
-- [ ] Add `SecretScope` string type with `dev`/`prod`/`both` consts and a `Valid()` helper in `api/pkg/types/types.go`.
-- [ ] Add `Scope SecretScope` field to `types.Secret` with GORM tag `type:varchar(16);default:'both';index`.
-- [ ] Add `Scope string` (omitempty) to `types.CreateSecretRequest`.
-- [ ] Verify GORM AutoMigrate adds the column; add a one-time `UPDATE secrets SET scope='both'` guard for any NULL/empty rows.
-- [ ] Update `CreateSecret` uniqueness check in `api/pkg/store/store_secrets.go` to include scope, rejecting same-scope or `both`-overlap name collisions.
+- [~] Add `SecretScope` string type with `dev`/`prod`/`both` consts and a `Valid()` helper in `api/pkg/types/types.go`.
+- [~] Add `Scope SecretScope` field to `types.Secret` with GORM tag `type:varchar(16);default:'both';index`.
+- [~] Add `Scope string` (omitempty) to `types.CreateSecretRequest`.
+- [~] Verify GORM AutoMigrate adds the column; add a one-time `UPDATE secrets SET scope='both'` guard for any NULL/empty rows.
+- [~] Update `CreateSecret` uniqueness check in `api/pkg/store/store_secrets.go` to include scope, rejecting same-scope or `both`-overlap name collisions.
 
 ## Backend — env-var injection
 - [ ] Change `GetProjectSecretsAsEnvVars` in `api/pkg/server/secrets_handlers.go` to accept a `scope` arg and include secrets where `scope == arg || scope == both`.
