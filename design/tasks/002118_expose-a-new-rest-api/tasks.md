@@ -1,12 +1,12 @@
 # Implementation Tasks: List Stream Messages REST API (JSON:API)
 
 ## Store layer (pagination + total)
-- [ ] Add `WithOffset(n int)` to `api/pkg/org/domain/store/options.go` (no-op when `n <= 0`)
-- [ ] Apply `WithOffset` in `api/pkg/org/infrastructure/persistence/gorm/repository.go` option handling
-- [ ] Add `CountForStream` and `PageForStream(limit, offset)` to the `Events` interface in `domain/store/store.go`
-- [ ] Implement both in the gorm events repo (`gorm/event.go`), ordering `created_at DESC, id DESC`
-- [ ] Implement both in the memory events repo (`memory/memorystore.go`)
-- [ ] Store tests (gorm + memory): offset windows, ordering, count vs limited list
+- [~] Add `WithOffset(n int)` to `api/pkg/org/domain/store/options.go` (no-op when `n <= 0`)
+- [~] Apply `WithOffset` in `api/pkg/org/infrastructure/persistence/gorm/apply.go` option handling
+- [~] Add `CountForStream` and `PageForStream(limit, offset)` to the `Events` interface in `domain/store/store.go`
+- [~] Implement both in the gorm events repo (`gorm/event.go`), ordering `created_at DESC, id DESC`
+- [~] Implement both in the memory events repo (`memory/memorystore.go`)
+- [~] Store tests (gorm + memory): offset windows, ordering, count vs limited list
 
 ## Read facade
 - [ ] Add `CountStreamEvents` and `PageStreamEvents` pass-throughs to `application/queries/queries.go`
