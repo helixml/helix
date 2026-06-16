@@ -816,6 +816,96 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	return cleaned, nil
 }
 
+// zvolCreationAge returns how long ago a zvol was created, using the ZFS
+// `creation` property (unix seconds, via -p). Returns 0 if the property can't
+// be read or parsed — callers treat 0 as "unknown age" and apply their own
+// safe default.
+func zvolCreationAge(zvolName string) time.Duration {
+	out, err := execCmdOutput("zfs", "get", "-Hp", "-o", "value", "creation", zvolName)
+	if err != nil {
+		return 0
+	}
+	var created int64
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &created); err != nil || created <= 0 {
+		return 0
+	}
+	return time.Since(time.Unix(created, 0))
+}
+
+// ReconcileOrphanZvols reaps session zvols (prefix "<parent>/ses-") that are NOT
+// in the DB-derived liveSet, have aged past the grace period, and can be safely
+// destroyed.
+//
+// Safety contract (do not weaken):
+//   - Only ses- zvols are ever enumerated; golden-* zvols are never touched
+//     (the prefix guard filters them out, mirroring GCOrphanedZvols).
+//   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
+//     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
+//     / "dataset is busy"; we record it as skipped and move on. We NEVER force
+//     (no `-R`, no `-f`) — refusing to destroy a busy/parent dataset is the
+//     desired behaviour.
+//   - Live sessions get their external marker refreshed so the legacy on-disk
+//     GC keeps treating them as fresh.
+func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
+	if !ZFSAvailable() {
+		return nil, nil
+	}
+
+	prefix := zfsParentDataset + "/ses-"
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
+		return nil, nil
+	}
+
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, prefix) {
+			continue // never touch golden- or anything else
+		}
+		sessionID := strings.TrimPrefix(name, prefix)
+
+		if liveSet[sessionID] {
+			// Live per the DB — keep, and refresh the on-disk marker so the
+			// legacy 7-day GC also keeps treating it as fresh.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
+			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
+			continue
+		}
+
+		// Not live. Apply the grace period using zvol creation time. age == 0
+		// means we couldn't read the creation property — be conservative and
+		// skip (treat as within grace).
+		age := zvolCreationAge(name)
+		if age < grace {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
+			continue
+		}
+
+		if dryRun {
+			reaped = append(reaped, name)
+			continue
+		}
+
+		if err := CleanupSessionZvol(sessionID); err != nil {
+			msg := err.Error()
+			// "has dependent clones" / "dataset is busy" → a golden clone-root
+			// or a manually-cloned descendant depends on this zvol. NEVER force.
+			if strings.Contains(msg, "dependent clones") || strings.Contains(msg, "busy") {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "dependent: " + msg})
+				continue
+			}
+			log.Warn().Err(err).Str("zvol", name).Msg("ReconcileOrphanZvols: failed to destroy zvol")
+			skipped = append(skipped, GCSkip{Name: name, Reason: "error: " + msg})
+			continue
+		}
+		reaped = append(reaped, name)
+	}
+
+	return reaped, skipped
+}
+
 // GCStaleSnapshots destroys golden snapshots older than 7 days that have no
 // remaining clones. Keeps recent snapshots so the user can see cache progression.
 // Snapshots with active session clones can't be destroyed (ZFS refuses) — that's

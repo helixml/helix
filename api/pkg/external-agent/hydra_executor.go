@@ -1477,6 +1477,22 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	return nil
 }
 
+// ReconcileSandboxResources posts the DB-derived live-set to a connected
+// sandbox's hydra over RevDial and returns hydra's report of reaped / skipped
+// orphan resources. Mirrors the DiscoverContainersFromSandbox RevDial wiring.
+func (h *HydraExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error) {
+	if h.connman == nil {
+		return nil, fmt.Errorf("connection manager not available")
+	}
+
+	// Hydra runner ID follows the pattern: hydra-{SANDBOX_INSTANCE_ID}
+	hydraRunnerID := "hydra-" + sandboxID
+
+	hydraClient := hydra.NewRevDialClient(h.connman, hydraRunnerID)
+
+	return hydraClient.ReconcileGC(ctx, req)
+}
+
 // checkLimits checks desktop limits for the user/org
 func (h *HydraExecutor) checkLimits(ctx context.Context, agent *types.DesktopAgent) (*types.QuotaLimitReachedResponse, error) {
 	// Get system settings

@@ -693,6 +693,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Automatically shut down desktops that have been idle for too long
 	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
 
+	// Durable, DB-driven garbage collection of leaked session zvols and
+	// per-task/session workspace dirs (survives host reboots / API restarts).
+	if apiServer.Cfg.OrphanReaperEnabled {
+		go external_agent.RunOrphanResourceReaper(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.OrphanReaperInterval, apiServer.Cfg.OrphanReaperGracePeriod, apiServer.Cfg.OrphanReaperDryRun)
+	}
+
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 

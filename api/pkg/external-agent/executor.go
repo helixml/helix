@@ -30,6 +30,10 @@ type Executor interface {
 
 	// Golden build result from sandbox
 	GetGoldenBuildResult(ctx context.Context, sandboxID, projectID string) (*hydra.GoldenBuildResult, error)
+
+	// ReconcileSandboxResources fans a DB-driven GC reconcile request out to a
+	// connected sandbox's hydra, which reaps orphaned zvols + workspace dirs.
+	ReconcileSandboxResources(ctx context.Context, sandboxID string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error)
 }
 
 // Shared types used by all executor implementations
