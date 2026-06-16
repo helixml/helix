@@ -13,9 +13,9 @@
 
 ## Tests
 
-- [ ] Extend `desktop/shared/test-helix-specs-creation.sh`: for the empty-repo case, assert the remote default branch is **not** `helix-specs` (inspect `origin/HEAD`), in addition to the existing `git worktree add helix-specs` check.
-- [ ] Add a test where the default-branch seed push is forced to fail, asserting `helix-specs` is not pushed as the first/default branch.
-- [ ] Run the existing 11-case `test-helix-specs-creation.sh` suite and confirm all pass.
+- [x] Extend `desktop/shared/test-helix-specs-creation.sh`: for the empty-repo case, assert the remote default branch is **not** `helix-specs` (inspect `origin/HEAD`), in addition to the existing `git worktree add helix-specs` check.
+- [x] Add a test where the default-branch seed push is forced to fail, asserting `helix-specs` is not pushed as the first/default branch.
+- [x] Run the existing 11-case `test-helix-specs-creation.sh` suite and confirm all pass. (Now 12 cases: 12 passed, 0 failed.)
 
 ## Verification
 
