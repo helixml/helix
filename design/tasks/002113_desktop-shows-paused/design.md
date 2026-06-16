@@ -116,6 +116,30 @@ re-fetch is safe here too — it simply reloads the existing good row.
 - CGo is required to compile the server test package (tree-sitter):
   `sudo apt-get install -y gcc libc6-dev` then `CGO_ENABLED=1 go test ...`.
 
+## End-to-end verification (localhost:8080)
+
+Confirmed live on the inner Helix stack (2026-06-16).
+
+- The exploratory / "Human Desktop" UI path was ruled out as a repro: its
+  handler `startExploratorySession` (`project_handlers.go`) calls `StartDesktop`
+  directly and **already re-fetches** the row afterwards, so it never exhibited
+  the bug. The bug is exclusive to `StartExternalAgentSession`, reached only by
+  cron triggers and helix-org workers.
+- Reproduced through the real runtime via the cron-trigger execute endpoint
+  (`POST /api/v1/triggers/{id}/execute` → `cron.ExecuteCronTask` →
+  `executeExternalAgentCronTask` → `StartExternalAgentSession`):
+  1. Register `test@helix.ml`, create org `testorg`, mint an org API key.
+  2. Create a Helix-hosted repo (`is_external:false`), an app, and a project
+     (project requires `default_repo_id` + `default_helix_app_id`).
+  3. Create a cron trigger with `trigger.cron.agent_type = "zed_external"` and
+     `project_id` set; fire it with the execute endpoint.
+- Session row `ses_01kv7z4pdz0ceefjt723rk0kvy` (note: metadata serializes to the
+  `config` jsonb column, not `metadata`):
+  `config->>'container_name' = ubuntu-external-01kv7z4pdz0ceefjt723rk0kvy`,
+  `config->>'external_agent_status' = running`, `dev_container_id` set. Stable on
+  re-poll. Pre-fix, the trailing `UpdateSession(*session)` would have left both
+  blank → `useSandboxState` maps empty `container_name` to `absent` → "paused".
+
 ## Notes / Learnings
 
 - Two code paths perform read-modify-write on the same session row; the inner
