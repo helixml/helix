@@ -235,6 +235,40 @@ is already in its config.
 - **Switch from Zed's native UI**: treat as a new thread too, to keep UX
   consistent (per meeting); Helix maps whatever `thread_created` reports.
 
+## Speed optimization (v2): no-restart fast path + restart fallback
+
+The first working version restarted the Zed *process* on every switch (~5s) and
+delivered the handoff on reconnect. Live testing showed the switch took ~15s.
+Verified that Zed **hot-reloads** `agent_servers` and `context_servers` from a
+`settings.json` change without a process restart (`AgentServerStore` +
+`ContextServerStore` both observe `SettingsStore`; `context_server_store.rs:446`
+→ `maintain_servers`). So the restart is unnecessary in the common case.
+
+**New flow (fast path):**
+1. API `switch-agent`: mutate session, seed fork_seed + Waiting handoff, publish
+   `config_changed{field:"agent"}`, start a restart-fallback goroutine.
+2. Daemon: rewrite `settings.json` (Zed hot-reloads agent + MCP), then **POST
+   `/sessions/{id}/agent-config-applied`** (no `pkill`).
+3. API `agent-config-applied`: deliver the handoff to the **live** Zed WS via
+   `pickupWaitingInteraction` → new thread on the new agent (transcript
+   prepended). No restart, no reconnect.
+
+**Restart fallback:** the API goroutine waits `switchAgentLiveDeliveryTimeout`
+(9s); if no new `ZedThreadID` appeared (live path failed — e.g. a brand-new
+custom agent_server didn't register from the hot-reload, or the daemon callback
+was lost), it publishes `config_changed{field:"agent_restart"}` → daemon
+`restartZed()` → the reconnect path delivers the handoff. Keyed on `ZedThreadID`
+so it's idempotent (a successful live switch always ends with a new thread id).
+
+**MCP-unchanged fast path:** handled implicitly — Zed's `maintain_servers`
+no-ops when the context-server set is unchanged (e.g. opus↔sonnet same MCPs), so
+that case is near-instant; differing MCP sets reconcile live and the new thread's
+first turn is gated by Zed's own `wait_for_tools_ready`.
+
+**Handoff trimmed:** the handoff prompt now tells the agent NOT to summarise/
+re-read the transcript — just emit a one-line ready ack — cutting the model's
+output latency (the transcript is still prepended for context).
+
 ## Implementation Notes (as built)
 
 Files changed:

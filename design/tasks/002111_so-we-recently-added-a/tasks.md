@@ -57,4 +57,13 @@
 - [x] Same-agent no-op + paused-session block: enforced in `switchAgent` handler (mirrors the unit-tested fork validation); mid-turn switch torn down by the Zed restart (documented)
 
 ## Remaining for a maintainer with a live desktop env
-- [ ] `./stack build-ubuntu` to ship the daemon change into the desktop image, start a new session, switch agents, and confirm: workspace/files survive, new agent gets the transcript, Zed restarts+reconnects cleanly. (All other layers — API, daemon binary, frontend, Zed — are built/tested/verified here.)
+- [x] `./stack build-ubuntu` (v1 restart path) — verified live: files survive, transcript carried. Worked but ~15s (process restart).
+
+## Speed optimization v2 (no-restart fast path) — user-requested
+- [x] Verified Zed hot-reloads agent_servers + context_servers from settings change (no restart needed)
+- [x] Daemon: on `field:"agent"` hot-reload settings + POST `/agent-config-applied` (no pkill); `field:"agent_restart"` → restartZed (fallback)
+- [x] API: `/agent-config-applied` endpoint delivers handoff live via `pickupWaitingInteraction`; restart fallback goroutine keyed on `ZedThreadID` (9s)
+- [x] MCP-unchanged fast path handled implicitly by Zed's `maintain_servers` no-op + `wait_for_tools_ready`
+- [x] Trimmed handoff prompt (one-line ack, no transcript re-summarise) to cut model latency
+- [x] Builds + unit tests pass; OpenAPI client regenerated
+- [~] Rebuild desktop image (v2 daemon) + retest switch latency on a fresh session
