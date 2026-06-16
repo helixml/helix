@@ -83,6 +83,27 @@ serialization already prevents runaway concurrency.
 - `TestQueueNilSpawnerIsNoop` — unchanged.
 - `TestQueueIsolatesSameWorkerIDAcrossOrgs` — unchanged.
 
+## Implementation Notes (filled in during implementation)
+
+- The one-line behavioural change in `run()` was exactly as designed:
+  `trigger := lane.pending[0]; lane.pending = lane.pending[1:]` and spawn with
+  `[]Trigger{trigger}`. No signature changes needed anywhere downstream.
+- `activate()` keeps its `[]Trigger` param and its `"triggers"` log field (now
+  always 1) — left as-is to keep the diff minimal and avoid breaking any
+  log-based dashboards. The doc comments make the one-at-a-time invariant clear.
+- **Second coalescing test discovered:** besides the queue-level
+  `TestQueueCoalescesBurstIntoOneBatch`, there is a dispatch-level
+  `TestDispatchCoalescesEvents` (`dispatcher_test.go`) that publishes 4 events
+  and asserted 2 Spawner calls. Rewrote it as `TestDispatchDeliversEventsOneAtATime`
+  asserting 4 calls, one event each, FIFO. Future cloners: grep the whole
+  `pkg/org/` tree for `coalesc`/`batch`, not just `queue_test.go`.
+- **Left untouched (out of scope):** `pkg/org/infrastructure/wakebus` coalesces
+  wake *signals* (booleans), not message/trigger content, so it does not
+  contribute to context bloat. Don't change it for this task.
+- Tests run green locally including the dispatch package (uses
+  `orggorm.GetOrgTestDB`, which provisions its own Postgres test DB — no manual
+  setup needed in this dev environment).
+
 ## Docs / comments to update
 
 - The package doc and `Dispatcher` doc comment in `dispatcher.go` describe
