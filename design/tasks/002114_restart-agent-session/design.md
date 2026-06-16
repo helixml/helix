@@ -101,14 +101,19 @@ Use the existing `pkg/server` suite pattern (gomock `MockStore` +
 `gomock.InOrder`:
 
 - `restartSessionContainer` calls `StopDesktop` **then** `StartDesktop`
-  (recreate), not `SendMessage`.
-- `ZedThreadID` is preserved across restart; `open_thread` is re-sent.
-- `ResetCrashedPromptsForSession` is invoked and pending prompts are kicked.
-- `/sessions/{id}/restart-agent` and the worker restart endpoint both reach the
-  same primitive (e.g. both drive `StopDesktop`+`StartDesktop` on the mock
-  executor).
-- Worker restart with **no** session falls back to the activate/start path.
-- Auth: non-owner without update access → 403.
+  (recreate), not a SendMessage continuation.
+- `ResetCrashedPromptsForSession` is invoked (count returned) and pending
+  prompts are kicked (`processAnyPendingPrompt`).
+- Worker restart endpoint with a live session calls the `SessionRestarter` port
+  (not `DispatchManual`); with **no** session it falls back to the activate
+  path.
+- Auth: non-owner → 403; non-zed_external session → 400; unknown worker → 404.
+
+`ZedThreadID` preservation is **not** asserted in the unit test: a non-empty
+thread id makes `resumeSessionInternal` spawn an async `open_thread` goroutine
+that would call mocks after `ctrl.Finish()` and crash the test binary.
+Preservation is inherent (the same session row is reused and the field is never
+mutated) and is validated by E2E.
 
 Note: `go test ./pkg/server/...` needs CGo for tree-sitter
 (`CGO_ENABLED=1`, install `gcc libc6-dev`). Store tests need Postgres, so mock
@@ -123,3 +128,24 @@ the store. Push and confirm CI (Drone) green.
   clobbering executor-written metadata — keep that.
 - Regenerate the OpenAPI client after adding the new endpoint, or the frontend
   hook won't have a typed method.
+
+## Implementation Notes (as built)
+
+Backend (`helix` repo):
+- `api/pkg/server/session_handlers.go` — extracted `restartSessionContainer(ctx, user, session) (int, *system.HTTPError)`; `restartCrashedAgentThread` is now a thin auth wrapper over it.
+- `api/pkg/server/helix_org_inproc.go` — added `inProcHelixClient.RestartSession(ctx, sessionID)` (calls `restartCrashedAgentThread` in-proc, same as `StopExternalAgent`/`SendMessage` do).
+- `api/pkg/org/interfaces/server/api/api.go` — new `SessionRestarter` port + `Deps.SessionRestarter`; registered `POST /workers/{id}/restart-agent`.
+- `api/pkg/org/interfaces/server/api/workers.go` — `restartWorkerAgent` handler: resolve worker → `WorkerRuntime.State` for session id → `SessionRestarter.RestartSession` if a session exists, else fall back to `Activations.Activate`.
+- `api/pkg/server/helix_org.go` — wired `SessionRestarter: inProcClient` into `apiDeps`.
+
+Frontend (`helix` repo):
+- `frontend/src/services/helixOrgService.ts` — `useRestartWorkerAgent` hook (`v1OrgsWorkersRestartAgentCreate`).
+- `frontend/src/pages/HelixOrgWorkerDetail.tsx` — "Restart agent session" button now uses `useRestartWorkerAgent` instead of `useActivateWorker`.
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — `handleRestartSession` now makes a single `v1SessionsRestartAgentCreate(sessionId)` call; removed the frontend stop + `setTimeout(1000)` + resume sequence.
+- Regenerated client/swagger via `./stack update_openapi` (generated method: `v1OrgsWorkersRestartAgentCreate(id, org)`).
+
+Gotchas discovered:
+- `swag` installs to `$(go env GOPATH)/bin`, which isn't on PATH by default — export it before `./stack update_openapi`.
+- `gcc` + `libc6-dev` were not preinstalled; needed for `CGO_ENABLED=1 go test ./pkg/server/...` (tree-sitter).
+- `frontend/dist` is a root-owned bind mount → `yarn build` fails at the copy step with EACCES, but module transform + `tsc -b` both succeed, which is the real compile signal.
+- Generated test conflict-renames (`v1OrgsWorkersDetail2()` etc.) are pre-existing swagger warnings, not caused by this change.

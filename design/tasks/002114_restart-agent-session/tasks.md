@@ -25,7 +25,10 @@
 Note: `ZedThreadID` preservation is inherent — `restartSessionContainer`/`resumeSessionInternal` reuse the same session row and never mutate the thread id. It's deliberately not asserted in the unit test because a non-empty `ZedThreadID` makes `resumeSessionInternal` spawn an async `open_thread` goroutine that would call mocks after `ctrl.Finish()` and crash the test binary; covered by E2E instead.
 
 ## Verify
-- [ ] `CGO_ENABLED=1 go test ./api/pkg/server/...` (install `gcc libc6-dev`) and `go build` the affected packages.
-- [ ] `cd frontend && yarn build`.
+- [x] `go build ./...` (api) and new+related suites pass: `restart_session_container_test.go`, `restart_worker_test.go`, `TestActivateWorker*`, `TestExploratorySessionActivationSuite` (`CGO_ENABLED=1`, installed `gcc libc6-dev`).
+- [x] Frontend `tsc -b` passes (0 errors); vite transform succeeds (build's only failure is an unrelated EACCES on the root-owned `dist/` bind mount).
 - [ ] End-to-end in inner Helix: click each restart button (worker page, in-chat, spec-task) and confirm a new desktop container is created.
 - [ ] Push branch, confirm Drone CI green.
+
+## PR descriptions
+- [x] `pull_request_helix.md`
