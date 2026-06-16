@@ -513,6 +513,26 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt s
 	return nil
 }
 
+// RestartSession recreates a session's desktop container via the same
+// canonical backend primitive the in-chat restart button uses
+// (POST /sessions/{id}/restart-agent → restartSessionContainer). The
+// worker-page "Restart agent session" button reaches this through the
+// helix-org SessionRestarter port, so both surfaces share one
+// implementation and "restart" cannot diverge.
+func (c *inProcHelixClient) RestartSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("RestartSession: sessionID is required")
+	}
+	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/restart-agent", nil, map[string]string{"id": sessionID})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.restartCrashedAgentThread(nil, r); herr != nil {
+		return fmt.Errorf("restart agent session %s: %s", sessionID, herr.Error())
+	}
+	return nil
+}
+
 // Compile-time interface assertions — both ports must be satisfied by
 // the same struct so a single instance can drive WorkerProject.Service
 // AND SpawnerConfig.Client.

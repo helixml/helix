@@ -2352,11 +2352,41 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+
+	resetCount, herr := s.restartSessionContainer(ctx, user, session)
+	if herr != nil {
+		return nil, herr
+	}
+
+	return map[string]any{
+		"session_id":    sessionID,
+		"prompts_reset": resetCount,
+	}, nil
+}
+
+// restartSessionContainer is the single canonical "restart the agent" backend
+// operation. It tears down the existing desktop container and recreates it
+// from scratch, so a stuck or crashed worker is genuinely recovered (as
+// opposed to a SendMessage continuation, which reuses the same container).
+//
+// Every restart entrypoint funnels through here — the in-chat
+// /sessions/{id}/restart-agent button, the worker-page "Restart agent session"
+// button (via the helix-org runtime), and the spec-task detail page — so the
+// meaning of "restart" cannot diverge across surfaces again.
+//
+// Steps: validate it's an external Zed agent → StopDesktop (best-effort) →
+// resumeSessionInternal (StartDesktop, preserving ZedThreadID so conversation
+// context is restored) → reset crashed prompts → kick the queue. Returns the
+// count of prompts that were reset. Callers must have already authorized the
+// user against the session.
+func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *types.User, session *types.Session) (int, *system.HTTPError) {
+	sessionID := session.ID
+
 	if session.Metadata.AgentType != "zed_external" {
-		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+		return 0, system.NewHTTPError400("session does not have an external Zed agent")
 	}
 	if s.externalAgentExecutor == nil {
-		return nil, system.NewHTTPError500("external agent executor not available")
+		return 0, system.NewHTTPError500("external agent executor not available")
 	}
 
 	previousThreadID := session.Metadata.ZedThreadID
@@ -2377,13 +2407,13 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	// the persistent workspace volume — full conversation context is restored.
 	if _, err := s.resumeSessionInternal(ctx, user, session); err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resume session during crash-restart")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
+		return 0, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
 	}
 
 	resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to reset crashed prompts for restart")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts: %s", err.Error()))
+		return 0, system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts: %s", err.Error()))
 	}
 
 	log.Info().
@@ -2391,15 +2421,12 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 		Str("user_id", user.ID).
 		Str("zed_thread_id", previousThreadID).
 		Int("prompts_reset", resetCount).
-		Msg("🔄 [HELIX] User-triggered Restart after agent crash — recreated container, preserved ZedThreadID, reset crashed prompts")
+		Msg("🔄 [HELIX] Restart agent session — recreated container, preserved ZedThreadID, reset crashed prompts")
 
 	// Kick the queue so the reset prompts get dispatched on the new container.
 	go s.processAnyPendingPrompt(context.Background(), sessionID)
 
-	return map[string]any{
-		"session_id":    sessionID,
-		"prompts_reset": resetCount,
-	}, nil
+	return resetCount, nil
 }
 
 // attachProjectContext sets agent.ProjectID and loads the project's

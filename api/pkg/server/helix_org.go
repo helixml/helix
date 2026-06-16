@@ -502,6 +502,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		WorkerRuntime: orgWorkerRuntime{st: st},
+		// SessionRestarter recreates a worker's desktop container through
+		// the same backend primitive the in-chat restart button uses, so
+		// the worker-page "Restart agent session" button genuinely
+		// recovers a stuck container instead of SendMessage-ing the
+		// existing session.
+		SessionRestarter: inProcClient,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching streams + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

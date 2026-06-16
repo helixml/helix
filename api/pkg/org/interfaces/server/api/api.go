@@ -91,6 +91,12 @@ type Deps struct {
 	// render empty.
 	WorkerRuntime WorkerRuntime
 
+	// SessionRestarter recreates a worker's desktop container — the
+	// backend "restart the agent" primitive shared with the in-chat
+	// restart button. nil → restartWorkerAgent falls back to a fresh
+	// activation when the worker has a live session it can't restart.
+	SessionRestarter SessionRestarter
+
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching streams + appends events). Built at
 	// the composition root so the api adapter never holds the store. nil
@@ -191,6 +197,18 @@ type WorkerRuntime interface {
 	State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (WorkerRuntimeInfo, error)
 }
 
+// SessionRestarter recreates the desktop container backing a session —
+// the single canonical "restart the agent" backend operation
+// (StopDesktop → recreate → reset crashed prompts). The worker-page
+// "Restart agent session" button routes through restartWorkerAgent into
+// this port so it shares one implementation with the in-chat
+// /sessions/{id}/restart-agent endpoint. Wired at the composition root
+// over the in-proc helix client; nil → the handler falls back to a fresh
+// activation.
+type SessionRestarter interface {
+	RestartSession(ctx context.Context, sessionID string) error
+}
+
 // GitHubIdentity is the resolved GitHub identity for an org. Mirrors
 // server.OrgGitHubIdentity (kept local to avoid a dependency cycle).
 type GitHubIdentity struct {
@@ -236,6 +254,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /workers/{id}/subscriptions/{stream_id}", Handler: http.HandlerFunc(a.unsubscribeWorker)},
 		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
 		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
+		{Pattern: "POST /workers/{id}/restart-agent", Handler: http.HandlerFunc(a.restartWorkerAgent)},
 		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
 		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
 		// Reporting lines are many-to-many — add/remove individual

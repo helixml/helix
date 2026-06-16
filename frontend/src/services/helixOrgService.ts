@@ -145,6 +145,26 @@ export function useActivateWorker(orgIDOverride?: string) {
   })
 }
 
+// useRestartWorkerAgent recreates the worker's desktop container from
+// scratch. Wired to the worker page's "Restart agent session" button.
+// Unlike useActivateWorker (which continues the existing session via
+// SendMessage and so can't recover a stuck container), this hits the
+// dedicated worker restart endpoint, which resolves the worker's session
+// and delegates to the shared backend restart primitive (StopDesktop →
+// recreate → reset crashed prompts), falling back to a fresh activation
+// when the worker has no live session.
+export function useRestartWorkerAgent(orgIDOverride?: string) {
+  const api = useApi()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (workerId: string) => {
+      const res = await api.getApiClient().v1OrgsWorkersRestartAgentCreate(workerId, orgID)
+      return res.data as ApiWorkerActivateDTO
+    },
+  })
+}
+
 export function useListHelixOrgWorkers(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()

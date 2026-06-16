@@ -377,6 +377,84 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// restartWorkerAgent recreates the worker's desktop container from
+// scratch — the worker-page "Restart agent session" button. Unlike
+// activateWorker (which continues the existing session via SendMessage
+// and so cannot recover a stuck container), this resolves the worker's
+// current session and delegates to the shared backend restart primitive
+// (StopDesktop → recreate → reset crashed prompts). If the worker has no
+// live session yet, it falls back to a normal activation so first-time
+// start still works.
+//
+// @Summary Helix-org: restart a worker's agent session (recreate desktop container)
+// @Tags HelixOrg
+// @Param id path string true "Worker ID"
+// @Success 202 {object} api.WorkerActivateDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 500 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/workers/{id}/restart-agent [post]
+func (a *apiHandler) restartWorkerAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.WorkerID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
+		return
+	}
+	// Confirm the Worker exists for a clean 404 before any side effects.
+	if _, err := a.deps.Queries.GetWorker(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get worker %s: %w", id, err))
+		return
+	}
+
+	// Resolve the worker's current desktop session. Empty means the
+	// worker has never activated — there's no container to recreate, so
+	// fall through to a normal activation (which starts a fresh one).
+	var sessionID string
+	if a.deps.WorkerRuntime != nil {
+		if info, err := a.deps.WorkerRuntime.State(ctx, orgID, id); err == nil {
+			sessionID = info.SessionID
+		}
+	}
+
+	if sessionID != "" && a.deps.SessionRestarter != nil {
+		if err := a.deps.SessionRestarter.RestartSession(ctx, sessionID); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("restart worker %s session: %w", id, err))
+			return
+		}
+		writeJSON(w, http.StatusAccepted, WorkerActivateDTO{SessionID: sessionID})
+		return
+	}
+
+	// No live session (or restarter unwired): fall back to a normal
+	// activation, which provisions the project and starts a fresh session.
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
+		return
+	}
+	res, err := a.deps.Activations.Activate(ctx, orgID, id)
+	if err != nil {
+		if errors.Is(err, activations.ErrActivateUnavailable) {
+			writeError(w, http.StatusNotImplemented, err)
+			return
+		}
+		writeError(w, errStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, WorkerActivateDTO{
+		ActivationID: string(res.ActivationID),
+		ProjectID:    res.ProjectID,
+		AgentAppID:   res.AgentAppID,
+		SessionID:    res.SessionID,
+	})
+}
+
 // updateWorkerIdentity rewrites a Worker's IdentityContent. The
 // Spawner projects the new content into the Worker's identity.md on
 // the next activation.
