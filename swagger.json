@@ -10161,7 +10161,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).",
                 "consumes": [
                     "application/json"
                 ],
@@ -10513,6 +10513,54 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a worker's agent session (recreate desktop container)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -20631,6 +20679,10 @@
         "api.CreateStreamRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -20843,6 +20895,10 @@
         "api.PublishRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker the message is sent as — the worker whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
@@ -20928,12 +20984,6 @@
             "type": "object",
             "properties": {
                 "db_path": {
-                    "type": "string"
-                },
-                "envs_dir": {
-                    "type": "string"
-                },
-                "owner": {
                     "type": "string"
                 },
                 "public_url": {

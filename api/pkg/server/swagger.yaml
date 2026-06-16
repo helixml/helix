@@ -21,6 +21,12 @@ definitions:
     type: object
   api.CreateStreamRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker that creates the stream — the worker whose chat
+          the human is in. Empty leaves the stream unattributed (CreatedBy is
+          cosmetic: it only anchors the node on the chart).
+        type: string
       description:
         type: string
       id:
@@ -185,6 +191,12 @@ definitions:
     type: object
   api.PublishRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker the message is sent as — the worker whose chat the
+          human is in. Empty means human/system-origin (the dispatcher treats
+          it as such). There is no global "owner" sender any more.
+        type: string
       body:
         type: string
       subject:
@@ -240,10 +252,6 @@ definitions:
   api.SettingsResponse:
     properties:
       db_path:
-        type: string
-      envs_dir:
-        type: string
-      owner:
         type: string
       public_url:
         type: string
@@ -18105,8 +18113,7 @@ paths:
       consumes:
       - application/json
       description: Create a Worker in the given Position. Wraps the hire_worker MCP
-        tool so REST + chat hires share semantics (env dir, activation stream, hire
-        dispatch).
+        tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
       parameters:
       - description: Hire request
         in: body
@@ -18331,6 +18338,36 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: remove a worker reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/restart-agent:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.WorkerActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a worker''s agent session (recreate desktop container)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers/{id}/role:

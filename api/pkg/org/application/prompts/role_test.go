@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 )
 
 func TestRoleRequiresCreateRoleTool(t *testing.T) {
 	t.Parallel()
-	if got := (prompts.Role{}).RequiresTool(); got != tools.CreateRoleName {
-		t.Fatalf("RequiresTool = %q, want %q", got, tools.CreateRoleName)
+	// "create_role" is the stable public tool name; RegisterBuiltins
+	// fails fast at boot if the registered name ever drifts from it.
+	if got := (prompts.Role{}).RequiresTool(); got != "create_role" {
+		t.Fatalf("RequiresTool = %q, want %q", got, "create_role")
 	}
 }
 

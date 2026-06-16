@@ -26,7 +26,7 @@ type ID string
 //     Outcome has been recorded.
 //   - Outcome: the terminal state (see outcome.go). Zero until
 //     Complete fires.
-//   - TranscriptStreamID: deterministic from WorkerID via StreamID().
+//   - TranscriptID: deterministic from WorkerID via TranscriptID().
 //     Stored on the row so audit consumers don't have to recompute.
 //
 // Invariants enforced at construction:
@@ -34,7 +34,7 @@ type ID string
 //   - ID is non-empty.
 //   - WorkerID is non-empty.
 //   - len(Triggers) ≥ 1.
-//   - TranscriptStreamID == StreamID(WorkerID) — the constructor
+//   - TranscriptID == TranscriptID(WorkerID) — the constructor
 //     derives it, callers don't pass it.
 //
 // Invariants enforced on Complete:
@@ -44,18 +44,18 @@ type ID string
 //     outcome is idempotent (helps reconciliation paths); a repeat
 //     with a *different* outcome is an error.
 type Activation struct {
-	ID                 ID
-	OrganizationID     string
-	WorkerID           orgchart.WorkerID
-	Triggers           []Trigger
-	StartedAt          time.Time
-	EndedAt            *time.Time
-	Outcome            Outcome
-	TranscriptStreamID streaming.StreamID
+	ID             ID
+	OrganizationID string
+	WorkerID       orgchart.WorkerID
+	Triggers       []Trigger
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	Outcome        Outcome
+	TranscriptID   streaming.StreamID
 }
 
 // New constructs an Activation, validating invariants. orgID is
-// required. The TranscriptStreamID is derived from WorkerID — callers
+// required. The TranscriptID is derived from WorkerID — callers
 // cannot override.
 //
 // Triggers is copied defensively so subsequent mutation of the
@@ -79,12 +79,12 @@ func New(id ID, workerID orgchart.WorkerID, triggers []Trigger, startedAt time.T
 	copied := make([]Trigger, len(triggers))
 	copy(copied, triggers)
 	return &Activation{
-		ID:                 id,
-		OrganizationID:     orgID,
-		WorkerID:           workerID,
-		Triggers:           copied,
-		StartedAt:          startedAt,
-		TranscriptStreamID: StreamID(workerID),
+		ID:             id,
+		OrganizationID: orgID,
+		WorkerID:       workerID,
+		Triggers:       copied,
+		StartedAt:      startedAt,
+		TranscriptID:   TranscriptID(workerID),
 	}, nil
 }
 

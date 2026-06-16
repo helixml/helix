@@ -39,9 +39,13 @@ func NewStream(id StreamID, name, description string, createdBy string, createdA
 	if name == "" {
 		return Stream{}, errors.New("stream name is empty")
 	}
-	if createdBy == "" {
-		return Stream{}, errors.New("stream createdBy is empty")
-	}
+	// createdBy is intentionally optional: it is the Worker the human was
+	// acting as when the stream was created, and it is purely cosmetic —
+	// it only anchors the stream's node to a Worker on the chart. An
+	// operator creating a stream from the Streams tab (no worker context)
+	// leaves it empty, and the stream is simply unanchored. Requiring it
+	// here broke UI stream creation after the owner concept was removed
+	// (there is no implicit owner to default it to).
 	if createdAt.IsZero() {
 		return Stream{}, errors.New("stream createdAt is zero")
 	}

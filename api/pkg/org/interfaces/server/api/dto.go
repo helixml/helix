@@ -149,10 +149,8 @@ type SettingsSpecDTO struct {
 
 // SettingsResponse is the body of GET /settings.
 type SettingsResponse struct {
-	Owner     string            `json:"owner"`
 	PublicURL string            `json:"public_url,omitempty"`
 	DBPath    string            `json:"db_path,omitempty"`
-	EnvsDir   string            `json:"envs_dir,omitempty"`
 	Specs     []SettingsSpecDTO `json:"specs"`
 }
 
@@ -180,10 +178,14 @@ type StreamDTO struct {
 
 // CreateStreamRequest is the body of POST /streams.
 type CreateStreamRequest struct {
-	ID          string                 `json:"id,omitempty"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Transport   *TransportRequestField `json:"transport,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// As is the Worker that creates the stream — the worker whose chat
+	// the human is in. Empty leaves the stream unattributed (CreatedBy is
+	// cosmetic: it only anchors the node on the chart).
+	As        string                 `json:"as,omitempty"`
+	Transport *TransportRequestField `json:"transport,omitempty"`
 }
 
 // TransportRequestField mirrors the MCP create_stream tool's transport sub-object.
@@ -242,6 +244,10 @@ type PublishRequest struct {
 	Body    string   `json:"body"`
 	Subject string   `json:"subject,omitempty"`
 	To      []string `json:"to,omitempty"`
+	// As is the Worker the message is sent as — the worker whose chat the
+	// human is in. Empty means human/system-origin (the dispatcher treats
+	// it as such). There is no global "owner" sender any more.
+	As string `json:"as,omitempty"`
 }
 
 // PublishResponse is the body of POST /streams/{id}/publish on success.

@@ -44,9 +44,9 @@ import (
 	"github.com/helixml/helix/api/pkg/quota"
 	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/sandbox"
-	"github.com/helixml/helix/api/pkg/webservice"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -55,6 +55,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
+	"github.com/helixml/helix/api/pkg/webservice"
 
 	_ "net/http/pprof" // enable profiling
 )
@@ -899,7 +900,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 			// /api/v1, so paths registered against it are matched as
 			// full request paths.
 			authRouter.PathPrefix("/orgs/{org}/").Handler(
-				requireFeature(alphaFeatureHelixOrg)(
+				requireFeature(helixorg.AlphaFeature)(
 					apiServer.withHelixOrgScope(orgHandlers.scope,
 						stripOrgScopedPrefix(orgHandlers.api),
 					),

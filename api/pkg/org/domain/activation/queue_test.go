@@ -23,7 +23,7 @@ func TestQueueSerializesPerWorker(t *testing.T) {
 	released := make(chan struct{})
 	firstStarted := make(chan struct{}, 1)
 
-	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, _ []activation.Trigger) error {
 		cur := atomic.AddInt32(&inflight, 1)
 		for {
 			old := atomic.LoadInt32(&peak)
@@ -42,7 +42,7 @@ func TestQueueSerializesPerWorker(t *testing.T) {
 
 	q := activation.NewQueue(spawn, nil)
 	for i := 0; i < 4; i++ {
-		q.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerEvent})
+		q.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerEvent})
 	}
 	// Block until the first Spawn is actually running so we know any
 	// trailing Enqueues are queued behind it rather than racing to
@@ -77,7 +77,7 @@ func TestQueueCoalescesBurstIntoOneBatch(t *testing.T) {
 	done.Add(2) // first batch + the coalesced follow-up
 	holdFirst := make(chan struct{})
 
-	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, triggers []activation.Trigger) error {
 		mu.Lock()
 		idx := len(batches)
 		copied := make([]activation.Trigger, len(triggers))
@@ -92,11 +92,11 @@ func TestQueueCoalescesBurstIntoOneBatch(t *testing.T) {
 	}
 
 	c := activation.NewQueue(spawn, nil)
-	c.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerHire})
+	c.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerHire})
 	// Two more triggers arrive while batch 0 is blocked.
 	time.Sleep(20 * time.Millisecond)
-	c.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-1"})
-	c.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-2"})
+	c.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-1"})
+	c.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerEvent, EventID: "e-2"})
 	time.Sleep(20 * time.Millisecond)
 	close(holdFirst)
 	done.Wait()
@@ -122,15 +122,15 @@ func TestQueueDifferentWorkersRunInParallel(t *testing.T) {
 	started := make(chan orgchart.WorkerID, 2)
 	release := make(chan struct{})
 
-	spawn := func(_ context.Context, _ string, w orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, w orgchart.WorkerID, _ []activation.Trigger) error {
 		started <- w
 		<-release
 		return nil
 	}
 
 	c := activation.NewQueue(spawn, nil)
-	c.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerHire})
-	c.Enqueue("org-test", "w-b", "/env/b", activation.Trigger{Kind: activation.TriggerHire})
+	c.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerHire})
+	c.Enqueue("org-test", "w-b", activation.Trigger{Kind: activation.TriggerHire})
 
 	deadline := time.After(time.Second)
 	got := map[orgchart.WorkerID]struct{}{}
@@ -152,7 +152,7 @@ func TestQueueDifferentWorkersRunInParallel(t *testing.T) {
 func TestQueueNilSpawnerIsNoop(t *testing.T) {
 	t.Parallel()
 	c := activation.NewQueue(nil, nil)
-	c.Enqueue("org-test", "w-a", "/env/a", activation.Trigger{Kind: activation.TriggerHire})
+	c.Enqueue("org-test", "w-a", activation.Trigger{Kind: activation.TriggerHire})
 	// No goroutine started, no panic; nothing to assert beyond
 	// "didn't crash" and the test returning normally.
 }
@@ -180,15 +180,15 @@ func TestQueueIsolatesSameWorkerIDAcrossOrgs(t *testing.T) {
 	started := make(chan call, 2)
 	release := make(chan struct{})
 
-	spawn := func(_ context.Context, org string, w orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, org string, w orgchart.WorkerID, _ []activation.Trigger) error {
 		started <- call{org: org, w: w}
 		<-release
 		return nil
 	}
 
 	q := activation.NewQueue(spawn, nil)
-	q.Enqueue("org-a", "w-owner", "/env/a", activation.Trigger{Kind: activation.TriggerHire})
-	q.Enqueue("org-b", "w-owner", "/env/b", activation.Trigger{Kind: activation.TriggerHire})
+	q.Enqueue("org-a", "w-owner", activation.Trigger{Kind: activation.TriggerHire})
+	q.Enqueue("org-b", "w-owner", activation.Trigger{Kind: activation.TriggerHire})
 
 	deadline := time.After(2 * time.Second)
 	got := map[string]orgchart.WorkerID{}

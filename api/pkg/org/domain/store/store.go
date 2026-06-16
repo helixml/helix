@@ -11,7 +11,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -151,15 +150,6 @@ type Events interface {
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
 }
 
-// Environments persists the per-Worker directory handle. The manager
-// populates the directory before hire; this table just tracks that a
-// directory exists and which Worker owns it.
-type Environments interface {
-	Create(ctx context.Context, env environment.Environment) error
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error)
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID) error
-}
-
 // Configs persists operational-config rows: transport credentials,
 // model selection, runtime knobs, etc. Keyed by (orgID, key) so each
 // helix tenant has its own settings.
@@ -186,7 +176,6 @@ type Store struct {
 	Streams            Streams
 	Subscriptions      Subscriptions
 	Events             Events
-	Environments       Environments
 	Configs            Configs
 	Activations        activation.Repository
 }
