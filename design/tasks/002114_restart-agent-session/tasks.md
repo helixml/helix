@@ -1,8 +1,8 @@
 # Implementation Tasks: Reliable Backend Restart of Agent Session Desktop Container
 
 ## Backend — shared restart primitive
-- [~] Extract `restartSessionContainer(ctx, user, session) (resetCount int, err error)` on `HelixAPIServer` from the current body of `restartCrashedAgentThread` (StopDesktop → resumeSessionInternal → ResetCrashedPromptsForSession → kick pending prompts).
-- [~] Refactor `restartCrashedAgentThread` (`POST /sessions/{id}/restart-agent`) into a thin wrapper: auth → load session → call `restartSessionContainer`.
+- [x] Extract `restartSessionContainer(ctx, user, session) (resetCount int, err error)` on `HelixAPIServer` from the current body of `restartCrashedAgentThread` (StopDesktop → resumeSessionInternal → ResetCrashedPromptsForSession → kick pending prompts).
+- [x] Refactor `restartCrashedAgentThread` (`POST /sessions/{id}/restart-agent`) into a thin wrapper: auth → load session → call `restartSessionContainer`.
 
 ## Backend — worker-scoped restart endpoint
 - [ ] Add `RestartSession(ctx, sessionID)` to `inProcHelixClient` that resolves the owning user and calls `restartSessionContainer`.
