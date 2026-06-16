@@ -15672,6 +15672,40 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-config-applied": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Notify that an in-place agent switch's config has been applied in the container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentConfigAppliedResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -22481,6 +22515,14 @@
             "type": "object",
             "properties": {
                 "hostname": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentConfigAppliedResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
                     "type": "string"
                 }
             }

@@ -197,19 +197,24 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 		return system.NewHTTPError500(fmt.Sprintf("failed to create fork_seed interaction: %v", err))
 	}
 
-	// Auto-fire a Waiting handoff turn so the new agent loads the prior
-	// context as soon as Zed reconnects after the restart — delivered by
-	// pickupWaitingInteraction on agent reconnect (not to the old, still
-	// connected agent, which is about to be killed by the restart).
+	// Auto-fire a Waiting handoff turn so the new agent warms up with the prior
+	// context. Delivered either live (daemon → /agent-config-applied →
+	// pickupWaitingInteraction over the running Zed WS) or, on the restart
+	// fallback, by pickupWaitingInteraction on reconnect.
+	//
+	// Keep the handoff SHORT: the prior transcript is prepended for context
+	// (the model still ingests it), but we explicitly tell the agent NOT to
+	// summarise or re-read it — just emit a one-line ready ack. A long
+	// "review the whole transcript and acknowledge" instruction made the model
+	// generate a big summary before the user could continue, which is the bulk
+	// of the perceived switch latency.
 	prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
 	newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
 	handoffPrompt := fmt.Sprintf(
-		"[System handoff: the agent for this session has just been switched. The "+
-			"environment, files, and workspace are unchanged.\n\n"+
-			"You are now: %s\nPrevious agent: %s\n\n"+
-			"The full prior conversation transcript is included above. Please briefly acknowledge "+
-			"that you've reviewed it and are ready to continue — keep the acknowledgment to one or "+
-			"two sentences so the user can pick up with their next message.]",
+		"[System: you are now %s, taking over this session from %s. The environment, "+
+			"files, and workspace are unchanged, and the prior conversation is included above "+
+			"for context. Do not summarise or restate it — just reply with a single short line "+
+			"confirming you're ready, then wait for the user's next message.]",
 		newLabel, prevLabel,
 	)
 	handoffInteraction := &types.Interaction{
@@ -231,10 +236,20 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 			Msg("switch-agent: failed to create handoff interaction; agent will warm up on user's first message instead")
 	}
 
-	// Tell the daemon to rewrite Zed's config for the new agent and restart
-	// Zed (so the new MCP surface loads). The in-flight turn, if any, is torn
-	// down by the restart — no explicit cancel needed.
-	apiServer.publishAgentConfigChange(ctx, session)
+	// Tell the daemon to rewrite Zed's config for the new agent. field="agent"
+	// is the FAST path: the daemon hot-reloads settings (no Zed restart) and
+	// calls back /agent-config-applied so we deliver the new thread over the
+	// live WebSocket. The in-flight turn, if any, is abandoned with the old
+	// thread (a new thread is created for the new agent).
+	apiServer.publishAgentConfigChange(ctx, session, "agent")
+
+	// Restart fallback: if the live path doesn't produce a new Zed thread
+	// within the timeout (e.g. the daemon callback was lost, or a brand-new
+	// custom agent_server didn't register from the hot-reload), force a clean
+	// Zed restart so the reconnect path delivers the handoff. Keyed on
+	// ZedThreadID: a successful switch always ends with a fresh thread id.
+	switchedAt := now
+	go apiServer.agentSwitchRestartFallback(context.Background(), session.ID, switchedAt)
 
 	log.Info().
 		Str("session_id", session.ID).
@@ -244,19 +259,61 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 		Str("target_app", childAppID).
 		Int("seed_completed_count", completedCount).
 		Int("seed_transcript_len", len(transcript)).
-		Msg("switch-agent: repointed session to new agent in place, restart requested")
+		Msg("switch-agent: repointed session to new agent in place (live hot-reload path)")
 
 	return nil
 }
 
+// switchAgentLiveDeliveryTimeout bounds how long we wait for the fast
+// hot-reload + live-delivery path to produce a new Zed thread before falling
+// back to a full Zed restart. Thread creation (thread_created → ZedThreadID)
+// happens well before the model finishes reading the transcript, so this only
+// needs to cover settings hot-reload + thread spin-up, not the LLM response.
+const switchAgentLiveDeliveryTimeout = 9 * time.Second
+
+// agentSwitchRestartFallback waits for the live hot-reload path to create a new
+// Zed thread; if it hasn't within the timeout, it requests a clean Zed restart
+// (field="agent_restart") so the reconnect path delivers the pending handoff.
+// No-ops if the session already got a new thread, was switched again, or paused.
+func (apiServer *HelixAPIServer) agentSwitchRestartFallback(ctx context.Context, sessionID string, switchedAt time.Time) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(switchAgentLiveDeliveryTimeout):
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("switch-agent fallback: failed to reload session")
+		return
+	}
+	// Live path succeeded — a new thread was created.
+	if session.Metadata.ZedThreadID != "" {
+		return
+	}
+	// A newer switch superseded this one — let its own fallback handle it.
+	if !session.Metadata.AgentSwitchedAt.Equal(switchedAt) {
+		return
+	}
+	// Session paused/forked away in the meantime — don't touch it.
+	if session.Metadata.Paused {
+		return
+	}
+	log.Info().
+		Str("session_id", sessionID).
+		Dur("after", switchAgentLiveDeliveryTimeout).
+		Msg("switch-agent fallback: no new thread from live hot-reload, requesting Zed restart")
+	apiServer.publishAgentConfigChange(ctx, session, "agent_restart")
+}
+
 // publishAgentConfigChange notifies the session's in-desktop settings-sync
-// daemon that the agent changed, so it re-syncs Zed config and restarts Zed.
-// field="agent" distinguishes this from the theme color_scheme change so the
-// daemon knows a full Zed restart (not just a settings rewrite) is required.
-func (apiServer *HelixAPIServer) publishAgentConfigChange(ctx context.Context, session *types.Session) {
+// daemon about an in-place agent change. field="agent" triggers the fast
+// hot-reload + live-delivery path; field="agent_restart" triggers the clean
+// Zed restart fallback.
+func (apiServer *HelixAPIServer) publishAgentConfigChange(ctx context.Context, session *types.Session, field string) {
 	payload, err := json.Marshal(map[string]string{
 		"type":  "config_changed",
-		"field": "agent",
+		"field": field,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("switch-agent: failed to marshal agent config event")
@@ -267,5 +324,45 @@ func (apiServer *HelixAPIServer) publishAgentConfigChange(ctx context.Context, s
 		log.Warn().Err(err).Str("topic", topic).Msg("switch-agent: failed to publish agent config event")
 		return
 	}
-	log.Info().Str("session_id", session.ID).Str("topic", topic).Msg("switch-agent: published agent config_changed event")
+	log.Info().Str("session_id", session.ID).Str("field", field).Str("topic", topic).Msg("switch-agent: published config_changed event")
+}
+
+// AgentConfigAppliedResponse is the trivial ack for the daemon callback.
+type AgentConfigAppliedResponse struct {
+	Status string `json:"status"`
+}
+
+// agentConfigApplied godoc
+// @Summary Notify that an in-place agent switch's config has been applied in the container
+// @Description Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.
+// @Tags    sessions
+// @Produce json
+// @Param   id path string true "Session ID"
+// @Success 200 {object} AgentConfigAppliedResponse
+// @Router  /api/v1/sessions/{id}/agent-config-applied [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) agentConfigApplied(_ http.ResponseWriter, req *http.Request) (*AgentConfigAppliedResponse, *system.HTTPError) {
+	sessionID := mux.Vars(req)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("missing session id")
+	}
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthenticated")
+	}
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404(fmt.Sprintf("session %s not found", sessionID))
+	}
+	if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+	// Deliver the pending Waiting handoff to the live Zed connection. This is
+	// the same call the reconnect path makes; here we invoke it on-demand after
+	// the daemon hot-reloaded the new agent's config, so no restart is needed.
+	// If there's no live connection, queueOrSend holds it and the restart
+	// fallback will eventually fire.
+	apiServer.pickupWaitingInteraction(ctx, session.ID, session, "")
+	return &AgentConfigAppliedResponse{Status: "ok"}, nil
 }

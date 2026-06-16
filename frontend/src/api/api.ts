@@ -868,6 +868,10 @@ export interface ServerAddDomainRequest {
   hostname?: string;
 }
 
+export interface ServerAgentConfigAppliedResponse {
+  status?: string;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: ServerGPUInfoWithSandbox[];
@@ -14590,6 +14594,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.
+     *
+     * @tags sessions
+     * @name V1SessionsAgentConfigAppliedCreate
+     * @summary Notify that an in-place agent switch's config has been applied in the container
+     * @request POST:/api/v1/sessions/{id}/agent-config-applied
+     * @secure
+     */
+    v1SessionsAgentConfigAppliedCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAgentConfigAppliedResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-config-applied`,
+        method: "POST",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

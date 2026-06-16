@@ -1073,16 +1073,53 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
 		}
-		// An in-place agent switch (field="agent") requires a clean Zed
-		// restart so the new agent's MCP context_servers come up correctly —
-		// Zed's context servers are per-project/shared and can't be hot-swapped
-		// per-thread. settings.json has just been rewritten by syncFromHelix
-		// above; restartZed kills the editor and the desktop's
-		// run_zed_restart_loop respawns it against the new config.
-		if evt.Field == "agent" {
+		// In-place agent switch coordination:
+		//   field="agent"          → fast path. settings.json has just been
+		//      rewritten; Zed hot-reloads agent_servers + context_servers via
+		//      its SettingsStore observers (no process restart). We then tell
+		//      the API the new config is on disk so it can deliver the new
+		//      thread to the still-running Zed over the live WebSocket.
+		//   field="agent_restart"  → fallback. The API asks for a clean restart
+		//      (e.g. live delivery failed / the new custom agent didn't register
+		//      from the hot-reload). pkill Zed; run_zed_restart_loop respawns it
+		//      and the reconnect path delivers the pending handoff.
+		switch evt.Field {
+		case "agent":
+			d.notifyAgentConfigApplied()
+		case "agent_restart":
 			d.restartZed()
 		}
 	}
+}
+
+// notifyAgentConfigApplied tells the Helix API that settings.json has been
+// rewritten for an in-place agent switch and Zed has had it hot-reloaded, so the
+// API can deliver the new thread over the live external-agent WebSocket without
+// waiting for a process restart + reconnect. Best-effort: if this fails, the
+// API's restart fallback (it sees no new ZedThreadID within its timeout) takes
+// over.
+func (d *SettingsDaemon) notifyAgentConfigApplied() {
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-config-applied", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: failed to build request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: request failed: %v (API restart fallback will cover this)", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("notifyAgentConfigApplied: API returned status %d", resp.StatusCode)
+		return
+	}
+	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
 }
 
 // restartZed kills the running Zed editor process. The desktop's
