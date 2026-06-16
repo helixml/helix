@@ -11,9 +11,9 @@
 - [x] Register the route and add swagger annotations.
 
 ## Frontend re-wiring
-- [ ] `./stack update_openapi` to regenerate the API client with the new endpoint.
-- [ ] Add `useRestartWorkerAgent` hook in `helixOrgService.ts`; switch `HelixOrgWorkerDetail.tsx` "Restart agent session" button from `useActivateWorker` to it.
-- [ ] In `SpecTaskDetailContent.tsx` replace `handleRestartSession`'s stop + `setTimeout` + resume with a single `v1SessionsRestartAgentCreate(sessionId)` call (keep dialog + snackbars).
+- [x] `./stack update_openapi` to regenerate the API client (`v1OrgsWorkersRestartAgentCreate`).
+- [x] Add `useRestartWorkerAgent` hook in `helixOrgService.ts`; switch `HelixOrgWorkerDetail.tsx` "Restart agent session" button from `useActivateWorker` to it.
+- [x] In `SpecTaskDetailContent.tsx` replace `handleRestartSession`'s stop + `setTimeout` + resume with a single `v1SessionsRestartAgentCreate(sessionId)` call (keep dialog + snackbars).
 
 ## Tests (TDD)
 - [ ] Suite test: `restartSessionContainer` calls `StopDesktop` then `StartDesktop` (gomock `InOrder`), not `SendMessage`; preserves `ZedThreadID`; resets crashed prompts; kicks pending prompts.
