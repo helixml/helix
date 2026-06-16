@@ -188,7 +188,8 @@ func TestTransportValidate_UnknownKindFails(t *testing.T) {
 		!strings.Contains(err.Error(), `"webhook"`) ||
 		!strings.Contains(err.Error(), `"email"`) ||
 		!strings.Contains(err.Error(), `"github"`) ||
-		!strings.Contains(err.Error(), `"cron"`) {
+		!strings.Contains(err.Error(), `"cron"`) ||
+		!strings.Contains(err.Error(), `"slack"`) {
 		t.Fatalf("unknown-kind error should list every valid kind; got %q", err)
 	}
 }
@@ -439,6 +440,7 @@ func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 		transport.KindEmail,
 		transport.KindGitHub,
 		transport.KindCron,
+		transport.KindSlack,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("TransportKindValues() length = %d, want %d (%v)", len(got), len(want), got)

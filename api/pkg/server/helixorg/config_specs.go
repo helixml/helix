@@ -78,4 +78,24 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Secrets:     []string{"token", "webhook_secret"},
 		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
 	})
+	// Per-org Slack installation: bot token + workspace/team id, written
+	// by the OAuth install callback (or by hand for Socket Mode). The
+	// global Slack app (client id/secret, signing secret, app token,
+	// ingress mode) lives separately on an OAuthProvider(type=slack) row.
+	// See design/2026-06-16-helix-org-slack-stream.md §9.2.
+	r.Register(configregistry.Spec{
+		Key:         "transport.slack",
+		Type:        configregistry.TypeObject,
+		Secrets:     []string{"bot_token"},
+		Description: `Slack install config: {"bot_token","team_id"}. Written per-org by the Slack OAuth install. bot_token (xoxb-…) authorises posts; team_id (T…) is the inbound routing key.`,
+	})
+	// Per-org inbound routing strategy for Slack channels with several
+	// subscribed Workers: "broadcast" (default — deliver to all) or
+	// "fuzzy" (keyword-match the best Worker). See §9.4.
+	r.Register(configregistry.Spec{
+		Key:         "slack.router",
+		Type:        configregistry.TypeString,
+		Default:     `"broadcast"`,
+		Description: "Inbound Slack disambiguation when several Workers share a channel. `broadcast` (default) activates every subscriber; `fuzzy` activates the best keyword match. Other strategies (e.g. an LLM router) plug in here later.",
+	})
 }

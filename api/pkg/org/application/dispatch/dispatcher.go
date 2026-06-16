@@ -129,6 +129,34 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 // a time in arrival order; outbound POSTs have no such ordering
 // guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
+	subs, err := d.store.Subscriptions.ListForStream(ctx, e.OrganizationID, e.StreamID)
+	if err != nil {
+		// Still attempt outbound emission (DispatchTo does it) even when
+		// the subscription list fails — keep the two side effects
+		// independent. Pass no targets so fan-out is a no-op.
+		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
+		d.DispatchTo(ctx, e, nil)
+		return
+	}
+	targets := make([]orgchart.WorkerID, 0, len(subs))
+	for _, sub := range subs {
+		targets = append(targets, orgchart.WorkerID(sub.WorkerID))
+	}
+	d.DispatchTo(ctx, e, targets)
+}
+
+// DispatchTo is the fan-out seam: it emits the Stream's outbound
+// traffic (always) and activates exactly the named target Workers
+// (subject to the same publisher-skip, AI-only, and source-kind rules
+// as the broadcast path). Dispatch computes `targets` as every
+// subscriber; the Slack ingest narrows them through a Router first
+// (§9.4). A target not subscribed/known is skipped with a warning, so a
+// Router can only ever restrict the subscriber set, never invent a
+// recipient outside it.
+//
+// Returns immediately. Each fan-out target runs on the per-Worker queue;
+// outbound POSTs have no ordering guarantee.
+func (d *Dispatcher) DispatchTo(ctx context.Context, e streaming.Event, targets []orgchart.WorkerID) {
 	orgID := e.OrganizationID
 	d.emitOutbound(ctx, e)
 	// Parse the canonical Message envelope. Every production write
@@ -143,11 +171,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
 		return
 	}
-	subs, err := d.store.Subscriptions.ListForStream(ctx, orgID, e.StreamID)
-	if err != nil {
-		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
-		return
-	}
 	// Resolve the publishing Worker's kind once so every fan-out target
 	// gets the same source_kind on its Trigger. Empty Source (system or
 	// transport inbound) leaves SourceKind empty — agent.md treats that
@@ -158,12 +181,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			sourceKind = sourceWorker.Kind()
 		}
 	}
-	// Subscriptions are worker-anchored: each subscription names the
-	// AI worker to activate directly. A subscription pointing at a
-	// fired worker silently dispatches to nobody (the row is dropped
-	// on fire — see lifecycle.Fire).
-	for _, sub := range subs {
-		workerID := orgchart.WorkerID(sub.WorkerID)
+	// Targets are worker-anchored: each names the AI worker to activate
+	// directly. A target pointing at a fired worker silently dispatches
+	// to nobody (the row is dropped on fire — see lifecycle.Fire).
+	for _, workerID := range targets {
 		if string(workerID) == string(e.Source) {
 			continue // do not deliver the event back to its publisher
 		}

@@ -93,11 +93,21 @@ func (s *HelixAPIServer) handleListOAuthProviders(_ http.ResponseWriter, r *http
 	// Remove sensitive information for non-admin users
 	if !user.Admin {
 		for _, provider := range providers {
-			provider.ClientSecret = ""
+			redactProviderSecrets(provider)
 		}
 	}
 
 	return providers, nil
+}
+
+// redactProviderSecrets blanks every secret field on a provider before
+// it is returned to a non-admin caller. Keeps the Slack secret fields in
+// lockstep with ClientSecret so a new secret can't leak by being missed
+// at one redaction site.
+func redactProviderSecrets(provider *types.OAuthProvider) {
+	provider.ClientSecret = ""
+	provider.SlackSigningSecret = ""
+	provider.SlackAppToken = ""
 }
 
 // handleCreateOAuthProvider creates a new OAuth provider
@@ -256,7 +266,7 @@ func (s *HelixAPIServer) handleGetOAuthProvider(_ http.ResponseWriter, r *http.R
 			return nil, fmt.Errorf("provider not found")
 		}
 
-		provider.ClientSecret = ""
+		redactProviderSecrets(provider)
 	}
 
 	return provider, nil

@@ -3975,6 +3975,12 @@ export interface TypesOAuthProvider {
   enabled?: boolean;
   id?: string;
   name?: string;
+  /** xapp-… app-level token for Socket Mode */
+  slack_app_token?: string;
+  /** "rest" | "socket" | "" — explicit toggle (FR-16) */
+  slack_ingress_mode?: string;
+  /** REST Events API authenticity (NFR-4) */
+  slack_signing_secret?: string;
   token_url?: string;
   type?: TypesOAuthProviderType;
   updated_at?: string;

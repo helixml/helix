@@ -62,7 +62,7 @@ type Config interface {
 // the system. The order is part of the public surface — it shows up
 // in JSON Schema enum lists, in "(valid: …)" error messages, and in
 // the MCP create_stream tool description. Tests pin it explicitly.
-var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindCron}
+var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindCron, KindSlack}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means adding a new file in this package that defines its Kind
@@ -75,6 +75,7 @@ var strategies = map[Kind]Strategy{
 	KindEmail:   email{},
 	KindGitHub:  github{},
 	KindCron:    cron{},
+	KindSlack:   slack{},
 }
 
 // KindValues lists every registered Kind in canonical display order

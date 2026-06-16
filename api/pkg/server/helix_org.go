@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -36,6 +37,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -85,6 +87,18 @@ type helixOrgHandlers struct {
 	// then redirects to the install page. The installation id is reconciled
 	// later via GET /app/installations (no Setup-URL redirect needed).
 	publicGitHubManifestCallback http.Handler
+	// Slack transport handlers. publicSlackEvents is the REST Events API
+	// ingress (POST /api/v1/slack/events) — one global endpoint, routed to
+	// the right org by team id. publicSlackOAuthCallback completes the
+	// per-org "Add to Slack" install (GET /api/v1/slack/oauth/callback,
+	// insecure, authenticated by encrypted state). slackOAuthStart begins
+	// the install for an org (GET /api/v1/orgs/{org}/slack/oauth/start,
+	// auth-routed). runSlackSocket runs the Socket Mode ingress under a
+	// single-owner lock (no-op unless the admin selects socket ingress).
+	publicSlackEvents        http.Handler
+	publicSlackOAuthCallback http.Handler
+	slackOAuthStart          http.Handler
+	runSlackSocket           func(ctx context.Context)
 }
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
@@ -475,6 +489,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			githubtransport.TokenResolver(gitHubTokenResolver),
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
+		// Slack "install" = ensure the org's shared bot has joined the
+		// bound channel (conversations.join); no per-stream webhook.
+		transport.KindSlack: slacktransport.NewProvisioner(configReg, logger),
 	}
 
 	// Application services shared by the REST adapter. Built once here
@@ -644,6 +661,28 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
 
+	// Slack transport wiring — registers the outbound emitter on the
+	// dispatcher and builds the REST/Socket ingress + OAuth install
+	// handlers. The Socket Mode single-owner lock uses helix's Postgres
+	// connection when available; otherwise a single-replica no-op lock.
+	var slackSQLDB *sql.DB
+	if accessor, ok := helixStore.(interface{ GormDB() *gorm.DB }); ok {
+		if raw, err := accessor.GormDB().DB(); err == nil {
+			slackSQLDB = raw
+		}
+	}
+	slack := buildSlackWiring(slackWiringDeps{
+		configReg:     configReg,
+		orgStore:      st,
+		broadcaster:   bc,
+		dispatcher:    dispatcher,
+		helixStore:    helixStore,
+		sqlDB:         slackSQLDB,
+		encryptionKey: cfg.APIServer.getEncryptionKey,
+		publicURL:     cfg.APIServer.Cfg.WebServer.URL,
+		logger:        logger,
+	})
+
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
@@ -651,6 +690,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
+		publicSlackEvents:            slack.events,
+		publicSlackOAuthCallback:     slack.oauthCallback,
+		slackOAuthStart:              slack.oauthStart,
+		runSlackSocket:               slack.runSocket,
 	}, nil
 }
 

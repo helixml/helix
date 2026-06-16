@@ -534,6 +534,52 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 	}
 }
 
+// TestDispatchToRestrictsFanOut proves DispatchTo activates only the
+// named targets — not every subscriber — while still emitting outbound.
+// This is the seam the Slack ingest uses to route to a Router-selected
+// subset (§9.4).
+func TestDispatchToRestrictsFanOut(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedAIWorker(t, s, "w-a")
+	seedAIWorker(t, s, "w-b")
+	seedAIWorker(t, s, "w-c")
+	seedSubscription(t, s, "w-a", "s-team")
+	seedSubscription(t, s, "w-b", "s-team")
+	seedSubscription(t, s, "w-c", "s-team")
+
+	e := makeEvent(t, "s-team", `{"body":"hi"}`)
+	// Route to only w-b even though all three are subscribed.
+	d.DispatchTo(context.Background(), e, []orgchart.WorkerID{"w-b"})
+
+	got := drainActivations(t, rec, 0)
+	if len(got) != 1 || got[0].WorkerID != "w-b" {
+		t.Fatalf("DispatchTo activated %+v, want only w-b", got)
+	}
+}
+
+// TestDispatchBroadcastsToAllSubscribers proves the unchanged Dispatch
+// path still fans out to every subscriber (the broadcast default the
+// non-Slack transports rely on).
+func TestDispatchBroadcastsToAllSubscribers(t *testing.T) {
+	t.Parallel()
+	d, s, rec := newDispatcherWithSpawner(t)
+	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedAIWorker(t, s, "w-a")
+	seedAIWorker(t, s, "w-b")
+	seedSubscription(t, s, "w-a", "s-team")
+	seedSubscription(t, s, "w-b", "s-team")
+
+	e := makeEvent(t, "s-team", `{"body":"hi"}`)
+	d.Dispatch(context.Background(), e)
+
+	got := drainActivations(t, rec, 0)
+	if len(got) != 2 {
+		t.Fatalf("Dispatch activated %d workers, want 2 (broadcast)", len(got))
+	}
+}
+
 // TestDispatchAttachesSourceKind pins that the dispatcher resolves the
 // Source Worker's WorkerKind and threads it onto the Trigger so the
 // activation prompt (rendered by spawner.renderTrigger) can surface

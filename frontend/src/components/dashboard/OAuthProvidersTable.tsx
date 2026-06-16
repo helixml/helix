@@ -863,6 +863,53 @@ const OAuthProvidersTable: React.FC = () => {
                 />
               </Grid>
               
+              {currentProvider.type === 'slack' && (
+                <>
+                  <Grid item xs={12}>
+                    <TextField
+                      select
+                      fullWidth
+                      label="Ingress Mode"
+                      name="slack_ingress_mode"
+                      value={currentProvider.slack_ingress_mode || ''}
+                      onChange={handleInputChange}
+                      SelectProps={{ native: true }}
+                      helperText="How inbound Slack events reach Helix. REST (Events API) serves many per-org installs; Socket Mode suits a single on-premise workspace with no inbound HTTP."
+                    >
+                      <option value="">(disabled — no inbound)</option>
+                      <option value="rest">REST (Events API)</option>
+                      <option value="socket">Socket Mode (WebSocket)</option>
+                    </TextField>
+                  </Grid>
+                  {currentProvider.slack_ingress_mode === 'rest' && (
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Signing Secret"
+                        name="slack_signing_secret"
+                        value={currentProvider.slack_signing_secret || ''}
+                        onChange={handleInputChange}
+                        type="password"
+                        helperText="Slack app Signing Secret — verifies Events API request authenticity. Set the Request URL to https://<your-helix>/api/v1/slack/events"
+                      />
+                    </Grid>
+                  )}
+                  {currentProvider.slack_ingress_mode === 'socket' && (
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="App-Level Token (xapp-…)"
+                        name="slack_app_token"
+                        value={currentProvider.slack_app_token || ''}
+                        onChange={handleInputChange}
+                        type="password"
+                        helperText="App-level token with connections:write — used to open the Socket Mode WebSocket. Generate it under Basic Information → App-Level Tokens."
+                      />
+                    </Grid>
+                  )}
+                </>
+              )}
+
               {currentProvider.type === 'custom' && (
                 <>
                   <Grid item xs={12}>

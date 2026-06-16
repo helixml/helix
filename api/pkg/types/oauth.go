@@ -50,6 +50,16 @@ type OAuthProvider struct {
 
 	// Misc configuration
 	Enabled bool `json:"enabled" gorm:"not null;default:true"`
+
+	// Slack-specific configuration. Only meaningful when Type == "slack",
+	// where this OAuthProvider row models the single instance-wide Slack
+	// app (client id/secret carried in the common fields above). See
+	// design/2026-06-16-helix-org-slack-stream.md §9.2. The two secret
+	// fields are redacted for non-admins (like ClientSecret) and
+	// encrypted at rest.
+	SlackSigningSecret string `json:"slack_signing_secret" gorm:"type:text"` // REST Events API authenticity (NFR-4)
+	SlackAppToken      string `json:"slack_app_token" gorm:"type:text"`      // xapp-… app-level token for Socket Mode
+	SlackIngressMode   string `json:"slack_ingress_mode"`                    // "rest" | "socket" | "" — explicit toggle (FR-16)
 }
 
 // OAuthConnection represents a user's connection to an OAuth provider

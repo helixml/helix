@@ -882,6 +882,45 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 					Methods(http.MethodGet)
 			}
 
+			// Slack Events API ingress — one global endpoint, routed to
+			// the right org by team id inside the ingest. Insecure mount:
+			// Slack signs deliveries with the app's signing secret (checked
+			// in the handler), not a helix session/api-key.
+			if orgHandlers.publicSlackEvents != nil {
+				insecureRouter.
+					Handle("/slack/events", orgHandlers.publicSlackEvents).
+					Methods(http.MethodPost)
+			}
+			// Slack OAuth install callback — top-level browser redirect from
+			// slack.com (GET), authenticated by the encrypted ?state=.
+			if orgHandlers.publicSlackOAuthCallback != nil {
+				insecureRouter.
+					Handle("/slack/oauth/callback", orgHandlers.publicSlackOAuthCallback).
+					Methods(http.MethodGet)
+			}
+			// Slack OAuth install start — an org admin clicks "Add to Slack"
+			// from settings. Wrapped in the same feature gate +
+			// org-membership scope as the rest of the org surface, so the
+			// org the install binds to is the caller's own (membership is
+			// authorised before StartURL reads the orgID off the context).
+			// Registered before the authRouter /orgs/{org}/ catch-all prefix
+			// so this exact path wins the match.
+			if orgHandlers.slackOAuthStart != nil {
+				authRouter.
+					Handle("/orgs/{org}/slack/oauth/start",
+						requireFeature(helixorg.AlphaFeature)(
+							apiServer.withHelixOrgScope(orgHandlers.scope, orgHandlers.slackOAuthStart),
+						),
+					).
+					Methods(http.MethodGet)
+			}
+			// Socket Mode ingress runner — runs for the lifetime of ctx,
+			// inert unless the admin selects socket ingress. The
+			// single-owner lock keeps exactly one replica connected.
+			if orgHandlers.runSlackSocket != nil {
+				go orgHandlers.runSlackSocket(ctx)
+			}
+
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,
 			// streams, settings). withHelixOrgScope resolves {org}
