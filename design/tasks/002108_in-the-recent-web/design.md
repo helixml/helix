@@ -130,3 +130,40 @@ Prod:    webservice.runBootstrap → getProjectSecrets(projectID, prod)
   both") and is the safe least-surprise default.
 - Keep allowed-value validation centralized (a helper like
   `SecretScope.Valid()`).
+
+## Implementation Notes (as built)
+
+- **Types** (`api/pkg/types/types.go`): added `SecretScope` with `Valid()` and
+  `AppliesTo(target)` helpers, `Scope` field on `Secret` (GORM
+  `default:'both';index`), and `Scope` on `CreateSecretRequest`.
+- **Store** (`store_secrets.go`): `CreateSecret` defaults empty scope to `both`
+  and rejects name collisions whose scopes overlap (`scopesOverlap` helper —
+  `both` overlaps everything). `postgres.go` backfills `scope='both'` for
+  NULL/empty rows after AutoMigrate (idempotent).
+- **Env injection** (`secrets_handlers.go`): `GetProjectSecretsAsEnvVars` now
+  takes a `target types.SecretScope` and filters via `scope.AppliesTo(target)`.
+  Wired in `server.go` with two closures — dev (HydraExecutor) bound to
+  `SecretScopeDev`, prod (web service) bound to `SecretScopeProd`. The
+  `ProjectSecretsGetter` func types stayed `(ctx, projectID)` so only the
+  binding changed, not every call site.
+- **Web service** (`webservice/controller.go`): added `ProjectSecretsGetter`
+  field + `SetProjectSecretsGetter`. `runBootstrap` gained a `projectID` param
+  and injects prod secrets via `hydra.ExecRequest.Env` (extracted into the
+  testable `projectSecretEnv` helper). Secrets are NOT inlined into the bootstrap
+  shell script — `exec env HELIX_WEB_SERVICE_PORT=... bash startup.sh` inherits
+  the exec process env, so secrets propagate to startup.sh without hitting logs.
+- **Frontend** (`ProjectSettings.tsx`): regenerated API client exposes
+  `TypesSecretScope`. Added an Environment select (default Both) to the Add
+  Secret dialog and a coloured scope chip per secret row (`secretScopeLabel`
+  helper). Verified with `yarn tsc` (clean).
+- **Gotcha**: local `frontend/dist/` is a root-owned read-only bind mount, so
+  `yarn build` fails at the output-copy step (transform succeeds). Use
+  `yarn tsc` for type verification locally.
+- **Gotcha**: `swag` installs to `$(go env GOPATH)/bin`, which isn't on PATH in
+  this env — export it before running `swag init`.
+- **Verification**: `go build ./pkg/...` clean; `go test ./pkg/types/
+  ./pkg/webservice/` pass; store secret tests pass against the live dev Postgres
+  (also exercises the backfill migration).
+- **Behaviour change**: default `both` means pre-existing secrets now also flow
+  into prod web services (previously prod received no secrets at all). This
+  matches the "apply to both" intent and is the least-surprising default.
