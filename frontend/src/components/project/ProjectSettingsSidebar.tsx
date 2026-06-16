@@ -6,11 +6,12 @@ import { Bot } from 'lucide-react'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import HubIcon from '@mui/icons-material/Hub'
+import PublicIcon from '@mui/icons-material/Public'
 import WarningIcon from '@mui/icons-material/Warning'
 
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
-export type ProjectSettingsTab = 'general' | 'sandbox' | 'agents' | 'board' | 'secrets' | 'skills' | 'danger'
+export type ProjectSettingsTab = 'general' | 'sandbox' | 'web-service' | 'agents' | 'board' | 'secrets' | 'skills' | 'danger'
 
 interface ProjectSettingsSidebarProps {
   activeTab?: ProjectSettingsTab
@@ -42,6 +43,13 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
           onClick: () => handleClick('sandbox'),
         },
         {
+          id: 'web-service',
+          label: 'Web Service',
+          icon: <PublicIcon />,
+          isActive: activeTab === 'web-service',
+          onClick: () => handleClick('web-service'),
+        },
+        {
           id: 'agents',
           label: 'Agents',
           icon: <Bot size={22} />,
@@ -64,7 +72,7 @@ const ProjectSettingsSidebar: FC<ProjectSettingsSidebarProps> = ({ activeTab = '
         },
         {
           id: 'skills',
-          label: 'Skills',
+          label: 'MCPs & APIs',
           icon: <HubIcon />,
           isActive: activeTab === 'skills',
           onClick: () => handleClick('skills'),

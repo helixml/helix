@@ -259,6 +259,11 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 		},
 	).Times(1)
 
+	// After marking the interaction as error, the worker also reverts any
+	// sync-time "starting" mark left by syncPromptHistory so the spinner
+	// returns to "Desktop Paused". Spec 002047_yet-again-sending-a.
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_exhausted").Return(false, nil).Times(1)
+
 	// IncrementInteractionAutoWakeCount must NOT be called — we're past the cap.
 	// StartDesktop must NOT be called either. gomock fails on unexpected calls.
 
@@ -267,6 +272,26 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 	s.Require().NotNil(captured)
 	s.Equal(types.InteractionStateError, captured.State)
 	s.Contains(captured.Error, "helixml/helix#2397")
+}
+
+// TestClearsStartingStatusOnExhaustion: when the worker exhausts cold-start
+// retries on a session that was sync-marked "starting" by syncPromptHistory,
+// it must also revert the status so the UI spinner returns to paused.
+func (s *AutoWakeColdStartSuite) TestClearsStartingStatusOnExhaustion() {
+	stuck := stuckInteraction("int-exh-clear", "ses_exh_clear", autoWakeMaxRetries)
+
+	session := &types.Session{
+		ID: "ses_exh_clear",
+		Metadata: types.SessionMetadata{
+			AgentType: "zed_external",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_exh_clear").Return(session, nil).Times(1)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(stuck, nil).Times(1)
+	// Worker found a "starting" mark and cleared it.
+	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_exh_clear").Return(true, nil).Times(1)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
 }
 
 // TestSkipsWhenInteractionIsYoung: stuck row younger than threshold must
