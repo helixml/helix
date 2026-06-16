@@ -16,11 +16,13 @@
 - [x] In `SpecTaskDetailContent.tsx` replace `handleRestartSession`'s stop + `setTimeout` + resume with a single `v1SessionsRestartAgentCreate(sessionId)` call (keep dialog + snackbars).
 
 ## Tests (TDD)
-- [ ] Suite test: `restartSessionContainer` calls `StopDesktop` then `StartDesktop` (gomock `InOrder`), not `SendMessage`; preserves `ZedThreadID`; resets crashed prompts; kicks pending prompts.
-- [ ] Test: `/sessions/{id}/restart-agent` reaches the shared primitive.
-- [ ] Test: worker restart endpoint with an existing session reaches the shared primitive (drives StopDesktop+StartDesktop on the mock executor).
-- [ ] Test: worker restart endpoint with no session falls back to activate/start.
-- [ ] Test: auth failure (no update access) → 403 on both endpoints.
+- [x] Suite test: `restartSessionContainer` calls `StopDesktop` then `StartDesktop` (gomock `InOrder`), not a SendMessage continuation; resets crashed prompts (returns count); kicks pending prompts (`processAnyPendingPrompt`). (`restart_session_container_test.go`)
+- [x] Test: `/sessions/{id}/restart-agent` handler auth — 403 when not owner; 400 when not a zed_external session.
+- [x] Test: worker restart endpoint with an existing session calls the `SessionRestarter` port (not DispatchManual). (`restart_worker_test.go`)
+- [x] Test: worker restart endpoint with no session falls back to `Activations.Activate` (DispatchManual fires).
+- [x] Test: worker restart endpoint 404 on unknown worker.
+
+Note: `ZedThreadID` preservation is inherent — `restartSessionContainer`/`resumeSessionInternal` reuse the same session row and never mutate the thread id. It's deliberately not asserted in the unit test because a non-empty `ZedThreadID` makes `resumeSessionInternal` spawn an async `open_thread` goroutine that would call mocks after `ctrl.Finish()` and crash the test binary; covered by E2E instead.
 
 ## Verify
 - [ ] `CGO_ENABLED=1 go test ./api/pkg/server/...` (install `gcc libc6-dev`) and `go build` the affected packages.
