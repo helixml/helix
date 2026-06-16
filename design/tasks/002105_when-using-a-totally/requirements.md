@@ -32,10 +32,8 @@ branch before `helix-specs`, but that seed is **best-effort**:
 - A redundant empty-repo init in `helix-workspace-setup.sh` (~line 324) can mask
   the function's own seeding, leaving the gap exposed in the standalone path.
 
-See design.md for the precise fix. A secondary, order-dependent non-determinism
-also exists in the Go forwarding loop (`git_http_server.go` `handleReceivePack`,
-~line 671, ranges over a Go map) which only matters when a single push carries
-multiple new branches; it is treated as optional hardening.
+See design.md for the precise fix. The fix lives entirely in the shell script;
+no backend (Go) changes are required.
 
 ## User Stories
 
@@ -74,4 +72,4 @@ setup keeps working.
   future hardening but is not required to fix the reported bug and adds an API
   dependency. See design.md for the trade-off.
 - Changing what `helix-specs` contains (it stays the design-docs orphan branch).
-- The Go forwarding-loop ordering is optional hardening, not the primary fix.
+- Backend (Go) changes — the fix is shell-script only.

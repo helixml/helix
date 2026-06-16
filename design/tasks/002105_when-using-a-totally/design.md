@@ -102,15 +102,10 @@ ensure it pushes `main` first and is consistent with the function. Removing the
 duplicate avoids the "README Initial commit" noise and the masking interaction
 described above. (Behaviour-preserving cleanup — verify with the test harness.)
 
-### Optional defense-in-depth — deterministic order in the Go forwarder
-
-`api/pkg/services/git_http_server.go` → `handleReceivePack` forwards pushed
-branches to the external remote by ranging over a Go map
-(`pushedBranchesMap`, ~line 671), whose order is non-deterministic. This only
-matters when a *single* push carries multiple new branches at once (the shell
-setup pushes them separately, so each forwards in order). As hardening, push the
-repo's default branch (`repo.DefaultBranch`) first within that loop. This is
-**optional** and secondary to the shell-script fix — include only if low-cost.
+No backend (Go) changes are required. The shell setup pushes `main` and
+`helix-specs` as separate `git push` operations, so once the script guarantees
+`main` is pushed first, it reaches the upstream first. The fix lives entirely in
+the shell script.
 
 ## Key decisions
 
@@ -122,9 +117,9 @@ repo's default branch (`repo.DefaultBranch`) first within that loop. This is
   `helix-specs`. **Rationale:** the current best-effort seed is exactly why the
   bug still occurs; never allow helix-specs to be the first branch on an empty
   upstream.
-- **Decision:** Treat the Go forwarder ordering as optional hardening, not the
-  primary fix. **Rationale:** reviewer feedback — the shell script is the lever;
-  the Go loop only bites for multi-branch single pushes.
+- **Decision:** Fix entirely in the shell script; no backend (Go) changes.
+  **Rationale:** the shell script is what pushes both branches for an empty repo
+  and is the real lever; separate pushes mean ordering there is sufficient.
 
 ## Risks / gotchas
 
@@ -133,8 +128,9 @@ repo's default branch (`repo.DefaultBranch`) first within that loop. This is
 - `master`-convention repos must still work; normalization must not force `main`
   when the upstream genuinely uses `master`.
 - The internal→external forwarding means a "successful" local push still relies
-  on forwarding succeeding; the seed-gate reduces but cannot fully remove that
-  dependency (hence the optional Go hardening).
+  on forwarding succeeding; the seed-gate (do not push helix-specs unless the
+  default-branch push succeeded) is what protects against the empty upstream
+  ever defaulting to `helix-specs`.
 
 ## Test plan
 

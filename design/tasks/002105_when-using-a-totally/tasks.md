@@ -16,10 +16,6 @@
 - [ ] Add a test where the default-branch seed push is forced to fail, asserting `helix-specs` is not pushed as the first/default branch.
 - [ ] Run the existing 11-case `test-helix-specs-creation.sh` suite and confirm all pass.
 
-## Optional hardening — `api/pkg/services/git_http_server.go`
-
-- [ ] In `handleReceivePack`'s external-push loop (~line 671), iterate branches in deterministic order with `repo.DefaultBranch` first (instead of ranging over the map), preserving the per-branch timeout and `upstreamPushFailed` rollback semantics. Include only if low-cost.
-
 ## Verification
 
 - [ ] Manually connect a brand new empty GitHub repo, run project setup multiple times, and confirm the GitHub default branch is `main` every time (no flakiness).
