@@ -17,21 +17,25 @@ This is wrong because:
 
 ### Root cause (confirmed)
 
-The branch-forwarding loop that mirrors internal pushes to the external GitHub
-remote iterates over a Go map with **non-deterministic order**:
+The shell script that creates and pushes **both** `main` and `helix-specs` for
+an empty repo is `desktop/shared/helix-specs-create.sh` →
+`create_helix_specs_branch` (invoked from the desktop session startup via
+`helix-workspace-setup.sh`). Commit `ee00cc926` already made it seed the default
+branch before `helix-specs`, but that seed is **best-effort**:
 
-- `api/pkg/services/git_http_server.go` → `handleReceivePack`, loop at ~line 671:
-  `for branch, isForce := range pushedBranchesMap { ... PushBranchToRemote(...) }`.
-  `pushedBranchesMap` comes from `detectChangedBranches` (a `map[string]bool`),
-  so when more than one branch is forwarded in the same push, the order is
-  random. Whichever branch lands first on the empty GitHub repo wins the
-  default-branch slot — `helix-specs` ~50% of the time.
+- If the default-branch seed push fails or is skipped, the function still pushes
+  the `helix-specs` orphan. On an empty upstream, `helix-specs` then becomes the
+  only/first branch and GitHub promotes it to default.
+- `RETURN_BRANCH` (the branch it seeds) is derived from the freshly-cloned
+  repo's current branch and can be `master`/empty rather than the intended
+  `main`.
+- A redundant empty-repo init in `helix-workspace-setup.sh` (~line 324) can mask
+  the function's own seeding, leaving the gap exposed in the standalone path.
 
-The desktop shell scripts already seed `main` first within their own flow
-(`helix-workspace-setup.sh` empty-repo init at ~line 324; `helix-specs-create.sh`
-empty-repo seeding, commit `ee00cc926`). The remaining gap is the **Go
-forwarding layer**, which does not guarantee `main` is forwarded before
-`helix-specs`.
+See design.md for the precise fix. A secondary, order-dependent non-determinism
+also exists in the Go forwarding loop (`git_http_server.go` `handleReceivePack`,
+~line 671, ranges over a Go map) which only matters when a single push carries
+multiple new branches; it is treated as optional hardening.
 
 ## User Stories
 
@@ -69,4 +73,5 @@ setup keeps working.
   (`PATCH /repos/{owner}/{repo}` with `default_branch`). This is a possible
   future hardening but is not required to fix the reported bug and adds an API
   dependency. See design.md for the trade-off.
-- Changing how `helix-specs` itself is created or what it contains.
+- Changing what `helix-specs` contains (it stays the design-docs orphan branch).
+- The Go forwarding-loop ordering is optional hardening, not the primary fix.
