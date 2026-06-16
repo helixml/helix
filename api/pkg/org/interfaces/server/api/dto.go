@@ -221,6 +221,48 @@ type EventCard struct {
 	MessageBody string `json:"message_body,omitempty"`
 }
 
+// MessageAttributes is the JSON:API `attributes` object for a
+// `messages` resource: the decoded Message envelope plus the event
+// coordinates. Body is the visible text — the parsed Message.Body when
+// the event carries a Message, otherwise the raw stored body.
+type MessageAttributes struct {
+	StreamID   string   `json:"stream_id"`
+	Source     string   `json:"source,omitempty"`
+	CreatedAt  string   `json:"created_at"`
+	From       string   `json:"from,omitempty"`
+	To         []string `json:"to,omitempty"`
+	Subject    string   `json:"subject,omitempty"`
+	Body       string   `json:"body"`
+	HasMessage bool     `json:"has_message"`
+}
+
+// MessageResource is one JSON:API resource object in the messages list.
+type MessageResource struct {
+	Type       string            `json:"type"`
+	ID         string            `json:"id"`
+	Attributes MessageAttributes `json:"attributes"`
+}
+
+// MessagesMeta is the top-level `meta` of the messages document:
+// total item count plus the pagination state.
+type MessagesMeta struct {
+	Total      int `json:"total"`
+	Page       int `json:"page"`
+	Size       int `json:"size"`
+	TotalPages int `json:"total_pages"`
+}
+
+// MessagesDocument is the JSON:API document returned by
+// GET /streams/{id}/messages. It documents the concrete shape the
+// jsonapi composition helpers emit so the generated OpenAPI client has
+// a typed response. Links are page-relative references
+// (self/first/prev/next/last).
+type MessagesDocument struct {
+	Data  []MessageResource `json:"data"`
+	Meta  MessagesMeta      `json:"meta"`
+	Links map[string]string `json:"links,omitempty"`
+}
+
 // WorkerSubscriptionDTO is one row in a worker's subscription list.
 type WorkerSubscriptionDTO struct {
 	StreamID  string `json:"stream_id"`
