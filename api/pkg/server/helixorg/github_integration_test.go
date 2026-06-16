@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// fakeServiceConnections is a hand-written in-memory serviceConnections
+// fakeServiceConnections is a hand-written in-memory ServiceConnections
 // fake (no gomock — the sync logic is what we're exercising, not call
 // expectations).
 type fakeServiceConnections struct {
@@ -31,8 +31,8 @@ func (f *fakeServiceConnections) DeleteServiceConnection(_ context.Context, id s
 	return nil
 }
 
-func testIntegration(fake *fakeServiceConnections, listInstalls func(context.Context, int64, string, string) ([]*github.Installation, error)) *gitHubIntegration {
-	return &gitHubIntegration{
+func testIntegration(fake *fakeServiceConnections, listInstalls func(context.Context, int64, string, string) ([]*github.Installation, error)) *GitHubIntegration {
+	return &GitHubIntegration{
 		conns:        fake,
 		decrypt:      func(*types.ServiceConnection) (string, error) { return "pem", nil },
 		appSlug:      "fallback-slug",

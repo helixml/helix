@@ -13,6 +13,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 )
 
 // TestBuildHelixOrgSpawnerConfig_WiresProjectService is the regression
@@ -36,7 +37,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 
 	orgStore := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
 	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
@@ -74,7 +75,7 @@ func TestBuildHelixOrgSpawnerConfig_RejectsNilProjectService(t *testing.T) {
 
 	orgStore := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(orgStore.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	helixorg.RegisterConfigSpecs(reg)
 
 	const orgID = "org-test"
 	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))

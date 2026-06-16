@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -20,13 +20,13 @@ import (
 // Ported from helix-org/cmd/helix-org/configspecs_test.go in H7 when
 // the standalone CLI was deleted. The redaction invariant the
 // original test pinned is preserved here against the embedded path's
-// registerHelixOrgConfigSpecs.
+// RegisterConfigSpecs.
 func TestRegisterHelixOrgConfigSpecs_RedactsTransportGitHubSecrets(t *testing.T) {
 	t.Parallel()
 
 	st := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(st.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	RegisterConfigSpecs(reg)
 
 	const raw = `{"token":"plaintext-token-leaked","webhook_secret":"plaintext-secret-leaked"}`
 	if err := reg.Set(context.Background(), "org-test", "transport.github", raw); err != nil {
@@ -69,7 +69,7 @@ func TestRegisterHelixOrgConfigSpecs_RedactsPostmarkToken(t *testing.T) {
 
 	st := orggorm.GetOrgTestDB(t)
 	reg := helixorgconfig.New(st.Configs)
-	registerHelixOrgConfigSpecs(reg)
+	RegisterConfigSpecs(reg)
 
 	spec, ok := reg.Spec("transport.postmark")
 	if !ok {

@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func TestAPIKeys_User_ReturnsExisting(t *testing.T) {
 		Return([]*types.ApiKey{{Key: "hl-existing"}}, nil)
 	// No CreateAPIKey expected.
 
-	k := newHelixAPIKeys(st, newTestConfigs(t))
+	k := NewHelixAPIKeys(st, newTestConfigs(t))
 	got, err := k.User(context.Background(), "usr-1")
 	if err != nil {
 		t.Fatalf("User: %v", err)
@@ -60,7 +60,7 @@ func TestAPIKeys_User_MintsWhenNone(t *testing.T) {
 			return k, nil
 		})
 
-	k := newHelixAPIKeys(st, newTestConfigs(t))
+	k := NewHelixAPIKeys(st, newTestConfigs(t))
 	got, err := k.User(context.Background(), "usr-2")
 	if err != nil {
 		t.Fatalf("User: %v", err)
@@ -84,7 +84,7 @@ func TestAPIKeys_Service_MintsAndGrantsFlag(t *testing.T) {
 		func(_ context.Context, u *types.User) (*types.User, error) {
 			var granted bool
 			for _, f := range u.AlphaFeatures {
-				if f == alphaFeatureHelixOrg {
+				if f == AlphaFeature {
 					granted = true
 				}
 			}
@@ -97,7 +97,7 @@ func TestAPIKeys_Service_MintsAndGrantsFlag(t *testing.T) {
 		func(_ context.Context, k *types.ApiKey) (*types.ApiKey, error) { return k, nil })
 
 	reg := newTestConfigs(t)
-	k := newHelixAPIKeys(st, reg)
+	k := NewHelixAPIKeys(st, reg)
 	got, err := k.Service(context.Background(), "org-test")
 	if err != nil {
 		t.Fatalf("Service: %v", err)
@@ -119,7 +119,7 @@ func TestAPIKeys_Service_NoAdmin(t *testing.T) {
 	st := store.NewMockStore(ctrl)
 	st.EXPECT().ListUsers(gomock.Any(), gomock.Any()).Return([]*types.User{}, int64(0), nil)
 
-	k := newHelixAPIKeys(st, newTestConfigs(t))
+	k := NewHelixAPIKeys(st, newTestConfigs(t))
 	if _, err := k.Service(context.Background(), "org-test"); err == nil {
 		t.Fatal("expected error when no admin user exists")
 	}

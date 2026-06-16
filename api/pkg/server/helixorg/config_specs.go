@@ -1,16 +1,22 @@
-package server
+package helixorg
 
 import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 )
 
-// registerHelixOrgConfigSpecs declares the operational-config keys the
+// AlphaFeature is the alpha-feature flag that gates the embedded
+// helix-org surface. Granted per-user via:
+//
+//	UPDATE users SET alpha_features = array_append(alpha_features, 'helix-org')
+const AlphaFeature = "helix-org"
+
+// RegisterConfigSpecs declares the operational-config keys the
 // embedded helix-org honours. The embedded alpha has exactly one
 // user-facing knob: `worker.runtime` — the code-agent runtime every
 // Worker (owner included) gets provisioned with. Everything else is
 // derived. The `helix.*` keys are auto-managed plumbing the user
 // shouldn't normally touch.
-func registerHelixOrgConfigSpecs(r *configregistry.Registry) {
+func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         "worker.runtime",
 		Type:        configregistry.TypeString,

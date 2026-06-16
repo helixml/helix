@@ -41,6 +41,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -85,13 +86,6 @@ type helixOrgHandlers struct {
 	// later via GET /app/installations (no Setup-URL redirect needed).
 	publicGitHubManifestCallback http.Handler
 }
-
-// alphaFeatureHelixOrg is the alpha-feature flag that gates the
-// embedded helix-org surface. Granted per-user via:
-//
-//	UPDATE users SET alpha_features = array_append(alpha_features, 'helix-org')
-//	WHERE email = '...';
-const alphaFeatureHelixOrg = "helix-org"
 
 // initHelixOrgHandler builds the in-process helix-org HTTP handler;
 // mounted at /api/v1/orgs/{org}/, gated per-user by the `helix-org`
@@ -233,7 +227,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// so the spawner can read chat.app_id / helix.url at activation
 	// time.
 	configReg := configregistry.New(st.Configs)
-	registerHelixOrgConfigSpecs(configReg)
+	helixorg.RegisterConfigSpecs(configReg)
 
 	// The Helix service api_key is per-org and provisioned lazily by
 	// helixOrgScope.ensureBootstrap on the first request for an org.
@@ -317,7 +311,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// outbound `Token()` lookup; the worker-side mint path now flows
 	// through the mint_credential MCP tool + CredentialProvider, not a
 	// boot-time SecretInjector.
-	oauthResolver := newGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
+	oauthResolver := helixorg.NewGitHubOAuthResolver(cfg.APIServer.oauthManager, helixStore)
 	// identityResolver prefers the installed Helix App bot over a borrowed
 	// member OAuth token: if the org has a github_app ServiceConnection it
 	// mints a short-lived installation token (decrypting the stored PEM with
@@ -325,16 +319,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// github.MintInstallationCredential is the production minter — it
 	// returns both the token and the server-reported expiry, which
 	// mint_credential surfaces to agents.
-	identityResolver := newOrgGitHubIdentityResolver(
+	identityResolver := helixorg.NewOrgGitHubIdentityResolver(
 		cfg.APIServer.getEncryptionKey,
 		helixStore,
 		oauthResolver,
-		func(ctx context.Context, appID, installationID int64, pem, baseURL string) (MintedInstallation, error) {
+		func(ctx context.Context, appID, installationID int64, pem, baseURL string) (helixorg.MintedInstallation, error) {
 			cred, err := githubskill.MintInstallationCredential(ctx, appID, installationID, pem, baseURL)
 			if err != nil {
-				return MintedInstallation{}, err
+				return helixorg.MintedInstallation{}, err
 			}
-			return MintedInstallation{Token: cred.Token, ExpiresAt: cred.ExpiresAt}, nil
+			return helixorg.MintedInstallation{Token: cred.Token, ExpiresAt: cred.ExpiresAt}, nil
 		},
 	)
 	// gitHubTokenResolver is the bot-preferring token projection used by
@@ -467,8 +461,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 
 	// GitHub-App integration (install-status gate + repo picker) — owned
-	// by the gitHubIntegration adapter rather than inline closures here.
-	gitHubInt := newGitHubIntegration(helixStore, cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.AppSlug, cfg.APIServer.Cfg.GitHub.WebURL())
+	// by the helixorg.GitHubIntegration adapter rather than inline closures here.
+	gitHubInt := helixorg.NewGitHubIntegration(helixStore, cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.AppSlug, cfg.APIServer.Cfg.GitHub.WebURL())
 
 	// Inbound-webhook provisioners, keyed by transport Kind. Each
 	// transport that needs external registration (github now, slack
@@ -550,12 +544,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		},
 		// GitHubInstallation backs the New Stream "Install Helix" gate;
 		// GitHubAppRepos backs the repo picker. Both are owned by the
-		// gitHubIntegration adapter (helix_org_github.go) — this
+		// helixorg.GitHubIntegration adapter (helixorg/github.go) — this
 		// composition root just constructs it and passes method values.
 		GitHubInstallation: gitHubInt.InstallationStatus,
 		GitHubAppRepos:     gitHubInt.AppRepos,
 		// GitHubManifestStart builds the "create the Helix app" manifest flow.
-		GitHubManifestStart: newGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL()),
+		GitHubManifestStart: helixorg.NewGitHubManifestStart(cfg.APIServer.getEncryptionKey, cfg.APIServer.Cfg.GitHub.WebURL()),
 		// PublicServerURL is the externally-reachable base URL the
 		// auto-installed GitHub webhook should POST back to. Helix's
 		// SERVER_URL env var is the canonical place it lives.
@@ -639,7 +633,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// navigations from github.com): the conversion callback is authenticated
 	// by the encrypted ?state=; the setup callback only records a non-secret
 	// installation id onto the org's app.
-	publicGitHubManifestCallback := newGitHubManifestCallbackHandler(
+	publicGitHubManifestCallback := helixorg.NewGitHubManifestCallbackHandler(
 		cfg.APIServer.getEncryptionKey, helixStore, deps.NewID,
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
@@ -918,7 +912,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 		NewID:          d.NewID,
 		Now:            d.Now,
 		BearerForUser: func(ctx context.Context, userID string) (string, error) {
-			return newHelixAPIKeys(d.HelixStore, d.Cfg).User(ctx, userID)
+			return helixorg.NewHelixAPIKeys(d.HelixStore, d.Cfg).User(ctx, userID)
 		},
 	}, nil
 }

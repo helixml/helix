@@ -1,4 +1,4 @@
-// Tests for newGitHubOAuthResolver — the function that resolves
+// Tests for NewGitHubOAuthResolver — the function that resolves
 // the operator's GitHub access token for the helix-org github
 // streams transport. Production wiring rebuilds this function with
 // real store + oauth manager; we feed it a stub store so the test
@@ -21,7 +21,7 @@
 //     store_oauth.go's GetOAuthConnectionByUserAndProvider). Tested
 //     in pkg/store tests; here we just pin the resolver's NEWEST
 //     provider preference.
-package server
+package helixorg
 
 import (
 	"context"
@@ -36,7 +36,7 @@ import (
 )
 
 // stubOAuthStore is a minimal helixstore.Store that returns
-// pre-canned data for the three methods newGitHubOAuthResolver
+// pre-canned data for the three methods NewGitHubOAuthResolver
 // calls. Any other method panics — that's what the embedded nil
 // Store interface gives us (clear stack trace if a test
 // accidentally exercises an untested code path).
@@ -106,11 +106,11 @@ func TestGitHubOAuthResolverPicksNewestProviderToken(t *testing.T) {
 		},
 	}
 
-	// oauth.Manager is required-non-nil by newGitHubOAuthResolver,
+	// oauth.Manager is required-non-nil by NewGitHubOAuthResolver,
 	// even though the resolver no longer consults it directly. A
 	// zero-provider manager is fine.
 	mgr := oauth.NewManager(store, false)
-	resolver := newGitHubOAuthResolver(mgr, store)
+	resolver := NewGitHubOAuthResolver(mgr, store)
 	if resolver == nil {
 		t.Fatal("expected resolver, got nil")
 	}
@@ -131,7 +131,7 @@ func TestGitHubOAuthResolverPicksNewestProviderToken(t *testing.T) {
 func TestGitHubOAuthResolverNoProvidersReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	store := &stubOAuthStore{}
-	resolver := newGitHubOAuthResolver(oauth.NewManager(store, false), store)
+	resolver := NewGitHubOAuthResolver(oauth.NewManager(store, false), store)
 	got, err := resolver(context.Background(), "org-test")
 	if err != nil {
 		t.Fatalf("resolver err: %v", err)
@@ -159,7 +159,7 @@ func TestGitHubOAuthResolverFallsThroughToOlderProviderIfNewerHasNoConnection(t 
 			"usr-1::prov-old": {AccessToken: "gho_oldprovider_token"},
 		},
 	}
-	resolver := newGitHubOAuthResolver(oauth.NewManager(store, false), store)
+	resolver := NewGitHubOAuthResolver(oauth.NewManager(store, false), store)
 	got, err := resolver(context.Background(), "org-test")
 	if err != nil {
 		t.Fatalf("resolver err: %v", err)
@@ -174,10 +174,10 @@ func TestGitHubOAuthResolverFallsThroughToOlderProviderIfNewerHasNoConnection(t 
 // and api.Deps treats nil GitHubTokenResolver as "no fallback".
 func TestGitHubOAuthResolverNilDepsReturnsNil(t *testing.T) {
 	t.Parallel()
-	if newGitHubOAuthResolver(nil, &stubOAuthStore{}) != nil {
+	if NewGitHubOAuthResolver(nil, &stubOAuthStore{}) != nil {
 		t.Error("expected nil resolver when manager is nil")
 	}
-	if newGitHubOAuthResolver(oauth.NewManager(&stubOAuthStore{}, false), nil) != nil {
+	if NewGitHubOAuthResolver(oauth.NewManager(&stubOAuthStore{}, false), nil) != nil {
 		t.Error("expected nil resolver when store is nil")
 	}
 }
@@ -205,7 +205,7 @@ func TestGitHubOAuthResolverPropagatesStoreErrors(t *testing.T) {
 		},
 		err: boom,
 	}
-	resolver := newGitHubOAuthResolver(oauth.NewManager(store, false), store)
+	resolver := NewGitHubOAuthResolver(oauth.NewManager(store, false), store)
 	_, err := resolver(context.Background(), "org-test")
 	if err == nil || !errors.Is(err, boom) {
 		t.Errorf("err = %v, want wrapping %v", err, boom)

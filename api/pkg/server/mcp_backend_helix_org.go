@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -48,7 +49,7 @@ func NewHelixOrgMCPBackend(apiServer *HelixAPIServer, orgHandlers *helixOrgHandl
 // gateway. Defence in depth — the picker is alpha-gated already, but
 // agents can be shared.
 func (b *HelixOrgMCPBackend) ServeHTTP(w http.ResponseWriter, r *http.Request, user *types.User) {
-	if !hasAlphaFeature(user, alphaFeatureHelixOrg) {
+	if !hasAlphaFeature(user, helixorg.AlphaFeature) {
 		log.Warn().Str("user_id", user.ID).Msg("helix-org MCP: user lacks alpha feature flag")
 		http.Error(w, "forbidden: helix-org alpha not enabled for this user", http.StatusForbidden)
 		return

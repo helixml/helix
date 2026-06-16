@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// newGitHubOAuthResolver builds the GitHubTokenResolver the helix-org
+// NewGitHubOAuthResolver builds the GitHubTokenResolver the helix-org
 // streams API wires into the github transport. The resolver is what
 // makes "reuse the existing GitHub OAuth for Auth" real: instead of
 // requiring ops to paste a PAT into transport.github, the transport
@@ -45,7 +45,7 @@ import (
 // nil manager OR nil store disables the resolver — the api Deps treats
 // nil GitHubTokenResolver as "no fallback", which gives the same
 // degraded behaviour without crashing wiring that wants to opt out.
-func newGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(context.Context, string) (string, error) {
+func NewGitHubOAuthResolver(manager *oauth.Manager, st helixstore.Store) func(context.Context, string) (string, error) {
 	if manager == nil || st == nil {
 		return nil
 	}
@@ -131,7 +131,7 @@ type OrgGitHubIdentity struct {
 	BaseURL        string
 }
 
-// newOrgGitHubIdentityResolver returns the org's GitHub identity, preferring
+// NewOrgGitHubIdentityResolver returns the org's GitHub identity, preferring
 // the installed Helix App over a borrowed human OAuth token. If a github_app
 // ServiceConnection exists for the org, it decrypts the stored PEM and mints
 // a short-lived installation access token (Mode="app"); otherwise it falls
@@ -173,7 +173,7 @@ type MintedInstallation struct {
 	ExpiresAt time.Time
 }
 
-func newOrgGitHubIdentityResolver(
+func NewOrgGitHubIdentityResolver(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	oauthFallback func(context.Context, string) (string, error),
@@ -229,15 +229,15 @@ func newOrgGitHubIdentityResolver(
 	}
 }
 
-// serviceConnections is the narrow slice of the host store the GitHub
+// ServiceConnections is the narrow slice of the host store the GitHub
 // integration needs — small enough to fake in a unit test.
-type serviceConnections interface {
+type ServiceConnections interface {
 	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
 	UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
 	DeleteServiceConnection(ctx context.Context, id string) error
 }
 
-// gitHubIntegration owns the host-side GitHub-App reads the helix-org
+// GitHubIntegration owns the host-side GitHub-App reads the helix-org
 // REST API needs: the New Stream "Install Helix" gate (InstallationStatus)
 // and the repo picker (AppRepos). Lifted verbatim out of the inline
 // closures that used to live in initHelixOrgHandler — that function is a
@@ -247,8 +247,8 @@ type serviceConnections interface {
 // installRepos) are struct fields so the install-status sync (stale-conn
 // delete, installation-id + owner backfill) is unit-testable against a
 // fake store without hitting GitHub or real crypto.
-type gitHubIntegration struct {
-	conns   serviceConnections
+type GitHubIntegration struct {
+	conns   ServiceConnections
 	decrypt func(*types.ServiceConnection) (string, error)
 	appSlug string // operator's BYO/pre-existing app slug fallback
 	webURL  string // GitHub web base URL for install/manage links
@@ -258,10 +258,10 @@ type gitHubIntegration struct {
 	installRepos func(ctx context.Context, token, baseURL string) ([]string, error)
 }
 
-// newGitHubIntegration wires the production seams: decrypt via the
+// NewGitHubIntegration wires the production seams: decrypt via the
 // server encryption key, and the real go-github / skill calls.
-func newGitHubIntegration(conns serviceConnections, getKey func() ([]byte, error), appSlug, webURL string) *gitHubIntegration {
-	return &gitHubIntegration{
+func NewGitHubIntegration(conns ServiceConnections, getKey func() ([]byte, error), appSlug, webURL string) *GitHubIntegration {
+	return &GitHubIntegration{
 		conns:        conns,
 		decrypt:      func(c *types.ServiceConnection) (string, error) { return decryptAppKey(getKey, c) },
 		appSlug:      appSlug,
@@ -286,7 +286,7 @@ func newGitHubIntegration(conns serviceConnections, getKey func() ([]byte, error
 // removes the stored connection when the app has been deleted on GitHub
 // (so the gate reverts to "Create the Helix app"). Transient errors fall
 // back to the stored state rather than mutating it.
-func (g *gitHubIntegration) InstallationStatus(ctx context.Context, orgID string) (helixorgapi.GitHubInstallationStatus, error) {
+func (g *GitHubIntegration) InstallationStatus(ctx context.Context, orgID string) (helixorgapi.GitHubInstallationStatus, error) {
 	conns, err := g.conns.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
 	if err != nil {
 		return helixorgapi.GitHubInstallationStatus{}, fmt.Errorf("list github_app service connections: %w", err)
@@ -360,7 +360,7 @@ func (g *gitHubIntegration) InstallationStatus(ctx context.Context, orgID string
 // their repos. Mints a per-installation token and lists the installation
 // repositories for each. isApp is false when the org has no app (caller
 // then falls back to the user's OAuth repos).
-func (g *gitHubIntegration) AppRepos(ctx context.Context, orgID string) ([]string, bool, error) {
+func (g *GitHubIntegration) AppRepos(ctx context.Context, orgID string) ([]string, bool, error) {
 	conns, err := g.conns.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeGitHubApp)
 	if err != nil {
 		return nil, false, fmt.Errorf("list github_app service connections: %w", err)

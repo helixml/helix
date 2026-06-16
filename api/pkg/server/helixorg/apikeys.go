@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -28,18 +28,18 @@ type APIKeys interface {
 	User(ctx context.Context, userID string) (string, error)
 }
 
-// helixAPIKeys implements APIKeys against the host Helix store and the
+// HelixAPIKeys implements APIKeys against the host Helix store and the
 // org config registry. This is the one place that reads/writes the
 // host's users / api_keys for helix-org provisioning.
-type helixAPIKeys struct {
+type HelixAPIKeys struct {
 	store   helixstore.Store
 	configs *configregistry.Registry
 }
 
-var _ APIKeys = (*helixAPIKeys)(nil)
+var _ APIKeys = (*HelixAPIKeys)(nil)
 
-func newHelixAPIKeys(st helixstore.Store, configs *configregistry.Registry) *helixAPIKeys {
-	return &helixAPIKeys{store: st, configs: configs}
+func NewHelixAPIKeys(st helixstore.Store, configs *configregistry.Registry) *HelixAPIKeys {
+	return &HelixAPIKeys{store: st, configs: configs}
 }
 
 // Service returns a valid Helix api_key for the embedded helix-org
@@ -52,7 +52,7 @@ func newHelixAPIKeys(st helixstore.Store, configs *configregistry.Registry) *hel
 // DB. All gated alpha users currently drive the same owner Worker, so
 // co-tenanting on one service identity is consistent — multi-tenant
 // attribution is a future change.
-func (k *helixAPIKeys) Service(ctx context.Context, orgID string) (string, error) {
+func (k *HelixAPIKeys) Service(ctx context.Context, orgID string) (string, error) {
 	if existing, _ := k.configs.GetString(ctx, orgID, "helix.api_key"); existing != "" {
 		if _, err := k.store.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil {
 			return existing, nil
@@ -76,13 +76,13 @@ func (k *helixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 	// including service identities. Idempotent.
 	hasFlag := false
 	for _, f := range owner.AlphaFeatures {
-		if f == alphaFeatureHelixOrg {
+		if f == AlphaFeature {
 			hasFlag = true
 			break
 		}
 	}
 	if !hasFlag {
-		owner.AlphaFeatures = append(owner.AlphaFeatures, alphaFeatureHelixOrg)
+		owner.AlphaFeatures = append(owner.AlphaFeatures, AlphaFeature)
 		if _, err := k.store.UpdateUser(ctx, owner); err != nil {
 			return "", fmt.Errorf("grant alpha flag to service owner: %w", err)
 		}
@@ -121,7 +121,7 @@ func (k *helixAPIKeys) Service(ctx context.Context, orgID string) (string, error
 // none yet. Cached lookups are unnecessary — ListAPIKeys is a single
 // indexed query and the cost is dominated by the LLM round-trip
 // immediately following.
-func (k *helixAPIKeys) User(ctx context.Context, userID string) (string, error) {
+func (k *HelixAPIKeys) User(ctx context.Context, userID string) (string, error) {
 	keys, err := k.store.ListAPIKeys(ctx, &helixstore.ListAPIKeysQuery{Owner: userID, Type: types.APIkeytypeAPI})
 	if err != nil {
 		return "", fmt.Errorf("list api keys: %w", err)

@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func TestOrgGitHubIdentityResolver_NoAppFallsBackToOAuth(t *testing.T) {
 		return MintedInstallation{}, nil
 	}
 
-	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
+	resolve := NewOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
 	id, err := resolve(context.Background(), "org-1")
 	require.NoError(t, err)
 	require.Equal(t, "oauth", id.Mode)
@@ -79,7 +79,7 @@ func TestOrgGitHubIdentityResolver_AppMintsBotToken(t *testing.T) {
 		return "", nil
 	}
 
-	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
+	resolve := NewOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
 	id, err := resolve(context.Background(), "org-1")
 	require.NoError(t, err)
 	require.Equal(t, "app", id.Mode)
@@ -111,7 +111,7 @@ func TestOrgGitHubIdentityResolver_NewestAppWins(t *testing.T) {
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 
-	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
+	resolve := NewOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
 	id, err := resolve(context.Background(), "org-1")
 	require.NoError(t, err)
 	require.Equal(t, "app", id.Mode)
@@ -130,7 +130,7 @@ func TestOrgGitHubIdentityResolver_MintErrorFallsBackToOAuth(t *testing.T) {
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 
-	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
+	resolve := NewOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
 	id, err := resolve(context.Background(), "org-1")
 	require.NoError(t, err)
 	require.Equal(t, "oauth", id.Mode, "a broken app config must never break an org OAuth could still serve")
@@ -157,7 +157,7 @@ func TestOrgGitHubIdentityResolver_DecryptErrorFallsBackToOAuth(t *testing.T) {
 	}
 	oauth := func(_ context.Context, _ string) (string, error) { return "oauth-token", nil }
 
-	resolve := newOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
+	resolve := NewOrgGitHubIdentityResolver(testKeyGetter, st, oauth, mint)
 	id, err := resolve(context.Background(), "org-1")
 	require.NoError(t, err)
 	require.Equal(t, "oauth", id.Mode)

@@ -1,4 +1,4 @@
-package server
+package helixorg
 
 import (
 	"context"
@@ -105,12 +105,12 @@ func normalizeOrigin(origin string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-// newGitHubManifestStart builds the start resolver wired into the org API
+// NewGitHubManifestStart builds the start resolver wired into the org API
 // Deps. It returns the GitHub POST URL, the manifest JSON to submit, and an
 // encrypted state. getKey provides the server encryption key (for the state).
 // webURL is the GitHub web origin (https://github.com or a GHES origin) the
 // app create/install links are built against.
-func newGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
+func NewGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(ctx context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
 	return func(_ context.Context, orgID, githubOrg, origin string) (helixorgapi.GitHubManifestStartResponse, error) {
 		githubOrg = strings.TrimSpace(githubOrg)
 		if githubOrg == "" {
@@ -163,7 +163,7 @@ func newGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(c
 	}
 }
 
-// newGitHubManifestCallbackHandler handles the browser redirect GitHub makes
+// NewGitHubManifestCallbackHandler handles the browser redirect GitHub makes
 // after the app is created. It exchanges the code, stores the app as a
 // github_app ServiceConnection for the org, and redirects to the install
 // page. Mounted on the insecure router (validated by the encrypted state,
@@ -171,7 +171,7 @@ func newGitHubManifestStart(getKey func() ([]byte, error), webURL string) func(c
 // webURL is the GitHub web origin for the install redirect; apiBaseURL is the
 // API origin passed to the github client (empty for github.com) and stored on
 // the created ServiceConnection so later calls target the right host (GHES).
-func newGitHubManifestCallbackHandler(
+func NewGitHubManifestCallbackHandler(
 	getKey func() ([]byte, error),
 	st helixstore.Store,
 	newID func() string,

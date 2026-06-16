@@ -17,6 +17,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
@@ -87,9 +88,9 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// graph that already exists (a no-op on a brand-new empty org).
 
 		// Provision a per-org Helix service api_key. Tied to the
-		// first admin user found — see helixAPIKeys.Service for the
+		// first admin user found — see helixorg.HelixAPIKeys.Service for the
 		// idempotency story.
-		if _, err := newHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
+		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
 		}
 
