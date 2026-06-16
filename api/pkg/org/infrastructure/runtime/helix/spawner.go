@@ -471,9 +471,16 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
 		SessionID: state.SessionID,
 		ProjectID: state.ProjectID,
-		AppID:     state.AgentAppID,
-		AgentType: AgentType,
-		Prompt:    prompt,
+		// OrganizationID tags the session row with the Worker's org so
+		// authorizeUserToSession can grant access to org members (e.g. the
+		// operator viewing the inline transcript). Without it the session
+		// is owned only by the org-service user and every other org admin
+		// gets a 403 loading the worker's chat. The owner-chat bridge path
+		// sets this via EnsureAndSend too; the activation path must match.
+		OrganizationID: orgID,
+		AppID:          state.AgentAppID,
+		AgentType:      AgentType,
+		Prompt:         prompt,
 	})
 	if err != nil {
 		return "", fmt.Errorf("ensure session: %w", err)
