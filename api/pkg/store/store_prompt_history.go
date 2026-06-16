@@ -2,11 +2,36 @@ package store
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/gorm"
 )
+
+// defaultMaxPromptQueueRetries bounds how many times the queue will auto-retry a
+// single failed prompt before the selectors stop picking it up. Without this cap,
+// GetNext*Prompt re-selects any `status='failed'` row forever once next_retry_at
+// passes (backoff capped at 30s) — so a prompt that fails on a wedged ACP thread
+// re-dispatches indefinitely (see design/2026-06-15-wedged-acp-thread-autowake-flood.md).
+// This is a pure runaway guard: terminal wedges are crash-marked earlier (which
+// pins next_retry_at to a far-future sentinel and excludes the row regardless of
+// this cap), so in normal operation a prompt never reaches it.
+//
+// Override with HELIX_MAX_PROMPT_QUEUE_RETRIES.
+const defaultMaxPromptQueueRetries = 20
+
+// maxPromptQueueRetries returns the configured per-prompt queue retry cap. Read
+// per call so operators can tune live without redeploying.
+func maxPromptQueueRetries() int {
+	if raw := os.Getenv("HELIX_MAX_PROMPT_QUEUE_RETRIES"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxPromptQueueRetries
+}
 
 // SyncPromptHistory syncs prompt history entries from the frontend
 // For new entries: creates them with all frontend fields
@@ -128,13 +153,13 @@ func (s *PostgresStore) GetNextPendingPrompt(ctx context.Context, sessionID stri
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND interrupt = false AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
@@ -159,13 +184,13 @@ func (s *PostgresStore) GetAnyPendingPrompt(ctx context.Context, sessionID strin
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY interrupt DESC, COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
@@ -190,13 +215,13 @@ func (s *PostgresStore) GetNextInterruptPrompt(ctx context.Context, sessionID st
 		WHERE id = (
 			SELECT id FROM prompt_history_entries
 			WHERE session_id = ? AND interrupt = true AND deleted_at IS NULL
-			AND (status = 'pending' OR (status = 'failed' AND (next_retry_at IS NULL OR next_retry_at <= ?)))
+			AND (status = 'pending' OR (status = 'failed' AND retry_count < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)))
 			ORDER BY COALESCE(queue_position, 999999) ASC, created_at ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, sessionID, now).Scan(&entry)
+	`, sessionID, maxPromptQueueRetries(), now).Scan(&entry)
 
 	if result.Error != nil {
 		return nil, result.Error
