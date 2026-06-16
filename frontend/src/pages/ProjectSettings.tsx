@@ -96,16 +96,16 @@ interface ProjectSettingsProps {
   tab?: string;
 }
 
-// Human-readable label for a secret's environment scope. Treats an empty
-// scope as "Both" (the backwards-compatible default).
+// Human-readable label for a secret's environment scope. Treats an empty/
+// unknown scope as "Dev" (the default).
 const secretScopeLabel = (scope?: TypesSecretScope): string => {
   switch (scope) {
-    case TypesSecretScope.SecretScopeDev:
-      return "Dev";
     case TypesSecretScope.SecretScopeProd:
       return "Prod";
-    default:
+    case TypesSecretScope.SecretScopeBoth:
       return "Both";
+    default:
+      return "Dev";
   }
 };
 
@@ -367,7 +367,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
   const [newSecretScope, setNewSecretScope] = useState<TypesSecretScope>(
-    TypesSecretScope.SecretScopeBoth,
+    TypesSecretScope.SecretScopeDev,
   );
   const [showSecretValue, setShowSecretValue] = useState(false);
 
@@ -407,7 +407,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setAddSecretDialogOpen(false);
       setNewSecretName("");
       setNewSecretValue("");
-      setNewSecretScope(TypesSecretScope.SecretScopeBoth);
+      setNewSecretScope(TypesSecretScope.SecretScopeDev);
       refetchSecrets();
     },
     onError: (err: any) => {
@@ -2229,14 +2229,14 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               }
               helperText="Where this secret is injected"
             >
-              <MenuItem value={TypesSecretScope.SecretScopeBoth}>
-                Both (dev sessions and prod web service)
-              </MenuItem>
               <MenuItem value={TypesSecretScope.SecretScopeDev}>
                 Dev only (project sessions and spec tasks)
               </MenuItem>
               <MenuItem value={TypesSecretScope.SecretScopeProd}>
                 Prod only (deployed web service)
+              </MenuItem>
+              <MenuItem value={TypesSecretScope.SecretScopeBoth}>
+                Both (dev sessions and prod web service)
               </MenuItem>
             </TextField>
           </Box>
@@ -2247,7 +2247,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setAddSecretDialogOpen(false);
               setNewSecretName("");
               setNewSecretValue("");
-              setNewSecretScope(TypesSecretScope.SecretScopeBoth);
+              setNewSecretScope(TypesSecretScope.SecretScopeDev);
             }}
           >
             Cancel

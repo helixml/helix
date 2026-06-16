@@ -2429,9 +2429,13 @@ type LLMCall struct {
 }
 
 // SecretScope controls which environment a project secret is injected into.
-// dev  -> interactive project sessions / spec tasks (desktop containers)
+// dev  -> interactive project sessions / spec tasks (desktop containers); default
 // prod -> deployed web service containers
-// both -> injected into both environments (default; backwards-compatible)
+// both -> injected into both environments
+//
+// The default is "dev": Helix is primarily a dev platform, with prod web
+// hosting as a secondary feature. Defaulting to dev also preserves the
+// pre-feature behaviour exactly (project secrets were dev-only).
 type SecretScope string
 
 const (
@@ -2461,7 +2465,7 @@ type CreateSecretRequest struct {
 	Value     string `json:"value"`
 	AppID     string `json:"app_id"`
 	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
-	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "both"
+	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "dev"
 }
 
 type Secret struct {
@@ -2475,8 +2479,9 @@ type Secret struct {
 	AppID     string `json:"app_id" yaml:"app_id"`         // optional, if set, the secret will be available to the specified app
 	ProjectID string `json:"project_id" yaml:"project_id"` // optional, if set, the secret will be available as env var in project sessions
 	// Scope controls which environment a project secret is injected into.
-	// Defaults to "both" so pre-existing secrets keep their original behaviour.
-	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'both';index"`
+	// Defaults to "dev" so pre-existing secrets keep their original (dev-only)
+	// behaviour and dev stays the primary path.
+	Scope SecretScope `json:"scope,omitempty" yaml:"scope,omitempty" gorm:"type:varchar(16);default:'dev';index"`
 }
 
 // LicenseKey represents a license key in the database

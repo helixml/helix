@@ -21,7 +21,7 @@ func (s *PostgresStore) CreateSecret(ctx context.Context, secret *types.Secret) 
 	}
 
 	if secret.Scope == "" {
-		secret.Scope = types.SecretScopeBoth
+		secret.Scope = types.SecretScopeDev
 	}
 
 	secret.Created = time.Now()
@@ -154,13 +154,13 @@ func (s *PostgresStore) DeleteSecret(ctx context.Context, id string) error {
 
 // scopesOverlap reports whether two secret scopes share at least one
 // environment, in which case two secrets with the same name would collide.
-// An empty scope is treated as "both" (the default) for backwards compatibility.
+// An empty scope is treated as the default ("dev").
 func scopesOverlap(a, b types.SecretScope) bool {
 	if a == "" {
-		a = types.SecretScopeBoth
+		a = types.SecretScopeDev
 	}
 	if b == "" {
-		b = types.SecretScopeBoth
+		b = types.SecretScopeDev
 	}
 	return a == types.SecretScopeBoth || b == types.SecretScopeBoth || a == b
 }

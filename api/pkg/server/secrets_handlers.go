@@ -333,11 +333,12 @@ func (s *HelixAPIServer) createProjectSecret(_ http.ResponseWriter, r *http.Requ
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	// Resolve and validate the environment scope. Defaults to "both" so that
-	// callers (and older clients) that omit it keep the original behaviour.
+	// Resolve and validate the environment scope. Defaults to "dev" — Helix is
+	// primarily a dev platform, and dev-only also matches the behaviour of
+	// secrets created before scopes existed.
 	scope := types.SecretScope(secretReq.Scope)
 	if scope == "" {
-		scope = types.SecretScopeBoth
+		scope = types.SecretScopeDev
 	}
 	if !scope.Valid() {
 		return nil, system.NewHTTPError400(fmt.Sprintf("invalid secret scope %q, must be one of: dev, prod, both", secretReq.Scope))
@@ -407,9 +408,10 @@ func (s *HelixAPIServer) GetProjectSecretsAsEnvVars(ctx context.Context, project
 	var envVars []string
 	for _, secret := range secrets {
 		// Skip secrets that don't apply to the requested environment.
+		// An empty stored scope is treated as the default ("dev").
 		scope := secret.Scope
 		if scope == "" {
-			scope = types.SecretScopeBoth
+			scope = types.SecretScopeDev
 		}
 		if !scope.AppliesTo(target) {
 			continue

@@ -208,7 +208,7 @@ func (suite *PostgresStoreTestSuite) TestSecretScopeUniqueness() {
 	require.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "already exists")
 
-	// An omitted scope must default to "both".
+	// An omitted scope must default to "dev".
 	defaultProject := "proj-" + system.GenerateUUID()
 	defaulted, err := suite.db.CreateSecret(suite.ctx, &types.Secret{
 		Name:      "OTHER_KEY",
@@ -217,7 +217,7 @@ func (suite *PostgresStoreTestSuite) TestSecretScopeUniqueness() {
 		ProjectID: defaultProject,
 	})
 	require.NoError(suite.T(), err)
-	assert.Equal(suite.T(), types.SecretScopeBoth, defaulted.Scope)
+	assert.Equal(suite.T(), types.SecretScopeDev, defaulted.Scope)
 
 	suite.T().Cleanup(func() {
 		for _, id := range []string{devSecret.ID, prodSecret.ID, defaulted.ID} {
