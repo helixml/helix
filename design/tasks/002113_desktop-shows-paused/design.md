@@ -90,6 +90,32 @@ re-fetch is safe here too — it simply reloads the existing good row.
   `SELECT id, metadata->>'container_name', metadata->>'external_agent_status'
   FROM sessions WHERE id = '<ses_...>';`
 
+## Implementation Notes
+
+- The fix is a 3-line swap in `StartExternalAgentSession`: the trailing
+  `if agentResp.DevContainerID != "" || agentResp.SandboxID != "" { ... UpdateSession(*session) }`
+  block was replaced with a re-fetch `if fresh, err := s.Store.GetSession(ctx, session.ID); err == nil { session = fresh }`
+  (with a warn-log fallback that keeps the pre-start copy if the reload fails).
+- Removing the block left `agentResp` unused, so the `StartDesktop` call was
+  changed from `agentResp, err := ...` to `if _, err := ...; err != nil`.
+- Regression test lives in `api/pkg/server/start_external_agent_paused_test.go`
+  (`StartExternalAgentPausedSuite`). It uses a stateful `MockStore` (a
+  `map[string]*types.Session` backing `GetSession`/`UpdateSession`) plus a
+  `MockExecutor` whose `StartDesktop` mirrors `HydraExecutor.StartDesktop` by
+  persisting `container_name`/`external_agent_status="running"` onto the row.
+  It asserts both the returned struct and the persisted row keep that metadata.
+- Verified the test is a real gate: temporarily reinstated the buggy
+  `UpdateSession(*session)` and the test failed on all four assertions
+  (empty `container_name`, empty `external_agent_status`); restored the fix and
+  it passes. Related suites (Exploratory, AutoWakeColdStart, AttachProjectContext)
+  remain green.
+- Test gotcha: `pkg/store/memorystore` is unusable here because its `GetUser`
+  returns `ErrNotFound`, which `StartExternalAgentSession` treats as fatal. The
+  stateful `MockStore` approach (modeled on `exploratory_session_activation_test.go`)
+  sidesteps that.
+- CGo is required to compile the server test package (tree-sitter):
+  `sudo apt-get install -y gcc libc6-dev` then `CGO_ENABLED=1 go test ...`.
+
 ## Notes / Learnings
 
 - Two code paths perform read-modify-write on the same session row; the inner
