@@ -785,8 +785,12 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
 - A Worker's reporting lines are many-to-many (one `org_reporting_lines`
   row per manager–report pair). A Worker may report to several managers
   simultaneously; the graph is a cycle-guarded DAG, not a tree.
-- `w-owner` / `r-owner` are protected at the API; UI hides the
-  trash/fire affordance and surfaces a friendly 409.
+- There is **no owner protection**. `w-owner` / `r-owner` are ordinary
+  rows — they can be fired / deleted like any other Worker / Role (the
+  API returns 204, never a "protected" 409). The owner concept was
+  removed; a fresh org starts empty and the human builds it from the
+  chart (see §1). The conventional `w-owner` / `r-owner` ids are just the
+  root the test plan seeds, not a privileged singleton.
 - Adding a reporting line is cycle-guarded server-side: dragging a
   manager edge that would close a reporting loop is rejected with a 409.
 - Org isolation is enforced by composite `(id, org_id)` PKs in the store;
