@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
@@ -240,5 +241,201 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 	}
 	if len(subs) != 0 {
 		t.Fatalf("found %d subscription(s) to torn-down DM %q, want 0", len(subs), dm)
+	}
+}
+
+// newLifecycleSvc builds a Service wired to a reconciler against the same
+// store, with nil Helix runtime (the memory-store tests don't provision a
+// Helix project/app, so the Fire cascade never calls into Helix).
+func newLifecycleSvc(st *store.Store) *lifecycle.Service {
+	return &lifecycle.Service{
+		Store:      st,
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions}),
+	}
+}
+
+func seedRole(t *testing.T, st *store.Store, orgID, id string) {
+	t.Helper()
+	r, err := orgchart.NewRole(id, "# "+id, nil, nil, time.Now().UTC(), orgID)
+	if err != nil {
+		t.Fatalf("new role %s: %v", id, err)
+	}
+	if err := st.Roles.Create(context.Background(), r); err != nil {
+		t.Fatalf("create role %s: %v", id, err)
+	}
+}
+
+func seedAIWorker(t *testing.T, st *store.Store, orgID, id, roleID string) {
+	t.Helper()
+	w, err := orgchart.NewAIWorker(id, roleID, "# "+id, orgID)
+	if err != nil {
+		t.Fatalf("new worker %s: %v", id, err)
+	}
+	if err := st.Workers.Create(context.Background(), w); err != nil {
+		t.Fatalf("create worker %s: %v", id, err)
+	}
+}
+
+// TestDeleteRole_FiresMatchingWorkersOnly pins the core DeleteRole
+// contract: it fires *every* Worker holding the doomed Role and deletes
+// the Role row, while Workers in other Roles (and those Roles) are left
+// completely untouched. Over-firing here would silently delete unrelated
+// Workers.
+func TestDeleteRole_FiresMatchingWorkersOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delrole"
+
+	seedRole(t, st, orgID, "r-doomed")
+	seedRole(t, st, orgID, "r-keep")
+	seedAIWorker(t, st, orgID, "w-a", "r-doomed")
+	seedAIWorker(t, st, orgID, "w-b", "r-doomed")
+	seedAIWorker(t, st, orgID, "w-c", "r-keep")
+
+	svc := newLifecycleSvc(st)
+	if err := svc.DeleteRole(ctx, orgID, "r-doomed"); err != nil {
+		t.Fatalf("DeleteRole: %v", err)
+	}
+
+	if _, err := st.Roles.Get(ctx, orgID, "r-doomed"); err == nil {
+		t.Fatal("r-doomed should be deleted")
+	}
+	for _, id := range []string{"w-a", "w-b"} {
+		if _, err := st.Workers.Get(ctx, orgID, id); err == nil {
+			t.Fatalf("%s should have been fired by DeleteRole", id)
+		}
+	}
+	// Bystanders survive — DeleteRole must not touch other Roles' Workers.
+	if _, err := st.Workers.Get(ctx, orgID, "w-c"); err != nil {
+		t.Fatalf("w-c (r-keep) should survive DeleteRole(r-doomed): %v", err)
+	}
+	if _, err := st.Roles.Get(ctx, orgID, "r-keep"); err != nil {
+		t.Fatalf("r-keep should survive: %v", err)
+	}
+}
+
+// TestDeleteRole_NonExistentRoleFiresNobody is the safety test. The
+// not-found guard MUST short-circuit before fireWorkersWithRole runs —
+// otherwise a typo'd / stale role id would cascade-fire any Worker that
+// happens to reference that id. We plant a Worker whose RoleID points at a
+// role with no row (an orphan), so the test bites if the guard regresses:
+// without it, fireWorkersWithRole would match and fire the orphan.
+func TestDeleteRole_NonExistentRoleFiresNobody(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delrole-safety"
+
+	// No r-ghost role row exists; w-zombie references it anyway.
+	seedAIWorker(t, st, orgID, "w-zombie", "r-ghost")
+
+	svc := newLifecycleSvc(st)
+	if err := svc.DeleteRole(ctx, orgID, "r-ghost"); err == nil {
+		t.Fatal("DeleteRole on a non-existent role must return an error")
+	}
+	if _, err := st.Workers.Get(ctx, orgID, "w-zombie"); err != nil {
+		t.Fatalf("a failed DeleteRole must fire NOBODY — w-zombie was destroyed: %v", err)
+	}
+}
+
+// TestDeleteRole_ReconcilesSurvivingCrossRoleReport covers the dangerous
+// cascade: a Worker in the doomed Role *manages* a Worker in a different
+// Role. Deleting the role fires the manager; the surviving report must not
+// be left pointing at a deleted manager, and the comms channels that edge
+// implied (team stream + 1:1 DM) must be torn down rather than orphaned.
+// This is the ISSUE-2 teardown class reached via DeleteRole.
+func TestDeleteRole_ReconcilesSurvivingCrossRoleReport(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-delrole-cascade"
+
+	seedRole(t, st, orgID, "r-mgmt")
+	seedRole(t, st, orgID, "r-ic")
+	seedAIWorker(t, st, orgID, "w-mgr", "r-mgmt") // doomed role, root manager
+	seedAIWorker(t, st, orgID, "w-ic", "r-ic")    // survivor, reports to w-mgr
+
+	line, err := orgchart.NewReportingLine(orgID, "w-mgr", "w-ic")
+	if err != nil {
+		t.Fatalf("new reporting line: %v", err)
+	}
+	if err := st.ReportingLines.Add(ctx, line); err != nil {
+		t.Fatalf("add reporting line: %v", err)
+	}
+
+	svc := newLifecycleSvc(st)
+	// Provision the channels the edge implies (team stream + DM channel).
+	if err := svc.Reconciler.Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
+		t.Fatalf("reconcile (wire edge): %v", err)
+	}
+	dm := channels.DMStreamID("w-mgr", "w-ic")
+	if _, err := st.Streams.Get(ctx, orgID, dm); err != nil {
+		t.Fatalf("precondition: DM channel %q should exist: %v", dm, err)
+	}
+	if _, err := st.Streams.Get(ctx, orgID, "s-team-w-mgr"); err != nil {
+		t.Fatalf("precondition: team stream s-team-w-mgr should exist: %v", err)
+	}
+
+	if err := svc.DeleteRole(ctx, orgID, "r-mgmt"); err != nil {
+		t.Fatalf("DeleteRole: %v", err)
+	}
+
+	// Manager fired, report survives.
+	if _, err := st.Workers.Get(ctx, orgID, "w-mgr"); err == nil {
+		t.Fatal("w-mgr should be fired by DeleteRole(r-mgmt)")
+	}
+	if _, err := st.Workers.Get(ctx, orgID, "w-ic"); err != nil {
+		t.Fatalf("w-ic (r-ic) should survive: %v", err)
+	}
+	// The surviving report no longer points at the deleted manager.
+	mgrs, err := st.ReportingLines.ListManagers(ctx, orgID, "w-ic")
+	if err != nil {
+		t.Fatalf("list managers: %v", err)
+	}
+	if len(mgrs) != 0 {
+		t.Fatalf("w-ic still reports to %v after its manager's role was deleted", mgrs)
+	}
+	// No orphaned comms channels referencing the deleted manager.
+	if _, err := st.Streams.Get(ctx, orgID, dm); err == nil {
+		t.Fatalf("DM channel %q orphaned after DeleteRole", dm)
+	}
+	if _, err := st.Streams.Get(ctx, orgID, "s-team-w-mgr"); err == nil {
+		t.Fatal("team stream s-team-w-mgr orphaned after DeleteRole")
+	}
+}
+
+// TestDeleteRole_Guards pins the cheap input guards.
+func TestDeleteRole_Guards(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+
+	if err := (&lifecycle.Service{Store: st}).DeleteRole(ctx, "org", ""); err == nil {
+		t.Fatal("empty role id should error")
+	}
+	if err := (&lifecycle.Service{}).DeleteRole(ctx, "org", "r-x"); err == nil {
+		t.Fatal("nil store should error")
+	}
+}
+
+// TestFire_MissingWorkerErrorsWithNoSideEffects pins that firing a worker
+// that doesn't exist errors at the get-guard and leaves the graph alone —
+// no bystander is swept up by a no-op fire.
+func TestFire_MissingWorkerErrorsWithNoSideEffects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := orggorm.GetOrgTestDB(t)
+	const orgID = "org-fire-missing"
+
+	seedRole(t, st, orgID, "r-x")
+	seedAIWorker(t, st, orgID, "w-bystander", "r-x")
+
+	svc := newLifecycleSvc(st)
+	if err := svc.Fire(ctx, orgID, "w-missing"); err == nil {
+		t.Fatal("Fire on a non-existent worker should error")
+	}
+	if _, err := st.Workers.Get(ctx, orgID, "w-bystander"); err != nil {
+		t.Fatalf("bystander must be untouched by a failed Fire: %v", err)
 	}
 }
