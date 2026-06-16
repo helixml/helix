@@ -165,6 +165,20 @@ Add the minimum:
   generated OpenAPI/TS client stays valid (helix rule: always via generated
   client).
 
+## E2E Verification (inner Helix)
+
+Verified live against the inner Helix at `localhost:8080`. The helix-org surface
+is gated by `HELIX_ORG_ENABLED=true` (deployment kill-switch, default off) AND a
+per-user `helix-org` alpha feature (`users.alpha_features` text[] column). After
+enabling both, registered `test@helix.ml`, created org `testorg`, created a
+`general` stream, published 5 messages, then:
+
+- `GET /api/v1/orgs/testorg/streams/{id}/messages?page[size]=2&page[number]=1`
+  → `200 application/vnd.api+json`, `data` = 2 newest-first `messages` resources,
+  `meta:{page:1,size:2,total:5,total_pages:3}`, links first/last/next/self, no prev.
+- page 3 → 1 item, `total` still 5, has prev, no next.
+- unknown stream → `404`; `page[number]=0` → `400` with a clear message.
+
 ## Implementation Notes
 
 - **Pagination links are query-only relative references** (e.g.

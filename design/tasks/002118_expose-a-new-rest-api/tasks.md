@@ -28,6 +28,6 @@
 - [x] Handler tests: first page, partial last page, beyond-last (empty), empty stream (`total:0`), unknown stream (404), bad paging (400), `meta.total` across pages
 
 ## Wiring & finalize
-- [ ] Run `./stack update_openapi` to regenerate OpenAPI + TS client
-- [ ] `cd api && CGO_ENABLED=0 go build ./...` and run new tests
-- [ ] Manual check against the inner Helix: publish messages to a stream, page through `/messages`, verify `meta.total` and `links`
+- [x] Run `./stack update_openapi` to regenerate OpenAPI + TS client (swagger + `frontend/src/api/api.ts` include `StreamsMessagesDetail` + `MessagesDocument`/`MessageResource`/`MessageAttributes`)
+- [x] `cd api && CGO_ENABLED=0 go build ./...` and run new tests (all green; full org suite passes)
+- [x] Manual check against the inner Helix: published 5 messages, paged through `/messages` — page 1 newest-first w/ `meta.total=5`, `total_pages=3`, links (no prev); last page partial w/ prev & no next; unknown stream → 404; `page[number]=0` → 400
