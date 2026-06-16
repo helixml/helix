@@ -63,3 +63,31 @@ func NewRole(id RoleID, content string, tools []tool.Name, streams []streaming.S
 		UpdatedAt:      now,
 	}, nil
 }
+
+// WithContent returns a copy of the Role with Content replaced. The
+// With* builders are the supported way to mutate a Role outside the
+// domain package (CLAUDE.md §5.0: immutability + tell-don't-ask) — the
+// roles application service composes them instead of poking exported
+// fields in a handler.
+func (r Role) WithContent(content string) Role {
+	r.Content = content
+	return r
+}
+
+// WithTools returns a copy of the Role with Tools replaced.
+func (r Role) WithTools(tools []tool.Name) Role {
+	r.Tools = tools
+	return r
+}
+
+// WithStreams returns a copy of the Role with Streams replaced.
+func (r Role) WithStreams(streams []streaming.StreamID) Role {
+	r.Streams = streams
+	return r
+}
+
+// WithUpdatedAt returns a copy of the Role with UpdatedAt replaced.
+func (r Role) WithUpdatedAt(t time.Time) Role {
+	r.UpdatedAt = t
+	return r
+}

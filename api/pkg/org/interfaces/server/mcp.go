@@ -77,13 +77,13 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		s.logger.Info("mcp.missing_org_scope", "worker", workerID)
 		return nil
 	}
-	worker, err := s.store.Workers.Get(ctx, orgID, workerID)
+	worker, err := s.queries.GetWorker(ctx, orgID, workerID)
 	if err != nil {
 		s.logger.Info("mcp.unknown_worker", "worker", workerID, "err", err.Error())
 		return nil
 	}
 
-	role, err := s.store.Roles.Get(ctx, orgID, worker.RoleID())
+	role, err := s.queries.GetRole(ctx, orgID, worker.RoleID())
 	if err != nil {
 		s.logger.Info("mcp.role_lookup_failed", "worker", workerID, "role", worker.RoleID(), "err", err.Error())
 		return nil

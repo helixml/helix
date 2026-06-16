@@ -244,7 +244,7 @@ export function useHireHelixOrgWorker() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
-      // An AI hire mints its s-activations-<id> stream — refresh the
+      // An AI hire mints its s-transcript-<id> stream — refresh the
       // Streams list / chart stream nodes so it shows without a reload.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
@@ -257,7 +257,7 @@ export function useHireHelixOrgWorker() {
 // adds the line. The topology reconciler wires the comms channels the
 // edge implies (the manager's s-team-<mgr> stream and the pair's
 // s-dm-<pair> channel, plus the manager observing the report's
-// activation stream), so we refresh streams too — not just the worker
+// transcript), so we refresh streams too — not just the worker
 // list — so those new nodes render without a reload.
 export function useAddWorkerParent() {
   const api = useApi()
@@ -354,7 +354,7 @@ export function useFireHelixOrgWorker() {
       // Exact: refresh the list itself without prefix-matching (and so
       // refetching) the worker/subscriptions queries we just removed.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
-      // Firing cascades away the worker's s-activations-<id> stream and
+      // Firing cascades away the worker's s-transcript-<id> stream and
       // its direct reports' parent edge — refresh the Streams list (QA
       // F6) and any open stream detail.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -406,7 +406,7 @@ export function useDeleteHelixOrgRole() {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
       // Deleting a role fires every Worker holding it, which tears down
-      // their activation streams — refresh both lists so neither shows
+      // their transcripts — refresh both lists so neither shows
       // ghost rows (QA F6).
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })

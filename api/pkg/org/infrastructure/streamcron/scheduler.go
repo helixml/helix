@@ -27,10 +27,10 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // reconcileInterval matches the existing app-cron cadence
@@ -50,7 +50,7 @@ type Dispatcher interface {
 // Start; Start blocks until the supplied context is cancelled.
 type Scheduler struct {
 	store      *store.Store
-	hub        *streamhub.Hub
+	hub        *wakebus.Bus
 	dispatcher Dispatcher
 	scheduler  gocron.Scheduler
 
@@ -64,7 +64,7 @@ type Scheduler struct {
 // New constructs a Scheduler. store + dispatcher are required; hub may
 // be nil (skipping long-poll wakeups is fine — dispatch is the load-
 // bearing fan-out for Worker activation).
-func New(s *store.Store, hub *streamhub.Hub, dispatcher Dispatcher, newID func() string, now func() time.Time) (*Scheduler, error) {
+func New(s *store.Store, hub *wakebus.Bus, dispatcher Dispatcher, newID func() string, now func() time.Time) (*Scheduler, error) {
 	if s == nil {
 		return nil, fmt.Errorf("streamcron: store is required")
 	}

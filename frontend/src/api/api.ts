@@ -21,6 +21,12 @@ export interface ApiCreateRoleRequest {
 }
 
 export interface ApiCreateStreamRequest {
+  /**
+   * As is the Worker that creates the stream — the worker whose chat
+   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * cosmetic: it only anchors the node on the chart).
+   */
+  as?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -141,6 +147,12 @@ export interface ApiOrgOverview {
 }
 
 export interface ApiPublishRequest {
+  /**
+   * As is the Worker the message is sent as — the worker whose chat the
+   * human is in. Empty means human/system-origin (the dispatcher treats
+   * it as such). There is no global "owner" sender any more.
+   */
+  as?: string;
   body?: string;
   subject?: string;
   to?: string[];
@@ -174,8 +186,6 @@ export interface ApiSetSettingRequest {
 
 export interface ApiSettingsResponse {
   db_path?: string;
-  envs_dir?: string;
-  owner?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
@@ -12216,7 +12226,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersCreate

@@ -47,8 +47,6 @@ import {
   useUpdateHelixOrgRole,
 } from '../services/helixOrgService'
 
-const OWNER_ROLE = 'r-owner'
-
 const HelixOrgRoleDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -132,8 +130,6 @@ const HelixOrgRoleDetail: FC = () => {
     }
   }
 
-  const isOwner = roleId === OWNER_ROLE
-
   return (
     <Page
       breadcrumbTitle={roleId ?? 'Role'}
@@ -164,13 +160,6 @@ const HelixOrgRoleDetail: FC = () => {
                 <Box>
                   <Typography variant="h5" sx={{ fontFamily: 'monospace', mb: 0.5 }}>
                     {data.id}
-                    {isOwner && (
-                      <Chip
-                        size="small"
-                        label="owner — protected"
-                        sx={{ ml: 1, verticalAlign: 'middle' }}
-                      />
-                    )}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     The role's markdown is the job description every Worker in this role reads on
@@ -281,10 +270,9 @@ const HelixOrgRoleDetail: FC = () => {
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
                     onClick={() => setConfirmingDelete(true)}
-                    disabled={isOwner}
                     fullWidth
                   >
-                    {isOwner ? 'Owner — protected' : 'Delete role'}
+                    Delete role
                   </Button>
                   <Typography variant="caption" color="text.secondary">
                     Fires every Worker holding this Role and drops their subscriptions.

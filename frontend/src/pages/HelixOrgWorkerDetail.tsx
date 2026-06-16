@@ -71,8 +71,6 @@ import {
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
 
-const OWNER_WORKER = 'w-owner'
-
 const HelixOrgWorkerDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -94,7 +92,6 @@ const HelixOrgWorkerDetail: FC = () => {
   const activate = useActivateWorker()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
-  const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
@@ -224,14 +221,16 @@ const HelixOrgWorkerDetail: FC = () => {
                       {worker.id}
                     </Typography>
                     <Chip size="small" label={worker.kind} />
-                    {isOwner && <Chip size="small" label="owner — protected" />}
                   </Stack>
                 </Box>
 
                 {/* Chat panel — inline transcript (same view the spec-task
-                    page uses) plus the desktop launch buttons. The
-                    transcript auto-loads when the worker already has a
-                    session; otherwise the call to action provisions one. */}
+                    page uses). The transcript auto-loads when the worker
+                    already has a session; otherwise it shows an empty state.
+                    AI workers only: a human worker has no agent desktop /
+                    Human Desktop session to chat with, so the panel is hidden
+                    entirely for kind === 'human'. */}
+                {worker.kind === 'ai' && (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
@@ -289,6 +288,7 @@ const HelixOrgWorkerDetail: FC = () => {
                     )}
                   </Stack>
                 </Paper>
+                )}
 
                 <Box>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -426,10 +426,10 @@ const HelixOrgWorkerDetail: FC = () => {
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
                     onClick={() => setConfirmingFire(true)}
-                    disabled={isOwner || fire.isPending}
+                    disabled={fire.isPending}
                     fullWidth
                   >
-                    {isOwner ? 'Owner — protected' : 'Fire worker'}
+                    Fire worker
                   </Button>
                   <Typography variant="caption" color="text.secondary">
                     Tears down the worker's per-Worker Helix project and deletes the

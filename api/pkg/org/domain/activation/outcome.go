@@ -23,7 +23,7 @@ const (
 // Outcome is the terminal result of one Activation. It is the typed
 // replacement for the historical `=== exit: ok ===` /
 // `=== exit: error: <msg> ===` marker strings that emitters publish
-// as the last event on the activation transcript Stream.
+// as the last event on the transcript.
 //
 // Writers build an Outcome and call Marker() to render the on-wire
 // string. Readers call ParseOutcomeMarker to recover the typed

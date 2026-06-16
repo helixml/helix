@@ -54,7 +54,6 @@ func TestEnsureBootstrapConcurrentCallsAllSucceed(t *testing.T) {
 	scope := newHelixOrgScope(
 		configregistry.New(orgStore.Configs),
 		orgStore,
-		t.TempDir(),
 		&noAdminHelixStore{},
 		nil, // mirror — nil is a safe no-op for this bootstrap-race test
 	)

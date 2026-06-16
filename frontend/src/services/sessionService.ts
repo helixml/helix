@@ -45,7 +45,7 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false; skipInteractions?: boolean }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false | ((query: any) => number | false); skipInteractions?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const skipInteractions = options?.skipInteractions ?? false
@@ -57,6 +57,14 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
       skipInteractions ? { skipInteractions: '1' } : undefined,
     ),
     enabled: options?.enabled ?? true,
+    // Don't hammer a session we can't read: a 4xx (403 forbidden / 404
+    // gone) is permanent, so retrying it is pointless noise. Other errors
+    // (5xx, network) keep the default retry.
+    retry: (failureCount: number, error: any) => {
+      const status = error?.response?.status
+      if (status >= 400 && status < 500) return false
+      return failureCount < 3
+    },
     refetchInterval: options?.refetchInterval,
     // Prevent immediate refetches when multiple consumers share this query.
     // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
