@@ -50,7 +50,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import EditIcon from "@mui/icons-material/Edit";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
+import { TypesAssistantSkills, TypesProject, TypesSecretScope, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
 import WebServiceTab from "../components/project/WebServiceTab";
@@ -95,6 +95,19 @@ interface ProjectSettingsProps {
   projectId: string;
   tab?: string;
 }
+
+// Human-readable label for a secret's environment scope. Treats an empty
+// scope as "Both" (the backwards-compatible default).
+const secretScopeLabel = (scope?: TypesSecretScope): string => {
+  switch (scope) {
+    case TypesSecretScope.SecretScopeDev:
+      return "Dev";
+    case TypesSecretScope.SecretScopeProd:
+      return "Prod";
+    default:
+      return "Both";
+  }
+};
 
 const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' }) => {
   const account = useAccount();
@@ -353,6 +366,9 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [addSecretDialogOpen, setAddSecretDialogOpen] = useState(false);
   const [newSecretName, setNewSecretName] = useState("");
   const [newSecretValue, setNewSecretValue] = useState("");
+  const [newSecretScope, setNewSecretScope] = useState<TypesSecretScope>(
+    TypesSecretScope.SecretScopeBoth,
+  );
   const [showSecretValue, setShowSecretValue] = useState(false);
 
   // Project skills
@@ -372,10 +388,18 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Create secret mutation
   const createSecretMutation = useMutation({
-    mutationFn: async ({ name, value }: { name: string; value: string }) => {
+    mutationFn: async ({
+      name,
+      value,
+      scope,
+    }: {
+      name: string;
+      value: string;
+      scope: TypesSecretScope;
+    }) => {
       const response = await api
         .getApiClient()
-        .v1ProjectsSecretsCreate(projectId, { name, value });
+        .v1ProjectsSecretsCreate(projectId, { name, value, scope });
       return response.data;
     },
     onSuccess: () => {
@@ -383,6 +407,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       setAddSecretDialogOpen(false);
       setNewSecretName("");
       setNewSecretValue("");
+      setNewSecretScope(TypesSecretScope.SecretScopeBoth);
       refetchSecrets();
     },
     onError: (err: any) => {
@@ -1822,6 +1847,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     {secret.name}
                   </Typography>
                   <Chip
+                    label={secretScopeLabel(secret.scope)}
+                    size="small"
+                    color={
+                      secret.scope === TypesSecretScope.SecretScopeProd
+                        ? "warning"
+                        : secret.scope === TypesSecretScope.SecretScopeDev
+                          ? "info"
+                          : "default"
+                    }
+                    variant="outlined"
+                    sx={{ ml: 1, fontSize: "0.7rem" }}
+                  />
+                  <Chip
                     label="encrypted"
                     size="small"
                     sx={{ ml: 1, fontSize: "0.7rem" }}
@@ -2142,7 +2180,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Secrets are encrypted at rest and injected as environment variables
-            when agents work on this project.
+            when agents work on this project. Choose whether a secret applies to
+            your dev sessions, the deployed prod web service, or both.
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <TextField
@@ -2180,6 +2219,26 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 ),
               }}
             />
+            <TextField
+              select
+              label="Environment"
+              fullWidth
+              value={newSecretScope}
+              onChange={(e) =>
+                setNewSecretScope(e.target.value as TypesSecretScope)
+              }
+              helperText="Where this secret is injected"
+            >
+              <MenuItem value={TypesSecretScope.SecretScopeBoth}>
+                Both (dev sessions and prod web service)
+              </MenuItem>
+              <MenuItem value={TypesSecretScope.SecretScopeDev}>
+                Dev only (project sessions and spec tasks)
+              </MenuItem>
+              <MenuItem value={TypesSecretScope.SecretScopeProd}>
+                Prod only (deployed web service)
+              </MenuItem>
+            </TextField>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -2188,6 +2247,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setAddSecretDialogOpen(false);
               setNewSecretName("");
               setNewSecretValue("");
+              setNewSecretScope(TypesSecretScope.SecretScopeBoth);
             }}
           >
             Cancel
@@ -2197,6 +2257,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               createSecretMutation.mutate({
                 name: newSecretName,
                 value: newSecretValue,
+                scope: newSecretScope,
               })
             }
             variant="contained"
