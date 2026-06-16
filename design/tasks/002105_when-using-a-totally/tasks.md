@@ -8,7 +8,8 @@
 
 ## Cleanup — `desktop/shared/helix-workspace-setup.sh`
 
-- [ ] Consolidate empty-repo initialization to a single source of truth: remove the redundant empty-repo init block (~line 324) and rely on the now-authoritative `create_helix_specs_branch` seeding, or keep it but ensure it pushes `main` first and stays consistent. Verify no regression.
+- [x] Consolidate empty-repo initialization to a single source of truth: remove the redundant empty-repo init block (~line 324) and rely on the now-authoritative `create_helix_specs_branch` seeding, or keep it but ensure it pushes `main` first and stays consistent. Verify no regression.
+  - Decision: KEEP the block — the later "Checkout correct branch" section FATALs on an empty repo if `main` isn't seeded first, so this block is required. Make it consistent with the authoritative-seed rule: hard-fail if the `main` push fails (otherwise the local repo has commits but the upstream is still empty, so `create_helix_specs_branch` later pushes `helix-specs` as the first/default branch).
 
 ## Tests
 
