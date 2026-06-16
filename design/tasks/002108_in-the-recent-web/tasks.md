@@ -8,15 +8,15 @@
 - [x] Update `CreateSecret` uniqueness check in `api/pkg/store/store_secrets.go` to include scope, rejecting same-scope or `both`-overlap name collisions.
 
 ## Backend — env-var injection
-- [~] Change `GetProjectSecretsAsEnvVars` in `api/pkg/server/secrets_handlers.go` to accept a `scope` arg and include secrets where `scope == arg || scope == both`.
-- [~] Update the dev wiring (`SetProjectSecretsGetter` / `ProjectSecretsGetter` in `hydra_executor.go` and `server.go:569`) so the dev path requests `dev`-scoped secrets.
-- [~] Add a project-secrets getter to `webservice.Controller` (constructor + field) and set it in `server.go`.
-- [~] In `webservice` `runBootstrap`, fetch `prod`-scoped secrets and pass them via `ExecRequest.Env` (not inlined in the shell script); thread the project ID through.
+- [x] Change `GetProjectSecretsAsEnvVars` in `api/pkg/server/secrets_handlers.go` to accept a `scope` arg and include secrets where `scope == arg || scope == both`.
+- [x] Update the dev wiring (bound to `dev` via a closure in `server.go`) so the dev path requests `dev`-scoped secrets.
+- [x] Add a project-secrets getter to `webservice.Controller` (field + `SetProjectSecretsGetter`) and set it in `server.go` (bound to `prod`).
+- [x] In `webservice` `runBootstrap`, fetch `prod`-scoped secrets and pass them via `ExecRequest.Env` (not inlined in the shell script); thread the project ID through.
 
 ## Backend — API handler
-- [ ] In `createProjectSecret`, validate the requested scope (default `both`) and set it on the `Secret`.
-- [ ] Confirm `listProjectSecrets` returns `scope` while still nil-ing out `value`.
-- [ ] Regenerate swagger/OpenAPI docs for the secret endpoints.
+- [~] In `createProjectSecret`, validate the requested scope (default `both`) and set it on the `Secret`.
+- [~] Confirm `listProjectSecrets` returns `scope` while still nil-ing out `value`.
+- [~] Regenerate swagger/OpenAPI docs for the secret endpoints.
 
 ## Frontend
 - [ ] Regenerate the API client types so `scope` is available on secret create/list.
