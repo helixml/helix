@@ -1,6 +1,6 @@
 # Implementation Tasks: Fix Desktop Showing "Paused" While Container Is Running
 
-- [ ] In `api/pkg/server/session_handlers.go`, replace the stale
+- [~] In `api/pkg/server/session_handlers.go`, replace the stale
       `UpdateSession(*session)` block (~lines 2548-2554) in
       `StartExternalAgentSession` with a re-fetch of the session row via
       `s.Store.GetSession(ctx, session.ID)`, assigning the result back to
