@@ -167,6 +167,40 @@ the shell script.
   default-branch push succeeded) is what protects against the empty upstream
   ever defaulting to `helix-specs`.
 
+## Implementation Notes
+
+- **Files changed (helix repo, branch `feature/002105-ensure-main-is-pushed`):**
+  - `desktop/shared/helix-specs-create.sh` — in `create_helix_specs_branch`:
+    (1) normalize `RETURN_BRANCH` to `main` when it would otherwise be empty;
+    (2) track `SEED_OK` and, for empty repos, **bail out (`return 1`, set
+    `HELIX_SPECS_BRANCH_EXISTS=false`, restore stash) before touching
+    helix-specs** if the default-branch seed push fails; (3) after a successful
+    helix-specs push on an empty repo, verify `git ls-remote --symref origin
+    HEAD` did not resolve to `helix-specs` and warn if it did.
+  - `desktop/shared/helix-workspace-setup.sh` — the empty-repo init block
+    (~line 350) now **hard-fails (`exit 1`)** if `git push -u origin main`
+    fails, instead of logging and continuing.
+  - `desktop/shared/test-helix-specs-creation.sh` — added a remote-default-branch
+    assertion to every `run_test` case, plus a new "Empty repo with failing seed
+    push" test.
+
+- **Key discovery — do NOT remove the `helix-workspace-setup.sh` empty-repo init
+  block.** The later "Checkout correct branch" section (`new` branch mode) runs
+  `git checkout "$BASE_BRANCH"` + `git pull origin "$BASE_BRANCH"` and FATALs if
+  `main` does not yet exist on the upstream. The init block is what seeds `main`
+  first, so it must stay. Both empty-repo handlers now share one rule: the
+  default branch MUST land on the upstream first, or we stop.
+
+- **Local-test caveat:** a `git init --bare` remote does not auto-promote the
+  first pushed branch to default the way GitHub does (its `HEAD` is fixed at
+  init time, here `master`). The test's `git worktree add helix-specs` check and
+  the new seed-failure test are the meaningful regression guards; the
+  remote-`HEAD`-not-helix-specs assertion documents intent and catches an
+  explicit misconfiguration.
+
+- **Test result:** `bash desktop/shared/test-helix-specs-creation.sh` → 12
+  passed, 0 failed.
+
 ## Test plan
 
 - Extend `desktop/shared/test-helix-specs-creation.sh`:

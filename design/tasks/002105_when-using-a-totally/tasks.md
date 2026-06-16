@@ -19,4 +19,5 @@
 
 ## Verification
 
-- [ ] Manually connect a brand new empty GitHub repo, run project setup multiple times, and confirm the GitHub default branch is `main` every time (no flakiness).
+- [~] Manually connect a brand new empty GitHub repo, run project setup multiple times, and confirm the GitHub default branch is `main` every time (no flakiness).
+  - NOT performed in this environment: requires a real external GitHub repo + OAuth credentials, which the sandbox does not have. Coverage instead comes from the automated suite (`test-helix-specs-creation.sh`, 12/12 passing), including the empty-repo and seed-failure cases. Flagging for a human to confirm end-to-end against a live empty GitHub repo before/after merge.
