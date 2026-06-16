@@ -2,7 +2,7 @@
 // subscribed AI Worker. The server is the event bus; Workers are
 // reactors. Each activation is a single fresh run of the Spawner — no
 // long-running agent loops, no in-process state per worker beyond a
-// per-Worker queue that coalesces overlapping events.
+// per-Worker queue that serialises overlapping events.
 //
 // Lifecycle:
 //   - hire_worker calls DispatchHire to fire a TriggerHire activation
@@ -12,12 +12,14 @@
 //
 // Both calls return immediately; activations run on goroutines. Each
 // Worker has a single runner goroutine that drains a per-Worker
-// queue: new triggers arriving while an activation is in flight are
-// appended and processed as one coalesced batch when the current
-// activation finishes. This collapses webhook cascades (e.g. five
-// GitHub events fired by the worker's own action against a shared
-// auth token) into a single follow-up activation, which keeps cost
-// bounded under burst traffic.
+// queue: new triggers arriving while an activation is in flight wait
+// in the queue and are processed one at a time, in arrival order, as
+// the current activation finishes. Triggers are not coalesced — each
+// activation carries exactly one trigger so that a busy Stream (e.g. a
+// GitHub Stream firing an event per commit, CI run and issue) can't
+// fold its backlog into one oversized activation that exhausts the
+// Worker's context window. The trade-off is more (sequential)
+// activations under burst traffic.
 package dispatch
 
 import (
@@ -38,8 +40,8 @@ import (
 // (webhook, email, …) — but it knows nothing about how each transport
 // delivers; that lives behind the streaming.Outbound port.
 //
-// The per-Worker coalescing logic (one in-flight Spawn per Worker,
-// bursts folded into the next batch) moved out to
+// The per-Worker serialisation logic (one in-flight Spawn per Worker,
+// queued triggers drained one at a time in arrival order) moved out to
 // activation.Queue in B5.10; Dispatcher delegates Enqueue to its
 // embedded Queue and focuses on the event-side fan-out.
 type Dispatcher struct {
@@ -122,9 +124,10 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 // runs on its own goroutine with its own background context, so a
 // slow target never stalls the publish that triggered Dispatch.
 //
-// Returns immediately. A per-Worker queue serialises and coalesces
-// overlapping subscriber activations within a Worker; outbound POSTs
-// have no such ordering guarantee.
+// Returns immediately. A per-Worker queue serialises overlapping
+// subscriber activations within a Worker, draining them one trigger at
+// a time in arrival order; outbound POSTs have no such ordering
+// guarantee.
 func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	orgID := e.OrganizationID
 	d.emitOutbound(ctx, e)
