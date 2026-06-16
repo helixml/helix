@@ -1,13 +1,13 @@
 # Implementation Tasks: Fix Desktop Showing "Paused" While Container Is Running
 
-- [~] In `api/pkg/server/session_handlers.go`, replace the stale
+- [x] In `api/pkg/server/session_handlers.go`, replace the stale
       `UpdateSession(*session)` block (~lines 2548-2554) in
       `StartExternalAgentSession` with a re-fetch of the session row via
       `s.Store.GetSession(ctx, session.ID)`, assigning the result back to
       `session`.
-- [ ] Add an explanatory comment noting `StartDesktop` already persisted the
+- [x] Add an explanatory comment noting `StartDesktop` already persisted the
       container metadata and re-saving the stale struct caused the "paused" bug.
-- [ ] Add a regression test (mock store + mock executor) asserting that
+- [~] Add a regression test (mock store + mock executor) asserting that
       `container_name` and `external_agent_status="running"` survive
       `StartExternalAgentSession` and are not blanked.
 - [ ] Build the API: `go build ./pkg/server/ ./pkg/store/ ./pkg/types/`.
