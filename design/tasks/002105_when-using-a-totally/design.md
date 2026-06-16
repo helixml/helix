@@ -93,6 +93,41 @@ This keeps the change localized to the one function that pushes both branches,
 matches the existing approach in commit `ee00cc926`, and needs no new
 dependencies.
 
+#### Concrete change to `create_helix_specs_branch` (illustrative)
+
+```bash
+local SEED_OK=true
+if [ "$REPO_IS_EMPTY" = true ]; then
+    # (2) Never seed an empty/branchless value; force a sensible default.
+    [ -z "$RETURN_BRANCH" ] && RETURN_BRANCH="main"
+
+    if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$RETURN_BRANCH" >/dev/null 2>&1; then
+        git -C "$REPO_PATH" checkout --orphan "$RETURN_BRANCH" 2>&1 || true
+        git -C "$REPO_PATH" commit --allow-empty -m "Initial commit" 2>&1 || true
+        if git -C "$REPO_PATH" push -u origin "$RETURN_BRANCH" 2>&1; then
+            echo "  Seeded $RETURN_BRANCH on upstream as default"
+        else
+            # (1) Was: log a warning and fall through to push helix-specs anyway.
+            echo "  ERROR: failed to seed $RETURN_BRANCH; refusing to push helix-specs first"
+            SEED_OK=false
+        fi
+    fi
+fi
+
+# (1) Gate: on an empty repo, never push helix-specs unless the default
+#     branch was seeded first. This is the one-line behavioural fix.
+if [ "$REPO_IS_EMPTY" = true ] && [ "$SEED_OK" = false ]; then
+    HELIX_SPECS_BRANCH_EXISTS=false
+    return 1
+fi
+
+# ... unchanged: create + push the helix-specs orphan ...
+```
+
+The single behavioural change is that the empty-repo path **stops** before
+pushing `helix-specs` whenever the default-branch seed did not succeed, so
+`helix-specs` can never be the first branch GitHub sees.
+
 ### Cleanup — remove the redundant empty-repo init (helix-workspace-setup.sh)
 
 Consolidate empty-repo initialization so there is a single source of truth.
