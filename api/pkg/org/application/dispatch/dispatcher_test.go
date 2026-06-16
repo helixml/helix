@@ -573,18 +573,18 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 	}
 }
 
-// TestDispatchCoalescesEvents pins the cost-saving rule that drove this
-// design: while one activation is in flight for a Worker, any further
-// events that arrive on Streams that Worker subscribes to are
-// appended to a per-Worker queue and delivered to the Spawner as one
-// batched activation when the current one finishes — not five
-// separate fresh-claude runs.
+// TestDispatchDeliversEventsOneAtATime pins the context-bounding rule
+// that drove this design: while one activation is in flight for a
+// Worker, any further events that arrive on Streams that Worker
+// subscribes to are appended to a per-Worker queue and delivered to
+// the Spawner one trigger per activation, in arrival order — never
+// folded into one oversized batch that would blow the Worker's context
+// budget.
 //
 // Shape of the test: the spawner blocks on the very first call so we
 // can publish more events behind it, then we release it and assert
-// the second Spawner call receives all the events that queued during
-// the block as one slice.
-func TestDispatchCoalescesEvents(t *testing.T) {
+// each queued event drains in its own Spawner call, FIFO.
+func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -636,9 +636,9 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	publish("e-1", "first")
 	<-started
 
-	// Three more events while activation #1 is held. These should NOT
-	// each trigger a fresh Spawner call — they should pool in the queue
-	// and be drained as one batch when activation #1 returns.
+	// Three more events while activation #1 is held. Each should drain
+	// in its own Spawner call once activation #1 returns — never pooled
+	// into one batch.
 	publish("e-2", "two")
 	publish("e-3", "three")
 	publish("e-4", "four")
@@ -648,41 +648,38 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	// goroutines that resolve subs/env can still be in flight.
 	time.Sleep(100 * time.Millisecond)
 
-	// Release the first activation; the runner now drains the batch.
+	// Release the first activation; the runner now drains the queue one
+	// trigger at a time.
 	close(release)
 
-	// Two Spawner calls total: one with [e-1], one with [e-2, e-3, e-4].
-	a1 := waitForActivation(t, rec, 2*time.Second)
-	a2 := waitForActivation(t, rec, 2*time.Second)
-
-	if len(a1.Triggers) != 1 || a1.Triggers[0].EventID != "e-1" {
-		t.Fatalf("activation #1 = %d trigger(s) %+v, want [e-1]", len(a1.Triggers), eventIDs(a1.Triggers))
-	}
-	if len(a2.Triggers) != 3 {
-		t.Fatalf("activation #2 = %d triggers %+v, want 3", len(a2.Triggers), eventIDs(a2.Triggers))
-	}
-	wantIDs := []streaming.EventID{"e-2", "e-3", "e-4"}
+	// Four Spawner calls total, each carrying a single event in FIFO
+	// order: [e-1], [e-2], [e-3], [e-4].
+	wantIDs := []streaming.EventID{"e-1", "e-2", "e-3", "e-4"}
 	for i, want := range wantIDs {
-		if a2.Triggers[i].EventID != want {
-			t.Fatalf("activation #2 trigger order = %+v, want %+v", eventIDs(a2.Triggers), wantIDs)
+		a := waitForActivation(t, rec, 2*time.Second)
+		if len(a.Triggers) != 1 {
+			t.Fatalf("activation #%d = %d triggers %+v, want exactly 1", i+1, len(a.Triggers), eventIDs(a.Triggers))
+		}
+		if a.Triggers[0].EventID != want {
+			t.Fatalf("activation #%d event = %q, want %q (FIFO order broken)", i+1, a.Triggers[0].EventID, want)
 		}
 	}
 
-	// And no third activation is fired — the runner exits cleanly when
+	// And no fifth activation is fired — the runner exits cleanly when
 	// the queue drains.
 	select {
 	case extra := <-rec:
-		t.Fatalf("unexpected third activation: %+v", extra)
+		t.Fatalf("unexpected fifth activation: %+v", extra)
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("Spawner calls = %d, want 2", got)
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("Spawner calls = %d, want 4 (one per event)", got)
 	}
 }
 
 // waitForActivation pulls one recordedActivation off rec or fails the
-// test on timeout. Centralised so the coalescing test reads cleanly.
+// test on timeout. Centralised so the one-at-a-time test reads cleanly.
 func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time.Duration) recordedActivation {
 	t.Helper()
 	select {
