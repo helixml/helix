@@ -70,6 +70,17 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
 
+	// Drop tables for aggregates removed from the model. AutoMigrate never
+	// drops, so a DB migrated before an aggregate was deleted keeps the
+	// orphaned table forever. org_environments backed the Environment
+	// aggregate (the on-disk per-Worker env dir), removed when worker
+	// config moved to the per-Worker helix-specs branch. Dropping it
+	// idempotently lets fresh and upgraded DBs converge. No org_* table
+	// FKs reference it, so the drop is safe.
+	if err := dropRemovedTables(db); err != nil {
+		return nil, fmt.Errorf("drop removed tables: %w", err)
+	}
+
 	if opts.InstallOrganizationFK {
 		if err := installOrganizationFKs(db); err != nil {
 			return nil, fmt.Errorf("install organization FKs: %w", err)
@@ -96,6 +107,23 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Configs:            newConfigsRepo(db),
 		Activations:        newActivationsRepo(db),
 	}, nil
+}
+
+// removedTables names tables for aggregates deleted from the model.
+// AutoMigrate never drops, so these are dropped explicitly on open.
+var removedTables = []string{
+	"org_environments", // Environment aggregate; config moved to helix-specs branch
+}
+
+// dropRemovedTables drops the removedTables if present. Idempotent
+// (DROP TABLE IF EXISTS); a no-op on a fresh DB that never created them.
+func dropRemovedTables(db *gorm.DB) error {
+	for _, t := range removedTables {
+		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", t)).Error; err != nil {
+			return fmt.Errorf("drop %s: %w", t, err)
+		}
+	}
+	return nil
 }
 
 // installReportingLineFKs adds the two ON DELETE CASCADE foreign keys
