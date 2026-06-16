@@ -1,17 +1,17 @@
 # Implementation Tasks: Scope Project Secrets to Dev, Prod, or Both Environments
 
 ## Backend — types & storage
-- [~] Add `SecretScope` string type with `dev`/`prod`/`both` consts and a `Valid()` helper in `api/pkg/types/types.go`.
-- [~] Add `Scope SecretScope` field to `types.Secret` with GORM tag `type:varchar(16);default:'both';index`.
-- [~] Add `Scope string` (omitempty) to `types.CreateSecretRequest`.
-- [~] Verify GORM AutoMigrate adds the column; add a one-time `UPDATE secrets SET scope='both'` guard for any NULL/empty rows.
-- [~] Update `CreateSecret` uniqueness check in `api/pkg/store/store_secrets.go` to include scope, rejecting same-scope or `both`-overlap name collisions.
+- [x] Add `SecretScope` string type with `dev`/`prod`/`both` consts and a `Valid()` helper in `api/pkg/types/types.go`.
+- [x] Add `Scope SecretScope` field to `types.Secret` with GORM tag `type:varchar(16);default:'both';index`.
+- [x] Add `Scope string` (omitempty) to `types.CreateSecretRequest`.
+- [x] Verify GORM AutoMigrate adds the column; add a one-time `UPDATE secrets SET scope='both'` guard for any NULL/empty rows.
+- [x] Update `CreateSecret` uniqueness check in `api/pkg/store/store_secrets.go` to include scope, rejecting same-scope or `both`-overlap name collisions.
 
 ## Backend — env-var injection
-- [ ] Change `GetProjectSecretsAsEnvVars` in `api/pkg/server/secrets_handlers.go` to accept a `scope` arg and include secrets where `scope == arg || scope == both`.
-- [ ] Update the dev wiring (`SetProjectSecretsGetter` / `ProjectSecretsGetter` in `hydra_executor.go` and `server.go:569`) so the dev path requests `dev`-scoped secrets.
-- [ ] Add a project-secrets getter to `webservice.Controller` (constructor + field) and set it in `server.go`.
-- [ ] In `webservice` `runBootstrap`, fetch `prod`-scoped secrets and pass them via `ExecRequest.Env` (not inlined in the shell script); thread the project ID through.
+- [~] Change `GetProjectSecretsAsEnvVars` in `api/pkg/server/secrets_handlers.go` to accept a `scope` arg and include secrets where `scope == arg || scope == both`.
+- [~] Update the dev wiring (`SetProjectSecretsGetter` / `ProjectSecretsGetter` in `hydra_executor.go` and `server.go:569`) so the dev path requests `dev`-scoped secrets.
+- [~] Add a project-secrets getter to `webservice.Controller` (constructor + field) and set it in `server.go`.
+- [~] In `webservice` `runBootstrap`, fetch `prod`-scoped secrets and pass them via `ExecRequest.Env` (not inlined in the shell script); thread the project ID through.
 
 ## Backend — API handler
 - [ ] In `createProjectSecret`, validate the requested scope (default `both`) and set it on the `Secret`.
