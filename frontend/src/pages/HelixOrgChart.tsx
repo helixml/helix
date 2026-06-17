@@ -52,6 +52,7 @@ import {
   useFireHelixOrgWorker,
   useListHelixOrgRoles,
   useListHelixOrgStreams,
+  useStreamMessageCounts,
   useListHelixOrgWorkers,
   useAddWorkerParent,
   useRemoveWorkerParent,
@@ -148,6 +149,7 @@ type StreamNodeData = {
   name: string
   kind: string
   subscriberCount: number
+  messageCount: number
   onSelectStream: (streamId: string) => void
   onDeleteStream: (streamId: string) => void
 }
@@ -398,9 +400,22 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {data.name}
       </Typography>
-      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
-        {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto' }}>
+        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted }}>
+          {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
+        </Typography>
+        {/* Waiting-message count. Kept deliberately tiny — the card is
+            already dense — and tinted with the stream accent so it reads
+            as a stream stat rather than chrome. */}
+        <Tooltip title={`${data.messageCount} message${data.messageCount === 1 ? '' : 's'} waiting`}>
+          <Typography
+            variant="caption"
+            sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1 }}
+          >
+            {data.messageCount} msg
+          </Typography>
+        </Tooltip>
+      </Stack>
     </Box>
   )
 }
@@ -490,6 +505,7 @@ const buildGraph = (
   },
   isLight: boolean,
   streams: StreamSummary[],
+  messageCounts: Record<string, number>,
 ): { nodes: Node[]; edges: Edge[] } => {
   const flatByID = new Map<string, FlatWorker>()
   for (const wk of flat) flatByID.set(wk.id, wk)
@@ -727,6 +743,7 @@ const buildGraph = (
           name: s.name,
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
+          messageCount: messageCounts[s.id] ?? 0,
           onSelectStream: handlers.onSelectStream,
           onDeleteStream: handlers.onDeleteStream,
         } as StreamNodeData,
@@ -894,13 +911,14 @@ const ChartCanvas: FC<{
   onSubscribeWorker: (workerId: string, streamId: string) => void
   onUnsubscribeWorker: (workerId: string, streamId: string) => void
   streams: StreamSummary[]
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams }) => {
+  messageCounts: Record<string, number>
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams, messageCounts }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams),
-    [groups, flat, handlers, lightTheme.isLight, streams],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams, messageCounts),
+    [groups, flat, handlers, lightTheme.isLight, streams, messageCounts],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -1031,6 +1049,14 @@ const HelixOrgChart: FC = () => {
     })),
     [streamsData],
   )
+
+  // Per-stream waiting-message counts for the stream cards. One cached
+  // query per stream id (shared with the detail page's count hook), so
+  // each card's number refreshes independently. streamIds is memoized so
+  // the fan-out only re-subscribes when the set of streams changes, not
+  // on every render.
+  const streamIds = useMemo(() => streams.map((s) => s.id), [streams])
+  const messageCounts = useStreamMessageCounts(streamIds)
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
@@ -1250,6 +1276,7 @@ const HelixOrgChart: FC = () => {
                 onSubscribeWorker={onSubscribeWorker}
                 onUnsubscribeWorker={onUnsubscribeWorker}
                 streams={streams}
+                messageCounts={messageCounts}
               />
             </ReactFlowProvider>
           )}

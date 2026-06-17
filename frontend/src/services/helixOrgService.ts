@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
@@ -85,6 +85,7 @@ export const QUERY_KEYS = {
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
   webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'webhook-status'] as const,
+  streamMessageCount: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'message-count'] as const,
   workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
 }
 
@@ -547,6 +548,58 @@ export function useGitHubWebhookStatus(streamId: string | undefined, options?: {
     },
     enabled: !!orgID && !!streamId && (options?.enabled ?? true),
   })
+}
+
+// useStreamMessageCount reports the total number of messages waiting on
+// a single stream via the paginated JSON:API messages endpoint. We only
+// need meta.total, so we request the smallest possible page (size 1) and
+// ignore the body — the count is the cheap part the server computes
+// independently of the page slice. Used by the stream detail metric card.
+export function useStreamMessageCount(streamId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.streamMessageCount(orgID, streamId ?? ''),
+    queryFn: async () => {
+      if (!streamId) return 0
+      const res = await api.getApiClient().v1OrgsStreamsMessagesDetail(streamId, orgID, {
+        'page[number]': 1,
+        'page[size]': 1,
+      })
+      return res.data?.meta?.total ?? 0
+    },
+    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
+  })
+}
+
+// useStreamMessageCounts fans the same per-stream count query out across
+// every stream id so the org chart can label each stream card. Returns a
+// streamId → total map; missing/in-flight ids resolve to 0 (the caller
+// renders 0 rather than flickering). One React Query per id keeps each
+// count independently cached + invalidated, shared with the detail
+// page's single-stream hook above (same query key).
+export function useStreamMessageCounts(streamIds: string[], options?: { enabled?: boolean }): Record<string, number> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: streamIds.map((id) => ({
+      queryKey: QUERY_KEYS.streamMessageCount(orgID, id),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsStreamsMessagesDetail(id, orgID, {
+          'page[number]': 1,
+          'page[size]': 1,
+        })
+        return res.data?.meta?.total ?? 0
+      },
+      enabled,
+    })),
+  })
+  const counts: Record<string, number> = {}
+  streamIds.forEach((id, i) => {
+    counts[id] = (results[i]?.data as number | undefined) ?? 0
+  })
+  return counts
 }
 
 export function useCreateHelixOrgStream() {
