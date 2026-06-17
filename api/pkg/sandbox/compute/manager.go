@@ -628,12 +628,16 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 // and a row that timed out is no longer counted.
 func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	available := 0
+	aliveForFloor := 0
 	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
 	for _, r := range rows {
 		if isAvailable(r) {
 			available++
+		}
+		if isAliveForFloor(r) {
+			aliveForFloor++
 		}
 		if isReadyAndOnline(r) {
 			readyOnlineCount++
@@ -642,8 +646,13 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		}
 	}
 
-	// Floor pressure: how many short of Floor are we?
-	floorNeed := m.cfg.Floor - available
+	// Floor pressure: how many short of Floor are we? Floor is the
+	// operator's guarantee of HEALTHY capacity, so Ready+offline rows
+	// (whose YD WR is dying and waiting for D4 to shed) do not count -
+	// see isAliveForFloor for the rationale. The Max ceiling further
+	// down still uses `available` so we don't double-provision during
+	// D4's shed cycle.
+	floorNeed := m.cfg.Floor - aliveForFloor
 	if floorNeed < 0 {
 		floorNeed = 0
 	}
@@ -961,17 +970,68 @@ func (m *Manager) provisionOne(ctx context.Context) error {
 	return nil
 }
 
-// isAvailable reports whether a row counts toward the Floor.
+// isAvailable reports whether a row counts as "owned by us, do not
+// double-provision while D4 sheds." Used for the Max ceiling, NOT for
+// the Floor calculation - see isAliveForFloor for that.
 //
 // Ready rows count (host is up and registered). Provisioning rows
 // also count (host is on its way) so we don't double-provision while
 // the first one is still booting. Failed and Terminated rows do not
 // count - they are dead and should be cleaned up by a follow-up
 // idle-deprovision pass.
+//
+// Note: Ready+offline rows count here even though they aren't
+// session-routable, because they're still consuming a YD WR (and the
+// AWS EC2 instance underneath it) until D4 sheds them. Provisioning
+// a replacement on top would temporarily push us past Max.
 func isAvailable(r *types.SandboxInstance) bool {
 	switch State(r.ComputeState) {
 	case StateReady, StateProvisioning:
 		return true
+	default:
+		return false
+	}
+}
+
+// isAliveForFloor reports whether a row should count toward the Floor.
+//
+// Unlike isAvailable (which is owner-scoped), this is health-scoped:
+// the Floor is the operator's guarantee of available capacity for
+// sandbox sessions, so an offline row - even one we own - does NOT
+// satisfy it. The sandbox-instance reaper (server/sandbox_instance_reaper.go)
+// flips status to "offline" once last_seen drifts past
+// HELIX_SANDBOX_STALE_THRESHOLD (default 5m). At that point the
+// underlying compute (YD WR + EC2) is either dead or unreachable, so
+// counting it toward Floor leaves the operator below their requested
+// healthy-capacity guarantee for an unbounded amount of time (until
+// D4 happens to shed it).
+//
+// Provisioning rows still count - the host is on its way and the
+// next cycle will see it Ready, so firing another Provision now would
+// be the same double-provision-during-boot bug isAvailable was
+// originally written to prevent.
+//
+// Why a separate predicate, not a tighter isAvailable:
+//
+//	A previous tightening of isAvailable to require Status=="online"
+//	broke the Max ceiling: D4's shed cycle takes one or two reconciles
+//	to run, and during that window the offline-Ready row stops counting
+//	against Max - so Reconcile fires a fresh Provision, then D4 fires
+//	a Deprovision, and we churn. Keeping isAvailable broad for the
+//	ceiling and using this narrower predicate for the Floor gets both
+//	behaviours: prompt replacement of dead hosts, no churn while D4
+//	is in flight.
+//
+// The reaper's 5-minute stale threshold IS the heartbeat-flap defence:
+// by the time status flips to "offline" the row has already missed
+// every heartbeat in that window. A real flap (one missed beat) is
+// well inside the window and never triggers this.
+func isAliveForFloor(r *types.SandboxInstance) bool {
+	switch State(r.ComputeState) {
+	case StateProvisioning:
+		return true
+	case StateReady:
+		return r.Status == "online"
 	default:
 		return false
 	}
