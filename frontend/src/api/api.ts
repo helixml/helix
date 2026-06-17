@@ -908,6 +908,10 @@ export interface ServerAddDomainRequest {
   hostname?: string;
 }
 
+export interface ServerAgentConfigAppliedResponse {
+  status?: string;
+}
+
 export interface ServerAgentSandboxesDebugResponse {
   dev_containers?: ServerDevContainerWithClients[];
   gpus?: ServerGPUInfoWithSandbox[];
@@ -1694,6 +1698,17 @@ export interface ServerSimpleSampleProject {
   skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
+}
+
+export interface ServerSwitchAgentRequest {
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  helix_app_id?: string;
+}
+
+export interface ServerSwitchAgentResponse {
+  agent_runtime?: TypesCodeAgentRuntime;
+  helix_app_id?: string;
+  session_id?: string;
 }
 
 export interface ServerTaskProgressResponse {
@@ -5518,6 +5533,15 @@ export interface TypesSessionInfo {
 
 export interface TypesSessionMetadata {
   active_tools?: string[];
+  /**
+   * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+   * this same session (no fork / new container) — see
+   * design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+   * fork_seed interaction carrying the prior thread's transcript exists on
+   * THIS session, so maybePrependTranscript seeds the new Zed thread even
+   * though ParentSessionID is empty (the session continues from itself).
+   */
+  agent_switched_at?: string;
   /** Agent type: "helix" or "zed_external" */
   agent_type?: string;
   /** Streaming resolution height (default: 1600) */
@@ -14660,6 +14684,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.
+     *
+     * @tags sessions
+     * @name V1SessionsAgentConfigAppliedCreate
+     * @summary Notify that an in-place agent switch's config has been applied in the container
+     * @request POST:/api/v1/sessions/{id}/agent-config-applied
+     * @secure
+     */
+    v1SessionsAgentConfigAppliedCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAgentConfigAppliedResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-config-applied`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
      *
      * @tags Claude
@@ -15033,6 +15075,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
+     *
+     * @tags sessions
+     * @name V1SessionsSwitchAgentCreate
+     * @summary Switch the agent framework on a running session in place
+     * @request POST:/api/v1/sessions/{id}/switch-agent
+     * @secure
+     */
+    v1SessionsSwitchAgentCreate: (id: string, request: ServerSwitchAgentRequest, params: RequestParams = {}) =>
+      this.request<ServerSwitchAgentResponse, any>({
+        path: `/api/v1/sessions/${id}/switch-agent`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
