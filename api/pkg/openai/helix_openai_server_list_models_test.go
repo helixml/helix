@@ -39,7 +39,6 @@ func TestListModels_FiltersOutModelsNoRunnerCanServe(t *testing.T) {
 	rtr := inferencerouter.NewRouter()
 	rtr.SetRunnerState(&inferencerouter.RunnerState{
 		ID:     "runner-1",
-		URL:    "http://10.0.0.5",
 		Status: "running",
 		ActiveProfile: &types.RunnerProfile{
 			ID:   "rprof_qwen_0_5b",
@@ -82,7 +81,6 @@ func TestListModels_FiltersOutModelsWhenRunnerNotRunning(t *testing.T) {
 	rtr := inferencerouter.NewRouter()
 	rtr.SetRunnerState(&inferencerouter.RunnerState{
 		ID:     "runner-1",
-		URL:    "http://10.0.0.5",
 		Status: "pulling",
 		ActiveProfile: &types.RunnerProfile{
 			Models: []types.ProfileModel{
