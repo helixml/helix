@@ -1027,14 +1027,10 @@ func isAvailable(r *types.SandboxInstance) bool {
 // every heartbeat in that window. A real flap (one missed beat) is
 // well inside the window and never triggers this.
 func isAliveForFloor(r *types.SandboxInstance) bool {
-	switch State(r.ComputeState) {
-	case StateProvisioning:
-		return true
-	case StateReady:
-		return r.Status == "online"
-	default:
-		return false
-	}
+	// Compose from isReadyAndOnline rather than re-inlining the
+	// (ready AND online) check so future tightening of one predicate
+	// propagates automatically instead of silently drifting.
+	return State(r.ComputeState) == StateProvisioning || isReadyAndOnline(r)
 }
 
 // isReadyState reports whether the row's ComputeState is Ready, ignoring

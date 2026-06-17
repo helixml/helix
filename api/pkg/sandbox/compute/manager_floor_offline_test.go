@@ -194,11 +194,20 @@ func TestReconcileFloor2MixedRows(t *testing.T) {
 // is unchanged. So a Ready+offline row that's also idle past
 // IdleTimeout still gets shed - this test pins that interaction so
 // any future tightening of isReadyState catches the regression.
+//
+// Floor=1 with one healthy companion (online) plus one dead row
+// (offline). aliveForFloor=1 so Floor is met (no D3 fire). D4's
+// internal Floor guard uses the broad readyCount (=2), so it sees
+// readyCount > Floor and is free to shed the offline row.
+//
+// Earlier version of this test used Floor=0, which vacuously skipped
+// D4's guard and so didn't actually exercise the interaction. See
+// reviewer finding 2026-06-17.
 func TestD4StillShedsReadyOfflineRow(t *testing.T) {
 	store := newFakeStore()
 	stub := NewStubProvider("stub")
 	m, err := NewManager(stub, store, ManagerConfig{
-		Floor:                   0,
+		Floor:                   1,
 		Max:                     0,
 		ReconcileInterval:       10 * time.Millisecond,
 		HealthCheckTimeout:      100 * time.Millisecond,
@@ -209,6 +218,14 @@ func TestD4StillShedsReadyOfflineRow(t *testing.T) {
 		t.Fatalf("NewManager: %v", err)
 	}
 
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:              "sbx-healthy",
+		Provider:        "stub",
+		ProviderID:      "wr-healthy",
+		ComputeState:    string(StateReady),
+		Status:          "online",
+		ActiveSandboxes: 0,
+	})
 	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
 		ID:              "sbx-dead",
 		Provider:        "stub",
@@ -231,7 +248,8 @@ func TestD4StillShedsReadyOfflineRow(t *testing.T) {
 	rows, _ := store.ListSandboxInstances(context.Background())
 	for _, r := range rows {
 		if r.ID == "sbx-dead" && r.ComputeState == string(StateReady) {
-			t.Fatalf("Ready+offline row should have been shed by D4; still Ready. all: %+v", rows)
+			t.Fatalf("Ready+offline row should have been shed by D4 (readyCount=2 > Floor=1); "+
+				"still Ready. all: %+v", rows)
 		}
 	}
 }
@@ -262,8 +280,13 @@ func TestComputeNeededFloorIgnoresOfflineRows(t *testing.T) {
 			wantNeed: 1,
 		},
 		{
-			name:     "provisioning row satisfies floor (in-flight)",
+			name:     "provisioning+offline satisfies floor (in-flight, not yet registered)",
 			row:      &types.SandboxInstance{Provider: "stub", ComputeState: string(StateProvisioning), Status: "offline"},
+			wantNeed: 0,
+		},
+		{
+			name:     "provisioning+online satisfies floor (regardless of status)",
+			row:      &types.SandboxInstance{Provider: "stub", ComputeState: string(StateProvisioning), Status: "online"},
 			wantNeed: 0,
 		},
 		{
