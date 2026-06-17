@@ -21,7 +21,11 @@ import {
   Divider,
   Alert,
   Link,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -950,6 +954,62 @@ const OAuthProvidersTable: React.FC = () => {
                       client id/secret, callback, or signing secret. */}
                   {currentProvider.slack_ingress_mode === 'socket' && (
                     <>
+                      <Grid item xs={12}>
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          sx={{
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 1,
+                            backgroundColor: 'rgba(33, 150, 243, 0.04)',
+                            '&:before': { display: 'none' },
+                          }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              📖 Socket Mode setup guide — create the Slack app step by step
+                            </Typography>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                              Socket Mode connects one Slack workspace over an outbound WebSocket — no public URL needed, so it works behind a firewall. Follow these steps in the{' '}
+                              <Link href="https://api.slack.com/apps" target="_blank" rel="noopener">Slack app dashboard ↗</Link>, then paste the two tokens below.
+                            </Typography>
+                            <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 1 } }}>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Create the app.</strong> <Link href="https://api.slack.com/apps" target="_blank" rel="noopener">api.slack.com/apps</Link> → <em>Create New App</em> → <em>From scratch</em>. Name it (e.g. "Helix") and pick your workspace.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Enable Socket Mode.</strong> <em>Settings → Socket Mode</em> → toggle <em>Enable Socket Mode</em> on. When prompted, generate an <em>App-Level Token</em> with the <code>connections:write</code> scope and copy the <code>xapp-…</code> value into <strong>App-Level Token</strong> below.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Add bot scopes.</strong> <em>OAuth &amp; Permissions → Scopes → Bot Token Scopes</em>, add: <code>chat:write</code>, <code>chat:write.customize</code>, <code>channels:history</code>, <code>channels:read</code>, <code>channels:join</code>, <code>groups:history</code>, <code>groups:read</code>, <code>app_mentions:read</code>.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Enable Event Subscriptions</strong> (easy to miss — without it the socket connects but no messages arrive). <em>Event Subscriptions</em> → toggle <em>Enable Events</em> on (no Request URL needed in Socket Mode). Under <em>Subscribe to bot events</em> add: <code>message.channels</code> (public channels), <code>message.groups</code> (<strong>private</strong> channels), <code>app_mention</code>. Save Changes. Note: these are <em>events</em>, configured on a different page than scopes.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Install to the workspace.</strong> <em>Install App → Install to Workspace</em> → Allow. Copy the <em>Bot User OAuth Token</em> (<code>xoxb-…</code>) into <strong>Bot Token</strong> below.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Invite the bot to a channel.</strong> In Slack, open the channel and run <code>/invite @YourApp</code>. Private channels <strong>must</strong> be invited manually — Slack doesn't allow apps to self-join private channels.
+                                </Typography>
+                              </li>
+                            </Box>
+                          </AccordionDetails>
+                        </Accordion>
+                      </Grid>
                       <Grid item xs={12}>
                         <TextField
                           fullWidth
