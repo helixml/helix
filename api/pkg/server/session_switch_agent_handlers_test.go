@@ -80,3 +80,46 @@ func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
 	assert.NotEqual(t, "continue please", got, "transcript should be prepended after a switch")
 	assert.Contains(t, got, "continue please", "the user message must still be present")
 }
+
+// Regression for the opus→sonnet "model didn't actually switch" bug: getZedConfig
+// resolves the claude_code model (managed-settings.json) from specTask.HelixAppID
+// FIRST, so an in-place switch MUST repoint the spec task too — not just
+// session.ParentApp. This asserts on the resolved config source, which is the
+// real switch signal, rather than trusting the agent's self-report (it parrots
+// the handoff text and will claim the new model regardless).
+func TestSwitchAgentInPlace_RepointsSpecTaskHelixAppID(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{ID: "app_opus", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Name: "Opus",
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode, Model: "claude-opus-4-5",
+		}},
+	}}})
+	mem.SeedApp(&types.App{ID: "app_sonnet", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Name: "Sonnet",
+		Assistants: []types.AssistantConfig{{
+			AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeClaudeCode, Model: "claude-sonnet-4-5",
+		}},
+	}}})
+
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_opus"
+	session.Metadata.SpecTaskID = "spt_test"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
+	seedParentWithInteractions(t, mem, session, 1)
+	mem.SeedSpecTask(&types.SpecTask{ID: "spt_test", HelixAppID: "app_opus", PlanningSessionID: session.ID})
+
+	httpErr := srv.switchAgentInPlace(ctx, session, types.CodeAgentRuntimeClaudeCode, "app_sonnet")
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "app_sonnet", updated.ParentApp, "session must repoint to the new app")
+
+	task, err := mem.GetSpecTask(ctx, "spt_test")
+	require.NoError(t, err)
+	assert.Equal(t, "app_sonnet", task.HelixAppID,
+		"spec task HelixAppID must repoint — otherwise getZedConfig keeps resolving the claude_code model from the OLD app and the underlying model never switches")
+}
