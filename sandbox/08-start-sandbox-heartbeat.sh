@@ -44,7 +44,7 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
         echo "[$(date -Iseconds)] ⚠️  Heartbeat daemon exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | tee -a /var/log/helix-services/heartbeat.log | sed -u 's/^/[HEARTBEAT] /' &
+) 2>&1 | stdbuf -oL tee -a /var/log/helix-services/heartbeat.log | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
 echo "✅ Sandbox heartbeat daemon started with auto-restart (wrapper PID: $HEARTBEAT_PID)"
