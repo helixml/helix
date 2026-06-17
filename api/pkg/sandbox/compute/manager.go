@@ -543,12 +543,21 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 			ProviderID:   candidate.ProviderID,
 			SandboxID:    candidate.ID,
 		}
-		// Force=false: this is a graceful scale-down, not a stuck-row
-		// rollback. The Provider's Deprovision is expected to drain
-		// any in-flight workload (per its own semantics) before the
-		// host is reaped upstream.
+		// Force=true: for the YD-as-runner-host model the "task body"
+		// is a persistent supervisor process - there's no in-flight
+		// work to gracefully drain. Force=false maps to YD's "drain"
+		// semantic which waits for the task to exit on its own; since
+		// our task body never exits (it's a long-running helix-sandbox
+		// container), drain mode leaves the WR in CANCELLING
+		// indefinitely. Force=true maps to "abort tasks", which is
+		// the only correct cancel semantic here.
+		//
+		// The Provider.Deprovision contract is "shut this host down";
+		// the differentiation graceful-vs-force came from a generic
+		// VM-pool mental model that doesn't fit YD. Future Providers
+		// with genuine drainable work can opt back into Force=false.
 		if err := m.provider.Deprovision(ctx, handle, DeprovisionOpts{
-			Force:  false,
+			Force:  true,
 			Reason: "idle deprovision (D4)",
 		}); err != nil {
 			// Provider.Deprovision failed. The earlier ultrareview-1
