@@ -1,9 +1,7 @@
 package hydra
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,18 +15,6 @@ import (
 // never any zfs command. Var (not const) so tests can override it.
 var workspacesBaseDir = "/data/workspaces"
 
-// dirSizeBytes returns the on-disk size of a directory in bytes (du -sb style).
-// Returns 0 on error.
-func dirSizeBytes(path string) int64 {
-	out, err := exec.Command("du", "-sb", path).Output()
-	if err != nil {
-		return 0
-	}
-	var size int64
-	fmt.Sscanf(string(out), "%d", &size)
-	return size
-}
-
 // reconcileWorkspaceSubdir reaps orphaned directories under
 // workspacesBaseDir/<subdir>. A dir is reaped iff its name has the required
 // prefix, its name is NOT in liveSet, and its mtime is older than the grace
@@ -38,14 +24,14 @@ func dirSizeBytes(path string) int64 {
 // workspacesBaseDir/<subdir>/<validated-name>. The name must be a single path
 // element (no separators, no "..") and carry the expected prefix, so we can
 // never escape the subtree.
-func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip, freed int64) {
+func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
 	base := filepath.Join(workspacesBaseDir, subdir)
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Warn().Err(err).Str("dir", base).Msg("ReconcileOrphanWorkspaces: failed to read subdir")
 		}
-		return nil, nil, 0
+		return nil, nil
 	}
 
 	cutoff := time.Now().Add(-grace)
@@ -82,11 +68,9 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 		}
 
 		dir := filepath.Join(base, name)
-		size := dirSizeBytes(dir)
 
 		if dryRun {
 			reaped = append(reaped, dir)
-			freed += size
 			continue
 		}
 
@@ -96,15 +80,13 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 			continue
 		}
 		reaped = append(reaped, dir)
-		freed += size
 		log.Info().
 			Str("dir", dir).
-			Int64("size_bytes", size).
 			Dur("age", time.Since(info.ModTime())).
 			Msg("Reaped orphaned workspace dir")
 	}
 
-	return reaped, skipped, freed
+	return reaped, skipped
 }
 
 // ReconcileOrphanWorkspaces reaps per-task and per-session workspace checkout
@@ -119,20 +101,18 @@ func reconcileWorkspaceSubdir(subdir, requiredPrefix string, liveSet map[string]
 //
 // All entries are plain directories on the helix-workspaces filesystem dataset,
 // so reaping is os.RemoveAll — never a zfs command.
-func ReconcileOrphanWorkspaces(liveSessionIDs, liveSpecTaskIDs map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip, freed int64) {
+func ReconcileOrphanWorkspaces(liveSessionIDs, liveSpecTaskIDs map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
 	// spec-tasks/<spt_…>
-	r, s, f := reconcileWorkspaceSubdir("spec-tasks", "spt_", liveSpecTaskIDs, grace, dryRun)
+	r, s := reconcileWorkspaceSubdir("spec-tasks", "spt_", liveSpecTaskIDs, grace, dryRun)
 	reaped = append(reaped, r...)
 	skipped = append(skipped, s...)
-	freed += f
 
 	// sessions/<ses_…>
-	r, s, f = reconcileWorkspaceSubdir("sessions", "ses_", liveSessionIDs, grace, dryRun)
+	r, s = reconcileWorkspaceSubdir("sessions", "ses_", liveSessionIDs, grace, dryRun)
 	reaped = append(reaped, r...)
 	skipped = append(skipped, s...)
-	freed += f
 
 	// NOTE: the "sandboxes/" subtree is intentionally never touched here.
 
-	return reaped, skipped, freed
+	return reaped, skipped
 }

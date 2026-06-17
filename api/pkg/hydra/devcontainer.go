@@ -106,6 +106,12 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 		}
 	}()
 
+	// Disk-pressure emergency-brake monitor: polls the ZFS pool's free percent
+	// on a faster interval and gracefully stops (not deletes) all running dev
+	// containers if free space drops to or below the stop threshold, protecting
+	// the pool from ENOSPC corruption.
+	go dm.runDiskPressureMonitor()
+
 	return dm
 }
 
@@ -285,6 +291,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		if err := validateImageVersion(req.Image); err != nil {
 			return nil, err
 		}
+	}
+
+	// Disk-pressure admission control: refuse to start new dev containers when
+	// the ZFS pool's free space is critically low (≤ refuse threshold). This
+	// protects the pool from hitting 0% free, which would cause ENOSPC → XFS
+	// corruption → Postgres/git faults. Fail-open: an unknowable measurement
+	// returns nil and allows the start.
+	if err := checkDiskPressureForStart(); err != nil {
+		return nil, err
 	}
 
 	// Resolve registry-based image ref if available
@@ -1765,14 +1780,33 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 
 	var resp GCReconcileResponse
 
+	// Measure reclaimed space cheaply as the pool-free delta around the reaping
+	// calls (captures both zvol + workspace reclamation in O(1)) — never a
+	// per-directory `du` sweep, which serialises into a 10+ minute backlog that
+	// blocks the reaper ticker. Dry-run frees nothing, so skip the measurement
+	// entirely and keep it fast.
+	var before int64
+	if !req.DryRun {
+		before, _ = poolFreeBytes()
+	}
+
 	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
 	resp.ZvolsReaped = zReaped
 	resp.ZvolsSkipped = zSkipped
 
-	wReaped, wSkipped, freed := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	wReaped, wSkipped := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
 	resp.WorkspacesReaped = wReaped
 	resp.WorkspacesSkipped = wSkipped
-	resp.BytesFreed = freed
+
+	if !req.DryRun {
+		// Ignore measurement errors → 0. Pool free can also move for unrelated
+		// reasons; clamp to a non-negative delta.
+		if after, err := poolFreeBytes(); err == nil {
+			if delta := after - before; delta > 0 {
+				resp.BytesFreed = delta
+			}
+		}
+	}
 
 	log.Info().
 		Bool("dry_run", req.DryRun).
