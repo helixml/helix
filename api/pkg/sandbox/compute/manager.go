@@ -632,6 +632,19 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
+	// provisioningCapacity is the MaxSandboxes total across rows we've
+	// ALREADY submitted a Provision for but that haven't reached Ready
+	// yet. Counted toward "committed capacity" in the D3 headroom
+	// decision so we don't fire a second Provision in the next cycle
+	// for the same demand the first one is on its way to satisfy.
+	// Without this, a 2-session burst on a single-Runner fleet with
+	// HEADROOM_MIN=1 produces 2 new Runners instead of 1: cycle 1
+	// sees headroom=0 and fires Provision A; cycle 2 (15-30s later,
+	// A still booting since EC2+image pull takes 60-90s) STILL sees
+	// readyCapacity=2/readyDemand=2/headroom=0 and fires Provision B.
+	// The deficit gets double-counted because future-but-not-yet-Ready
+	// capacity is invisible to the math.
+	provisioningCapacity := 0
 	for _, r := range rows {
 		if isAvailable(r) {
 			available++
@@ -643,6 +656,9 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
+		}
+		if State(r.ComputeState) == StateProvisioning {
+			provisioningCapacity += int(r.MaxSandboxes)
 		}
 	}
 
@@ -685,7 +701,14 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	// provisioning 4x on smaller-capacity hosts.
 	demandNeed := 0
 	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 {
-		headroom := readyCapacity - readyDemand
+		// Committed capacity: Ready+online (real serving) PLUS in-flight
+		// provisioning (will serve soon). Both contribute slots toward
+		// the headroom we already have on order. The readyOnlineCount
+		// gate above still uses ONLY real-online so D3 doesn't fire
+		// with zero serving capacity - but for the deficit math, count
+		// committed slots so we don't double-fire across cycles while
+		// a Provision is still in flight.
+		headroom := readyCapacity + provisioningCapacity - readyDemand
 		if headroom < m.cfg.ScaleUpHeadroomMin {
 			slotsShort := m.cfg.ScaleUpHeadroomMin - headroom
 			demandNeed = slotsShort
