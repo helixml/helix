@@ -805,8 +805,10 @@ const OAuthProvidersTable: React.FC = () => {
                 />
               </Grid>
 
-              {/* Setup guide for known provider types - shown after enable toggle */}
-              {currentProvider.type && currentProvider.type !== 'custom' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
+              {/* Setup guide for known provider types - shown after enable toggle.
+                  Slack is excluded: its mode-specific accordion guide below
+                  supersedes this generic one. */}
+              {currentProvider.type && currentProvider.type !== 'custom' && currentProvider.type !== 'slack' && PROVIDER_SETUP_GUIDE[currentProvider.type] && (
                 <Grid item xs={12}>
                   <Alert
                     severity="info"
@@ -971,6 +973,11 @@ const OAuthProvidersTable: React.FC = () => {
                             </Typography>
                           </AccordionSummary>
                           <AccordionDetails>
+                            <Alert severity="warning" icon={false} sx={{ mb: 1.5, py: 0.5, '& .MuiAlert-message': { width: '100%' } }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                <strong>⚠️ Single-workspace only — not for multi-tenant installs.</strong> Slack caps each app at <strong>~10 concurrent Socket Mode connections</strong>, and one app-level token authenticates one app, so Socket Mode can't scale to many customer workspaces. Use it for a single on-premise workspace; for multi-tenant / SaaS, use REST (Events API) instead.
+                              </Typography>
+                            </Alert>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                               Socket Mode connects one Slack workspace over an outbound WebSocket — no public URL needed, so it works behind a firewall. Follow these steps in the{' '}
                               <Link href="https://api.slack.com/apps" target="_blank" rel="noopener">Slack app dashboard ↗</Link>, then paste the two tokens below.
