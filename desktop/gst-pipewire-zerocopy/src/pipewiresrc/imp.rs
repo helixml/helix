@@ -862,22 +862,11 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 // Point B: inter-arrival at the GStreamer pull, i.e. after the
                 // bounded(8) channel (measure-only). Compare with Point A.
                 crate::metrics::CREATE.lock().tick();
-                // Log periodically
-                static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[FRAME] Real frame #{}", count);
-                }
                 Some(f)
             }
             Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
             Err(RecvError::Timeout) if keepalive_time_ms > 0 => {
                 // Timeout with keepalive enabled - resend last buffer
-                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[KEEPALIVE] Resending last buffer #{}", count);
-                }
                 None // Signal to use last_buffer
             }
             Err(_) => return Err(gst::FlowError::Error),
@@ -916,12 +905,6 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 pts_ns,
             } => {
                 // Buffer is ready to use - CUDA copy already completed before PipeWire buffer was returned
-                static CUDA_BUFFER_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = CUDA_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if count == 1 || count % 1000 == 0 {
-                    eprintln!("[PIPEWIRESRC] CudaBuffer #{}: {}x{} {:?}", count, width, height, format);
-                }
-
                 let actual_fmt = buffer
                     .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())
