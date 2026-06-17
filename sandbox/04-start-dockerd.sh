@@ -146,7 +146,7 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
         echo "[$(date -Iseconds)] ⚠️  dockerd exited with code $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | tee -a /var/log/helix-services/dockerd.log | sed -u 's/^/[DOCKERD] /' &
+) 2>&1 | stdbuf -oL tee -a /var/log/helix-services/dockerd.log | sed -u 's/^/[DOCKERD] /' &
 
 DOCKERD_WRAPPER_PID=$!
 echo "Started dockerd with auto-restart (wrapper PID: $DOCKERD_WRAPPER_PID)"

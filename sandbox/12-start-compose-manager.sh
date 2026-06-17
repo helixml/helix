@@ -47,6 +47,14 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
     # PIPE means individual writes silently fail but the loop keeps
     # restarting compose-manager forever.
     trap '' PIPE
+    # `stdbuf -oL tee` below: tee block-buffers its write to the file
+    # when its stdout is a pipe (not a TTY). For low-volume producers
+    # like compose-manager (a few hundred bytes/min when idle), the
+    # buffer holds output for minutes before flushing - making hydra's
+    # admin Runner Logs WS appear silent even though [COMPOSE-MGR]
+    # lines are visible on `docker logs`. `-oL` forces line buffering
+    # on tee's stdout writes so each line hits the file (and so the
+    # tailer) immediately. Same fix in 04/08/14 scripts.
     while true; do
         echo "[$(date -Iseconds)] Starting compose-manager..."
         HELIX_RUNNER_ID="$SANDBOX_INSTANCE_ID" \
@@ -59,7 +67,7 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
         echo "[$(date -Iseconds)] ⚠️  compose-manager exited with $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | tee -a /var/log/helix-services/compose-manager.log | sed -u 's/^/[COMPOSE-MGR] /' &
+) 2>&1 | stdbuf -oL tee -a /var/log/helix-services/compose-manager.log | sed -u 's/^/[COMPOSE-MGR] /' &
 
 CM_PID=$!
 echo "✅ compose-manager started with auto-restart (wrapper PID: $CM_PID)"

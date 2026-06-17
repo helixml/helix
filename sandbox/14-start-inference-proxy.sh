@@ -28,7 +28,7 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
         echo "[$(date -Iseconds)] ⚠️  inference-proxy exited with $EXIT_CODE, restarting in 2s..."
         sleep 2
     done
-) 2>&1 | tee -a /var/log/helix-services/inference-proxy.log | sed -u 's/^/[INF-PROXY] /' &
+) 2>&1 | stdbuf -oL tee -a /var/log/helix-services/inference-proxy.log | sed -u 's/^/[INF-PROXY] /' &
 
 PROXY_PID=$!
 echo "✅ inference-proxy started with auto-restart (wrapper PID: $PROXY_PID)"
