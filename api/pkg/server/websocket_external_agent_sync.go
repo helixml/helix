@@ -56,6 +56,16 @@ func isAgentCrashError(errMsg string) bool {
 	return false
 }
 
+// acpWedgeCrashThreshold is how many prior retries a prompt must already have
+// accumulated before a recurring thread_load_error is treated as terminal
+// (crash-marked, surfacing Restart) rather than retried again. A thread_load_error
+// has many transport/wrapper wordings ("ede_diagnostic …", "response channel
+// cancelled", "send failed because receiver is gone", …) so we gate on recurrence,
+// not on the string. Gives a genuinely-transient drain (which Zed itself already
+// retries 4×750ms) a couple of normal backoff retries to clear before we give up.
+// See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
+const acpWedgeCrashThreshold = 2
+
 // streamingContext caches DB query results during token streaming to avoid
 // redundant queries. Created on first message_added, cleared on message_completed.
 // Also buffers interaction updates: DB writes are throttled to at most once per
@@ -3481,12 +3491,33 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 						if interactions[i].PromptID != "" {
 							failureMsg := fmt.Sprintf("Thread load failed: %s", errorMsg)
 							var markErr error
-							if isAgentCrashError(errorMsg) {
+							// A thread_load_error that RECURS is terminal: it means Zed
+							// cannot deliver the follow-up to the agent (wedged ACP thread,
+							// dead connection, …) and re-sending to the same thread can
+							// never succeed. The exact wrapper/transport wording varies
+							// ("ede_diagnostic …", "response channel cancelled", "send
+							// failed because receiver is gone", …) so we do NOT match on
+							// the string — recurrence is the signal. After a couple of
+							// normal backoff retries (acpWedgeCrashThreshold) we crash-mark
+							// the prompt (pins next_retry_at to the far-future sentinel,
+							// surfacing Restart) instead of looping forever. The first
+							// occurrence still gets normal retries in case it was a genuinely
+							// transient drain that Zed's own retry just missed.
+							recurringThreadLoadFailure := false
+							if !isAgentCrashError(errorMsg) {
+								// Only the recurrence gate needs the prior retry_count; a
+								// hard crash is terminal immediately and short-circuits.
+								if p, gErr := apiServer.Controller.Options.Store.GetPromptHistoryEntry(context.Background(), interactions[i].PromptID); gErr == nil && p != nil && p.RetryCount >= acpWedgeCrashThreshold {
+									recurringThreadLoadFailure = true
+								}
+							}
+							if isAgentCrashError(errorMsg) || recurringThreadLoadFailure {
 								log.Warn().
 									Str("prompt_id", interactions[i].PromptID).
 									Str("interaction_id", interactions[i].ID).
 									Str("acp_thread_id", acpThreadID).
-									Msg("💥 [HELIX] Claude Agent crashed — marking prompt crashed (suppress auto-retry, awaits user Restart)")
+									Bool("recurring_thread_load_failure", recurringThreadLoadFailure).
+									Msg("💥 [HELIX] Agent thread terminal (hard crash or recurring thread_load_error) — marking prompt crashed (suppress auto-retry, awaits user Restart)")
 								markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), interactions[i].PromptID, failureMsg)
 							} else {
 								markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), interactions[i].PromptID, failureMsg)

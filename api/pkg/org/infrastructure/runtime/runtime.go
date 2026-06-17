@@ -34,7 +34,7 @@ import (
 //
 // The zero value — nil — means "no process will be spawned", which
 // is correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error
+type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
 // Worker into wherever that Worker's runtime reads them at activation

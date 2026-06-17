@@ -57,11 +57,11 @@ import useSnackbar from '../hooks/useSnackbar'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
-  useActivateWorker,
   useFireHelixOrgWorker,
   useHelixOrgWorker,
   useListHelixOrgStreams,
   useListWorkerSubscriptions,
+  useRestartWorkerAgent,
   useSubscribeWorker,
   useUnsubscribeWorker,
   useUpdateWorkerIdentity,
@@ -70,8 +70,6 @@ import {
   WorkerChatReader,
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
-
-const OWNER_WORKER = 'w-owner'
 
 const HelixOrgWorkerDetail: FC = () => {
   const router = useRouter()
@@ -91,10 +89,9 @@ const HelixOrgWorkerDetail: FC = () => {
   })
   const streaming = useStreaming()
   const updateIdentity = useUpdateWorkerIdentity()
-  const activate = useActivateWorker()
+  const restartAgent = useRestartWorkerAgent()
   const [confirmingFire, setConfirmingFire] = useState(false)
 
-  const isOwner = workerId === OWNER_WORKER
   const worker = data?.worker
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
@@ -117,14 +114,15 @@ const HelixOrgWorkerDetail: FC = () => {
     }
   }
 
-  // handleRestartSession re-activates the Worker: the /activate endpoint
-  // re-attaches the helix-org MCP and brings a fresh agent session up.
-  // Destructive to in-flight work, so it's tucked behind the Advanced
-  // accordion with an explicit warning.
+  // handleRestartSession recreates the Worker's desktop container from
+  // scratch via the dedicated worker restart endpoint, which recovers a
+  // stuck container (not just a SendMessage continuation). Destructive to
+  // in-flight work, so it's tucked behind the Advanced accordion with an
+  // explicit warning.
   const handleRestartSession = async () => {
-    if (!workerId || activate.isPending) return
+    if (!workerId || restartAgent.isPending) return
     try {
-      await activate.mutateAsync(workerId)
+      await restartAgent.mutateAsync(workerId)
       snackbar.success('Agent session restart queued — it will come back up shortly')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
@@ -224,14 +222,16 @@ const HelixOrgWorkerDetail: FC = () => {
                       {worker.id}
                     </Typography>
                     <Chip size="small" label={worker.kind} />
-                    {isOwner && <Chip size="small" label="owner — protected" />}
                   </Stack>
                 </Box>
 
                 {/* Chat panel — inline transcript (same view the spec-task
-                    page uses) plus the desktop launch buttons. The
-                    transcript auto-loads when the worker already has a
-                    session; otherwise the call to action provisions one. */}
+                    page uses). The transcript auto-loads when the worker
+                    already has a session; otherwise it shows an empty state.
+                    AI workers only: a human worker has no agent desktop /
+                    Human Desktop session to chat with, so the panel is hidden
+                    entirely for kind === 'human'. */}
+                {worker.kind === 'ai' && (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
@@ -289,6 +289,7 @@ const HelixOrgWorkerDetail: FC = () => {
                     )}
                   </Stack>
                 </Paper>
+                )}
 
                 <Box>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -426,10 +427,10 @@ const HelixOrgWorkerDetail: FC = () => {
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
                     onClick={() => setConfirmingFire(true)}
-                    disabled={isOwner || fire.isPending}
+                    disabled={fire.isPending}
                     fullWidth
                   >
-                    {isOwner ? 'Owner — protected' : 'Fire worker'}
+                    Fire worker
                   </Button>
                   <Typography variant="caption" color="text.secondary">
                     Tears down the worker's per-Worker Helix project and deletes the
@@ -461,11 +462,11 @@ const HelixOrgWorkerDetail: FC = () => {
                 <Button
                   variant="outlined"
                   color="warning"
-                  startIcon={activate.isPending ? <CircularProgress size={16} color="inherit" /> : <RestartAltIcon />}
+                  startIcon={restartAgent.isPending ? <CircularProgress size={16} color="inherit" /> : <RestartAltIcon />}
                   onClick={handleRestartSession}
-                  disabled={activate.isPending}
+                  disabled={restartAgent.isPending}
                 >
-                  {activate.isPending ? 'Restarting…' : 'Restart agent session'}
+                  {restartAgent.isPending ? 'Restarting…' : 'Restart agent session'}
                 </Button>
                 <Typography variant="caption" color="text.secondary">
                   Restarts the worker's agent session from scratch. Any in-progress work in

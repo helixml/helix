@@ -45,6 +45,25 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// OrphanReaperEnabled toggles the durable, DB-driven orphan-resource reaper
+	// that garbage-collects leaked session zvols and per-task/session workspace
+	// dirs after host reboots / API restarts / failed destroys.
+	OrphanReaperEnabled bool `envconfig:"HELIX_ORPHAN_REAPER_ENABLED" default:"true"`
+
+	// OrphanReaperInterval is how often the orphan-resource reaper computes the
+	// DB live-set and fans it out to connected sandboxes.
+	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
+
+	// OrphanReaperGracePeriod is the minimum age a resource must reach before
+	// the reaper will destroy it. Guards against racing newly-created resources
+	// the DB live-set hasn't caught up with yet.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
+
+	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
+	// without destroying anything. Defaults to true so the safety-critical zvol
+	// destroys are opt-in until an operator has reviewed the dry-run logs.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"true"`
+
 	// SandboxReaperInterval is how often the sandbox-instance reaper scans
 	// the sandbox_instances table for stale rows and flips their status to
 	// offline. Used in conjunction with SandboxStaleThreshold and
@@ -63,6 +82,33 @@ type ServerConfig struct {
 	// Runners are excluded from dispatch well before the reaper flips
 	// their DB row.
 	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
+
+	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
+	// containers (current vocab "sandboxes") that hydra will spawn
+	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
+	// when a Runner is registered (both legacy auto-register and
+	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
+	// as demand pressure, so this value is what determines when scale-up
+	// fires under load.
+	//
+	// NOTE: this value only affects the autoscaler signal today; the
+	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
+	// rejection at the ceiling - new dev containers can still be placed
+	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
+	// dispatcher rejection is tracked separately as a follow-up.
+	//
+	// Default 20. Raise for hosts with more headroom, lower to make
+	// the autoscaler trigger sooner on smaller hosts. Range is not
+	// enforced - sane values are typically 1-50, beyond which the host
+	// kernel will OOM before the limit binds.
+	//
+	// Changing this env var only affects newly-registered Runners and
+	// Manager-provisioned rows on the next boot; existing rows keep
+	// their persisted MaxSandboxes value. A boot-time backfill rewrites
+	// rows that disagree with the current config so the new value takes
+	// effect across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -214,6 +260,80 @@ type Compute struct {
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
+
+	// SandboxRegistry overrides the container registry HOSTNAME that
+	// workers pull the helix-sandbox image from. Default empty means
+	// workers pull from `ghcr.io/helixml/helix-sandbox:<version>`
+	// (current behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	//
+	// Setting this to an operator-controlled registry lets workers
+	// pull from a same-region mirror — typically ECR in the same AWS
+	// account as the YD worker pool. Cross-cloud (~120s for ~10GB on
+	// inf2.xlarge / g5.xlarge) becomes intra-region (~15-30s), which
+	// is the difference between "auto-scaling works" and "auto-scaling
+	// is broken" for the D3 on-demand path where the user is waiting
+	// during scale-up.
+	//
+	// Value is the registry HOSTNAME ONLY. The "helixml/helix-sandbox"
+	// org+image path is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
+	//   "internal-registry.corp.example.com"
+	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
+	//
+	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
+	// (the in-container hydra dockerd loader, which sed-swaps the
+	// leading hostname segment of the desktop image ref). That consumer
+	// expects the same HOSTNAME ONLY semantic. Passing a host+org
+	// prefix here is REJECTED at boot to prevent cross-consumer
+	// divergence on the same env var.
+	//
+	// composemgr's rewriteRegistry (Runner Profile compose-stack image
+	// rewriting) does NOT read this var - it reads the parallel
+	// HELIX_RUNNER_REGISTRY. To mirror Runner Profile pulls as well as
+	// sandbox host pulls, operators set both vars (and ideally to the
+	// same hostname).
+	//
+	// Several malformed shapes are rejected loudly at boot rather
+	// than passed through to fail opaquely at docker pull on the
+	// worker:
+	//
+	//   - Embedded path segments: "mirror.corp/helixml"
+	//     - would produce a DOUBLE-ORG path on the YD side
+	//       ("mirror.corp/helixml/helixml/helix-sandbox:tag") and
+	//       different garbage on the shell side. The exact footgun
+	//       the hostname-only contract exists to prevent.
+	//
+	//   - Leading slash: "/mirror.corp", "/${REGISTRY}" (templating
+	//     leak) - Go side could strip it but the shell consumer
+	//     (sandbox/04-start-dockerd.sh sed) does not, so a leading
+	//     slash on the env var means the two consumers diverge.
+	//
+	//   - URL form: "https://mirror.corp" - shell consumer would
+	//     produce "https://mirror.corp/..." which docker rejects.
+	//
+	//   - Internal whitespace: "mirror.corp\nhelixml", "foo bar" -
+	//     usually a line-wrapped paste or a multi-line ConfigMap value.
+	//
+	//   - Empty after trim: "/", "  /  ", "   " - silent fallback to
+	//     ghcr.io is the wrong default for air-gapped deployments
+	//     that meant to set a value.
+	//
+	// Edge whitespace and a single trailing slash ARE tolerated and
+	// stripped ("  ghcr.io/" -> "ghcr.io"); they're common in
+	// copy-pasted values.
+	//
+	// The version tag is still auto-derived from data.GetHelixVersion()
+	// — operators override the registry hostname, never the version.
+	// That preserves the "release-tag-is-the-truth" property the YD
+	// provisioning loop relies on.
+	//
+	// Operator workflow: before bumping the Helix release on a
+	// deployment that uses an override, manually push the matching
+	// helix-sandbox tag to the override registry. Forgetting leaves
+	// workers in a docker-pull-retry loop; loud failure, easy
+	// diagnostic (and the resolved image is logged at boot).
+	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.

@@ -21,6 +21,12 @@ export interface ApiCreateRoleRequest {
 }
 
 export interface ApiCreateStreamRequest {
+  /**
+   * As is the Worker that creates the stream — the worker whose chat
+   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * cosmetic: it only anchors the node on the chart).
+   */
+  as?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -135,12 +141,48 @@ export interface ApiInstallGitHubWebhookResponse {
   webhook_id?: number;
 }
 
+export interface ApiMessageAttributes {
+  body?: string;
+  created_at?: string;
+  from?: string;
+  has_message?: boolean;
+  source?: string;
+  stream_id?: string;
+  subject?: string;
+  to?: string[];
+}
+
+export interface ApiMessageResource {
+  attributes?: ApiMessageAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ApiMessagesDocument {
+  data?: ApiMessageResource[];
+  links?: Record<string, string>;
+  meta?: ApiMessagesMeta;
+}
+
+export interface ApiMessagesMeta {
+  page?: number;
+  size?: number;
+  total?: number;
+  total_pages?: number;
+}
+
 export interface ApiOrgOverview {
   groups?: ApiRoleGroup[];
   roles?: ApiRoleBadge[];
 }
 
 export interface ApiPublishRequest {
+  /**
+   * As is the Worker the message is sent as — the worker whose chat the
+   * human is in. Empty means human/system-origin (the dispatcher treats
+   * it as such). There is no global "owner" sender any more.
+   */
+  as?: string;
   body?: string;
   subject?: string;
   to?: string[];
@@ -174,8 +216,6 @@ export interface ApiSetSettingRequest {
 
 export interface ApiSettingsResponse {
   db_path?: string;
-  envs_dir?: string;
-  owner?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
@@ -12187,6 +12227,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsStreamsMessagesDetail
+     * @summary Helix-org: list a stream's messages (JSON:API, paginated)
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/messages
+     * @secure
+     */
+    v1OrgsStreamsMessagesDetail: (
+      id: string,
+      org: string,
+      query?: {
+        /** 1-based page number (default 1) */
+        "page[number]"?: number;
+        /** page size (default 50, max 200) */
+        "page[size]"?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiMessagesDocument, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/messages`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsStreamsPublishCreate
      * @summary Helix-org: publish a message to a stream
      * @request POST:/api/v1/orgs/{org}/streams/{id}/publish
@@ -12240,7 +12309,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersCreate
@@ -12391,6 +12460,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersRestartAgentCreate
+     * @summary Helix-org: restart a worker's agent session (recreate desktop container)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsWorkersRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/restart-agent`,
+        method: "POST",
         secure: true,
         ...params,
       }),

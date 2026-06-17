@@ -736,13 +736,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     setRestartConfirmOpen(false);
 
     try {
-      snackbar.info("Stopping agent session...");
-      await api
-        .getApiClient()
-        .v1SessionsStopExternalAgentDelete(activeSessionId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      snackbar.info("Starting new agent session...");
-      await api.getApiClient().v1SessionsResumeCreate(activeSessionId);
+      snackbar.info("Restarting agent session...");
+      // Single backend call: the restart-agent endpoint tears down the
+      // desktop container and recreates it (preserving thread context and
+      // resetting crashed prompts). No frontend stop/sleep/resume dance.
+      await api.getApiClient().v1SessionsRestartAgentCreate(activeSessionId);
       queryClient.invalidateQueries({
         queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
       });
@@ -753,7 +751,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     } finally {
       setIsRestarting(false);
     }
-  }, [activeSessionId, isRestarting, api, snackbar]);
+  }, [activeSessionId, isRestarting, api, snackbar, queryClient]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {

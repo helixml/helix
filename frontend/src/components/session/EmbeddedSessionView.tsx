@@ -244,31 +244,42 @@ const EmbeddedSessionView = forwardRef<
   // `config` when applying WS-delivered session updates. So polling can't
   // overwrite a fresher WS value because the WS never updates `config` in
   // the first place.
-  const { data: sessionResponse, refetch: refetchSession } = useGetSession(
+  const { data: sessionResponse, refetch: refetchSession, error: sessionError } = useGetSession(
     sessionId,
     {
       enabled: !!sessionId,
-      refetchInterval: 3000,
+      // Stop polling once the session errors — a 403/404 won't fix itself
+      // by re-asking every 3s, and the perpetual poll is what made a
+      // forbidden session hang the view forever instead of showing why.
+      refetchInterval: (query: any) => (query.state.error ? false : 3000),
       skipInteractions: true,
     },
   );
 
   const session = sessionResponse?.data;
+  // HTTP status of a failed session fetch, if any. Drives the error state
+  // below so a forbidden / missing session degrades gracefully instead of
+  // spinning on "Loading session…" forever.
+  const sessionErrorStatus = (sessionError as any)?.response?.status as number | undefined;
 
   // Fetch paginated interactions (newest first via order=desc)
-  // Page 0 = newest interactions, higher pages = older interactions
+  // Page 0 = newest interactions, higher pages = older interactions.
+  // Disabled once the session fetch has errored (403/404) — there's no
+  // point polling interactions for a session we can't read, and leaving
+  // it on kept 403ing every 3s in the background after the session poll
+  // had already stopped.
   const { data: paginatedInteractionsResponse } = useListInteractions(
     sessionId,
     0, // Always fetch page 0 (newest) - older pages fetched on demand
     INTERACTIONS_TO_RENDER,
     'desc',
-    { enabled: !!sessionId, refetchInterval: 3000 }
+    { enabled: !!sessionId && !sessionErrorStatus, refetchInterval: 3000 }
   );
   const paginatedData = paginatedInteractionsResponse?.data;
 
-  // Fetch session steps
+  // Fetch session steps (also gated on a readable session — see above).
   const { data: sessionSteps } = useListSessionSteps(sessionId, {
-    enabled: !!sessionId,
+    enabled: !!sessionId && !sessionErrorStatus,
   });
 
   // The inner content Box is observed by ResizeObserver so we only react
@@ -541,6 +552,37 @@ const EmbeddedSessionView = forwardRef<
   const isOwner = account.user?.id === session?.owner;
 
   // Show loading state while fetching session
+  // Error state — a failed session fetch (no data) degrades to a clear
+  // message instead of a perpetual "Loading session…" spinner. The poll is
+  // already stopped (refetchInterval returns false on error), so this is
+  // terminal until the inputs change.
+  if (!session && sessionErrorStatus) {
+    const message =
+      sessionErrorStatus === 403
+        ? "You don't have access to this conversation."
+        : sessionErrorStatus === 404
+          ? "This conversation is no longer available."
+          : "This conversation couldn't be loaded.";
+    return (
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: 1,
+          p: 3,
+          textAlign: "center",
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          {message}
+        </Typography>
+      </Box>
+    );
+  }
+
   if (!session) {
     return (
       <Box

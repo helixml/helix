@@ -41,10 +41,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // Config is the parsed shape of the operational-config row
@@ -103,7 +103,7 @@ type Transport struct {
 	orgID         string
 	registry      *configregistry.Registry
 	store         *store.Store
-	broadcaster   *streamhub.Hub
+	broadcaster   *wakebus.Bus
 	dispatcher    Dispatcher
 	tokenResolver TokenResolver
 	logger        *slog.Logger
@@ -114,7 +114,7 @@ type Transport struct {
 // dispatcher (for activating subscribed Workers on inbound).
 // dispatcher and broadcaster may be nil for tests that don't
 // exercise those paths.
-func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
+func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *wakebus.Bus, d Dispatcher, logger *slog.Logger) *Transport {
 	return &Transport{
 		orgID:       orgID,
 		registry:    reg,

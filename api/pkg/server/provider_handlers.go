@@ -276,6 +276,17 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 // doesn't empty the model picker for every UI page — see getProviderModels.
 const modelCacheTTL = 1 * time.Hour
 
+// emptyModelCacheTTL is a much shorter TTL applied when an upstream
+// returned ZERO models. The long modelCacheTTL is safe for "here is the
+// list" answers, but pinning an empty list for 1h causes a cold-start
+// blackout: the Helix self-provider returns an empty list during the
+// brief window between API boot and the first sandbox heartbeat landing,
+// and an unlucky cache miss in that window would leave the model picker
+// empty for up to an hour after sandboxes came online. 30s lets the
+// picker recover within a single user retry without forcing every page
+// load to re-fetch.
+const emptyModelCacheTTL = 30 * time.Second
+
 // errUpstreamUnreachable marks refresh failures that came from the upstream
 // /v1/models call itself (not from provider client construction). Callers use
 // errors.Is to decide whether falling back to a cached payload is safe: an
@@ -443,7 +454,11 @@ func (s *HelixAPIServer) refreshProviderModels(ctx context.Context, providerEndp
 		if err != nil {
 			return nil, err
 		}
-		s.cache.SetWithTTL(key, string(payload), 1, modelCacheTTL)
+		ttl := modelCacheTTL
+		if len(models) == 0 {
+			ttl = emptyModelCacheTTL
+		}
+		s.cache.SetWithTTL(key, string(payload), 1, ttl)
 
 		return models, nil
 	})

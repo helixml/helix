@@ -38,8 +38,6 @@ import {
   useListHelixOrgRoles,
 } from '../services/helixOrgService'
 
-const OWNER_ROLE = 'r-owner'
-
 const HelixOrgRoles: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -220,7 +218,6 @@ const HelixOrgRoles: FC = () => {
           Open
         </MenuItem>
         <MenuItem
-          disabled={currentRole?.id === OWNER_ROLE}
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
@@ -228,7 +225,7 @@ const HelixOrgRoles: FC = () => {
           }}
         >
           <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-          {currentRole?.id === OWNER_ROLE ? 'Owner — protected' : 'Delete'}
+          Delete
         </MenuItem>
       </Menu>
 

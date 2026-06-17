@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -45,7 +44,11 @@ func (Role) Arguments() []Argument {
 // RequiresTool gates the prompt on the create_role tool: a Worker whose
 // Role doesn't list it can't save the result, so surfacing the slash
 // command would only produce a dead-end at the very last step.
-func (Role) RequiresTool() tool.Name { return tools.CreateRoleName }
+// The literal (not the tools-package constant) keeps this application
+// package free of a dependency on the MCP-tool adapter package;
+// "create_role" is a stable public tool name and RegisterBuiltins fails
+// fast at boot if the registered tool name ever drifts from it.
+func (Role) RequiresTool() tool.Name { return "create_role" }
 
 func (Role) Render(_ context.Context, args map[string]string) ([]Message, error) {
 	body := roleTemplate

@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/agent"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
+	"github.com/helixml/helix/api/pkg/org/application/transcript"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
+	"github.com/helixml/helix/api/pkg/org/domain/briefing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -41,7 +42,7 @@ type SpawnerConfig struct {
 	Snapshotter SessionPreamble
 	// Mirror is the transcript writer; the spawner Ensure()s it per
 	// activation. nil disables mirroring (tests / app-only wirings).
-	Mirror *Mirror
+	Mirror      *Mirror
 	HelixOrgURL string // forwarded to project secrets so the in-sandbox agent can reach helix-org's MCP server
 	// Runtime overrides the default `zed_agent` runtime. Empty falls
 	// back to helix.Runtime. See WorkerProject.Runtime for the
@@ -55,11 +56,6 @@ type SpawnerConfig struct {
 	Model    string
 	// Credentials forwards to WorkerProject.Credentials. See there.
 	Credentials string
-	// AgentMD is the org-wide agent.md policy text pushed to
-	// `.context/agent.md` on each per-Worker project's helix-specs
-	// branch. The spawner's activation prompt tells every Worker to
-	// read it first. Embedded by main.go from agent/policy.md.
-	AgentMD string
 	// MCPAuthBearer is the fallback bearer the spawner passes to
 	// AttachHelixOrgMCP when no per-activation user bearer is on ctx.
 	// It ends up as the `Authorization: Bearer <value>` header on the
@@ -120,12 +116,12 @@ type SpawnerConfig struct {
 	// per-config semaphore of size MaxInflight.
 	Sem         chan struct{}
 	PollInitial time.Duration // default 250ms
-	PollMax           time.Duration // default 30s
-	Logger            *slog.Logger
-	Store             *store.Store
-	Hub               *streamhub.Hub
-	Now               func() time.Time
-	NewID             func() string
+	PollMax     time.Duration // default 30s
+	Logger      *slog.Logger
+	Store       *store.Store
+	Hub         *wakebus.Bus
+	Now         func() time.Time
+	NewID       func() string
 }
 
 // Spawner returns an runtime.Spawner that runs each activation as a
@@ -137,7 +133,7 @@ type SpawnerConfig struct {
 // global semaphore slot, ensure a live session exists, open the live
 // transcript WebSocket, then poll for completion. New transcript
 // segments arriving on the WebSocket are diffed against a per-call
-// dedup map and republished onto s-activations-<workerID> in the
+// dedup map and republished onto s-transcript-<workerID> in the
 // canonical transcript line shape (assistant: …, tool_use foo: …,
 // tool_result: …) so observers see one format regardless of which
 // Worker fired.
@@ -164,7 +160,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if sem == nil {
 		sem = make(chan struct{}, cfg.MaxInflight)
 	}
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -178,7 +174,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if mandate == "" {
 			mandate = DefaultHelixSpecsMandate
 		}
-		prompt := agent.BuildPrompt(workerID, mandate, triggers)
+		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
 
 		// Acquire global slot. The dispatcher serialises per-Worker, so
 		// blocking here only delays one Worker behind the rest of the
@@ -215,14 +211,14 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}()
 		}
 
-		streamID := activation.StreamID(workerID)
+		streamID := activation.TranscriptID(workerID)
 		publish := func(body string) {
 			if body == "" {
 				return
 			}
-			publishActivationEvent(ctx, cfg, orgID, workerID, streamID, body)
+			recordTranscript(ctx, cfg, orgID, workerID, streamID, body)
 		}
-		publish(fmt.Sprintf("=== activation: %s ===", agent.DescribeTriggers(triggers)))
+		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
 
 		// Two deadlines, two phases. Startup work (project apply, MCP
 		// re-attach, secret injection, session creation, transcript WS
@@ -388,7 +384,6 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 		Provider:    c.Provider,
 		Model:       c.Model,
 		Credentials: c.Credentials,
-		AgentMD:     c.AgentMD,
 		Logger:      c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, orgID, workerID)
@@ -476,9 +471,16 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	sid, fresh, err := EnsureAndSend(ctx, c.Client, SendPromptParams{
 		SessionID: state.SessionID,
 		ProjectID: state.ProjectID,
-		AppID:     state.AgentAppID,
-		AgentType: AgentType,
-		Prompt:    prompt,
+		// OrganizationID tags the session row with the Worker's org so
+		// authorizeUserToSession can grant access to org members (e.g. the
+		// operator viewing the inline transcript). Without it the session
+		// is owned only by the org-service user and every other org admin
+		// gets a 403 loading the worker's chat. The owner-chat bridge path
+		// sets this via EnsureAndSend too; the activation path must match.
+		OrganizationID: orgID,
+		AppID:          state.AgentAppID,
+		AgentType:      AgentType,
+		Prompt:         prompt,
 	})
 	if err != nil {
 		return "", fmt.Errorf("ensure session: %w", err)
@@ -509,7 +511,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 			}
 		} else if IsTerminalOutput(out) {
 			if out.Status == "error" {
-				return fmt.Errorf("session error: %s", agent.OneLine(out.Output, 500))
+				return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
 			}
 			return nil
 		}
@@ -530,8 +532,8 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // for the lifetime of the activation; the EntryStream's dedup state
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
-	publish func(body string)
-	stream  *EntryStream
+	publish     func(body string)
+	stream      *EntryStream
 	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 
@@ -559,7 +561,7 @@ func (b *bridge) apply(u types.WebsocketEvent) {
 // onEvent renders one settled EntryStream event into the canonical
 // activation-transcript line shape. The owner-chat bridge in
 // server/chat uses the same TranscriptBody helper to publish
-// identical lines to s-activations-w-owner.
+// identical lines to s-transcript-w-owner.
 func (b *bridge) onEvent(e Event) {
 	if body := TranscriptBody(e); body != "" {
 		b.publish(body)
@@ -569,7 +571,7 @@ func (b *bridge) onEvent(e Event) {
 // TranscriptBody renders one Helix WS event into the line shape every
 // Worker's activation transcript uses (assistant: …, tool_use foo:
 // …, tool_result: …). Exported so the owner-chat bridge in
-// server/chat can produce identical lines for s-activations-w-owner
+// server/chat can produce identical lines for s-transcript-w-owner
 // without duplicating the rendering. Empty string for kinds that
 // shouldn't appear on the transcript.
 //
@@ -603,11 +605,25 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 	return activation.TranscriptSegment{}, false
 }
 
-// publishActivationEvent is a thin wrapper around the shared
-// agent.PublishActivationEvent so the helix spawner's call sites
-// stay terse. The owner-chat bridge uses the same shared helper
-// directly — both paths produce identical event shapes on
-// s-activations-<workerID>.
-func publishActivationEvent(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
-	_, _ = agent.PublishActivationEvent(ctx, cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger, orgID, workerID, body)
+// recordTranscript records one turn onto the Worker's transcript via the
+// shared transcript.Recorder so the helix spawner's call sites stay
+// terse. The owner-chat bridge records through the same recorder — both
+// paths produce identical event shapes on s-transcript-<workerID>.
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
+	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
+}
+
+// newTranscriptRecorder builds a transcript.Recorder from the loose
+// store/hub/clock collaborators the runtime configs carry. A nil store
+// yields a no-op recorder; a nil hub means no live wake (the typed-nil
+// guard mirrors publishing's Hub handling).
+func newTranscriptRecorder(st *store.Store, hub *wakebus.Bus, newID func() string, now func() time.Time, logger *slog.Logger) *transcript.Recorder {
+	d := transcript.Deps{NewID: newID, Now: now, Logger: logger}
+	if st != nil {
+		d.Events = st.Events
+	}
+	if hub != nil {
+		d.Notifier = hub
+	}
+	return transcript.New(d)
 }

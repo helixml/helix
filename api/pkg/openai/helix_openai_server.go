@@ -79,34 +79,34 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 		return nil, fmt.Errorf("error listing models: %w", err)
 	}
 
-	// Get available models from runners to filter dead models
+	// Filter to only models a connected runner can actually serve right now.
+	// Pre-pivot we kept VLLM rows in the picker even when no runner had them
+	// loaded, on the assumption the scheduler would pull-and-start on demand.
+	// Post-sandbox-absorbs-runner that's no longer true: a VLLM model only
+	// runs if it's in an active Runner Profile on a connected runner. Showing
+	// it in the picker otherwise just leads to "model X is not available"
+	// errors when the user picks it (NoRunnerError in inferencerouter).
 	availableModels := c.getAvailableModelsFromRunners()
 
 	var models []types.OpenAIModel
 	served := make(map[string]bool) // model IDs already in the response
 	for _, model := range helixModels {
-		// Skip embedding models as they should not appear in chat model pickers
+		// Skip embedding models as they should not appear in chat model pickers.
+		// Mark served BEFORE the continue: otherwise the router-only union loop
+		// below re-synthesizes the same id as a chat model, defeating the
+		// embed filter (e.g. an embedding model surfaced by a profile that's
+		// also registered in the DB would reappear in the chat picker).
 		if model.Type == types.ModelTypeEmbed {
+			served[model.ID] = true
 			continue
 		}
 
-		// Only include models that are actually available on connected runners
-		// For VLLM models, we are more permissive since they're started dynamically
-		isAvailable := availableModels[model.ID]
-		if !isAvailable && model.Runtime != types.RuntimeVLLM {
+		if !availableModels[model.ID] {
 			log.Debug().
 				Str("model_id", model.ID).
 				Str("runtime", string(model.Runtime)).
 				Msg("Filtering out model not available on any runner")
 			continue
-		}
-
-		// For VLLM models, log if they're not available (for debugging) but still include them
-		if !isAvailable && model.Runtime == types.RuntimeVLLM {
-			log.Debug().
-				Str("model_id", model.ID).
-				Str("runtime", string(model.Runtime)).
-				Msg("VLLM model not currently reported as available, but including anyway (will be started dynamically)")
 		}
 
 		openAIModel := types.OpenAIModel{

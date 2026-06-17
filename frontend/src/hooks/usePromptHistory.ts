@@ -428,7 +428,8 @@ export function usePromptHistory({
             const newHistory = prev.map(h => {
               if (h.deleted) return h // Don't update tombstoned entries
               const backendEntry = backendEntriesMap.get(h.id)
-              // Check if status or retry info changed
+              // Check if status or retry info changed (covers "errored on backend":
+              // the backend marks it failed/crashed and we reflect that here).
               if (backendEntry && (
                 h.status !== backendEntry.status ||
                 h.retryCount !== backendEntry.retryCount ||
@@ -443,6 +444,29 @@ export function usePromptHistory({
                   nextRetryAt: backendEntry.nextRetryAt,
                   errorMessage: backendEntry.errorMessage,
                   syncedToBackend: true
+                }
+              }
+              // Reconcile against the source of truth: a queue entry we previously
+              // synced to the backend that is no longer in the authoritative list has
+              // been removed server-side (deleted/expired) and will never send.
+              // Surface it as failed instead of letting it sit as a perpetual
+              // "waiting to send", so the user can delete it. Guards:
+              //  - syncedToBackend: a freshly-created local entry not yet pushed is
+              //    legitimately absent — don't misclassify it.
+              //  - pending/sending only: don't touch 'sent'/'failed' rows.
+              //  - the `response.entries.length > 0` check above means we never act
+              //    on a transient empty response, and the poll passes no limit so the
+              //    backend returns the full set (no pagination false-positives).
+              if (
+                !backendEntry &&
+                h.syncedToBackend &&
+                (h.status === 'pending' || h.status === 'sending')
+              ) {
+                updated = true
+                return {
+                  ...h,
+                  status: 'failed' as const,
+                  errorMessage: 'This queued message is no longer on the server (it was removed). Delete it to clear.',
                 }
               }
               return h

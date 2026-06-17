@@ -3190,9 +3190,13 @@ type SandboxInstance struct {
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
 	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
 
-	// Sandbox capacity
+	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+	// (default 20); the gorm default below only applies to rows inserted
+	// via paths that don't set the field. Kept aligned with the env-var
+	// default to avoid surprises.
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
+	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
 
 	// Helix version running on this sandbox (git commit hash or release version)

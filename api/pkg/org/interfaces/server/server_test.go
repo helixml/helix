@@ -11,10 +11,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
@@ -27,19 +27,19 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
-	reg := tools.NewRegistry()
-	if err := reg.Register(tools.Ping{}); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := reg.Register(mcptools.Ping{}); err != nil {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
 	role, _ := orgchart.NewRole(
 		"r-ceo",
 		"# CEO\nTop of org.",
-		[]tool.Name{tools.PingName, "hire_worker"},
+		[]tool.Name{mcptools.PingName, "hire_worker"},
 		nil,
 		time.Now().UTC(),
 		"org-test",
@@ -80,19 +80,19 @@ func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
-	reg := tools.NewRegistry()
-	if err := reg.Register(tools.Ping{}); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := reg.Register(mcptools.Ping{}); err != nil {
 		t.Fatalf("register ping: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
 	role, _ := orgchart.NewRole(
 		"r-ceo",
 		"# CEO\nTop of org.",
-		[]tool.Name{tools.PingName},
+		[]tool.Name{mcptools.PingName},
 		nil,
 		time.Now().UTC(),
 		"org-test",
@@ -221,11 +221,11 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
-	reg := tools.NewRegistry()
-	if err := reg.Register(tools.Ping{}); err != nil {
+	reg := mcptools.NewRegistry()
+	if err := reg.Register(mcptools.Ping{}); err != nil {
 		t.Fatalf("register ping: %v", err)
 	}
-	if err := tools.RegisterBuiltins(reg, tools.DefaultDeps(s)); err != nil {
+	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s).Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 
@@ -234,13 +234,13 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 		t.Fatalf("register new_role: %v", err)
 	}
 
-	srv := httptest.NewServer(server.New(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	roleTools := []tool.Name{tools.PingName}
+	roleTools := []tool.Name{mcptools.PingName}
 	if includeCreateRole {
-		roleTools = append(roleTools, tools.CreateRoleName)
+		roleTools = append(roleTools, mcptools.CreateRoleName)
 	}
 	role, _ := orgchart.NewRole("r-ceo", "# CEO", roleTools, nil, time.Now().UTC(), "org-test")
 	_ = s.Roles.Create(ctx, role)

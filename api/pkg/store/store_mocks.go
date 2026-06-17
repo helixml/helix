@@ -25,6 +25,7 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
+	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -70,6 +71,21 @@ func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID, re
 func (mr *MockStoreMockRecorder) AttachRepositoryToProject(ctx, projectID, repoID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachRepositoryToProject", reflect.TypeOf((*MockStore)(nil).AttachRepositoryToProject), ctx, projectID, repoID)
+}
+
+// BackfillSandboxMaxSandboxes mocks base method.
+func (m *MockStore) BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BackfillSandboxMaxSandboxes", ctx, value)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BackfillSandboxMaxSandboxes indicates an expected call of BackfillSandboxMaxSandboxes.
+func (mr *MockStoreMockRecorder) BackfillSandboxMaxSandboxes(ctx, value any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackfillSandboxMaxSandboxes", reflect.TypeOf((*MockStore)(nil).BackfillSandboxMaxSandboxes), ctx, value)
 }
 
 // BulkDismissAttentionEvents mocks base method.
@@ -160,21 +176,6 @@ func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, erro
 func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
-}
-
-// MarkSessionStartingIfIdle mocks base method.
-func (m *MockStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkSessionStartingIfIdle", ctx, sessionID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MarkSessionStartingIfIdle indicates an expected call of MarkSessionStartingIfIdle.
-func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
 }
 
 // ConsumePendingInvitations mocks base method.
@@ -4447,6 +4448,21 @@ func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, idleSince any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, idleSince)
 }
 
+// ListExternalAgentSessionIDs mocks base method.
+func (m *MockStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExternalAgentSessionIDs", ctx, cutoff)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExternalAgentSessionIDs indicates an expected call of ListExternalAgentSessionIDs.
+func (mr *MockStoreMockRecorder) ListExternalAgentSessionIDs(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExternalAgentSessionIDs", reflect.TypeOf((*MockStore)(nil).ListExternalAgentSessionIDs), ctx, cutoff)
+}
+
 // ListInteractions mocks base method.
 func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.ctrl.T.Helper()
@@ -5512,6 +5528,21 @@ func (mr *MockStoreMockRecorder) MarkSandboxInstanceOfflineIfStale(ctx, id, stal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSandboxInstanceOfflineIfStale", reflect.TypeOf((*MockStore)(nil).MarkSandboxInstanceOfflineIfStale), ctx, id, staleBefore)
 }
 
+// MarkSessionStartingIfIdle mocks base method.
+func (m *MockStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSessionStartingIfIdle", ctx, sessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkSessionStartingIfIdle indicates an expected call of MarkSessionStartingIfIdle.
+func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
+}
+
 // MarkVHostRouteVerified mocks base method.
 func (m *MockStore) MarkVHostRouteVerified(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -5842,6 +5873,20 @@ func (m *MockStore) SetSandboxContainer(ctx context.Context, id, hostDeviceID, c
 func (mr *MockStoreMockRecorder) SetSandboxContainer(ctx, id, hostDeviceID, containerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxContainer", reflect.TypeOf((*MockStore)(nil).SetSandboxContainer), ctx, id, hostDeviceID, containerID)
+}
+
+// SetSandboxContainerCount mocks base method.
+func (m *MockStore) SetSandboxContainerCount(ctx context.Context, id string, count int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSandboxContainerCount", ctx, id, count)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSandboxContainerCount indicates an expected call of SetSandboxContainerCount.
+func (mr *MockStoreMockRecorder) SetSandboxContainerCount(ctx, id, count any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxContainerCount", reflect.TypeOf((*MockStore)(nil).SetSandboxContainerCount), ctx, id, count)
 }
 
 // SetSandboxStatus mocks base method.
