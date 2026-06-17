@@ -104,20 +104,26 @@ impl GlBlitter {
 
         let t_total = std::time::Instant::now();
 
-        // DIAGNOSTIC (cache-bypass test): import the LIVE capture dmabuf fresh
-        // every frame instead of a per-slot cached Dmabuf. The cache was kept warm
-        // to avoid per-frame eglCreateImage, but it only yields the *current* frame
-        // if smithay/the driver re-samples the dma-buf on a cache hit. If it does
-        // NOT (NVIDIA tiled buffers), a cache hit blits STALE pixels into
-        // self.output -> an old frame under a fresh PTS (the flicker). A fresh
-        // import always samples current memory, at the cost of the ~tens-of-ms
-        // eglCreateImage per frame the cache was added to avoid. If this kills the
-        // flicker, the cache is the culprit and we replace it with a proper fix.
+        // Per-slot Dmabuf cache: reuse one persistent Dmabuf per pool slot so
+        // smithay's dmabuf→texture cache stays warm (it prunes on Dmabuf drop).
+        // The persistent Dmabuf references the same slot memory Mutter keeps
+        // writing into, and smithay refreshes the EGLImage binding on the
+        // cache-hit path, so we still sample the current frame. import_dmabuf is
+        // then a cheap cache hit instead of a ~55ms eglCreateImage at 4K — that
+        // per-frame import (when this cache was bypassed as a diagnostic) was what
+        // stalled the capture thread and tanked the framerate / RTT.
+        //
+        // NB: the stale-frame flicker was NOT this cache — it was the dropped
+        // GL→CUDA fence below (now fixed by the wait()). The cache-bypass
+        // diagnostic only added latency, so the cache is restored.
         let t_import = std::time::Instant::now();
-        let _ = slot_fd; // per-slot cache bypassed for this test
+        let persistent = self
+            .slot_dmabufs
+            .entry(slot_fd)
+            .or_insert_with(|| dmabuf.clone());
         let texture = self
             .renderer
-            .import_dmabuf(dmabuf, None)
+            .import_dmabuf(persistent, None)
             .map_err(|e| format!("import_dmabuf: {:?}", e))?;
         let import_us = t_import.elapsed().as_micros() as u32;
 
