@@ -1736,6 +1736,59 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 	}
 }
 
+// ReconcileGC reconciles on-disk ephemeral resources (session zvols and
+// per-task/session workspace dirs) against the DB-derived live-set supplied by
+// the API, reaping anything orphaned and past the grace period.
+//
+// The DB live-set is the durable source of truth (it survives reboots). As
+// extra protection we UNION in the session IDs of currently-running containers
+// from hydra's in-memory map, so an in-flight session whose row hasn't been
+// observed by the API yet is never reaped.
+func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
+	for _, id := range req.LiveSessionIDs {
+		liveSessions[id] = true
+	}
+	liveSpecTasks := make(map[string]bool, len(req.LiveSpecTaskIDs))
+	for _, id := range req.LiveSpecTaskIDs {
+		liveSpecTasks[id] = true
+	}
+
+	// Union in currently-running container session IDs (belt-and-braces).
+	dm.mu.RLock()
+	for sessionID := range dm.containers {
+		liveSessions[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	grace := time.Duration(req.GracePeriodSeconds) * time.Second
+
+	var resp GCReconcileResponse
+
+	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
+	resp.ZvolsReaped = zReaped
+	resp.ZvolsSkipped = zSkipped
+
+	wReaped, wSkipped, freed := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	resp.WorkspacesReaped = wReaped
+	resp.WorkspacesSkipped = wSkipped
+	resp.BytesFreed = freed
+
+	log.Info().
+		Bool("dry_run", req.DryRun).
+		Dur("grace", grace).
+		Int("live_sessions", len(liveSessions)).
+		Int("live_spec_tasks", len(liveSpecTasks)).
+		Int("zvols_reaped", len(resp.ZvolsReaped)).
+		Int("zvols_skipped", len(resp.ZvolsSkipped)).
+		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
+		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int64("bytes_freed", resp.BytesFreed).
+		Msg("GC_RECONCILE completed")
+
+	return resp
+}
+
 // GetDevContainer returns the status of a dev container
 func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID string) (*DevContainerResponse, error) {
 	dm.mu.RLock()

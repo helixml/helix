@@ -4448,6 +4448,21 @@ func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, idleSince any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, idleSince)
 }
 
+// ListExternalAgentSessionIDs mocks base method.
+func (m *MockStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExternalAgentSessionIDs", ctx, cutoff)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExternalAgentSessionIDs indicates an expected call of ListExternalAgentSessionIDs.
+func (mr *MockStoreMockRecorder) ListExternalAgentSessionIDs(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExternalAgentSessionIDs", reflect.TypeOf((*MockStore)(nil).ListExternalAgentSessionIDs), ctx, cutoff)
+}
+
 // ListInteractions mocks base method.
 func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.ctrl.T.Helper()

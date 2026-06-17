@@ -471,6 +471,40 @@ ORDER BY s.config->>'dev_container_id', s.created ASC`
 	return sessions, nil
 }
 
+// ListExternalAgentSessionIDs returns the IDs of external-agent (hydra) sessions
+// that should be considered LIVE for the purposes of the orphan-resource reaper.
+//
+// A session is live if ANY of:
+//   - its external_agent_status is "running" (a desktop container is up), OR
+//   - it was updated at or after cutoff (recent activity — covers sessions
+//     mid-startup or recently stopped whose container row hasn't settled), OR
+//   - it backs a spec-task marked keep_alive = true (never auto-reap).
+//
+// Only the live set is returned. The reaper subtracts this from what's on disk,
+// so anything omitted here becomes a reap candidate (still subject to hydra's
+// grace period). Note: the sessions table uses the column `updated` (NOT
+// updated_at).
+func (s *PostgresStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	var ids []string
+	err := s.gdb.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("deleted_at IS NULL").
+		Where("model_name = ?", "external_agent").
+		Where(s.gdb.
+			Where("config->>'external_agent_status' = ?", "running").
+			Or("updated >= ?", cutoff).
+			Or(`EXISTS (
+				SELECT 1 FROM spec_tasks st
+				WHERE st.planning_session_id = sessions.id
+				  AND st.keep_alive = true
+			)`)).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list external agent session ids: %w", err)
+	}
+	return ids, nil
+}
+
 func (s *PostgresStore) notifySessionUpdates(ctx context.Context, operation StoreEventOperation, session *types.Session) error {
 	return s.publishStoreEvent(ctx, operation, session)
 }

@@ -215,6 +215,10 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	api.HandleFunc("/dev-containers/{session_id}/terminal", s.handleSandboxTerminal).Methods("GET")
 	api.HandleFunc("/dev-containers/{session_id}/forget", s.handleSandboxForget).Methods("POST")
 
+	// Durable DB-driven garbage collection: the API computes the live-set from
+	// Postgres and posts it here; hydra reconciles on-disk zvols + workspace dirs.
+	api.HandleFunc("/gc/reconcile", s.handleGCReconcile).Methods("POST")
+
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 
@@ -719,6 +723,22 @@ func (s *Server) handleDevContainerWebSocketProxy(w http.ResponseWriter, r *http
 	}()
 
 	wg.Wait()
+}
+
+// handleGCReconcile reconciles on-disk ephemeral resources against the
+// DB-derived live-set supplied by the API and reports what was (or would be)
+// reaped.
+func (s *Server) handleGCReconcile(w http.ResponseWriter, r *http.Request) {
+	var req GCReconcileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid request: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	resp := s.devContainerManager.ReconcileGC(req)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleSystemStats returns GPU stats and session counts

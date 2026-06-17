@@ -523,6 +523,27 @@ func (c *RevDialClient) DeleteGoldenCache(ctx context.Context, projectID string)
 	return err
 }
 
+// ReconcileGC posts the DB-derived live-set to hydra and returns its report of
+// reaped / skipped orphan resources, via RevDial.
+func (c *RevDialClient) ReconcileGC(ctx context.Context, req *GCReconcileRequest) (*GCReconcileResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	respBody, err := c.doRequest(ctx, "POST", "/api/v1/gc/reconcile", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GCReconcileResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // doRequest performs an HTTP request over RevDial
 func (c *RevDialClient) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	conn, err := c.connman.Dial(ctx, c.deviceID)

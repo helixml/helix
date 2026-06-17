@@ -36,6 +36,10 @@ type mockZFS struct {
 	commands []cmdRecord
 	// failCommands maps command prefixes to errors (e.g. "zfs clone" → error)
 	failCommands map[string]error
+	// creationByDataset maps a dataset name to its ZFS `creation` time (unix
+	// seconds), returned by `zfs get -Hp -o value creation <ds>`. Datasets not
+	// present here report "now" (age ~0).
+	creationByDataset map[string]int64
 }
 
 func newMockZFS() *mockZFS {
@@ -44,7 +48,14 @@ func newMockZFS() *mockZFS {
 		mountedPaths:       make(map[string]bool),
 		snapshotsByDataset: make(map[string][]string),
 		failCommands:       make(map[string]error),
+		creationByDataset:  make(map[string]int64),
 	}
+}
+
+// setCreationAge records that a dataset was created `age` ago, so
+// `zfs get -Hp -o value creation` (and thus zvolCreationAge) reports it.
+func (m *mockZFS) setCreationAge(dataset string, age time.Duration) {
+	m.creationByDataset[dataset] = time.Now().Add(-age).Unix()
 }
 
 func (m *mockZFS) addDataset(name string) {
@@ -182,6 +193,16 @@ func (m *mockZFS) handleZFS(args ...string) ([]byte, error) {
 	}
 
 	switch args[0] {
+	case "get":
+		// zfs get -Hp -o value creation <dataset>
+		// Return the recorded creation unix-secs, or "now" if not set.
+		dataset := args[len(args)-1]
+		created, ok := m.creationByDataset[dataset]
+		if !ok {
+			created = time.Now().Unix()
+		}
+		return []byte(fmt.Sprintf("%d\n", created)), nil
+
 	case "list":
 		// Handle various list commands
 		if contains(args, "-t") && contains(args, "snapshot") && contains(args, "-r") {
@@ -1457,4 +1478,152 @@ func (s *GoldenZvolSuite) TestCreateGoldenZvol_DedupOff() {
 	assert.Contains(s.T(), cmdStr, "dedup=off", "golden zvols must have dedup=off")
 	assert.Contains(s.T(), cmdStr, "compression=lz4")
 	assert.Contains(s.T(), cmdStr, "-s", "must be thin-provisioned")
+}
+
+// -----------------------------------------------------------------------
+// ReconcileOrphanZvols (DB-driven reaper)
+// -----------------------------------------------------------------------
+
+const reconcileGrace = time.Hour
+
+// assertNeverForcedDestroy fails if any `zfs destroy -R` or any destroy with the
+// `-f` flag was ever issued. This is the safety-critical invariant: the reaper
+// must NEVER force-destroy a busy or clone-parent zvol.
+func (s *GoldenZvolSuite) assertNeverForcedDestroy() {
+	for _, c := range s.mock.commands {
+		if c.Name != "zfs" || len(c.Args) == 0 || c.Args[0] != "destroy" {
+			continue
+		}
+		for _, a := range c.Args {
+			assert.NotEqual(s.T(), "-R", a, "reaper must never use `zfs destroy -R` (recursive clone cascade)")
+			assert.NotEqual(s.T(), "-f", a, "reaper must never use `zfs destroy -f` (force)")
+		}
+	}
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_ReapsNonLivePastGrace() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_orphan", 8*time.Hour) // past grace
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Equal(s.T(), []string{"prod/helix-zvols/ses-ses_orphan"}, reaped)
+	assert.Empty(s.T(), skipped)
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_orphan"))
+	assert.False(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_orphan"])
+	s.assertNeverForcedDestroy()
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_SkipsLive() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_live")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_live", 8*time.Hour) // old but LIVE
+
+	// Use a temp sessionsBaseDir so the live-marker refresh doesn't touch /container-docker.
+	oldSessionsBaseDir := sessionsBaseDir
+	sessionsBaseDir = filepath.Join(s.tmpDir, "sessions")
+	defer func() { sessionsBaseDir = oldSessionsBaseDir }()
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{"ses_live": true}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "live", skipped[0].Reason)
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_live"])
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_SkipsWithinGrace() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_fresh")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_fresh", 10*time.Minute) // within grace
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "grace", skipped[0].Reason)
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_fresh"])
+}
+
+// TestReconcileOrphanZvols_SkipsCloneRoot covers the safety-critical case: a
+// session zvol that is the origin/ancestor of a golden (CleanupSessionZvol's
+// `zfs destroy -r` returns "has dependent clones"). The reaper must record it
+// as skipped and NEVER force.
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_SkipsCloneRoot() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_parent")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_parent", 8*time.Hour)
+	// destroy -r fails because the golden was promoted from a clone of this zvol.
+	s.mock.failOn("zfs destroy -r prod/helix-zvols/ses-ses_parent",
+		fmt.Errorf("cannot destroy 'prod/helix-zvols/ses-ses_parent': filesystem has dependent clones"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Equal(s.T(), "prod/helix-zvols/ses-ses_parent", skipped[0].Name)
+	assert.Contains(s.T(), skipped[0].Reason, "dependent")
+	// The destroy was ATTEMPTED with -r (lowercase) and failed safely — no force retry.
+	assert.True(s.T(), s.mock.hasCommand("zfs destroy -r prod/helix-zvols/ses-ses_parent"))
+	s.assertNeverForcedDestroy()
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_SkipsBusy() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_busy")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_busy", 8*time.Hour)
+	s.mock.failOn("zfs destroy -r prod/helix-zvols/ses-ses_busy",
+		fmt.Errorf("cannot destroy 'prod/helix-zvols/ses-ses_busy': dataset is busy"))
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	require.Len(s.T(), skipped, 1)
+	assert.Contains(s.T(), skipped[0].Reason, "busy")
+	s.assertNeverForcedDestroy()
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_NeverEnumeratesGolden() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	// Only a golden zvol exists — must never be considered for reaping.
+	s.mock.addDataset("prod/helix-zvols/golden-prj_abc")
+	s.mock.setCreationAge("prod/helix-zvols/golden-prj_abc", 30*24*time.Hour) // very old
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, false)
+
+	assert.Empty(s.T(), reaped)
+	assert.Empty(s.T(), skipped)
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/golden-prj_abc"], "golden must be untouched")
+}
+
+func (s *GoldenZvolSuite) TestReconcileOrphanZvols_DryRunIssuesNoDestroy() {
+	zfsParentDataset = "prod/helix-zvols"
+	zfsAvailableFlag = true
+
+	s.mock.addDataset("prod/helix-zvols/ses-ses_orphan")
+	s.mock.setCreationAge("prod/helix-zvols/ses-ses_orphan", 8*time.Hour)
+
+	reaped, skipped := ReconcileOrphanZvols(map[string]bool{}, reconcileGrace, true /* dryRun */)
+
+	assert.Equal(s.T(), []string{"prod/helix-zvols/ses-ses_orphan"}, reaped)
+	assert.Empty(s.T(), skipped)
+	// Dry run: NO destroy issued, dataset still present.
+	assert.False(s.T(), s.mock.hasCommand("zfs destroy"))
+	assert.True(s.T(), s.mock.datasets["prod/helix-zvols/ses-ses_orphan"])
 }

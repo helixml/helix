@@ -45,6 +45,25 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// OrphanReaperEnabled toggles the durable, DB-driven orphan-resource reaper
+	// that garbage-collects leaked session zvols and per-task/session workspace
+	// dirs after host reboots / API restarts / failed destroys.
+	OrphanReaperEnabled bool `envconfig:"HELIX_ORPHAN_REAPER_ENABLED" default:"true"`
+
+	// OrphanReaperInterval is how often the orphan-resource reaper computes the
+	// DB live-set and fans it out to connected sandboxes.
+	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
+
+	// OrphanReaperGracePeriod is the minimum age a resource must reach before
+	// the reaper will destroy it. Guards against racing newly-created resources
+	// the DB live-set hasn't caught up with yet.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
+
+	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
+	// without destroying anything. Defaults to true so the safety-critical zvol
+	// destroys are opt-in until an operator has reviewed the dry-run logs.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"true"`
+
 	// SandboxReaperInterval is how often the sandbox-instance reaper scans
 	// the sandbox_instances table for stale rows and flips their status to
 	// offline. Used in conjunction with SandboxStaleThreshold and

@@ -293,6 +293,7 @@ type Store interface {
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
 	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
+	ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error)   // IDs of live external-agent sessions (running, recently-updated, or keep_alive) — for the orphan-resource reaper
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
