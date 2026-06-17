@@ -910,6 +910,72 @@ const OAuthProvidersTable: React.FC = () => {
                       verifies inbound Events API deliveries. */}
                   {(currentProvider.slack_ingress_mode || 'rest') === 'rest' && (
                     <>
+                      <Grid item xs={12}>
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          sx={{
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 1,
+                            backgroundColor: 'rgba(33, 150, 243, 0.04)',
+                            '&:before': { display: 'none' },
+                          }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              📖 REST (Events API) setup guide — create the Slack app step by step
+                            </Typography>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            <Alert severity="info" icon={false} sx={{ mb: 1.5, py: 0.5, '& .MuiAlert-message': { width: '100%' } }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                <strong>REST needs a public HTTPS URL</strong> Slack can POST events to — so Helix must be reachable from the internet (a real domain, or a tunnel like <code>cloudflared</code> for local testing). Unlike Socket Mode it scales to many workspaces, so this is the mode for multi-tenant / SaaS.
+                              </Typography>
+                            </Alert>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                              Configure these in the{' '}
+                              <Link href="https://api.slack.com/apps" target="_blank" rel="noopener">Slack app dashboard ↗</Link>. Save the credentials below in Helix <em>before</em> setting the Request URL, so Slack's verification can succeed.
+                            </Typography>
+                            <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 1 } }}>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Create the app.</strong> <Link href="https://api.slack.com/apps" target="_blank" rel="noopener">api.slack.com/apps</Link> → <em>Create New App</em> → <em>From scratch</em>. Name it and pick a workspace.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Add bot scopes.</strong> <em>OAuth &amp; Permissions → Scopes → Bot Token Scopes</em>: <code>chat:write</code>, <code>chat:write.customize</code>, <code>channels:history</code>, <code>channels:read</code>, <code>channels:join</code>, <code>groups:history</code>, <code>groups:read</code>, <code>app_mentions:read</code>.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Copy the app credentials.</strong> <em>Settings → Basic Information → App Credentials</em>: paste <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>Signing Secret</strong> into the fields below, then save this provider. (Client id/secret drive the "Add to Slack" install; the signing secret verifies inbound events.)
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Turn Socket Mode OFF.</strong> <em>Settings → Socket Mode</em> → off. A Request URL is only available when Socket Mode is disabled.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Set the Events Request URL.</strong> <em>Event Subscriptions</em> → <em>Enable Events</em> → Request URL = <code>https://&lt;your-helix-domain&gt;/api/v1/slack/events</code>. Slack signs a challenge that Helix verifies with the Signing Secret — you should see <em>Verified ✓</em>. Under <em>Subscribe to bot events</em> add <code>message.channels</code>, <code>message.groups</code> (private), <code>app_mention</code>. Save Changes.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Add the OAuth redirect URL.</strong> <em>OAuth &amp; Permissions → Redirect URLs</em> → add <code>https://&lt;your-helix-domain&gt;/api/v1/slack/oauth/callback</code> → Save. This is where workspaces land after "Add to Slack".
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="caption" color="text.secondary">
+                                  <strong>Connect each workspace.</strong> A workspace installs via OAuth ("Add to Slack"), which mints that workspace's bot token and records its team id — so REST serves many workspaces from this one app. The bot must still be <code>/invite</code>d to the channels you want it in (private channels require a manual invite).
+                                </Typography>
+                              </li>
+                            </Box>
+                          </AccordionDetails>
+                        </Accordion>
+                      </Grid>
                       <Grid item xs={6}>
                         <TextField
                           fullWidth
