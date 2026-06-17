@@ -306,6 +306,35 @@ Gotcha / not yet validated:
   reconnect → new thread → transcript) is covered by unit tests + code analysis,
   not yet by a full E2E run. Flagged for the reviewer.
 
+## Bug found in live testing: model didn't actually switch (FIXED)
+
+Symptom: after an opus→sonnet switch, Zed's native model dropdown still showed
+Opus, and the agent's "I'm Sonnet" was just parroting the handoff text — the
+**underlying claude_code inference stayed Opus.**
+
+Root cause: `getZedConfig` resolves `code_agent_config` (which drives the
+claude_code model via `/etc/claude-code/managed-settings.json`) from
+**`specTask.HelixAppID` first**, then `session.ParentApp`. The switch updated
+`session.ParentApp` (→ Zed's native `agent.default_model` became sonnet) but
+**not** the spec task's `HelixAppID`, so the daemon's re-fetch still returned
+Opus for `code_agent_config.Model` → `managed-settings.json` stayed Opus. (Tell:
+the native field was `claude-sonnet-...-latest` while the stale one was the dated
+`claude-opus-...-20251101` — two different resolution sources.)
+
+The daemon was innocent — its `syncFromHelix` rewrites `managed-settings.json`
+on every `config_changed`; it just wrote what the API returned.
+
+Fix: `switchAgentInPlace` now calls `repointSpecTaskForSwitch` to update the
+spec task's `HelixAppID` to the target app (mirroring the fork's
+`repointSpecTasksToChild`), before publishing `config_changed`. Regression test
+`TestSwitchAgentInPlace_RepointsSpecTaskHelixAppID` asserts on the resolved
+config source (the real switch signal), not the agent's self-report.
+
+**Testing lesson:** never trust "ask the model what it is" to confirm a switch —
+the handoff text names the model, so it parrots. Confirm via the resolved config
+(`managed-settings.json` in-container, or the spec-task/ParentApp resolution),
+or the model field in the actual proxied LLM request.
+
 ## Why this is achievable incrementally
 The two hard parts — making an agent resolvable in the container and creating a
 new thread seeded with prior messages — are what the daemon and fork path
