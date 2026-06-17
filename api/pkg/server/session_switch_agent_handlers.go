@@ -3,9 +3,13 @@ package server
 // In-place agent switching. Unlike fork-and-pause (session_fork_handlers.go),
 // switching keeps the SAME session and the SAME desktop container — only the
 // agentic framework changes. The settings-sync-daemon rewrites Zed's config to
-// the new agent (its agent_servers + its MCP context_servers) and restarts Zed
-// so the new MCP surface comes up cleanly; a fresh Zed thread is then created
-// for the new agent and repopulated with the prior thread's transcript.
+// the new agent (its agent_servers + its MCP context_servers); Zed hot-reloads
+// that config live (its SettingsStore observers reconcile agent_servers and MCP
+// context_servers without a process restart). The daemon then calls back
+// /agent-config-applied and Helix delivers a fresh thread over the live Zed
+// WebSocket, repopulated with the prior thread's transcript. A clean Zed
+// restart is used only as a FALLBACK if the live hot-reload doesn't produce a
+// new thread in time (see agentSwitchRestartFallback).
 //
 // Designed in helix-specs:002111_so-we-recently-added-a (Strategy B —
 // current-agent-only config, Helix dropdown is the sole switch path).
@@ -45,7 +49,7 @@ type SwitchAgentResponse struct {
 
 // switchAgent godoc
 // @Summary Switch the agent framework on a running session in place
-// @Description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, restarts Zed to load the new MCP surface, and repopulates a fresh thread with the prior transcript.
+// @Description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
 // @Tags    sessions
 // @Accept  json
 // @Produce json
@@ -125,12 +129,15 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 }
 
 // switchAgentInPlace performs the in-place switch: snapshot the current
-// transcript, repoint the session's agent fields, clear the Zed thread binding,
+// transcript, repoint the session's agent fields (and the spec task's
+// HelixAppID — see repointSpecTaskForSwitch), clear the Zed thread binding,
 // seed a fork_seed + Waiting handoff interaction, and publish a config_changed
-// event so the daemon rewrites config and restarts Zed. When Zed reconnects
-// after the restart, pickupWaitingInteraction delivers the handoff to the NEW
-// agent (new ZedThreadID is empty → new thread; maybePrependTranscript injects
-// the transcript). No new session, no new container.
+// event. On the fast path the daemon hot-reloads the new config and calls
+// /agent-config-applied, which delivers the handoff over the live Zed
+// WebSocket (new ZedThreadID is empty → new thread; maybePrependTranscript
+// injects the transcript). agentSwitchRestartFallback forces a clean Zed
+// restart only if no new thread appears in time. No new session, no new
+// container.
 func (apiServer *HelixAPIServer) switchAgentInPlace(
 	ctx context.Context,
 	session *types.Session,

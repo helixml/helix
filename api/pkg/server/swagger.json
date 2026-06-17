@@ -16655,7 +16655,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, restarts Zed to load the new MCP surface, and repopulates a fresh thread with the prior transcript.",
+                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.",
                 "consumes": [
                     "application/json"
                 ],
