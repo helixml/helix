@@ -106,6 +106,12 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 		}
 	}()
 
+	// Disk-pressure emergency-brake monitor: polls the ZFS pool's free percent
+	// on a faster interval and gracefully stops (not deletes) all running dev
+	// containers if free space drops to or below the stop threshold, protecting
+	// the pool from ENOSPC corruption.
+	go dm.runDiskPressureMonitor()
+
 	return dm
 }
 
@@ -285,6 +291,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		if err := validateImageVersion(req.Image); err != nil {
 			return nil, err
 		}
+	}
+
+	// Disk-pressure admission control: refuse to start new dev containers when
+	// the ZFS pool's free space is critically low (≤ refuse threshold). This
+	// protects the pool from hitting 0% free, which would cause ENOSPC → XFS
+	// corruption → Postgres/git faults. Fail-open: an unknowable measurement
+	// returns nil and allows the start.
+	if err := checkDiskPressureForStart(); err != nil {
+		return nil, err
 	}
 
 	// Resolve registry-based image ref if available
