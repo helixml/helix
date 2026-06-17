@@ -127,6 +127,47 @@ func (s *DiskPressureSuite) TestPoolFreePercent_EmptyPoolName() {
 }
 
 // -----------------------------------------------------------------------
+// poolFreeBytes
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_Parses() {
+	s.zpoolOut = "123456789\n"
+	free, err := poolFreeBytes()
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(123456789), free)
+}
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_CommandError() {
+	s.zpoolErr = fmt.Errorf("zpool: no such pool")
+	_, err := poolFreeBytes()
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_EmptyOutput() {
+	s.zpoolOut = "  \n"
+	_, err := poolFreeBytes()
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_UnparsableOutput() {
+	s.zpoolOut = "not-a-number"
+	_, err := poolFreeBytes()
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_ZFSUnavailable() {
+	zfsAvailableFlag = false
+	_, err := poolFreeBytes()
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureSuite) TestPoolFreeBytes_EmptyPoolName() {
+	zfsParentDataset = ""
+	_, err := poolFreeBytes()
+	require.Error(s.T(), err)
+}
+
+// -----------------------------------------------------------------------
 // checkDiskPressureForStart
 // -----------------------------------------------------------------------
 

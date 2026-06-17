@@ -1780,14 +1780,33 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 
 	var resp GCReconcileResponse
 
+	// Measure reclaimed space cheaply as the pool-free delta around the reaping
+	// calls (captures both zvol + workspace reclamation in O(1)) — never a
+	// per-directory `du` sweep, which serialises into a 10+ minute backlog that
+	// blocks the reaper ticker. Dry-run frees nothing, so skip the measurement
+	// entirely and keep it fast.
+	var before int64
+	if !req.DryRun {
+		before, _ = poolFreeBytes()
+	}
+
 	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
 	resp.ZvolsReaped = zReaped
 	resp.ZvolsSkipped = zSkipped
 
-	wReaped, wSkipped, freed := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	wReaped, wSkipped := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
 	resp.WorkspacesReaped = wReaped
 	resp.WorkspacesSkipped = wSkipped
-	resp.BytesFreed = freed
+
+	if !req.DryRun {
+		// Ignore measurement errors → 0. Pool free can also move for unrelated
+		// reasons; clamp to a non-negative delta.
+		if after, err := poolFreeBytes(); err == nil {
+			if delta := after - before; delta > 0 {
+				resp.BytesFreed = delta
+			}
+		}
+	}
 
 	log.Info().
 		Bool("dry_run", req.DryRun).

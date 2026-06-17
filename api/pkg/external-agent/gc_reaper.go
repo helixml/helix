@@ -89,7 +89,14 @@ func reapOrphanResources(ctx context.Context, executor Executor, st store.Store,
 			continue
 		}
 
-		resp, err := executor.ReconcileSandboxResources(ctx, sandbox.ID, req)
+		// Per-sandbox timeout so a slow or hung reconcile (e.g. a wedged RevDial
+		// call) can't wedge the reaper ticker indefinitely. Don't defer cancel
+		// in the loop — call it before the next iteration via the closure.
+		resp, err := func() (*hydra.GCReconcileResponse, error) {
+			cctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
+			defer cancel()
+			return executor.ReconcileSandboxResources(cctx, sandbox.ID, req)
+		}()
 		if err != nil {
 			log.Warn().Err(err).
 				Str("sandbox_id", sandbox.ID).

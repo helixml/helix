@@ -59,7 +59,7 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_ReapsOnlyOrphans() {
 	liveSessions := map[string]bool{}                 // ses_old not live
 	liveSpecTasks := map[string]bool{"spt_live": true} // spt_live is live
 
-	reaped, _, freed := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, false)
+	reaped, _ := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, false)
 
 	// Only spt_old and ses_old removed.
 	_, err := os.Stat(sptOld)
@@ -76,7 +76,6 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_ReapsOnlyOrphans() {
 	assert.NoError(s.T(), err, "wrong-prefix dir must be kept")
 
 	assert.ElementsMatch(s.T(), []string{sptOld, sesOld}, reaped)
-	assert.GreaterOrEqual(s.T(), freed, int64(0))
 }
 
 func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_SkipsWithinGrace() {
@@ -84,7 +83,7 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_SkipsWithinGrace() {
 
 	sptFresh := s.mkdirOld("spec-tasks/spt_fresh", 10*time.Minute) // within grace
 
-	reaped, _, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, false)
+	reaped, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, false)
 
 	_, err := os.Stat(sptFresh)
 	assert.NoError(s.T(), err, "within-grace dir must be kept")
@@ -97,7 +96,7 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_DryRunRemovesNothing() 
 	sptOld := s.mkdirOld("spec-tasks/spt_old", 8*time.Hour)
 	sesOld := s.mkdirOld("sessions/ses_old", 8*time.Hour)
 
-	reaped, _, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, true /* dryRun */)
+	reaped, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, true /* dryRun */)
 
 	// Reported as candidates...
 	assert.ElementsMatch(s.T(), []string{sptOld, sesOld}, reaped)
@@ -115,7 +114,7 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_NeverTouchesSandboxesSu
 	// still be ignored because it lives under sandboxes/, which we never scan.
 	inner := s.mkdirOld("sandboxes/ses_inside_sandboxes", 30*24*time.Hour)
 
-	reaped, _, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, false)
+	reaped, _ := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, grace, false)
 
 	_, err := os.Stat(inner)
 	assert.NoError(s.T(), err, "nothing under sandboxes/ may be reaped")
@@ -125,9 +124,8 @@ func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_NeverTouchesSandboxesSu
 func (s *WorkspaceGCSuite) TestReconcileOrphanWorkspaces_NoBaseDir() {
 	workspacesBaseDir = filepath.Join(s.tmpDir, "does-not-exist")
 
-	reaped, skipped, freed := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, time.Hour, false)
+	reaped, skipped := ReconcileOrphanWorkspaces(map[string]bool{}, map[string]bool{}, time.Hour, false)
 
 	assert.Empty(s.T(), reaped)
 	assert.Empty(s.T(), skipped)
-	assert.Equal(s.T(), int64(0), freed)
 }

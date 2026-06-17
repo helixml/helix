@@ -168,6 +168,40 @@ func poolFreePercent() (float64, error) {
 	return float64(free) / float64(size) * 100, nil
 }
 
+// poolFreeBytes returns the number of free bytes in the ZFS pool, read from
+// `zpool list -Hp -o free <pool>` (raw byte value).
+//
+// Returns an error under the same conditions as poolFreePercent (ZFS
+// unavailable, empty pool name, command failure, or unparsable output). Used by
+// the GC reconcile path to cheaply measure reclaimed space as a before/after
+// delta instead of running a per-directory `du` sweep.
+func poolFreeBytes() (int64, error) {
+	if !ZFSAvailable() {
+		return 0, fmt.Errorf("ZFS not available; cannot measure pool free space")
+	}
+	pool := poolName()
+	if pool == "" {
+		return 0, fmt.Errorf("pool name is empty; cannot measure pool free space")
+	}
+
+	out, err := execCmdOutput("zpool", "list", "-Hp", "-o", "free", pool)
+	if err != nil {
+		return 0, fmt.Errorf("zpool list for pool %q failed: %w", pool, err)
+	}
+
+	field := strings.TrimSpace(string(out))
+	if field == "" {
+		return 0, fmt.Errorf("empty zpool list output for pool %q", pool)
+	}
+
+	free, err := strconv.ParseInt(field, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse pool free %q: %w", field, err)
+	}
+
+	return free, nil
+}
+
 // checkDiskPressureForStart is the admission-control guard for new dev
 // containers. It returns a non-nil error (to be surfaced to the user) ONLY when
 // the pool's free percent is at or below the refuse threshold.
