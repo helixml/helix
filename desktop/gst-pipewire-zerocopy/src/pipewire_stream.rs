@@ -897,6 +897,24 @@ fn run_pipewire_loop(
             // Used as the key for the persistent-Dmabuf cache in the GL blitter.
             let slot_fd = datas.first().map(|d| d.as_raw().fd as i32).unwrap_or(-1);
 
+            // Import-side acquire barrier — the twin of the GL→CUDA export fence in
+            // gl_blit.rs. GL is about to READ Mutter's dma-buf (import_dmabuf + blit).
+            // NVIDIA does not reliably honor *implicit* dma-buf sync on GL import, so
+            // GL can sample a buffer Mutter is still writing → a stale/torn frame under
+            // a fresh PTS (the residual one-frame flash on heavy-GPU pages like Chrome
+            // scroll). For a dma-buf, poll(POLLIN) blocks until the exclusive (write)
+            // fence signals — i.e. until Mutter finished writing. If the buffer carries
+            // no implicit fence (always-readable, e.g. MemFd), poll returns immediately,
+            // so this is ~free when there's nothing to wait for; the 8ms cap bounds any
+            // stall and keeps Mutter's frame clock moving.
+            for d in datas.iter() {
+                let fd = d.as_raw().fd as i32;
+                if fd >= 0 {
+                    let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+                    unsafe { libc::poll(&mut pfd as *mut libc::pollfd, 1, 8) };
+                }
+            }
+
             let params = video_info.lock().clone();
             if let Some(frame) = extract_frame(datas, &params, pts_ns) {
                 // Point A: inter-arrival of frames from Mutter/PipeWire (measure-only).
