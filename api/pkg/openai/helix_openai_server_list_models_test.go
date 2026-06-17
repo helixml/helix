@@ -98,6 +98,108 @@ func TestListModels_FiltersOutModelsWhenRunnerNotRunning(t *testing.T) {
 		"a runner that isn't running can't route; its profile must not populate the picker")
 }
 
+// TestListModels_FiltersOllamaSameAsVLLM ensures the filter applies
+// uniformly to ALL runtimes, not just VLLM. Pre-fix, only VLLM rows
+// had the special-case exemption that let them slip through when no
+// runner served them. The fix removed the runtime branch, so an Ollama
+// row that no runner serves must also be filtered.
+func TestListModels_FiltersOllamaSameAsVLLM(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{
+		{ID: "llama3.2:1b", Type: types.ModelTypeChat, Runtime: types.RuntimeOllama, Enabled: true},
+		{ID: "qwen2.5-0.5b", Type: types.ModelTypeChat, Runtime: types.RuntimeVLLM, Enabled: true},
+	}, nil)
+
+	rtr := inferencerouter.NewRouter()
+	rtr.SetRunnerState(&inferencerouter.RunnerState{
+		ID:     "runner-1",
+		Status: "running",
+		ActiveProfile: &types.RunnerProfile{
+			Models: []types.ProfileModel{
+				{Name: "qwen2.5-0.5b"},
+			},
+		},
+	})
+
+	srv := NewInternalHelixServer(&config.ServerConfig{}, mockStore, nil)
+	srv.SetInferenceRouter(rtr)
+
+	models, err := srv.ListModels(context.Background())
+	require.NoError(t, err)
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	require.ElementsMatch(t, []string{"qwen2.5-0.5b"}, ids,
+		"Ollama rows with no runner serving them must be filtered the same as VLLM rows")
+}
+
+// TestListModels_PreservesDBFieldsWhenAlsoInRouter is the regression
+// guard for the embed-leak fix: when a model appears in BOTH the DB and
+// the router, the DB row's metadata (Name, Description, ContextLength,
+// Type) must be used, NOT the router's synthesized chat default. Also
+// pins the embed-leak fix: an embedding model that's both DB-registered
+// AND surfaced by a profile must be excluded from the chat picker.
+func TestListModels_PreservesDBFieldsWhenAlsoInRouter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{
+		{
+			ID:            "qwen2.5-0.5b",
+			Name:          "Qwen 2.5 0.5B",
+			Description:   "Small VLLM chat model",
+			ContextLength: 32768,
+			Type:          types.ModelTypeChat,
+			Runtime:       types.RuntimeVLLM,
+			Enabled:       true,
+		},
+		{
+			ID:      "bge-embed",
+			Type:    types.ModelTypeEmbed, // explicit embed type
+			Runtime: types.RuntimeVLLM,
+			Enabled: true,
+		},
+	}, nil)
+
+	rtr := inferencerouter.NewRouter()
+	rtr.SetRunnerState(&inferencerouter.RunnerState{
+		ID:     "runner-1",
+		Status: "running",
+		ActiveProfile: &types.RunnerProfile{
+			Models: []types.ProfileModel{
+				{Name: "qwen2.5-0.5b"},
+				{Name: "bge-embed"}, // ALSO surfaced by the profile
+			},
+		},
+	})
+
+	srv := NewInternalHelixServer(&config.ServerConfig{}, mockStore, nil)
+	srv.SetInferenceRouter(rtr)
+
+	models, err := srv.ListModels(context.Background())
+	require.NoError(t, err)
+
+	var chat *types.OpenAIModel
+	for i := range models {
+		if models[i].ID == "qwen2.5-0.5b" {
+			chat = &models[i]
+		}
+		if models[i].ID == "bge-embed" {
+			t.Fatalf("embed model bge-embed must be excluded from the chat picker "+
+				"even though it's surfaced by the active profile; got %+v", models[i])
+		}
+	}
+	require.NotNil(t, chat, "expected qwen2.5-0.5b in the picker")
+	require.Equal(t, "Qwen 2.5 0.5B", chat.Name, "DB Name field must be preserved")
+	require.Equal(t, "Small VLLM chat model", chat.Description, "DB Description must be preserved")
+	require.Equal(t, 32768, chat.ContextLength, "DB ContextLength must be preserved (the union-only path synthesizes 0)")
+}
+
 // TestListModels_NilRouterReturnsEmpty guards the partially-constructed
 // server case (SetInferenceRouter not called yet). Returning ALL DB models
 // here would re-introduce the original bug at cold start.

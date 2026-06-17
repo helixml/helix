@@ -91,8 +91,13 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 	var models []types.OpenAIModel
 	served := make(map[string]bool) // model IDs already in the response
 	for _, model := range helixModels {
-		// Skip embedding models as they should not appear in chat model pickers
+		// Skip embedding models as they should not appear in chat model pickers.
+		// Mark served BEFORE the continue: otherwise the router-only union loop
+		// below re-synthesizes the same id as a chat model, defeating the
+		// embed filter (e.g. an embedding model surfaced by a profile that's
+		// also registered in the DB would reappear in the chat picker).
 		if model.Type == types.ModelTypeEmbed {
+			served[model.ID] = true
 			continue
 		}
 
