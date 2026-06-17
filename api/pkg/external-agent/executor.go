@@ -106,4 +106,11 @@ type ZedSession struct {
 	ContainerID string `json:"container_id,omitempty"` // Docker container ID
 	ContainerIP string `json:"container_ip,omitempty"` // Container IP address on bridge network
 	SandboxID   string `json:"sandbox_id,omitempty"`   // Sandbox running this container (for RevDial routing)
+
+	// GoldenBuild marks this session as a golden-build run rather than a
+	// user-facing dev container. Golden builds are cleaned up internally
+	// by hydra's monitorGoldenBuild (which bypasses HydraExecutor.StopDesktop),
+	// so we don't bump active_sandboxes for them on either side - otherwise
+	// the counter would drift up monotonically as builds complete.
+	GoldenBuild bool `json:"golden_build,omitempty"`
 }

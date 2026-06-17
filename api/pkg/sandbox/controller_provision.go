@@ -205,11 +205,41 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		return
 	}
 
+	// Increment active_sandboxes on the Runner row so the autoscaler
+	// sees this user-facing sandbox as load (mirrors what HydraExecutor
+	// does for spec-task / agent dev containers). The matching decrement
+	// fires in Controller.Delete. If a downstream persist step below
+	// fails and we tear down the container, we also decrement there to
+	// keep the count balanced.
+	devContainerIncremented := false
+	if incErr := c.store.IncrementSandboxContainerCount(provisionCtx, host.ID); incErr != nil {
+		log.Warn().Err(incErr).Str("sandbox_id", sandboxID).Str("host_device_id", host.ID).
+			Msg("Failed to increment active_sandboxes on Runner; autoscaler may underestimate load")
+	} else {
+		devContainerIncremented = true
+	}
+
+	// rollbackOnFailure tears down the container we just provisioned
+	// and rolls back the counter increment, used by the two failure
+	// branches below (persist host/container ids, persist status).
+	rollbackOnFailure := func(stage string) {
+		if _, deleteErr := hydraClient.DeleteDevContainer(context.Background(), sandbox.ID); deleteErr != nil {
+			log.Warn().Err(deleteErr).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).
+				Msgf("failed to clean up provisioned container after %s failure", stage)
+			// Don't decrement on a failed cleanup: container may still be running.
+			return
+		}
+		if devContainerIncremented {
+			if decErr := c.store.DecrementSandboxContainerCount(context.Background(), host.ID); decErr != nil {
+				log.Warn().Err(decErr).Str("sandbox_id", sandboxID).Str("host_device_id", host.ID).
+					Msgf("Failed to decrement active_sandboxes after %s rollback", stage)
+			}
+		}
+	}
+
 	if err := c.store.SetSandboxContainer(provisionCtx, sandboxID, host.ID, resp.ContainerID); err != nil {
 		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist host/container ids; deleting provisioned container")
-		if _, deleteErr := hydraClient.DeleteDevContainer(context.Background(), sandbox.ID); deleteErr != nil {
-			log.Warn().Err(deleteErr).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to clean up provisioned container after persist failure")
-		}
+		rollbackOnFailure("persist")
 		return
 	}
 
@@ -219,9 +249,7 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 	}
 	if err := c.store.SetSandboxStatus(provisionCtx, sandboxID, status, ""); err != nil {
 		log.Warn().Err(err).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to persist sandbox status; deleting provisioned container")
-		if _, deleteErr := hydraClient.DeleteDevContainer(context.Background(), sandbox.ID); deleteErr != nil {
-			log.Warn().Err(deleteErr).Str("sandbox_id", sandboxID).Str("container_id", resp.ContainerID).Msg("failed to clean up provisioned container after status failure")
-		}
+		rollbackOnFailure("status")
 	}
 }
 

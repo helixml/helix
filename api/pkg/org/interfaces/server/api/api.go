@@ -271,6 +271,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "PUT /streams/{id}", Handler: http.HandlerFunc(a.updateStream)},
 		{Pattern: "DELETE /streams/{id}", Handler: http.HandlerFunc(a.deleteStream)},
 		{Pattern: "GET /streams/{id}/events", Handler: http.HandlerFunc(a.streamEventsSSE)},
+		{Pattern: "GET /streams/{id}/messages", Handler: http.HandlerFunc(a.listStreamMessages)},
 		{Pattern: "POST /streams/{id}/publish", Handler: http.HandlerFunc(a.publishToStream)},
 		// Inbound webhook for the GitHub transport. The transport
 		// resolves orgID from the request context (set by the org

@@ -83,6 +83,33 @@ type ServerConfig struct {
 	// their DB row.
 	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
 
+	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
+	// containers (current vocab "sandboxes") that hydra will spawn
+	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
+	// when a Runner is registered (both legacy auto-register and
+	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
+	// as demand pressure, so this value is what determines when scale-up
+	// fires under load.
+	//
+	// NOTE: this value only affects the autoscaler signal today; the
+	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
+	// rejection at the ceiling - new dev containers can still be placed
+	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
+	// dispatcher rejection is tracked separately as a follow-up.
+	//
+	// Default 20. Raise for hosts with more headroom, lower to make
+	// the autoscaler trigger sooner on smaller hosts. Range is not
+	// enforced - sane values are typically 1-50, beyond which the host
+	// kernel will OOM before the limit binds.
+	//
+	// Changing this env var only affects newly-registered Runners and
+	// Manager-provisioned rows on the next boot; existing rows keep
+	// their persisted MaxSandboxes value. A boot-time backfill rewrites
+	// rows that disagree with the current config so the new value takes
+	// effect across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
+
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`

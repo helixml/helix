@@ -457,6 +457,11 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		Str("ip_address", resp.IPAddress).
 		Msg("Dev container created successfully via Hydra")
 
+	// Increment moved below to the point where the session enters
+	// h.sessions, so increment/decrement stay paired on the same
+	// gate (membership in h.sessions). See the increment block right
+	// after the h.sessions insert.
+
 	// No bridging needed - desktop runs its own dockerd, so all containers
 	// are on the same Docker network inside the desktop container.
 
@@ -492,11 +497,35 @@ func (h *HydraExecutor) StartDesktop(ctx context.Context, agent *types.DesktopAg
 		ContainerID:    resp.ContainerID,
 		ContainerIP:    resp.IPAddress,
 		SandboxID:      sandboxID,
+		GoldenBuild:    agent.GoldenBuild,
 		// DevContainerID is not used in Hydra mode, but we store container info here
 	}
 	h.mutex.Lock()
+	_, alreadyTracked := h.sessions[agent.SessionID]
 	h.sessions[agent.SessionID] = session
 	h.mutex.Unlock()
+
+	// Increment active_sandboxes on the Runner row, paired with the
+	// h.sessions insertion above. Gating on (!alreadyTracked) keeps
+	// the increment idempotent if StartDesktop is somehow called twice
+	// for the same session (counter would otherwise double-count).
+	// Skipping golden builds: they aren't user-facing workload and the
+	// hydra-side monitorGoldenBuild path doesn't go through StopDesktop,
+	// so counting them would create a one-way drift up. Skipping the
+	// "local" sentinel: no Runner row exists when SandboxID is unset.
+	//
+	// The matching decrement lives in StopDesktop, gated on the session
+	// actually being present in h.sessions at stop time (so double-stop
+	// can't over-decrement).
+	if !alreadyTracked && !agent.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+		if incErr := h.store.IncrementSandboxContainerCount(ctx, sandboxID); incErr != nil {
+			log.Warn().
+				Err(incErr).
+				Str("sandbox_id", sandboxID).
+				Str("session_id", agent.SessionID).
+				Msg("Failed to increment active_sandboxes on Runner; autoscaler may underestimate demand")
+		}
+	}
 
 	// Update database session with container info and debug info
 	if dbSession, err := h.store.GetSession(ctx, agent.SessionID); err == nil {
@@ -557,13 +586,23 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 	log.Info().Str("session_id", sessionID).Msg("Stopping dev container via Hydra")
 
 	h.mutex.Lock()
-	session, exists := h.sessions[sessionID]
+	session, sessionWasTracked := h.sessions[sessionID]
 	var sandboxID string
-	if exists {
+	var sessionGoldenBuild bool
+	if sessionWasTracked {
 		sandboxID = session.SandboxID
+		sessionGoldenBuild = session.GoldenBuild
 		delete(h.sessions, sessionID)
 	}
 	h.mutex.Unlock()
+
+	// Capture once for the decrement decision below. If the session
+	// was never in h.sessions when this Stop fired (e.g. double-stop,
+	// or a stop on a session that was never tracked), the matching
+	// increment never happened either, so no decrement should fire.
+	// Likewise for golden builds: StartDesktop deliberately skipped the
+	// increment, so we must skip the decrement to keep the counter balanced.
+	exists := sessionWasTracked && !sessionGoldenBuild
 
 	// Get sandbox ID from database if not in memory
 	// Use SandboxID as sandbox identifier for now (they're often the same or related)
@@ -589,14 +628,40 @@ func (h *HydraExecutor) StopDesktop(ctx context.Context, sessionID string) error
 
 	// Delete dev container via Hydra
 	resp, err := hydraClient.DeleteDevContainer(ctx, sessionID)
+	deleteSucceeded := err == nil
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to delete dev container (may already be stopped)")
-		// Don't return error - container might already be gone
+		// Don't return error - container might already be gone. We
+		// also do NOT decrement here: if the delete failed but the
+		// container is actually still alive on the host, decrementing
+		// would create a phantom "free slot" that the dispatcher
+		// would place new work onto. Operator visibility (a counter
+		// stuck high) is the lesser harm. The periodic reconcile via
+		// DiscoverContainersFromSandbox is the corrective path - it
+		// SETs the counter to the actual container count.
 	} else {
 		log.Info().
 			Str("session_id", sessionID).
 			Str("container_id", resp.ContainerID).
 			Msg("Dev container stopped successfully via Hydra")
+	}
+
+	// Decrement gated on TWO conditions:
+	//   1. The session was actually in h.sessions when stop started
+	//      (so the matching increment fired earlier; double-stop and
+	//      stop-of-untracked-session both have exists=false here).
+	//   2. The delete actually succeeded (so the container is really
+	//      gone; on failure we keep the counter high to avoid phantom
+	//      free slots, see comment above).
+	// Skip the "local" sentinel (no Runner row to decrement).
+	if exists && deleteSucceeded && sandboxID != "" && sandboxID != "local" {
+		if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
+			log.Warn().
+				Err(decErr).
+				Str("sandbox_id", sandboxID).
+				Str("session_id", sessionID).
+				Msg("Failed to decrement active_sandboxes on Runner; counter may drift high")
+		}
 	}
 
 	// Revoke session-scoped ephemeral API keys
@@ -796,8 +861,26 @@ func (h *HydraExecutor) HasRunningContainer(ctx context.Context, sessionID strin
 				Str("sandbox_id", sandboxID).
 				Msg("Container no longer running on sandbox, cleaning up stale session entry")
 			h.mutex.Lock()
+			// Re-check membership under the write lock in case a concurrent
+			// StopDesktop already removed the session (and decremented).
+			_, stillTracked := h.sessions[sessionID]
 			delete(h.sessions, sessionID)
 			h.mutex.Unlock()
+			// Mirror the decrement that StopDesktop would have fired:
+			// the container is gone from the Runner, so the matching
+			// counter slot is gone too. Without this, sessions evicted
+			// via this stale-detection path would leak the counter up
+			// (autoscaler would never see them released). Same guards
+			// as the StopDesktop decrement: was-tracked, not a golden
+			// build, real Runner row.
+			if stillTracked && !session.GoldenBuild && sandboxID != "" && sandboxID != "local" {
+				if decErr := h.store.DecrementSandboxContainerCount(ctx, sandboxID); decErr != nil {
+					log.Warn().Err(decErr).
+						Str("sandbox_id", sandboxID).
+						Str("session_id", sessionID).
+						Msg("Failed to decrement active_sandboxes on Runner after stale-session eviction")
+				}
+			}
 			return false
 		}
 	}
@@ -1350,6 +1433,24 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		return nil
 	}
 
+	// Resync active_sandboxes from ground truth FIRST, before any
+	// early-return on the empty-list case. hydra is the source of truth:
+	// if it reports 0 containers, the DB MUST become 0 too (otherwise a
+	// Runner that previously drifted up stays drifted forever after
+	// becoming empty - the exact failure mode this resync was added to
+	// prevent). SET (not Increment) writes the exact count, recovering
+	// from any drift accumulated by missed Increment/Decrement calls
+	// (API restart, hydra-side internal deletes, failed StopDesktop).
+	if sandboxID != "" && sandboxID != "local" {
+		if setErr := h.store.SetSandboxContainerCount(ctx, sandboxID, len(containerList.Containers)); setErr != nil {
+			log.Warn().
+				Err(setErr).
+				Str("sandbox_id", sandboxID).
+				Int("container_count", len(containerList.Containers)).
+				Msg("Failed to set active_sandboxes from discovery; counter may be stale")
+		}
+	}
+
 	if len(containerList.Containers) == 0 {
 		return nil
 	}
@@ -1449,7 +1550,10 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			}
 		}
 
-		// Add to in-memory sessions map
+		// Add to in-memory sessions map. SandboxID populated so a
+		// later StopDesktop for this session can resolve the right
+		// Runner for the decrement (previously left blank, which
+		// meant the decrement fell back to "local" and skipped).
 		h.mutex.Lock()
 		h.sessions[sessionID] = &ZedSession{
 			OrganizationID: dbSession.OrganizationID,
@@ -1459,6 +1563,7 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 			ContainerName:  container.containerName,
 			Status:         "running",
 			ContainerIP:    container.containerIP,
+			SandboxID:      sandboxID,
 			LastAccess:     time.Now(),
 		}
 		h.mutex.Unlock()
