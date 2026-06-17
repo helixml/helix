@@ -53,12 +53,14 @@ type OAuthProvider struct {
 
 	// Slack-specific configuration. Only meaningful when Type == "slack",
 	// where this OAuthProvider row models the single instance-wide Slack
-	// app (client id/secret carried in the common fields above). See
-	// design/2026-06-16-helix-org-slack-stream.md §9.2. The two secret
-	// fields are redacted for non-admins (like ClientSecret) and
-	// encrypted at rest.
+	// app. See design/2026-06-16-helix-org-slack-stream.md §9.2. Which
+	// fields apply depends on SlackIngressMode: REST uses the common
+	// client id/secret (OAuth install) + SlackSigningSecret; Socket Mode
+	// uses SlackAppToken + SlackBotToken instead. The secret fields are
+	// redacted for non-admins (like ClientSecret) and encrypted at rest.
 	SlackSigningSecret string `json:"slack_signing_secret" gorm:"type:text"` // REST Events API authenticity (NFR-4)
 	SlackAppToken      string `json:"slack_app_token" gorm:"type:text"`      // xapp-… app-level token for Socket Mode
+	SlackBotToken      string `json:"slack_bot_token" gorm:"type:text"`      // xoxb-… bot token for single-workspace Socket Mode
 	SlackIngressMode   string `json:"slack_ingress_mode"`                    // "rest" | "socket" | "" — explicit toggle (FR-16)
 }
 

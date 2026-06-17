@@ -133,6 +133,29 @@ func NewSlackConnector(appToken, botToken, apiURL string, logger *slog.Logger) C
 
 		go func() {
 			for evt := range client.Events {
+				// NOTE: logging the connection LIFECYCLE (not message
+				// content) is vital to operating Socket Mode. A Socket Mode
+				// app fails silently in a way REST never does: the socket
+				// connects fine, but if Event Subscriptions isn't enabled on
+				// the Slack app — or the right bot events aren't subscribed —
+				// no message events ever arrive, and there is nothing in any
+				// log to say so. Emitting connecting/connected/disconnect/
+				// error transitions is what lets an operator tell "the socket
+				// is up and Slack just isn't sending us anything" apart from
+				// "the socket never came up". We deliberately log only
+				// connection-state transitions and per-event metadata
+				// (channel/team, in the ingest) — never message bodies:
+				// that keeps the signal high and avoids logging user content.
+				switch evt.Type {
+				case socketmode.EventTypeConnecting:
+					logger.Info("slack.socketmode: connecting")
+				case socketmode.EventTypeConnected:
+					logger.Info("slack.socketmode: connected — waiting for events (requires Event Subscriptions enabled on the app)")
+				case socketmode.EventTypeDisconnect:
+					logger.Warn("slack.socketmode: disconnected")
+				case socketmode.EventTypeConnectionError, socketmode.EventTypeInvalidAuth:
+					logger.Warn("slack.socketmode: connection problem", "type", string(evt.Type))
+				}
 				if evt.Type != socketmode.EventTypeEventsAPI {
 					// Hello / connecting / disconnect / ping are connection
 					// lifecycle, not application events. Ack interactive
@@ -149,8 +172,13 @@ func NewSlackConnector(appToken, botToken, apiURL string, logger *slog.Logger) C
 				if eventsAPI.Type != slackevents.CallbackEvent {
 					continue
 				}
+				// Metadata only (the event type, never the body): confirms
+				// events are flowing and surfaces ones we don't yet map.
+				logger.Info("slack.socketmode: event received", "team", eventsAPI.TeamID, "inner_type", eventsAPI.InnerEvent.Type)
 				if ev, ok := toIngestEvent(eventsAPI.InnerEvent.Data); ok {
 					handle(eventsAPI.TeamID, ev)
+				} else {
+					logger.Debug("slack.socketmode: event not mapped to ingest", "inner_type", eventsAPI.InnerEvent.Type)
 				}
 			}
 		}()

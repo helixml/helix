@@ -3977,6 +3977,8 @@ export interface TypesOAuthProvider {
   name?: string;
   /** xapp-… app-level token for Socket Mode */
   slack_app_token?: string;
+  /** xoxb-… bot token for single-workspace Socket Mode */
+  slack_bot_token?: string;
   /** "rest" | "socket" | "" — explicit toggle (FR-16) */
   slack_ingress_mode?: string;
   /** REST Events API authenticity (NFR-4) */

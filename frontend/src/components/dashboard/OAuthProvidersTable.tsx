@@ -286,15 +286,24 @@ const OAuthProvidersTable: React.FC = () => {
       if (!currentProvider.name || currentProvider.name.trim() === '') {
         errors.name = true;
       }
-      
-      if (!currentProvider.client_id || currentProvider.client_id.trim() === '') {
-        errors.client_id = true;
+
+      const isSlack = currentProvider.type === 'slack';
+      const slackMode = currentProvider.slack_ingress_mode || 'rest';
+      const blank = (v?: string) => !v || v.trim() === '';
+
+      if (isSlack && slackMode === 'socket') {
+        // Socket Mode skips OAuth entirely — only the two tokens apply.
+        if (blank(currentProvider.slack_app_token)) errors.slack_app_token = true;
+        if (blank(currentProvider.slack_bot_token)) errors.slack_bot_token = true;
+      } else {
+        // REST Slack and every other OAuth provider need client id/secret.
+        if (blank(currentProvider.client_id)) errors.client_id = true;
+        if (blank(currentProvider.client_secret)) errors.client_secret = true;
+        if (isSlack && blank(currentProvider.slack_signing_secret)) {
+          errors.slack_signing_secret = true;
+        }
       }
-      
-      if (!currentProvider.client_secret || currentProvider.client_secret.trim() === '') {
-        errors.client_secret = true;
-      }
-      
+
       // If there are any errors, show them and stop
       if (Object.keys(errors).length > 0) {
         setFieldErrors(errors);
@@ -826,44 +835,51 @@ const OAuthProvidersTable: React.FC = () => {
                 </Grid>
               )}
               
-              <Grid item xs={6}>
-                <TextField
-                  fullWidth
-                  label="Client ID"
-                  name="client_id"
-                  value={currentProvider.client_id}
-                  onChange={handleInputChange}
-                  required
-                  error={fieldErrors['client_id']}
-                  helperText={fieldErrors['client_id'] ? 'Client ID is required' : ''}
-                />
-              </Grid>
-              
-              <Grid item xs={6}>
-                <TextField
-                  fullWidth
-                  label="Client Secret"
-                  name="client_secret"
-                  value={currentProvider.client_secret}
-                  onChange={handleInputChange}
-                  type="password"
-                  required
-                  error={fieldErrors['client_secret']}
-                  helperText={fieldErrors['client_secret'] ? 'Client Secret is required' : ''}
-                />
-              </Grid>
-              
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Callback URL"
-                  name="callback_url"
-                  value={currentProvider.callback_url}
-                  onChange={handleInputChange}
-                  helperText="This URL should be configured in your OAuth provider's settings"
-                />
-              </Grid>
-              
+              {/* Slack credentials are mode-driven (see the dedicated
+                  block below); every other provider type uses the shared
+                  OAuth client id / secret / callback. */}
+              {currentProvider.type !== 'slack' && (
+                <>
+                  <Grid item xs={6}>
+                    <TextField
+                      fullWidth
+                      label="Client ID"
+                      name="client_id"
+                      value={currentProvider.client_id}
+                      onChange={handleInputChange}
+                      required
+                      error={fieldErrors['client_id']}
+                      helperText={fieldErrors['client_id'] ? 'Client ID is required' : ''}
+                    />
+                  </Grid>
+
+                  <Grid item xs={6}>
+                    <TextField
+                      fullWidth
+                      label="Client Secret"
+                      name="client_secret"
+                      value={currentProvider.client_secret}
+                      onChange={handleInputChange}
+                      type="password"
+                      required
+                      error={fieldErrors['client_secret']}
+                      helperText={fieldErrors['client_secret'] ? 'Client Secret is required' : ''}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Callback URL"
+                      name="callback_url"
+                      value={currentProvider.callback_url}
+                      onChange={handleInputChange}
+                      helperText="This URL should be configured in your OAuth provider's settings"
+                    />
+                  </Grid>
+                </>
+              )}
+
               {currentProvider.type === 'slack' && (
                 <>
                   <Grid item xs={12}>
@@ -876,37 +892,91 @@ const OAuthProvidersTable: React.FC = () => {
                       onChange={handleInputChange}
                       SelectProps={{ native: true }}
                       InputLabelProps={{ shrink: true }}
-                      helperText="How inbound Slack events reach Helix when this provider is enabled. REST (Events API) serves many per-org installs; Socket Mode suits a single on-premise workspace with no inbound HTTP. Use the Enabled toggle above to turn Slack off entirely."
+                      helperText="How inbound Slack events reach Helix when this provider is enabled. REST (Events API) serves many per-org installs via OAuth; Socket Mode connects a single on-premise workspace with no inbound HTTP. Use the Enabled toggle above to turn Slack off entirely."
                     >
-                      <option value="rest">REST (Events API)</option>
-                      <option value="socket">Socket Mode (WebSocket)</option>
+                      <option value="rest">REST (Events API) — multi-workspace via OAuth</option>
+                      <option value="socket">Socket Mode (WebSocket) — single workspace</option>
                     </TextField>
                   </Grid>
-                  {currentProvider.slack_ingress_mode === 'rest' && (
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Signing Secret"
-                        name="slack_signing_secret"
-                        value={currentProvider.slack_signing_secret || ''}
-                        onChange={handleInputChange}
-                        type="password"
-                        helperText="Slack app Signing Secret — verifies Events API request authenticity. Set the Request URL to https://<your-helix>/api/v1/slack/events"
-                      />
-                    </Grid>
+
+                  {/* REST: OAuth "Add to Slack" install (client id/secret)
+                      mints each workspace's bot token; signing secret
+                      verifies inbound Events API deliveries. */}
+                  {(currentProvider.slack_ingress_mode || 'rest') === 'rest' && (
+                    <>
+                      <Grid item xs={6}>
+                        <TextField
+                          fullWidth
+                          label="Client ID"
+                          name="client_id"
+                          value={currentProvider.client_id}
+                          onChange={handleInputChange}
+                          required
+                          error={fieldErrors['client_id']}
+                          helperText={fieldErrors['client_id'] ? 'Client ID is required' : 'OAuth client id from Basic Information'}
+                        />
+                      </Grid>
+                      <Grid item xs={6}>
+                        <TextField
+                          fullWidth
+                          label="Client Secret"
+                          name="client_secret"
+                          value={currentProvider.client_secret}
+                          onChange={handleInputChange}
+                          type="password"
+                          required
+                          error={fieldErrors['client_secret']}
+                          helperText={fieldErrors['client_secret'] ? 'Client Secret is required' : 'OAuth client secret from Basic Information'}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Signing Secret"
+                          name="slack_signing_secret"
+                          value={currentProvider.slack_signing_secret || ''}
+                          onChange={handleInputChange}
+                          type="password"
+                          required
+                          error={fieldErrors['slack_signing_secret']}
+                          helperText={fieldErrors['slack_signing_secret'] ? 'Signing Secret is required for REST' : 'Verifies Events API authenticity. Set the Request URL to https://<your-helix>/api/v1/slack/events'}
+                        />
+                      </Grid>
+                    </>
                   )}
+
+                  {/* Socket Mode: no OAuth. The app-level token opens the
+                      WebSocket; the bot token posts. No inbound HTTP, so no
+                      client id/secret, callback, or signing secret. */}
                   {currentProvider.slack_ingress_mode === 'socket' && (
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="App-Level Token (xapp-…)"
-                        name="slack_app_token"
-                        value={currentProvider.slack_app_token || ''}
-                        onChange={handleInputChange}
-                        type="password"
-                        helperText="App-level token with connections:write — used to open the Socket Mode WebSocket. Generate it under Basic Information → App-Level Tokens."
-                      />
-                    </Grid>
+                    <>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="App-Level Token (xapp-…)"
+                          name="slack_app_token"
+                          value={currentProvider.slack_app_token || ''}
+                          onChange={handleInputChange}
+                          type="password"
+                          required
+                          error={fieldErrors['slack_app_token']}
+                          helperText={fieldErrors['slack_app_token'] ? 'App-Level Token is required for Socket Mode' : 'Token with connections:write that opens the WebSocket. Basic Information → App-Level Tokens.'}
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Bot Token (xoxb-…)"
+                          name="slack_bot_token"
+                          value={currentProvider.slack_bot_token || ''}
+                          onChange={handleInputChange}
+                          type="password"
+                          required
+                          error={fieldErrors['slack_bot_token']}
+                          helperText={fieldErrors['slack_bot_token'] ? 'Bot Token is required for Socket Mode' : 'Bot user OAuth token used to post messages. OAuth & Permissions → Bot User OAuth Token.'}
+                        />
+                      </Grid>
+                    </>
                   )}
                 </>
               )}

@@ -25,6 +25,12 @@ type App struct {
 	// AppToken is the app-level token (xapp-…) Socket Mode authenticates
 	// the WebSocket with.
 	AppToken string
+	// BotToken is the bot token (xoxb-…) Socket Mode posts with. Only set
+	// for the single-workspace Socket Mode deployment, where there is no
+	// per-org OAuth install to mint one. REST installs leave it empty —
+	// each org's bot token is minted by the OAuth flow into the
+	// configregistry instead.
+	BotToken string
 	// IngressMode is the explicit REST/Socket toggle (FR-16). Empty means
 	// no ingress is active.
 	IngressMode string

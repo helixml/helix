@@ -146,6 +146,7 @@ func buildSlackWiring(deps slackWiringDeps) slackWiring {
 			ClientSecret:  p.ClientSecret,
 			SigningSecret: p.SlackSigningSecret,
 			AppToken:      p.SlackAppToken,
+			BotToken:      p.SlackBotToken,
 			IngressMode:   p.SlackIngressMode,
 			Enabled:       p.Enabled,
 		}, nil
@@ -249,7 +250,14 @@ func buildSlackWiring(deps slackWiringDeps) slackWiring {
 				}
 				return nil
 			}
-			botToken := resolveAnyBotToken(ctx, deps.configReg, deps.orgStore)
+			// Socket Mode posts with the single-workspace bot token
+			// configured on the global app. Fall back to scanning per-org
+			// installs for the rare case the workspace was onboarded via
+			// the OAuth flow rather than a pasted token.
+			botToken := app.BotToken
+			if botToken == "" {
+				botToken = resolveAnyBotToken(ctx, deps.configReg, deps.orgStore)
+			}
 			return slacktransport.NewSlackConnector(app.AppToken, botToken, "", logger)(ctx, handle)
 		}
 		runner := slacktransport.NewSocketMode(ingest, owner, connector, logger)

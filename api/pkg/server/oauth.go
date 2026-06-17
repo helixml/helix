@@ -108,6 +108,7 @@ func redactProviderSecrets(provider *types.OAuthProvider) {
 	provider.ClientSecret = ""
 	provider.SlackSigningSecret = ""
 	provider.SlackAppToken = ""
+	provider.SlackBotToken = ""
 }
 
 // handleCreateOAuthProvider creates a new OAuth provider
