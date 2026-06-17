@@ -25,7 +25,9 @@ import (
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 )
 
-const testSigningSecret = "8f742231b10e8888abcd99yyyzzz85a5"
+// Not a real secret — just an HMAC key for the signature round-trip below.
+// Kept low-entropy and obviously-fake so the secret scanner doesn't flag it.
+const testSigningSecret = "test-slack-signing-secret-fake"
 
 // recordingReceiver captures Receive calls for the REST/Socket tests.
 type recordingReceiver struct {
