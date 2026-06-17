@@ -1130,9 +1130,12 @@ echo "=== Installing Ghostty terminal for ${TARGETARCH} ==="
 GHOSTTY_TAG="1.3.1-0-ppa1"
 GHOSTTY_DEB="ghostty_1.3.1-0.ppa1_${TARGETARCH}_25.10.deb"
 wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
-# Install dependencies first (the .deb may need libs not in the base image)
-apt-get install -y --no-install-recommends libfreetype6 libfontconfig1 || true
-dpkg -i /tmp/ghostty.deb || apt-get install -f -y
+# Install the .deb AND resolve its dependencies (e.g. libgtk4-layer-shell0) in one
+# apt step. The old `dpkg -i || apt-get install -f` worked, but dpkg can't resolve
+# deps so it printed a scary "dpkg: error processing package ghostty / Errors were
+# encountered while processing: ghostty" before the -f recovery. apt resolves the
+# .deb's deps directly — clean install, no misleading error in the build log.
+apt-get install -y /tmp/ghostty.deb
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
 

@@ -104,11 +104,18 @@ impl GlBlitter {
 
         let t_total = std::time::Instant::now();
 
-        // Reuse one persistent Dmabuf per pool slot so smithay's dmabuf→texture
-        // cache stays warm (it prunes on Dmabuf drop). The persistent Dmabuf
-        // references the same slot memory Mutter keeps writing into; smithay
-        // refreshes the EGLImage binding on the cache-hit path, so we still get
-        // the current frame. import_dmabuf is then a cheap hit (no eglCreateImage).
+        // Per-slot Dmabuf cache: reuse one persistent Dmabuf per pool slot so
+        // smithay's dmabuf→texture cache stays warm (it prunes on Dmabuf drop).
+        // The persistent Dmabuf references the same slot memory Mutter keeps
+        // writing into, and smithay refreshes the EGLImage binding on the
+        // cache-hit path, so we still sample the current frame. import_dmabuf is
+        // then a cheap cache hit instead of a ~55ms eglCreateImage at 4K — that
+        // per-frame import (when this cache was bypassed as a diagnostic) was what
+        // stalled the capture thread and tanked the framerate / RTT.
+        //
+        // NB: the stale-frame flicker was NOT this cache — it was the dropped
+        // GL→CUDA fence below (now fixed by the wait()). The cache-bypass
+        // diagnostic only added latency, so the cache is restored.
         let t_import = std::time::Instant::now();
         let persistent = self
             .slot_dmabufs
@@ -154,7 +161,19 @@ impl GlBlitter {
                     1.0,
                 )
                 .map_err(|e| format!("render_texture_at: {:?}", e))?;
-            let _sync = frame.finish().map_err(|e| format!("finish: {:?}", e))?;
+            // GL→CUDA handoff barrier. The persistent `self.output` buffer is read by
+            // CUDA/NVENC in `to_gs_buffer` below via a default-stream cuMemcpy, which
+            // synchronizes CUDA↔CUDA but NOT GL↔CUDA. If we drop this fence, NVENC can
+            // copy `self.output` BEFORE the GL blit above has written this frame into it
+            // → it encodes the buffer's previous (stale) contents under a fresh PTS.
+            // That is the 4K stale-frame flicker (worse under GPU contention, where the
+            // GL stream lags the CUDA reads by several frames). Block until the GL blit
+            // is complete on the GPU before handing the buffer to CUDA.
+            frame
+                .finish()
+                .map_err(|e| format!("finish: {:?}", e))?
+                .wait()
+                .map_err(|e| format!("gl→cuda sync wait: {:?}", e))?;
         }
         let render_us = t_render.elapsed().as_micros() as u32;
 
