@@ -56,6 +56,13 @@ type SpawnerClient interface {
 	GetOutput(ctx context.Context, sessionID string) (types.SessionOutputResponse, error)
 	StopExternalAgent(ctx context.Context, sessionID string) error
 	SessionOwner(ctx context.Context, sessionID string) (string, error)
+	// ClearSession wipes the session's prior conversation (the DB
+	// interactions, and for a Zed/ACP session the Zed thread too) while
+	// keeping the session row. The Spawner calls this before every
+	// re-activation so each worker turn starts on a fresh context window
+	// instead of growing one long-lived session until it hits the model
+	// limit and compacts. See SpawnerConfig.ensureSession.
+	ClearSession(ctx context.Context, sessionID string) error
 }
 
 // checkDesktopQuota pre-flights the desktop quota gate before
