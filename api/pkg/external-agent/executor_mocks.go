@@ -99,6 +99,21 @@ func (mr *MockExecutorMockRecorder) GetGoldenBuildResult(ctx, sandboxID, project
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGoldenBuildResult", reflect.TypeOf((*MockExecutor)(nil).GetGoldenBuildResult), ctx, sandboxID, projectID)
 }
 
+// ReconcileSandboxResources mocks base method.
+func (m *MockExecutor) ReconcileSandboxResources(ctx context.Context, sandboxID string, req *hydra.GCReconcileRequest) (*hydra.GCReconcileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileSandboxResources", ctx, sandboxID, req)
+	ret0, _ := ret[0].(*hydra.GCReconcileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReconcileSandboxResources indicates an expected call of ReconcileSandboxResources.
+func (mr *MockExecutorMockRecorder) ReconcileSandboxResources(ctx, sandboxID, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileSandboxResources", reflect.TypeOf((*MockExecutor)(nil).ReconcileSandboxResources), ctx, sandboxID, req)
+}
+
 // GetSession mocks base method.
 func (m *MockExecutor) GetSession(sessionID string) (*ZedSession, error) {
 	m.ctrl.T.Helper()

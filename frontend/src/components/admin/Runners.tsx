@@ -238,8 +238,12 @@ const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
         <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
           {sandbox.id}
         </Typography>
-        <Chip label={status || 'idle'} size="small" color={getProfileStatusColor(status)} />
-        {!isOnline && (
+        {/* Profile status reflects the last heartbeat; once the runner is
+            offline it's stale, so show only the offline state rather than a
+            misleading "running" badge. */}
+        {isOnline ? (
+          <Chip label={status || 'idle'} size="small" color={getProfileStatusColor(status)} />
+        ) : (
           <Chip label={sandbox.status} size="small" variant="outlined" color="default" />
         )}
       </Box>
@@ -269,7 +273,7 @@ const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
           {assignError}
         </Alert>
       )}
-      {progressEntries.length > 0 && (
+      {isOnline && progressEntries.length > 0 && (
         <Box sx={{ mt: 1 }}>
           {progressEntries.map(([svc, p]) => (
             <Box key={svc} sx={{ mb: 1.5 }}>
@@ -291,7 +295,7 @@ const SandboxProfileCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
           ))}
         </Box>
       )}
-      {services.length > 0 && (
+      {isOnline && services.length > 0 && (
         <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
           {services.map(([svc, health]) => (
             <Chip
