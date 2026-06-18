@@ -76,6 +76,9 @@ func (nullStore) UpdateSandboxInstanceProviderID(context.Context, string, string
 func (nullStore) DeregisterSandboxInstance(context.Context, string) error {
 	return nil
 }
+func (nullStore) ListRunnerAssignments(context.Context) ([]*types.RunnerAssignment, error) {
+	return nil, nil
+}
 
 func TestBootstrapDisabledWhenProviderUnset(t *testing.T) {
 	// THE core disabled-by-default contract: HELIX_COMPUTE_PROVIDER
