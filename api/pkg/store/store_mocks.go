@@ -132,6 +132,20 @@ func (mr *MockStoreMockRecorder) CleanupStaleAgentRunners(ctx, staleThreshold an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleAgentRunners", reflect.TypeOf((*MockStore)(nil).CleanupStaleAgentRunners), ctx, staleThreshold)
 }
 
+// ClearSessionInteractions mocks base method.
+func (m *MockStore) ClearSessionInteractions(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSessionInteractions", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearSessionInteractions indicates an expected call of ClearSessionInteractions.
+func (mr *MockStoreMockRecorder) ClearSessionInteractions(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionInteractions", reflect.TypeOf((*MockStore)(nil).ClearSessionInteractions), ctx, sessionID)
+}
+
 // ClearSessionStartingStatus mocks base method.
 func (m *MockStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -160,21 +174,6 @@ func (m *MockStore) ClearStaleStartingSessions(ctx context.Context) (int64, erro
 func (mr *MockStoreMockRecorder) ClearStaleStartingSessions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearStaleStartingSessions", reflect.TypeOf((*MockStore)(nil).ClearStaleStartingSessions), ctx)
-}
-
-// MarkSessionStartingIfIdle mocks base method.
-func (m *MockStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkSessionStartingIfIdle", ctx, sessionID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MarkSessionStartingIfIdle indicates an expected call of MarkSessionStartingIfIdle.
-func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
 }
 
 // ConsumePendingInvitations mocks base method.
@@ -5510,6 +5509,21 @@ func (m *MockStore) MarkSandboxInstanceOfflineIfStale(ctx context.Context, id st
 func (mr *MockStoreMockRecorder) MarkSandboxInstanceOfflineIfStale(ctx, id, staleBefore any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSandboxInstanceOfflineIfStale", reflect.TypeOf((*MockStore)(nil).MarkSandboxInstanceOfflineIfStale), ctx, id, staleBefore)
+}
+
+// MarkSessionStartingIfIdle mocks base method.
+func (m *MockStore) MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSessionStartingIfIdle", ctx, sessionID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkSessionStartingIfIdle indicates an expected call of MarkSessionStartingIfIdle.
+func (mr *MockStoreMockRecorder) MarkSessionStartingIfIdle(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSessionStartingIfIdle", reflect.TypeOf((*MockStore)(nil).MarkSessionStartingIfIdle), ctx, sessionID)
 }
 
 // MarkVHostRouteVerified mocks base method.
