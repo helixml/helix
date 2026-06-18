@@ -148,6 +148,20 @@ func (mr *MockStoreMockRecorder) CleanupStaleAgentRunners(ctx, staleThreshold an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleAgentRunners", reflect.TypeOf((*MockStore)(nil).CleanupStaleAgentRunners), ctx, staleThreshold)
 }
 
+// ClearSessionInteractions mocks base method.
+func (m *MockStore) ClearSessionInteractions(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearSessionInteractions", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearSessionInteractions indicates an expected call of ClearSessionInteractions.
+func (mr *MockStoreMockRecorder) ClearSessionInteractions(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessionInteractions", reflect.TypeOf((*MockStore)(nil).ClearSessionInteractions), ctx, sessionID)
+}
+
 // ClearSessionStartingStatus mocks base method.
 func (m *MockStore) ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error) {
 	m.ctrl.T.Helper()
