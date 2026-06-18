@@ -209,3 +209,39 @@ purely so a live history *could* be flushed and so the no-op path is unit-testab
   with "cannot clear session without id").
 - The inner-Helix API enforces CSRF for cookie auth — send the `helix_csrf` cookie value
   as the `X-CSRF-Token` header (or use a Bearer JWT) when testing via curl.
+
+## Live-Zed bug found during testing + fix (post-approval)
+
+While verifying clear against a **fully live, connected Zed** spec-task session, we
+hit a real bug — surfaced as: "Zed responds, but no response appears in the
+session." Root cause and fix:
+
+- After `ClearSession` resets `ZedThreadID` to `""`, the next message is sent with
+  `acp_thread_id=nil`, so the live Zed mints a **new** thread and emits
+  `thread_created`.
+- `handleThreadCreated` reattaches a new thread to its originating Helix session via
+  PRIORITY 1: `requestToSessionMapping[request_id]`. But `sendChatMessageToExternalAgent`
+  only registered `requestToInteractionMapping`, **not** `requestToSessionMapping`.
+  (Normally fine — an established session has a `ZedThreadID`, so the message
+  continues the existing thread and no `thread_created` is emitted.)
+- So post-clear, the new thread's `thread_created` missed all reattach priorities and
+  fell through to "create a new **orphan** Helix session" (owner `external-agent-user`),
+  where the response landed. The original interaction stayed stuck in `waiting`.
+
+**Fix** (`api/pkg/server/websocket_external_agent_sync.go`,
+`sendChatMessageToExternalAgent`): when sending with no existing thread
+(`acpThreadID == nil`), also register `requestToSessionMapping[requestID] = sessionID`
+so the resulting `thread_created` reattaches to the same session via PRIORITY 1.
+Gated on the new-thread case only, so normal same-thread continuations (which emit no
+`thread_created`) don't leak mapping entries.
+
+**Regression tests** (`websocket_external_agent_sync_test.go`):
+`TestSendChatMessage_NewThread_RegistersSessionMapping` (mapping registered when
+`ZedThreadID==""`) and `TestSendChatMessage_ExistingThread_NoSessionMapping` (not
+registered on continuation).
+
+**Live verification:** on a real connected Zed spec-task session — clear → send a
+message → Zed created a fresh thread (`ca7d83f0…`, ≠ original), the response landed in
+the **same** session (interaction completed: `FIX-VERIFIED-OK`), and **no orphan
+session** was created (`total_sessions` unchanged). This closes the "last 5%" live
+Zed verification that was previously blocked by the desktop workspace-setup timeout.
