@@ -139,3 +139,17 @@ All five carry-over PRs and the Dockerfile.ci fix verified intact:
 - [x] Wrote `pull_request_helix.md` in this task directory
 - [x] No force-push to main
 - [x] No agent-initiated PRs (Helix UI handles)
+
+## Round 2 (2026-06-15 follow-up rebase)
+
+- [~] User requested another rebase on the latest upstream. Upstream advanced **95 commits** since round 1's fence `a31d3505da` to `e45e42af6e`. Following 002029-extension convention: extend the same 002100 branch with another merge round.
+- [ ] Confirm no Helix-only commits since round 1 (`git log 5ed995947e..origin/main --no-merges`)
+- [ ] `git merge upstream/main` on `feature/002100-merge-latest-zed`
+- [ ] Resolve conflicts (95 commits in 3-day window — expect signature drift in `agent_ui/` from new in-thread search, agent notifications, dropped-file-at-cursor; possibly in `acp_thread/` from compaction-button-stuck fix and provider-side compaction; sandboxing cluster is dense across `agent/`, `agent_ui/`, `http_proxy/`)
+- [ ] Update `portingguide.md` with a new `## Merge 002100-extension (2026-06-15)` section
+- [ ] Critical-fix sanity check (greps + line numbers)
+- [ ] `./stack build-zed dev` green
+- [ ] E2E `zed-agent` + `claude` green (both rounds)
+- [ ] Re-bump `ZED_COMMIT` in `helix/sandbox-versions.txt` to the new merge HEAD
+- [ ] Push both branches
+- [ ] Update `pull_request_zed.md` + `pull_request_helix.md` for the combined run
