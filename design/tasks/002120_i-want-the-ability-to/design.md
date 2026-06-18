@@ -147,3 +147,65 @@ should disable clear while a turn is running, consistent with cancel).
 - `api/pkg/server/server.go` — route registration
 - `api/pkg/server/websocket_external_agent_sync.go` — `clear_thread` command (only if needed)
 - Regenerate store mocks if a mock of the `Store` interface exists.
+
+## Implementation Notes (implementation phase)
+
+### Where things landed
+- **Store**: `ClearSessionInteractions` added to the `Store` interface (`api/pkg/store/store.go`)
+  and implemented in `api/pkg/store/store_interactions.go` as a single
+  `Where("session_id = ?").Delete(&types.Interaction{})`. Mock regenerated via
+  `go generate ./...` (mockgen at `$GOPATH/bin/mockgen`).
+- **Compositional API + handler**: all in one new file `api/pkg/server/session_clear.go`
+  (`SessionBackend`, `internalAgentBackend`, `zedACPBackend`, `externalAgentTransport`,
+  `backendFor`, `ClearSession`, `clearSessionHandler`). Kept together for cohesion
+  rather than scattering across `session_handlers.go`.
+- **Coordinator on `HelixAPIServer`, not `Controller`**: the original design sketched
+  `Controller.ClearSession`, but the external-agent WebSocket machinery
+  (`cancelCurrentTurnIfActive`, `sendCommandToExternalAgent`, `pendingCancelChannels`)
+  all live on `*HelixAPIServer`. Putting the coordinator there avoids threading the WS
+  state through the controller. `*HelixAPIServer` satisfies the small
+  `externalAgentTransport` interface the Zed backend depends on; tests inject a fake.
+- **Route**: `POST /api/v1/sessions/{id}/clear` registered in `server.go` next to the
+  other `/sessions/{id}` mutating routes. Auth uses `authorizeUserToSession(..., ActionUpdate)`.
+
+### Zed reset mechanism (important deviation from the original sketch)
+The original tasks said "allocate + persist a new `ZedThreadID` and send `open_thread`".
+That is wrong for Zed semantics: **the server cannot mint a Zed-valid thread ID** — Zed
+creates thread IDs and persists them in `threads.db`; `open_thread` only *re-opens an
+existing* thread (sending a made-up ID would cause `thread_load_error`). The canonical
+"start fresh" signal is `acp_thread_id = nil` on the next `chat_message`, which Zed turns
+into a brand-new thread — exactly the path forked sessions already use
+(`websocket_external_agent_sync.go` `sendChatMessageToExternalAgent`,
+"`nil = create new`"). So `zedACPBackend.Clear`:
+1. `cancelCurrentTurnIfActive` (best-effort) so an in-flight `handleMessageCompleted`
+   can't re-insert an interaction after the delete.
+2. Resets `Metadata.ZedThreadID = ""` and persists via `UpdateSessionMetadata`.
+The next message naturally opens a clean Zed thread. No new `clear_thread` protocol
+command was needed (avoids touching the zed repo + sandbox-versions bump).
+
+### Internal agent backend is effectively a no-op
+Internal Go agent sessions are **request-scoped** — `controller.runAgent` builds a fresh
+`agent.Session` + `MessageList` per turn and re-seeds it from the DB. There is no
+long-lived in-memory registry to flush, so once the DB rows are gone the next turn starts
+empty. `internalAgentBackend` keeps an optional `liveSession` lookup (nil in production)
+purely so a live history *could* be flushed and so the no-op path is unit-testable.
+
+### Verification performed
+- `CGO_ENABLED=0 go build ./...` green; `go vet ./pkg/server/ ./pkg/store/` clean
+  (pre-existing unrelated vet warning in `mcp_backend_external.go`).
+- `go test -run TestSessionClearSuite ./pkg/server/` green (backends, dispatch,
+  coordinator, handler 200/404/403). Server tests need `CGO_ENABLED=1` + gcc (tree-sitter).
+- `go test ./pkg/agent/` green. (`pkg/agent/tests` integration suite fails pre-existing —
+  needs a live LLM / `gpt-4o` provider; unrelated to this change.)
+- **End-to-end against inner Helix** (`localhost:8080`, real Postgres): seeded a session
+  with 3 interactions, `POST /sessions/{id}/clear` → 200, interactions 3→0, session row
+  preserved; idempotent re-clear → 200; unknown session → 404; other-owner session → 403.
+  Store tests not run locally (need Postgres, per repo convention) — the raw delete is
+  exercised by the e2e above.
+
+### Gotchas for future cloners
+- `mux.SetURLVars` stores vars in the request **context**; call it *after*
+  `req.WithContext(...)` in handler tests or the vars get dropped (the handler then 400s
+  with "cannot clear session without id").
+- The inner-Helix API enforces CSRF for cookie auth — send the `helix_csrf` cookie value
+  as the `X-CSRF-Token` header (or use a Bearer JWT) when testing via curl.

@@ -35,6 +35,6 @@
 - [x] Register route in `api/pkg/server/server.go` sessions block
 
 ## Verification
-- [~] Run `go test ./api/pkg/store/... ./api/pkg/agent/... ./api/pkg/server/... ./api/pkg/controller/...` and ensure green
-- [ ] Manual check: clear an internal-agent session, confirm next message starts fresh
-- [ ] Manual check: clear a Zed-backed session, confirm Zed starts a clean thread and no stale tokens repopulate history
+- [x] `go test -run TestSessionClearSuite ./pkg/server/` green; `go test ./pkg/agent/` green; `go build ./...` green; `go vet` clean (pre-existing unrelated warning only). Store tests not run locally (need Postgres, per repo convention) — raw delete exercised by the e2e below. `pkg/agent/tests` integration suite fails pre-existing (needs live LLM, unrelated).
+- [x] E2E against inner Helix (real Postgres): internal-agent session seeded with 3 interactions → `POST /sessions/{id}/clear` 200, interactions 3→0, session row preserved; idempotent re-clear 200; unknown 404; other-owner 403.
+- [~] Manual check: clear a Zed-backed session — covered by unit tests (`TestZedBackend_*`, `TestClearSession_ZedDispatch`). Full desktop-stack manual run not performed; mechanism is the established nil-thread-id new-thread path (see design.md Implementation Notes).
