@@ -38,6 +38,12 @@ Tests: `TestGetCachedModels_DecodesWrappedPayload`, `TestFindProviderWithModel_R
 
 Note on the nested-Helix validation topology: the failing hop is the *outer* Helix receiving a prefix-stripped bare model. Inner and outer run the same build, so once this PR is deployed both hops get the fix and qwen agents can run end-to-end against the inner Helix.
 
+## Follow-up fix found during live browser validation: `--yolo` (not just `default_mode`)
+
+The first `default_mode: "yolo"` fix relies on the host IDE reading that setting and issuing an ACP `session/set_mode` after `new_session`. The Zed builds pinned for spec-task sandboxes **don't do that for custom agent servers**, so qwen stayed in `ApprovalMode.DEFAULT` and every edit stalled on an "Allow all edits?" prompt (observed live in the browser). Robust fix: pass `--yolo` directly on qwen's command line so the ACP session starts in YOLO regardless of the IDE. `default_mode` is kept as the IDE-mediated nicety for versions that honour it. (`fix(settings-daemon): pass --yolo to qwen so YOLO doesn't depend on the IDE`.)
+
+**Browser-verified end-to-end** in the inner Helix: a GLM-5.1 Qwen Code agent created `GREETING.txt` with the WriteFile tool call going straight to **Completed** — no permission popup. See `screenshots/qwen-permission-popup.png` (before, prompt stuck) and `screenshots/qwen-yolo-completed.png` (after, completed). Scaffolding used because the branch/qwen-upgrade aren't deployed to the outer Helix yet: qwen v0.14.4 swapped into the container (image still pins v0.4.1 pending task 001804), `--yolo` injected into the live container (daemon image predates this commit), and a `glmouter` double-prefix provider to reach real GLM-5.1 via the outer Helix. All three vanish once this branch + task 001804 deploy.
+
 ## Related context
 
 - Task 002098 also audited the status of task 001804 ("Merge upstream QwenLM/qwen-code v0.14.4"). Finding: the qwen-code feature branch was never merged to qwen-code `main`, and `sandbox-versions.txt` still pins `QWEN_COMMIT=14ebe78ca…` (pre-merge). Helix PR https://github.com/helixml/helix/pull/2238 reused the same branch name but shipped unrelated OpenAI reasoning-field mapper changes. Re-landing 001804 is tracked separately in the design doc.
