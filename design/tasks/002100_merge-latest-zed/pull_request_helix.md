@@ -1,14 +1,14 @@
-# chore(zed): bump ZED_COMMIT to 5ed995947e (002100 merge)
+# chore(zed): bump ZED_COMMIT to 7e0a439153 (002100 merge, two rounds)
 
 ## Summary
 
-Bumps `ZED_COMMIT` in `sandbox-versions.txt` from `f82e1c6760` (002077 merge of upstream Zed `zed-industries/zed@992f395c3d`) to `5ed995947e` (002100 merge of upstream Zed `zed-industries/zed@a31d3505da`, 25 upstream commits absorbed over 3 days — the smallest catch-up window in this series).
+Bumps `ZED_COMMIT` in `sandbox-versions.txt` from `f82e1c6760` (002077 merge of upstream Zed `zed-industries/zed@992f395c3d`) to `7e0a439153` (002100 merge of upstream Zed `zed-industries/zed@e45e42af6e`, **120 upstream commits absorbed over 6 days** across two rounds: round 1 covered 25 commits to `a31d3505da`, round 2 / extension covered the next 95 commits to `e45e42af6e`).
 
 Pairs with the companion `helixml/zed` PR `feature/002100-merge-latest-zed`. **Merge that PR first**, then merge this one — the spec-task system marks the task done when all PRs merge, and bumping CI to a commit that hasn't landed yet would point at a non-existent SHA temporarily.
 
 ## Changes
 
-- `sandbox-versions.txt`: `ZED_COMMIT=f82e1c6760…` → `ZED_COMMIT=5ed995947e…`
+- `sandbox-versions.txt`: `ZED_COMMIT=f82e1c6760…` → `ZED_COMMIT=7e0a439153…`
 
 ## What's in the new ZED_COMMIT
 
@@ -34,8 +34,10 @@ Pairs with the companion `helixml/zed` PR `feature/002100-merge-latest-zed`. **M
 
 ## Notes
 
-- This is the **second consecutive** Zed merge that required **zero** Helix-side signature-drift repairs (002077 was the first). The Helix surface auto-merged cleanly across all critical fixes and load-bearing patches; the only conflict was a trivial both-sides-added-a-field on `RemoteSettingsContent` (Helix `suggest_dev_container` vs upstream `dev_container_use_buildkit`).
-- Fork main was quiet for the full 3-day window — zero Helix-only commits since 002077 merged.
+- This is the **third consecutive** Zed merge that required **zero** Helix-side signature-drift repairs (002077 → 002100 round 1 → 002100 round 2/extension). The Helix surface auto-merged cleanly across all critical fixes and load-bearing patches in both rounds.
+- Round 1 had one trivial conflict (`RemoteSettingsContent` both-sides-added-a-field); round 2 had one trivial conflict (`grep_tool.rs` `snippet`/`text` variable refactor, kept Helix's `truncate_long_lines` 001410 patch).
+- Round 2 was a much denser window: 95 upstream commits in 3 days vs round 1's 25 commits in 3 days. Major upstream clusters absorbed: agent sandboxing (Linux + Windows WSL + network allowlist + in-process proxy), in-thread search bar (`+962` new file), provider-side compaction in language model clients, max_output_tokens accounting in compaction threshold, grep-tool clickable results, default_open_behavior on Finder, the v1.9.0 version bump (`4cab63fb59`).
+- Between round 1 and round 2, fork main absorbed PR #63 (claude-agent-acp wedge recovery, 6 commits) and PR #64 (`agent_ready` re-emit on reopening already-loaded thread, 1 commit). These ship as part of this bump.
 
 ## Test plan
 

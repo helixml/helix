@@ -140,16 +140,19 @@ All five carry-over PRs and the Dockerfile.ci fix verified intact:
 - [x] No force-push to main
 - [x] No agent-initiated PRs (Helix UI handles)
 
-## Round 2 (2026-06-15 follow-up rebase)
+## Round 2 (2026-06-18 follow-up rebase)
 
-- [~] User requested another rebase on the latest upstream. Upstream advanced **95 commits** since round 1's fence `a31d3505da` to `e45e42af6e`. Following 002029-extension convention: extend the same 002100 branch with another merge round.
-- [ ] Confirm no Helix-only commits since round 1 (`git log 5ed995947e..origin/main --no-merges`)
-- [ ] `git merge upstream/main` on `feature/002100-merge-latest-zed`
-- [ ] Resolve conflicts (95 commits in 3-day window — expect signature drift in `agent_ui/` from new in-thread search, agent notifications, dropped-file-at-cursor; possibly in `acp_thread/` from compaction-button-stuck fix and provider-side compaction; sandboxing cluster is dense across `agent/`, `agent_ui/`, `http_proxy/`)
-- [ ] Update `portingguide.md` with a new `## Merge 002100-extension (2026-06-15)` section
-- [ ] Critical-fix sanity check (greps + line numbers)
-- [ ] `./stack build-zed dev` green
-- [ ] E2E `zed-agent` + `claude` green (both rounds)
-- [ ] Re-bump `ZED_COMMIT` in `helix/sandbox-versions.txt` to the new merge HEAD
-- [ ] Push both branches
-- [ ] Update `pull_request_zed.md` + `pull_request_helix.md` for the combined run
+- [x] User requested another rebase on the latest upstream. Upstream advanced **95 commits** since round 1's fence `a31d3505da` to `e45e42af6e`. Following 002029-extension convention: extended the same 002100 branch with another merge round.
+- [x] Helix-only commits since round 1: **7** (PR #63 wedge-recovery 6 commits + PR #64 `agent_ready` re-emit 1 commit). Merged into feature branch before upstream merge.
+- [x] `git merge upstream/main` on `feature/002100-merge-latest-zed` — committed at `0e0149ade5`.
+- [x] Conflicts resolved: **1** (`crates/agent/src/tools/grep_tool.rs`: kept Helix 001410 `truncate_long_lines`, reused upstream's new `snippet` variable from `40211567b8`). All other heavy-churn files auto-merged: `acp_thread.rs` (+198), `agent.rs` (+223), `thread.rs` (+511), `agent_panel.rs` (+203), `conversation_view.rs` (+1024), new `thread_search_bar.rs` (+962), `thread_view.rs` (+1094), `extensions_ui.rs` (+286), `sandboxing.rs` (+458), `terminal_tool.rs` (+957), etc.
+- [x] Updated `portingguide.md` with `## Merge 002100-extension (2026-06-18)` section + commit-history rows (commit `7e0a439153`).
+- [x] Critical-fix sanity check: ALL intact — Fix 1b shifted from line 5420 → 5468 (still FIRST of `BaseView::Uninitialized`), Critical Fix #3 shifted 262 → 335, three `// HELIX:` markers shifted 226/248/1518 → 337/359/1629, all content-preserving shifts. `AcpBetaFeatureFlag` override at line 30 intact. PR #50/#55/#56/#60/#63/#64 surface all intact.
+- [x] `./stack build-zed dev` green — 3m 37s warm cache, 0 errors, 2 unused-import warnings (one upstream, one Helix-incidental at `crates/zed/src/zed.rs:871`).
+- [x] `go mod tidy` in `helix-ws-test-server/` — committed at `2221360fc1` (new TLS-auto deps: certmagic, libdns, acmez, mholt, miekg/dns).
+- [x] E2E `zed-agent` only: **PASSED on first try** — all 15 phases green, 14 interactions / 0 interrupted-cancelled.
+- [x] E2E `zed-agent,claude`: PASSED on retry. First attempt was `--no-build` (cached test-server) and produced a `response_entries leaked across interactions` violation. Full rebuild produced clean results: both rounds green, 28 interactions / 0 interrupted-cancelled / response-entries isolation across 8 sessions / thread-title sync across 3 sessions. Lesson captured in porting guide + PR description.
+- [x] Re-bumped `ZED_COMMIT` in `helix/sandbox-versions.txt` from `5ed995947e` → `7e0a4391535f07ad8413f5a3bc8c318775eaacee`. Resolved a `sandbox-versions.txt` merge conflict where `origin/main` had already advanced ZED_COMMIT to `4ae2094b54` (the PR #64 fork-main HEAD).
+- [x] Pushed Zed branch: `feature/002100-merge-latest-zed` HEAD `7e0a439153`.
+- [x] Pushed Helix branch: `feature/002100-merge-latest-zed` HEAD `8d8a616a2`.
+- [x] Updated `pull_request_zed.md` + `pull_request_helix.md` for the combined two-round run.
