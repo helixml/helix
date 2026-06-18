@@ -529,6 +529,14 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have a default_mode string")
 	assert.Equal(t, "yolo", mode,
 		"qwen default_mode must be \"yolo\" so qwen-code auto-approves tool calls (mirrors claude_code bypassPermissions)")
+
+	// --yolo must also be on the command line: default_mode alone relies on the
+	// IDE issuing session/set_mode, which the pinned Zed builds don't do for
+	// custom agent servers. --yolo guarantees YOLO at qwen startup regardless.
+	args, ok := qwen["args"].([]string)
+	assert.True(t, ok, "qwen entry must have args")
+	assert.Contains(t, args, "--yolo",
+		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
 }
 
 // TestComputeEffectiveTheme exercises every branch of the helper that decides
