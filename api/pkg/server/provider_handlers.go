@@ -174,28 +174,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 			}
 		}
 
-		var baseURL string
-		switch provider {
-		case types.ProviderOpenAI:
-			baseURL = s.Cfg.Providers.OpenAI.BaseURL
-		case types.ProviderTogetherAI:
-			baseURL = s.Cfg.Providers.TogetherAI.BaseURL
-		case types.ProviderVLLM:
-			baseURL = s.Cfg.Providers.VLLM.BaseURL
-		case types.ProviderHelix:
-			baseURL = "internal"
-		}
-
-		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-			ID:             "-",
-			Name:           string(provider),
-			Description:    "",
-			BaseURL:        baseURL,
-			EndpointType:   types.ProviderEndpointTypeGlobal,
-			Owner:          string(types.OwnerTypeSystem),
-			APIKey:         "",
-			BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
-		})
+		providerEndpoints = append(providerEndpoints, s.globalProviderEndpoint(provider))
 	}
 
 	// Set default
@@ -287,6 +266,111 @@ var errUpstreamUnreachable = errors.New("upstream models endpoint unreachable")
 // must invalidate the entry under the OLD name and let the next read repopulate.
 func modelCacheKey(name, owner string) string {
 	return fmt.Sprintf("%s:%s", name, owner)
+}
+
+// globalProviderEndpoint builds the synthetic ProviderEndpoint for an
+// env-baked global provider (one that has no database row). Used both when
+// listing endpoints for the UI and when resolving a model's owning provider
+// for chat-completion routing.
+func (s *HelixAPIServer) globalProviderEndpoint(provider types.Provider) *types.ProviderEndpoint {
+	var baseURL string
+	switch provider {
+	case types.ProviderOpenAI:
+		baseURL = s.Cfg.Providers.OpenAI.BaseURL
+	case types.ProviderTogetherAI:
+		baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+	case types.ProviderVLLM:
+		baseURL = s.Cfg.Providers.VLLM.BaseURL
+	case types.ProviderHelix:
+		baseURL = "internal"
+	}
+
+	return &types.ProviderEndpoint{
+		ID:             "-",
+		Name:           string(provider),
+		Description:    "",
+		BaseURL:        baseURL,
+		EndpointType:   types.ProviderEndpointTypeGlobal,
+		Owner:          string(types.OwnerTypeSystem),
+		APIKey:         "",
+		BillingEnabled: s.Cfg.Providers.BillingEnabled, // Controlled by PROVIDERS_BILLING_ENABLED env var
+	}
+}
+
+// resolveModelProviderLive is the last-resort routing resolver for
+// /v1/chat/completions. The fast path (findProviderWithModel) only reads the
+// per-provider model cache, which is populated lazily by /v1/models and the
+// model-picker fetch. When neither has run yet — a fresh API process, or a
+// downstream Helix that forwards a prefix-stripped bare model id to an upstream
+// Helix configured as a provider — the cache is cold, the bare id has no
+// usable provider prefix to parse, and routing would otherwise fall through to
+// the default ("helix") provider and 500 with "model X is not configured in the
+// default provider". This resolver warms each accessible provider's model list
+// via the shared stale-while-revalidate getProviderModels path (singleflighted,
+// cached, 3s timeout) and returns the provider that actually serves modelName
+// plus the bare upstream id. Returns ("", "") when no provider serves it.
+//
+// Only called after the cache-only lookup and prefix parsing both fail, so the
+// common (prefixed, or cache-warm) requests never pay the live-fetch cost. The
+// "helix" provider is skipped: it is the default that already failed, and
+// enumerating runner models here adds nothing.
+func (s *HelixAPIServer) resolveModelProviderLive(ctx context.Context, modelName, ownerID, orgID string) (string, string) {
+	var endpoints []*types.ProviderEndpoint
+
+	dbProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      ownerID,
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("live model resolution: failed to list provider endpoints")
+	} else {
+		endpoints = append(endpoints, dbProviders...)
+	}
+
+	if orgID != "" && orgID != ownerID {
+		if orgProviders, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{Owner: orgID}); err == nil {
+			endpoints = append(endpoints, orgProviders...)
+		}
+	}
+
+	existing := make(map[string]bool)
+	for _, ep := range endpoints {
+		existing[ep.Name] = true
+	}
+	if globals, err := s.providerManager.ListProviders(ctx, ""); err == nil {
+		for _, g := range globals {
+			if existing[string(g)] {
+				continue
+			}
+			endpoints = append(endpoints, s.globalProviderEndpoint(g))
+		}
+	}
+
+	for _, ep := range endpoints {
+		if ep.Name == string(types.ProviderHelix) {
+			continue
+		}
+		residue := modelName
+		if strings.HasPrefix(modelName, ep.Name+"/") {
+			residue = modelName[len(ep.Name)+1:]
+		}
+		pm, err := s.getProviderModels(ctx, ep)
+		if err != nil {
+			continue
+		}
+		for _, m := range pm.Models {
+			if m.ID == modelName || m.ID == residue {
+				log.Debug().
+					Str("model", modelName).
+					Str("provider", ep.Name).
+					Str("bare_model", residue).
+					Msg("resolved provider via live model lookup (cache was cold)")
+				return ep.Name, residue
+			}
+		}
+	}
+
+	return "", ""
 }
 
 // invalidateProviderModelCache clears the cached model list for the given
