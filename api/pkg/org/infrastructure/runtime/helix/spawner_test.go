@@ -39,6 +39,13 @@ type fakeHelixClient struct {
 	lastStartParams    StartSessionParams
 	lastSendSID        string
 	lastSendBody       string
+	clearCalls         int32
+	lastClearSID       string
+	// clearedBeforeSend records whether ClearSession ran before the
+	// first SendMessage, so tests can assert the activation clears the
+	// prior conversation ahead of dispatching the new prompt.
+	clearedBeforeSend bool
+	clearErr          error
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -72,6 +79,20 @@ func (f *fakeHelixClient) SendMessage(_ context.Context, sessionID, prompt strin
 	f.lastSendBody = prompt
 	f.mu.Unlock()
 	return f.sendErr
+}
+
+func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) error {
+	atomic.AddInt32(&f.clearCalls, 1)
+	f.mu.Lock()
+	f.lastClearSID = sessionID
+	// The clear must precede the prompt dispatch — if no SendMessage has
+	// run yet, this clear happened first.
+	if atomic.LoadInt32(&f.sendCalls) == 0 {
+		f.clearedBeforeSend = true
+	}
+	clearErr := f.clearErr
+	f.mu.Unlock()
+	return clearErr
 }
 
 func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
@@ -159,6 +180,10 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
 		t.Errorf("StartChat calls: %d", got)
+	}
+	// First activation has no prior session, so there is nothing to clear.
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Errorf("ClearSession called %d times on a first activation; a fresh StartSession has no prior context to wipe", got)
 	}
 	state, err := LoadState(context.Background(), s, "org-test", wid)
 	if err != nil {
@@ -292,9 +317,100 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
 		t.Errorf("StartSession called %d times; a follow-up must reuse the session, not create a fresh one", got)
 	}
+	// The persisted session must be cleared exactly once, and before the
+	// prompt is dispatched, so the worker turn starts on a fresh context
+	// window rather than re-using the prior (potentially huge) transcript.
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 1 {
+		t.Errorf("ClearSession called %d times; a follow-up must clear the session exactly once before re-activation", got)
+	}
+	if fc.lastClearSID != "ses_existing" {
+		t.Errorf("ClearSession sessionID = %q (want ses_existing) — must clear the persisted session", fc.lastClearSID)
+	}
+	if !fc.clearedBeforeSend {
+		t.Error("ClearSession must run BEFORE SendMessage — otherwise the new prompt lands on the old context window")
+	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
 	if state.SessionID != "ses_existing" {
 		t.Errorf("session pointer changed to %q; follow-up must NOT open a fresh session", state.SessionID)
+	}
+}
+
+// TestSpawnerClearsSessionOnReactivationOnly drives two activations of
+// the same Worker through the real Spawner closure and pins the
+// context-hygiene contract end to end: the first activation opens a
+// fresh session and clears nothing; the second re-uses that persisted
+// session but clears it first, so each worker turn starts on a fresh
+// context window instead of accumulating one ever-growing transcript.
+func TestSpawnerClearsSessionOnReactivationOnly(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+
+	// First activation: no persisted session → fresh StartSession, no clear.
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn 1: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Fatalf("first activation cleared %d times; a fresh session has no prior context to wipe", got)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Fatalf("first activation StartSession calls = %d, want 1", got)
+	}
+
+	// Second activation: the persisted session is cleared before the new
+	// prompt is sent, and the same warm session is re-used (no churn).
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-2"}}); err != nil {
+		t.Fatalf("spawn 2: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 1 {
+		t.Errorf("second activation cleared %d times, want 1", got)
+	}
+	fc.mu.Lock()
+	clearSID, sendSID := fc.lastClearSID, fc.lastSendSID
+	fc.mu.Unlock()
+	if clearSID != "ses_new" {
+		t.Errorf("ClearSession sessionID = %q, want ses_new (the persisted session)", clearSID)
+	}
+	if sendSID != "ses_new" {
+		t.Errorf("SendMessage sessionID = %q, want ses_new — re-activation must re-use the warm session", sendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {
+		t.Errorf("StartSession calls = %d after two activations; the second must re-use the session, not open a fresh one", got)
+	}
+}
+
+// TestSpawnerClearFailureAbortsActivation pins fail-fast behaviour: if
+// the pre-activation clear errors we must NOT silently fall through and
+// dispatch the prompt onto the stale, oversized context — the whole
+// point of the clear. The activation returns the error instead.
+func TestSpawnerClearFailureAbortsActivation(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_existing",
+		clearErr:       errors.New("boom"),
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}})
+	if err == nil {
+		t.Fatal("expected activation to fail when the pre-activation clear errors")
+	}
+	if !strings.Contains(err.Error(), "clear session") {
+		t.Errorf("error %q does not mention the clear failure", err)
+	}
+	if got := atomic.LoadInt32(&fc.sendCalls); got != 0 {
+		t.Errorf("SendMessage called %d times after a failed clear; the prompt must NOT land on the stale context", got)
 	}
 }
 
@@ -486,6 +602,10 @@ func (c *concurrencyClient) StartSession(ctx context.Context, params StartSessio
 func (c *concurrencyClient) SendMessage(ctx context.Context, sessionID, prompt string) error {
 	defer c.track()()
 	return c.inner.SendMessage(ctx, sessionID, prompt)
+}
+
+func (c *concurrencyClient) ClearSession(ctx context.Context, sessionID string) error {
+	return c.inner.ClearSession(ctx, sessionID)
 }
 
 func (c *concurrencyClient) ServerStatus(ctx context.Context) (ServerStatus, error) {
