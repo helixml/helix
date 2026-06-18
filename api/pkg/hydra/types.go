@@ -185,3 +185,43 @@ type VersionResponse struct {
 	Version string   `json:"version"`
 	Routes  []string `json:"routes"`
 }
+
+// GCReconcileRequest is the durable, DB-driven garbage-collection request the
+// API sends to hydra. The API computes the live-set from Postgres (the source
+// of truth that survives reboots) and hydra reconciles on-disk resources
+// (session zvols, per-task/session workspace dirs) against it.
+type GCReconcileRequest struct {
+	// LiveSessionIDs is the set of session IDs (full ses_… strings) that the
+	// API considers alive. zvols and session workspace dirs for IDs NOT in this
+	// set are candidates for reaping (subject to the grace period).
+	LiveSessionIDs []string `json:"live_session_ids"`
+
+	// LiveSpecTaskIDs is the set of spec-task IDs (full spt_… strings) the API
+	// considers alive. Spec-task workspace dirs for IDs NOT in this set are
+	// candidates for reaping (subject to the grace period).
+	LiveSpecTaskIDs []string `json:"live_spec_task_ids"`
+
+	// GracePeriodSeconds is the minimum age (since creation / mtime) a resource
+	// must reach before it can be reaped. Guards against racing newly-created
+	// resources the DB live-set hasn't caught up with yet.
+	GracePeriodSeconds int `json:"grace_period_seconds"`
+
+	// DryRun reports what WOULD be reaped without destroying anything.
+	DryRun bool `json:"dry_run"`
+}
+
+// GCSkip records a resource the reconciler chose NOT to reap, with the reason.
+type GCSkip struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// GCReconcileResponse is hydra's report of what it reaped (or would reap, in
+// dry-run mode) and what it deliberately skipped.
+type GCReconcileResponse struct {
+	ZvolsReaped       []string `json:"zvols_reaped"`
+	ZvolsSkipped      []GCSkip `json:"zvols_skipped"`
+	WorkspacesReaped  []string `json:"workspaces_reaped"`
+	WorkspacesSkipped []GCSkip `json:"workspaces_skipped"`
+	BytesFreed        int64    `json:"bytes_freed"`
+}

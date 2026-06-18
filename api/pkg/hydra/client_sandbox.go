@@ -275,3 +275,14 @@ func (s *streamCloser) Close() error {
 	return err
 }
 
+// ProbeDevContainerPort makes a HEAD request to the container's
+// in-network port via the hydra proxy. Returns nil for any HTTP
+// response (including 4xx/5xx), and a non-nil error only when the
+// transport itself fails (e.g. connection refused, hydra unreachable).
+// Used by the web service readiness check to detect "app has bound to
+// the port" without caring what the app does with the request.
+func (c *RevDialClient) ProbeDevContainerPort(ctx context.Context, sandboxID string, port int) error {
+	path := fmt.Sprintf("/api/v1/dev-containers/%s/proxy/%d/", sandboxID, port)
+	_, err := c.doRequest(ctx, http.MethodHead, path, nil)
+	return err
+}

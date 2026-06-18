@@ -52,6 +52,7 @@ import {
   useFireHelixOrgWorker,
   useListHelixOrgRoles,
   useListHelixOrgStreams,
+  useStreamMessageCounts,
   useListHelixOrgWorkers,
   useAddWorkerParent,
   useRemoveWorkerParent,
@@ -80,9 +81,6 @@ import {
 // Layout: dagre runs over the role tree (edges derived from cross-role
 // reporting lines) to get global (x, y) for each Role. Workers sit in a
 // horizontal row inside their Role's frame.
-
-const OWNER_ROLE = 'r-owner'
-const OWNER_WORKER = 'w-owner'
 
 const WORKER_W = 220
 const WORKER_H = 96
@@ -121,11 +119,7 @@ const groupByRole = (workers: FlatWorker[], knownRoles: string[]): RoleGroup[] =
       workers: ws.slice().sort((a, b) => a.id.localeCompare(b.id)),
     })
   })
-  out.sort((a, b) => {
-    if (a.roleId === OWNER_ROLE) return -1
-    if (b.roleId === OWNER_ROLE) return 1
-    return a.roleId.localeCompare(b.roleId)
-  })
+  out.sort((a, b) => a.roleId.localeCompare(b.roleId))
   return out
 }
 
@@ -134,7 +128,6 @@ const groupByRole = (workers: FlatWorker[], knownRoles: string[]): RoleGroup[] =
 type RoleNodeData = {
   roleId: string
   workerCount: number
-  isOwner: boolean
   onSelectRole: (roleId: string) => void
   onHire: (roleId: string) => void
   onDeleteRole: (roleId: string) => void
@@ -143,7 +136,6 @@ type RoleNodeData = {
 type WorkerNodeData = {
   workerId: string
   kind: string
-  isOwner: boolean
   onSelectWorker: (workerId: string) => void
   onFireWorker: (workerId: string) => void
 }
@@ -157,6 +149,7 @@ type StreamNodeData = {
   name: string
   kind: string
   subscriberCount: number
+  messageCount: number
   onSelectStream: (streamId: string) => void
   onDeleteStream: (streamId: string) => void
 }
@@ -227,7 +220,7 @@ const RoleNode: FC<NodeProps<Node<RoleNodeData>>> = ({ data }) => {
               <PersonAddOutlinedIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
-          {!data.isOwner && (
+          {(
             <Tooltip title="Delete role (fires every Worker holding it)">
               <IconButton
                 className={NO_DRAG_NO_PAN}
@@ -315,7 +308,7 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
             {data.workerId}
           </Typography>
         </Stack>
-        {!data.isOwner && (
+        {(
           <Tooltip title="Fire worker">
             <IconButton
               className={NO_DRAG_NO_PAN}
@@ -407,9 +400,22 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {data.name}
       </Typography>
-      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
-        {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto' }}>
+        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted }}>
+          {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
+        </Typography>
+        {/* Waiting-message count. Kept deliberately tiny — the card is
+            already dense — and tinted with the stream accent so it reads
+            as a stream stat rather than chrome. */}
+        <Tooltip title={`${data.messageCount} message${data.messageCount === 1 ? '' : 's'} waiting`}>
+          <Typography
+            variant="caption"
+            sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1 }}
+          >
+            {data.messageCount} msg
+          </Typography>
+        </Tooltip>
+      </Stack>
     </Box>
   )
 }
@@ -499,6 +505,7 @@ const buildGraph = (
   },
   isLight: boolean,
   streams: StreamSummary[],
+  messageCounts: Record<string, number>,
 ): { nodes: Node[]; edges: Edge[] } => {
   const flatByID = new Map<string, FlatWorker>()
   for (const wk of flat) flatByID.set(wk.id, wk)
@@ -583,7 +590,6 @@ const buildGraph = (
       data: {
         roleId: group.roleId,
         workerCount: group.workers.length,
-        isOwner: group.roleId === OWNER_ROLE,
         onSelectRole: handlers.onSelectRole,
         onHire: handlers.onHire,
         onDeleteRole: handlers.onDeleteRole,
@@ -609,7 +615,6 @@ const buildGraph = (
         data: {
           workerId: wk.id,
           kind: wk.kind,
-          isOwner: wk.id === OWNER_WORKER,
           onSelectWorker: handlers.onSelectWorker,
           onFireWorker: handlers.onFireWorker,
         } as WorkerNodeData,
@@ -645,7 +650,7 @@ const buildGraph = (
   //    worker-anchored, so subscribers carries Worker ids — one dashed
   //    edge per subscribed Worker. Streams sit in column(s) to the right
   //    of the org tree. Each stream is vertically anchored to the
-  //    "subject" Worker: for activation streams (`s-activations-<id>`)
+  //    "subject" Worker: for transcripts (`s-transcript-<id>`)
   //    that's the encoded worker; otherwise created_by. Streams whose
   //    subject isn't on the chart park in an orphan strip below.
   //
@@ -659,7 +664,7 @@ const buildGraph = (
   //    each column places each stream at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
   if (streams.length > 0) {
-    const ACTIVATION_PREFIX = 's-activations-'
+    const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
     for (const group of groups) {
       const ro = roleOrigin.get(group.roleId)
@@ -692,8 +697,8 @@ const buildGraph = (
     const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
     for (const s of streams) {
       let subjectWorker: string | undefined
-      if (s.id.startsWith(ACTIVATION_PREFIX)) {
-        subjectWorker = s.id.slice(ACTIVATION_PREFIX.length)
+      if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
+        subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
       } else if (s.created_by) {
         subjectWorker = s.created_by
       }
@@ -738,6 +743,7 @@ const buildGraph = (
           name: s.name,
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
+          messageCount: messageCounts[s.id] ?? 0,
           onSelectStream: handlers.onSelectStream,
           onDeleteStream: handlers.onDeleteStream,
         } as StreamNodeData,
@@ -905,13 +911,14 @@ const ChartCanvas: FC<{
   onSubscribeWorker: (workerId: string, streamId: string) => void
   onUnsubscribeWorker: (workerId: string, streamId: string) => void
   streams: StreamSummary[]
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams }) => {
+  messageCounts: Record<string, number>
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams, messageCounts }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams),
-    [groups, flat, handlers, lightTheme.isLight, streams],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams, messageCounts),
+    [groups, flat, handlers, lightTheme.isLight, streams, messageCounts],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -1042,6 +1049,14 @@ const HelixOrgChart: FC = () => {
     })),
     [streamsData],
   )
+
+  // Per-stream waiting-message counts for the stream cards. One cached
+  // query per stream id (shared with the detail page's count hook), so
+  // each card's number refreshes independently. streamIds is memoized so
+  // the fan-out only re-subscribes when the set of streams changes, not
+  // on every render.
+  const streamIds = useMemo(() => streams.map((s) => s.id), [streams])
+  const messageCounts = useStreamMessageCounts(streamIds)
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
@@ -1261,6 +1276,7 @@ const HelixOrgChart: FC = () => {
                 onSubscribeWorker={onSubscribeWorker}
                 onUnsubscribeWorker={onUnsubscribeWorker}
                 streams={streams}
+                messageCounts={messageCounts}
               />
             </ReactFlowProvider>
           )}

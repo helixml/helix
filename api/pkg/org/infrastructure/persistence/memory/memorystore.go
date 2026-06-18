@@ -23,7 +23,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -45,7 +44,6 @@ func New() *store.Store {
 		Streams:            streams,
 		Subscriptions:      subs,
 		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
-		Environments:       &environmentsRepo{rows: map[orgKey]environment.Environment{}},
 		Configs:            &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:        &activationsRepo{rows: map[orgKey]*activation.Activation{}},
 	}
@@ -596,6 +594,41 @@ func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID str
 	return out, nil
 }
 
+func (e *eventsRepo) PageForStream(_ context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]streaming.Event, 0)
+	skipped := 0
+	// Newest first, same ordering as ListForStream.
+	for i := len(e.rows) - 1; i >= 0; i-- {
+		ev := e.rows[i]
+		if ev.OrganizationID != orgID || ev.StreamID != streamID {
+			continue
+		}
+		if offset > 0 && skipped < offset {
+			skipped++
+			continue
+		}
+		out = append(out, ev)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (e *eventsRepo) CountForStream(_ context.Context, orgID string, streamID streaming.StreamID) (int, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	count := 0
+	for _, ev := range e.rows {
+		if ev.OrganizationID == orgID && ev.StreamID == streamID {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
 	// Match gorm's join semantics: events on streams the worker is
 	// subscribed to. Subscriptions are worker-anchored.
@@ -689,44 +722,6 @@ func (e *eventsRepo) ListAll(_ context.Context, orgID string, limit int) ([]stre
 		}
 	}
 	return out, nil
-}
-
-// ---- Environments ------------------------------------------------------
-
-type environmentsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]environment.Environment
-}
-
-func (e *environmentsRepo) Create(_ context.Context, env environment.Environment) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	k := orgKey{OrgID: env.OrganizationID, ID: string(env.WorkerID)}
-	if _, ok := e.rows[k]; ok {
-		return fmt.Errorf("environment for worker %q in org %q: already exists", env.WorkerID, env.OrganizationID)
-	}
-	e.rows[k] = env
-	return nil
-}
-
-func (e *environmentsRepo) Get(_ context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if env, ok := e.rows[orgKey{OrgID: orgID, ID: string(workerID)}]; ok {
-		return env, nil
-	}
-	return environment.Environment{}, fmt.Errorf("environment for worker %q in org %q: %w", workerID, orgID, store.ErrNotFound)
-}
-
-func (e *environmentsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	k := orgKey{OrgID: orgID, ID: string(workerID)}
-	if _, ok := e.rows[k]; !ok {
-		return fmt.Errorf("environment for worker %q in org %q: %w", workerID, orgID, store.ErrNotFound)
-	}
-	delete(e.rows, k)
-	return nil
 }
 
 // ---- Configs -----------------------------------------------------------

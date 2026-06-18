@@ -24,21 +24,21 @@ import (
 
 // fakeHelixClient is a deterministic stand-in for Client.
 type fakeHelixClient struct {
-	mu             sync.Mutex
-	startCalls     int32
-	sendCalls      int32
-	outputCalls    int32
-	subscribeCalls int32
+	mu                 sync.Mutex
+	startCalls         int32
+	sendCalls          int32
+	outputCalls        int32
+	subscribeCalls     int32
 	startSessionID     string
 	sessionOwner       string // returned by SessionOwner; the transcript bridge subscribes to this owner's pubsub topic
 	exploratorySession string // returned by ExploratorySession; the mirror polls this to track the worker's current session
-	startErr        error
-	sendErr         error
-	outputs         []types.SessionOutputResponse
-	updatesFactory  func() <-chan types.WebsocketEvent
-	lastStartParams StartSessionParams
-	lastSendSID     string
-	lastSendBody    string
+	startErr           error
+	sendErr            error
+	outputs            []types.SessionOutputResponse
+	updatesFactory     func() <-chan types.WebsocketEvent
+	lastStartParams    StartSessionParams
+	lastSendSID        string
+	lastSendBody       string
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -153,7 +153,7 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -199,10 +199,10 @@ func TestSpawnerAttachesHelixOrgMCPEveryActivation(t *testing.T) {
 	cfg := newHelixCfg(t, fc, s)
 	cfg.MCPAuthBearer = "k_service"
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn 1: %v", err)
 	}
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent}}); err != nil {
 		t.Fatalf("spawn 2: %v", err)
 	}
 	svc := cfg.ProjectService.(*fakeProjectService)
@@ -278,7 +278,7 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	// A follow-up with a persisted session sends via SendMessage to the
@@ -313,7 +313,7 @@ func TestSpawnerRefusesWhenDesktopQuotaExceeded(t *testing.T) {
 	cfg := newHelixCfg(t, &fc.fakeHelixClient, s)
 	cfg.Client = fc
 	sp := Spawner(cfg)
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil {
 		t.Fatal("expected error when quota exhausted")
 	}
@@ -348,7 +348,7 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	// returns context.DeadlineExceeded.
 	cfg.ActivationRunawayGuard = 30 * time.Millisecond
 	sp := Spawner(cfg)
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
 	}
@@ -374,7 +374,7 @@ func TestSpawnerSessionStartupTimeoutBoundsStartup(t *testing.T) {
 
 	sp := Spawner(cfg)
 	start := time.Now()
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	elapsed := time.Since(start)
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error from SessionStartupTimeout, got %v", err)
@@ -406,7 +406,7 @@ func TestSpawnerPollPhaseNotBoundedBySessionStartupTimeout(t *testing.T) {
 
 	sp := Spawner(cfg)
 	start := time.Now()
-	err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	elapsed := time.Since(start)
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error from runaway guard, got %v", err)
@@ -443,7 +443,7 @@ func TestSpawnerSemaphoreSerialises(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}})
+			_ = sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 		}()
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -536,7 +536,7 @@ func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	})
 	sp := Spawner(cfg)
 
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 
@@ -556,7 +556,7 @@ func TestSpawnerEnsuresSessionMirror(t *testing.T) {
 	ps.publish(t, topic, complete)
 
 	if !waitForSegment(t, s, wid, "assistant: hi there") {
-		t.Fatal("post-activation session turn not mirrored to the activation stream")
+		t.Fatal("post-activation session turn not mirrored to the transcript")
 	}
 }
 
@@ -577,7 +577,7 @@ func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e1"}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
@@ -593,7 +593,7 @@ func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 // MUST create an activation row at start and complete it with
 // StatusOK at end, so the audit/replay surface stays in sync with
 // the transcript stream. The id derives from cfg.NewID with the
-// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptStreamID
+// "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptID
 // is the canonical StreamID derivation; Outcome.Status reflects the
 // Spawner's return value.
 func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
@@ -604,7 +604,7 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
 	}
 	sp := Spawner(newHelixCfg(t, fc, s))
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
 	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
@@ -621,8 +621,8 @@ func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	if a.ID != activation.ID("a-id") {
 		t.Errorf("row.ID = %q, want a-id (from NewID stub)", a.ID)
 	}
-	if a.TranscriptStreamID != activation.StreamID(wid) {
-		t.Errorf("row.TranscriptStreamID = %q, want %q", a.TranscriptStreamID, activation.StreamID(wid))
+	if a.TranscriptID != activation.TranscriptID(wid) {
+		t.Errorf("row.TranscriptID = %q, want %q", a.TranscriptID, activation.TranscriptID(wid))
 	}
 	if !a.IsCompleted() {
 		t.Fatalf("row not marked completed; EndedAt = %v", a.EndedAt)
@@ -647,7 +647,7 @@ func TestSpawnerRecordsActivationRowOnError(t *testing.T) {
 	cfg := newHelixCfg(t, fc, s)
 	cfg.SessionStartupTimeout = time.Second
 	sp := Spawner(cfg)
-	if err := sp(context.Background(), "org-test", wid, "/ignored", []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err == nil {
 		t.Fatal("spawn: nil error, want quota error")
 	}
 	rows, err := s.Activations.ListForWorker(context.Background(), "org-test", wid, 10)
@@ -697,7 +697,7 @@ func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	err := Spawner(cfg)(ctx, "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}})
+	err := Spawner(cfg)(ctx, "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context.DeadlineExceeded while the shared semaphore is full, got %v", err)
 	}
@@ -708,7 +708,7 @@ func TestSpawnerHonorsSharedSemaphore(t *testing.T) {
 	// Free the slot; the next activation must now proceed to completion,
 	// proving the gate was the semaphore and nothing else.
 	<-sem
-	if err := Spawner(cfg)(context.Background(), "org-test", wid, "", []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
 		t.Fatalf("activation with a free shared-semaphore slot must succeed, got %v", err)
 	}
 	if got := atomic.LoadInt32(&fc.startCalls); got != 1 {

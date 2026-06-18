@@ -19,9 +19,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
+// SettingsPath and KeymapPath are vars (not consts) so unit tests can point
+// them at a tempdir without touching the real Zed config.
+var (
 	SettingsPath = "/home/retro/.config/zed/settings.json"
 	KeymapPath   = "/home/retro/.config/zed/keymap.json"
+)
+
+const (
 	PollInterval = 30 * time.Second
 	DebounceTime = 500 * time.Millisecond
 )
@@ -1075,7 +1080,71 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
 		}
+		// In-place agent switch coordination:
+		//   field="agent"          → fast path. settings.json has just been
+		//      rewritten; Zed hot-reloads agent_servers + context_servers via
+		//      its SettingsStore observers (no process restart). We then tell
+		//      the API the new config is on disk so it can deliver the new
+		//      thread to the still-running Zed over the live WebSocket.
+		//   field="agent_restart"  → fallback. The API asks for a clean restart
+		//      (e.g. live delivery failed / the new custom agent didn't register
+		//      from the hot-reload). pkill Zed; run_zed_restart_loop respawns it
+		//      and the reconnect path delivers the pending handoff.
+		switch evt.Field {
+		case "agent":
+			d.notifyAgentConfigApplied()
+		case "agent_restart":
+			d.restartZed()
+		}
 	}
+}
+
+// notifyAgentConfigApplied tells the Helix API that settings.json has been
+// rewritten for an in-place agent switch and Zed has had it hot-reloaded, so the
+// API can deliver the new thread over the live external-agent WebSocket without
+// waiting for a process restart + reconnect. Best-effort: if this fails, the
+// API's restart fallback (it sees no new ZedThreadID within its timeout) takes
+// over.
+func (d *SettingsDaemon) notifyAgentConfigApplied() {
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-config-applied", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: failed to build request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: request failed: %v (API restart fallback will cover this)", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("notifyAgentConfigApplied: API returned status %d", resp.StatusCode)
+		return
+	}
+	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
+}
+
+// restartZed kills the running Zed editor process. The desktop's
+// run_zed_restart_loop (start-zed-core.sh) respawns it after a 2s sleep, so the
+// new process reads the freshly-written settings.json — picking up the switched
+// agent's agent_servers and MCP context_servers. Best-effort: if no Zed process
+// is running (e.g. still booting), pkill is a no-op and the first launch already
+// reads the new config.
+func (d *SettingsDaemon) restartZed() {
+	// pkill -x matches the exact process name "zed" (the editor binary), not
+	// the bash restart-loop script, so we only restart the editor.
+	out, err := exec.Command("pkill", "-x", "zed").CombinedOutput()
+	if err != nil {
+		// Exit code 1 just means "no process matched" — fine, nothing to do.
+		log.Printf("restartZed: pkill zed returned: %v (%s) — likely no running Zed yet", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Printf("restartZed: signalled Zed to restart for agent switch; run_zed_restart_loop will respawn with new config")
 }
 
 // applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty
@@ -1130,23 +1199,63 @@ var HELIX_MANAGED_THEMES = map[string]bool{
 // Helix-managed themes; otherwise it returns the on-disk value, preserving
 // the user's manual Zed-UI choice. apiTheme=="" disables the assignment in
 // the caller (we don't want to delete an existing theme key).
+//
+// Emits one structured INFO log line per call so that future debugging of
+// the helix→zed theme sync can `grep` for "theme sync:" and see which
+// branch fired without having to re-derive the logic from source.
 func (d *SettingsDaemon) effectiveTheme(apiTheme string) string {
+	result, branch, onDiskRepr := d.computeEffectiveTheme(apiTheme)
+	log.Printf("theme sync: branch=%s on_disk=%s wrote=%q api=%q",
+		branch, onDiskRepr, result, apiTheme)
+	return result
+}
+
+// computeEffectiveTheme is the pure decision function behind effectiveTheme.
+// Split out so unit tests can assert the branch taken without having to
+// scrape log output. Returns the value to write (or "" to skip the write),
+// the branch label, and a human-readable repr of what was on disk.
+//
+// Branches:
+//   - no_api_theme       — apiTheme is empty; caller should skip the assign.
+//   - no_existing_file   — settings.json missing; write apiTheme.
+//   - unparseable        — settings.json corrupt; write apiTheme.
+//   - no_theme_key       — theme key absent; write apiTheme.
+//   - structured_replace — theme is a {mode,light,dark} object; replace with apiTheme string.
+//   - empty_string       — theme is "" on disk; write apiTheme.
+//   - managed_overwrite  — theme is one of HELIX_MANAGED_THEMES; write apiTheme.
+//   - preserve_custom    — theme is a custom string the user picked in Zed; preserve it.
+func (d *SettingsDaemon) computeEffectiveTheme(apiTheme string) (result, branch, onDiskRepr string) {
 	if apiTheme == "" {
-		return ""
+		return "", "no_api_theme", "<not_read>"
 	}
 	data, err := os.ReadFile(SettingsPath)
 	if err != nil {
-		return apiTheme // no existing settings, safe to write
+		return apiTheme, "no_existing_file", "<missing>"
 	}
 	var existing map[string]interface{}
 	if err := json.Unmarshal(data, &existing); err != nil {
-		return apiTheme // unparseable, treat as if missing
+		return apiTheme, "unparseable", "<unparseable>"
 	}
-	onDisk, ok := existing["theme"].(string)
-	if !ok || onDisk == "" || HELIX_MANAGED_THEMES[onDisk] {
-		return apiTheme
+	raw, present := existing["theme"]
+	if !present {
+		return apiTheme, "no_theme_key", "<absent>"
 	}
-	return onDisk
+	onDisk, ok := raw.(string)
+	if !ok {
+		// Structured theme — most likely {mode, light, dark} written by Zed's
+		// own theme picker / ToggleMode action. Replace with the bare string
+		// the API chose; this also dislodges any sticky Dynamic{mode:System}
+		// state Zed may be holding.
+		encoded, _ := json.Marshal(raw)
+		return apiTheme, "structured_replace", string(encoded)
+	}
+	if onDisk == "" {
+		return apiTheme, "empty_string", `""`
+	}
+	if HELIX_MANAGED_THEMES[onDisk] {
+		return apiTheme, "managed_overwrite", fmt.Sprintf("%q", onDisk)
+	}
+	return onDisk, "preserve_custom", fmt.Sprintf("%q", onDisk)
 }
 
 // SECURITY_PROTECTED_FIELDS must not be synced to the Helix API

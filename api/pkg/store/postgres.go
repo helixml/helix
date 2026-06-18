@@ -235,6 +235,9 @@ func (s *PostgresStore) runMigrations() error {
 		&types.AttentionEvent{},
 		&types.EvaluationSuite{},
 		&types.EvaluationRun{},
+		&types.VHostRoute{},
+		&types.ProjectWebServiceState{},
+		&types.WebServiceDeploy{},
 	)
 	if err != nil {
 		return err

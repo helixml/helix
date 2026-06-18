@@ -15,7 +15,6 @@ import {
 import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material'
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
-import LogViewerModal from './LogViewerModal'
 import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 
 interface FloatingModalProps {
@@ -347,14 +346,8 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <DragIcon sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 16 }} />
             <Typography variant="subtitle2" sx={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
-              {modalConfig.type === 'logs' && 'Model Instance Logs'}
               {modalConfig.type === 'rdp' && 'Remote Desktop'}
             </Typography>
-            {modalConfig.type === 'logs' && modalConfig.runner && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
-                Runner: {modalConfig.runner.id?.substring(0, 8)} • {modalConfig.runner.slots?.length || 0} slots
-              </Typography>
-            )}
             {modalConfig.type === 'rdp' && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
                 Session: {modalConfig.sessionId?.slice(-8)}
@@ -400,14 +393,6 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {/* Content */}
         {!isMinimized && (
           <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {modalConfig.type === 'logs' && modalConfig.runner && (
-              <LogViewerModal
-                open={true}
-                onClose={onClose || floatingModal.hideFloatingModal}
-                runner={modalConfig.runner}
-                isFloating={true}
-              />
-            )}
             {modalConfig.type === 'rdp' && modalConfig.sessionId && (
               <ScreenshotViewer
                 sessionId={modalConfig.sessionId}

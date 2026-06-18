@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -527,4 +529,127 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have a default_mode string")
 	assert.Equal(t, "yolo", mode,
 		"qwen default_mode must be \"yolo\" so qwen-code auto-approves tool calls (mirrors claude_code bypassPermissions)")
+}
+
+// TestComputeEffectiveTheme exercises every branch of the helper that decides
+// whether the daemon should write the API-supplied theme or preserve the user's
+// on-disk Zed-UI choice. Covers the structured-theme case (the 002056 hypothesis
+// H1) explicitly — a Zed UI ToggleMode can leave settings.json with
+//
+//	"theme": {"mode":"system","light":"One Light","dark":"Ayu Dark"}
+//
+// which must be replaced with the bare string the API chose; otherwise Zed's
+// in-memory Dynamic{mode:System} state would keep resolving theme via the OS
+// appearance and the user's explicit Helix toggle would never apply.
+func TestComputeEffectiveTheme(t *testing.T) {
+	tests := []struct {
+		name           string
+		apiTheme       string
+		writeFile      bool   // create settings.json
+		fileContent    string // contents (only if writeFile)
+		wantResult     string
+		wantBranch     string
+		wantOnDiskHint string // substring expected in the onDiskRepr log field
+	}{
+		{
+			name:           "empty api theme skips assignment",
+			apiTheme:       "",
+			writeFile:      true,
+			fileContent:    `{"theme":"Ayu Dark"}`,
+			wantResult:     "",
+			wantBranch:     "no_api_theme",
+			wantOnDiskHint: "not_read",
+		},
+		{
+			name:           "missing settings file writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      false,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "no_existing_file",
+			wantOnDiskHint: "missing",
+		},
+		{
+			name:           "unparseable settings file writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    "{not valid json",
+			wantResult:     "Ayu Dark",
+			wantBranch:     "unparseable",
+			wantOnDiskHint: "unparseable",
+		},
+		{
+			name:           "no theme key writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"other":"value"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "no_theme_key",
+			wantOnDiskHint: "absent",
+		},
+		{
+			name:           "structured theme is replaced with api string",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":{"mode":"system","light":"One Light","dark":"Ayu Dark"}}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "structured_replace",
+			wantOnDiskHint: "mode",
+		},
+		{
+			name:           "empty string theme writes api theme",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":""}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "empty_string",
+			wantOnDiskHint: `""`,
+		},
+		{
+			name:           "managed theme is overwritten on toggle",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"One Light"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "managed_overwrite",
+			wantOnDiskHint: "One Light",
+		},
+		{
+			name:           "managed theme matching api still goes through managed branch",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"Ayu Dark"}`,
+			wantResult:     "Ayu Dark",
+			wantBranch:     "managed_overwrite",
+			wantOnDiskHint: "Ayu Dark",
+		},
+		{
+			name:           "custom theme is preserved",
+			apiTheme:       "Ayu Dark",
+			writeFile:      true,
+			fileContent:    `{"theme":"Solarized Dark"}`,
+			wantResult:     "Solarized Dark",
+			wantBranch:     "preserve_custom",
+			wantOnDiskHint: "Solarized Dark",
+		},
+	}
+
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			SettingsPath = filepath.Join(dir, "settings.json")
+			if tt.writeFile {
+				err := os.WriteFile(SettingsPath, []byte(tt.fileContent), 0644)
+				assert.NoError(t, err)
+			}
+
+			d := &SettingsDaemon{}
+			gotResult, gotBranch, gotOnDiskRepr := d.computeEffectiveTheme(tt.apiTheme)
+			assert.Equal(t, tt.wantResult, gotResult, "result value")
+			assert.Equal(t, tt.wantBranch, gotBranch, "branch label")
+			assert.Contains(t, gotOnDiskRepr, tt.wantOnDiskHint, "on-disk repr")
+		})
+	}
 }

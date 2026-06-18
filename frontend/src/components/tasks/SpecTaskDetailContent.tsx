@@ -101,7 +101,8 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
-import ForkAgentControl from "../session/ForkAgentControl";
+import SwitchAgentControl from "../session/SwitchAgentControl";
+import SharePreviewSection from "./SharePreviewSection";
 import {
   Panel,
   Group as PanelGroup,
@@ -735,13 +736,11 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     setRestartConfirmOpen(false);
 
     try {
-      snackbar.info("Stopping agent session...");
-      await api
-        .getApiClient()
-        .v1SessionsStopExternalAgentDelete(activeSessionId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      snackbar.info("Starting new agent session...");
-      await api.getApiClient().v1SessionsResumeCreate(activeSessionId);
+      snackbar.info("Restarting agent session...");
+      // Single backend call: the restart-agent endpoint tears down the
+      // desktop container and recreates it (preserving thread context and
+      // resetting crashed prompts). No frontend stop/sleep/resume dance.
+      await api.getApiClient().v1SessionsRestartAgentCreate(activeSessionId);
       queryClient.invalidateQueries({
         queryKey: GET_SESSION_QUERY_KEY(activeSessionId),
       });
@@ -752,7 +751,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     } finally {
       setIsRestarting(false);
     }
-  }, [activeSessionId, isRestarting, api, snackbar]);
+  }, [activeSessionId, isRestarting, api, snackbar, queryClient]);
 
   // Handle session stop
   const handleStopSession = useCallback(async () => {
@@ -1175,6 +1174,14 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       )}
 
       <Divider sx={{ my: 2 }} />
+
+      {/* Share preview URLs — only meaningful once a session exists */}
+      {activeSessionId && (
+        <>
+          <SharePreviewSection sessionId={activeSessionId} />
+          <Divider sx={{ my: 2 }} />
+        </>
+      )}
 
       {/* Priority */}
       <Box sx={{ mb: 4 }}>
@@ -1948,21 +1955,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
-                  {/* Fork-to-different-agent dropdown. Picking a new agent
-                      forks the current session (preserves transcript) and
-                      switches the chat panel to the child session. See
-                      design/tasks/002081_kickoff-mid-session/. */}
+                  {/* Switch-agent dropdown. Picking a new agent switches the
+                      framework IN PLACE on the current session (same id, same
+                      container, transcript preserved) — no fork. See
+                      design/tasks/002111_so-we-recently-added-a/. */}
                   {activeSessionId && (
                     <Box sx={{ ml: "auto", mr: 1, flexShrink: 0 }}>
-                      <ForkAgentControl
-                        sessionId={activeSessionId}
-                        onForked={(newSessionId) => {
-                          // Stay on the spec task page; route the chat panel
-                          // to the freshly-forked session. The session selector
-                          // below picks up the new id on next render.
-                          setSelectedThreadSessionId(newSessionId);
-                        }}
-                      />
+                      <SwitchAgentControl sessionId={activeSessionId} />
                     </Box>
                   )}
                   <Tooltip title="Collapse chat panel">

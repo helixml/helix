@@ -1,6 +1,9 @@
 package orgchart
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Worker is the common abstraction over humans and AI agents in the
 // organisation. HumanWorker and AIWorker are the only concrete
@@ -37,8 +40,8 @@ type HumanWorker struct {
 // NewHumanWorker validates and constructs a HumanWorker. id, roleID
 // and orgID are required.
 func NewHumanWorker(id WorkerID, roleID RoleID, identityContent, orgID string) (*HumanWorker, error) {
-	if id == "" {
-		return nil, errors.New("worker id is empty")
+	if err := ValidID(id); err != nil {
+		return nil, fmt.Errorf("worker id: %w", err)
 	}
 	if roleID == "" {
 		return nil, errors.New("worker roleID is empty")
@@ -69,8 +72,8 @@ type AIWorker struct {
 
 // NewAIWorker validates and constructs an AIWorker.
 func NewAIWorker(id WorkerID, roleID RoleID, identityContent, orgID string) (*AIWorker, error) {
-	if id == "" {
-		return nil, errors.New("worker id is empty")
+	if err := ValidID(id); err != nil {
+		return nil, fmt.Errorf("worker id: %w", err)
 	}
 	if roleID == "" {
 		return nil, errors.New("worker roleID is empty")

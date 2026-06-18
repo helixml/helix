@@ -205,12 +205,27 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   // and Claude Agent process. Detected by error_message marker (authoritative)
   // rather than nextRetryAt timestamp comparison so the UI reacts immediately
   // even before the polled prompt sync lands the new next_retry_at value.
+  // Authoritative crash signal: the backend's MarkPromptAsCrashed pins
+  // next_retry_at to a far-future sentinel (year 9999) to suppress auto-retry.
+  // Detecting that is robust to the many transport/wrapper error wordings a wedged
+  // or dead agent connection produces ("ede_diagnostic …", "response channel
+  // cancelled", "send failed because receiver is gone", …) — we don't have to
+  // enumerate them. See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
+  const crashedBySentinel = isFailed && !!entry.nextRetryAt && entry.nextRetryAt > Date.now() + ONE_YEAR_MS
+  // Fast-path string markers (kept in sync with the backend agentCrashErrorMarkers)
+  // so the Restart affordance can render on the first failure, before the crashed
+  // next_retry_at sentinel has synced to the client.
   const crashedErrorMarkers = [
     'Claude Agent process exited',
     'Session not found',
+    'ede_diagnostic',
+    'response channel cancelled',
+    'receiver is gone',
   ]
-  const isCrashed = isFailed && !!entry.errorMessage &&
+  const crashedByMarker = isFailed && !!entry.errorMessage &&
     crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const isCrashed = crashedBySentinel || crashedByMarker
   const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
     transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
   const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
@@ -1244,6 +1259,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               px: 1.5,
               py: 0.75,
               bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
+              color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText',
               borderBottom: '1px solid',
               borderColor: 'divider',
             }}

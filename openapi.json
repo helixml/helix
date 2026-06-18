@@ -12173,7 +12173,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).",
                 "tags": [
                     "HelixOrg"
                 ],
@@ -12606,6 +12606,72 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a worker's agent session (recreate desktop container)",
+                "parameters": [
+                    {
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.WorkerActivateDTO"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
                         "content": {
                             "*/*": {
                                 "schema": {
@@ -14987,6 +15053,281 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return enable/disable state, hostnames, and recent deploys for a project's web service.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project web service state",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ProjectWebServiceResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Toggle web service enable/disable and update container_port. Enabling pre-seeds the default subdomain.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project web service state",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.PutProjectWebServiceRequest"
+                            }
+                        }
+                    },
+                    "description": "Update request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ProjectWebServiceResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/active-sandbox": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manual deploy primitive — set the sandbox that vhost requests route to.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Point a project web service at a sandbox",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.SetActiveSandboxRequest"
+                            }
+                        }
+                    },
+                    "description": "Active sandbox request",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.ProjectWebServiceState"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/deploy": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provisions a fresh sandbox, clones the primary repo at the requested SHA, runs .helix/startup.sh, and cuts routing over once it's up.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Trigger an auto-deploy of the project's web service",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.DeployWebServiceRequest"
+                            }
+                        }
+                    },
+                    "description": "Deploy request",
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.WebServiceDeploy"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Add a custom domain to a project web service",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.AddDomainRequest"
+                            }
+                        }
+                    },
+                    "description": "Domain to add",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.VHostRoute"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/domains/{domain_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Remove a custom domain from a project web service",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Domain row ID",
+                        "name": "domain_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "boolean"
+                                    }
                                 }
                             }
                         }
@@ -18550,6 +18891,43 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-config-applied": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Notify that an in-place agent switch's config has been applied in the container",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.AgentConfigAppliedResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -18709,193 +19087,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sessions/{id}/expose": {
-            "get": {
-                "description": "Returns all ports currently exposed from the session's dev container",
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "List exposed ports for a session",
-                "parameters": [
-                    {
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/server.ListExposedPortsResponse"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "description": "Makes a port from the session's dev container accessible via a public URL",
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Expose a port from the session's dev container",
-                "parameters": [
-                    {
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/server.ExposePortRequest"
-                            }
-                        }
-                    },
-                    "description": "Port to expose",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/server.ExposePortResponse"
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Session not found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sessions/{id}/expose/{port}": {
-            "delete": {
-                "description": "Removes public access to a previously exposed port",
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Unexpose a port from the session's dev container",
-                "parameters": [
-                    {
-                        "description": "Session ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "string"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Session or port not found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
                                 }
                             }
                         }
@@ -19263,6 +19454,184 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List session preview tokens",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.VHostRoute"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mints a share-<adj>-<noun>-<8hex> hostname pointing at the session's container on the given port.",
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Mint a preview token for a session port",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.MintPreviewTokenRequest"
+                            }
+                        }
+                    },
+                    "description": "Port to expose",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.VHostRoute"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Revoke a session preview token",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/preview-tokens/{token_id}/rotate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Rotate a session preview token hostname",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Token row ID",
+                        "name": "token_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.VHostRoute"
                                 }
                             }
                         }
@@ -19692,6 +20061,54 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/switch-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Switch the agent framework on a running session in place",
+                "parameters": [
+                    {
+                        "description": "Session ID to switch the agent on",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/server.SwitchAgentRequest"
+                            }
+                        }
+                    },
+                    "description": "Target agent selection",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.SwitchAgentResponse"
                                 }
                             }
                         }
@@ -24581,6 +24998,10 @@
             "api.CreateStreamRequest": {
                 "type": "object",
                 "properties": {
+                    "as": {
+                        "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                        "type": "string"
+                    },
                     "description": {
                         "type": "string"
                     },
@@ -24793,6 +25214,10 @@
             "api.PublishRequest": {
                 "type": "object",
                 "properties": {
+                    "as": {
+                        "description": "As is the Worker the message is sent as — the worker whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
+                        "type": "string"
+                    },
                     "body": {
                         "type": "string"
                     },
@@ -24878,12 +25303,6 @@
                 "type": "object",
                 "properties": {
                     "db_path": {
-                        "type": "string"
-                    },
-                    "envs_dir": {
-                        "type": "string"
-                    },
-                    "owner": {
                         "type": "string"
                     },
                     "public_url": {
@@ -26381,6 +26800,22 @@
                     }
                 }
             },
+            "server.AddDomainRequest": {
+                "type": "object",
+                "properties": {
+                    "hostname": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.AgentConfigAppliedResponse": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.AgentSandboxesDebugResponse": {
                 "type": "object",
                 "properties": {
@@ -26591,6 +27026,14 @@
                     }
                 }
             },
+            "server.DeployWebServiceRequest": {
+                "type": "object",
+                "properties": {
+                    "commit_sha": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.DevContainerWithClients": {
                 "type": "object",
                 "properties": {
@@ -26678,76 +27121,6 @@
                     },
                     "video_stats": {
                         "$ref": "#/components/schemas/server.VideoStreamingStats"
-                    }
-                }
-            },
-            "server.ExposePortRequest": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string"
-                    },
-                    "port": {
-                        "type": "integer"
-                    },
-                    "protocol": {
-                        "description": "defaults to \"http\"",
-                        "type": "string"
-                    }
-                }
-            },
-            "server.ExposePortResponse": {
-                "type": "object",
-                "properties": {
-                    "allocated_port": {
-                        "description": "for random port mode",
-                        "type": "integer"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "port": {
-                        "type": "integer"
-                    },
-                    "protocol": {
-                        "type": "string"
-                    },
-                    "session_id": {
-                        "type": "string"
-                    },
-                    "status": {
-                        "type": "string"
-                    },
-                    "urls": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                }
-            },
-            "server.ExposedPort": {
-                "type": "object",
-                "properties": {
-                    "created_at": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "port": {
-                        "type": "integer"
-                    },
-                    "protocol": {
-                        "description": "\"http\" or \"tcp\"",
-                        "type": "string"
-                    },
-                    "status": {
-                        "description": "\"active\", \"inactive\"",
-                        "type": "string"
-                    },
-                    "url": {
-                        "type": "string"
                     }
                 }
             },
@@ -27781,17 +28154,11 @@
                     }
                 }
             },
-            "server.ListExposedPortsResponse": {
+            "server.MintPreviewTokenRequest": {
                 "type": "object",
                 "properties": {
-                    "exposed_ports": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/server.ExposedPort"
-                        }
-                    },
-                    "session_id": {
-                        "type": "string"
+                    "port": {
+                        "type": "integer"
                     }
                 }
             },
@@ -27904,6 +28271,30 @@
                     }
                 }
             },
+            "server.ProjectWebServiceResponse": {
+                "type": "object",
+                "properties": {
+                    "cname_target": {
+                        "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
+                        "type": "string"
+                    },
+                    "deploys": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.WebServiceDeploy"
+                        }
+                    },
+                    "domains": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/types.VHostRoute"
+                        }
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/types.ProjectWebServiceState"
+                    }
+                }
+            },
             "server.PromptPinRequest": {
                 "type": "object",
                 "properties": {
@@ -27934,6 +28325,17 @@
                         "type": "string"
                     },
                     "success": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "server.PutProjectWebServiceRequest": {
+                "type": "object",
+                "properties": {
+                    "container_port": {
+                        "type": "integer"
+                    },
+                    "enabled": {
                         "type": "boolean"
                     }
                 }
@@ -28230,6 +28632,14 @@
                     }
                 }
             },
+            "server.SetActiveSandboxRequest": {
+                "type": "object",
+                "properties": {
+                    "sandbox_id": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.SharePointSiteResolveRequest": {
                 "type": "object",
                 "properties": {
@@ -28330,6 +28740,31 @@
                         "items": {
                             "type": "string"
                         }
+                    }
+                }
+            },
+            "server.SwitchAgentRequest": {
+                "type": "object",
+                "properties": {
+                    "code_agent_runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "helix_app_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.SwitchAgentResponse": {
+                "type": "object",
+                "properties": {
+                    "agent_runtime": {
+                        "$ref": "#/components/schemas/types.CodeAgentRuntime"
+                    },
+                    "helix_app_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
+                        "type": "string"
                     }
                 }
             },
@@ -34842,6 +35277,30 @@
                     }
                 }
             },
+            "types.ProjectWebServiceState": {
+                "type": "object",
+                "properties": {
+                    "active_sandbox_id": {
+                        "type": "string"
+                    },
+                    "container_port": {
+                        "description": "port the project's web app binds to inside its container",
+                        "type": "integer"
+                    },
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string"
+                    }
+                }
+            },
             "types.PromptHistoryEntry": {
                 "type": "object",
                 "properties": {
@@ -36811,6 +37270,10 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "agent_switched_at": {
+                        "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
+                        "type": "string"
                     },
                     "agent_type": {
                         "description": "Agent type: \"helix\" or \"zed_external\"",
@@ -40321,6 +40784,57 @@
                     }
                 }
             },
+            "types.VHostRoute": {
+                "type": "object",
+                "properties": {
+                    "created_at": {
+                        "type": "string"
+                    },
+                    "hostname": {
+                        "description": "always lowercased",
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "is_default": {
+                        "description": "IsDefault is true for project default subdomains (<slug>.<base>).\nUser-added custom domains and preview tokens are false.",
+                        "type": "boolean"
+                    },
+                    "port": {
+                        "description": "destination port inside the container",
+                        "type": "integer"
+                    },
+                    "rotated_at": {
+                        "type": "string"
+                    },
+                    "target_id": {
+                        "type": "string"
+                    },
+                    "target_kind": {
+                        "$ref": "#/components/schemas/types.VHostTargetKind"
+                    },
+                    "verification_token": {
+                        "description": "VerificationToken is only meaningful for custom domains awaiting\nDNS-based verification. Null for default and preview rows.",
+                        "type": "string"
+                    },
+                    "verified_at": {
+                        "description": "VerifiedAt is non-null once the route is usable. Auto-set for default\nsubdomains and preview tokens; set after DNS verification for custom\ndomains.",
+                        "type": "string"
+                    }
+                }
+            },
+            "types.VHostTargetKind": {
+                "type": "string",
+                "enum": [
+                    "project_web_service",
+                    "sandbox_preview"
+                ],
+                "x-enum-varnames": [
+                    "VHostTargetProjectWebService",
+                    "VHostTargetSandboxPreview"
+                ]
+            },
             "types.WIPLimits": {
                 "type": "object",
                 "properties": {
@@ -40379,6 +40893,55 @@
                         "type": "string"
                     }
                 }
+            },
+            "types.WebServiceDeploy": {
+                "type": "object",
+                "properties": {
+                    "commit_sha": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "finished_at": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "log_path": {
+                        "type": "string"
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "sandbox_id": {
+                        "type": "string"
+                    },
+                    "started_at": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/types.WebServiceDeployStatus"
+                    }
+                }
+            },
+            "types.WebServiceDeployStatus": {
+                "type": "string",
+                "enum": [
+                    "pending",
+                    "building",
+                    "live",
+                    "failed",
+                    "superseded"
+                ],
+                "x-enum-varnames": [
+                    "WebServiceDeployStatusPending",
+                    "WebServiceDeployStatusBuilding",
+                    "WebServiceDeployStatusLive",
+                    "WebServiceDeployStatusFailed",
+                    "WebServiceDeployStatusSuperseded"
+                ]
             },
             "types.WebsiteCrawler": {
                 "type": "object",

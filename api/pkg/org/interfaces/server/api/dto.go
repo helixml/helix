@@ -149,10 +149,8 @@ type SettingsSpecDTO struct {
 
 // SettingsResponse is the body of GET /settings.
 type SettingsResponse struct {
-	Owner     string            `json:"owner"`
 	PublicURL string            `json:"public_url,omitempty"`
 	DBPath    string            `json:"db_path,omitempty"`
-	EnvsDir   string            `json:"envs_dir,omitempty"`
 	Specs     []SettingsSpecDTO `json:"specs"`
 }
 
@@ -180,10 +178,14 @@ type StreamDTO struct {
 
 // CreateStreamRequest is the body of POST /streams.
 type CreateStreamRequest struct {
-	ID          string                 `json:"id,omitempty"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Transport   *TransportRequestField `json:"transport,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// As is the Worker that creates the stream — the worker whose chat
+	// the human is in. Empty leaves the stream unattributed (CreatedBy is
+	// cosmetic: it only anchors the node on the chart).
+	As        string                 `json:"as,omitempty"`
+	Transport *TransportRequestField `json:"transport,omitempty"`
 }
 
 // TransportRequestField mirrors the MCP create_stream tool's transport sub-object.
@@ -219,6 +221,48 @@ type EventCard struct {
 	MessageBody string `json:"message_body,omitempty"`
 }
 
+// MessageAttributes is the JSON:API `attributes` object for a
+// `messages` resource: the decoded Message envelope plus the event
+// coordinates. Body is the visible text — the parsed Message.Body when
+// the event carries a Message, otherwise the raw stored body.
+type MessageAttributes struct {
+	StreamID   string   `json:"stream_id"`
+	Source     string   `json:"source,omitempty"`
+	CreatedAt  string   `json:"created_at"`
+	From       string   `json:"from,omitempty"`
+	To         []string `json:"to,omitempty"`
+	Subject    string   `json:"subject,omitempty"`
+	Body       string   `json:"body"`
+	HasMessage bool     `json:"has_message"`
+}
+
+// MessageResource is one JSON:API resource object in the messages list.
+type MessageResource struct {
+	Type       string            `json:"type"`
+	ID         string            `json:"id"`
+	Attributes MessageAttributes `json:"attributes"`
+}
+
+// MessagesMeta is the top-level `meta` of the messages document:
+// total item count plus the pagination state.
+type MessagesMeta struct {
+	Total      int `json:"total"`
+	Page       int `json:"page"`
+	Size       int `json:"size"`
+	TotalPages int `json:"total_pages"`
+}
+
+// MessagesDocument is the JSON:API document returned by
+// GET /streams/{id}/messages. It documents the concrete shape the
+// jsonapi composition helpers emit so the generated OpenAPI client has
+// a typed response. Links are page-relative references
+// (self/first/prev/next/last).
+type MessagesDocument struct {
+	Data  []MessageResource `json:"data"`
+	Meta  MessagesMeta      `json:"meta"`
+	Links map[string]string `json:"links,omitempty"`
+}
+
 // WorkerSubscriptionDTO is one row in a worker's subscription list.
 type WorkerSubscriptionDTO struct {
 	StreamID  string `json:"stream_id"`
@@ -242,6 +286,10 @@ type PublishRequest struct {
 	Body    string   `json:"body"`
 	Subject string   `json:"subject,omitempty"`
 	To      []string `json:"to,omitempty"`
+	// As is the Worker the message is sent as — the worker whose chat the
+	// human is in. Empty means human/system-origin (the dispatcher treats
+	// it as such). There is no global "owner" sender any more.
+	As string `json:"as,omitempty"`
 }
 
 // PublishResponse is the body of POST /streams/{id}/publish on success.

@@ -60,11 +60,66 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		Int("total_entries", len(response.Entries)).
 		Msg("Synced prompt history")
 
+	// Synchronously mark the canonical session as "starting" if it's idle and
+	// has no live WebSocket. This closes the race that caused the
+	// "Starting Desktop..." spinner to flicker off: the frontend's first
+	// refetch after the optimistic cache write would otherwise overwrite
+	// "starting" with the still-stale "stopped" backend row, because the
+	// wake goroutine below has not yet had time to call StartDesktop and
+	// have hydra write status=starting to the DB. See spec
+	// design/tasks/002047_yet-again-sending-a/design.md.
+	apiServer.markCanonicalSessionStartingForSync(ctx, syncReq.SpecTaskID)
+
 	// Process pending prompts in the background
 	// This runs on EVERY sync to catch prompts that may have been missed
 	go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
 
 	return response, nil
+}
+
+// markCanonicalSessionStartingForSync flips the canonical planning session's
+// external_agent_status to "starting" when its desktop is genuinely idle (no
+// live WebSocket connection to the external agent). No-op when the session is
+// already "starting" / "running", or when a WS is alive (the existing socket
+// will deliver the prompt without any boot). Failures are logged but never
+// surfaced to the caller — the synchronous mark is a UX optimisation, not a
+// correctness requirement; the async wake goroutine that fires next still
+// works as before.
+func (apiServer *HelixAPIServer) markCanonicalSessionStartingForSync(ctx context.Context, specTaskID string) {
+	if specTaskID == "" {
+		return
+	}
+	specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+	if err != nil || specTask == nil {
+		log.Debug().Err(err).Str("spec_task_id", specTaskID).Msg("[PROMPT-SYNC] cannot resolve spec task for sync-time mark; skipping")
+		return
+	}
+	sessionID := specTask.PlanningSessionID
+	if sessionID == "" {
+		return
+	}
+	if conn, connected := apiServer.externalAgentWSManager.getConnection(sessionID); connected && conn != nil {
+		return
+	}
+	updated, err := apiServer.Store.MarkSessionStartingIfIdle(ctx, sessionID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] failed to mark session starting; spinner may flicker")
+		return
+	}
+	if updated {
+		log.Info().
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] marked idle session as starting (no live WS)")
+	} else {
+		log.Debug().
+			Str("spec_task_id", specTaskID).
+			Str("session_id", sessionID).
+			Msg("[PROMPT-SYNC] session already starting/running; no mark needed")
+	}
 }
 
 // processPendingPromptsForIdleSessions checks the database for any pending prompts

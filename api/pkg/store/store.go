@@ -278,9 +278,22 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 	ClearStaleStartingSessions(ctx context.Context) (int64, error)
+	// MarkSessionStartingIfIdle atomically flips external_agent_status to
+	// "starting" + status_message to "Starting Desktop..." for a session,
+	// but only if its current status is neither "starting" nor "running".
+	// Targeted JSONB merge so it cannot race with the streaming path's
+	// full-row writes. Returns true when a row was updated.
+	MarkSessionStartingIfIdle(ctx context.Context, sessionID string) (bool, error)
+	// ClearSessionStartingStatus reverts a "starting" session back to empty
+	// status + empty message, but only when the current status is
+	// "starting". Used by the auto-wake worker on retry exhaustion so the
+	// spinner reverts to "Desktop Paused" instead of staying on
+	// "Starting Desktop..." forever.
+	ClearSessionStartingStatus(ctx context.Context, sessionID string) (bool, error)
 	ListSessionsBySandbox(ctx context.Context, sandboxID string) ([]*types.Session, error) // For cleanup on sandbox disconnect
 	ListSessionsByOwner(ctx context.Context, ownerID string) ([]*types.Session, error)     // All non-deleted sessions for a user (any org, any model_name) — used to fan out user-scoped events
 	ListIdleDesktops(ctx context.Context, idleSince time.Time) ([]*types.Session, error)   // Returns one session per desktop that has had no interaction since idleSince
+	ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error)   // IDs of live external-agent sessions (running, recently-updated, or keep_alive) — for the orphan-resource reaper
 
 	// interactions
 	GetInteractionsSummary(ctx context.Context, sessionID string, generationID int) (count int64, maxUpdated time.Time, err error)
@@ -787,6 +800,8 @@ type Store interface {
 	MarkSandboxInstanceOfflineIfStale(ctx context.Context, id string, staleBefore time.Time) (int64, error)
 	IncrementSandboxContainerCount(ctx context.Context, id string) error
 	DecrementSandboxContainerCount(ctx context.Context, id string) error
+	SetSandboxContainerCount(ctx context.Context, id string, count int) error
+	BackfillSandboxMaxSandboxes(ctx context.Context, value int) (int64, error)
 	ResetSandboxOnReconnect(ctx context.Context, id string) error
 	GetSandboxInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.SandboxInstance, error)
 	FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error)
@@ -874,4 +889,24 @@ type Store interface {
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
+
+	// VHost routes — hostname → routable target (project web service or sandbox preview).
+	CreateVHostRoute(ctx context.Context, r *types.VHostRoute) error
+	GetVHostRouteByHostname(ctx context.Context, hostname string) (*types.VHostRoute, error)
+	GetVHostRouteByID(ctx context.Context, id string) (*types.VHostRoute, error)
+	ListVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) ([]*types.VHostRoute, error)
+	DeleteVHostRoute(ctx context.Context, id string) error
+	DeleteVHostRoutesByTarget(ctx context.Context, kind types.VHostTargetKind, targetID string) error
+	RotateVHostRouteHostname(ctx context.Context, id, newHostname string) error
+	MarkVHostRouteVerified(ctx context.Context, id string) error
+
+	// Project web service state and deploy history.
+	UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error
+	GetProjectWebServiceState(ctx context.Context, projectID string) (*types.ProjectWebServiceState, error)
+	SetActiveWebServiceSandbox(ctx context.Context, projectID, sandboxID string) error
+	CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error
+	UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]interface{}) error
+	ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error)
+	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
+	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
 }

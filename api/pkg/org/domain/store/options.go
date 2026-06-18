@@ -33,6 +33,7 @@ type Query struct {
 	table      string
 	selects    string
 	limit      int
+	offset     int
 	updates    map[string]any
 }
 
@@ -65,6 +66,9 @@ func (q Query) Selects() string { return q.selects }
 
 // Limit returns the row cap (0 means unbounded).
 func (q Query) Limit() int { return q.limit }
+
+// Offset returns the row offset (0 means no skip).
+func (q Query) Offset() int { return q.offset }
 
 // Updates returns the column → value map for UPDATE statements.
 func (q Query) Updates() map[string]any {
@@ -156,6 +160,18 @@ func WithLimit(limit int) Option {
 	return func(q Query) Query {
 		if limit > 0 {
 			q.limit = limit
+		}
+		return q
+	}
+}
+
+// WithOffset skips the first n rows. offset <= 0 is a no-op so callers
+// can pass through a user-supplied offset unchanged. Pair with
+// WithLimit and a stable ORDER BY for page-number pagination.
+func WithOffset(offset int) Option {
+	return func(q Query) Query {
+		if offset > 0 {
+			q.offset = offset
 		}
 		return q
 	}
