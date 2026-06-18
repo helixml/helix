@@ -30,11 +30,11 @@
 - [x] Handle no-connection case as success — cancel is best-effort and no WS command is sent, so a disconnected agent never surfaces an error
 
 ## HTTP endpoint (TDD)
-- [ ] Write handler test: `POST /api/v1/sessions/{id}/clear` → 200 success, 404 unknown, 403 unauthorized
-- [ ] Implement `clearSessionHandler` in `api/pkg/server/session_handlers.go` (auth like `deleteSession`, call `controller.ClearSession`)
-- [ ] Register route in `api/pkg/server/server.go` sessions block
+- [x] Write handler test: `POST /api/v1/sessions/{id}/clear` → 200 success, 404 unknown, 403 unauthorized
+- [x] Implement `clearSessionHandler` (in `api/pkg/server/session_clear.go` alongside the coordinator/backends for cohesion; auth like `deleteSession`, calls `apiServer.ClearSession`)
+- [x] Register route in `api/pkg/server/server.go` sessions block
 
 ## Verification
-- [ ] Run `go test ./api/pkg/store/... ./api/pkg/agent/... ./api/pkg/server/... ./api/pkg/controller/...` and ensure green
+- [~] Run `go test ./api/pkg/store/... ./api/pkg/agent/... ./api/pkg/server/... ./api/pkg/controller/...` and ensure green
 - [ ] Manual check: clear an internal-agent session, confirm next message starts fresh
 - [ ] Manual check: clear a Zed-backed session, confirm Zed starts a clean thread and no stale tokens repopulate history
