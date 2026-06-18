@@ -21,6 +21,12 @@ definitions:
     type: object
   api.CreateStreamRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker that creates the stream — the worker whose chat
+          the human is in. Empty leaves the stream unattributed (CreatedBy is
+          cosmetic: it only anchors the node on the chart).
+        type: string
       description:
         type: string
       id:
@@ -172,6 +178,60 @@ definitions:
       webhook_id:
         type: integer
     type: object
+  api.MessageAttributes:
+    properties:
+      body:
+        type: string
+      created_at:
+        type: string
+      from:
+        type: string
+      has_message:
+        type: boolean
+      source:
+        type: string
+      stream_id:
+        type: string
+      subject:
+        type: string
+      to:
+        items:
+          type: string
+        type: array
+    type: object
+  api.MessageResource:
+    properties:
+      attributes:
+        $ref: '#/definitions/api.MessageAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  api.MessagesDocument:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.MessageResource'
+        type: array
+      links:
+        additionalProperties:
+          type: string
+        type: object
+      meta:
+        $ref: '#/definitions/api.MessagesMeta'
+    type: object
+  api.MessagesMeta:
+    properties:
+      page:
+        type: integer
+      size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
   api.OrgOverview:
     properties:
       groups:
@@ -185,6 +245,12 @@ definitions:
     type: object
   api.PublishRequest:
     properties:
+      as:
+        description: |-
+          As is the Worker the message is sent as — the worker whose chat the
+          human is in. Empty means human/system-origin (the dispatcher treats
+          it as such). There is no global "owner" sender any more.
+        type: string
       body:
         type: string
       subject:
@@ -240,10 +306,6 @@ definitions:
   api.SettingsResponse:
     properties:
       db_path:
-        type: string
-      envs_dir:
-        type: string
-      owner:
         type: string
       public_url:
         type: string
@@ -1324,6 +1386,11 @@ definitions:
   server.AddDomainRequest:
     properties:
       hostname:
+        type: string
+    type: object
+  server.AgentConfigAppliedResponse:
+    properties:
+      status:
         type: string
     type: object
   server.AgentSandboxesDebugResponse:
@@ -2619,6 +2686,22 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  server.SwitchAgentRequest:
+    properties:
+      code_agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      helix_app_id:
+        type: string
+    type: object
+  server.SwitchAgentResponse:
+    properties:
+      agent_runtime:
+        $ref: '#/definitions/types.CodeAgentRuntime'
+      helix_app_id:
+        type: string
+      session_id:
+        type: string
     type: object
   server.TaskProgressResponse:
     properties:
@@ -8255,7 +8338,12 @@ definitions:
           sandboxes with no profile assigned.
         type: string
       active_sandboxes:
-        description: Sandbox capacity
+        description: |-
+          Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+          and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+          (default 20); the gorm default below only applies to rows inserted
+          via paths that don't set the field. Kept aligned with the env-var
+          default to avoid surprises.
         type: integer
       compute_state:
         description: |-
@@ -8799,6 +8887,15 @@ definitions:
         items:
           type: string
         type: array
+      agent_switched_at:
+        description: |-
+          AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+          this same session (no fork / new container) — see
+          design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+          fork_seed interaction carrying the prior thread's transcript exists on
+          THIS session, so maybePrependTranscript seeds the new Zed thread even
+          though ParentSessionID is empty (the session continues from itself).
+        type: string
       agent_type:
         description: 'Agent type: "helix" or "zed_external"'
         type: string
@@ -18014,6 +18111,42 @@ paths:
       summary: 'Helix-org: live webhook status for a github stream'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/streams/{id}/messages:
+    get:
+      parameters:
+      - description: Stream ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 1-based page number (default 1)
+        in: query
+        name: page[number]
+        type: integer
+      - description: page size (default 50, max 200)
+        in: query
+        name: page[size]
+        type: integer
+      produces:
+      - application/vnd.api+json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MessagesDocument'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a stream''s messages (JSON:API, paginated)'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/streams/{id}/publish:
     post:
       consumes:
@@ -18086,8 +18219,7 @@ paths:
       consumes:
       - application/json
       description: Create a Worker in the given Position. Wraps the hire_worker MCP
-        tool so REST + chat hires share semantics (env dir, activation stream, hire
-        dispatch).
+        tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
       parameters:
       - description: Hire request
         in: body
@@ -18312,6 +18444,36 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: remove a worker reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/workers/{id}/restart-agent:
+    post:
+      parameters:
+      - description: Worker ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.WorkerActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a worker''s agent session (recreate desktop container)'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers/{id}/role:
@@ -21599,6 +21761,30 @@ paths:
       summary: Update a session by ID
       tags:
       - sessions
+  /api/v1/sessions/{id}/agent-config-applied:
+    post:
+      description: Called by the in-desktop settings-sync daemon after it hot-reloads
+        Zed's config for an agent switch. Delivers the pending handoff to the live
+        Zed thread without waiting for a process restart. Internal coordination endpoint.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentConfigAppliedResponse'
+      security:
+      - BearerAuth: []
+      summary: Notify that an in-place agent switch's config has been applied in the
+        container
+      tags:
+      - sessions
   /api/v1/sessions/{id}/claude-credentials:
     get:
       description: |-
@@ -21686,6 +21872,42 @@ paths:
       summary: Update Claude credentials for a session
       tags:
       - Claude
+  /api/v1/sessions/{id}/clear:
+    post:
+      description: |-
+        Removes all interactions for a session while preserving the session
+        record (ID, name, project, owner, model, metadata). For Zed-backed
+        sessions the Zed thread is also reset so the agent starts fresh.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Clear a session's conversation
+      tags:
+      - sessions
   /api/v1/sessions/{id}/fork:
     post:
       consumes:
@@ -22222,6 +22444,39 @@ paths:
       summary: Stop external Zed agent session
       tags:
       - Sessions
+  /api/v1/sessions/{id}/switch-agent:
+    post:
+      consumes:
+      - application/json
+      description: Switches the agentic framework on the SAME session without forking
+        or restarting the container. Rewrites Zed's config to the new agent, which
+        Zed hot-reloads live (MCP context servers reconcile without a process restart),
+        then repopulates a fresh thread with the prior transcript. Falls back to a
+        clean Zed restart only if the live reload doesn't take.
+      parameters:
+      - description: Session ID to switch the agent on
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target agent selection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SwitchAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SwitchAgentResponse'
+      security:
+      - BearerAuth: []
+      summary: Switch the agent framework on a running session in place
+      tags:
+      - sessions
   /api/v1/sessions/{id}/toc:
     get:
       consumes:

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/application/tools"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
@@ -29,8 +29,8 @@ func TestRESTCreateRole_EmptyToolsGetsBaseline(t *testing.T) {
 	var out orgapi.RoleDTO
 	decode(t, rec, &out)
 
-	want := make(map[string]bool, len(tools.BaseReadTools))
-	for _, name := range tools.BaseReadTools {
+	want := make(map[string]bool, len(mcptools.BaseReadTools))
+	for _, name := range mcptools.BaseReadTools {
 		want[name] = true
 	}
 	got := make(map[string]bool, len(out.Tools))
@@ -81,7 +81,7 @@ func TestRESTCreateRole_UnionWithCallerTools(t *testing.T) {
 	for _, name := range out.Tools {
 		got[name] = true
 	}
-	for _, name := range tools.BaseReadTools {
+	for _, name := range mcptools.BaseReadTools {
 		if !got[name] {
 			t.Errorf("baseline tool %q missing from union; got: %v", name, out.Tools)
 		}

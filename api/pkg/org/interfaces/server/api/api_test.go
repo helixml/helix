@@ -8,46 +8,82 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // newDeps builds a fresh in-memory store + config registry + hub for
-// one test. The registry has no specs registered — individual tests
-// add the ones they need.
+// one test, with all application services constructed over them (the
+// Phase-D shape: the REST adapter holds services, not the store). The
+// registry has no specs registered — individual tests add the ones they
+// need.
 func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *configregistry.Registry) {
+	return newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { return "test-id" },
+	)
+}
+
+// newDepsClock is newDeps with an explicit clock + id-generator so
+// parity tests can pin deterministic store state across both adapters.
+func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (orgapi.Deps, *store.Store, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("new in-memory nats: %v", err)
 	}
-	hub := streamhub.New(ps)
+	hub := wakebus.New(ps)
 	reg := configregistry.New(st.Configs)
+	topo := reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: clock})
+
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools})
 
 	deps := orgapi.Deps{
-		Store:    st,
-		Configs:  reg,
-		Hub:      hub,
-		Owner:    "w-owner",
-		Topology: &topology.Reconciler{Store: st},
-		NewID:    func() string { return "test-id" },
-		Now:      func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: clock, NewID: newID}),
+		Roles:   rolesSvc,
+		Workers: workers.New(workers.Deps{
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: topo,
+		}),
+		// Hire + Fire live on the lifecycle service. EnvsDir/Now/NewID
+		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
+		// tests don't exercise the Helix-side teardown.
+		Lifecycle: &lifecycle.Service{
+			Store: st, Reconciler: topo,
+			Now: clock, NewID: newID,
+		},
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: clock}),
+		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
+		Configs:       reg,
+		Hub:           hub,
 	}
 	return deps, st, reg
 }
@@ -150,7 +186,7 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	h := orgapi.Handler(deps)
 
 	rawValue := `{"token":"sekrit-XXXX","from":"ops@example.com"}`
-	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue, orgchart.WorkerID("w-owner")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue); err != nil {
 		t.Fatalf("set value: %v", err)
 	}
 
@@ -390,7 +426,7 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 		repo          = "octocat/hello-world"
 	)
 	rawCfg, _ := json.Marshal(map[string]any{"token": token, "webhook_secret": webhookSecret})
-	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg)); err != nil {
 		t.Fatalf("set transport.github: %v", err)
 	}
 	streamCfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"issues"}})
@@ -405,6 +441,13 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 	}
 	if err := st.Streams.Create(ctx, stream); err != nil {
 		t.Fatalf("seed stream: %v", err)
+	}
+
+	// Wire the inbound github handler the way the composition root does:
+	// a per-org transport built over the store. (In production this is
+	// constructed in helix_org.go; the api adapter only serves it.)
+	deps.GitHubInbound = func(orgID string) http.Handler {
+		return githubtransport.New(orgID, reg, st, nil, nil, slog.Default()).HandleInbound()
 	}
 
 	h := orgapi.Handler(deps)
@@ -551,7 +594,7 @@ func TestGetStream_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
 	// before Set will accept the value.
 	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
 	if err := reg.Set(context.Background(), "org-test", "streams.public_url",
-		`"https://helix.example.com"`, orgchart.WorkerID("w-owner")); err != nil {
+		`"https://helix.example.com"`); err != nil {
 		t.Fatalf("set streams.public_url: %v", err)
 	}
 

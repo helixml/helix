@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
@@ -85,6 +85,7 @@ export const QUERY_KEYS = {
   streams: (orgID: string) => ['helix-org', orgID, 'streams'] as const,
   stream: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id] as const,
   webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'webhook-status'] as const,
+  streamMessageCount: (orgID: string, id: string) => ['helix-org', orgID, 'streams', id, 'message-count'] as const,
   workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
 }
 
@@ -140,6 +141,26 @@ export function useActivateWorker(orgIDOverride?: string) {
   return useMutation({
     mutationFn: async (workerId: string) => {
       const res = await api.getApiClient().v1OrgsWorkersActivateCreate(workerId, orgID)
+      return res.data as ApiWorkerActivateDTO
+    },
+  })
+}
+
+// useRestartWorkerAgent recreates the worker's desktop container from
+// scratch. Wired to the worker page's "Restart agent session" button.
+// Unlike useActivateWorker (which continues the existing session via
+// SendMessage and so can't recover a stuck container), this hits the
+// dedicated worker restart endpoint, which resolves the worker's session
+// and delegates to the shared backend restart primitive (StopDesktop →
+// recreate → reset crashed prompts), falling back to a fresh activation
+// when the worker has no live session.
+export function useRestartWorkerAgent(orgIDOverride?: string) {
+  const api = useApi()
+  const { orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (workerId: string) => {
+      const res = await api.getApiClient().v1OrgsWorkersRestartAgentCreate(workerId, orgID)
       return res.data as ApiWorkerActivateDTO
     },
   })
@@ -244,7 +265,7 @@ export function useHireHelixOrgWorker() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID) })
-      // An AI hire mints its s-activations-<id> stream — refresh the
+      // An AI hire mints its s-transcript-<id> stream — refresh the
       // Streams list / chart stream nodes so it shows without a reload.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
     },
@@ -257,7 +278,7 @@ export function useHireHelixOrgWorker() {
 // adds the line. The topology reconciler wires the comms channels the
 // edge implies (the manager's s-team-<mgr> stream and the pair's
 // s-dm-<pair> channel, plus the manager observing the report's
-// activation stream), so we refresh streams too — not just the worker
+// transcript), so we refresh streams too — not just the worker
 // list — so those new nodes render without a reload.
 export function useAddWorkerParent() {
   const api = useApi()
@@ -354,7 +375,7 @@ export function useFireHelixOrgWorker() {
       // Exact: refresh the list itself without prefix-matching (and so
       // refetching) the worker/subscriptions queries we just removed.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
-      // Firing cascades away the worker's s-activations-<id> stream and
+      // Firing cascades away the worker's s-transcript-<id> stream and
       // its direct reports' parent edge — refresh the Streams list (QA
       // F6) and any open stream detail.
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -406,7 +427,7 @@ export function useDeleteHelixOrgRole() {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.roles(orgID) })
       // Deleting a role fires every Worker holding it, which tears down
-      // their activation streams — refresh both lists so neither shows
+      // their transcripts — refresh both lists so neither shows
       // ghost rows (QA F6).
       qc.invalidateQueries({ queryKey: QUERY_KEYS.workers(orgID), exact: true })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.streams(orgID) })
@@ -527,6 +548,58 @@ export function useGitHubWebhookStatus(streamId: string | undefined, options?: {
     },
     enabled: !!orgID && !!streamId && (options?.enabled ?? true),
   })
+}
+
+// useStreamMessageCount reports the total number of messages waiting on
+// a single stream via the paginated JSON:API messages endpoint. We only
+// need meta.total, so we request the smallest possible page (size 1) and
+// ignore the body — the count is the cheap part the server computes
+// independently of the page slice. Used by the stream detail metric card.
+export function useStreamMessageCount(streamId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.streamMessageCount(orgID, streamId ?? ''),
+    queryFn: async () => {
+      if (!streamId) return 0
+      const res = await api.getApiClient().v1OrgsStreamsMessagesDetail(streamId, orgID, {
+        'page[number]': 1,
+        'page[size]': 1,
+      })
+      return res.data?.meta?.total ?? 0
+    },
+    enabled: !!orgID && !!streamId && (options?.enabled ?? true),
+  })
+}
+
+// useStreamMessageCounts fans the same per-stream count query out across
+// every stream id so the org chart can label each stream card. Returns a
+// streamId → total map; missing/in-flight ids resolve to 0 (the caller
+// renders 0 rather than flickering). One React Query per id keeps each
+// count independently cached + invalidated, shared with the detail
+// page's single-stream hook above (same query key).
+export function useStreamMessageCounts(streamIds: string[], options?: { enabled?: boolean }): Record<string, number> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: streamIds.map((id) => ({
+      queryKey: QUERY_KEYS.streamMessageCount(orgID, id),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsStreamsMessagesDetail(id, orgID, {
+          'page[number]': 1,
+          'page[size]': 1,
+        })
+        return res.data?.meta?.total ?? 0
+      },
+      enabled,
+    })),
+  })
+  const counts: Record<string, number> = {}
+  streamIds.forEach((id, i) => {
+    counts[id] = (results[i]?.data as number | undefined) ?? 0
+  })
+  return counts
 }
 
 export function useCreateHelixOrgStream() {

@@ -57,6 +57,11 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 		return errors.New("HELIX_VHOST_TLS_MODE=auto requires HELIX_VHOST_LETSENCRYPT_EMAIL to be set")
 	}
 
+	dnsSolver, challengeDesc, err := buildACMEChallengeSolver(apiServer.Cfg.WebServer)
+	if err != nil {
+		return err
+	}
+
 	cfg := certmagic.NewDefault()
 	cfg.Storage = &certmagic.FileStorage{Path: "/data/certmagic"}
 
@@ -66,23 +71,39 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 		},
 	}
 
-	magicACME := certmagic.NewACMEIssuer(cfg, certmagic.ACMEIssuer{
+	issuerTmpl := certmagic.ACMEIssuer{
 		CA:     certmagic.LetsEncryptProductionCA,
 		Email:  email,
 		Agreed: true,
-	})
+	}
+	if dnsSolver != nil {
+		// Setting DNS01Solver on the issuer disables HTTP-01 and
+		// TLS-ALPN-01 for it (per certmagic docs) — DNS-01 is used
+		// exclusively. That's the right behaviour behind Cloudflare,
+		// where the network challenges can't reach the origin.
+		issuerTmpl.DNS01Solver = dnsSolver
+	}
+	magicACME := certmagic.NewACMEIssuer(cfg, issuerTmpl)
 	cfg.Issuers = []certmagic.Issuer{magicACME}
 
 	log.Info().
 		Str("email", email).
+		Str("challenge", challengeDesc).
 		Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
 
-	// HTTP-01 challenges + plaintext redirects on :80.
-	go func() {
-		if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect())); err != nil {
-			log.Warn().Err(err).Msg("vhost TLS: :80 challenge listener exited")
-		}
-	}()
+	if dnsSolver == nil {
+		// HTTP-01 challenges + plaintext redirects on :80. Only useful
+		// when LE can reach the origin directly on :80 — i.e. when
+		// using the HTTP-01 challenge. Skipped in DNS-01 mode where
+		// :80 isn't part of the challenge flow.
+		go func() {
+			if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect())); err != nil {
+				log.Warn().Err(err).Msg("vhost TLS: :80 challenge listener exited")
+			}
+		}()
+	} else {
+		log.Info().Msg("vhost TLS: skipping :80 listener (DNS-01 mode does not use it)")
+	}
 
 	// HTTPS listener on :443 — same handler as the plain HTTP listener,
 	// so the vhost middleware runs there too.

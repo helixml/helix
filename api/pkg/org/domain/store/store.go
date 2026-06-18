@@ -11,7 +11,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -142,6 +141,16 @@ type Subscriptions interface {
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
 	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error)
+	// PageForStream returns a window of events on one Stream, newest
+	// first (same ordering as ListForStream), skipping offset rows and
+	// returning at most limit. Powers page-number pagination of the
+	// REST messages endpoint. offset/limit <= 0 are treated as "no
+	// skip" / "no cap" respectively.
+	PageForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error)
+	// CountForStream returns the total number of events on one Stream —
+	// the total-count meta the paginated messages endpoint surfaces,
+	// independent of any page window.
+	CountForStream(ctx context.Context, orgID string, streamID streaming.StreamID) (int, error)
 	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error)
 	ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error)
 	// ListAll returns events across every Stream in the given org,
@@ -149,15 +158,6 @@ type Events interface {
 	// the UI. If limit <= 0, no limit is applied — callers are
 	// expected to pass a sane cap.
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
-}
-
-// Environments persists the per-Worker directory handle. The manager
-// populates the directory before hire; this table just tracks that a
-// directory exists and which Worker owns it.
-type Environments interface {
-	Create(ctx context.Context, env environment.Environment) error
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error)
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID) error
 }
 
 // Configs persists operational-config rows: transport credentials,
@@ -186,7 +186,6 @@ type Store struct {
 	Streams            Streams
 	Subscriptions      Subscriptions
 	Events             Events
-	Environments       Environments
 	Configs            Configs
 	Activations        activation.Repository
 }

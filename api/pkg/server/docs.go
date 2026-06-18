@@ -10049,6 +10049,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/streams/{id}/messages": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/vnd.api+json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a stream's messages (JSON:API, paginated)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Stream ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page number (default 1)",
+                        "name": "page[number]",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50, max 200)",
+                        "name": "page[size]",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.MessagesDocument"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/streams/{id}/publish": {
             "post": {
                 "security": [
@@ -10165,7 +10222,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).",
+                "description": "Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).",
                 "consumes": [
                     "application/json"
                 ],
@@ -10517,6 +10574,54 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/workers/{id}/restart-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: restart a worker's agent session (recreate desktop container)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worker ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.WorkerActivateDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
@@ -15676,6 +15781,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-config-applied": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Notify that an in-place agent switch's config has been applied in the container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentConfigAppliedResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -15782,6 +15921,58 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/clear": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes all interactions for a session while preserving the session\nrecord (ID, name, project, owner, model, metadata). For Zed-backed\nsessions the Zed thread is also reset so the agent starts fresh.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Clear a session's conversation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
                         }
                     },
                     "403": {
@@ -16613,6 +16804,52 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/switch-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Switch the agent framework on a running session in place",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID to switch the agent on",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Target agent selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentResponse"
                         }
                     }
                 }
@@ -20635,6 +20872,10 @@ const docTemplate = `{
         "api.CreateStreamRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -20827,6 +21068,89 @@ const docTemplate = `{
                 }
             }
         },
+        "api.MessageAttributes": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "has_message": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "stream_id": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.MessageResource": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/api.MessageAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.MessagesDocument": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.MessageResource"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/api.MessagesMeta"
+                }
+            }
+        },
+        "api.MessagesMeta": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.OrgOverview": {
             "type": "object",
             "properties": {
@@ -20847,6 +21171,10 @@ const docTemplate = `{
         "api.PublishRequest": {
             "type": "object",
             "properties": {
+                "as": {
+                    "description": "As is the Worker the message is sent as — the worker whose chat the\nhuman is in. Empty means human/system-origin (the dispatcher treats\nit as such). There is no global \"owner\" sender any more.",
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
@@ -20932,12 +21260,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "db_path": {
-                    "type": "string"
-                },
-                "envs_dir": {
-                    "type": "string"
-                },
-                "owner": {
                     "type": "string"
                 },
                 "public_url": {
@@ -22439,6 +22761,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "hostname": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentConfigAppliedResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
                     "type": "string"
                 }
             }
@@ -24367,6 +24697,31 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "server.SwitchAgentRequest": {
+            "type": "object",
+            "properties": {
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SwitchAgentResponse": {
+            "type": "object",
+            "properties": {
+                "agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
                 }
             }
         },
@@ -32187,7 +32542,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "active_sandboxes": {
-                    "description": "Sandbox capacity",
+                    "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default 20); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
                     "type": "integer"
                 },
                 "compute_state": {
@@ -32872,6 +33227,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "agent_switched_at": {
+                    "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
+                    "type": "string"
                 },
                 "agent_type": {
                     "description": "Agent type: \"helix\" or \"zed_external\"",

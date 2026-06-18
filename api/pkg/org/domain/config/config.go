@@ -15,24 +15,20 @@ import (
 )
 
 // Config is one operational-config row: a key, an opaque JSON value,
-// and audit metadata. Keys are flat dot-namespaced strings owned by
-// subsystems (e.g. "claude.bin", "transport.postmark"). Values are
-// stored as JSON strings — schema validation is the registry's
+// and an updated-at timestamp. Keys are flat dot-namespaced strings
+// owned by subsystems (e.g. "claude.bin", "transport.postmark"). Values
+// are stored as JSON strings — schema validation is the registry's
 // concern, not the storage layer's.
-//
-// UpdatedBy is an orgchart.WorkerID carried as a plain string to keep
-// domain/config from importing domain/orgchart.
 type Config struct {
 	OrganizationID string
 	Key            string
 	Value          string // JSON-encoded
 	UpdatedAt      time.Time
-	UpdatedBy      string // orgchart.WorkerID, empty until auth lands
 }
 
 // New validates and constructs a Config. orgID is required — every
 // config row is tenant-scoped via the composite (key, org_id) PK.
-func New(key, value string, updatedAt time.Time, updatedBy string, orgID string) (Config, error) {
+func New(key, value string, updatedAt time.Time, orgID string) (Config, error) {
 	if key == "" {
 		return Config{}, errors.New("config key is empty")
 	}
@@ -56,6 +52,5 @@ func New(key, value string, updatedAt time.Time, updatedBy string, orgID string)
 		Key:            key,
 		Value:          value,
 		UpdatedAt:      updatedAt.UTC(),
-		UpdatedBy:      updatedBy,
 	}, nil
 }

@@ -21,6 +21,12 @@ export interface ApiCreateRoleRequest {
 }
 
 export interface ApiCreateStreamRequest {
+  /**
+   * As is the Worker that creates the stream — the worker whose chat
+   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * cosmetic: it only anchors the node on the chart).
+   */
+  as?: string;
   description?: string;
   id?: string;
   name?: string;
@@ -135,12 +141,48 @@ export interface ApiInstallGitHubWebhookResponse {
   webhook_id?: number;
 }
 
+export interface ApiMessageAttributes {
+  body?: string;
+  created_at?: string;
+  from?: string;
+  has_message?: boolean;
+  source?: string;
+  stream_id?: string;
+  subject?: string;
+  to?: string[];
+}
+
+export interface ApiMessageResource {
+  attributes?: ApiMessageAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ApiMessagesDocument {
+  data?: ApiMessageResource[];
+  links?: Record<string, string>;
+  meta?: ApiMessagesMeta;
+}
+
+export interface ApiMessagesMeta {
+  page?: number;
+  size?: number;
+  total?: number;
+  total_pages?: number;
+}
+
 export interface ApiOrgOverview {
   groups?: ApiRoleGroup[];
   roles?: ApiRoleBadge[];
 }
 
 export interface ApiPublishRequest {
+  /**
+   * As is the Worker the message is sent as — the worker whose chat the
+   * human is in. Empty means human/system-origin (the dispatcher treats
+   * it as such). There is no global "owner" sender any more.
+   */
+  as?: string;
   body?: string;
   subject?: string;
   to?: string[];
@@ -174,8 +216,6 @@ export interface ApiSetSettingRequest {
 
 export interface ApiSettingsResponse {
   db_path?: string;
-  envs_dir?: string;
-  owner?: string;
   public_url?: string;
   specs?: ApiSettingsSpecDTO[];
 }
@@ -866,6 +906,10 @@ export interface ServerActivateTrialResponse {
 
 export interface ServerAddDomainRequest {
   hostname?: string;
+}
+
+export interface ServerAgentConfigAppliedResponse {
+  status?: string;
 }
 
 export interface ServerAgentSandboxesDebugResponse {
@@ -1654,6 +1698,17 @@ export interface ServerSimpleSampleProject {
   skills?: TypesAssistantSkills;
   task_prompts?: ServerSampleTaskPrompt[];
   technologies?: string[];
+}
+
+export interface ServerSwitchAgentRequest {
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  helix_app_id?: string;
+}
+
+export interface ServerSwitchAgentResponse {
+  agent_runtime?: TypesCodeAgentRuntime;
+  helix_app_id?: string;
+  session_id?: string;
 }
 
 export interface ServerTaskProgressResponse {
@@ -5107,7 +5162,13 @@ export interface TypesSandboxInstance {
    * sandboxes with no profile assigned.
    */
   active_profile_id?: string;
-  /** Sandbox capacity */
+  /**
+   * Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+   * and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+   * (default 20); the gorm default below only applies to rows inserted
+   * via paths that don't set the field. Kept aligned with the env-var
+   * default to avoid surprises.
+   */
   active_sandboxes?: number;
   /**
    * ComputeState tracks the provider's view of the host's provisioning
@@ -5478,6 +5539,15 @@ export interface TypesSessionInfo {
 
 export interface TypesSessionMetadata {
   active_tools?: string[];
+  /**
+   * AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+   * this same session (no fork / new container) — see
+   * design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+   * fork_seed interaction carrying the prior thread's transcript exists on
+   * THIS session, so maybePrependTranscript seeds the new Zed thread even
+   * though ParentSessionID is empty (the session continues from itself).
+   */
+  agent_switched_at?: string;
   /** Agent type: "helix" or "zed_external" */
   agent_type?: string;
   /** Streaming resolution height (default: 1600) */
@@ -12163,6 +12233,35 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsStreamsMessagesDetail
+     * @summary Helix-org: list a stream's messages (JSON:API, paginated)
+     * @request GET:/api/v1/orgs/{org}/streams/{id}/messages
+     * @secure
+     */
+    v1OrgsStreamsMessagesDetail: (
+      id: string,
+      org: string,
+      query?: {
+        /** 1-based page number (default 1) */
+        "page[number]"?: number;
+        /** page size (default 50, max 200) */
+        "page[size]"?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiMessagesDocument, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/streams/${id}/messages`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsStreamsPublishCreate
      * @summary Helix-org: publish a message to a stream
      * @request POST:/api/v1/orgs/{org}/streams/{id}/publish
@@ -12216,7 +12315,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, activation stream, hire dispatch).
+     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersCreate
@@ -12367,6 +12466,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
         method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsWorkersRestartAgentCreate
+     * @summary Helix-org: restart a worker's agent session (recreate desktop container)
+     * @request POST:/api/v1/orgs/{org}/workers/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsWorkersRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/workers/${id}/restart-agent`,
+        method: "POST",
         secure: true,
         ...params,
       }),
@@ -14574,6 +14690,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.
+     *
+     * @tags sessions
+     * @name V1SessionsAgentConfigAppliedCreate
+     * @summary Notify that an in-place agent switch's config has been applied in the container
+     * @request POST:/api/v1/sessions/{id}/agent-config-applied
+     * @secure
+     */
+    v1SessionsAgentConfigAppliedCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAgentConfigAppliedResponse, any>({
+        path: `/api/v1/sessions/${id}/agent-config-applied`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
      *
      * @tags Claude
@@ -14607,6 +14741,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes all interactions for a session while preserving the session record (ID, name, project, owner, model, metadata). For Zed-backed sessions the Zed thread is also reset so the agent starts fresh.
+     *
+     * @tags sessions
+     * @name V1SessionsClearCreate
+     * @summary Clear a session's conversation
+     * @request POST:/api/v1/sessions/{id}/clear
+     * @secure
+     */
+    v1SessionsClearCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/clear`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -14947,6 +15099,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/stop-external-agent`,
         method: "DELETE",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.
+     *
+     * @tags sessions
+     * @name V1SessionsSwitchAgentCreate
+     * @summary Switch the agent framework on a running session in place
+     * @request POST:/api/v1/sessions/{id}/switch-agent
+     * @secure
+     */
+    v1SessionsSwitchAgentCreate: (id: string, request: ServerSwitchAgentRequest, params: RequestParams = {}) =>
+      this.request<ServerSwitchAgentResponse, any>({
+        path: `/api/v1/sessions/${id}/switch-agent`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

@@ -202,3 +202,79 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 
 	s.server.processPendingPromptsForIdleSessions(context.Background(), "task-789")
 }
+
+// TestMarkCanonicalSessionStartingForSync_NoWS_MarksStarting verifies that
+// when a chat is sent to a session whose desktop has no live WebSocket,
+// syncPromptHistory's helper flips external_agent_status to "starting"
+// synchronously before the wake goroutine fires — so the frontend's first
+// refetch returns a row that agrees with the optimistic cache write.
+// Spec: design/tasks/002047_yet-again-sending-a/.
+func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_NoWS_MarksStarting() {
+	sessionID := "ses_no_ws"
+	specTaskID := "spt_idle"
+
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), specTaskID).
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
+
+	// No WS registered for this session — manager returns (nil, false).
+	// MarkSessionStartingIfIdle must then be called and return true (row was idle).
+	s.store.EXPECT().
+		MarkSessionStartingIfIdle(gomock.Any(), sessionID).
+		Return(true, nil).Times(1)
+
+	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
+}
+
+// TestMarkCanonicalSessionStartingForSync_LiveWS_SkipsMark verifies that
+// when a WS is already live the helper does not touch the row — the
+// existing socket will deliver the prompt without any boot.
+func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_LiveWS_SkipsMark() {
+	sessionID := "ses_live_ws"
+	specTaskID := "spt_live"
+
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), specTaskID).
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
+
+	// Register a live WS for the session. Pass a non-nil placeholder
+	// connection so the registration sticks.
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{})
+
+	// MarkSessionStartingIfIdle must NOT be called — gomock enforces.
+	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
+}
+
+// TestMarkCanonicalSessionStartingForSync_NoPlanningSession_NoOp verifies that
+// the helper bails cleanly when the spec task has no planning session yet
+// (typical right after creation, before the planning session is wired up).
+func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_NoPlanningSession_NoOp() {
+	specTaskID := "spt_no_planning"
+
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), specTaskID).
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: ""}, nil)
+
+	// MarkSessionStartingIfIdle must NOT be called.
+	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
+}
+
+// TestMarkCanonicalSessionStartingForSync_AlreadyStarting_NoUpdate verifies that
+// the helper still calls MarkSessionStartingIfIdle (which is a no-op at the
+// DB level because of its WHERE guard) and logs the no-update outcome.
+func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_AlreadyStarting_NoUpdate() {
+	sessionID := "ses_already_starting"
+	specTaskID := "spt_already"
+
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), specTaskID).
+		Return(&types.SpecTask{ID: specTaskID, PlanningSessionID: sessionID}, nil)
+
+	// Helper falls into the no-update branch when the WHERE guard skipped
+	// the row.
+	s.store.EXPECT().
+		MarkSessionStartingIfIdle(gomock.Any(), sessionID).
+		Return(false, nil).Times(1)
+
+	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
+}

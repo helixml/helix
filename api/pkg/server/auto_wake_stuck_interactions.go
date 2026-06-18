@@ -233,6 +233,21 @@ const (
 	// stuck interaction before giving up and marking it state=error.
 	autoWakeMaxRetries = 2
 
+	// defaultAutoWakeSessionWedgeThreshold is the session-scoped circuit
+	// breaker. The per-interaction autoWakeMaxRetries cap is defeated by a
+	// wedged ACP thread: each wake-up makes the wrapper echo the user message
+	// back, handleMessageAdded mints a FRESH waiting interaction (auto_wake_count
+	// reset to 0), and the worker re-targets it — re-sending to the same wedged
+	// thread forever (see design/2026-06-15-wedged-acp-thread-autowake-flood.md,
+	// witnessed on spt_01kv5q5rz4gstfks14ng1p6qqq). Once this many interactions
+	// have errored since the session's last genuine completion, the thread is
+	// wedged and re-sending cannot help — stop waking it. A genuine completion
+	// resets the count (it walks back only to the most recent complete), so this
+	// never engages on a healthy session that is completing turns.
+	//
+	// Override with HELIX_AUTO_WAKE_SESSION_WEDGE_THRESHOLD.
+	defaultAutoWakeSessionWedgeThreshold = 3
+
 	// defaultColdStartGracePeriod is how long we wait for an in-flight
 	// container boot to bring up the dev container + Zed + claude-agent-acp
 	// before we count the wait against the cold-start retry budget.
@@ -283,6 +298,47 @@ func autoWakeStuckThreshold() time.Duration {
 		}
 	}
 	return defaultAutoWakeStuckThreshold
+}
+
+// autoWakeSessionWedgeThreshold returns the session-scoped breaker threshold.
+func autoWakeSessionWedgeThreshold() int {
+	if raw := os.Getenv("HELIX_AUTO_WAKE_SESSION_WEDGE_THRESHOLD"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultAutoWakeSessionWedgeThreshold
+}
+
+// sessionWedgedByConsecutiveErrors reports whether the session has accumulated
+// at least autoWakeSessionWedgeThreshold() errored interactions since its most
+// recent genuine completion — the signature of an ACP thread that re-sending
+// cannot recover. Walks newest→oldest and stops at the first completed
+// interaction, so a healthy session that keeps completing turns never trips.
+// In-flight (waiting) rows are ignored. Returns the count for logging.
+func (apiServer *HelixAPIServer) sessionWedgedByConsecutiveErrors(ctx context.Context, session *types.Session) (bool, int) {
+	list, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      40,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("[AUTO_WAKE] wedge check: ListInteractions failed")
+		return false, 0
+	}
+	count := 0
+	for _, it := range list { // newest first
+		switch it.State {
+		case types.InteractionStateComplete:
+			return count >= autoWakeSessionWedgeThreshold(), count
+		case types.InteractionStateError:
+			count++
+		default:
+			// waiting/other in-flight rows don't reset or advance the count
+		}
+	}
+	return count >= autoWakeSessionWedgeThreshold(), count
 }
 
 // coldStartGracePeriod returns how long an in-flight `StartDesktop` is
@@ -465,6 +521,32 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// the previous threshold value, but recheck here defensively in
 	// case the env var was bumped UP between the SQL filter and now.
 	if time.Since(stuck.Created) < threshold {
+		return
+	}
+
+	// Gate 1c — session-scoped wedge breaker. The per-interaction cap below
+	// is defeated when the ACP thread is wedged: every wake echoes the user
+	// message back, handleMessageAdded mints a fresh waiting interaction with
+	// auto_wake_count=0, and we re-target it forever. If the session has piled
+	// up wedge errors with no completion in between, stop waking entirely and
+	// mark this row terminal — re-sending to the wedged thread cannot help.
+	// The user's prompt is independently crash-marked (Restart surfaces) by
+	// handleThreadLoadError once the wedge recurs.
+	if wedged, n := apiServer.sessionWedgedByConsecutiveErrors(ctx, session); wedged {
+		stuck.State = types.InteractionStateError
+		stuck.Error = "Agent thread wedged (claude-agent-acp cancel/prompt swallow) — auto-wake stopped; click Restart to recover (see design/2026-06-15-wedged-acp-thread-autowake-flood.md)"
+		stuck.Updated = time.Now()
+		stuck.Completed = time.Now()
+		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
+			log.Warn().Err(err).Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Failed to mark wedged interaction as error")
+			return
+		}
+		log.Warn().
+			Str("session_id", stuck.SessionID).
+			Str("interaction_id", stuck.ID).
+			Int("consecutive_errors", n).
+			Int("threshold", autoWakeSessionWedgeThreshold()).
+			Msg("🧱 [AUTO_WAKE] Session wedge breaker tripped — stopped re-waking the wedged ACP thread")
 		return
 	}
 
@@ -663,6 +745,22 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 				Str("interaction_id", stuck.ID).
 				Msg("[AUTO_WAKE] Failed to mark cold-start-exhausted interaction as error")
 			return
+		}
+		// Revert any sync-time "starting" mark left behind by
+		// syncPromptHistory's markCanonicalSessionStartingForSync. Without
+		// this, the spec-task detail page sits on a perpetual
+		// "Starting Desktop..." spinner instead of reverting to
+		// "Desktop Paused". Targeted JSONB merge gated on
+		// status='starting' so we don't clobber a status that hydra has
+		// since updated. See spec design/tasks/002047_yet-again-sending-a/.
+		if cleared, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
+			log.Warn().Err(clearErr).
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Failed to clear sync-time starting status on cold-start exhaustion")
+		} else if cleared {
+			log.Info().
+				Str("session_id", stuck.SessionID).
+				Msg("[AUTO_WAKE] Cleared sync-time starting status after cold-start exhaustion — spinner will return to paused")
 		}
 		log.Warn().
 			Str("interaction_id", stuck.ID).

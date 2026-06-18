@@ -855,21 +855,6 @@ fn run_pipewire_loop(
             }
         })
         .process(move |stream, _| {
-            // Use a static counter for frame stats logging
-            use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-            static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
-            static LAST_LOG: AtomicU64 = AtomicU64::new(0);
-            static LOGGED_START: AtomicBool = AtomicBool::new(false);
-            static PROCESS_COUNT: AtomicU64 = AtomicU64::new(0);
-
-            let pcount = PROCESS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-            if pcount == 1 {
-                eprintln!("[PIPEWIRE_DEBUG] PROCESS callback called for first time!");
-            }
-            if pcount <= 5 || pcount % 100 == 0 {
-                eprintln!("[PIPEWIRE_DEBUG] process callback #{}", pcount);
-            }
-
             // Use raw buffer access to extract PTS from spa_meta_header
             // The PTS is set by the compositor when the frame was captured
             let pw_buffer = unsafe { stream.dequeue_raw_buffer() };
@@ -877,34 +862,18 @@ fn run_pipewire_loop(
             // (includes the synchronous CUDA copy below) before queue_raw_buffer.
             let t_dequeue = std::time::Instant::now();
             if pw_buffer.is_null() {
-                // dequeue_buffer returned None - stream might not be in Streaming state yet
-                static DEQUEUE_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let fail_count = DEQUEUE_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if fail_count <= 5 || fail_count % 100 == 0 {
-                    eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer returned None (no buffer available)", pcount);
-                }
+                // No buffer available yet (e.g. stream not in Streaming state).
                 return;
             }
 
             let spa_buffer = unsafe { (*pw_buffer).buffer };
             if spa_buffer.is_null() {
-                eprintln!("[PIPEWIRE_DEBUG] process #{}: pw_buffer.buffer is null!", pcount);
                 unsafe { stream.queue_raw_buffer(pw_buffer) };
                 return;
             }
 
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
-
-            // Detect out-of-order frames from compositor (PTS should be monotonically increasing)
-            static LAST_PTS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-            static OOO_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let prev_pts = LAST_PTS.swap(pts_ns, Ordering::SeqCst);
-            if pts_ns > 0 && prev_pts > 0 && pts_ns < prev_pts {
-                let ooo = OOO_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                eprintln!("[PIPEWIRE_OOO] OUT OF ORDER FRAME! #{} prev_pts={} curr_pts={} delta={}ns",
-                    ooo, prev_pts, pts_ns, prev_pts - pts_ns);
-            }
 
             // Note: Cursor metadata is handled by Go PipeWire client via separate session
             // The Rust plugin only handles video frames
@@ -932,25 +901,6 @@ fn run_pipewire_loop(
             if let Some(frame) = extract_frame(datas, &params, pts_ns) {
                 // Point A: inter-arrival of frames from Mutter/PipeWire (measure-only).
                 crate::metrics::PRODUCER.lock().record_arrival();
-                let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-
-                // Log first frame with PTS
-                if !LOGGED_START.swap(true, Ordering::Relaxed) {
-                    tracing::warn!("[PIPEWIRE_FRAME] First frame received from PipeWire ({}x{}) pts_ns={}",
-                        params.width, params.height, pts_ns);
-                }
-
-                // Log every 100th frame or every 5 seconds
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let last = LAST_LOG.load(Ordering::Relaxed);
-                if count % 100 == 0 || (now > last + 5) {
-                    LAST_LOG.store(now, Ordering::Relaxed);
-                    tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
-                }
-
                 // GL-blit path: import Mutter's dma-buf as a GL texture (cheap)
                 // and blit into our persistent CUDA-registered buffer, instead of
                 // per-frame cuGraphicsEGLRegisterImage of the external buffer.
@@ -991,17 +941,6 @@ fn run_pipewire_loop(
                     let depth = frame_tx_process.len();
                     let dropped = frame_tx_process.try_send(f).is_err();
                     crate::metrics::PRODUCER.lock().record_chan(depth, dropped);
-                }
-            } else {
-                // extract_frame returned None - log why (first 5 times only to avoid spam)
-                static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let fail_count = EXTRACT_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if fail_count <= 5 {
-                    let first = datas.first();
-                    let data_type = first.map(|d| d.type_());
-                    let chunk_size = first.map(|d| d.chunk().size());
-                    eprintln!("[PIPEWIRE_DEBUG] process #{}: extract_frame returned None! params={}x{} fmt=0x{:x} data_type={:?} chunk_size={:?}",
-                        pcount, params.width, params.height, params.format, data_type, chunk_size);
                 }
             }
 
