@@ -453,6 +453,28 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		return "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
 	}
 
+	// Re-activation of an existing session: clear the prior conversation
+	// before sending the new prompt so each activation starts on a fresh
+	// context window. Re-using one long-lived session across many
+	// activations grows the transcript until it hits the model's context
+	// limit and triggers expensive, lossy compaction. A Worker persists
+	// its durable learnings to markdown in the git workspace — not to the
+	// chat history — so wiping the conversation discards no real state.
+	// For Zed/ACP worker sessions (AgentType == "zed_external") the clear
+	// also resets the Zed thread, so the EnsureAndSend follow-up below
+	// lands on a brand-new thread. First activation (no persisted session
+	// yet) has nothing to clear and falls straight through to a fresh
+	// StartSession.
+	if state.SessionID != "" {
+		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
+			return "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
+		}
+		if c.Logger != nil {
+			c.Logger.Info("spawner: cleared session before re-activation",
+				"worker", workerID, "session", state.SessionID)
+		}
+	}
+
 	// Follow-up: the persisted session ID is the durable target. We
 	// continue the session via /sessions/chat with SessionID set
 	// rather than the /sessions/{id}/messages queue endpoint —

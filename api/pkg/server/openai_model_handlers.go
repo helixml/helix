@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -132,16 +131,16 @@ func (apiServer *HelixAPIServer) listModelsAnthropic(rw http.ResponseWriter, r *
 }
 
 // getCachedModels returns cached models for a provider, or nil if not cached.
+// The cache stores the wrapped cachedModels{Models,FetchedAt} payload written
+// by refreshProviderModels, so we must decode that shape — unmarshalling raw
+// into []OpenAIModel always failed, which left the aggregate /v1/models empty
+// for env-baked global providers.
 func (apiServer *HelixAPIServer) getCachedModels(cacheKey string) []types.OpenAIModel {
-	cached, found := apiServer.cache.Get(cacheKey)
+	cm, found := apiServer.loadCachedModels(cacheKey)
 	if !found {
 		return nil
 	}
-	var models []types.OpenAIModel
-	if err := json.Unmarshal([]byte(cached), &models); err != nil {
-		return nil
-	}
-	return models
+	return cm.Models
 }
 
 // prefixModels prepends providerName/ to model IDs that don't already contain a slash.

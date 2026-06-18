@@ -3388,3 +3388,83 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession()
 	err := s.server.handleUserCreatedThread("ses_exploratory", syncMsg)
 	s.NoError(err)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// sendChatMessageToExternalAgent — request→session mapping for new threads
+//
+// Regression test for the live-clear orphaning bug: after ClearSession resets a
+// Zed session's ZedThreadID to "", the next message is sent with acp_thread_id=nil
+// so the agent creates a NEW thread and emits thread_created. Without a
+// request_id→session mapping, handleThreadCreated could not reattach that thread
+// to the originating session and spawned an orphan session, leaving the original
+// interaction stuck in "waiting". sendChatMessageToExternalAgent must therefore
+// register requestToSessionMapping whenever it sends with no existing thread.
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_NewThread_RegistersSessionMapping() {
+	sessionID := "ses_cleared"
+	requestID := "req_newthread"
+
+	// A live WS connection so sendCommandToExternalAgent succeeds (no auto-start path).
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan: make(chan types.ExternalAgentCommand, 10),
+	})
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:    "zed_external",
+			ZedThreadID:  "", // cleared — next message creates a NEW thread
+			ZedAgentName: "claude",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			i.ID = "int_new"
+			return i, nil
+		})
+
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+
+	s.server.contextMappingsMutex.RLock()
+	mapped, ok := s.server.requestToSessionMapping[requestID]
+	s.server.contextMappingsMutex.RUnlock()
+	s.True(ok, "new-thread send must register request_id → session so thread_created reattaches")
+	s.Equal(sessionID, mapped)
+}
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_ExistingThread_NoSessionMapping() {
+	sessionID := "ses_with_thread"
+	requestID := "req_existing"
+
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan: make(chan types.ExternalAgentCommand, 10),
+	})
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:    "zed_external",
+			ZedThreadID:  "thr-existing", // continues the SAME thread; no thread_created
+			ZedAgentName: "claude",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			i.ID = "int_existing"
+			return i, nil
+		})
+
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+
+	s.server.contextMappingsMutex.RLock()
+	_, ok := s.server.requestToSessionMapping[requestID]
+	s.server.contextMappingsMutex.RUnlock()
+	s.False(ok, "same-thread continuation must NOT register a mapping (would leak — no thread_created consumes it)")
+}

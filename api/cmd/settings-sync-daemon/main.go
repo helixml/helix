@@ -160,11 +160,28 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
+					// --yolo makes qwen start its ACP session in YOLO mode so it
+					// auto-approves every tool call. This is passed on the command
+					// line (not just via the "default_mode" setting below) on
+					// purpose: default_mode only takes effect if the host IDE reads
+					// it and sends an ACP session/set_mode after new_session. The
+					// Zed builds pinned for spec-task sandboxes don't do that for
+					// custom agent servers, so without --yolo qwen stays in
+					// ApprovalMode.DEFAULT and every edit round-trips a
+					// session/request_permission that nobody clicks in a headless
+					// sandbox — the agent stalls on an "Allow all edits?" prompt.
+					"--yolo",
 					"--experimental-acp",
 					"--no-telemetry",
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+				// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
+				// reads it and issues session/set_mode("yolo"), which also keeps the
+				// Zed UI mode indicator in sync. Mirrors claude_code's
+				// "bypassPermissions" entry below. --yolo above is the version-
+				// independent guarantee; this is the nicety for IDEs that honour it.
+				"default_mode": "yolo",
 			},
 		}
 

@@ -26,6 +26,14 @@ type SandboxStore interface {
 	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
 	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
 	DeregisterSandboxInstance(ctx context.Context, id string) error
+	// ListRunnerAssignments lets D4 (tryDeprovisionIdle) protect any
+	// Runner that has a Runner Profile assigned. A profile-assigned
+	// Runner may be serving inference (e.g. vllm-tiny via compose-
+	// manager) even when active_sandboxes is 0; shedding it would tear
+	// down a live inference service. Only the runner IDs are used;
+	// the full assignment payload is loaded but cheap (one row per
+	// Runner, and the fleet is small).
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 }
 
 // ManagerConfig configures a single ComputeManager instance.
@@ -490,6 +498,31 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		return nil
 	}
 
+	// Load the set of Runner IDs that currently have a Runner Profile
+	// assigned. Those Runners may be serving inference (vllm-tiny etc.)
+	// even when active_sandboxes is 0; the dispatcher's idleness
+	// signal only tracks dev-container sandboxes and is blind to
+	// inference traffic served by the compose-managed profile. D4
+	// MUST NOT shed them: tearing down a profile-assigned Runner kills
+	// its inference engine and breaks routed traffic. The operator
+	// un-assigns the profile when they actually want the Runner gone.
+	//
+	// On store error we log and conservatively skip the whole shed
+	// cycle - better to leave an idle Runner alive for one cycle than
+	// risk killing inference because the assignments query timed out.
+	assignedIDs := make(map[string]struct{})
+	assignments, err := m.store.ListRunnerAssignments(ctx)
+	if err != nil {
+		log.Warn().Err(err).
+			Msg("D4: ListRunnerAssignments failed; skipping shed this cycle to avoid killing a profile-assigned Runner")
+		return nil
+	}
+	for _, a := range assignments {
+		if a != nil {
+			assignedIDs[a.RunnerID] = struct{}{}
+		}
+	}
+
 	// Pick the longest-idle candidate that has crossed the IdleTimeout
 	// window. Single deprovision per cycle.
 	//
@@ -510,6 +543,11 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	for _, id := range ids {
 		idleAt := m.idleSince[id]
 		if now.Sub(idleAt) < m.cfg.IdleTimeout {
+			continue
+		}
+		if _, assigned := assignedIDs[id]; assigned {
+			// Profile-assigned Runner: protected from shed even when
+			// dev-container sandboxes are zero (may be serving inference).
 			continue
 		}
 		r := readyByID[id]
@@ -543,12 +581,21 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 			ProviderID:   candidate.ProviderID,
 			SandboxID:    candidate.ID,
 		}
-		// Force=false: this is a graceful scale-down, not a stuck-row
-		// rollback. The Provider's Deprovision is expected to drain
-		// any in-flight workload (per its own semantics) before the
-		// host is reaped upstream.
+		// Force=true: for the YD-as-runner-host model the "task body"
+		// is a persistent supervisor process - there's no in-flight
+		// work to gracefully drain. Force=false maps to YD's "drain"
+		// semantic which waits for the task to exit on its own; since
+		// our task body never exits (it's a long-running helix-sandbox
+		// container), drain mode leaves the WR in CANCELLING
+		// indefinitely. Force=true maps to "abort tasks", which is
+		// the only correct cancel semantic here.
+		//
+		// The Provider.Deprovision contract is "shut this host down";
+		// the differentiation graceful-vs-force came from a generic
+		// VM-pool mental model that doesn't fit YD. Future Providers
+		// with genuine drainable work can opt back into Force=false.
 		if err := m.provider.Deprovision(ctx, handle, DeprovisionOpts{
-			Force:  false,
+			Force:  true,
 			Reason: "idle deprovision (D4)",
 		}); err != nil {
 			// Provider.Deprovision failed. The earlier ultrareview-1
@@ -632,6 +679,19 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
+	// provisioningCapacity is the MaxSandboxes total across rows we've
+	// ALREADY submitted a Provision for but that haven't reached Ready
+	// yet. Counted toward "committed capacity" in the D3 headroom
+	// decision so we don't fire a second Provision in the next cycle
+	// for the same demand the first one is on its way to satisfy.
+	// Without this, a 2-session burst on a single-Runner fleet with
+	// HEADROOM_MIN=1 produces 2 new Runners instead of 1: cycle 1
+	// sees headroom=0 and fires Provision A; cycle 2 (15-30s later,
+	// A still booting since EC2+image pull takes 60-90s) STILL sees
+	// readyCapacity=2/readyDemand=2/headroom=0 and fires Provision B.
+	// The deficit gets double-counted because future-but-not-yet-Ready
+	// capacity is invisible to the math.
+	provisioningCapacity := 0
 	for _, r := range rows {
 		if isAvailable(r) {
 			available++
@@ -643,6 +703,9 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
+		}
+		if State(r.ComputeState) == StateProvisioning {
+			provisioningCapacity += int(r.MaxSandboxes)
 		}
 	}
 
@@ -685,7 +748,14 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	// provisioning 4x on smaller-capacity hosts.
 	demandNeed := 0
 	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 {
-		headroom := readyCapacity - readyDemand
+		// Committed capacity: Ready+online (real serving) PLUS in-flight
+		// provisioning (will serve soon). Both contribute slots toward
+		// the headroom we already have on order. The readyOnlineCount
+		// gate above still uses ONLY real-online so D3 doesn't fire
+		// with zero serving capacity - but for the deficit math, count
+		// committed slots so we don't double-fire across cycles while
+		// a Provision is still in flight.
+		headroom := readyCapacity + provisioningCapacity - readyDemand
 		if headroom < m.cfg.ScaleUpHeadroomMin {
 			slotsShort := m.cfg.ScaleUpHeadroomMin - headroom
 			demandNeed = slotsShort
