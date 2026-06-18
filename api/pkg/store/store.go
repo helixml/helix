@@ -319,6 +319,10 @@ type Store interface {
 	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
+	// ClearSessionInteractions hard-deletes every interaction belonging to a
+	// session in a single statement, leaving the session row itself intact.
+	// Used to "clear" a conversation so it can start fresh in the same session.
+	ClearSessionInteractions(ctx context.Context, sessionID string) error
 	// ListStuckWaitingInteractions returns up to `limit` interactions that
 	// are in state=waiting, have produced no response or entries, and were
 	// created before `olderThan`. Used by the auto-wake worker to find

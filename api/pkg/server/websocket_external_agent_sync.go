@@ -1955,6 +1955,20 @@ func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, messa
 				apiServer.requestToInteractionMapping = make(map[string]string)
 			}
 			apiServer.requestToInteractionMapping[requestID] = interactionID
+			// When there is no existing Zed thread (acpThreadID == nil), the agent
+			// will create a NEW thread and emit thread_created. Register
+			// request_id → session so handleThreadCreated (PRIORITY 1) reattaches
+			// that new thread to THIS session instead of spawning an orphan
+			// session — which is what happens after a session is cleared
+			// (ClearSession resets ZedThreadID to ""). Only registered for the
+			// new-thread case so we don't leak entries on normal same-thread
+			// continuations, which emit no thread_created to consume the mapping.
+			if acpThreadID == nil {
+				if apiServer.requestToSessionMapping == nil {
+					apiServer.requestToSessionMapping = make(map[string]string)
+				}
+				apiServer.requestToSessionMapping[requestID] = sessionID
+			}
 			apiServer.contextMappingsMutex.Unlock()
 		}
 

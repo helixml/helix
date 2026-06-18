@@ -26,6 +26,14 @@ type SandboxStore interface {
 	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
 	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
 	DeregisterSandboxInstance(ctx context.Context, id string) error
+	// ListRunnerAssignments lets D4 (tryDeprovisionIdle) protect any
+	// Runner that has a Runner Profile assigned. A profile-assigned
+	// Runner may be serving inference (e.g. vllm-tiny via compose-
+	// manager) even when active_sandboxes is 0; shedding it would tear
+	// down a live inference service. Only the runner IDs are used;
+	// the full assignment payload is loaded but cheap (one row per
+	// Runner, and the fleet is small).
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 }
 
 // ManagerConfig configures a single ComputeManager instance.
@@ -490,6 +498,31 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		return nil
 	}
 
+	// Load the set of Runner IDs that currently have a Runner Profile
+	// assigned. Those Runners may be serving inference (vllm-tiny etc.)
+	// even when active_sandboxes is 0; the dispatcher's idleness
+	// signal only tracks dev-container sandboxes and is blind to
+	// inference traffic served by the compose-managed profile. D4
+	// MUST NOT shed them: tearing down a profile-assigned Runner kills
+	// its inference engine and breaks routed traffic. The operator
+	// un-assigns the profile when they actually want the Runner gone.
+	//
+	// On store error we log and conservatively skip the whole shed
+	// cycle - better to leave an idle Runner alive for one cycle than
+	// risk killing inference because the assignments query timed out.
+	assignedIDs := make(map[string]struct{})
+	assignments, err := m.store.ListRunnerAssignments(ctx)
+	if err != nil {
+		log.Warn().Err(err).
+			Msg("D4: ListRunnerAssignments failed; skipping shed this cycle to avoid killing a profile-assigned Runner")
+		return nil
+	}
+	for _, a := range assignments {
+		if a != nil {
+			assignedIDs[a.RunnerID] = struct{}{}
+		}
+	}
+
 	// Pick the longest-idle candidate that has crossed the IdleTimeout
 	// window. Single deprovision per cycle.
 	//
@@ -510,6 +543,11 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	for _, id := range ids {
 		idleAt := m.idleSince[id]
 		if now.Sub(idleAt) < m.cfg.IdleTimeout {
+			continue
+		}
+		if _, assigned := assignedIDs[id]; assigned {
+			// Profile-assigned Runner: protected from shed even when
+			// dev-container sandboxes are zero (may be serving inference).
 			continue
 		}
 		r := readyByID[id]
