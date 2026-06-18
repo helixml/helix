@@ -7,14 +7,14 @@
 - [x] Regenerate the `Store` mock if one exists
 
 ## Compositional API: SessionBackend + coordinator (TDD)
-- [~] Define `SessionBackend` interface with `Clear(ctx, sessionID) error`
-- [~] Write failing test for `ClearSession` coordinator: always calls `ClearSessionInteractions`, dispatches to correct backend by `CodeAgentRuntime`/`ExternalAgentConfig`
-- [~] Implement `backendFor(session)` dispatch (zed/ACP vs internal agent)
-- [~] Implement `ClearSession` coordinator (clear DB → delegate backend → TouchSession → return session)
+- [x] Define `SessionBackend` interface with `Clear(ctx, sessionID) error`
+- [x] Write failing test for `ClearSession` coordinator: always calls `ClearSessionInteractions`, dispatches to correct backend by `CodeAgentRuntime`/`ExternalAgentConfig`
+- [x] Implement `backendFor(session)` dispatch (zed/ACP vs internal agent)
+- [x] Implement `ClearSession` coordinator (clear DB → delegate backend → TouchSession → return session)
 
 ## Internal agent backend (TDD)
-- [~] Write test asserting `Clear` empties a live `agent.Session` `MessageList` and no-ops when no live session exists
-- [~] Implement `internalAgentBackend.Clear` using `GetMessageHistory().Clear()` (`api/pkg/agent/llm_message.go:87`)
+- [x] Write test asserting `Clear` empties a live `agent.Session` `MessageList` and no-ops when no live session exists
+- [x] Implement `internalAgentBackend.Clear` using `GetMessageHistory().Clear()` (`api/pkg/agent/llm_message.go:87`)
 
 ## ACP / Zed backend (TDD)
 > Refined during implementation: the server cannot mint Zed-valid thread IDs (Zed
@@ -24,8 +24,8 @@
 > thread (same path forks use). So `Clear` resets `ZedThreadID` to "" — the next
 > message naturally opens a clean Zed thread, discarding prior context. No new
 > `clear_thread` protocol command is needed.
-- [~] Write test (mocked WS transport + store) asserting: in-flight turn cancelled, `ZedThreadID` reset to "" and persisted via `UpdateSessionMetadata`, no-connection path returns success
-- [~] Implement `zedACPBackend.Clear`: cancel current turn (`cancelCurrentTurnIfActive`), reset + persist empty `ZedThreadID` via `UpdateSessionMetadata` so next message opens a fresh thread
+- [x] Write test (mocked WS transport + store) asserting: in-flight turn cancelled, `ZedThreadID` reset to "" and persisted via `UpdateSessionMetadata`, no-connection path returns success
+- [x] Implement `zedACPBackend.Clear`: cancel current turn (`cancelCurrentTurnIfActive`), reset + persist empty `ZedThreadID` via `UpdateSessionMetadata` so next message opens a fresh thread
 - [x] ~~Add `clear_thread` command type~~ — not needed; reuse the existing nil-thread-id new-thread path
 - [x] Handle no-connection case as success — cancel is best-effort and no WS command is sent, so a disconnected agent never surfaces an error
 
