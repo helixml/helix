@@ -10,8 +10,9 @@ import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
 import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
-import { isMobileOrTablet } from "../../../utils/isMobileOrTablet"
+import { isMobileOrTablet, isAppleWebKit } from "../../../utils/isMobileOrTablet"
 import { PlayoutScheduler } from "./playout-scheduler"
+import { WebGLVideoRenderer } from "./webgl-video-renderer"
 import {
   WsMessageType,
   CursorImageData,
@@ -54,7 +55,13 @@ export class WebSocketStream {
 
   // Canvas for rendering
   private canvas: HTMLCanvasElement | null = null
+  // Exactly one of these is set, chosen per platform in setCanvas():
+  //  - canvasCtx (2D, desynchronized): Chrome/Firefox — drawImage(VideoFrame) is a
+  //    zero-copy video-overlay scanout there, buttery at 4K60.
+  //  - videoRenderer (WebGL2): Safari/WebKit — its 2D drawImage(VideoFrame) is not
+  //    GPU-accelerated (per-frame CPU copy → ~4fps at 4K), so it needs the texture path.
   private canvasCtx: CanvasRenderingContext2D | null = null
+  private videoRenderer: WebGLVideoRenderer | null = null
 
   // WebCodecs decoders
   private videoDecoder: VideoDecoder | null = null
@@ -999,7 +1006,6 @@ export class WebSocketStream {
   // canvas). Also logs the playout depth/state so we can tell reorder from lag.
   private lastPresentedPtsUs = -1
   private outOfOrderPresents = 0
-  private oooFlashUntilMs = 0
   private _lastLagLogMs = 0
 
   private renderVideoFrame(frame: VideoFrame) {
@@ -1010,7 +1016,7 @@ export class WebSocketStream {
       return
     }
 
-    if (!this.canvas || !this.canvasCtx) {
+    if (!this.canvas || (!this.videoRenderer && !this.canvasCtx)) {
       frame.close()
       this.framesDropped++
       return
@@ -1030,6 +1036,7 @@ export class WebSocketStream {
         targetHeight = Math.round(targetHeight * scale)
       }
     }
+    // Resize the canvas to the (mobile-capped) frame size — shared by both paths.
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth
       this.canvas.height = targetHeight
@@ -1039,7 +1046,6 @@ export class WebSocketStream {
     const _ptsUs = frame.timestamp
     if (this.lastPresentedPtsUs >= 0 && _ptsUs >= 0 && _ptsUs < this.lastPresentedPtsUs) {
       this.outOfOrderPresents++
-      this.oooFlashUntilMs = performance.now() + 300
       console.warn(
         `[PRESENT-OOO] #${this.outOfOrderPresents} pts BACKWARDS by ` +
         `${((this.lastPresentedPtsUs - _ptsUs) / 1000).toFixed(1)}ms ` +
@@ -1063,11 +1069,10 @@ export class WebSocketStream {
     }
 
     // Draw frame to canvas
-    this.canvasCtx.drawImage(frame, 0, 0)
-    // DIAGNOSTIC (temporary): red marker for ~300ms after a backward present.
-    if (performance.now() < this.oooFlashUntilMs) {
-      this.canvasCtx.fillStyle = "rgba(255,0,0,0.7)"
-      this.canvasCtx.fillRect(8, 8, 90, 90)
+    if (this.videoRenderer) {
+      this.videoRenderer.draw(frame, targetWidth, targetHeight)
+    } else if (this.canvasCtx) {
+      this.canvasCtx.drawImage(frame, 0, 0)
     }
     frame.close()
     this.framesDecoded++
@@ -1983,10 +1988,27 @@ export class WebSocketStream {
 
   setCanvas(canvas: HTMLCanvasElement) {
     this.canvas = canvas
-    this.canvasCtx = canvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true, // Lower latency
-    })
+    this.videoRenderer?.dispose()
+    this.videoRenderer = null
+    this.canvasCtx = null
+
+    // Platform-optimized render path (see field comment). Chrome's desynchronized
+    // 2D canvas treats drawImage(VideoFrame) as a zero-copy overlay scanout and is
+    // the fastest path there; Safari/WebKit does NOT GPU-accelerate it (capped ~4fps
+    // at 4K), so WebKit uses the WebGL2 texture path instead.
+    if (isAppleWebKit()) {
+      try {
+        this.videoRenderer = new WebGLVideoRenderer(canvas)
+      } catch (e) {
+        console.error("[WebSocketStream] WebGL2 renderer init failed, falling back to 2D:", e)
+        this.canvasCtx = canvas.getContext("2d", { alpha: false, desynchronized: true })
+      }
+    } else {
+      this.canvasCtx = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true, // zero-copy low-latency present on Chrome
+      })
+    }
   }
 
   /**
@@ -2399,6 +2421,8 @@ export class WebSocketStream {
     // after close() is called (even if decoder has frames in queue)
     this.canvas = null
     this.canvasCtx = null
+    this.videoRenderer?.dispose()
+    this.videoRenderer = null
 
     // Cancel any pending reconnection
     if (this.reconnectTimeoutId) {
