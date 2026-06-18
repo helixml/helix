@@ -7,14 +7,14 @@
 - [x] Regenerate the `Store` mock if one exists
 
 ## Compositional API: SessionBackend + coordinator (TDD)
-- [ ] Define `SessionBackend` interface with `Clear(ctx, sessionID) error`
-- [ ] Write failing test for `ClearSession` coordinator: always calls `ClearSessionInteractions`, dispatches to correct backend by `CodeAgentRuntime`/`ExternalAgentConfig`
-- [ ] Implement `backendFor(session)` dispatch (zed/ACP vs internal agent)
-- [ ] Implement `ClearSession` coordinator (clear DB → delegate backend → TouchSession → return session)
+- [~] Define `SessionBackend` interface with `Clear(ctx, sessionID) error`
+- [~] Write failing test for `ClearSession` coordinator: always calls `ClearSessionInteractions`, dispatches to correct backend by `CodeAgentRuntime`/`ExternalAgentConfig`
+- [~] Implement `backendFor(session)` dispatch (zed/ACP vs internal agent)
+- [~] Implement `ClearSession` coordinator (clear DB → delegate backend → TouchSession → return session)
 
 ## Internal agent backend (TDD)
-- [ ] Write test asserting `Clear` empties a live `agent.Session` `MessageList` and no-ops when no live session exists
-- [ ] Implement `internalAgentBackend.Clear` using `GetMessageHistory().Clear()` (`api/pkg/agent/llm_message.go:87`)
+- [~] Write test asserting `Clear` empties a live `agent.Session` `MessageList` and no-ops when no live session exists
+- [~] Implement `internalAgentBackend.Clear` using `GetMessageHistory().Clear()` (`api/pkg/agent/llm_message.go:87`)
 
 ## ACP / Zed backend (TDD)
 > Refined during implementation: the server cannot mint Zed-valid thread IDs (Zed
