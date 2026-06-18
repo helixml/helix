@@ -40,3 +40,13 @@ to the right backend, so callers don't need to know which runtime a session uses
 ## Out of scope
 - Frontend "Clear conversation" button (backend + API only).
 - Deleting the session entirely (already exists: `DELETE /api/v1/sessions/{id}`).
+
+## Additional fix (found in live-Zed testing)
+
+Clearing a **live** Zed session then messaging it could orphan the agent's reply
+into a new session (original interaction stuck `waiting`). `sendChatMessageToExternalAgent`
+now registers `requestToSessionMapping` when sending with no existing thread
+(`acp_thread_id=nil`), so the new thread Zed creates after a clear reattaches to the
+originating session via `handleThreadCreated` PRIORITY 1. Covered by two new
+regression tests and verified live (fresh thread, reply in the same session, no
+orphan).
