@@ -5162,7 +5162,13 @@ export interface TypesSandboxInstance {
    * sandboxes with no profile assigned.
    */
   active_profile_id?: string;
-  /** Sandbox capacity */
+  /**
+   * Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+   * and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+   * (default 20); the gorm default below only applies to rows inserted
+   * via paths that don't set the field. Kept aligned with the env-var
+   * default to avoid surprises.
+   */
   active_sandboxes?: number;
   /**
    * ComputeState tracks the provider's view of the host's provisioning
@@ -14735,6 +14741,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: body,
         secure: true,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Removes all interactions for a session while preserving the session record (ID, name, project, owner, model, metadata). For Zed-backed sessions the Zed thread is also reset so the agent starts fresh.
+     *
+     * @tags sessions
+     * @name V1SessionsClearCreate
+     * @summary Clear a session's conversation
+     * @request POST:/api/v1/sessions/{id}/clear
+     * @secure
+     */
+    v1SessionsClearCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/clear`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),
