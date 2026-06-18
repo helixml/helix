@@ -100,6 +100,7 @@ func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerTok
 		Max:                     cfg.Max,
 		ScaleUpHeadroomMin:      cfg.ScaleUpHeadroomMin,
 		IdleTimeout:             cfg.IdleTimeout,
+		HardIdleTimeout:         cfg.HardIdleTimeout,
 		SpecTemplate: compute.Spec{
 			MaxSandboxes: maxSandboxesPerHost,
 		},
@@ -114,6 +115,7 @@ func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerTok
 		Int("max", cfg.Max).
 		Int("scaleup_headroom_min", cfg.ScaleUpHeadroomMin).
 		Dur("idle_timeout", cfg.IdleTimeout).
+		Dur("hard_idle_timeout", cfg.HardIdleTimeout).
 		Dur("reconcile_interval", cfg.ReconcileInterval).
 		Dur("max_provisioning_age", cfg.MaxProvisioningAge).
 		Int("max_concurrent_provisions", cfg.MaxConcurrentProvisions).

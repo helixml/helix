@@ -257,6 +257,18 @@ type Compute struct {
 	// grace before convergence resumes.
 	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
 
+	// HardIdleTimeout is the safety override for D4's fleet-pressure
+	// inhibition (see manager.go tryDeprovisionIdle). When ANY Ready
+	// Runner is at-or-over its MaxSandboxes cap, D4 normally won't shed
+	// idle peers - because shedding them would just re-fire D3 next
+	// cycle (the oscillation bug fixed by the inhibition). But if a
+	// stuck session pins a Runner at-cap forever, the inhibition would
+	// hold idle peers alive indefinitely. HardIdleTimeout is the
+	// upper-bound: once an idle Runner crosses this threshold, D4
+	// sheds it regardless of the inhibition. Default 4h covers normal
+	// long-running sessions; set 0 to disable the override entirely.
+	HardIdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_HARD_IDLE_TIMEOUT" default:"4h"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
