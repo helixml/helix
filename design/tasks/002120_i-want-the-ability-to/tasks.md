@@ -1,10 +1,10 @@
 # Implementation Tasks: Add Clear Session Capability for ACP and Internal Agent Backends
 
 ## Store layer (TDD)
-- [~] Write failing test for `ClearSessionInteractions(ctx, sessionID)` in `api/pkg/store/store_interactions_test.go` (seed N interactions, clear, assert zero remain, session row preserved, idempotent on empty)
-- [ ] Add `ClearSessionInteractions(ctx, sessionID) error` to the `Store` interface in `api/pkg/store/store.go`
-- [ ] Implement it in `api/pkg/store/store_interactions.go` as a single `Where("session_id = ?").Delete(&types.Interaction{})`
-- [ ] Regenerate the `Store` mock if one exists
+- [x] Write failing test for `ClearSessionInteractions(ctx, sessionID)` in `api/pkg/store/store_interactions_test.go` (seed N interactions, clear, assert zero remain, session row preserved, idempotent on empty)
+- [x] Add `ClearSessionInteractions(ctx, sessionID) error` to the `Store` interface in `api/pkg/store/store.go`
+- [x] Implement it in `api/pkg/store/store_interactions.go` as a single `Where("session_id = ?").Delete(&types.Interaction{})`
+- [x] Regenerate the `Store` mock if one exists
 
 ## Compositional API: SessionBackend + coordinator (TDD)
 - [ ] Define `SessionBackend` interface with `Clear(ctx, sessionID) error`
