@@ -146,3 +146,7 @@ nohup.out
 # Playwright MCP trace dir (per-session screenshots, console logs,
 # accessibility snapshots). Local only — never check in.
 .playwright-mcp/
+
+# Database dumps under design/ — never check in (can contain live secrets;
+# a committed org-graph.sql dump leaked real credentials and tripped CI).
+design/**/*.sql
