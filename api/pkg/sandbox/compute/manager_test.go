@@ -14,12 +14,39 @@ import (
 // fakeStore is a goroutine-safe in-memory SandboxStore for unit tests.
 // Mirrors the subset of the real store the Manager touches.
 type fakeStore struct {
-	mu   sync.Mutex
-	rows map[string]*types.SandboxInstance
+	mu          sync.Mutex
+	rows        map[string]*types.SandboxInstance
+	assignments map[string]*types.RunnerAssignment // runner_id -> assignment
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{rows: make(map[string]*types.SandboxInstance)}
+	return &fakeStore{
+		rows:        make(map[string]*types.SandboxInstance),
+		assignments: make(map[string]*types.RunnerAssignment),
+	}
+}
+
+// setAssignment is a test helper that records a profile assignment for
+// the given runner_id. Used by tests covering the D4 profile-assigned
+// protection path.
+func (f *fakeStore) setAssignment(runnerID, profileID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.assignments[runnerID] = &types.RunnerAssignment{
+		RunnerID:  runnerID,
+		ProfileID: profileID,
+	}
+}
+
+func (f *fakeStore) ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*types.RunnerAssignment, 0, len(f.assignments))
+	for _, a := range f.assignments {
+		cp := *a
+		out = append(out, &cp)
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListSandboxInstances(ctx context.Context) ([]*types.SandboxInstance, error) {
