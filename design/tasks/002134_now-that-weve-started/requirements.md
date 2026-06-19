@@ -2,33 +2,33 @@
 
 ## Background
 
-When using the Zed/Claude ACP agent in Claude subscription mode (via zed.dev), the default model is determined by the cloud API response, which currently resolves to Claude Sonnet. Users who frequently do complex work need a way to default to Claude Opus without switching to API key mode (which already has a full model picker).
+When using Claude Code (`claude_code` runtime) with subscription credentials in ANGUR/Helix, no model preference is passed to Claude Code — it falls back to its own built-in default (currently Sonnet). Users doing complex work want to default to Opus, and want the ability to switch between the three main Claude tiers without leaving the Helix agent configuration screen.
 
 ## User Stories
 
-**US-1: Default to Opus**
-As a Claude subscription user, I want the agent to default to Claude Opus so that I get better results for complex tasks without manually switching every session.
+**US-1: Default to Opus in subscription mode**
+As a Helix user with a Claude subscription, I want the Claude Code agent to use Opus by default so I get better results for complex tasks without changing credentials or switching to API key mode.
 
-**US-2: Configure model in agent settings**
-As a Claude subscription user, I want a model dropdown in the agent configuration panel so that I can choose between Opus, Sonnet, and Haiku and have that preference persist.
+**US-2: Choose model tier in agent configuration**
+As a Helix user with a Claude subscription, I want a dropdown in the agent configuration that lets me pick Opus, Sonnet, or Haiku, and have that choice persist across sessions.
 
 ## Acceptance Criteria
 
-**AC-1 (Default change — minimum viable)**
-- When using Zed cloud/Claude subscription mode and no model preference has been saved, the agent defaults to the latest Claude Opus model available from the cloud.
+**AC-1 — Default to Opus**
+- When a `claude_code` + `subscription` agent has no explicit model configured, the sandbox container receives `ANTHROPIC_MODEL=claude-opus-4-6` so Claude Code uses Opus.
 
-**AC-2 (Model picker — preferred)**
-- The agent configuration panel shows a model selector when the active provider is the Zed cloud (subscription) provider.
-- The selector lists exactly three options: Claude Opus, Claude Sonnet, Claude Haiku (the latest version of each available from the cloud API).
-- Selecting a model persists to user settings under `agent.default_model` and survives restarts.
-- The picker is visually similar to the API key mode model selector (provider icon + model name + chevron).
+**AC-2 — Model dropdown in agent config UI**
+- The `CodingAgentForm` component shows a simple dropdown when `codeAgentRuntime === 'claude_code'` and `claudeCodeMode === 'subscription'`.
+- The dropdown lists exactly three options: Claude Opus 4.6, Claude Sonnet 4.5, Claude Haiku 4.5 (hardcoded, not pulled dynamically).
+- The selected model is saved on the assistant config and passed to the container via `ANTHROPIC_MODEL` env var.
+- If the user saves without selecting a model, Opus is the default.
 
-**AC-3 (No regression)**
-- Users on API key mode are unaffected; the existing full model picker continues to work.
-- Users who have previously saved a `default_model` preference continue to use that preference.
+**AC-3 — No regression for API key mode**
+- The existing provider + model picker for `api_key` mode is unaffected.
+- Subscription model configuration is a separate field on `AssistantConfig` and does not conflict with `GenerationModel` used in API key mode.
 
 ## Out of Scope
 
-- Fancy model switcher / full model browser for subscription mode (keep it to three hardcoded tiers).
-- Per-thread model overrides (future work).
-- Exposing extended thinking or effort settings via this picker.
+- Fancy model browser or per-session model override.
+- Extended thinking / effort controls in this dropdown.
+- Dynamically fetching model list from the `listClaudeModels` API endpoint (hardcode three tiers for now).

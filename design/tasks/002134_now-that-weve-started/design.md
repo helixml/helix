@@ -1,44 +1,71 @@
 # Design: Configurable Model Selection for Claude Subscription Mode
 
-## Architecture Overview
+## How Subscription Mode Currently Works
 
-The cloud model selection path in Zed:
-1. Cloud API returns `ListModelsResponse` with `default_model` and available model list.
-2. `language_models_cloud.rs` stores the cloud-provided default in `CloudModelProvider`.
-3. `registry.rs` resolves the active model: user setting → `agent.default_model` → cloud default.
-4. `agent_configuration.rs` renders the agent settings panel; it already detects `is_zed_provider` at line ~221 but does not currently show a model picker for subscription mode.
+1. In `buildCodeAgentConfigFromAssistant()` (`zed_config_handlers.go`), when `isSubscription=true` and `runtime=claude_code`, the model fields are explicitly cleared (`model = ""`).
+2. `subscriptionEnvForSession()` injects `ANTHROPIC_BASE_URL=https://api.anthropic.com`, clears `ANTHROPIC_API_KEY`, and sets the OAuth token — but sets no model.
+3. Without `ANTHROPIC_MODEL` in the environment, Claude Code picks its own built-in default (currently Sonnet 4.x).
 
-## Approach
+## Changes Required
 
-Implement both changes together — the default fix is one line, the picker makes it user-configurable:
+### 1. Backend — `AssistantConfig` type (`api/pkg/types/types.go`)
 
-### 1. Change the Default (Minimum Viable)
+Add one new field after `CodeAgentCredentialType`:
 
-In `crates/language_models_cloud/src/language_models_cloud.rs`, when `ListModelsResponse.default_model` is absent or resolves to a Sonnet variant, prefer the highest-versioned model whose ID contains `"opus"` from the returned model list. This mirrors the API key mode's `pick_preferred_model()` logic in `crates/language_models/src/provider/anthropic.rs` (lines 224–245).
+```go
+// ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentCredentialType
+// is "subscription". Defaults to "claude-opus-4-6" when empty.
+ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
+```
 
-### 2. Model Picker in Agent Configuration
+### 2. Backend — `subscriptionEnvForSession()` (`api/pkg/server/external_agent_handlers.go`)
 
-In `crates/agent_ui/src/agent_configuration.rs`, inside the block guarded by `is_zed_provider` (around line 221), render a simple three-option picker using the existing `LanguageModelSelector` component scoped to the cloud provider's model list, filtered to one representative per tier (Opus / Sonnet / Haiku). Selection writes to `agent.default_model` via the same path used by API key mode.
+After building the base env slice (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY=`), inject the model env var:
 
-**Filter logic:** from the cloud model list, pick the lexicographically greatest model ID that starts with each tier prefix:
-- `claude-opus-`
-- `claude-sonnet-`
-- `claude-haiku-`
+```go
+model := asst.ClaudeSubscriptionModel
+if model == "" {
+    model = "claude-opus-4-6"
+}
+out = append(out, "ANTHROPIC_MODEL="+model)
+```
 
-This is the same strategy used in API key mode (`pick_preferred_model`) so no new logic is needed.
+This goes right after setting `ANTHROPIC_API_KEY=` so Opus is the default and user overrides persist.
+
+### 3. Frontend — `CodingAgentForm.tsx` (`frontend/src/components/agent/CodingAgentForm.tsx`)
+
+The form already hides the full model picker when `claudeCodeMode === 'subscription'` (`showModelPicker = value.codeAgentRuntime !== 'claude_code' || value.claudeCodeMode === 'api_key'`). Add a simple `<Select>` just below the subscription/api-key toggle, visible only when `isClaudeCodeSubscription`:
+
+- Three `<MenuItem>` entries, hardcoded:
+  - `claude-opus-4-6` → "Claude Opus 4.6 (recommended)"
+  - `claude-sonnet-4-5-latest` → "Claude Sonnet 4.5"
+  - `claude-haiku-4-5-latest` → "Claude Haiku 4.5"
+- Default selection: `claude-opus-4-6`.
+- Selected value stored in `value.claudeSubscriptionModel` (new field on the form value type).
+
+### 4. Frontend — form value type and `apps.tsx`
+
+In `apps.tsx`, add `claudeSubscriptionModel?: string` to the form params type and pass it through to the assistant config as `claude_subscription_model`.
+
+In `utils/app.ts`, add the corresponding mapping for flat-state round-tripping.
 
 ## Key Files
 
 | File | Change |
 |------|--------|
-| `crates/language_models_cloud/src/language_models_cloud.rs` | Prefer Opus when server default is absent/Sonnet |
-| `crates/agent_ui/src/agent_configuration.rs` | Add 3-option model picker under `is_zed_provider` guard (~line 221) |
-| `crates/agent_ui/src/agent_model_selector.rs` | No change — reuse as-is |
-| `crates/settings_content/src/agent.rs` | No change — `agent.default_model` already supports this |
+| `api/pkg/types/types.go` | Add `ClaudeSubscriptionModel` field to `AssistantConfig` |
+| `api/pkg/server/external_agent_handlers.go` | Inject `ANTHROPIC_MODEL` env var in `subscriptionEnvForSession()` |
+| `frontend/src/components/agent/CodingAgentForm.tsx` | Add 3-option model `<Select>` for subscription mode |
+| `frontend/src/contexts/apps.tsx` | Pass `claudeSubscriptionModel` through to assistant config |
+| `frontend/src/utils/app.ts` | Map `claude_subscription_model` in flat-state helpers |
+| `frontend/src/types.ts` | Add `claude_subscription_model` to `IAssistantConfig` and related types |
 
-## Decisions
+## Why `ANTHROPIC_MODEL` env var, not Zed settings
 
-- **Hardcoded tiers, dynamic versions**: Don't hardcode specific model IDs (e.g. `claude-opus-4-5`). Instead filter the live model list by prefix so new model releases are picked up automatically.
-- **Reuse `LanguageModelSelector`**: The existing selector already handles the icon, label, and persistence path. We just need to pass it a filtered model list.
-- **Do not add a new settings key**: `agent.default_model` already persists across restarts; no schema changes needed.
-- **Opus as default**: Change the cloud provider's fallback preference to Opus. Users who explicitly saved a Sonnet preference are unaffected (their saved value takes priority via the registry resolution order).
+In subscription mode the Claude Code process (`claude` CLI) inherits env vars set by `subscriptionEnvForSession()`. These take effect before Zed's `agent.default_model` in `settings.json` is applied. Using an env var is the cleanest injection point: the daemon writes Zed settings once at container start, but `ANTHROPIC_MODEL` is already in the process environment before `claude` even launches.
+
+## Learned patterns
+
+- Provider/model fields (`GenerationModel`, `GenerationModelProvider`) on `AssistantConfig` are deliberately blanked in subscription mode; a separate field avoids coupling.
+- `subscriptionEnvForSession()` is the single place to inject container env vars for Claude subscription sessions — add new per-session overrides here.
+- The `listClaudeModels` API endpoint already returns these three models with the correct IDs; the frontend hardcodes them for simplicity (avoids an extra API call on form render).

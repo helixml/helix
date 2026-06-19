@@ -1,9 +1,13 @@
 # Implementation Tasks: Configurable Model Selection for Claude Subscription Mode
 
-- [ ] In `crates/language_models_cloud/src/language_models_cloud.rs`, update the cloud default model fallback to prefer the highest-versioned `claude-opus-` model from the returned model list when `ListModelsResponse.default_model` is absent or resolves to a Sonnet variant
-- [ ] In `crates/agent_ui/src/agent_configuration.rs`, add a model picker inside the `is_zed_provider` block (around line 221) that shows the three tier options (Opus, Sonnet, Haiku) filtered from the live cloud model list
-- [ ] Filter logic: for each tier prefix (`claude-opus-`, `claude-sonnet-`, `claude-haiku-`), pick the lexicographically greatest model ID from the cloud model list — reuse the same strategy as `pick_preferred_model()` in `anthropic.rs`
-- [ ] Wire the picker's selection to `agent.default_model` via the same persistence path used by API key mode
-- [ ] Verify: opening the agent panel in subscription mode shows the new picker, defaulting to Opus on first launch
-- [ ] Verify: saved preference survives restart and is not overridden by the cloud API default
-- [ ] Verify: API key mode users see no change to their existing full model picker
+- [ ] Add `ClaudeSubscriptionModel string` field to `AssistantConfig` in `api/pkg/types/types.go` (after `CodeAgentCredentialType`, with `json:"claude_subscription_model,omitempty"`)
+- [ ] In `subscriptionEnvForSession()` in `api/pkg/server/external_agent_handlers.go`, read `asst.ClaudeSubscriptionModel` and append `ANTHROPIC_MODEL=<value>` (defaulting to `claude-opus-4-6`) to the env slice
+- [ ] Add `claude_subscription_model` to the `IAssistantConfig` interface and related types in `frontend/src/types.ts`
+- [ ] Add `claudeSubscriptionModel?: string` to the form params type in `frontend/src/contexts/apps.tsx` and pass it through to the assistant config as `claude_subscription_model`
+- [ ] Update `frontend/src/utils/app.ts` to include `claude_subscription_model` in the flat-state round-trip mapping
+- [ ] In `frontend/src/components/agent/CodingAgentForm.tsx`, add a `<Select>` dropdown visible when `isClaudeCodeSubscription` with three hardcoded options: `claude-opus-4-6`, `claude-sonnet-4-5-latest`, `claude-haiku-4-5-latest` (default: Opus)
+- [ ] Wire the dropdown value to `onChange` so it updates `value.claudeSubscriptionModel` and propagates to the parent
+- [ ] Regenerate the OpenAPI client (`./stack update_openapi`) if the type change surfaces in the API schema
+- [ ] Test: create or edit a Claude Code subscription agent, confirm Opus is preselected, save, start a session, verify `ANTHROPIC_MODEL=claude-opus-4-6` is set in the container (`docker exec ... env | grep ANTHROPIC_MODEL`)
+- [ ] Test: change dropdown to Haiku, save, start a session, verify `ANTHROPIC_MODEL=claude-haiku-4-5-latest` in container env
+- [ ] Test: API key mode agent — confirm no regression (model picker still works, no new fields shown)
