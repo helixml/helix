@@ -1,7 +1,7 @@
 # Implementation Tasks: Configurable Model Selection for Claude Subscription Mode
 
-- [~] Add `ClaudeSubscriptionModel string` field to `AssistantConfig` in `api/pkg/types/types.go` (after `CodeAgentCredentialType`, with `json:"claude_subscription_model,omitempty"`)
-- [ ] In `subscriptionEnvForSession()` in `api/pkg/server/external_agent_handlers.go`, read `asst.ClaudeSubscriptionModel` and append `ANTHROPIC_MODEL=<value>` (defaulting to `claude-opus-4-6`) to the env slice
+- [x] Add `ClaudeSubscriptionModel string` field to `AssistantConfig` in `api/pkg/types/types.go` (after `CodeAgentCredentialType`, with `json:"claude_subscription_model,omitempty"`)
+- [~] In `subscriptionEnvForSession()` in `api/pkg/server/external_agent_handlers.go`, read `asst.ClaudeSubscriptionModel` and append `ANTHROPIC_MODEL=<value>` (defaulting to `claude-opus-4-6`) to the env slice
 - [ ] Add `claude_subscription_model` to the `IAssistantConfig` interface and related types in `frontend/src/types.ts`
 - [ ] Add `claudeSubscriptionModel?: string` to the form params type in `frontend/src/contexts/apps.tsx` and pass it through to the assistant config as `claude_subscription_model`
 - [ ] Update `frontend/src/utils/app.ts` to include `claude_subscription_model` in the flat-state round-trip mapping
