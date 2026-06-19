@@ -1,8 +1,8 @@
-// HelixOrgStreams lists every event stream defined in the current
-// org. Streams are the inbound side of the org's I/O: GitHub webhooks,
+// HelixOrgTopics lists every event topic defined in the current
+// org. Topics are the inbound side of the org's I/O: GitHub webhooks,
 // Postmark inboxes, plain in-process buses. Workers subscribe via MCP;
 // the chart edges (added in the same PR as this page) show which
-// worker pulls from which stream.
+// worker pulls from which topic.
 
 import { FC, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -38,24 +38,24 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   InstallWebhookFailedError,
-  StreamDTO,
-  useCreateHelixOrgStream,
-  useDeleteHelixOrgStream,
+  TopicDTO,
+  useCreateHelixOrgTopic,
+  useDeleteHelixOrgTopic,
   useGitHubAppInstallation,
   useInstallGitHubWebhook,
   useListGitHubRepos,
-  useListHelixOrgStreams,
+  useListHelixOrgTopics,
 } from '../services/helixOrgService'
-import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
+import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GitHubAppConnect } from '../components/helix-org/GitHubAppPanel'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
   { value: 'webhook', label: 'webhook', help: 'HTTP webhook. Inbound by default; outbound URL = bidirectional.' },
-  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this stream to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
+  { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this topic to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
-  { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this stream at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
+  { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this topic at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
 ]
 
 // CRON_PRESETS are one-click chips that inject a standard 5-field
@@ -73,71 +73,71 @@ const CRON_PRESETS: Array<{ label: string; value: string }> = [
 ]
 
 
-// streamRowId is the canonical HTML id assigned to each row in the
-// streams table. Exported so other components (the chart deep-link,
+// topicRowId is the canonical HTML id assigned to each row in the
+// topics table. Exported so other components (the chart deep-link,
 // for example) can pin the contract — change the format here and all
 // callers update at once.
-export const streamRowId = (streamId: string) => `stream-row-${streamId}`
+export const topicRowId = (topicId: string) => `topic-row-${topicId}`
 
 // HIGHLIGHT_DURATION_MS is how long the focused-row highlight stays
-// up after the chart deep-links into the streams page. Kept short so
+// up after the chart deep-links into the topics page. Kept short so
 // the page doesn't feel busy; long enough for the user to register
 // which row they landed on.
 const HIGHLIGHT_DURATION_MS = 2400
 
-const HelixOrgStreams: FC = () => {
+const HelixOrgTopics: FC = () => {
   const account = useAccount()
   const router = useRouter()
   const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
 
-  const { data, isLoading } = useListHelixOrgStreams()
-  const deleteStream = useDeleteHelixOrgStream()
+  const { data, isLoading } = useListHelixOrgTopics()
+  const deleteTopic = useDeleteHelixOrgTopic()
 
-  const streams = data?.streams ?? []
+  const topics = data?.topics ?? []
   const [createOpen, setCreateOpen] = useState(false)
-  const [deleting, setDeleting] = useState<StreamDTO | undefined>()
+  const [deleting, setDeleting] = useState<TopicDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [currentStream, setCurrentStream] = useState<StreamDTO | null>(null)
+  const [currentTopic, setCurrentTopic] = useState<TopicDTO | null>(null)
 
   const focusId = (router.params.focus as string | undefined) ?? undefined
   const [highlightId, setHighlightId] = useState<string | undefined>(undefined)
 
-  // When the page lands with `?focus=<streamId>` (the chart's
-  // stream-node click sets this) scroll the matching row into view
+  // When the page lands with `?focus=<topicId>` (the chart's
+  // topic-node click sets this) scroll the matching row into view
   // and pulse a highlight on it. Runs after every render where the
-  // focus param or the streams list changes, so the deep-link works
+  // focus param or the topics list changes, so the deep-link works
   // even if the API call is still in flight on initial mount.
   useEffect(() => {
     if (!focusId) {
       setHighlightId(undefined)
       return
     }
-    if (!streams.some((s) => s.id === focusId)) return
-    const el = document.getElementById(streamRowId(focusId))
+    if (!topics.some((s) => s.id === focusId)) return
+    const el = document.getElementById(topicRowId(focusId))
     if (!el) return
     el.scrollIntoView({ block: 'center', behavior: 'smooth' })
     setHighlightId(focusId)
     const t = setTimeout(() => setHighlightId(undefined), HIGHLIGHT_DURATION_MS)
     return () => clearTimeout(t)
-  }, [focusId, streams])
+  }, [focusId, topics])
 
-  const handleMenuOpen = (e: MouseEvent<HTMLElement>, s: StreamDTO) => {
+  const handleMenuOpen = (e: MouseEvent<HTMLElement>, s: TopicDTO) => {
     e.stopPropagation()
     setAnchorEl(e.currentTarget)
-    setCurrentStream(s)
+    setCurrentTopic(s)
   }
   const handleMenuClose = () => {
     setAnchorEl(null)
-    setCurrentStream(null)
+    setCurrentTopic(null)
   }
 
   const handleDelete = async () => {
     if (!deleting) return
     try {
-      await deleteStream.mutateAsync(deleting.id)
-      snackbar.success(`stream ${deleting.id} deleted`)
+      await deleteTopic.mutateAsync(deleting.id)
+      snackbar.success(`topic ${deleting.id} deleted`)
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'delete failed')
     } finally {
@@ -146,12 +146,12 @@ const HelixOrgStreams: FC = () => {
   }
 
   const orgSlug = (router.params.org_id as string | undefined) ?? ''
-  const openStreamDetail = (sid: string) => {
+  const openTopicDetail = (sid: string) => {
     if (!orgSlug) return
-    router.navigate('helix_org_stream_detail', { org_id: orgSlug, stream_id: sid })
+    router.navigate('helix_org_topic_detail', { org_id: orgSlug, topic_id: sid })
   }
 
-  const tableData = useMemo(() => streams.map((s) => ({
+  const tableData = useMemo(() => topics.map((s) => ({
     id: s.id,
     _data: s,
     _isHighlighted: highlightId === s.id,
@@ -159,7 +159,7 @@ const HelixOrgStreams: FC = () => {
       <Typography variant="body1">
         <a
           href="#"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openStreamDetail(s.id) }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openTopicDetail(s.id) }}
           style={{
             fontWeight: 'bold',
             color: highlightId === s.id
@@ -188,10 +188,10 @@ const HelixOrgStreams: FC = () => {
         {s.created_at ? new Date(s.created_at).toLocaleString() : '—'}
       </Typography>
     ),
-  })), [streams, theme, highlightId])
+  })), [topics, theme, highlightId])
 
   const getActions = (row: any) => {
-    const s = row._data as StreamDTO
+    const s = row._data as TopicDTO
     return (
       <IconButton size="small" onClick={(e) => handleMenuOpen(e, s)}>
         <MoreVertIcon />
@@ -201,7 +201,7 @@ const HelixOrgStreams: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Streams"
+      breadcrumbTitle="Topics"
       breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
       topbarContent={(
@@ -211,28 +211,28 @@ const HelixOrgStreams: FC = () => {
           startIcon={<AddIcon />}
           onClick={() => setCreateOpen(true)}
         >
-          New Stream
+          New Topic
         </Button>
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Streams</Typography>
+            <Typography variant="h5" sx={{ mb: 1 }}>Topics</Typography>
             <Typography variant="body2" color="text.secondary">
-              Named event channels Workers can subscribe to. Each stream carries a Transport (local
+              Named event channels Workers can subscribe to. Each topic carries a Transport (local
               pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
-              the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → stream)
+              the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
               edges as dashed lines.
             </Typography>
           </Box>
 
           {isLoading ? (
             <LoadingSpinner />
-          ) : streams.length === 0 ? (
+          ) : topics.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <Typography variant="body1" color="text.secondary" gutterBottom>
-                No streams yet.
+                No topics yet.
               </Typography>
               <Button
                 variant="contained"
@@ -241,7 +241,7 @@ const HelixOrgStreams: FC = () => {
                 onClick={() => setCreateOpen(true)}
                 sx={{ mt: 1 }}
               >
-                Create your first stream
+                Create your first topic
               </Button>
             </Box>
           ) : (
@@ -256,7 +256,7 @@ const HelixOrgStreams: FC = () => {
               ]}
               data={tableData}
               getActions={getActions}
-              getRowId={(row) => streamRowId(row.id as string)}
+              getRowId={(row) => topicRowId(row.id as string)}
             />
           )}
         </Stack>
@@ -267,7 +267,7 @@ const HelixOrgStreams: FC = () => {
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
-            if (currentStream) setDeleting(currentStream)
+            if (currentTopic) setDeleting(currentTopic)
           }}
         >
           <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
@@ -277,26 +277,26 @@ const HelixOrgStreams: FC = () => {
 
       {deleting && (
         <DeleteConfirmWindow
-          title="stream"
+          title="topic"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setDeleting(undefined)}
         >
           <Typography variant="body1">
-            Deleting stream <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> removes the row.
+            Deleting topic <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> removes the row.
             Subscriptions + events stay until drained explicitly. This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}
 
-      <NewStreamDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <NewTopicDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </Page>
   )
 }
 
-const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const snackbar = useSnackbar()
-  const create = useCreateHelixOrgStream()
+  const create = useCreateHelixOrgTopic()
   const installWebhook = useInstallGitHubWebhook()
   const [id, setId] = useState('')
   const [name, setName] = useState('')
@@ -321,7 +321,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
-  // operator gets a "Connect GitHub for streams" CTA instead of a
+  // operator gets a "Connect GitHub for topics" CTA instead of a
   // confusing 412 mid-flow). The hook suppresses its own snackbar
   // so this stays a quiet probe.
   // Kept for the refetch side-effects (App install completing,
@@ -373,7 +373,7 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
       // "*" = wildcard — GitHub sends every event and helix's
       // transport accepts every event. The detail page's edit form
       // lets advanced operators narrow this to a specific
-      // whitelist after the stream is created.
+      // whitelist after the topic is created.
       const events = ghEvents.length > 0 ? ghEvents : ['*']
       config = { repo: ghRepo.trim(), events }
       const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
@@ -413,10 +413,10 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
             // — the success snackbar would mislead.
             snackbar.error(`Webhook installed on GitHub (id ${inst.webhook_id}), but: ${inst.warning}`)
           } else {
-            snackbar.success(`Stream created · webhook installed on GitHub (id ${inst.webhook_id})`)
+            snackbar.success(`Topic created · webhook installed on GitHub (id ${inst.webhook_id})`)
           }
         } catch (e: any) {
-          // The stream is created but webhook install failed. The
+          // The topic is created but webhook install failed. The
           // useApi-layer already showed the server's error
           // snackbar (e.g. "SERVER_URL ... is a loopback
           // address"); skip our own duplicate when that's the
@@ -424,11 +424,11 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
           // back to a contextual message.
           if (!(e instanceof InstallWebhookFailedError)) {
             const msg = e?.response?.data?.error ?? e?.message ?? 'install failed'
-            snackbar.error(`Stream created but webhook install failed: ${msg}. Open the stream detail page and click "Re-install webhook".`)
+            snackbar.error(`Topic created but webhook install failed: ${msg}. Open the topic detail page and click "Re-install webhook".`)
           }
         }
       } else {
-        snackbar.success('stream created')
+        snackbar.success('topic created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
       setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
@@ -446,11 +446,11 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle>New stream</DialogTitle>
+      <DialogTitle>New topic</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
-            label="Stream ID (optional)"
+            label="Topic ID (optional)"
             placeholder="s-github-pulls"
             value={id}
             onChange={(e) => setId(e.target.value)}
@@ -606,4 +606,4 @@ const NewStreamDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onC
   )
 }
 
-export default HelixOrgStreams
+export default HelixOrgTopics

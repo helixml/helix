@@ -9371,7 +9371,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Delivery accepted but no matching streams"
+                        "description": "Delivery accepted but no matching topics"
                     },
                     "204": {
                         "description": "Delivery accepted and fanned out"
@@ -9735,7 +9735,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams": {
+        "/api/v1/orgs/{org}/tools": {
             "get": {
                 "security": [
                     {
@@ -9748,12 +9748,39 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list streams",
+                "summary": "Helix-org: list available MCP tools",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamsResponse"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.ToolDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list topics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.TopicsResponse"
                         }
                     }
                 }
@@ -9773,15 +9800,15 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: create a stream",
+                "summary": "Helix-org: create a topic",
                 "parameters": [
                     {
-                        "description": "Stream spec",
+                        "description": "Topic spec",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateStreamRequest"
+                            "$ref": "#/definitions/api.CreateTopicRequest"
                         }
                     }
                 ],
@@ -9789,7 +9816,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9801,7 +9828,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}": {
+        "/api/v1/orgs/{org}/topics/{id}": {
             "get": {
                 "security": [
                     {
@@ -9814,11 +9841,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: get a stream",
+                "summary": "Helix-org: get a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9828,7 +9855,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "404": {
@@ -9854,22 +9881,22 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: update a stream",
+                "summary": "Helix-org: update a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Stream patch",
+                        "description": "Topic patch",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateStreamRequest"
+                            "$ref": "#/definitions/api.UpdateTopicRequest"
                         }
                     }
                 ],
@@ -9877,7 +9904,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9903,11 +9930,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: delete a stream",
+                "summary": "Helix-org: delete a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9926,7 +9953,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/events": {
+        "/api/v1/orgs/{org}/topics/{id}/events": {
             "get": {
                 "security": [
                     {
@@ -9934,16 +9961,16 @@ const docTemplate = `{
                     }
                 ],
                 "produces": [
-                    "text/event-stream"
+                    "text/event-topic"
                 ],
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: SSE stream of events for one stream",
+                "summary": "Helix-org: SSE topic of events for one topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9959,7 +9986,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+        "/api/v1/orgs/{org}/topics/{id}/github/install-webhook": {
             "post": {
                 "security": [
                     {
@@ -9972,11 +9999,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "summary": "Helix-org: auto-install the webhook for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10010,7 +10037,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+        "/api/v1/orgs/{org}/topics/{id}/github/webhook-status": {
             "get": {
                 "security": [
                     {
@@ -10023,11 +10050,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: live webhook status for a github stream",
+                "summary": "Helix-org: live webhook status for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10049,7 +10076,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/messages": {
+        "/api/v1/orgs/{org}/topics/{id}/messages": {
             "get": {
                 "security": [
                     {
@@ -10062,11 +10089,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list a stream's messages (JSON:API, paginated)",
+                "summary": "Helix-org: list a topic's messages (JSON:API, paginated)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10106,7 +10133,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/publish": {
+        "/api/v1/orgs/{org}/topics/{id}/publish": {
             "post": {
                 "security": [
                     {
@@ -10122,11 +10149,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: publish a message to a stream",
+                "summary": "Helix-org: publish a message to a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10158,33 +10185,6 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/tools": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list available MCP tools",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.ToolDTO"
-                            }
                         }
                     }
                 }
@@ -10724,7 +10724,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: subscribe a worker to a stream",
+                "summary": "Helix-org: subscribe a worker to a topic",
                 "parameters": [
                     {
                         "type": "string",
@@ -10734,7 +10734,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "stream to subscribe to",
+                        "description": "topic to subscribe to",
                         "name": "payload",
                         "in": "body",
                         "required": true,
@@ -10765,7 +10765,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}": {
             "delete": {
                 "security": [
                     {
@@ -10775,7 +10775,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: unsubscribe a worker from a stream",
+                "summary": "Helix-org: unsubscribe a worker from a topic",
                 "parameters": [
                     {
                         "type": "string",
@@ -10786,8 +10786,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Stream ID",
-                        "name": "stream_id",
+                        "description": "Topic ID",
+                        "name": "topic_id",
                         "in": "path",
                         "required": true
                     }
@@ -20855,13 +20855,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -20869,11 +20869,11 @@ const docTemplate = `{
                 }
             }
         },
-        "api.CreateStreamRequest": {
+        "api.CreateTopicRequest": {
             "type": "object",
             "properties": {
                 "as": {
-                    "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "description": "As is the Worker that creates the topic — the worker whose chat\nthe human is in. Empty leaves the topic unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
                     "type": "string"
                 },
                 "description": {
@@ -20922,13 +20922,13 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
-                "stream_id": {
-                    "type": "string"
-                },
                 "subject": {
                     "type": "string"
                 },
                 "to": {
+                    "type": "string"
+                },
+                "topic_id": {
                     "type": "string"
                 }
             }
@@ -20941,7 +20941,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "install_url": {
-                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                    "description": "InstallURL is where the New Topic gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
                     "type": "string"
                 },
                 "installed": {
@@ -21008,7 +21008,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "state": {
-                    "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                    "description": "State is one of:\n  \"installed\" — a webhook for this topic's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
                     "type": "string"
                 },
                 "webhook_html_url": {
@@ -21086,9 +21086,6 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
-                "stream_id": {
-                    "type": "string"
-                },
                 "subject": {
                     "type": "string"
                 },
@@ -21097,6 +21094,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "topic_id": {
+                    "type": "string"
                 }
             }
         },
@@ -21217,13 +21217,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -21296,7 +21296,26 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamDTO": {
+        "api.SubscribeWorkerRequest": {
+            "type": "object",
+            "properties": {
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ToolDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.TopicDTO": {
             "type": "object",
             "properties": {
                 "can_publish": {
@@ -21344,7 +21363,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamsResponse": {
+        "api.TopicsResponse": {
             "type": "object",
             "properties": {
                 "recent": {
@@ -21353,30 +21372,11 @@ const docTemplate = `{
                         "$ref": "#/definitions/api.EventCard"
                     }
                 },
-                "streams": {
+                "topics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/api.StreamDTO"
+                        "$ref": "#/definitions/api.TopicDTO"
                     }
-                }
-            }
-        },
-        "api.SubscribeWorkerRequest": {
-            "type": "object",
-            "properties": {
-                "stream_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ToolDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
                 }
             }
         },
@@ -21398,13 +21398,13 @@ const docTemplate = `{
                 "content": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -21412,7 +21412,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateStreamRequest": {
+        "api.UpdateTopicRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -21542,7 +21542,7 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
-                "stream_id": {
+                "topic_id": {
                     "type": "string"
                 }
             }
@@ -33118,6 +33118,10 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)",
+                    "type": "boolean"
+                },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
@@ -33261,6 +33265,13 @@ const docTemplate = `{
                     "description": "which assistant are we talking to?",
                     "type": "string"
                 },
+                "auto_restart_count": {
+                    "type": "integer"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous crash recovery. Set true at session creation for surfaces with\nno human present to click the in-chat Restart button (spec tasks, org\nworkers). When the external agent crashes mid-turn, the websocket crash\nhandler auto-invokes the canonical restart primitive instead of leaving\nthe session errored+idle. Human desktop sessions leave this false and keep\nthe explicit button. AutoRestartCount bounds consecutive auto-restarts\nwithout an intervening successful turn (anti-storm guard); it is reset to 0\non the next successful completion and lives on the SESSION (not the prompt)\nso ResetCrashedPromptsForSession can't zero the restart budget.",
+                    "type": "boolean"
+                },
                 "avatar": {
                     "type": "string"
                 },
@@ -33365,6 +33376,9 @@ const docTemplate = `{
                 "implementation_task_index": {
                     "description": "Index of implementation task this session handles",
                     "type": "integer"
+                },
+                "last_auto_restart_at": {
+                    "type": "string"
                 },
                 "manually_review_questions": {
                     "type": "boolean"

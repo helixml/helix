@@ -48,11 +48,11 @@ import useSnackbar from '../hooks/useSnackbar'
 import {
   WorkerDTO,
   useDeleteHelixOrgRole,
-  useDeleteHelixOrgStream,
+  useDeleteHelixOrgTopic,
   useFireHelixOrgWorker,
   useListHelixOrgRoles,
-  useListHelixOrgStreams,
-  useStreamMessageCounts,
+  useListHelixOrgTopics,
+  useTopicMessageCounts,
   useListHelixOrgWorkers,
   useAddWorkerParent,
   useRemoveWorkerParent,
@@ -74,8 +74,8 @@ import {
 // Roles are parent group nodes that VISUALLY CONTAIN their Worker child
 // nodes. A Role can hold many Workers. Reporting is a many-to-many
 // relation: each (manager → report) reporting line becomes a Worker →
-// Worker edge (a Worker may have several incoming edges). Streams hang
-// off the right of the tree; an edge from a Worker to a Stream is a
+// Worker edge (a Worker may have several incoming edges). Topics hang
+// off the right of the tree; an edge from a Worker to a Topic is a
 // subscription.
 //
 // Layout: dagre runs over the role tree (edges derived from cross-role
@@ -140,18 +140,18 @@ type WorkerNodeData = {
   onFireWorker: (workerId: string) => void
 }
 
-// StreamNodeData drives the small pseudo-nodes the chart renders for
-// each Stream beside the org tree. Edges from Workers to these nodes
+// TopicNodeData drives the small pseudo-nodes the chart renders for
+// each Topic beside the org tree. Edges from Workers to these nodes
 // (subscriptions) are styled distinctly from the accountability edges
 // between Workers.
-type StreamNodeData = {
-  streamId: string
+type TopicNodeData = {
+  topicId: string
   name: string
   kind: string
   subscriberCount: number
   messageCount: number
-  onSelectStream: (streamId: string) => void
-  onDeleteStream: (streamId: string) => void
+  onSelectTopic: (topicId: string) => void
+  onDeleteTopic: (topicId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -329,11 +329,11 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
         position={RFPosition.Bottom}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
-      {/* Dedicated source handle for stream/subscription edges, anchored
-          on the right side of the card. Decoupling stream edges from the
+      {/* Dedicated source handle for topic/subscription edges, anchored
+          on the right side of the card. Decoupling topic edges from the
           bottom-center reporting handle means a subscription edge and a
           manager → subordinate edge can never share the same geometry.
-          id="stream" is what buildGraph passes as sourceHandle when
+          id="topic" is what buildGraph passes as sourceHandle when
           emitting subscription edges.
 
           Unlike the top/bottom reporting handles (which sit clear above
@@ -343,7 +343,7 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
           content (zIndex), or the label intercepts the pointer and the
           subscription drag can't start. */}
       <Handle
-        id="stream"
+        id="topic"
         type="source"
         position={RFPosition.Right}
         isConnectable
@@ -353,13 +353,13 @@ const WorkerNode: FC<NodeProps<Node<WorkerNodeData>>> = ({ data }) => {
   )
 }
 
-// StreamNode is a small pseudo-node — narrower than a Worker card —
+// TopicNode is a small pseudo-node — narrower than a Worker card —
 // rendered beside the org tree to anchor subscription edges. Clicking
-// the body navigates to the per-stream detail page; the trash icon
-// deletes the Stream row (irreversible).
+// the body navigates to the per-topic detail page; the trash icon
+// deletes the Topic row (irreversible).
 const STREAM_W = 180
 const STREAM_H = 80
-const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
+const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
   const bg = 'rgba(255,180,80,0.06)'
@@ -367,7 +367,7 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
   const handleColor = lightTheme.isLight ? 'rgba(180,100,0,0.55)' : 'rgba(255,180,80,0.55)'
   return (
     <Box
-      onClick={(e) => { e.stopPropagation(); data.onSelectStream(data.streamId) }}
+      onClick={(e) => { e.stopPropagation(); data.onSelectTopic(data.topicId) }}
       sx={{
         width: STREAM_W,
         height: STREAM_H,
@@ -384,18 +384,18 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
       }}
     >
       <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
-      <Tooltip title="Delete stream">
+      <Tooltip title="Delete topic">
         <IconButton
           className={NO_DRAG_NO_PAN}
           size="small"
-          onClick={(e) => { e.stopPropagation(); data.onDeleteStream(data.streamId) }}
+          onClick={(e) => { e.stopPropagation(); data.onDeleteTopic(data.topicId) }}
           sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
         >
           <DeleteOutlineIcon sx={{ fontSize: 14 }} />
         </IconButton>
       </Tooltip>
       <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
-        {data.streamId}
+        {data.topicId}
       </Typography>
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {data.name}
@@ -405,8 +405,8 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
           {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
         </Typography>
         {/* Waiting-message count. Kept deliberately tiny — the card is
-            already dense — and tinted with the stream accent so it reads
-            as a stream stat rather than chrome. */}
+            already dense — and tinted with the topic accent so it reads
+            as a topic stat rather than chrome. */}
         <Tooltip title={`${data.messageCount} message${data.messageCount === 1 ? '' : 's'} waiting`}>
           <Typography
             variant="caption"
@@ -420,11 +420,11 @@ const StreamNode: FC<NodeProps<Node<StreamNodeData>>> = ({ data }) => {
   )
 }
 
-const nodeTypes = { role: RoleNode, worker: WorkerNode, stream: StreamNode }
+const nodeTypes = { role: RoleNode, worker: WorkerNode, topic: TopicNode }
 
 // ---- dagre layout ------------------------------------------------------
 
-type StreamSummary = {
+type TopicSummary = {
   id: string
   name: string
   kind: string
@@ -436,39 +436,39 @@ type StreamSummary = {
 // dagre over a role-level graph whose edges come from reporting lines
 // that cross role boundaries. Workers sit in a horizontal row inside
 // their role's frame. Worker → Worker reporting edges and Worker →
-// Stream subscription edges are drawn on top.
-// layoutStreamColumns positions worker-anchored stream pseudo-nodes to
-// the right of the org tree without overlaps. Each stream prefers to sit
+// Topic subscription edges are drawn on top.
+// layoutTopicColumns positions worker-anchored topic pseudo-nodes to
+// the right of the org tree without overlaps. Each topic prefers to sit
 // at its subject Worker's y (so the subscription edge is short and
-// roughly horizontal), but two streams may never occupy the same space.
+// roughly horizontal), but two topics may never occupy the same space.
 //
 // Algorithm:
-//  1. Sort streams by their anchor y (then id, for a stable order).
+//  1. Sort topics by their anchor y (then id, for a stable order).
 //  2. Decide how many vertical columns are needed: a single column can
-//     hold `floor((band + gap) / slot)` streams within the tree's
-//     vertical extent. More streams than that spill into extra columns
+//     hold `floor((band + gap) / slot)` topics within the tree's
+//     vertical extent. More topics than that spill into extra columns
 //     to the right, so the column never grows unboundedly tall and
 //     overruns the canvas.
 //  3. Split the sorted list into balanced, contiguous column chunks
 //     (contiguous in anchor-y, so each column owns a vertical band and
 //     edges don't criss-cross between columns).
-//  4. Within a column, place each stream at `max(anchorY, cursor)` and
+//  4. Within a column, place each topic at `max(anchorY, cursor)` and
 //     advance the cursor past it — anchor-biased greedy packing, which
-//     keeps streams beside their worker while guaranteeing no overlap.
+//     keeps topics beside their worker while guaranteeing no overlap.
 const STREAM_VERTICAL_GAP = 16
-const layoutStreamColumns = (
-  items: { stream: StreamSummary; anchorY: number }[],
+const layoutTopicColumns = (
+  items: { topic: TopicSummary; anchorY: number }[],
   opts: { columnX: number; columnGap: number; top: number; bottom: number },
-): { stream: StreamSummary; x: number; y: number }[] => {
+): { topic: TopicSummary; x: number; y: number }[] => {
   if (items.length === 0) return []
   const sorted = items
     .slice()
-    .sort((a, b) => a.anchorY - b.anchorY || a.stream.id.localeCompare(b.stream.id))
+    .sort((a, b) => a.anchorY - b.anchorY || a.topic.id.localeCompare(b.topic.id))
 
   const slot = STREAM_H + STREAM_VERTICAL_GAP
   // A column should at least span the tree's height, but never spill to a
   // second column until it holds a decent stack — otherwise a short tree
-  // (e.g. one Worker) would fan a handful of streams across many columns.
+  // (e.g. one Worker) would fan a handful of topics across many columns.
   const MIN_PER_COLUMN = 6
   const band = Math.max(opts.bottom - opts.top, slot)
   const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / slot))
@@ -477,14 +477,14 @@ const layoutStreamColumns = (
   // not 4 + 1) — avoids a near-empty trailing column.
   const chunkSize = Math.ceil(sorted.length / columnCount)
 
-  const out: { stream: StreamSummary; x: number; y: number }[] = []
+  const out: { topic: TopicSummary; x: number; y: number }[] = []
   for (let col = 0; col < columnCount; col++) {
     const x = opts.columnX + col * (STREAM_W + opts.columnGap)
     let cursor = -Infinity
     const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
     for (const it of chunk) {
       const y = Math.max(it.anchorY, cursor)
-      out.push({ stream: it.stream, x, y })
+      out.push({ topic: it.topic, x, y })
       cursor = y + slot
     }
   }
@@ -500,11 +500,11 @@ const buildGraph = (
     onHire: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onFireWorker: (workerId: string) => void
-    onSelectStream: (streamId: string) => void
-    onDeleteStream: (streamId: string) => void
+    onSelectTopic: (topicId: string) => void
+    onDeleteTopic: (topicId: string) => void
   },
   isLight: boolean,
-  streams: StreamSummary[],
+  topics: TopicSummary[],
   messageCounts: Record<string, number>,
 ): { nodes: Node[]; edges: Edge[] } => {
   const flatByID = new Map<string, FlatWorker>()
@@ -646,24 +646,24 @@ const buildGraph = (
     }
   }
 
-  // 5. Stream pseudo-nodes + subscription edges. Subscriptions are
+  // 5. Topic pseudo-nodes + subscription edges. Subscriptions are
   //    worker-anchored, so subscribers carries Worker ids — one dashed
-  //    edge per subscribed Worker. Streams sit in column(s) to the right
-  //    of the org tree. Each stream is vertically anchored to the
+  //    edge per subscribed Worker. Topics sit in column(s) to the right
+  //    of the org tree. Each topic is vertically anchored to the
   //    "subject" Worker: for transcripts (`s-transcript-<id>`)
-  //    that's the encoded worker; otherwise created_by. Streams whose
+  //    that's the encoded worker; otherwise created_by. Topics whose
   //    subject isn't on the chart park in an orphan strip below.
   //
-  //    Layout engine (see `layoutStreamColumns`): the old code stacked
-  //    each worker-row's streams independently in ONE shared column with
+  //    Layout engine (see `layoutTopicColumns`): the old code stacked
+  //    each worker-row's topics independently in ONE shared column with
   //    no global collision check, so a tall stack from one row would
-  //    overrun the stack of the row below (streams literally overlapped).
+  //    overrun the stack of the row below (topics literally overlapped).
   //    The replacement is an anchor-biased, collision-free packer: it
-  //    sorts streams by their subject's y, splits them into as many
+  //    sorts topics by their subject's y, splits them into as many
   //    vertical columns as needed to fit the tree's height, then within
-  //    each column places each stream at `max(anchorY, cursor)` so it
+  //    each column places each topic at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
-  if (streams.length > 0) {
+  if (topics.length > 0) {
     const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
     for (const group of groups) {
@@ -694,8 +694,8 @@ const buildGraph = (
     const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
 
-    const resolved: { stream: StreamSummary; subjectWorker: string | null }[] = []
-    for (const s of streams) {
+    const resolved: { topic: TopicSummary; subjectWorker: string | null }[] = []
+    for (const s of topics) {
       let subjectWorker: string | undefined
       if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
         subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
@@ -703,19 +703,19 @@ const buildGraph = (
         subjectWorker = s.created_by
       }
       const onChart = subjectWorker && workerAbs.has(subjectWorker) ? subjectWorker : null
-      resolved.push({ stream: s, subjectWorker: onChart })
+      resolved.push({ topic: s, subjectWorker: onChart })
     }
 
-    // Anchored streams: lay them out beside their subject Worker.
+    // Anchored topics: lay them out beside their subject Worker.
     const anchored = resolved.filter((r) => r.subjectWorker)
-    const placed = layoutStreamColumns(
-      anchored.map((r) => ({ stream: r.stream, anchorY: workerAbs.get(r.subjectWorker!)!.y })),
+    const placed = layoutTopicColumns(
+      anchored.map((r) => ({ topic: r.topic, anchorY: workerAbs.get(r.subjectWorker!)!.y })),
       { columnX: maxRight + STREAM_COLUMN_GAP, columnGap: STREAM_COLUMN_GAP, top: minTop, bottom: maxY },
     )
-    const streamPos = new Map<string, { x: number; y: number }>()
+    const topicPos = new Map<string, { x: number; y: number }>()
     let streamsBottom = maxY
     for (const p of placed) {
-      streamPos.set(p.stream.id, { x: p.x, y: p.y })
+      topicPos.set(p.topic.id, { x: p.x, y: p.y })
       if (p.y + STREAM_H > streamsBottom) streamsBottom = p.y + STREAM_H
     }
 
@@ -726,27 +726,27 @@ const buildGraph = (
       let cursorX = (minLeft + maxRight) / 2 - stripWidth / 2
       const orphanY = streamsBottom + ORPHAN_VERTICAL_GAP
       for (const r of orphans) {
-        streamPos.set(r.stream.id, { x: cursorX, y: orphanY })
+        topicPos.set(r.topic.id, { x: cursorX, y: orphanY })
         cursorX += STREAM_W + STREAM_GAP_X
       }
     }
 
-    for (const { stream: s } of resolved) {
-      const pos = streamPos.get(s.id)!
+    for (const { topic: s } of resolved) {
+      const pos = topicPos.get(s.id)!
       const { x, y } = pos
       nodes.push({
-        id: `stream:${s.id}`,
-        type: 'stream',
+        id: `topic:${s.id}`,
+        type: 'topic',
         position: { x, y },
         data: {
-          streamId: s.id,
+          topicId: s.id,
           name: s.name,
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
           messageCount: messageCounts[s.id] ?? 0,
-          onSelectStream: handlers.onSelectStream,
-          onDeleteStream: handlers.onDeleteStream,
-        } as StreamNodeData,
+          onSelectTopic: handlers.onSelectTopic,
+          onDeleteTopic: handlers.onDeleteTopic,
+        } as TopicNodeData,
         draggable: false,
         connectable: true,
         selectable: true,
@@ -756,11 +756,11 @@ const buildGraph = (
         edges.push({
           id: `sub:${wid}->${s.id}`,
           source: `worker:${wid}`,
-          sourceHandle: 'stream',
-          target: `stream:${s.id}`,
+          sourceHandle: 'topic',
+          target: `topic:${s.id}`,
           type: 'deletable',
           animated: false,
-          data: { kind: 'sub', workerId: wid, streamId: s.id },
+          data: { kind: 'sub', workerId: wid, topicId: s.id },
           style: {
             stroke: isLight ? 'rgba(180,100,0,0.7)' : 'rgba(255,180,80,0.7)',
             strokeWidth: 1.25,
@@ -898,27 +898,27 @@ const ChartCanvas: FC<{
     onHire: (roleId: string) => void
     onDeleteRole: (roleId: string) => void
     onFireWorker: (workerId: string) => void
-    onSelectStream: (streamId: string) => void
-    onDeleteStream: (streamId: string) => void
+    onSelectTopic: (topicId: string) => void
+    onDeleteTopic: (topicId: string) => void
   }
   // onAddParent fires when the user wires manager → subordinate (an
   // onConnect); onRemoveParent fires when they delete a reporting edge,
   // and carries the specific manager since a Worker may have several.
   onAddParent: (childWorkerId: string, newParentWorkerId: string) => void
   onRemoveParent: (childWorkerId: string, parentWorkerId: string) => void
-  // onSubscribeWorker fires when the user wires a Worker node → a stream
+  // onSubscribeWorker fires when the user wires a Worker node → a topic
   // pseudo-node; onUnsubscribeWorker fires when they delete that edge.
-  onSubscribeWorker: (workerId: string, streamId: string) => void
-  onUnsubscribeWorker: (workerId: string, streamId: string) => void
-  streams: StreamSummary[]
+  onSubscribeWorker: (workerId: string, topicId: string) => void
+  onUnsubscribeWorker: (workerId: string, topicId: string) => void
+  topics: TopicSummary[]
   messageCounts: Record<string, number>
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, streams, messageCounts }) => {
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, topics, messageCounts }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight, streams, messageCounts),
-    [groups, flat, handlers, lightTheme.isLight, streams, messageCounts],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight, topics, messageCounts),
+    [groups, flat, handlers, lightTheme.isLight, topics, messageCounts],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -932,18 +932,18 @@ const ChartCanvas: FC<{
   // onConnect handles both wire shapes:
   //   - worker→worker: manager wires their report. Source = manager,
   //     target = subordinate. Persists by adding a reporting line.
-  //   - worker→stream:  the worker consumes a stream. Persists by
-  //     POSTing a (worker, stream) subscription.
+  //   - worker→topic:  the worker consumes a topic. Persists by
+  //     POSTing a (worker, topic) subscription.
   const onConnect = useCallback(
     ({ source, target }: { source: string | null; target: string | null }) => {
       if (!source || !target) return
       if (!source.startsWith('worker:')) return
       const sourceId = source.replace(/^worker:/, '')
       if (!sourceId) return
-      if (target.startsWith('stream:')) {
-        const streamId = target.replace(/^stream:/, '')
-        if (!streamId) return
-        onSubscribeWorker(sourceId, streamId)
+      if (target.startsWith('topic:')) {
+        const topicId = target.replace(/^topic:/, '')
+        if (!topicId) return
+        onSubscribeWorker(sourceId, topicId)
         return
       }
       if (target.startsWith('worker:')) {
@@ -957,13 +957,13 @@ const ChartCanvas: FC<{
 
   // onEdgesDelete severs whatever the edge represented: a reporting edge
   // drops that one (manager → report) line; a subscription edge drops
-  // the (worker, stream) row.
+  // the (worker, topic) row.
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const e of deleted) {
-        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; streamId?: string } | undefined
-        if (d?.kind === 'sub' && d.workerId && d.streamId) {
-          onUnsubscribeWorker(d.workerId, d.streamId)
+        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; topicId?: string } | undefined
+        if (d?.kind === 'sub' && d.workerId && d.topicId) {
+          onUnsubscribeWorker(d.workerId, d.topicId)
           continue
         }
         // Reporting edge: remove the specific manager line. Fall back to
@@ -1019,9 +1019,9 @@ const HelixOrgChart: FC = () => {
   const router = useRouter()
   const { data: workersData, isLoading } = useListHelixOrgWorkers()
   const { data: rolesData } = useListHelixOrgRoles()
-  const { data: streamsData } = useListHelixOrgStreams()
+  const { data: streamsData } = useListHelixOrgTopics()
   const deleteRole = useDeleteHelixOrgRole()
-  const deleteStream = useDeleteHelixOrgStream()
+  const deleteTopic = useDeleteHelixOrgTopic()
   const fireWorker = useFireHelixOrgWorker()
   const addParent = useAddWorkerParent()
   const removeParent = useRemoveWorkerParent()
@@ -1039,8 +1039,8 @@ const HelixOrgChart: FC = () => {
   )
   const knownRoles = useMemo(() => (rolesData ?? []).map((r) => r.id ?? ''), [rolesData])
   const groups = useMemo(() => groupByRole(flat, knownRoles), [flat, knownRoles])
-  const streams = useMemo<StreamSummary[]>(
-    () => (streamsData?.streams ?? []).map((s) => ({
+  const topics = useMemo<TopicSummary[]>(
+    () => (streamsData?.topics ?? []).map((s) => ({
       id: s.id ?? '',
       name: s.name ?? '',
       kind: s.kind ?? '',
@@ -1050,20 +1050,20 @@ const HelixOrgChart: FC = () => {
     [streamsData],
   )
 
-  // Per-stream waiting-message counts for the stream cards. One cached
-  // query per stream id (shared with the detail page's count hook), so
-  // each card's number refreshes independently. streamIds is memoized so
-  // the fan-out only re-subscribes when the set of streams changes, not
+  // Per-topic waiting-message counts for the topic cards. One cached
+  // query per topic id (shared with the detail page's count hook), so
+  // each card's number refreshes independently. topicIds is memoized so
+  // the fan-out only re-subscribes when the set of topics changes, not
   // on every render.
-  const streamIds = useMemo(() => streams.map((s) => s.id), [streams])
-  const messageCounts = useStreamMessageCounts(streamIds)
+  const topicIds = useMemo(() => topics.map((s) => s.id), [topics])
+  const messageCounts = useTopicMessageCounts(topicIds)
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<
     | { kind: 'role'; id: string }
     | { kind: 'worker'; id: string }
-    | { kind: 'stream'; id: string }
+    | { kind: 'topic'; id: string }
     | null
   >(null)
 
@@ -1090,17 +1090,17 @@ const HelixOrgChart: FC = () => {
   const onHire = useCallback((roleId: string) => setSelection({ kind: 'hire', roleId }), [])
   const onDeleteRole = useCallback((roleId: string) => setConfirmDelete({ kind: 'role', id: roleId }), [])
   const onFireWorker = useCallback((workerId: string) => setConfirmDelete({ kind: 'worker', id: workerId }), [])
-  const onSelectStream = useCallback(
-    (streamId: string) => {
+  const onSelectTopic = useCallback(
+    (topicId: string) => {
       if (!orgSlug) return
-      router.navigate('helix_org_stream_detail', { org_id: orgSlug, stream_id: streamId })
+      router.navigate('helix_org_topic_detail', { org_id: orgSlug, topic_id: topicId })
     },
     [router, orgSlug],
   )
-  const onDeleteStream = useCallback((streamId: string) => setConfirmDelete({ kind: 'stream', id: streamId }), [])
+  const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
   const handlers = useMemo(
-    () => ({ onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectStream, onDeleteStream }),
-    [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectStream, onDeleteStream],
+    () => ({ onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic }),
+    [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic],
   )
 
   const onAddParent = useCallback(
@@ -1128,10 +1128,10 @@ const HelixOrgChart: FC = () => {
   )
 
   const onSubscribeWorker = useCallback(
-    async (workerId: string, streamId: string) => {
+    async (workerId: string, topicId: string) => {
       try {
-        await subscribe.mutateAsync({ workerID: workerId, streamID: streamId })
-        snackbar.success(`${workerId} now consumes ${streamId}`)
+        await subscribe.mutateAsync({ workerID: workerId, topicID: topicId })
+        snackbar.success(`${workerId} now consumes ${topicId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'subscribe failed')
       }
@@ -1140,10 +1140,10 @@ const HelixOrgChart: FC = () => {
   )
 
   const onUnsubscribeWorker = useCallback(
-    async (workerId: string, streamId: string) => {
+    async (workerId: string, topicId: string) => {
       try {
-        await unsubscribe.mutateAsync({ workerID: workerId, streamID: streamId })
-        snackbar.success(`${workerId} no longer consumes ${streamId}`)
+        await unsubscribe.mutateAsync({ workerID: workerId, topicID: topicId })
+        snackbar.success(`${workerId} no longer consumes ${topicId}`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.error ?? err?.message ?? 'unsubscribe failed')
       }
@@ -1157,9 +1157,9 @@ const HelixOrgChart: FC = () => {
       if (confirmDelete.kind === 'role') {
         await deleteRole.mutateAsync(confirmDelete.id)
         snackbar.success(`deleted role ${confirmDelete.id}`)
-      } else if (confirmDelete.kind === 'stream') {
-        await deleteStream.mutateAsync(confirmDelete.id)
-        snackbar.success(`deleted stream ${confirmDelete.id}`)
+      } else if (confirmDelete.kind === 'topic') {
+        await deleteTopic.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted topic ${confirmDelete.id}`)
       } else {
         await fireWorker.mutateAsync(confirmDelete.id)
         snackbar.success(`fired worker ${confirmDelete.id}`)
@@ -1188,14 +1188,14 @@ const HelixOrgChart: FC = () => {
         'This is irreversible.',
       ].join('\n')
     }
-    if (confirmDelete.kind === 'stream') {
-      const s = (streamsData?.streams ?? []).find((x) => x.id === confirmDelete.id)
+    if (confirmDelete.kind === 'topic') {
+      const s = (streamsData?.topics ?? []).find((x) => x.id === confirmDelete.id)
       const subs = s?.subscribers ?? []
       return [
-        `Deleting stream ${confirmDelete.id}:`,
-        `  • removes the Stream row`,
+        `Deleting topic ${confirmDelete.id}:`,
+        `  • removes the Topic row`,
         `  • drops ${subs.length} subscription${subs.length === 1 ? '' : 's'}${subs.length > 0 ? ' (' + subs.join(', ') + ')' : ''}`,
-        `  • events on this stream survive as an audit trail`,
+        `  • events on this topic survive as an audit trail`,
         '',
         'This is irreversible.',
       ].join('\n')
@@ -1226,7 +1226,7 @@ const HelixOrgChart: FC = () => {
             <Typography variant="body2" sx={{ color: subtitleColor }}>
               Roles group Workers. Hire Workers into a Role, then drag from a manager's
               bottom handle to a subordinate to set who reports to whom, or from a
-              Worker's right handle to a Stream to subscribe.
+              Worker's right handle to a Topic to subscribe.
             </Typography>
           </Box>
         </Box>
@@ -1275,7 +1275,7 @@ const HelixOrgChart: FC = () => {
                 onRemoveParent={onRemoveParent}
                 onSubscribeWorker={onSubscribeWorker}
                 onUnsubscribeWorker={onUnsubscribeWorker}
-                streams={streams}
+                topics={topics}
                 messageCounts={messageCounts}
               />
             </ReactFlowProvider>
@@ -1288,13 +1288,13 @@ const HelixOrgChart: FC = () => {
         open={confirmDelete !== null}
         title={
           confirmDelete?.kind === 'role' ? 'Delete role?' :
-          confirmDelete?.kind === 'stream' ? 'Delete stream?' :
+          confirmDelete?.kind === 'topic' ? 'Delete topic?' :
           'Fire worker?'
         }
         body={confirmBody}
         onConfirm={handleConfirmDelete}
         onClose={() => setConfirmDelete(null)}
-        pending={deleteRole.isPending || deleteStream.isPending || fireWorker.isPending}
+        pending={deleteRole.isPending || deleteTopic.isPending || fireWorker.isPending}
       />
 
       <HireWorkerDrawer

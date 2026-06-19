@@ -16,14 +16,14 @@ export interface ApiAddWorkerParentRequest {
 export interface ApiCreateRoleRequest {
   content?: string;
   id?: string;
-  streams?: string[];
   tools?: string[];
+  topics?: string[];
 }
 
-export interface ApiCreateStreamRequest {
+export interface ApiCreateTopicRequest {
   /**
-   * As is the Worker that creates the stream — the worker whose chat
-   * the human is in. Empty leaves the stream unattributed (CreatedBy is
+   * As is the Worker that creates the topic — the worker whose chat
+   * the human is in. Empty leaves the topic unattributed (CreatedBy is
    * cosmetic: it only anchors the node on the chart).
    */
   as?: string;
@@ -45,9 +45,9 @@ export interface ApiEventCard {
   id?: string;
   message_body?: string;
   source?: string;
-  stream_id?: string;
   subject?: string;
   to?: string;
+  topic_id?: string;
 }
 
 export interface ApiGitHubInstallationStatus {
@@ -58,7 +58,7 @@ export interface ApiGitHubInstallationStatus {
    */
   app_exists?: boolean;
   /**
-   * InstallURL is where the New Stream gate sends the user to install the
+   * InstallURL is where the New Topic gate sends the user to install the
    * app (https://github.com/apps/<slug>/installations/new). Populated from
    * the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
    */
@@ -104,7 +104,7 @@ export interface ApiGitHubWebhookStatusResponse {
   payload_url?: string;
   /**
    * State is one of:
-   *   "installed" — a webhook for this stream's payload URL exists on the repo
+   *   "installed" — a webhook for this topic's payload URL exists on the repo
    *   "missing"   — GitHub was reachable and has no such webhook (needs install)
    *   "unknown"   — couldn't determine (no repo / no public URL / no creds /
    *                 GitHub error); see Detail. The UI falls back to stored state.
@@ -147,9 +147,9 @@ export interface ApiMessageAttributes {
   from?: string;
   has_message?: boolean;
   source?: string;
-  stream_id?: string;
   subject?: string;
   to?: string[];
+  topic_id?: string;
 }
 
 export interface ApiMessageResource {
@@ -200,8 +200,8 @@ export interface ApiRoleDTO {
   content?: string;
   created_at?: string;
   id?: string;
-  streams?: string[];
   tools?: string[];
+  topics?: string[];
   updated_at?: string;
 }
 
@@ -229,7 +229,16 @@ export interface ApiSettingsSpecDTO {
   value?: string;
 }
 
-export interface ApiStreamDTO {
+export interface ApiSubscribeWorkerRequest {
+  topic_id?: string;
+}
+
+export interface ApiToolDTO {
+  description?: string;
+  name?: string;
+}
+
+export interface ApiTopicDTO {
   can_publish?: boolean;
   config?: Record<string, any>;
   created_at?: string;
@@ -244,18 +253,9 @@ export interface ApiStreamDTO {
   subscribers?: string[];
 }
 
-export interface ApiStreamsResponse {
+export interface ApiTopicsResponse {
   recent?: ApiEventCard[];
-  streams?: ApiStreamDTO[];
-}
-
-export interface ApiSubscribeWorkerRequest {
-  stream_id?: string;
-}
-
-export interface ApiToolDTO {
-  description?: string;
-  name?: string;
+  topics?: ApiTopicDTO[];
 }
 
 export interface ApiTransportRequestField {
@@ -265,11 +265,11 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateRoleRequest {
   content?: string;
-  streams?: string[];
   tools?: string[];
+  topics?: string[];
 }
 
-export interface ApiUpdateStreamRequest {
+export interface ApiUpdateTopicRequest {
   description?: string;
   name?: string;
   transport?: ApiTransportRequestField;
@@ -321,7 +321,7 @@ export interface ApiWorkerDetailDTO {
 
 export interface ApiWorkerSubscriptionDTO {
   created_at?: string;
-  stream_id?: string;
+  topic_id?: string;
 }
 
 export interface ApiWorkerSubscriptionsResponse {
@@ -5497,6 +5497,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Autonomous surfaces: auto-recover the agent on crash (no human to click Restart) */
+  auto_restart_on_crash?: boolean;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /** Configuration for external agents */
@@ -5561,6 +5563,19 @@ export interface TypesSessionMetadata {
   app_query_params?: Record<string, string>;
   /** which assistant are we talking to? */
   assistant_id?: string;
+  auto_restart_count?: number;
+  /**
+   * Autonomous crash recovery. Set true at session creation for surfaces with
+   * no human present to click the in-chat Restart button (spec tasks, org
+   * workers). When the external agent crashes mid-turn, the websocket crash
+   * handler auto-invokes the canonical restart primitive instead of leaving
+   * the session errored+idle. Human desktop sessions leave this false and keep
+   * the explicit button. AutoRestartCount bounds consecutive auto-restarts
+   * without an intervening successful turn (anti-storm guard); it is reset to 0
+   * on the next successful completion and lives on the SESSION (not the prompt)
+   * so ResetCrashedPromptsForSession can't zero the restart budget.
+   */
+  auto_restart_on_crash?: boolean;
   avatar?: string;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
@@ -5603,6 +5618,7 @@ export interface TypesSessionMetadata {
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
+  last_auto_restart_at?: string;
   manually_review_questions?: boolean;
   /**
    * Fork lineage — set on a session created by forking from a parent.
@@ -12086,14 +12102,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsDetail
-     * @summary Helix-org: list streams
-     * @request GET:/api/v1/orgs/{org}/streams
+     * @name V1OrgsToolsDetail
+     * @summary Helix-org: list available MCP tools
+     * @request GET:/api/v1/orgs/{org}/tools
      * @secure
      */
-    v1OrgsStreamsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiStreamsResponse, any>({
-        path: `/api/v1/orgs/${org}/streams`,
+    v1OrgsToolsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiToolDTO[], any>({
+        path: `/api/v1/orgs/${org}/tools`,
         method: "GET",
         secure: true,
         format: "json",
@@ -12104,14 +12120,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsCreate
-     * @summary Helix-org: create a stream
-     * @request POST:/api/v1/orgs/{org}/streams
+     * @name V1OrgsTopicsDetail
+     * @summary Helix-org: list topics
+     * @request GET:/api/v1/orgs/{org}/topics
      * @secure
      */
-    v1OrgsStreamsCreate: (org: string, payload: ApiCreateStreamRequest, params: RequestParams = {}) =>
-      this.request<ApiStreamDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams`,
+    v1OrgsTopicsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiTopicsResponse, any>({
+        path: `/api/v1/orgs/${org}/topics`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsCreate
+     * @summary Helix-org: create a topic
+     * @request POST:/api/v1/orgs/{org}/topics
+     * @secure
+     */
+    v1OrgsTopicsCreate: (org: string, payload: ApiCreateTopicRequest, params: RequestParams = {}) =>
+      this.request<ApiTopicDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/topics`,
         method: "POST",
         body: payload,
         secure: true,
@@ -12124,14 +12158,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsDelete
-     * @summary Helix-org: delete a stream
-     * @request DELETE:/api/v1/orgs/{org}/streams/{id}
+     * @name V1OrgsTopicsDelete
+     * @summary Helix-org: delete a topic
+     * @request DELETE:/api/v1/orgs/{org}/topics/{id}
      * @secure
      */
-    v1OrgsStreamsDelete: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsTopicsDelete: (id: string, org: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}`,
+        path: `/api/v1/orgs/${org}/topics/${id}`,
         method: "DELETE",
         secure: true,
         ...params,
@@ -12141,16 +12175,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsDetail2
-     * @summary Helix-org: get a stream
-     * @request GET:/api/v1/orgs/{org}/streams/{id}
-     * @originalName v1OrgsStreamsDetail
+     * @name V1OrgsTopicsDetail2
+     * @summary Helix-org: get a topic
+     * @request GET:/api/v1/orgs/{org}/topics/{id}
+     * @originalName v1OrgsTopicsDetail
      * @duplicate
      * @secure
      */
-    v1OrgsStreamsDetail2: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiStreamDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}`,
+    v1OrgsTopicsDetail2: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiTopicDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/topics/${id}`,
         method: "GET",
         secure: true,
         format: "json",
@@ -12161,14 +12195,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsUpdate
-     * @summary Helix-org: update a stream
-     * @request PUT:/api/v1/orgs/{org}/streams/{id}
+     * @name V1OrgsTopicsUpdate
+     * @summary Helix-org: update a topic
+     * @request PUT:/api/v1/orgs/{org}/topics/{id}
      * @secure
      */
-    v1OrgsStreamsUpdate: (id: string, org: string, payload: ApiUpdateStreamRequest, params: RequestParams = {}) =>
-      this.request<ApiStreamDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}`,
+    v1OrgsTopicsUpdate: (id: string, org: string, payload: ApiUpdateTopicRequest, params: RequestParams = {}) =>
+      this.request<ApiTopicDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/topics/${id}`,
         method: "PUT",
         body: payload,
         secure: true,
@@ -12181,14 +12215,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsEventsDetail
-     * @summary Helix-org: SSE stream of events for one stream
-     * @request GET:/api/v1/orgs/{org}/streams/{id}/events
+     * @name V1OrgsTopicsEventsDetail
+     * @summary Helix-org: SSE topic of events for one topic
+     * @request GET:/api/v1/orgs/{org}/topics/{id}/events
      * @secure
      */
-    v1OrgsStreamsEventsDetail: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsTopicsEventsDetail: (id: string, org: string, params: RequestParams = {}) =>
       this.request<string, any>({
-        path: `/api/v1/orgs/${org}/streams/${id}/events`,
+        path: `/api/v1/orgs/${org}/topics/${id}/events`,
         method: "GET",
         secure: true,
         ...params,
@@ -12198,14 +12232,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsGithubInstallWebhookCreate
-     * @summary Helix-org: auto-install the webhook for a github stream
-     * @request POST:/api/v1/orgs/{org}/streams/{id}/github/install-webhook
+     * @name V1OrgsTopicsGithubInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a github topic
+     * @request POST:/api/v1/orgs/{org}/topics/{id}/github/install-webhook
      * @secure
      */
-    v1OrgsStreamsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsTopicsGithubInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiInstallGitHubWebhookResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}/github/install-webhook`,
+        path: `/api/v1/orgs/${org}/topics/${id}/github/install-webhook`,
         method: "POST",
         secure: true,
         format: "json",
@@ -12216,14 +12250,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsGithubWebhookStatusDetail
-     * @summary Helix-org: live webhook status for a github stream
-     * @request GET:/api/v1/orgs/{org}/streams/{id}/github/webhook-status
+     * @name V1OrgsTopicsGithubWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a github topic
+     * @request GET:/api/v1/orgs/{org}/topics/{id}/github/webhook-status
      * @secure
      */
-    v1OrgsStreamsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+    v1OrgsTopicsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}/github/webhook-status`,
+        path: `/api/v1/orgs/${org}/topics/${id}/github/webhook-status`,
         method: "GET",
         secure: true,
         format: "json",
@@ -12234,12 +12268,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsMessagesDetail
-     * @summary Helix-org: list a stream's messages (JSON:API, paginated)
-     * @request GET:/api/v1/orgs/{org}/streams/{id}/messages
+     * @name V1OrgsTopicsMessagesDetail
+     * @summary Helix-org: list a topic's messages (JSON:API, paginated)
+     * @request GET:/api/v1/orgs/{org}/topics/{id}/messages
      * @secure
      */
-    v1OrgsStreamsMessagesDetail: (
+    v1OrgsTopicsMessagesDetail: (
       id: string,
       org: string,
       query?: {
@@ -12251,7 +12285,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       params: RequestParams = {},
     ) =>
       this.request<ApiMessagesDocument, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}/messages`,
+        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
         method: "GET",
         query: query,
         secure: true,
@@ -12263,36 +12297,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
-     * @name V1OrgsStreamsPublishCreate
-     * @summary Helix-org: publish a message to a stream
-     * @request POST:/api/v1/orgs/{org}/streams/{id}/publish
+     * @name V1OrgsTopicsPublishCreate
+     * @summary Helix-org: publish a message to a topic
+     * @request POST:/api/v1/orgs/{org}/topics/{id}/publish
      * @secure
      */
-    v1OrgsStreamsPublishCreate: (id: string, org: string, payload: ApiPublishRequest, params: RequestParams = {}) =>
+    v1OrgsTopicsPublishCreate: (id: string, org: string, payload: ApiPublishRequest, params: RequestParams = {}) =>
       this.request<ApiPublishResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/streams/${id}/publish`,
+        path: `/api/v1/orgs/${org}/topics/${id}/publish`,
         method: "POST",
         body: payload,
         secure: true,
         type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsToolsDetail
-     * @summary Helix-org: list available MCP tools
-     * @request GET:/api/v1/orgs/{org}/tools
-     * @secure
-     */
-    v1OrgsToolsDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiToolDTO[], any>({
-        path: `/api/v1/orgs/${org}/tools`,
-        method: "GET",
-        secure: true,
         format: "json",
         ...params,
       }),
@@ -12534,7 +12550,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersSubscriptionsCreate
-     * @summary Helix-org: subscribe a worker to a stream
+     * @summary Helix-org: subscribe a worker to a topic
      * @request POST:/api/v1/orgs/{org}/workers/{id}/subscriptions
      * @secure
      */
@@ -12558,13 +12574,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsWorkersSubscriptionsDelete
-     * @summary Helix-org: unsubscribe a worker from a stream
-     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}
+     * @summary Helix-org: unsubscribe a worker from a topic
+     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}
      * @secure
      */
-    v1OrgsWorkersSubscriptionsDelete: (id: string, streamId: string, org: string, params: RequestParams = {}) =>
+    v1OrgsWorkersSubscriptionsDelete: (id: string, topicId: string, org: string, params: RequestParams = {}) =>
       this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions/${streamId}`,
+        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions/${topicId}`,
         method: "DELETE",
         secure: true,
         ...params,
