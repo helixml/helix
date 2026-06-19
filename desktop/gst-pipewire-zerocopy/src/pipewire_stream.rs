@@ -1321,7 +1321,13 @@ fn build_negotiation_params(
     // The use_dmabuf parameter now indicates our PREFERENCE:
     // - use_dmabuf=true: Prefer DmaBuf, fall back to MemFd
     // - use_dmabuf=false: Prefer MemFd, but still accept DmaBuf if Mutter requires it
-    let buffer_types: i32 = (1 << 2) | (1 << 3); // MemFd | DmaBuf = 4 | 8 = 12
+    // SPA_DATA_SyncObj = 5. Explicit sync requires us to advertise we accept
+    // SyncObj data blocks, or Mutter won't attach the acquire/release syncobj fds
+    // even when the SyncTimeline meta is negotiated.
+    let mut buffer_types: i32 = (1 << 2) | (1 << 3); // MemFd | DmaBuf = 4 | 8 = 12
+    if crate::sync_timeline::enabled() {
+        buffer_types |= 1 << 5; // + SyncObj
+    }
     let buffer_type_name = "MemFd+DmaBuf (let PipeWire negotiate)";
     eprintln!(
         "[PIPEWIRE_DEBUG] Buffer types: 0x{:x} ({}) - use_dmabuf={}",
