@@ -371,6 +371,46 @@ unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
     0
 }
 
+/// One-shot diagnostic: dump the buffer's meta types and data types so we can
+/// confirm at runtime whether Mutter's screencast delivers explicit sync.
+/// SPA meta types: Header=1, VideoCrop=2, VideoDamage=3, Bitmap=4, Cursor=5,
+/// Control=6, Busy=7, VideoTransform=8, SyncTimeline=9.
+/// SPA data types: MemPtr=1, MemFd=2, DmaBuf=3, MemId=4, SyncObj=5.
+/// If we see meta=9 (SyncTimeline) and/or data=5 (SyncObj), explicit sync is
+/// available and the GPU-wait fix is viable.
+///
+/// # Safety
+/// `buffer` must be a valid spa_buffer pointer.
+unsafe fn dump_buffer_layout_once(buffer: *mut spa_buffer) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    if SEEN.fetch_add(1, Ordering::Relaxed) >= 3 {
+        return;
+    }
+    if buffer.is_null() {
+        return;
+    }
+    let n_metas = (*buffer).n_metas;
+    let mut meta_types = Vec::new();
+    let mut m = (*buffer).metas;
+    let end = (*buffer).metas.wrapping_add(n_metas as usize);
+    while m != end {
+        meta_types.push(((*m).type_, (*m).size));
+        m = m.wrapping_add(1);
+    }
+    let n_datas = (*buffer).n_datas;
+    let mut data_types = Vec::new();
+    let datas = (*buffer).datas;
+    for i in 0..n_datas as usize {
+        let d = datas.wrapping_add(i);
+        data_types.push(((*d).type_, (*d).fd));
+    }
+    eprintln!(
+        "[SYNC_DIAG] buffer metas(type,size)={:?} datas(type,fd)={:?}  (SyncTimeline meta=9, SyncObj data=5)",
+        meta_types, data_types
+    );
+}
+
 /// SPA_META_Cursor type constant (from spa/buffer/meta.h)
 const SPA_META_CURSOR: u32 = 5;
 
@@ -874,6 +914,11 @@ fn run_pipewire_loop(
 
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
+
+            // One-shot: confirm whether Mutter delivers explicit sync (SyncTimeline
+            // meta / SyncObj data). Decides whether the GPU-wait stale-frame fix is
+            // viable. Logged for the first few frames only.
+            unsafe { dump_buffer_layout_once(spa_buffer) };
 
             // Note: Cursor metadata is handled by Go PipeWire client via separate session
             // The Rust plugin only handles video frames
