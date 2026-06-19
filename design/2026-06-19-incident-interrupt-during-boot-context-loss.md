@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-19
 **Severity:** High (silent context loss — agent answers with no task context, no error surfaced)
-**Status:** Root-caused, FIXED (two paths), validated end-to-end against live Zed on meta.helix.ml (2026-06-19).
+**Status:** Root-caused, FIXED (three guards), content-verified against live Zed on meta.helix.ml (2026-06-19). The first PR (#2660) was **incomplete** — see "Follow-up: the first fix missed a concurrent dispatch path" at the end.
 **Affected:** spec task `spt_01kvfq6m8a07gywpj6jmadyrb8`, planning session
 `ses_01kvfq6m92snjwagqegd4e1zzk` (`agent_type=zed_external`, `code_agent_runtime=claude_code`).
 **Related:** `design/2026-06-19-acp-v2-and-websocket-sync-rewrite-strategy.md`
@@ -153,3 +153,55 @@ waiting interaction is delivered on the next turn (auto-wake / reconnect).
 - The cross-wired 400KB response at 10:41 (response for I1 streaming under the
   correction's thread `4186854b`) is the same correlation tangle and is worth a
   follow-up once the point fix lands.
+
+---
+
+## Follow-up: the first fix (#2660) missed a concurrent dispatch path
+
+After #2660 merged, the original reproducer (move task to backlog → re-plan from
+scratch → quick correction during boot) **failed identically**. Live trace
+(session `ses_01kvfv3x…`, 11:44):
+
+- The poller-side barrier (path 1) **did** fire — it deferred the interrupt-path
+  dispatch 3×. But at **11:44:37** the correction was *also* picked up by a
+  **different** path — `processAnyPendingPrompt → sendQueuedPromptToSession` —
+  which is **exempt from the busy-defer for interrupt prompts**. It dispatched the
+  correction with an **empty `acp_thread_id`** at the same moment the initial went
+  out (also empty-thread).
+- Two empty-thread sends → Zed forked **two** threads: initial's spec work →
+  `ca419c1b`; correction → `b60a34c8`. Session bound to `b60a34c8`; the agent's
+  correction response read verbatim *"a previous conversation context that I don't
+  have."* Same symptom.
+
+**Lesson:** guarding the poller decision site was too narrow — multiple dispatch
+paths funnel into `sendQueuedPromptToSession`, and that is the real chokepoint.
+Also: the #2660 "validation" checked message *completion + length*, not whether
+the agent **retained context** — so it passed while the bug was live. Validate on
+response content, not shape.
+
+### The completing guard (chokepoint)
+
+`sendQueuedPromptToSession` (`websocket_external_agent_sync.go`): the interrupt's
+exemption from the busy-defer is only safe **once the thread exists**. Gate it:
+
+```go
+threadNotEstablished := session.Metadata.ZedThreadID == ""
+if !prompt.Interrupt || threadNotEstablished {
+    // busy-defer: if the newest interaction is a different Waiting one
+    // (the initial, still creating the thread), return a retryable
+    // "deferring" error instead of sending a second empty-thread message.
+}
+```
+
+Until `ZedThreadID` is set, *every* prompt (interrupt included) respects the
+busy-defer, so only the genuine first message is ever sent empty-thread. Once the
+thread exists the interrupt is exempt again and fires into the SAME thread.
+
+### Content-verified validation (live Zed, 2026-06-19)
+Fresh spec task, initial = "WidgetSync … over **Bluetooth**", interrupt during
+boot = "Actually … over **WiFi**". Result: session bound to **one** thread
+(`04101764`); **zero** empty-thread correction sends; the agent's correction
+response: *"The user wants to change the sync mechanism from Bluetooth to WiFi.
+Let me now write the spec files for WidgetSync that syncs widgets between devices
+over WiFi…"* — i.e. it had the initial feature **and** applied the correction. No
+"context I don't have". This is the test that #2660's should have been.
