@@ -89,19 +89,26 @@ services:
       - KODIT_VISION_EMBEDDING_BASE_URL=${KODIT_VISION_EMBEDDING_BASE_URL-http://localhost:8080/v1}
       - KODIT_VISION_EMBEDDING_API_KEY=${KODIT_VISION_EMBEDDING_API_KEY-${RUNNER_TOKEN-oh-hallo-insecure-token}}
       - KODIT_VISION_EMBEDDING_MODEL=${KODIT_VISION_EMBEDDING_MODEL-kodit-vision-embedding}
-      # Cap ONNX Runtime CPU parallelism. Kodit's local ONNX inference (code
+      # Best-effort ONNX thread hints. Kodit's local ONNX inference (code
       # embeddings + zero-shot classification) otherwise fans out across ALL host
-      # cores (libonnxruntime intra-op default), saturating the box (observed:
-      # 95% of API CPU in libonnxruntime, load 80-94, 0.1% idle). The desktop
-      # video relay goroutines live in this same process and the realtime capture
-      # loops get starved -> stalled/out-of-order frames (judder), worse under
-      # load. Bounding the thread pools leaves headroom for realtime streaming.
+      # cores (libonnxruntime intra-op default), saturating the box (observed: 95%
+      # of API CPU in libonnxruntime, load 80-94, 0.1% idle, vmstat r=65 on 48
+      # cores). That starves the in-process desktop video relay + the realtime
+      # capture loops -> stalled/out-of-order frames (judder), worse under load.
+      # NOTE: this libonnxruntime links no OpenMP, so OMP_NUM_THREADS is likely
+      # IGNORED (intra-op threads are set via SessionOptions in code). These are
+      # kept as a free best-effort; the HARD lever is the CPU cap below.
       # See design/2026-06-19-video-judder-kodit-cpu-and-pts-zero.md
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
       - ORT_INTRA_OP_NUM_THREADS=${ORT_INTRA_OP_NUM_THREADS:-4}
       - ORT_INTER_OP_NUM_THREADS=${ORT_INTER_OP_NUM_THREADS:-1}
       # which desktop image to use for code agents
       - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
+    # Hard CPU cap so Kodit's ONNX inference cannot saturate the whole box and
+    # starve the realtime desktop-video pipeline (capture loops live in separate
+    # desktop containers; this leaves them guaranteed headroom). Tune via
+    # HELIX_API_CPUS — default 36 of 48 leaves ~12 cores for desktops + system.
+    cpus: ${HELIX_API_CPUS:-36}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum

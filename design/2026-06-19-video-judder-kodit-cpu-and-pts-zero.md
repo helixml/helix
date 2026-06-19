@@ -72,11 +72,15 @@ shared, or stop relying on `get_mut()` succeeding.)
 
 ### Fix B — Kodit ONNX must not saturate CPU (PRIMARY)
 A background code-indexer doing unbounded local ONNX inference on the same box
-(and same process) as the realtime video relay is the architectural fault. Cap
-it so it physically cannot starve realtime work:
-- Set `OMP_NUM_THREADS` (and any ORT intra-op control the kodit/hugot/ortgenai
-  build honours) to a small value (e.g. 4) in the API service env so ONNX can't
-  fan out across all 48 cores. Needs an API restart to take effect.
+(and same process) as the realtime video relay is the architectural fault.
+**The reliable lever is a hard CPU cap on the API container** (`cpus: 36` of 48,
+staged in docker-compose.dev.yaml, tunable via `HELIX_API_CPUS`): it leaves the
+separate desktop containers guaranteed CPU headroom so their capture loops never
+starve, regardless of how ONNX threads itself.
+- IMPORTANT: `OMP_NUM_THREADS`/`ORT_*` env vars are **best-effort only** — this
+  libonnxruntime links NO OpenMP (ldd: no libgomp) and exposes
+  `SetIntraOpNumThreads` (a SessionOptions/code control), so it sizes intra-op
+  threads in code and likely IGNORES the env. Don't rely on them alone.
 - And/or run Kodit embeddings via an EXTERNAL provider instead of local ONNX
   (`KODIT_TEXT_EMBEDDING_BASE_URL` / `KODIT_VISION_EMBEDDING_BASE_URL` proxy),
   moving the ML CPU off this box entirely.
