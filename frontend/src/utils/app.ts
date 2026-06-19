@@ -81,6 +81,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.small_generation_model_provider = assistant.small_generation_model_provider
       flatState.code_agent_runtime = assistant.code_agent_runtime
       flatState.code_agent_credential_type = assistant.code_agent_credential_type
+      flatState.claude_subscription_model = assistant.claude_subscription_model
       flatState.goose_recipe_repo_url = assistant.goose_recipe_repo_url
       flatState.goose_recipes = assistant.goose_recipes
 

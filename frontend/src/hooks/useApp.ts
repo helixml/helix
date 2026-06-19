@@ -392,6 +392,10 @@ export const useApp = (appId: string) => {
       assistants[0].code_agent_credential_type = updates.code_agent_credential_type
     }
 
+    if (updates.claude_subscription_model !== undefined) {
+      assistants[0].claude_subscription_model = updates.claude_subscription_model
+    }
+
     if (updates.goose_recipe_repo_url !== undefined) {
       assistants[0].goose_recipe_repo_url = updates.goose_recipe_repo_url
     }
