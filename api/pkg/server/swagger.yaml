@@ -3316,6 +3316,13 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      claude_subscription_model:
+        description: |-
+          ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+          "claude_code" and CodeAgentCredentialType is "subscription". It is injected into
+          the sandbox container as ANTHROPIC_MODEL so Claude Code uses it instead of its
+          built-in default (Sonnet). Empty means default to "claude-opus-4-6".
+        type: string
       code_agent_credential_type:
         allOf:
         - $ref: '#/definitions/types.CodeAgentCredentialType'
@@ -8815,6 +8822,10 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      auto_restart_on_crash:
+        description: 'Autonomous surfaces: auto-recover the agent on crash (no human
+          to click Restart)'
+        type: boolean
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -8918,6 +8929,20 @@ definitions:
       assistant_id:
         description: which assistant are we talking to?
         type: string
+      auto_restart_count:
+        type: integer
+      auto_restart_on_crash:
+        description: |-
+          Autonomous crash recovery. Set true at session creation for surfaces with
+          no human present to click the in-chat Restart button (spec tasks, org
+          workers). When the external agent crashes mid-turn, the websocket crash
+          handler auto-invokes the canonical restart primitive instead of leaving
+          the session errored+idle. Human desktop sessions leave this false and keep
+          the explicit button. AutoRestartCount bounds consecutive auto-restarts
+          without an intervening successful turn (anti-storm guard); it is reset to 0
+          on the next successful completion and lives on the SESSION (not the prompt)
+          so ResetCrashedPromptsForSession can't zero the restart budget.
+        type: boolean
       avatar:
         type: string
       callback_url:
@@ -8993,6 +9018,8 @@ definitions:
       implementation_task_index:
         description: Index of implementation task this session handles
         type: integer
+      last_auto_restart_at:
+        type: string
       manually_review_questions:
         type: boolean
       parent_session_id:

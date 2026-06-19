@@ -2090,6 +2090,13 @@ export interface TypesAssistantConfig {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
+   * ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+   * "claude_code" and CodeAgentCredentialType is "subscription". It is injected into
+   * the sandbox container as ANTHROPIC_MODEL so Claude Code uses it instead of its
+   * built-in default (Sonnet). Empty means default to "claude-opus-4-6".
+   */
+  claude_subscription_model?: string;
+  /**
    * CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
    * "api_key" (default/empty): uses an API key routed through the Helix proxy.
    * "subscription": uses OAuth credentials directly (e.g., Claude subscription).
@@ -5497,6 +5504,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Autonomous surfaces: auto-recover the agent on crash (no human to click Restart) */
+  auto_restart_on_crash?: boolean;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /** Configuration for external agents */
@@ -5561,6 +5570,19 @@ export interface TypesSessionMetadata {
   app_query_params?: Record<string, string>;
   /** which assistant are we talking to? */
   assistant_id?: string;
+  auto_restart_count?: number;
+  /**
+   * Autonomous crash recovery. Set true at session creation for surfaces with
+   * no human present to click the in-chat Restart button (spec tasks, org
+   * workers). When the external agent crashes mid-turn, the websocket crash
+   * handler auto-invokes the canonical restart primitive instead of leaving
+   * the session errored+idle. Human desktop sessions leave this false and keep
+   * the explicit button. AutoRestartCount bounds consecutive auto-restarts
+   * without an intervening successful turn (anti-storm guard); it is reset to 0
+   * on the next successful completion and lives on the SESSION (not the prompt)
+   * so ResetCrashedPromptsForSession can't zero the restart budget.
+   */
+  auto_restart_on_crash?: boolean;
   avatar?: string;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
@@ -5603,6 +5625,7 @@ export interface TypesSessionMetadata {
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
+  last_auto_restart_at?: string;
   manually_review_questions?: boolean;
   /**
    * Fork lineage — set on a session created by forking from a parent.

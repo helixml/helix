@@ -25576,6 +25576,10 @@
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "claude_subscription_model": {
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It is injected into\nthe sandbox container as ANTHROPIC_MODEL so Claude Code uses it instead of its\nbuilt-in default (Sonnet). Empty means default to \"claude-opus-4-6\".",
+                    "type": "string"
+                },
                 "code_agent_credential_type": {
                     "description": "CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.\n\"api_key\" (default/empty): uses an API key routed through the Helix proxy.\n\"subscription\": uses OAuth credentials directly (e.g., Claude subscription).",
                     "allOf": [
@@ -33114,6 +33118,10 @@
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)",
+                    "type": "boolean"
+                },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
@@ -33257,6 +33265,13 @@
                     "description": "which assistant are we talking to?",
                     "type": "string"
                 },
+                "auto_restart_count": {
+                    "type": "integer"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous crash recovery. Set true at session creation for surfaces with\nno human present to click the in-chat Restart button (spec tasks, org\nworkers). When the external agent crashes mid-turn, the websocket crash\nhandler auto-invokes the canonical restart primitive instead of leaving\nthe session errored+idle. Human desktop sessions leave this false and keep\nthe explicit button. AutoRestartCount bounds consecutive auto-restarts\nwithout an intervening successful turn (anti-storm guard); it is reset to 0\non the next successful completion and lives on the SESSION (not the prompt)\nso ResetCrashedPromptsForSession can't zero the restart budget.",
+                    "type": "boolean"
+                },
                 "avatar": {
                     "type": "string"
                 },
@@ -33361,6 +33376,9 @@
                 "implementation_task_index": {
                     "description": "Index of implementation task this session handles",
                     "type": "integer"
+                },
+                "last_auto_restart_at": {
+                    "type": "string"
                 },
                 "manually_review_questions": {
                     "type": "boolean"
