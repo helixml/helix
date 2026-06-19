@@ -16,8 +16,18 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 COPY . /app
 WORKDIR /app
 
+# Build matches upstream qwen-code's own Dockerfile: a full `npm ci` (NOT
+# --ignore-scripts) so the workspace packages under packages/channels/* and
+# packages/web-templates get built during install, then `npm run build`
+# (scripts/build.js) and `npm run bundle`. Since v0.14.4 the cli bundle imports
+# @qwen-code/channel-* and web-templates' generated templates; with
+# --ignore-scripts those workspace dist/ outputs are never produced and esbuild
+# fails with "Could not resolve @qwen-code/channel-base". HUSKY=0 disables the
+# git-hook install in the `prepare` script (the build context excludes .git).
+ENV HUSKY=0
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --ignore-scripts && \
+    npm ci && \
+    npm run build && \
     npm run bundle
 
 # Collect runtime files into /output
