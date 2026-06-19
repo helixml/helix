@@ -77,12 +77,17 @@ type Options struct {
 
 	// NeuronCompileCacheURL, if set, is exported as NEURON_COMPILE_CACHE_URL
 	// into the `docker compose` environment so Neuron (Inferentia/Trainium)
-	// profiles share a compiled-graph cache (e.g. "s3://<bucket>/neuron-cache").
-	// vLLM-Neuron compiles the model on first start; with this set, the NEFFs
-	// are uploaded once and every other runner loads them instead of
-	// recompiling. Empty means vLLM uses a local (ephemeral) cache.
-	// Implements HELIX_NEURON_COMPILE_CACHE_URL. The runner host must have
-	// credentials for the URL's backend (e.g. an instance role for s3://).
+	// profiles share a compiled-graph cache. vLLM-Neuron compiles the model on
+	// first start; with this set, the NEFFs are uploaded once and every other
+	// runner loads them instead of recompiling. Empty means vLLM uses a local
+	// (ephemeral) cache. Implements HELIX_NEURON_COMPILE_CACHE_URL.
+	//
+	// Format: "s3://<bucket>/<prefix>" (or a local path). The part after the
+	// bucket is an S3 key PREFIX, not a folder - there is nothing to pre-create
+	// beyond the bucket itself; the Neuron SDK writes the substructure
+	// (<prefix>/neuronxcc-<version>/MODULE_<hash>/...) under it on first compile.
+	// The runner host must have credentials for the backend (e.g. an instance
+	// role for s3://).
 	NeuronCompileCacheURL string
 
 	// ReadinessPollInterval is how often we poll service health after
