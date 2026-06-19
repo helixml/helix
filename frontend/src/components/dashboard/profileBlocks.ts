@@ -382,21 +382,6 @@ export const blockDesktopReserve: ProfileBlock = {
 // AWS Neuron (Inferentia2 / Trainium) — non-NVIDIA inference
 // ----------------------------------------------------------------------
 
-// vLLM-Neuron serving a pre-compiled artifact from AWS's public aws-neuron
-// HF org. No operator compile step, no S3: the container downloads the
-// artifact by HF model ID on first start. inf2.xlarge has 2 Neuron cores,
-// so the published artifact is tp=2; the two cores are exposed as
-// /dev/neuron0..1. The hydra "neuron" arm globs and mounts these into the
-// nested Docker; the compose service below claims them via `devices:`.
-//
-// ponytail: devices hardcoded to neuron0/neuron1 for the inf2.xlarge demo
-// (2 cores). Larger SKUs (inf2.8xlarge=12, trn1=16) need more entries —
-// expand the list when a bigger pool is provisioned.
-//
-// NOTE: pin `image` and the HF artifact revision to an SDK-compatible pair
-// at wire-up time against the host's Neuron DLC AMI (design risk #4 — graph
-// load fails on ABI mismatch). `latest` is a placeholder, not a contract.
-//
 // GATING NOTE — do NOT "fix" the derived GPURequirement.Count to 2. Neuron
 // runners report an empty GPU inventory (gpudetect has no neuron probe; the
 // design stubs neuron GPU stats on purpose). The assignment compatibility
@@ -407,7 +392,7 @@ export const blockDesktopReserve: ProfileBlock = {
 //   - nvidia profile -> neuron host: count 1>0 rejects.
 // If composeparse ever learns to count neuron `devices:` (Count=2), it MUST
 // land together with a gpudetect neuron probe, or assignment to the inf2
-// runner breaks (2 > 0 reject). Both are out of scope for this v1 demo.
+// runner breaks (2 > 0 reject). Both are out of scope for v1.
 // Validated live on a real inf2.xlarge (2026-06-19). Every value below was
 // proven on the box - see design/2026-06-15-neuron-inference-design.md and the
 // findings writeup. Notable corrections vs the original design guesses:
@@ -428,7 +413,7 @@ export const blockChatNeuronQwen15B: ProfileBlock = {
   name: "inf2.xlarge - Qwen2.5-1.5B (Neuron)",
   category: "chat",
   description:
-    "Qwen2.5-1.5B-Instruct served by vLLM on AWS Inferentia2 (inf2.xlarge, ~$0.99/hr). Demonstrates Helix inference on non-NVIDIA hardware over the standard OpenAI API. inf2.xlarge host RAM caps the model around 1-2B; use inf2.8xlarge for 7B.",
+    "Qwen2.5-1.5B-Instruct served by vLLM on AWS Inferentia2 (inf2.xlarge, ~$0.99/hr). Helix inference on non-NVIDIA hardware over the standard OpenAI API. inf2.xlarge host RAM caps the model around 1-2B; use inf2.8xlarge for 7B.",
   pros: [
     "LLM inference on AWS Inferentia2 - no NVIDIA hardware",
     "Standard OpenAI API (vLLM) - Helix's router routes to it unchanged",
@@ -588,7 +573,7 @@ export const curatedProfiles: CuratedProfile[] = [
     id: "inf2-qwen-1.5b-neuron",
     name: "AWS Inferentia2: Qwen2.5-1.5B (Neuron)",
     description:
-      "Single inf2.xlarge serving Qwen2.5-1.5B-Instruct on AWS Neuron via vLLM. Demonstrates hardware-agnostic inference - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live on inf2.xlarge.",
+      "Single inf2.xlarge serving Qwen2.5-1.5B-Instruct on AWS Neuron via vLLM. Hardware-agnostic inference - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live on inf2.xlarge.",
     pros: [
       "LLM inference on non-NVIDIA (Inferentia2) hardware",
       "Standard OpenAI API - inference router routes to it unchanged",
