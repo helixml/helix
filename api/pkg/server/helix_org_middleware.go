@@ -104,7 +104,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		rec := reconcile.New(reconcile.Deps{
 			Workers:        s.orgStore.Workers,
 			ReportingLines: s.orgStore.ReportingLines,
-			Streams:        s.orgStore.Streams,
+			Topics:         s.orgStore.Topics,
 			Subscriptions:  s.orgStore.Subscriptions,
 		})
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {

@@ -10,7 +10,7 @@ import (
 // TestSegmentMarkerRoundTrip pins the wire shape of the canonical
 // transcript-line format. Every emitter (helix Spawner's bridge,
 // the owner-chat path) builds a TranscriptSegment and calls Marker()
-// to render the on-stream string; every consumer can ParseSegment
+// to render the on-topic string; every consumer can ParseSegment
 // the body back into a typed segment. The format is asserted here so
 // writers and readers can't drift.
 func TestSegmentMarkerRoundTrip(t *testing.T) {

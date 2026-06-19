@@ -39,7 +39,7 @@ import (
 //
 // orgID is read from inv.Caller.OrganizationID() only — never from
 // args — so a Worker physically cannot mint another org's credential.
-// Same pattern as create_stream and the other org-scoped tools.
+// Same pattern as create_topic and the other org-scoped tools.
 type MintCredential struct {
 	deps      Deps
 	providers map[string]credential.Provider

@@ -18,23 +18,23 @@ func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UT
 func newService(st *store.Store) *Subscriptions {
 	return New(Deps{
 		Subscriptions: st.Subscriptions,
-		Streams:       st.Streams,
+		Topics:       st.Topics,
 		Workers:       st.Workers,
 		Now:           fixedClock,
 	})
 }
 
-// seed creates a stream + worker in the org so subscribe has valid
+// seed creates a topic + worker in the org so subscribe has valid
 // endpoints. Returns nothing — ids are fixed.
 func seed(t *testing.T, st *store.Store, orgID string) {
 	t.Helper()
 	ctx := context.Background()
-	stream, err := streaming.NewStream("s-1", "s-1", "", "w-owner", fixedClock(), transport.LocalTransport(), orgID)
+	topic, err := streaming.NewTopic("s-1", "s-1", "", "w-owner", fixedClock(), transport.LocalTransport(), orgID)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 	wk, _ := orgchart.NewAIWorker("w-mark", "r-eng", "id", orgID)
 	if err := st.Workers.Create(ctx, wk); err != nil {
@@ -56,7 +56,7 @@ func TestSubscribe_Idempotent(t *testing.T) {
 	if !created {
 		t.Fatal("first subscribe should report created=true")
 	}
-	if sub.WorkerID != "w-mark" || sub.StreamID != "s-1" {
+	if sub.WorkerID != "w-mark" || sub.TopicID != "s-1" {
 		t.Fatalf("unexpected sub: %+v", sub)
 	}
 
@@ -69,13 +69,13 @@ func TestSubscribe_Idempotent(t *testing.T) {
 		t.Fatal("second subscribe should report created=false")
 	}
 	// Exactly one row.
-	subs, _ := st.Subscriptions.ListForStream(ctx, "org-test", "s-1")
+	subs, _ := st.Subscriptions.ListForTopic(ctx, "org-test", "s-1")
 	if len(subs) != 1 {
 		t.Fatalf("subs = %d, want 1", len(subs))
 	}
 }
 
-func TestSubscribe_StreamNotFound(t *testing.T) {
+func TestSubscribe_TopicNotFound(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -109,7 +109,7 @@ func TestUnsubscribe(t *testing.T) {
 	if err := svc.Unsubscribe(ctx, "org-test", "w-mark", "s-1"); err != nil {
 		t.Fatalf("Unsubscribe: %v", err)
 	}
-	subs, _ := st.Subscriptions.ListForStream(ctx, "org-test", "s-1")
+	subs, _ := st.Subscriptions.ListForTopic(ctx, "org-test", "s-1")
 	if len(subs) != 0 {
 		t.Fatalf("subs = %d, want 0", len(subs))
 	}
@@ -134,7 +134,7 @@ func TestInvite_MultipleIdempotent(t *testing.T) {
 	if err := svc.Invite(ctx, "org-test", "s-1", []orgchart.WorkerID{"w-mark", "w-priya"}); err != nil {
 		t.Fatalf("Invite (repeat): %v", err)
 	}
-	subs, _ := st.Subscriptions.ListForStream(ctx, "org-test", "s-1")
+	subs, _ := st.Subscriptions.ListForTopic(ctx, "org-test", "s-1")
 	if len(subs) != 2 {
 		t.Fatalf("subs = %d, want 2", len(subs))
 	}

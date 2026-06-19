@@ -887,7 +887,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 			// helix session.
 			if orgHandlers.publicGitHubWebhookForStream != nil {
 				insecureRouter.
-					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+					Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
 					Methods(http.MethodPost)
 			}
 			// GitHub App Manifest flow callbacks — top-level browser

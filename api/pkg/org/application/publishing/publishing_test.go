@@ -28,7 +28,7 @@ func (r *recEvents) Append(ctx context.Context, e streaming.Event) error {
 
 type recNotifier struct{ log *[]string }
 
-func (n *recNotifier) Notify(_ string, _ streaming.StreamID) { *n.log = append(*n.log, "notify") }
+func (n *recNotifier) Notify(_ string, _ streaming.TopicID) { *n.log = append(*n.log, "notify") }
 
 type recDispatcher struct{ log *[]string }
 
@@ -36,14 +36,14 @@ func (d *recDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
 	*d.log = append(*d.log, "dispatch")
 }
 
-func seedStream(t *testing.T, st *store.Store, orgID string, tr transport.Transport) {
+func seedTopic(t *testing.T, st *store.Store, orgID string, tr transport.Transport) {
 	t.Helper()
-	s, err := streaming.NewStream("s-1", "s-1", "", "w-owner", fixedClock(), tr, orgID)
+	s, err := streaming.NewTopic("s-1", "s-1", "", "w-owner", fixedClock(), tr, orgID)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(context.Background(), s); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(context.Background(), s); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 }
 
@@ -53,11 +53,11 @@ func seedStream(t *testing.T, st *store.Store, orgID string, tr transport.Transp
 func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	seedStream(t, st, "org-test", transport.LocalTransport())
+	seedTopic(t, st, "org-test", transport.LocalTransport())
 
 	var log []string
 	svc := New(Deps{
-		Streams:    st.Streams,
+		Topics:    st.Topics,
 		Events:     &recEvents{Events: st.Events, log: &log},
 		Hub:        &recNotifier{log: &log},
 		Dispatcher: &recDispatcher{log: &log},
@@ -78,7 +78,7 @@ func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
 	}
 
 	// Event persisted with the caller as source + From.
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-1", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-1", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -91,17 +91,17 @@ func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
 	}
 }
 
-// TestPublish_GitHubRejected: github transport streams are inbound-only;
+// TestPublish_GitHubRejected: github transport topics are inbound-only;
 // publish returns ErrPublishToGitHub and appends nothing.
 func TestPublish_GitHubRejected(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	ghCfg := []byte(`{"repo":"helixml/helix","events":["issues"]}`)
-	seedStream(t, st, "org-test", transport.Transport{Kind: transport.KindGitHub, Config: ghCfg})
+	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindGitHub, Config: ghCfg})
 
 	var log []string
 	svc := New(Deps{
-		Streams:    st.Streams,
+		Topics:    st.Topics,
 		Events:     &recEvents{Events: st.Events, log: &log},
 		Hub:        &recNotifier{log: &log},
 		Dispatcher: &recDispatcher{log: &log},
@@ -117,10 +117,10 @@ func TestPublish_GitHubRejected(t *testing.T) {
 	}
 }
 
-func TestPublish_StreamNotFound(t *testing.T) {
+func TestPublish_TopicNotFound(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	svc := New(Deps{Streams: st.Streams, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+	svc := New(Deps{Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
 	_, err := svc.Publish(context.Background(), "org-test", "s-missing", "w-owner", streaming.Message{Body: "x"})
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
@@ -132,8 +132,8 @@ func TestPublish_StreamNotFound(t *testing.T) {
 func TestPublish_NoHubNoDispatcher(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
-	seedStream(t, st, "org-test", transport.LocalTransport())
-	svc := New(Deps{Streams: st.Streams, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
+	seedTopic(t, st, "org-test", transport.LocalTransport())
+	svc := New(Deps{Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
 	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hi"}); err != nil {
 		t.Fatalf("Publish without hub/dispatcher: %v", err)
 	}

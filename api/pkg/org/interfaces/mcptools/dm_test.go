@@ -44,7 +44,7 @@ func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.Worker, orgchart.W
 
 // TestDM_DeliversOverExistingChannel: with a reporting line wired (so
 // topology provisioned s-dm-w-mgr-w-rep), the report can DM its manager
-// — the event lands on the deterministic stream and both parties are
+// — the event lands on the deterministic topic and both parties are
 // subscribers (topology subscribed them, dm does NOT re-create).
 func TestDM_DeliversOverExistingChannel(t *testing.T) {
 	deps, _, rep := dmTestEnv(t, true)
@@ -57,24 +57,24 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 		t.Fatalf("dm over existing channel: %v", err)
 	}
 	var out struct {
-		StreamID string `json:"streamId"`
+		TopicID string `json:"topicId"`
 		To       string `json:"to"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	want := string(channels.DMStreamID("w-rep", "w-mgr"))
-	if out.StreamID != want {
-		t.Fatalf("streamId = %q, want %q", out.StreamID, want)
+	want := string(channels.DMTopicID("w-rep", "w-mgr"))
+	if out.TopicID != want {
+		t.Fatalf("topicId = %q, want %q", out.TopicID, want)
 	}
 	// The event landed on the channel.
-	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr"), 10)
+	events, _ := deps.Store.Events.ListForTopic(ctx, "org-test", channels.DMTopicID("w-rep", "w-mgr"), 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
 	// Both parties are subscribers (provisioned by topology, not by dm).
 	for _, id := range []orgchart.WorkerID{"w-mgr", "w-rep"} {
-		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMStreamID("w-rep", "w-mgr")); err != nil {
+		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMTopicID("w-rep", "w-mgr")); err != nil {
 			t.Fatalf("%s not subscribed to DM channel: %v", id, err)
 		}
 	}
@@ -98,10 +98,10 @@ func TestDM_RefusesWithoutReportingLine(t *testing.T) {
 		t.Fatalf("err = %v, want it to mention `managers` and `reports`", err)
 	}
 	// No channel was created and no event written.
-	if _, gerr := deps.Store.Streams.Get(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr")); gerr == nil {
+	if _, gerr := deps.Store.Topics.Get(ctx, "org-test", channels.DMTopicID("w-rep", "w-mgr")); gerr == nil {
 		t.Fatal("dm must NOT create the channel on the refusal path")
 	}
-	events, _ := deps.Store.Events.ListForStream(ctx, "org-test", channels.DMStreamID("w-rep", "w-mgr"), 10)
+	events, _ := deps.Store.Events.ListForTopic(ctx, "org-test", channels.DMTopicID("w-rep", "w-mgr"), 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (nothing written on refusal)", len(events))
 	}

@@ -14,7 +14,7 @@ import (
 type subscriptionRow struct {
 	OrgID     string `gorm:"primaryKey;type:text;index"`
 	WorkerID  string `gorm:"primaryKey;type:text"`
-	StreamID  string `gorm:"primaryKey;type:text"`
+	TopicID  string `gorm:"primaryKey;type:text"`
 	CreatedAt time.Time
 }
 
@@ -26,7 +26,7 @@ func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, er
 	return subscriptionRow{
 		OrgID:     sub.OrganizationID,
 		WorkerID:  string(sub.WorkerID),
-		StreamID:  string(sub.StreamID),
+		TopicID:  string(sub.TopicID),
 		CreatedAt: sub.CreatedAt,
 	}, nil
 }
@@ -34,7 +34,7 @@ func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, er
 func (subscriptionMapper) ToDomain(row subscriptionRow) (streaming.Subscription, error) {
 	return streaming.NewSubscription(
 		row.WorkerID,
-		streaming.StreamID(row.StreamID),
+		streaming.TopicID(row.TopicID),
 		row.CreatedAt,
 		row.OrgID,
 	)
@@ -48,19 +48,19 @@ func newSubscriptionsRepo(db *gorm.DB) *subscriptionsRepo {
 	return &subscriptionsRepo{Repository: NewRepository[streaming.Subscription, subscriptionRow](db, subscriptionMapper{}, "subscription")}
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
 	return r.Repository.Delete(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),
-		store.WithCondition("stream_id", string(streamID)),
+		store.WithCondition("topic_id", string(topicID)),
 	)
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return r.FindOne(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),
-		store.WithCondition("stream_id", string(streamID)),
+		store.WithCondition("topic_id", string(topicID)),
 	)
 }
 
@@ -68,14 +68,14 @@ func (r *subscriptionsRepo) ListForWorker(ctx context.Context, orgID string, wor
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),
-		store.WithOrderAsc("stream_id"),
+		store.WithOrderAsc("topic_id"),
 	)
 }
 
-func (r *subscriptionsRepo) ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error) {
+func (r *subscriptionsRepo) ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("stream_id", string(streamID)),
+		store.WithCondition("topic_id", string(topicID)),
 		store.WithOrderAsc("worker_id"),
 	)
 }

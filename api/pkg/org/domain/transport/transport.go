@@ -1,6 +1,6 @@
-// Package transport owns the per-Stream I/O contract — the Kind enum,
+// Package transport owns the per-Topic I/O contract — the Kind enum,
 // the canonical Transport struct, the per-Kind Config types, and
-// validation. Every Stream has one Transport; the default (KindLocal)
+// validation. Every Topic has one Transport; the default (KindLocal)
 // keeps events inside the system, other Kinds compose external I/O
 // over the same in-process store.
 //
@@ -8,7 +8,7 @@
 // Names lose the redundant "Transport" prefix that the old package
 // needed: `transport.Kind`, `transport.KindEmail`, `transport.WebhookConfig`.
 // The `Transport` struct itself keeps its name because callers read
-// `transport.Transport` as one phrase. See ADR-0001 §1 (Stream
+// `transport.Transport` as one phrase. See ADR-0001 §1 (Topic
 // canonical) and the B1 entry in
 // helix-org/design/2026-05-21-redesign/08-migration-plan.md.
 //
@@ -33,7 +33,7 @@ import (
 	"strings"
 )
 
-// Kind names the implementation that owns a Stream's I/O. Constants
+// Kind names the implementation that owns a Topic's I/O. Constants
 // are defined alongside their Strategy in each Kind's own file.
 type Kind string
 
@@ -61,7 +61,7 @@ type Config interface {
 // (it's the default), then the others in the order they were added to
 // the system. The order is part of the public surface — it shows up
 // in JSON Schema enum lists, in "(valid: …)" error messages, and in
-// the MCP create_stream tool description. Tests pin it explicitly.
+// the MCP create_topic tool description. Tests pin it explicitly.
 var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindCron}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
@@ -88,8 +88,8 @@ func KindValues() []Kind {
 	return out
 }
 
-// Transport describes how events on a Stream move to and from the
-// outside world. Internal Streams use KindLocal — that is still a
+// Transport describes how events on a Topic move to and from the
+// outside world. Internal Topics use KindLocal — that is still a
 // transport, just one whose endpoints are both inside the system.
 //
 // Config is opaque per-Kind JSON; each Kind's Strategy decides how to

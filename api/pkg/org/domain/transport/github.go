@@ -10,13 +10,13 @@ import (
 
 // KindGitHub is an inbound-only GitHub webhooks transport. Provider
 // credentials live at server level (see config.transport.github);
-// per-stream config carries the routing `repo` and an `events`
+// per-topic config carries the routing `repo` and an `events`
 // whitelist.
 //
 // Inbound: GitHub POSTs to a single installation URL
 // (/github/webhook). The transport HMAC-verifies the delivery against
 // the installation's webhook_secret, then fans the event out to every
-// Stream whose Config.Repo matches the payload's
+// Topic whose Config.Repo matches the payload's
 // repository.full_name and whose Config.Events list contains the
 // X-GitHub-Event header value. The Message envelope is mapped from
 // the upstream payload verbatim — Subject = issue/PR title, Body =
@@ -33,16 +33,16 @@ const KindGitHub Kind = "github"
 
 // GitHubConfig is the parsed shape of Transport.Config when
 // Kind == KindGitHub. Provider credentials (token, webhook secret)
-// live in server-level config; per-stream config carries the routing
+// live in server-level config; per-topic config carries the routing
 // identity.
 type GitHubConfig struct {
 	// Repo is the GitHub `owner/name` whose webhook deliveries land
-	// on this Stream. Matched case-insensitively against
+	// on this Topic. Matched case-insensitively against
 	// `repository.full_name` in the payload.
 	Repo string `json:"repo,omitempty"`
 
 	// Events is the whitelist of GitHub event types
-	// (X-GitHub-Event header values) the Stream wants. Anything not
+	// (X-GitHub-Event header values) the Topic wants. Anything not
 	// listed is dropped at the transport without becoming an Event,
 	// so subscribed Workers don't activate for events they'd ignore.
 	// `["*"]` is the GitHub wildcard meaning "all events" — that's
@@ -54,12 +54,12 @@ type GitHubConfig struct {
 	// specific branches. Each entry is "*" (all branches), an exact branch
 	// name ("main"), or a prefix glob ("release/*"). Events without a branch
 	// ref (issues, pull_request, …) are unaffected. An absent/empty list is
-	// also treated as all branches, for streams created before this field.
+	// also treated as all branches, for topics created before this field.
 	Branches []string `json:"branches,omitempty"`
 
 	// WebhookID is the GitHub-side hook id (returned by `POST
 	// /repos/{owner}/{repo}/hooks`) once helix has auto-installed
-	// the webhook for this stream. Zero when no auto-install has
+	// the webhook for this topic. Zero when no auto-install has
 	// happened yet. Used to surface a deep-link to the webhook's
 	// edit page on GitHub and to support future un-install /
 	// re-install flows.
@@ -81,8 +81,8 @@ func (g GitHubConfig) Validate() error {
 	}
 	// Repo must be exactly "owner/name" — one slash, both halves
 	// non-empty. Anything else is a typo we'd rather catch at
-	// create_stream time than have webhook deliveries silently miss
-	// the stream.
+	// create_topic time than have webhook deliveries silently miss
+	// the topic.
 	parts := strings.Split(g.Repo, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("github transport: repo %q must be of the form owner/name", g.Repo)
@@ -147,12 +147,12 @@ func parseGitHubConfig(raw json.RawMessage) (GitHubConfig, error) {
 // deployment, registry_package, …) and operators can opt in to any of
 // them without us shipping a code change. The format check still
 // catches the typo case (uppercase, dashes, leading digits) at
-// create_stream time. The frontend mirrors this pattern as
+// create_topic time. The frontend mirrors this pattern as
 // GITHUB_EVENT_PATTERN.
 var githubEventNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 
 // SuggestedGitHubEvents is the curated list of event types the
-// frontend offers in the New Stream dialog and that the transport's
+// frontend offers in the New Topic dialog and that the transport's
 // envelope mapping has been hand-tested against. Anything outside
 // this list is still accepted by Validate (see
 // githubEventNamePattern) — these are just the well-trodden picks.

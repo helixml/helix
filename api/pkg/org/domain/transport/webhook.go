@@ -8,26 +8,26 @@ import (
 
 // KindWebhook is a bidirectional HTTP transport.
 //
-// Inbound: POSTs to /webhooks/<streamID> are turned into Events on the
-// Stream. No config required — the path uses the Stream's own ID as
+// Inbound: POSTs to /webhooks/<topicID> are turned into Events on the
+// Topic. No config required — the path uses the Topic's own ID as
 // the secret-by-obscurity, which is enough for low-stakes use;
 // production callers should add a signing secret on top.
 //
 // Outbound: when Config sets `outbound_url`, every Event appended to
-// the Stream (regardless of who appended it — webhook handler,
+// the Topic (regardless of who appended it — webhook handler,
 // publish tool, dm tool) is POSTed to that URL with the event body as
 // the request body. Failures are logged and dropped; the append itself
 // still succeeds.
 //
-// A Stream can be inbound-only (no config), outbound-only (config
+// A Topic can be inbound-only (no config), outbound-only (config
 // with outbound_url), or both at once.
 const KindWebhook Kind = "webhook"
 
 // WebhookConfig is the parsed shape of Transport.Config when
-// Kind == KindWebhook. All fields are optional; a webhook stream with
+// Kind == KindWebhook. All fields are optional; a webhook topic with
 // a zero WebhookConfig is inbound-only.
 type WebhookConfig struct {
-	// OutboundURL, when set, makes the Stream emit each appended Event
+	// OutboundURL, when set, makes the Topic emit each appended Event
 	// as an HTTP POST to this URL. Must be an absolute http(s) URL.
 	OutboundURL string `json:"outbound_url,omitempty"`
 }

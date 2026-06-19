@@ -7,26 +7,26 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// createStreamTransport accepts both the canonical object form and a
+// createTopicTransport accepts both the canonical object form and a
 // bare string shorthand so smaller chat models that collapse the
 // object to its discriminator string still get a working call.
-func TestCreateStreamTransportUnmarshal(t *testing.T) {
+func TestCreateTopicTransportUnmarshal(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
 		input  string
-		want   createStreamTransport
+		want   createTopicTransport
 		hasErr bool
 	}{
 		{
 			name:  "object form with kind only",
 			input: `{"kind":"webhook"}`,
-			want:  createStreamTransport{Kind: transport.KindWebhook},
+			want:  createTopicTransport{Kind: transport.KindWebhook},
 		},
 		{
 			name:  "object form with kind and config",
 			input: `{"kind":"webhook","config":{"outbound_url":"http://x/in"}}`,
-			want: createStreamTransport{
+			want: createTopicTransport{
 				Kind:   transport.KindWebhook,
 				Config: json.RawMessage(`{"outbound_url":"http://x/in"}`),
 			},
@@ -34,12 +34,12 @@ func TestCreateStreamTransportUnmarshal(t *testing.T) {
 		{
 			name:  "string shorthand webhook",
 			input: `"webhook"`,
-			want:  createStreamTransport{Kind: transport.KindWebhook},
+			want:  createTopicTransport{Kind: transport.KindWebhook},
 		},
 		{
 			name:  "string shorthand local",
 			input: `"local"`,
-			want:  createStreamTransport{Kind: transport.KindLocal},
+			want:  createTopicTransport{Kind: transport.KindLocal},
 		},
 		{
 			name:   "malformed JSON",
@@ -50,7 +50,7 @@ func TestCreateStreamTransportUnmarshal(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var got createStreamTransport
+			var got createTopicTransport
 			err := json.Unmarshal([]byte(tc.input), &got)
 			if tc.hasErr {
 				if err == nil {
@@ -73,9 +73,9 @@ func TestCreateStreamTransportUnmarshal(t *testing.T) {
 
 // The schema must declare both shapes so strict-validating MCP
 // clients accept either input form.
-func TestCreateStreamSchemaTransportOneOf(t *testing.T) {
+func TestCreateTopicSchemaTransportOneOf(t *testing.T) {
 	t.Parallel()
-	tr, ok := createStreamSchema.Properties["transport"]
+	tr, ok := createTopicSchema.Properties["transport"]
 	if !ok {
 		t.Fatal("schema is missing the transport property")
 	}

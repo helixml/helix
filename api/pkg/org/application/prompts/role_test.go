@@ -34,7 +34,7 @@ func TestRoleRendersTemplate(t *testing.T) {
 	// These assertions pin the *contract* of the prompt — that it tells
 	// the LLM to call create_role and produces output the rest of the
 	// org can read. They do not pin every word of the prose.
-	for _, want := range []string{"create_role", "## Triggers", "## Streams", "## Constraints"} {
+	for _, want := range []string{"create_role", "## Triggers", "## Topics", "## Constraints"} {
 		if !strings.Contains(msgs[0].Text, want) {
 			t.Errorf("template missing %q", want)
 		}

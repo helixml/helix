@@ -24,7 +24,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -50,14 +50,14 @@ import (
 )
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
-// the JSON-RPC MCP / webhook / org-graph / settings / streams endpoints
+// the JSON-RPC MCP / webhook / org-graph / settings / topics endpoints
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
 	// streamCron is the in-process scheduler that fires events on
-	// KindCron streams. The server's run loop calls Start on it in a
+	// KindCron topics. The server's run loop calls Start on it in a
 	// goroutine so it runs for the lifetime of the API process.
 	streamCron *streamcron.Scheduler
 	// publicGitHubWebhook is the inbound /github/webhook handler
@@ -66,14 +66,14 @@ type helixOrgHandlers struct {
 	// per-org HMAC `webhook_secret` checked inside the github
 	// transport. The path is /api/v1/orgs/{org}/github/webhook and
 	// the handler resolves {org} from mux.Vars before dispatching.
-	// Fans out to every github stream whose (repo, events) matches
-	// the delivery — multi-stream behaviour.
+	// Fans out to every github topic whose (repo, events) matches
+	// the delivery — multi-topic behaviour.
 	publicGitHubWebhook http.Handler
-	// publicGitHubWebhookForStream is the per-stream variant. Path:
-	// /api/v1/orgs/{org}/streams/{stream_id}/github/webhook —
-	// deliveries to this URL are pinned to exactly one stream so
+	// publicGitHubWebhookForStream is the per-topic variant. Path:
+	// /api/v1/orgs/{org}/topics/{topic_id}/github/webhook —
+	// deliveries to this URL are pinned to exactly one topic so
 	// operators get a 1:1 mapping between GitHub webhooks and helix
-	// streams. The stream's own (repo, events) config still applies
+	// topics. The topic's own (repo, events) config still applies
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
 	publicGitHubWebhookForStream http.Handler
@@ -144,7 +144,7 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 // services" shape from design §5.4.
 type orgServices struct {
 	Roles         *roles.Roles
-	Streams       *streams.Streams
+	Topics       *topics.Topics
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -161,13 +161,13 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	return orgServices{
 		Roles:   rolesSvc,
-		Streams: streams.New(streams.Deps{Streams: st.Streams, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners}),
+		Topics: topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners}),
 		Workers: workers.New(workers.Deps{
 			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		}),
-		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Streams: st.Streams, Workers: st.Workers, Now: deps.Now}),
-		Publishing:    publishing.New(publishing.Deps{Streams: st.Streams, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
-		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Workers: st.Workers, Now: deps.Now}),
+		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		// Activations is built at the composition root (not here) because
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
@@ -210,10 +210,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// then. Bootstrap rows carry org_id and the FK to
 	// organizations(id) reaps them on org delete.
 
-	// Wake-only stream notifier. Backed by the host API server's
+	// Wake-only topic notifier. Backed by the host API server's
 	// pubsub.PubSub (the canonical Helix NATS instance) — the
 	// wakebus package is a thin facade preserving the typed
-	// streaming.StreamID API the helix-org call sites used when this was the
+	// streaming.TopicID API the helix-org call sites used when this was the
 	// in-process broadcast.Hub.
 	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
@@ -307,7 +307,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// ensureProject before this argument existed.)
 	// gitHubTokenResolver resolves a current GitHub OAuth access token
 	// for an org by walking the org's members + their oauth_connections
-	// (see helix_org_github.go). Drives the github stream transport's
+	// (see helix_org_github.go). Drives the github topic transport's
 	// outbound `Token()` lookup; the worker-side mint path now flows
 	// through the mint_credential MCP tool + CredentialProvider, not a
 	// boot-time SecretInjector.
@@ -332,7 +332,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		},
 	)
 	// gitHubTokenResolver is the bot-preferring token projection used by
-	// the outbound github stream transport and the webhook-install code
+	// the outbound github topic transport and the webhook-install code
 	// path. Returns the App installation token when one exists, else the
 	// legacy member OAuth token — so once an org installs the Helix App,
 	// its agents act as the bot rather than a human. (Worker shell-tool
@@ -399,12 +399,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	})
 	dispatcher := dispatch.New(st, spawnerFn, logger)
 	// Outbound webhook delivery is a transport concern, not the
-	// dispatcher's: register the webhook emitter so KindWebhook streams
+	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
 	deps.Dispatcher = dispatcher
 
-	// streamCron drives KindCron streams. Same call sequence as the
+	// streamCron drives KindCron topics. Same call sequence as the
 	// publish MCP tool — Events.Append → Hub.Notify → Dispatcher.Dispatch
 	// — so cron-driven activations look identical to publish-driven
 	// activations downstream. Started in a goroutine from
@@ -447,7 +447,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Helix:  inProcClient,
 		Logger: logger,
 		// Single topology reconciler shared with the tools registry and
-		// the REST handlers — one owner of activation/team Stream
+		// the REST handlers — one owner of activation/team Topic
 		// lifecycle across hire, reparent, and fire.
 		Reconciler: deps.Reconciler,
 		Mirror:     mirror, // Fire stops the fired worker's subscription
@@ -466,8 +466,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// Inbound-webhook provisioners, keyed by transport Kind. Each
 	// transport that needs external registration (github now, slack
-	// later) plugs in here; the streams service dispatches on the
-	// stream's Kind. The github API specifics live in the github
+	// later) plugs in here; the topics service dispatches on the
+	// topic's Kind. The github API specifics live in the github
 	// transport infra package, not the application layer.
 	inboundProvisioners := map[transport.Kind]streaming.Inbound{
 		transport.KindGitHub: githubtransport.NewWebhookProvisioner(
@@ -494,7 +494,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Sessions:   orgWorkerRuntime{st: st},
 	})
 	apiDeps := helixorgapi.Deps{
-		Streams:       svc.Streams,
+		Topics:       svc.Topics,
 		Roles:         svc.Roles,
 		Workers:       svc.Workers,
 		Subscriptions: svc.Subscriptions,
@@ -509,7 +509,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// existing session.
 		SessionRestarter: inProcClient,
 		// GitHubInbound builds the inbound github transport per org — it
-		// reads matching streams + appends events, so it holds the store
+		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.
 		GitHubInbound: func(orgID string) http.Handler {
 			t := githubtransport.New(orgID, configReg, st, bc, dispatcher, logger)
@@ -525,7 +525,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Lifecycle:      lifecycleSvc,
 		Tools:          reg,
 		ProjectEnsurer: projectApplier,
-		// Production: the github stream transport's Token() falls
+		// Production: the github topic transport's Token() falls
 		// back to whatever GitHub OAuth connection the org members
 		// have already authorised, so operators don't have to paste a
 		// PAT into transport.github. The resolver lives in
@@ -548,7 +548,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 				BaseURL:        id.BaseURL,
 			}, nil
 		},
-		// GitHubInstallation backs the New Stream "Install Helix" gate;
+		// GitHubInstallation backs the New Topic "Install Helix" gate;
 		// GitHubAppRepos backs the repo picker. Both are owned by the
 		// helixorg.GitHubIntegration adapter (helixorg/github.go) — this
 		// composition root just constructs it and passes method values.
@@ -603,20 +603,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		t.HandleInbound().ServeHTTP(w, r)
 	})
 
-	// Per-stream public github webhook handler. Same auth model as
+	// Per-topic public github webhook handler. Same auth model as
 	// the org-level handler (HMAC over body); routes deliveries to
-	// the single stream named in the path so operators can hand
-	// GitHub a stream-specific URL.
+	// the single topic named in the path so operators can hand
+	// GitHub a topic-specific URL.
 	publicGitHubWebhookForStream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		orgSlugOrID := vars["org"]
-		streamID := vars["stream_id"]
+		topicID := vars["topic_id"]
 		if orgSlugOrID == "" {
 			http.Error(w, "missing org", http.StatusBadRequest)
 			return
 		}
-		if streamID == "" {
-			http.Error(w, "missing stream_id", http.StatusBadRequest)
+		if topicID == "" {
+			http.Error(w, "missing topic_id", http.StatusBadRequest)
 			return
 		}
 		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
@@ -632,7 +632,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		if tokenResolver != nil {
 			t = t.WithTokenResolver(githubtransport.TokenResolver(tokenResolver))
 		}
-		t.HandleInboundForStream(streaming.StreamID(streamID)).ServeHTTP(w, r)
+		t.HandleInboundForTopic(streaming.TopicID(topicID)).ServeHTTP(w, r)
 	})
 
 	// GitHub App Manifest flow callbacks. Insecure mounts (top-level
@@ -1002,7 +1002,7 @@ func openOrgStore(helixStore helixstore.Store) (*helixorgstore.Store, error) {
 	// org_* table back to organizations(id) ON DELETE CASCADE.
 	//
 	// OpenWithDB only runs an idempotent AutoMigrate — org_* rows
-	// (workers, roles, streams, runtime state, …) survive an API
+	// (workers, roles, topics, runtime state, …) survive an API
 	// restart. The composite-PK schema (id, org_id) is the only shape
 	// in production. If a hand-written breaking migration ever becomes
 	// necessary, write an explicit migration script — never drop the

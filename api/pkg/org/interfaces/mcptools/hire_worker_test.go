@@ -75,7 +75,7 @@ func newHireTestEnv(t *testing.T) (Config, *fakeDispatcher, orgchart.Worker) {
 	deps := DefaultDeps(st)
 	deps.Dispatcher = dispatcher
 	deps.Now = func() time.Time { return now }
-	// Deterministic IDs make assertions on stream IDs feasible.
+	// Deterministic IDs make assertions on topic IDs feasible.
 	var counter int
 	deps.NewID = func() string {
 		counter++
@@ -125,7 +125,7 @@ func TestHireWorkerHumanCreatesRowsAndSkipsActivation(t *testing.T) {
 		t.Fatalf("worker row missing: %v", err)
 	}
 	// Human hires do NOT get an transcript.
-	if _, err := deps.Store.Streams.Get(ctx, "org-test", streaming.StreamID("s-transcript-w-renee")); err == nil {
+	if _, err := deps.Store.Topics.Get(ctx, "org-test", streaming.TopicID("s-transcript-w-renee")); err == nil {
 		t.Fatalf("human hire must NOT create transcript")
 	}
 	// Human hires do NOT trigger the dispatcher.
@@ -218,17 +218,17 @@ func TestHireWorkerAICreatesTranscriptAndDispatches(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	streamID := activation.TranscriptID("w-alice")
-	if _, err := deps.Store.Streams.Get(ctx, "org-test", streamID); err != nil {
+	topicID := activation.TranscriptID("w-alice")
+	if _, err := deps.Store.Topics.Get(ctx, "org-test", topicID); err != nil {
 		t.Fatalf("transcript missing: %v", err)
 	}
 	// The manager (w-owner) is subscribed (subs are worker-anchored).
-	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-owner", topicID); err != nil {
 		t.Fatalf("manager not subscribed to transcript: %v", err)
 	}
 	// New worker is NOT subscribed to its own transcript
 	// (would loop the dispatcher when the new worker publishes).
-	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-alice", streamID); err == nil {
+	if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", "w-alice", topicID); err == nil {
 		t.Fatalf("new worker must NOT be subscribed to its own transcript")
 	}
 	// Dispatcher was called once.

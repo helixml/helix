@@ -2,7 +2,7 @@
 // jsonapi.org-formatted responses from the helix-org HTTP interfaces.
 //
 // The codebase had no JSON:API helpers, so this package provides the
-// minimum the stream-messages endpoint needs while staying generic and
+// minimum the topic-messages endpoint needs while staying generic and
 // reusable for any future org/interfaces endpoint.
 //
 // The design is composition-first: a Document is assembled by applying

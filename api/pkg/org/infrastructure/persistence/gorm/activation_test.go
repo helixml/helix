@@ -33,7 +33,7 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 		{
 			Kind:       activation.TriggerEvent,
 			EventID:    "e-1",
-			StreamID:   "s-test",
+			TopicID:   "s-test",
 			Source:     "w-bob",
 			SourceKind: "ai",
 			Message:    streaming.Message{From: "w-bob", Body: "hi"},
