@@ -2776,6 +2776,22 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 	}
 
+	// Reaching message_completed means the agent is alive and produced a turn,
+	// so any consumed auto-restart budget is refunded: a recovered autonomous
+	// session that runs a successful turn gets a fresh restart budget. The
+	// counter lives on the session (not the prompt) precisely so it survives
+	// ResetCrashedPromptsForSession and only clears here, on proven success.
+	if helixSession.Metadata.AutoRestartOnCrash && helixSession.Metadata.AutoRestartCount > 0 {
+		helixSession.Metadata.AutoRestartCount = 0
+		if _, err := apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession); err != nil {
+			log.Warn().Err(err).Str("helix_session_id", helixSessionID).
+				Msg("Failed to reset auto-restart budget after successful turn")
+		} else {
+			log.Info().Str("helix_session_id", helixSessionID).
+				Msg("♻️ [HELIX] Reset auto-restart budget after successful turn")
+		}
+	}
+
 	// Continuous reconciliation: if the queued prompt was never marked sent
 	// via handleMessageAdded (e.g. the agent went straight to message_completed
 	// without intermediate streaming, or the streaming path missed it), this
@@ -3291,7 +3307,7 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 			"message":       outgoingMessage,
 			"request_id":    requestID,
 			"agent_name":    agentName,
-			"from_queue":    true,         // Indicate this came from the queue
+			"from_queue":    true,             // Indicate this came from the queue
 			"interrupt":     prompt.Interrupt, // Tell Zed to cancel the current turn before sending
 		},
 	}
@@ -3482,6 +3498,17 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
+			// A hard agent crash ("Claude Agent process exited", "Session not
+			// found") on an autonomous session must auto-recover regardless of how
+			// the crashing turn was sent — a queued planning prompt (PromptID set)
+			// OR a blocking follow-up via handleBlockingSession (no PromptID). The
+			// prompt crash-marking below is rightly PromptID-gated, but the RESTART
+			// decision is not: it keys only on "crash + autonomous". maybeAutoRestart
+			// self-gates on the flag and dedupes, so this is safe even when the
+			// in-loop crash-mark path also fires.
+			if isAgentCrashError(errorMsg) && helixSession.Metadata.AutoRestartOnCrash {
+				go apiServer.maybeAutoRestartCrashedAgent(helixSessionID)
+			}
 			// Find the waiting interaction and mark it with error
 			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
 				SessionID:    helixSessionID,
@@ -3542,6 +3569,14 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 									Bool("recurring_thread_load_failure", recurringThreadLoadFailure).
 									Msg("💥 [HELIX] Agent thread terminal (hard crash or recurring thread_load_error) — marking prompt crashed (suppress auto-retry, awaits user Restart)")
 								markErr = apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), interactions[i].PromptID, failureMsg)
+								// The hard-crash case already triggered auto-restart above
+								// (outside this loop, PromptID-independent). Here we also
+								// cover the RECURRING thread_load_error case — a wedged queue
+								// prompt that isn't a hard-crash marker — which only reaches
+								// terminal after retries and so always has a PromptID.
+								if recurringThreadLoadFailure && helixSession.Metadata.AutoRestartOnCrash {
+									go apiServer.maybeAutoRestartCrashedAgent(helixSessionID)
+								}
 							} else {
 								markErr = apiServer.Controller.Options.Store.MarkPromptAsFailed(context.Background(), interactions[i].PromptID, failureMsg)
 							}
@@ -3599,6 +3634,34 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), interaction); err != nil {
 				log.Warn().Err(err).Str("interaction_id", interactionID).
 					Msg("chat_response_error: persist failed")
+			}
+
+			// The Zed crash fix surfaces a mid-turn agent crash here as a
+			// chat_response_error (rather than wedging the turn). When the error
+			// is a known terminal Claude Agent crash, pin the prompt as crashed
+			// so the queue stops re-dispatching into the dead process, then
+			// auto-recover on autonomous surfaces (guarded no-op for human
+			// desktop, which keeps the explicit Restart button).
+			if isAgentCrashError(errorMsg) {
+				// Crash-marking is for QUEUE prompts only (so the queue stops
+				// re-dispatching); a blocking send has no PromptID and needs none.
+				if interaction.PromptID != "" {
+					failureMsg := fmt.Sprintf("Agent crashed: %s", errorMsg)
+					if markErr := apiServer.Controller.Options.Store.MarkPromptAsCrashed(context.Background(), interaction.PromptID, failureMsg); markErr != nil {
+						log.Error().Err(markErr).Str("prompt_id", interaction.PromptID).
+							Str("interaction_id", interaction.ID).
+							Msg("chat_response_error: failed to crash-mark prompt")
+					}
+				}
+				log.Warn().
+					Str("session_id", interaction.SessionID).
+					Str("interaction_id", interaction.ID).
+					Msg("💥 [HELIX] Agent crash surfaced via chat_response_error — evaluating auto-restart")
+				// The auto-restart decision is PromptID-independent — it keys on
+				// "crash + autonomous". Use the interaction's own SessionID (the
+				// helix session id); the handler param is the agent session id and
+				// the two can differ. maybeAutoRestart self-gates on the flag.
+				go apiServer.maybeAutoRestartCrashedAgent(interaction.SessionID)
 			}
 		}
 	}
