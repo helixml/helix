@@ -174,6 +174,37 @@ function clearDraftStorage(sessionId: string): void {
   }
 }
 
+// reconcileEntry is the SINGLE source of truth for merging a backend view of a
+// prompt into its local copy. It encodes one invariant that, when scattered
+// across the merge/poll/push sites, broke twice and queued interrupts that the
+// UI showed as live:
+//
+//   - Backend-owned fields (status, retry, error) always reflect the backend —
+//     it is authoritative for them.
+//   - The dirty flag (syncedToBackend) is cleared (true) ONLY by a successful
+//     push of THIS entry (pushed=true). A pull (pushed=false) must PRESERVE a
+//     pending local edit: if the entry is dirty (syncedToBackend === false) it
+//     stays dirty, so the next push actually sends it. Clearing it on a pull —
+//     based on mere backend presence — silently drops the user's un-pushed change
+//     (e.g. promoting a queued prompt to interrupt).
+//
+// All reconciliation sites route through here so the invariant cannot diverge.
+// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+export function reconcileEntry(
+  local: PromptHistoryEntry,
+  backend: PromptHistoryEntry,
+  pushed: boolean,
+): PromptHistoryEntry {
+  return {
+    ...local,
+    status: backend.status,
+    retryCount: backend.retryCount,
+    nextRetryAt: backend.nextRetryAt,
+    errorMessage: backend.errorMessage,
+    syncedToBackend: pushed ? true : local.syncedToBackend === false ? false : true,
+  }
+}
+
 export function usePromptHistory({
   sessionId,
   specTaskId,
@@ -209,20 +240,14 @@ export function usePromptHistory({
       // IDs that are locally tombstoned — never re-import these from backend
       const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
 
-      // Mark existing entries that are in backend as synced (skip deleted ones).
-      // CRITICAL: never re-confirm an entry that has an un-pushed local change
-      // (syncedToBackend === false, set by updateInterrupt/updateContent). A pull
-      // confirms the backend has *some* version, not the local one — flipping a
-      // dirty entry back to "synced" makes the next syncToBackend skip it, so the
-      // local change is silently dropped. This is exactly how promoting a queued
-      // prompt to interrupt showed the lightning in the UI while the backend kept
-      // interrupt=false: a backend poll landed between the promote and the push.
-      // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
-      const updatedPrev = prev.map(e =>
-        backendIds.has(e.id) && !e.deleted && e.syncedToBackend !== false
-          ? { ...e, syncedToBackend: true }
-          : e
-      )
+      // Reconcile existing local entries against the backend view. This is a
+      // pull (pushed=false), so reconcileEntry preserves any un-pushed local edit.
+      const backendMap = new Map(backendEntries.map(e => [e.id, e]))
+      const updatedPrev = prev.map(e => {
+        if (e.deleted) return e
+        const backendEntry = backendMap.get(e.id)
+        return backendEntry ? reconcileEntry(e, backendEntry, false) : e
+      })
 
       // Add any backend entries that don't exist locally (mark as synced)
       // Also skip entries whose ID is locally tombstoned
@@ -308,22 +333,14 @@ export function usePromptHistory({
         // Merge backend entry status into local entries (especially important for 'sent' status)
         setHistory(prev => {
           const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
+          // The entries in `toSync` are the ones we just pushed — they are now
+          // acknowledged, so reconcileEntry clears their dirty flag. Any other
+          // entries in the response are a pull and keep their pending local edit.
+          const pushedIds = new Set(toSync.map(e => e.id))
           const updated = prev.map(h => {
             if (h.deleted) return h // Don't update tombstoned entries
             const backendEntry = backendEntriesMap.get(h.id)
-            if (backendEntry) {
-              // Merge status and retry info from backend - this is critical for queue items
-              // to disappear when the backend marks them as 'sent' after processing
-              return {
-                ...h,
-                status: backendEntry.status,
-                retryCount: backendEntry.retryCount,
-                nextRetryAt: backendEntry.nextRetryAt,
-                errorMessage: backendEntry.errorMessage,
-                syncedToBackend: true
-              }
-            }
-            return h
+            return backendEntry ? reconcileEntry(h, backendEntry, pushedIds.has(h.id)) : h
           })
 
           // Also merge any new entries from backend (skip tombstoned IDs)
@@ -440,6 +457,9 @@ export function usePromptHistory({
               const backendEntry = backendEntriesMap.get(h.id)
               // Check if status or retry info changed (covers "errored on backend":
               // the backend marks it failed/crashed and we reflect that here).
+              // This poll is a pull: reflect backend-owned status but preserve any
+              // un-pushed local edit (reconcileEntry, pushed=false). Keep the
+              // changed-check so we don't churn state when nothing moved.
               if (backendEntry && (
                 h.status !== backendEntry.status ||
                 h.retryCount !== backendEntry.retryCount ||
@@ -447,17 +467,7 @@ export function usePromptHistory({
                 h.errorMessage !== backendEntry.errorMessage
               )) {
                 updated = true
-                return {
-                  ...h,
-                  status: backendEntry.status,
-                  retryCount: backendEntry.retryCount,
-                  nextRetryAt: backendEntry.nextRetryAt,
-                  errorMessage: backendEntry.errorMessage,
-                  // Reflect backend-owned status, but PRESERVE a pending local
-                  // change (e.g. an interrupt promotion not yet pushed) — don't
-                  // clobber the dirty flag, or syncToBackend will skip the push.
-                  syncedToBackend: h.syncedToBackend === false ? false : true,
-                }
+                return reconcileEntry(h, backendEntry, false)
               }
               // Reconcile against the source of truth: a queue entry we previously
               // synced to the backend that is no longer in the authoritative list has
