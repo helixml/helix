@@ -2,7 +2,7 @@
 
 ## Background
 
-When using Claude Code (`claude_code` runtime) with subscription credentials in ANGUR/Helix, no model preference is passed to Claude Code — it falls back to its own built-in default (currently Sonnet). Users doing complex work want to default to Opus, and want the ability to switch between the three main Claude tiers without leaving the Helix agent configuration screen.
+When using Claude Code (`claude_code` runtime) with subscription credentials in ANGER/Helix, no model preference is passed to Claude Code — it falls back to its own built-in default (currently Sonnet). Users doing complex work want to default to Opus, and want the ability to switch between the three main Claude tiers without leaving the Helix agent configuration screen.
 
 ## User Stories
 
