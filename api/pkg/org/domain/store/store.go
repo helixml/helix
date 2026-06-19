@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
@@ -160,6 +161,32 @@ type Events interface {
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
 }
 
+// Processors persists Processor nodes — the transform/filter boxes
+// interposed on the edge between a Topic and its subscribers. A
+// Processor reads one input Topic (InputTopicID) and writes its
+// auto-provisioned output Topics. ListByInputTopic is the dispatch
+// hot path: on every publish the runner asks "which processors read
+// this topic?".
+type Processors interface {
+	Create(ctx context.Context, p processor.Processor) error
+	Get(ctx context.Context, orgID string, id processor.ProcessorID) (processor.Processor, error)
+	List(ctx context.Context, orgID string) ([]processor.Processor, error)
+	// ListByInputTopic returns every processor in the org whose
+	// InputTopicID matches — the dispatcher's fan-out lookup. Returns
+	// an empty slice when none match; never ErrNotFound for "no rows".
+	ListByInputTopic(ctx context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error)
+	// Update replaces the mutable fields: name, kind, config, outputs.
+	// Composite (id, orgID) identifies the row; ID, OrganizationID,
+	// CreatedBy, CreatedAt are immutable. Returns ErrNotFound when the
+	// row doesn't exist.
+	Update(ctx context.Context, p processor.Processor) error
+	// Delete removes a processor row. Composite key (id, orgID).
+	// Cascading the auto-created output Topics is the caller's job
+	// (the processors application service), mirroring how Topics.Delete
+	// leaves subscription cleanup to its caller.
+	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
+}
+
 // Configs persists operational-config rows: transport credentials,
 // model selection, runtime knobs, etc. Keyed by (orgID, key) so each
 // helix tenant has its own settings.
@@ -188,4 +215,5 @@ type Store struct {
 	Events             Events
 	Configs            Configs
 	Activations        activation.Repository
+	Processors         Processors
 }

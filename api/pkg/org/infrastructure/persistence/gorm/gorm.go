@@ -27,6 +27,7 @@ var orgRowTypes = []any{
 	&eventRow{},
 	&configRow{},
 	&activationRow{},
+	&processorRow{},
 }
 
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
@@ -45,6 +46,7 @@ var orgTableNames = []string{
 	"org_events",
 	"org_configs",
 	"org_activations",
+	"org_processors",
 }
 
 // Options controls OpenWithDB behaviour for callers that need to
@@ -117,6 +119,7 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Events:             newEventsRepo(db, workers),
 		Configs:            newConfigsRepo(db),
 		Activations:        newActivationsRepo(db),
+		Processors:         newProcessorsRepo(db),
 	}, nil
 }
 

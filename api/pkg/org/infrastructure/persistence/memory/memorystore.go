@@ -24,6 +24,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -46,6 +47,7 @@ func New() *store.Store {
 		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
 		Configs:            &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:        &activationsRepo{rows: map[orgKey]*activation.Activation{}},
+		Processors:         &processorsRepo{rows: map[orgKey]processor.Processor{}},
 	}
 }
 
