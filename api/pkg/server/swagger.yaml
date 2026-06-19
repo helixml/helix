@@ -5211,10 +5211,12 @@ definitions:
     enum:
     - nvidia
     - amd
+    - neuron
     type: string
     x-enum-varnames:
     - GPUVendorNVIDIA
     - GPUVendorAMD
+    - GPUVendorNeuron
   types.GitHub:
     properties:
       app_id:

@@ -73,7 +73,7 @@ const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
     name: profile?.name || template?.name || "",
     description: profile?.description || template?.description || "",
     composeYAML: profile?.compose_yaml || template?.composeYAML || SAMPLE_COMPOSE,
-    vendor: (profile?.gpu_requirement?.vendor as "" | "nvidia" | "amd") || template?.vendor || "",
+    vendor: (profile?.gpu_requirement?.vendor as "" | "nvidia" | "amd" | "neuron") || template?.vendor || "",
     architectures: (profile?.gpu_requirement?.architectures || template?.architectures || []).join(", "),
     modelMatch: profile?.gpu_requirement?.model_match || template?.modelMatch || "",
     minVRAMBytes: (profile?.gpu_requirement?.min_vram_bytes ?? template?.minVRAMBytes ?? 0).toString(),
@@ -81,8 +81,8 @@ const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
   const [name, setName] = useState(init.name);
   const [description, setDescription] = useState(init.description);
   const [composeYAML, setComposeYAML] = useState(init.composeYAML);
-  const [vendor, setVendor] = useState<"" | "nvidia" | "amd">(
-    init.vendor as "" | "nvidia" | "amd",
+  const [vendor, setVendor] = useState<"" | "nvidia" | "amd" | "neuron">(
+    init.vendor as "" | "nvidia" | "amd" | "neuron",
   );
   const [architectures, setArchitectures] = useState<string>(init.architectures);
   const [modelMatch, setModelMatch] = useState(init.modelMatch);
@@ -163,11 +163,12 @@ const EditRunnerProfile: FC<Props> = ({ profile, template, onClose }) => {
             <Select
               label="Vendor"
               value={vendor}
-              onChange={(e) => setVendor(e.target.value as "" | "nvidia" | "amd")}
+              onChange={(e) => setVendor(e.target.value as "" | "nvidia" | "amd" | "neuron")}
             >
               <MenuItem value="">(any)</MenuItem>
               <MenuItem value="nvidia">nvidia</MenuItem>
               <MenuItem value="amd">amd</MenuItem>
+              <MenuItem value="neuron">neuron (AWS Inferentia2 / Trainium)</MenuItem>
             </Select>
           </FormControl>
 

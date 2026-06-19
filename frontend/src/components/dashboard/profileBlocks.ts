@@ -35,7 +35,7 @@ export interface ProfileBlock {
   composeService: string;
   // Optional architecture hints — empty = any vendor's any arch.
   requiresArchitectures?: string[];
-  requiresVendor?: "nvidia" | "amd" | "";
+  requiresVendor?: "nvidia" | "amd" | "neuron" | "";
 }
 
 const GIB = 1024 * 1024 * 1024;
@@ -378,6 +378,84 @@ export const blockDesktopReserve: ProfileBlock = {
   composeService: "", // informational only
 };
 
+// ----------------------------------------------------------------------
+// AWS Neuron (Inferentia2 / Trainium) — non-NVIDIA inference
+// ----------------------------------------------------------------------
+
+// vLLM-Neuron serving a pre-compiled artifact from AWS's public aws-neuron
+// HF org. No operator compile step, no S3: the container downloads the
+// artifact by HF model ID on first start. inf2.xlarge has 2 Neuron cores,
+// so the published artifact is tp=2; the two cores are exposed as
+// /dev/neuron0..1. The hydra "neuron" arm globs and mounts these into the
+// nested Docker; the compose service below claims them via `devices:`.
+//
+// ponytail: devices hardcoded to neuron0/neuron1 for the inf2.xlarge demo
+// (2 cores). Larger SKUs (inf2.8xlarge=12, trn1=16) need more entries —
+// expand the list when a bigger pool is provisioned.
+//
+// NOTE: pin `image` and the HF artifact revision to an SDK-compatible pair
+// at wire-up time against the host's Neuron DLC AMI (design risk #4 — graph
+// load fails on ABI mismatch). `latest` is a placeholder, not a contract.
+//
+// GATING NOTE — do NOT "fix" the derived GPURequirement.Count to 2. Neuron
+// runners report an empty GPU inventory (gpudetect has no neuron probe; the
+// design stubs neuron GPU stats on purpose). The assignment compatibility
+// check (profile/compatibility.go) therefore gates neuron purely on Vendor:
+//   - neuron profile -> neuron host (empty inventory): count 0>0 false, vendor
+//     loop over [] is vacuous -> ASSIGNS.
+//   - neuron profile -> nvidia host: vendor check rejects (nvidia != neuron).
+//   - nvidia profile -> neuron host: count 1>0 rejects.
+// If composeparse ever learns to count neuron `devices:` (Count=2), it MUST
+// land together with a gpudetect neuron probe, or assignment to the inf2
+// runner breaks (2 > 0 reject). Both are out of scope for this v1 demo.
+export const blockChatNeuronMistral7B: ProfileBlock = {
+  id: "chat-neuron-mistral-7b",
+  name: "inf2.xlarge - Mistral-7B (Neuron)",
+  category: "chat",
+  description:
+    "Mistral-7B-Instruct-v0.3 pre-compiled by AWS for Inferentia2 (HF: aws-neuron/Mistral-7B-Instruct-v0.3-neuronx). Demo profile for non-NVIDIA inference on a single inf2.xlarge (~$0.99/hr, us-east-1).",
+  pros: [
+    "Runs LLM inference on AWS Inferentia2 — no NVIDIA hardware",
+    "Pre-compiled artifact: no operator compile step, no S3",
+    "Same control plane and YD provisioning loop as NVIDIA runners",
+  ],
+  cons: [
+    "Artifact compiled with fixed (bs, sl, tp) — deviating needs a recompile",
+    "30-60s cold start while the Neuron graph loads",
+    "vLLM-Neuron is less mature than CUDA vLLM",
+  ],
+  // GPU-memory fields don't model Neuron device memory; left at 1 core's
+  // worth of "claim the whole accelerator" since one model owns the pool.
+  gpuMemoryFraction: 1,
+  gpuCount: 1,
+  minVRAMBytesPerGPU: 0,
+  requiresVendor: "neuron",
+  composeService: `vllm-neuron-mistral:
+    image: public.ecr.aws/neuron/vllm:latest
+    container_name: vllm-neuron-mistral
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    devices:
+      - "/dev/neuron0:/dev/neuron0"
+      - "/dev/neuron1:/dev/neuron1"
+    shm_size: 1g
+    command:
+      - --model
+      - aws-neuron/Mistral-7B-Instruct-v0.3-neuronx
+      - --served-model-name
+      - mistralai/Mistral-7B-Instruct-v0.3
+      - --device
+      - neuron
+      - --tensor-parallel-size
+      - "2"
+      - --max-num-seqs
+      - "4"
+      - --max-model-len
+      - "8192"`,
+};
+
 export const allBlocks: ProfileBlock[] = [
   blockChatTiny,
   blockChat7B,
@@ -386,6 +464,7 @@ export const allBlocks: ProfileBlock[] = [
   blockEmbedText,
   blockEmbedVL,
   blockDesktopReserve,
+  blockChatNeuronMistral7B,
 ];
 
 // ----------------------------------------------------------------------
@@ -399,7 +478,7 @@ export interface CuratedProfile {
   pros: string[];
   cons: string[];
   blockIDs: string[];
-  vendor: "nvidia" | "amd" | "";
+  vendor: "nvidia" | "amd" | "neuron" | "";
   architectures: string[];
   modelMatch?: string;
   minVRAMBytes?: number;
@@ -471,6 +550,25 @@ export const curatedProfiles: CuratedProfile[] = [
     architectures: ["hopper", "blackwell"],
     minVRAMBytes: 80 * GIB,
     composeYAML: composeFromBlocks([blockChat35B]),
+  },
+  {
+    id: "inf2-mistral-7b-neuron",
+    name: "AWS Inferentia2: Mistral-7B (Neuron)",
+    description:
+      "Single inf2.xlarge serving Mistral-7B-Instruct-v0.3 on AWS Neuron. Demonstrates hardware-agnostic inference — the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop.",
+    pros: [
+      "LLM inference on non-NVIDIA (Inferentia2) hardware",
+      "Pre-compiled AWS artifact — no operator compile or S3 management",
+      "~$0.99/hr, comparable to g5.xlarge",
+    ],
+    cons: [
+      "One model per pool (artifact is fixed bs/sl/tp)",
+      "Neuron SDK / AMI / artifact must be a compatible triple",
+    ],
+    blockIDs: ["chat-neuron-mistral-7b"],
+    vendor: "neuron",
+    architectures: [],
+    composeYAML: composeFromBlocks([blockChatNeuronMistral7B]),
   },
   {
     id: "8xh100-prod",

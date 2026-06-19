@@ -1408,6 +1408,36 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 			Int("explicit_dev_mounts", len(hostConfig.Devices)).
 			Msg("Configured NVIDIA GPU passthrough")
 
+	case "neuron":
+		// AWS Neuron (Inferentia2 / Trainium): mount the /dev/neuron*
+		// device nodes into the nested Docker. All neuronx silicon
+		// presents the same device-node family — one node per Neuron core
+		// (/dev/neuron0, /dev/neuron1, ...). The count varies by instance
+		// type (2 on inf2.xlarge, 16 on inf2.48xlarge, 16 on trn1.32xlarge,
+		// ...), so glob rather than hardcode and the same arm covers every
+		// inf2 SKU and Trainium. The Neuron driver lives on the host (AWS
+		// Neuron DLC AMI); we only pass the device nodes through. No
+		// container runtime, no /dev/kfd, no DRM render node — Neuron has
+		// no display path.
+		//
+		// ponytail: glob covers every inf2/trn SKU; per-core pinning
+		// (gpuIndex) is not wired — add when multi-tenant Neuron packing
+		// on one host is needed (one model per pool in v1, so unused).
+		neuronDevs, _ := filepath.Glob("/dev/neuron*")
+		if len(neuronDevs) == 0 {
+			log.Warn().Msg("neuron passthrough: no /dev/neuron* nodes found in outer container; inner serving stack will not see the accelerator")
+		}
+		for _, dev := range neuronDevs {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Strs("neuron_devs", neuronDevs).Msg("Configured Neuron device passthrough")
+
 	case "amd":
 		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
 		// mounted regardless of pinning) plus the matching render+card

@@ -3269,6 +3269,7 @@ export interface TypesGPUStatus {
 export enum TypesGPUVendor {
   GPUVendorNVIDIA = "nvidia",
   GPUVendorAMD = "amd",
+  GPUVendorNeuron = "neuron",
 }
 
 export interface TypesGitHub {
