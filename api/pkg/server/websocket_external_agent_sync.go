@@ -3186,7 +3186,22 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// to manually retry. Pre-2026-04-26 the guard was latent because of
 	// the ASC/DESC ListInteractions ordering bug fixed in 853492e14;
 	// fixing the ordering exposed this missing branch.
-	if !prompt.Interrupt {
+	//
+	// BOOT-RACE EXCEPTION to the interrupt exemption: the interrupt bypass is only
+	// safe once the Zed thread EXISTS. The very first message of a session is sent
+	// with an empty acp_thread_id — that empty id is what makes Zed create the
+	// thread. If a second message (even an interrupt) is dispatched before
+	// thread_created has populated ZedThreadID, it ALSO goes out with an empty
+	// acp_thread_id and Zed forks a SECOND, divorced thread: the initial message's
+	// work lands in thread A, the follow-up in thread B, and the agent answers the
+	// follow-up with "a previous conversation context that I don't have". So until
+	// the thread is established, even an interrupt must respect the busy-defer; it
+	// is redelivered into the SAME thread once ZedThreadID is set. The poller-side
+	// barrier in prompt_history_handlers.go stops the interrupt path; this guards
+	// the processAnyPendingPrompt / readiness path that funnels here too.
+	// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+	threadNotEstablished := session.Metadata.ZedThreadID == ""
+	if !prompt.Interrupt || threadNotEstablished {
 		latestInteractions, _, recheckErr := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    sessionID,
 			GenerationID: session.GenerationID,
