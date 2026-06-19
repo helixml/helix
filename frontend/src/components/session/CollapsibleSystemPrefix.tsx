@@ -12,21 +12,46 @@ import remarkGfm from "remark-gfm";
 const USER_REQUEST_SPLIT =
   /^([\s\S]*?)\n\n\*\*(User Request|Original Request[^*]*?):\*\*\n?([\s\S]*)$/;
 
+// The post-approval implementation prompt is rendered by
+// approvalPromptTemplate in api/pkg/services/agent_instruction_service.go
+// and always starts with this literal heading. Anchoring on `^` prevents
+// a user message that happens to quote the phrase from being eaten.
+const APPROVAL_PROMPT_ANCHOR = /^## CURRENT PHASE: IMPLEMENTATION\b/;
+
+export type SplitKind = "user-request" | "approval" | null;
+
 export interface SplitResult {
   prefix: string | null;
   userText: string;
   label: string | null;
+  kind: SplitKind;
 }
 
 export function splitSystemPrefix(message: string): SplitResult {
-  if (!message) return { prefix: null, userText: message, label: null };
+  if (!message) {
+    return { prefix: null, userText: message, label: null, kind: null };
+  }
+
   const match = message.match(USER_REQUEST_SPLIT);
-  if (!match) return { prefix: null, userText: message, label: null };
-  return {
-    prefix: match[1].trim(),
-    userText: match[3].trim(),
-    label: match[2],
-  };
+  if (match) {
+    return {
+      prefix: match[1].trim(),
+      userText: match[3].trim(),
+      label: match[2],
+      kind: "user-request",
+    };
+  }
+
+  if (APPROVAL_PROMPT_ANCHOR.test(message)) {
+    return {
+      prefix: message.trim(),
+      userText: "",
+      label: null,
+      kind: "approval",
+    };
+  }
+
+  return { prefix: null, userText: message, label: null, kind: null };
 }
 
 interface CollapsibleSystemPrefixProps {
