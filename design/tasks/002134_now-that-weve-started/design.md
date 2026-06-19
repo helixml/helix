@@ -70,6 +70,13 @@ Naming convention to follow: **camelCase** in the form value (`CodingAgentFormVa
 | `frontend/src/utils/app.ts` | Map `claude_subscription_model` in flat-state helpers |
 | `frontend/src/types.ts` | Add `claude_subscription_model` to `IAssistantConfig` and related types |
 
+## Implementation Notes (discovered during build)
+
+- **Two UI surfaces, not one.** Agent *creation* goes through the shared `CodingAgentForm` (used by Onboarding, CreateProjectDialog, AgentSelectionModal, ProjectSettings, NewSpecTaskForm). Agent *editing* uses a separate UI in `AppSettings.tsx` (its own `claudeCodeMode` radio + `onUpdate(...)` → `useApp.ts`). Both need the dropdown.
+- **Create-form parents do NOT spread `...nextValue`.** Each parent rebuilds `CodingAgentForm`'s `value` from individual `useState` pieces and only extracts specific fields in `onChange` (e.g. `setClaudeCodeMode(nextValue.claudeCodeMode)`). So threading a new field through the shared `value` would require editing all 5 parents. Instead, the subscription-model dropdown is kept as **local state inside `CodingAgentForm`** (default `claude-opus-4-6`), read directly by its own `handleCreateAgent` when building `ICreateAgentParams`. Zero parent changes; correct because create forms never load an existing model.
+- **Edit path** (`AppSettings.tsx`): dropdown initialized from `app.claude_subscription_model` (fallback Opus), persisted via `onUpdate({ claude_subscription_model })`; `useApp.ts` applies it to `assistants[0]`.
+- **Backend default is the real guarantee.** Even with no UI selection, `subscriptionEnvForSession()` injects `ANTHROPIC_MODEL=claude-opus-4-6` when the field is empty, so subscription agents default to Opus regardless of the form.
+
 ## Learned patterns (verified against the codebase)
 
 - Provider/model fields (`GenerationModel`, `GenerationModelProvider`) on `AssistantConfig` are deliberately blanked for `claude_code` + subscription in `buildCodeAgentConfigFromAssistant()` (`zed_config_handlers.go:661–678`); a separate `ClaudeSubscriptionModel` field avoids coupling and keeps that clearing logic intact.
