@@ -513,6 +513,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Publishing:    svc.Publishing,
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
+		Processors:    svc.Processors,
 		WorkerRuntime: orgWorkerRuntime{st: st},
 		// SessionRestarter recreates a worker's desktop container through
 		// the same backend primitive the in-chat restart button uses, so

@@ -20,11 +20,43 @@ package jsonapi
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 )
 
 // ContentType is the media type the JSON:API spec mandates.
 const ContentType = "application/vnd.api+json"
+
+// Bind decodes a JSON:API request document — `{ "data": { "type": …,
+// "attributes": { … } } }` — into attrs (a pointer to the endpoint's
+// attribute struct). The wrapper's type/id are ignored here: handlers
+// take the resource id from the URL and validate the type by routing.
+// Returns an error on malformed JSON or a missing data.attributes
+// object, so handlers can map it to 400.
+func Bind(r *http.Request, attrs any) error {
+	var doc struct {
+		Data struct {
+			Type       string          `json:"type"`
+			ID         string          `json:"id"`
+			Attributes json.RawMessage `json:"attributes"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return errors.New("empty request body; expected a JSON:API document")
+		}
+		return fmt.Errorf("decode JSON:API document: %w", err)
+	}
+	if len(doc.Data.Attributes) == 0 {
+		return errors.New("missing data.attributes in JSON:API document")
+	}
+	if err := json.Unmarshal(doc.Data.Attributes, attrs); err != nil {
+		return fmt.Errorf("decode data.attributes: %w", err)
+	}
+	return nil
+}
 
 // Meta is the top-level (or resource-level) free-form metadata object.
 type Meta map[string]any

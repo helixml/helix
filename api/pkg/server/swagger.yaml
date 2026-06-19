@@ -17740,6 +17740,133 @@ paths:
       summary: 'Helix-org: get org overview'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/processors:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: list processors'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: create a processor'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/processors/{id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete a processor'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: get a processor'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: update a processor'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/processors/preview:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: preview a processor config'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/roles:
     get:
       produces:

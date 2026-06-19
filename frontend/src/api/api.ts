@@ -11954,6 +11954,106 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsProcessorsDetail
+     * @summary Helix-org: list processors
+     * @request GET:/api/v1/orgs/{org}/processors
+     */
+    v1OrgsProcessorsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/orgs/${org}/processors`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsProcessorsCreate
+     * @summary Helix-org: create a processor
+     * @request POST:/api/v1/orgs/{org}/processors
+     */
+    v1OrgsProcessorsCreate: (org: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/orgs/${org}/processors`,
+        method: "POST",
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsProcessorsDelete
+     * @summary Helix-org: delete a processor
+     * @request DELETE:/api/v1/orgs/{org}/processors/{id}
+     */
+    v1OrgsProcessorsDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/processors/${id}`,
+        method: "DELETE",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsProcessorsDetail2
+     * @summary Helix-org: get a processor
+     * @request GET:/api/v1/orgs/{org}/processors/{id}
+     * @originalName v1OrgsProcessorsDetail
+     * @duplicate
+     */
+    v1OrgsProcessorsDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/orgs/${org}/processors/${id}`,
+        method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsProcessorsUpdate
+     * @summary Helix-org: update a processor
+     * @request PUT:/api/v1/orgs/{org}/processors/{id}
+     */
+    v1OrgsProcessorsUpdate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/orgs/${org}/processors/${id}`,
+        method: "PUT",
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsProcessorsPreviewCreate
+     * @summary Helix-org: preview a processor config
+     * @request POST:/api/v1/orgs/{org}/processors/preview
+     */
+    v1OrgsProcessorsPreviewCreate: (org: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/orgs/${org}/processors/preview`,
+        method: "POST",
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsRolesDetail
      * @summary Helix-org: list roles
      * @request GET:/api/v1/orgs/{org}/roles

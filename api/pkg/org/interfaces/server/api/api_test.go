@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
@@ -82,8 +83,13 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
 		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
-		Configs:       reg,
-		Hub:           hub,
+		Processors: processors.New(processors.Deps{
+			Processors: st.Processors,
+			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
+			Now:        clock, NewID: newID,
+		}),
+		Configs: reg,
+		Hub:     hub,
 	}
 	return deps, st, reg
 }

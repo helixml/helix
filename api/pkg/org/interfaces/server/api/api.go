@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
@@ -75,6 +76,9 @@ type Deps struct {
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Activations   *activations.Activations
+	// Processors owns the processor CRUD + preview use cases. nil →
+	// the /processors routes return 503 (test wirings that skip it).
+	Processors *processors.Processors
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
@@ -273,6 +277,14 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
 		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
 		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
+		// Processors — JSON:API CRUD + a non-persisting preview that
+		// renders a candidate config against real/sample messages.
+		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
+		{Pattern: "POST /processors", Handler: http.HandlerFunc(a.createProcessor)},
+		{Pattern: "POST /processors/preview", Handler: http.HandlerFunc(a.previewProcessor)},
+		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
+		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
+		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},
 		// Inbound webhook for the GitHub transport. The transport
 		// resolves orgID from the request context (set by the org
 		// middleware) and reads transport.github from the org's
