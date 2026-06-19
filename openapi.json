@@ -11357,6 +11357,9 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/api.ProcessorWriteRequest"
+                },
                 "responses": {
                     "201": {
                         "description": "Created",
@@ -11389,6 +11392,17 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.ProcessorPreviewRequest"
+                            }
+                        }
+                    },
+                    "description": "Preview spec",
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -11469,6 +11483,9 @@
                         }
                     }
                 ],
+                "requestBody": {
+                    "$ref": "#/components/requestBodies/api.ProcessorWriteRequest"
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -25288,6 +25305,17 @@
                 "description": "Request body with organization configuration.",
                 "required": true
             },
+            "api.ProcessorWriteRequest": {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/api.ProcessorWriteRequest"
+                        }
+                    }
+                },
+                "description": "Processor spec",
+                "required": true
+            },
             "server.runnerProfileSaveRequest": {
                 "content": {
                     "application/json": {
@@ -25634,6 +25662,106 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/api.RoleBadge"
+                        }
+                    }
+                }
+            },
+            "api.ProcessorOutputDTO": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "match": {
+                        "type": "string"
+                    },
+                    "owned": {
+                        "type": "boolean"
+                    },
+                    "topic_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.ProcessorPreviewRequest": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "properties": {
+                            "attributes": {
+                                "type": "object",
+                                "properties": {
+                                    "config": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    },
+                                    "count": {
+                                        "type": "integer"
+                                    },
+                                    "input_topic_id": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "type": "string"
+                                    },
+                                    "outputs": {
+                                        "type": "array",
+                                        "items": {
+                                            "$ref": "#/components/schemas/api.ProcessorOutputDTO"
+                                        }
+                                    },
+                                    "samples": {
+                                        "type": "array",
+                                        "items": {
+                                            "$ref": "#/components/schemas/api.previewSampleDTO"
+                                        }
+                                    }
+                                }
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "api.ProcessorWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "object",
+                        "properties": {
+                            "attributes": {
+                                "type": "object",
+                                "properties": {
+                                    "config": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    },
+                                    "created_by": {
+                                        "type": "string"
+                                    },
+                                    "input_topic_id": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "outputs": {
+                                        "type": "array",
+                                        "items": {
+                                            "$ref": "#/components/schemas/api.ProcessorOutputDTO"
+                                        }
+                                    }
+                                }
+                            },
+                            "type": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -26027,6 +26155,20 @@
                         }
                     },
                     "worker_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "api.previewSampleDTO": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "subject": {
                         "type": "string"
                     }
                 }

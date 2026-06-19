@@ -170,6 +170,17 @@ func TestCreateProcessorCycleConflict(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Errorf("self-cycle status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
 	}
+	// Error body is a JSON:API error document: {"errors":[{status,detail}]}.
+	var errDoc struct {
+		Errors []struct {
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"errors"`
+	}
+	decode(t, rec, &errDoc)
+	if len(errDoc.Errors) != 1 || errDoc.Errors[0].Status != "409" || errDoc.Errors[0].Detail == "" {
+		t.Errorf("expected one JSON:API error with status 409, got %+v", errDoc.Errors)
+	}
 }
 
 func TestGetMissingProcessor404(t *testing.T) {

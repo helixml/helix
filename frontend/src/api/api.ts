@@ -176,6 +176,41 @@ export interface ApiOrgOverview {
   roles?: ApiRoleBadge[];
 }
 
+export interface ApiProcessorOutputDTO {
+  label?: string;
+  match?: string;
+  owned?: boolean;
+  topic_id?: string;
+}
+
+export interface ApiProcessorPreviewRequest {
+  data?: {
+    attributes?: {
+      config?: Record<string, any>;
+      count?: number;
+      input_topic_id?: string;
+      kind?: string;
+      outputs?: ApiProcessorOutputDTO[];
+      samples?: ApiPreviewSampleDTO[];
+    };
+    type?: string;
+  };
+}
+
+export interface ApiProcessorWriteRequest {
+  data?: {
+    attributes?: {
+      config?: Record<string, any>;
+      created_by?: string;
+      input_topic_id?: string;
+      kind?: string;
+      name?: string;
+      outputs?: ApiProcessorOutputDTO[];
+    };
+    type?: string;
+  };
+}
+
 export interface ApiPublishRequest {
   /**
    * As is the Worker the message is sent as — the worker whose chat the
@@ -327,6 +362,12 @@ export interface ApiWorkerSubscriptionDTO {
 export interface ApiWorkerSubscriptionsResponse {
   subscriptions?: ApiWorkerSubscriptionDTO[];
   worker_id?: string;
+}
+
+export interface ApiPreviewSampleDTO {
+  body?: string;
+  from?: string;
+  subject?: string;
 }
 
 export interface FilestoreConfig {
@@ -11974,10 +12015,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Helix-org: create a processor
      * @request POST:/api/v1/orgs/{org}/processors
      */
-    v1OrgsProcessorsCreate: (org: string, params: RequestParams = {}) =>
+    v1OrgsProcessorsCreate: (org: string, payload: ApiProcessorWriteRequest, params: RequestParams = {}) =>
       this.request<Record<string, any>, any>({
         path: `/api/v1/orgs/${org}/processors`,
         method: "POST",
+        body: payload,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -12024,10 +12066,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Helix-org: update a processor
      * @request PUT:/api/v1/orgs/{org}/processors/{id}
      */
-    v1OrgsProcessorsUpdate: (org: string, id: string, params: RequestParams = {}) =>
+    v1OrgsProcessorsUpdate: (org: string, id: string, payload: ApiProcessorWriteRequest, params: RequestParams = {}) =>
       this.request<Record<string, any>, any>({
         path: `/api/v1/orgs/${org}/processors/${id}`,
         method: "PUT",
+        body: payload,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -12041,10 +12084,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @summary Helix-org: preview a processor config
      * @request POST:/api/v1/orgs/{org}/processors/preview
      */
-    v1OrgsProcessorsPreviewCreate: (org: string, params: RequestParams = {}) =>
+    v1OrgsProcessorsPreviewCreate: (org: string, payload: ApiProcessorPreviewRequest, params: RequestParams = {}) =>
       this.request<Record<string, any>, any>({
         path: `/api/v1/orgs/${org}/processors/preview`,
         method: "POST",
+        body: payload,
         type: ContentType.Json,
         format: "json",
         ...params,

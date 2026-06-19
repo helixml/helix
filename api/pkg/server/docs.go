@@ -9462,6 +9462,15 @@ const docTemplate = `{
                         "name": "org",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Processor spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -9494,6 +9503,15 @@ const docTemplate = `{
                         "name": "org",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Preview spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ProcessorPreviewRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -9567,6 +9585,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Processor spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -21359,6 +21386,106 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ProcessorOutputDTO": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "match": {
+                    "type": "string"
+                },
+                "owned": {
+                    "type": "boolean"
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ProcessorPreviewRequest": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "attributes": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "count": {
+                                    "type": "integer"
+                                },
+                                "input_topic_id": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "outputs": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/api.ProcessorOutputDTO"
+                                    }
+                                },
+                                "samples": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/api.previewSampleDTO"
+                                    }
+                                }
+                            }
+                        },
+                        "type": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "api.ProcessorWriteRequest": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "attributes": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "created_by": {
+                                    "type": "string"
+                                },
+                                "input_topic_id": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "outputs": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/api.ProcessorOutputDTO"
+                                    }
+                                }
+                            }
+                        },
+                        "type": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "api.PublishRequest": {
             "type": "object",
             "properties": {
@@ -21748,6 +21875,20 @@ const docTemplate = `{
                     }
                 },
                 "worker_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.previewSampleDTO": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "subject": {
                     "type": "string"
                 }
             }

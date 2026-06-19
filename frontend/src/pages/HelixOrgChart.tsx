@@ -15,6 +15,7 @@ import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import TransformIcon from '@mui/icons-material/Transform'
 
 import dagre from 'dagre'
 import {
@@ -42,11 +43,13 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import HireWorkerDrawer from '../components/helix-org/HireWorkerDrawer'
 import NewRoleDialog from '../components/helix-org/NewRoleDialog'
+import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   WorkerDTO,
+  ProcessorDTO,
   useDeleteHelixOrgRole,
   useDeleteHelixOrgTopic,
   useFireHelixOrgWorker,
@@ -54,6 +57,8 @@ import {
   useListHelixOrgTopics,
   useTopicMessageCounts,
   useListHelixOrgWorkers,
+  useListHelixOrgProcessors,
+  useDeleteHelixOrgProcessor,
   useAddWorkerParent,
   useRemoveWorkerParent,
   useSubscribeWorkerAtChart,
@@ -152,6 +157,15 @@ type TopicNodeData = {
   messageCount: number
   onSelectTopic: (topicId: string) => void
   onDeleteTopic: (topicId: string) => void
+}
+
+type ProcessorNodeData = {
+  processorId: string
+  name: string
+  kind: string
+  outputCount: number
+  onSelectProcessor: (processorId: string) => void
+  onDeleteProcessor: (processorId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -420,7 +434,67 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   )
 }
 
-const nodeTypes = { role: RoleNode, worker: WorkerNode, topic: TopicNode }
+// ProcessorNode renders a transform/filter box that sits on the edge
+// between an input Topic (left target handle) and the Workers that read
+// its output (right source handle). Its auto-provisioned output topics
+// are collapsed into this box — they are not drawn separately. Clicking
+// opens the config drawer in edit mode; the trash icon deletes it (and
+// its owned output topics).
+const PROC_W = 180
+const PROC_H = 80
+const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
+  const lightTheme = useLightTheme()
+  const accent = lightTheme.isLight ? 'rgba(90,60,170,0.9)' : 'rgba(180,150,255,0.9)'
+  const bg = 'rgba(140,110,230,0.07)'
+  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const handleColor = lightTheme.isLight ? 'rgba(90,60,170,0.6)' : 'rgba(180,150,255,0.6)'
+  return (
+    <Box
+      onClick={(e) => { e.stopPropagation(); data.onSelectProcessor(data.processorId) }}
+      sx={{
+        width: PROC_W,
+        height: PROC_H,
+        border: `1px solid ${accent}`,
+        borderRadius: 1.5,
+        backgroundColor: bg,
+        p: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0.25,
+        cursor: 'pointer',
+        position: 'relative',
+        '&:hover': { backgroundColor: 'rgba(140,110,230,0.14)' },
+      }}
+    >
+      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
+      <Handle id="proc-out" type="source" position={RFPosition.Right} isConnectable style={{ background: handleColor, width: 10, height: 10 }} />
+      <Tooltip title="Delete processor (and its output topics)">
+        <IconButton
+          className={NO_DRAG_NO_PAN}
+          size="small"
+          onClick={(e) => { e.stopPropagation(); data.onDeleteProcessor(data.processorId) }}
+          sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+        >
+          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      </Tooltip>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2 }}>
+        <TransformIcon sx={{ fontSize: 14, color: accent }} />
+        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {data.processorId}
+        </Typography>
+      </Stack>
+      <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {data.name}
+      </Typography>
+      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
+        {data.kind} · {data.outputCount} output{data.outputCount === 1 ? '' : 's'}
+      </Typography>
+    </Box>
+  )
+}
+
+const nodeTypes = { role: RoleNode, worker: WorkerNode, topic: TopicNode, processor: ProcessorNode }
 
 // ---- dagre layout ------------------------------------------------------
 
@@ -430,6 +504,14 @@ type TopicSummary = {
   kind: string
   created_by?: string
   subscribers?: string[]
+}
+
+type ProcessorSummary = {
+  id: string
+  name: string
+  kind: string
+  inputTopicId: string
+  outputTopicIds: string[]
 }
 
 // buildGraph computes nodes + edges for the chart. Roles are laid out by
@@ -502,10 +584,13 @@ const buildGraph = (
     onFireWorker: (workerId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
+    onSelectProcessor: (processorId: string) => void
+    onDeleteProcessor: (processorId: string) => void
   },
   isLight: boolean,
   topics: TopicSummary[],
   messageCounts: Record<string, number>,
+  processors: ProcessorSummary[],
 ): { nodes: Node[]; edges: Edge[] } => {
   const flatByID = new Map<string, FlatWorker>()
   for (const wk of flat) flatByID.set(wk.id, wk)
@@ -663,6 +748,13 @@ const buildGraph = (
   //    vertical columns as needed to fit the tree's height, then within
   //    each column places each topic at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
+  // Processor output topics are collapsed into their processor node and
+  // are NOT drawn as their own topic boxes (design: the processor visibly
+  // sits in between). Their messages remain inspectable via the detail
+  // view; here we just exclude them from the topic layout.
+  const outputTopicIds = new Set<string>()
+  for (const p of processors) for (const ot of p.outputTopicIds) outputTopicIds.add(ot)
+
   if (topics.length > 0) {
     const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
@@ -696,6 +788,7 @@ const buildGraph = (
 
     const resolved: { topic: TopicSummary; subjectWorker: string | null }[] = []
     for (const s of topics) {
+      if (outputTopicIds.has(s.id)) continue // collapsed into a processor node
       let subjectWorker: string | undefined
       if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
         subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
@@ -766,6 +859,73 @@ const buildGraph = (
             strokeWidth: 1.25,
             strokeDasharray: '6 4',
           },
+        })
+      }
+    }
+  }
+
+  // ---- Processors -------------------------------------------------------
+  // A column of processor boxes to the right of the topic column. Each
+  // draws an input edge from its input topic and an output edge to every
+  // Worker subscribed to one of its (collapsed) output topics.
+  if (processors.length > 0) {
+    const workerSet = new Set<string>()
+    for (const group of groups) for (const wk of group.workers) workerSet.add(wk.id)
+    const subsByTopic = new Map<string, string[]>()
+    for (const tp of topics) subsByTopic.set(tp.id, (tp.subscribers ?? []).filter((w) => workerSet.has(w)))
+
+    let pminTop = Infinity, pmaxRight = -Infinity
+    for (const ro of roleOrigin.values()) {
+      if (ro.y < pminTop) pminTop = ro.y
+      if (ro.x + ro.w > pmaxRight) pmaxRight = ro.x + ro.w
+    }
+    if (!isFinite(pminTop)) pminTop = 0
+    if (!isFinite(pmaxRight)) pmaxRight = 0
+    // Right of the role frames and the topic column (≈ STREAM_W + gaps).
+    const PROC_COL_X = pmaxRight + 120 + STREAM_W + 160
+    const procStroke = isLight ? 'rgba(90,60,170,0.7)' : 'rgba(180,150,255,0.7)'
+
+    let py = pminTop
+    for (const p of processors) {
+      nodes.push({
+        id: `processor:${p.id}`,
+        type: 'processor',
+        position: { x: PROC_COL_X, y: py },
+        data: {
+          processorId: p.id,
+          name: p.name,
+          kind: p.kind,
+          outputCount: p.outputTopicIds.length,
+          onSelectProcessor: handlers.onSelectProcessor,
+          onDeleteProcessor: handlers.onDeleteProcessor,
+        } as ProcessorNodeData,
+        draggable: false,
+        connectable: true,
+        selectable: true,
+      })
+      py += PROC_H + 40
+
+      if (p.inputTopicId) {
+        edges.push({
+          id: `procin:${p.inputTopicId}->${p.id}`,
+          source: `topic:${p.inputTopicId}`,
+          target: `processor:${p.id}`,
+          type: 'deletable',
+          data: { kind: 'proc_in', processorId: p.id },
+          style: { stroke: procStroke, strokeWidth: 1.25 },
+        })
+      }
+      const targetWorkers = new Set<string>()
+      for (const ot of p.outputTopicIds) for (const w of subsByTopic.get(ot) ?? []) targetWorkers.add(w)
+      for (const w of targetWorkers) {
+        edges.push({
+          id: `procout:${p.id}->${w}`,
+          source: `processor:${p.id}`,
+          sourceHandle: 'proc-out',
+          target: `worker:${w}`,
+          type: 'deletable',
+          data: { kind: 'proc_out', processorId: p.id, workerId: w },
+          style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
         })
       }
     }
@@ -900,6 +1060,8 @@ const ChartCanvas: FC<{
     onFireWorker: (workerId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
+    onSelectProcessor: (processorId: string) => void
+    onDeleteProcessor: (processorId: string) => void
   }
   // onAddParent fires when the user wires manager → subordinate (an
   // onConnect); onRemoveParent fires when they delete a reporting edge,
@@ -912,13 +1074,14 @@ const ChartCanvas: FC<{
   onUnsubscribeWorker: (workerId: string, topicId: string) => void
   topics: TopicSummary[]
   messageCounts: Record<string, number>
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, topics, messageCounts }) => {
+  processors: ProcessorSummary[]
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, topics, messageCounts, processors }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(groups, flat, handlers, lightTheme.isLight, topics, messageCounts),
-    [groups, flat, handlers, lightTheme.isLight, topics, messageCounts],
+    () => buildGraph(groups, flat, handlers, lightTheme.isLight, topics, messageCounts, processors),
+    [groups, flat, handlers, lightTheme.isLight, topics, messageCounts, processors],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -962,6 +1125,13 @@ const ChartCanvas: FC<{
     (deleted: Edge[]) => {
       for (const e of deleted) {
         const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; topicId?: string } | undefined
+        // Processor wiring edges are structural (input topic ↔ processor,
+        // processor → subscribed worker). They are managed via the
+        // processor drawer / topic subscriptions, not by deleting the
+        // drawn edge, so dropping one is a no-op here.
+        if (d?.kind === 'proc_in' || d?.kind === 'proc_out') {
+          continue
+        }
         if (d?.kind === 'sub' && d.workerId && d.topicId) {
           onUnsubscribeWorker(d.workerId, d.topicId)
           continue
@@ -1020,8 +1190,10 @@ const HelixOrgChart: FC = () => {
   const { data: workersData, isLoading } = useListHelixOrgWorkers()
   const { data: rolesData } = useListHelixOrgRoles()
   const { data: streamsData } = useListHelixOrgTopics()
+  const { data: processorsData } = useListHelixOrgProcessors()
   const deleteRole = useDeleteHelixOrgRole()
   const deleteTopic = useDeleteHelixOrgTopic()
+  const deleteProcessor = useDeleteHelixOrgProcessor()
   const fireWorker = useFireHelixOrgWorker()
   const addParent = useAddWorkerParent()
   const removeParent = useRemoveWorkerParent()
@@ -1058,12 +1230,26 @@ const HelixOrgChart: FC = () => {
   const topicIds = useMemo(() => topics.map((s) => s.id), [topics])
   const messageCounts = useTopicMessageCounts(topicIds)
 
+  const processorSummaries = useMemo<ProcessorSummary[]>(
+    () => (processorsData ?? []).map((p: ProcessorDTO) => ({
+      id: p.id,
+      name: p.name ?? p.id,
+      kind: p.kind ?? '',
+      inputTopicId: p.input_topic_id ?? '',
+      outputTopicIds: (p.outputs ?? []).map((o) => o.topic_id).filter(Boolean) as string[],
+    })),
+    [processorsData],
+  )
+
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  // Processor drawer: { open, processor } — processor null = create mode.
+  const [processorDrawer, setProcessorDrawer] = useState<{ open: boolean; processor: ProcessorDTO | null }>({ open: false, processor: null })
   const [confirmDelete, setConfirmDelete] = useState<
     | { kind: 'role'; id: string }
     | { kind: 'worker'; id: string }
     | { kind: 'topic'; id: string }
+    | { kind: 'processor'; id: string }
     | null
   >(null)
 
@@ -1098,9 +1284,17 @@ const HelixOrgChart: FC = () => {
     [router, orgSlug],
   )
   const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
+  const onSelectProcessor = useCallback(
+    (processorId: string) => {
+      const p = (processorsData ?? []).find((x) => x.id === processorId) ?? null
+      setProcessorDrawer({ open: true, processor: p })
+    },
+    [processorsData],
+  )
+  const onDeleteProcessor = useCallback((processorId: string) => setConfirmDelete({ kind: 'processor', id: processorId }), [])
   const handlers = useMemo(
-    () => ({ onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic }),
-    [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic],
+    () => ({ onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor }),
+    [onSelectWorker, onSelectRole, onHire, onDeleteRole, onFireWorker, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
   )
 
   const onAddParent = useCallback(
@@ -1160,6 +1354,9 @@ const HelixOrgChart: FC = () => {
       } else if (confirmDelete.kind === 'topic') {
         await deleteTopic.mutateAsync(confirmDelete.id)
         snackbar.success(`deleted topic ${confirmDelete.id}`)
+      } else if (confirmDelete.kind === 'processor') {
+        await deleteProcessor.mutateAsync(confirmDelete.id)
+        snackbar.success(`deleted processor ${confirmDelete.id}`)
       } else {
         await fireWorker.mutateAsync(confirmDelete.id)
         snackbar.success(`fired worker ${confirmDelete.id}`)
@@ -1167,7 +1364,9 @@ const HelixOrgChart: FC = () => {
       setConfirmDelete(null)
     } catch (err: any) {
       const status = err?.response?.status
-      const msg = err?.response?.data?.error ?? err?.message ?? 'delete failed'
+      // Processor endpoints emit JSON:API errors[]; the others emit
+      // {error}. Read both shapes.
+      const msg = err?.response?.data?.error ?? err?.response?.data?.errors?.[0]?.detail ?? err?.message ?? 'delete failed'
       if (status === 409) {
         snackbar.error(`${confirmDelete.kind} is protected and cannot be deleted`)
       } else {
@@ -1200,6 +1399,17 @@ const HelixOrgChart: FC = () => {
         'This is irreversible.',
       ].join('\n')
     }
+    if (confirmDelete.kind === 'processor') {
+      const p = (processorsData ?? []).find((x) => x.id === confirmDelete.id)
+      const owned = (p?.outputs ?? []).filter((o) => o.owned).map((o) => o.topic_id)
+      return [
+        `Deleting processor ${confirmDelete.id}:`,
+        `  • removes the Processor`,
+        `  • deletes ${owned.length} auto-created output topic${owned.length === 1 ? '' : 's'}${owned.length > 0 ? ' (' + owned.join(', ') + ')' : ''} and their subscriptions`,
+        '',
+        'This is irreversible.',
+      ].join('\n')
+    }
     const reports = flat.filter((w) => w.parentIds.includes(confirmDelete.id)).map((w) => w.id)
     return [
       `Firing worker ${confirmDelete.id} will cascade:`,
@@ -1210,7 +1420,7 @@ const HelixOrgChart: FC = () => {
       '',
       'This is irreversible.',
     ].join('\n')
-  }, [confirmDelete, groups, flat, streamsData])
+  }, [confirmDelete, groups, flat, streamsData, processorsData])
 
   return (
     <Page breadcrumbTitle="Chart">
@@ -1248,14 +1458,22 @@ const HelixOrgChart: FC = () => {
               in the page header — it reads as a canvas action, and keeps
               the header to title + description. zIndex sits above the
               ReactFlow surface / controls. */}
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setRoleDialogOpen(true)}
-            sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}
-          >
-            New role
-          </Button>
+          <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
+            <Button
+              variant="outlined"
+              startIcon={<TransformIcon />}
+              onClick={() => setProcessorDrawer({ open: true, processor: null })}
+            >
+              Processor
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setRoleDialogOpen(true)}
+            >
+              New role
+            </Button>
+          </Stack>
 
           {isLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
@@ -1277,6 +1495,7 @@ const HelixOrgChart: FC = () => {
                 onUnsubscribeWorker={onUnsubscribeWorker}
                 topics={topics}
                 messageCounts={messageCounts}
+                processors={processorSummaries}
               />
             </ReactFlowProvider>
           )}
@@ -1289,18 +1508,25 @@ const HelixOrgChart: FC = () => {
         title={
           confirmDelete?.kind === 'role' ? 'Delete role?' :
           confirmDelete?.kind === 'topic' ? 'Delete topic?' :
+          confirmDelete?.kind === 'processor' ? 'Delete processor?' :
           'Fire worker?'
         }
         body={confirmBody}
         onConfirm={handleConfirmDelete}
         onClose={() => setConfirmDelete(null)}
-        pending={deleteRole.isPending || deleteTopic.isPending || fireWorker.isPending}
+        pending={deleteRole.isPending || deleteTopic.isPending || deleteProcessor.isPending || fireWorker.isPending}
       />
 
       <HireWorkerDrawer
         open={selection.kind === 'hire'}
         onClose={() => setSelection({ kind: 'none' })}
         presetRoleId={selection.kind === 'hire' ? selection.roleId : undefined}
+      />
+
+      <ProcessorConfigDrawer
+        open={processorDrawer.open}
+        processor={processorDrawer.processor}
+        onClose={() => setProcessorDrawer({ open: false, processor: null })}
       />
     </Page>
   )

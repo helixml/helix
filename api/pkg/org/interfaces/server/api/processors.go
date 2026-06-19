@@ -33,6 +33,43 @@ type ProcessorAttributes struct {
 	CreatedAt    string               `json:"created_at,omitempty"`
 }
 
+// --- Request DTOs (swagger only) ---------------------------------------
+// These mirror the JSON:API request documents so the generated TS client
+// gets a typed payload argument. Handlers bind through jsonapi.Bind into
+// the *WriteAttributes/previewAttributes structs below; these wrappers
+// exist purely to shape the OpenAPI schema. Config is an open object
+// ({"template": "..."} for the template kind).
+
+// ProcessorWriteRequest is the JSON:API body for create + update.
+type ProcessorWriteRequest struct {
+	Data struct {
+		Type       string `json:"type"`
+		Attributes struct {
+			Name         string                 `json:"name"`
+			InputTopicID string                 `json:"input_topic_id"`
+			Kind         string                 `json:"kind"`
+			Config       map[string]interface{} `json:"config,omitempty"`
+			CreatedBy    string                 `json:"created_by,omitempty"`
+			Outputs      []ProcessorOutputDTO   `json:"outputs,omitempty"`
+		} `json:"attributes"`
+	} `json:"data"`
+}
+
+// ProcessorPreviewRequest is the JSON:API body for the preview endpoint.
+type ProcessorPreviewRequest struct {
+	Data struct {
+		Type       string `json:"type"`
+		Attributes struct {
+			Kind         string                 `json:"kind"`
+			Config       map[string]interface{} `json:"config,omitempty"`
+			Outputs      []ProcessorOutputDTO   `json:"outputs,omitempty"`
+			Samples      []previewSampleDTO     `json:"samples,omitempty"`
+			InputTopicID string                 `json:"input_topic_id,omitempty"`
+			Count        int                    `json:"count,omitempty"`
+		} `json:"attributes"`
+	} `json:"data"`
+}
+
 // processorWriteAttributes is the request attributes for create/update.
 type processorWriteAttributes struct {
 	Name         string          `json:"name"`
@@ -84,7 +121,7 @@ func procErrStatus(err error) int {
 
 func (a *apiHandler) requireProcessors(w http.ResponseWriter) bool {
 	if a.deps.Processors == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("processors service not configured"))
+		jsonapi.WriteError(w, http.StatusServiceUnavailable, errors.New("processors service not configured"))
 		return false
 	}
 	return true
@@ -104,12 +141,12 @@ func (a *apiHandler) listProcessors(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	procs, err := a.deps.Processors.List(r.Context(), orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("list processors: %w", err))
+		jsonapi.WriteError(w, http.StatusInternalServerError, fmt.Errorf("list processors: %w", err))
 		return
 	}
 	resources := make([]jsonapi.Resource, 0, len(procs))
@@ -127,6 +164,7 @@ func (a *apiHandler) listProcessors(w http.ResponseWriter, r *http.Request) {
 // @Accept json
 // @Produce json
 // @Param org path string true "Organization ID or slug"
+// @Param payload body api.ProcessorWriteRequest true "Processor spec"
 // @Success 201 {object} map[string]interface{}
 // @Router /api/v1/orgs/{org}/processors [post]
 func (a *apiHandler) createProcessor(w http.ResponseWriter, r *http.Request) {
@@ -135,12 +173,12 @@ func (a *apiHandler) createProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	var attrs processorWriteAttributes
 	if err := jsonapi.Bind(r, &attrs); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	p, err := a.deps.Processors.Create(r.Context(), orgID, processors.CreateParams{
@@ -152,7 +190,7 @@ func (a *apiHandler) createProcessor(w http.ResponseWriter, r *http.Request) {
 		Outputs:      toOutputSpecs(attrs),
 	})
 	if err != nil {
-		writeError(w, procErrStatus(err), fmt.Errorf("create processor: %w", err))
+		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("create processor: %w", err))
 		return
 	}
 	jsonapi.Write(w, http.StatusCreated, jsonapi.NewDocument(processorResource(p)))
@@ -173,17 +211,17 @@ func (a *apiHandler) getProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	id := processor.ProcessorID(r.PathValue("id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, errors.New("processor id is required"))
+		jsonapi.WriteError(w, http.StatusBadRequest, errors.New("processor id is required"))
 		return
 	}
 	p, err := a.deps.Processors.Get(r.Context(), orgID, id)
 	if err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("get processor %s: %w", id, err))
+		jsonapi.WriteError(w, errStatus(err), fmt.Errorf("get processor %s: %w", id, err))
 		return
 	}
 	jsonapi.Write(w, http.StatusOK, jsonapi.NewDocument(processorResource(p)))
@@ -197,6 +235,7 @@ func (a *apiHandler) getProcessor(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Param org path string true "Organization ID or slug"
 // @Param id path string true "Processor ID"
+// @Param payload body api.ProcessorWriteRequest true "Processor spec"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/orgs/{org}/processors/{id} [put]
 func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
@@ -205,17 +244,17 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	id := processor.ProcessorID(r.PathValue("id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, errors.New("processor id is required"))
+		jsonapi.WriteError(w, http.StatusBadRequest, errors.New("processor id is required"))
 		return
 	}
 	var attrs processorWriteAttributes
 	if err := jsonapi.Bind(r, &attrs); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	p, err := a.deps.Processors.Update(r.Context(), orgID, id, processors.UpdateParams{
@@ -224,7 +263,7 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 		Config: attrs.Config,
 	})
 	if err != nil {
-		writeError(w, procErrStatus(err), fmt.Errorf("update processor %s: %w", id, err))
+		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("update processor %s: %w", id, err))
 		return
 	}
 	jsonapi.Write(w, http.StatusOK, jsonapi.NewDocument(processorResource(p)))
@@ -245,16 +284,16 @@ func (a *apiHandler) deleteProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	id := processor.ProcessorID(r.PathValue("id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, errors.New("processor id is required"))
+		jsonapi.WriteError(w, http.StatusBadRequest, errors.New("processor id is required"))
 		return
 	}
 	if err := a.deps.Processors.Delete(r.Context(), orgID, id); err != nil {
-		writeError(w, errStatus(err), fmt.Errorf("delete processor %s: %w", id, err))
+		jsonapi.WriteError(w, errStatus(err), fmt.Errorf("delete processor %s: %w", id, err))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -298,6 +337,7 @@ type previewResultDTO struct {
 // @Accept json
 // @Produce json
 // @Param org path string true "Organization ID or slug"
+// @Param payload body api.ProcessorPreviewRequest true "Preview spec"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v1/orgs/{org}/processors/preview [post]
 func (a *apiHandler) previewProcessor(w http.ResponseWriter, r *http.Request) {
@@ -306,12 +346,12 @@ func (a *apiHandler) previewProcessor(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 	var attrs previewAttributes
 	if err := jsonapi.Bind(r, &attrs); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -328,7 +368,7 @@ func (a *apiHandler) previewProcessor(w http.ResponseWriter, r *http.Request) {
 		}
 		events, err := a.deps.Queries.TopicEvents(r.Context(), orgID, streaming.TopicID(attrs.InputTopicID), count)
 		if err != nil {
-			writeError(w, errStatus(err), fmt.Errorf("fetch sample messages: %w", err))
+			jsonapi.WriteError(w, errStatus(err), fmt.Errorf("fetch sample messages: %w", err))
 			return
 		}
 		for _, ev := range events {
@@ -345,7 +385,7 @@ func (a *apiHandler) previewProcessor(w http.ResponseWriter, r *http.Request) {
 
 	pairs, err := a.deps.Processors.Preview(processor.Kind(attrs.Kind), attrs.Config, outs, samples)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("preview: %w", err))
+		jsonapi.WriteError(w, http.StatusBadRequest, fmt.Errorf("preview: %w", err))
 		return
 	}
 

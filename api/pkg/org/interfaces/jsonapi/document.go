@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 )
 
 // ContentType is the media type the JSON:API spec mandates.
@@ -135,4 +136,35 @@ func Write(w http.ResponseWriter, status int, doc *Document) {
 	w.Header().Set("Content-Type", ContentType)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(doc)
+}
+
+// ErrorObject is a single JSON:API error object. Only the fields the
+// helix-org endpoints populate are modelled (status as a string per the
+// spec, plus a human-readable detail); title/code/source can be added
+// when a consumer needs them.
+type ErrorObject struct {
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+// ErrorDocument is a top-level JSON:API document carrying errors instead
+// of data (the two are mutually exclusive per the spec).
+type ErrorDocument struct {
+	Errors []ErrorObject `json:"errors"`
+}
+
+// WriteError emits a spec-compliant JSON:API error document
+// (`{"errors":[{"status","detail"}]}`) with the vnd.api+json content
+// type. status is rendered both as the HTTP status and, stringified, in
+// the error object's status member.
+func WriteError(w http.ResponseWriter, status int, err error) {
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	w.Header().Set("Content-Type", ContentType)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(ErrorDocument{
+		Errors: []ErrorObject{{Status: strconv.Itoa(status), Detail: detail}},
+	})
 }

@@ -243,6 +243,71 @@ definitions:
           $ref: '#/definitions/api.RoleBadge'
         type: array
     type: object
+  api.ProcessorOutputDTO:
+    properties:
+      label:
+        type: string
+      match:
+        type: string
+      owned:
+        type: boolean
+      topic_id:
+        type: string
+    type: object
+  api.ProcessorPreviewRequest:
+    properties:
+      data:
+        properties:
+          attributes:
+            properties:
+              config:
+                additionalProperties: true
+                type: object
+              count:
+                type: integer
+              input_topic_id:
+                type: string
+              kind:
+                type: string
+              outputs:
+                items:
+                  $ref: '#/definitions/api.ProcessorOutputDTO'
+                type: array
+              samples:
+                items:
+                  $ref: '#/definitions/api.previewSampleDTO'
+                type: array
+            type: object
+          type:
+            type: string
+        type: object
+    type: object
+  api.ProcessorWriteRequest:
+    properties:
+      data:
+        properties:
+          attributes:
+            properties:
+              config:
+                additionalProperties: true
+                type: object
+              created_by:
+                type: string
+              input_topic_id:
+                type: string
+              kind:
+                type: string
+              name:
+                type: string
+              outputs:
+                items:
+                  $ref: '#/definitions/api.ProcessorOutputDTO'
+                type: array
+            type: object
+          type:
+            type: string
+        type: object
+    type: object
   api.PublishRequest:
     properties:
       as:
@@ -498,6 +563,15 @@ definitions:
           $ref: '#/definitions/api.WorkerSubscriptionDTO'
         type: array
       worker_id:
+        type: string
+    type: object
+  api.previewSampleDTO:
+    properties:
+      body:
+        type: string
+      from:
+        type: string
+      subject:
         type: string
     type: object
   filestore.Config:
@@ -17768,6 +17842,12 @@ paths:
         name: org
         required: true
         type: string
+      - description: Processor spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.ProcessorWriteRequest'
       produces:
       - application/json
       responses:
@@ -17835,6 +17915,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: Processor spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.ProcessorWriteRequest'
       produces:
       - application/json
       responses:
@@ -17856,6 +17942,12 @@ paths:
         name: org
         required: true
         type: string
+      - description: Preview spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.ProcessorPreviewRequest'
       produces:
       - application/json
       responses:

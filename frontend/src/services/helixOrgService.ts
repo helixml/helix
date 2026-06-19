@@ -87,6 +87,50 @@ export const QUERY_KEYS = {
   webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'webhook-status'] as const,
   topicMessageCount: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'message-count'] as const,
   workerSubs: (orgID: string, workerID: string) => ['helix-org', orgID, 'workers', workerID, 'subscriptions'] as const,
+  processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
+  processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
+}
+
+// ---- Processors ---------------------------------------------------------
+// A Processor is a transform/filter node interposed on the edge between a
+// Topic and its subscribers. Its REST surface is JSON:API, so the hooks
+// flatten {data:{id,attributes}} resources into flat ProcessorDTOs.
+
+export interface ProcessorOutput {
+  topic_id: string
+  match?: string
+  label?: string
+  owned?: boolean
+}
+
+export interface ProcessorDTO {
+  id: string
+  name: string
+  input_topic_id: string
+  kind: string
+  config?: Record<string, unknown>
+  outputs: ProcessorOutput[]
+  created_by?: string
+  created_at?: string
+}
+
+export interface ProcessorPreviewSample {
+  from?: string
+  subject?: string
+  body?: string
+}
+
+export interface ProcessorPreviewPair {
+  before: ProcessorPreviewSample
+  after: ProcessorPreviewSample[]
+  error?: string
+}
+
+interface JsonApiResource<T> { id: string; type: string; attributes: T }
+interface JsonApiDoc<T> { data: T }
+
+function flattenProcessor(res: JsonApiResource<Omit<ProcessorDTO, 'id'>>): ProcessorDTO {
+  return { id: res.id, ...res.attributes }
 }
 
 export function useHelixOrgBase(): { base: string; orgID: string } {
@@ -795,6 +839,125 @@ export function useUnsubscribeWorker(workerID: string | undefined) {
       }
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useListHelixOrgProcessors(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.processors(orgID),
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsProcessorsDetail(orgID)
+      const doc = res.data as unknown as { data: JsonApiResource<Omit<ProcessorDTO, 'id'>>[] }
+      return (doc.data ?? []).map(flattenProcessor)
+    },
+    enabled: !!orgID && (options?.enabled ?? true),
+  })
+}
+
+export function useHelixOrgProcessor(id: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.processor(orgID, id ?? ''),
+    queryFn: async () => {
+      if (!id) return null
+      const res = await api.getApiClient().v1OrgsProcessorsDetail2(orgID, id)
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    enabled: !!orgID && !!id && (options?.enabled ?? true),
+  })
+}
+
+export interface ProcessorWriteAttrs {
+  name: string
+  input_topic_id?: string
+  kind: string
+  config?: Record<string, unknown>
+  created_by?: string
+  outputs?: { topic_id?: string; match?: string; label?: string }[]
+}
+
+export function useCreateHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (attrs: ProcessorWriteAttrs) => {
+      const res = await api.getApiClient().v1OrgsProcessorsCreate(orgID, {
+        data: { type: 'processors', attributes: attrs },
+      })
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useUpdateHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async ({ id, attrs }: { id: string; attrs: ProcessorWriteAttrs }) => {
+      const res = await api.getApiClient().v1OrgsProcessorsUpdate(orgID, id, {
+        data: { type: 'processors', attributes: attrs },
+      })
+      const doc = res.data as unknown as JsonApiDoc<JsonApiResource<Omit<ProcessorDTO, 'id'>>>
+      return flattenProcessor(doc.data)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processor(orgID, vars.id) })
+    },
+  })
+}
+
+export function useDeleteHelixOrgProcessor() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.getApiClient().v1OrgsProcessorsDelete(orgID, id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export interface ProcessorPreviewAttrs {
+  kind: string
+  config?: Record<string, unknown>
+  outputs?: { topic_id?: string; match?: string; label?: string }[]
+  samples?: ProcessorPreviewSample[]
+  input_topic_id?: string
+  count?: number
+}
+
+// usePreviewHelixOrgProcessor renders a candidate config server-side and
+// returns before/after pairs. A mutation (not a query) because it is
+// edit-driven and not cacheable by a stable key.
+export function usePreviewHelixOrgProcessor() {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (attrs: ProcessorPreviewAttrs) => {
+      const res = await api.getApiClient().v1OrgsProcessorsPreviewCreate(orgID, {
+        data: { type: 'processor-previews', attributes: attrs },
+      })
+      const doc = res.data as unknown as { data: JsonApiResource<ProcessorPreviewPair>[] }
+      return (doc.data ?? []).map((r) => r.attributes)
     },
   })
 }
