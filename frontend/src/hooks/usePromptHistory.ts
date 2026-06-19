@@ -209,9 +209,19 @@ export function usePromptHistory({
       // IDs that are locally tombstoned — never re-import these from backend
       const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
 
-      // Mark existing entries that are in backend as synced (skip deleted ones)
+      // Mark existing entries that are in backend as synced (skip deleted ones).
+      // CRITICAL: never re-confirm an entry that has an un-pushed local change
+      // (syncedToBackend === false, set by updateInterrupt/updateContent). A pull
+      // confirms the backend has *some* version, not the local one — flipping a
+      // dirty entry back to "synced" makes the next syncToBackend skip it, so the
+      // local change is silently dropped. This is exactly how promoting a queued
+      // prompt to interrupt showed the lightning in the UI while the backend kept
+      // interrupt=false: a backend poll landed between the promote and the push.
+      // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
       const updatedPrev = prev.map(e =>
-        backendIds.has(e.id) && !e.deleted ? { ...e, syncedToBackend: true } : e
+        backendIds.has(e.id) && !e.deleted && e.syncedToBackend !== false
+          ? { ...e, syncedToBackend: true }
+          : e
       )
 
       // Add any backend entries that don't exist locally (mark as synced)
@@ -443,7 +453,10 @@ export function usePromptHistory({
                   retryCount: backendEntry.retryCount,
                   nextRetryAt: backendEntry.nextRetryAt,
                   errorMessage: backendEntry.errorMessage,
-                  syncedToBackend: true
+                  // Reflect backend-owned status, but PRESERVE a pending local
+                  // change (e.g. an interrupt promotion not yet pushed) — don't
+                  // clobber the dirty flag, or syncToBackend will skip the push.
+                  syncedToBackend: h.syncedToBackend === false ? false : true,
                 }
               }
               // Reconcile against the source of truth: a queue entry we previously
