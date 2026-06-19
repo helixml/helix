@@ -252,12 +252,32 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 				apiServer.processPromptQueue(ctx, sessionID)
 			}
 		} else if pending.interruptCount > 0 {
-			// Session is busy but there are interrupt prompts - these should interrupt the agent
-			log.Info().
-				Str("session_id", sessionID).
-				Int("interrupt_count", pending.interruptCount).
-				Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
-			apiServer.processInterruptPrompt(ctx, sessionID)
+			// THREAD-ESTABLISHMENT BARRIER: an interrupt cancels the agent's
+			// current turn and injects a new message — that only makes sense once
+			// the session's thread exists. During the agent boot race the session
+			// can be "busy" (the very first message is an in-flight Waiting
+			// interaction) while its thread is NOT yet established (ZedThreadID
+			// empty, thread_created not received). Firing the interrupt now would
+			// (a) cancel the just-delivered first turn before the agent processes
+			// it and (b) dispatch with an empty acp_thread_id, forking a NEW thread
+			// divorced from the first message — so the agent runs with no context.
+			// Defer until the first message lands and thread_created sets
+			// ZedThreadID; the prompt stays pending and the next poll retries,
+			// then the interrupt fires into the SAME, established thread.
+			// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+			if session.Metadata.ZedThreadID == "" {
+				log.Info().
+					Str("session_id", sessionID).
+					Int("interrupt_count", pending.interruptCount).
+					Msg("⏸️ [QUEUE] Busy but thread not established yet (no ZedThreadID) — deferring interrupt until first message lands and thread_created arrives")
+			} else {
+				// Session is busy but there are interrupt prompts - these should interrupt the agent
+				log.Info().
+					Str("session_id", sessionID).
+					Int("interrupt_count", pending.interruptCount).
+					Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
+				apiServer.processInterruptPrompt(ctx, sessionID)
+			}
 		} else {
 			log.Debug().
 				Str("session_id", sessionID).
