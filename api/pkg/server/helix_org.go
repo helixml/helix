@@ -20,6 +20,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/processing"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -150,6 +152,7 @@ type orgServices struct {
 	Publishing    *publishing.Publishing
 	Queries       *queries.Queries
 	Activations   *activations.Activations
+	Processors    *processors.Processors
 }
 
 // buildOrgServices constructs every org application service from the
@@ -159,9 +162,13 @@ type orgServices struct {
 // seams (a mcptools.Deps is already assembled by the caller).
 func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
+	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	return orgServices{
 		Roles:   rolesSvc,
-		Topics: topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners}),
+		Topics:  topicsSvc,
+		Processors: processors.New(processors.Deps{
+			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
+		}),
 		Workers: workers.New(workers.Deps{
 			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
 		}),
@@ -481,6 +488,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
+	// Processor execution: the runner re-publishes each processor's
+	// output through svc.Publishing, so it is wired after buildOrgServices
+	// (which builds Publishing) and registered late on the dispatcher,
+	// exactly like the outbound emitters above.
+	dispatcher.RegisterProcessorRunner(processing.New(st.Processors, svc.Publishing, logger))
 	// The activations service owns the manual-activate command (REST
 	// activateWorker delegates to it). Built here because it needs the
 	// project ensurer, the dispatcher's DispatchManual, and a session

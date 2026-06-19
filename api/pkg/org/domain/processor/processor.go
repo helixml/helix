@@ -57,6 +57,11 @@ type Output struct {
 	TopicID streaming.TopicID
 	Match   string
 	Label   string
+	// Owned is true when this Processor auto-provisioned the output
+	// Topic (the default) and is therefore responsible for tearing it
+	// down on delete. False when the branch points at a pre-existing,
+	// shared Topic (explicit output) that outlives the Processor.
+	Owned bool
 }
 
 // Result is one (output Topic, Message) pair produced by Process. A

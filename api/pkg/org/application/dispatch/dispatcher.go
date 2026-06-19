@@ -45,10 +45,20 @@ import (
 // activation.Queue in B5.10; Dispatcher delegates Enqueue to its
 // embedded Queue and focuses on the event-side fan-out.
 type Dispatcher struct {
-	store    *store.Store
-	queue    *activation.Queue
-	logger   *slog.Logger
-	outbound map[transport.Kind]streaming.Outbound
+	store           *store.Store
+	queue           *activation.Queue
+	logger          *slog.Logger
+	outbound        map[transport.Kind]streaming.Outbound
+	processorRunner ProcessorRunner
+}
+
+// ProcessorRunner is the late-bound execution arm that turns an Event
+// into the Processor outputs its Topic feeds. application/processing.Runner
+// satisfies it; declared here (not imported) so dispatch does not depend
+// on processing — the wiring is Dispatcher.New → build publishing →
+// build Runner → RegisterProcessorRunner, exactly like RegisterOutbound.
+type ProcessorRunner interface {
+	Run(ctx context.Context, e streaming.Event, msg streaming.Message)
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -74,6 +84,15 @@ func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatch
 // with no registered emitter no-op on outbound.
 func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound) {
 	d.outbound[kind] = e
+}
+
+// RegisterProcessorRunner wires the execution arm that fans an Event
+// out to the Processors reading its Topic. Late-bound for the same
+// reason as RegisterOutbound: the Runner depends on the publishing
+// service, which is built after the Dispatcher. nil runner → Dispatch's
+// processor fan-out no-ops.
+func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
+	d.processorRunner = r
 }
 
 // DispatchHire fires a hire-time activation for a freshly-created AI
@@ -185,6 +204,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			CreatedAt:  e.CreatedAt,
 		}
 		d.queue.Enqueue(orgID, w.ID(), trigger)
+	}
+	// Processor fan-out: hand the event + parsed message to the
+	// execution arm, which publishes each processor's output back
+	// through the same publish→dispatch path (so output topics dispatch
+	// to their own subscribers, and processor chains just recurse).
+	// Late-bound; no-op until RegisterProcessorRunner is called.
+	if d.processorRunner != nil {
+		d.processorRunner.Run(ctx, e, msg)
 	}
 }
 
