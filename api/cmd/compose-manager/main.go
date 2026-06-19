@@ -35,7 +35,7 @@ func main() {
 		configDir       = flag.String("config-dir", envOr("HELIX_RUNNER_CONFIG_DIR", "/etc/helix"), "directory for active.yaml")
 		registryMirror  = flag.String("registry-mirror", os.Getenv("HELIX_RUNNER_REGISTRY"), "rewrite leading registry portion of image: refs to this mirror")
 		offline         = flag.Bool("offline", os.Getenv("HELIX_RUNNER_OFFLINE") == "true", "skip docker compose pull; fail fast if images absent")
-		neuronCacheURL  = flag.String("neuron-compile-cache-url", os.Getenv("HELIX_NEURON_COMPILE_CACHE_URL"), "exported as NEURON_COMPILE_CACHE_URL into compose; shared Neuron compile cache, e.g. s3://<bucket>/neuron-cache")
+		neuronCacheURL  = flag.String("neuron-compile-cache-url", os.Getenv("HELIX_NEURON_COMPILE_CACHE_URL"), "exported as NEURON_COMPILE_CACHE_URL into compose; shared Neuron compile cache. Format s3://<bucket>/<prefix> where <prefix> is an S3 key prefix (not a folder; only the bucket need exist) or a local path")
 		pollInterval    = flag.Duration("poll-interval", 15*time.Second, "how often to check for assignment changes")
 		trimEvery       = flag.Duration("trim-every", 24*time.Hour, "how often to prune unreferenced images")
 		trimOlderThan   = flag.Duration("trim-older-than", 72*time.Hour, "min age before pruning an unreferenced image")
