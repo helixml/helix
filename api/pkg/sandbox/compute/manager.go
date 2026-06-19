@@ -138,6 +138,16 @@ type ManagerConfig struct {
 	// (pure on-demand, no warm baseline) gets full scale-down to
 	// zero hosts once all sandboxes drain.
 	IdleTimeout time.Duration
+
+	// HardIdleTimeout is the absolute upper bound on how long a Ready
+	// host can stay idle, even when the fleet-pressure inhibition
+	// (see tryDeprovisionIdle) would otherwise keep it alive. Without
+	// this safety net a stuck-at-cap Runner (e.g. a session whose
+	// container hangs and never reports ActiveSandboxes=0) would pin
+	// idle Runners next to it indefinitely. Default at the envconfig
+	// boundary is 4h. Set to 0 to disable the override and trust the
+	// inhibition unconditionally.
+	HardIdleTimeout time.Duration
 }
 
 // validate returns an error if cfg is missing required fields or has
@@ -175,6 +185,10 @@ func (cfg ManagerConfig) validate() error {
 	if cfg.IdleTimeout < 0 {
 		return fmt.Errorf("compute.ManagerConfig.IdleTimeout must be >= 0, got %s",
 			cfg.IdleTimeout)
+	}
+	if cfg.HardIdleTimeout < 0 {
+		return fmt.Errorf("compute.ManagerConfig.HardIdleTimeout must be >= 0, got %s",
+			cfg.HardIdleTimeout)
 	}
 	return nil
 }
@@ -450,12 +464,27 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	now := m.now()
 	readyByID := make(map[string]*types.SandboxInstance)
 	readyCount := 0
+	// fleetAtCap tracks whether ANY Ready+online host is currently at or
+	// over its MaxSandboxes. Used below to inhibit shedding so we don't
+	// reclaim an idle pre-warm Runner while another Runner is still
+	// pressed up against its cap - that would just re-fire D3 next
+	// cycle, causing oscillation. See design/2026-06-17-d3-dispatcher-
+	// coupling.md option E for the analysis.
+	//
+	// "At cap" rather than "over cap" because the dispatcher's lowest-
+	// active sort places a new session on the at-cap Runner the moment
+	// the over-cap Runner returns to the at-cap side - so anything
+	// already at MaxSandboxes is plausible imminent overflow.
+	fleetAtCap := false
 	for _, r := range rows {
 		if !isReadyState(r) {
 			continue
 		}
 		readyByID[r.ID] = r
 		readyCount++
+		if isReadyAndOnline(r) && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+			fleetAtCap = true
+		}
 	}
 
 	// Update tracker: mark currently-idle Ready rows; clear busy ones;
@@ -567,6 +596,29 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	}
 
 	idleFor := now.Sub(candidateIdleSince)
+
+	// Inhibit shedding if any OTHER Runner in the fleet is at-or-over
+	// its MaxSandboxes cap. Reasoning: the candidate is idle precisely
+	// because the dispatcher placed every session on the at-cap Runner
+	// (lowest-active sort, no migration). Shedding the candidate while
+	// load is still pressed against cap just re-fires D3 next cycle
+	// (over-cap trigger or HEADROOM_MIN trigger) and the system
+	// oscillates. The inhibition holds the pre-warm in place until the
+	// real demand drops below cap.
+	//
+	// HardIdleTimeout is the safety net for the pathological case
+	// (e.g. a stuck container that never reports ActiveSandboxes=0):
+	// even if the fleet looks at-cap forever, an idle Runner past the
+	// hard cutoff is shed anyway. Default 4h at the envconfig boundary;
+	// 0 disables the override.
+	if fleetAtCap && (m.cfg.HardIdleTimeout == 0 || idleFor < m.cfg.HardIdleTimeout) {
+		log.Debug().
+			Str("sandbox_id", candidate.ID).
+			Dur("idle_for", idleFor).
+			Dur("hard_idle_timeout", m.cfg.HardIdleTimeout).
+			Msg("compute manager: D4 inhibited; another Runner in fleet is at-cap")
+		return nil
+	}
 	log.Info().
 		Str("sandbox_id", candidate.ID).
 		Str("provider_id", candidate.ProviderID).
