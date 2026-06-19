@@ -499,8 +499,17 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 		return
 	}
 
-	// Find the most recent waiting interaction
-	for i := len(interactions) - 1; i >= 0; i-- {
+	// Find the OLDEST waiting interaction (FIFO). This is the genuine first
+	// message for the session — the one that must land first to create the Zed
+	// thread and seed the agent's context. The previous behaviour delivered the
+	// NEWEST waiting interaction, which orphaned the initial message whenever an
+	// initial + a follow-up both sat waiting at reconnect (e.g. a quick
+	// correction sent during agent boot, before the WS connected): the agent
+	// received only the follow-up and ran with no context at all. Delivering
+	// oldest-first guarantees first-message primacy; any trailing waiting
+	// interaction is delivered on the next turn (auto-wake / reconnect).
+	// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+	for i := 0; i < len(interactions); i++ {
 		if interactions[i].State != types.InteractionStateWaiting {
 			continue
 		}
