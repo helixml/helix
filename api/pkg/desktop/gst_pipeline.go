@@ -272,6 +272,23 @@ func (g *GstPipeline) onNewSample(sink *app.Sink) gst.FlowReturn {
 	if ptsDur != nil {
 		pts = uint64(ptsDur.Microseconds())
 		ptsNs = int64(*ptsDur) // Duration in nanoseconds
+	} else {
+		// No buffer PTS (GST_CLOCK_TIME_NONE). This happens in real capture paths:
+		// ext-image-copy-capture provides no compositor timestamp, and the zerocopy
+		// path's set_pts() in pipewiresrc/imp.rs is silently skipped when the pooled
+		// GstBuffer is not uniquely owned (buffer.get_mut() == None). Without a PTS
+		// the browser feeds timestamp=0 into every EncodedVideoChunk, so every
+		// decoded VideoFrame has timestamp 0 and the client's PlayoutScheduler can
+		// neither order/dedupe frames nor measure timing — bursty/out-of-order
+		// delivery (e.g. under CPU load) then shows stale/out-of-order frames.
+		//
+		// Synthesize a monotonic wall-clock PTS. The appsink callback runs in
+		// pipeline (capture) order, so time.Now() here is monotonic and reflects
+		// true frame order; UnixMicro() is the same unit/scale the zerocopy path
+		// emits when its set_pts DOES run (wall-clock microseconds), so the client's
+		// drift math stays consistent. Note: a *valid* PTS of 0 (first frame of a
+		// running-time stream) keeps ptsDur != nil and is intentionally left alone.
+		pts = uint64(time.Now().UnixMicro())
 	}
 
 	// Check if this is a keyframe
