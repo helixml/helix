@@ -28197,11 +28197,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "nvidia",
-                "amd"
+                "amd",
+                "neuron"
             ],
             "x-enum-varnames": [
                 "GPUVendorNVIDIA",
-                "GPUVendorAMD"
+                "GPUVendorAMD",
+                "GPUVendorNeuron"
             ]
         },
         "types.GitHub": {

@@ -125,8 +125,10 @@ func (s *Service) buildProfile(in SaveInput) (*types.RunnerProfile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compose parse: %w", err)
 	}
-	if in.Vendor != "" && in.Vendor != types.GPUVendorNVIDIA && in.Vendor != types.GPUVendorAMD {
-		return nil, fmt.Errorf("invalid vendor %q (must be empty, %q, or %q)", in.Vendor, types.GPUVendorNVIDIA, types.GPUVendorAMD)
+	switch in.Vendor {
+	case "", types.GPUVendorNVIDIA, types.GPUVendorAMD, types.GPUVendorNeuron:
+	default:
+		return nil, fmt.Errorf("invalid vendor %q (must be empty, %q, %q, or %q)", in.Vendor, types.GPUVendorNVIDIA, types.GPUVendorAMD, types.GPUVendorNeuron)
 	}
 	return &types.RunnerProfile{
 		Name:        in.Name,
