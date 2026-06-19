@@ -45,6 +45,13 @@ export type ProcessorConfigDrawerProps = {
 const KINDS = [
   { value: 'template', label: 'template — rewrite the body via Go text/template' },
   { value: 'truncate', label: 'truncate — cap the body to N bytes' },
+  { value: 'filter', label: 'filter / router — route by predicate to 1..N outputs' },
+]
+
+type FilterRow = { label: string; match: string }
+const DEFAULT_FILTER_ROWS: FilterRow[] = [
+  { label: 'match', match: '{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}' },
+  { label: 'default', match: '' },
 ]
 
 const DEFAULT_TEMPLATE = 'From {{ .Message.from }}: {{ .Message.subject }}\n\n{{ .Message.body }}'
@@ -64,6 +71,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [inputTopicId, setInputTopicId] = useState('')
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [maxBytes, setMaxBytes] = useState('500')
+  const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
   const [pairs, setPairs] = useState<ProcessorPreviewPair[]>([])
   const [previewErr, setPreviewErr] = useState('')
 
@@ -78,12 +86,15 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setInputTopicId(processor.input_topic_id ?? '')
       setTemplate((processor.config?.template as string) ?? DEFAULT_TEMPLATE)
       setMaxBytes(String((processor.config?.max_bytes as number) ?? 500))
+      const rows = (processor.outputs ?? []).map((o) => ({ label: o.label ?? '', match: o.match ?? '' }))
+      setFilterRows(rows.length > 0 ? rows : DEFAULT_FILTER_ROWS)
     } else {
       setName('')
       setKind('template')
       setInputTopicId(presetInputTopicId ?? '')
       setTemplate(DEFAULT_TEMPLATE)
       setMaxBytes('500')
+      setFilterRows(DEFAULT_FILTER_ROWS)
     }
   }, [open, processor, presetInputTopicId])
 
@@ -91,8 +102,16 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
 
   const config = useMemo<Record<string, unknown>>(() => {
     if (kind === 'truncate') return { max_bytes: parseInt(maxBytes, 10) || 0 }
+    if (kind === 'filter') return {}
     return { template }
   }, [kind, template, maxBytes])
+
+  // Filter outputs carry the per-branch predicates; transforms have a
+  // single auto-provisioned output (undefined → server defaults to one).
+  const outputs = useMemo(() => {
+    if (kind !== 'filter') return undefined
+    return filterRows.map((rw) => ({ label: rw.label, match: rw.match }))
+  }, [kind, filterRows])
 
   // Debounced live preview. Fetches real messages from the input topic;
   // falls back to a synthetic sample when the topic has none.
@@ -105,11 +124,12 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
         let res = await previewRef.current.mutateAsync({
           kind,
           config,
+          outputs,
           input_topic_id: inputTopicId || undefined,
           count: 5,
         })
         if (res.length === 0) {
-          res = await previewRef.current.mutateAsync({ kind, config, samples: [SYNTHETIC_SAMPLE] })
+          res = await previewRef.current.mutateAsync({ kind, config, outputs, samples: [SYNTHETIC_SAMPLE] })
         }
         setPairs(res)
         setPreviewErr('')
@@ -119,7 +139,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       }
     }, 350)
     return () => clearTimeout(handle)
-  }, [open, kind, config, inputTopicId])
+  }, [open, kind, config, outputs, inputTopicId])
 
   const canSubmit = Boolean(name.trim()) && (isEdit || Boolean(inputTopicId))
 
@@ -134,6 +154,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           input_topic_id: inputTopicId,
           kind,
           config,
+          outputs,
         })
         snackbar.success(`created ${created.id} → ${created.outputs?.[0]?.topic_id ?? 'output topic'}`)
       }
@@ -184,20 +205,53 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             </TextField>
           )}
           <Divider sx={{ my: 0.5 }} />
-          {kind === 'template' ? (
+          {kind === 'template' && (
             <TextField
               size="small" label="Template (Go text/template)" value={template} fullWidth
               onChange={(e) => setTemplate(e.target.value)}
               multiline minRows={4}
               InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-              helperText="Fields: .Message.body/.from/.subject/.thread_id … · funcs: upper lower trunc default"
+              helperText="Fields: .Message.body/.from/.subject/.thread_id … · funcs: upper lower trunc default contains hasPrefix hasSuffix"
             />
-          ) : (
+          )}
+          {kind === 'truncate' && (
             <TextField
               size="small" label="Max bytes" value={maxBytes} fullWidth
               onChange={(e) => setMaxBytes(e.target.value.replace(/[^0-9]/g, ''))}
               helperText="Cap the body to this many bytes (rune-safe)."
             />
+          )}
+          {kind === 'filter' && (
+            <Stack spacing={1}>
+              <Typography variant="caption" color="text.secondary">
+                Outputs — each is one branch: a boolean predicate + a destination topic (auto-created).
+                A message is published to every output whose predicate is truthy; an empty predicate is
+                an unconditional default. {isEdit && '(Branches are immutable on edit — recreate to change.)'}
+              </Typography>
+              {filterRows.map((row, i) => (
+                <Stack key={i} direction="row" spacing={0.5} alignItems="flex-start">
+                  <TextField
+                    size="small" label="label" value={row.label} sx={{ width: 110 }} disabled={isEdit}
+                    onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                  />
+                  <TextField
+                    size="small" label="predicate (empty = default)" value={row.match} fullWidth disabled={isEdit}
+                    onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, match: e.target.value } : r))}
+                    InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                  />
+                  {!isEdit && filterRows.length > 1 && (
+                    <IconButton size="small" onClick={() => setFilterRows((rs) => rs.filter((_, j) => j !== i))}>
+                      <CloseIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  )}
+                </Stack>
+              ))}
+              {!isEdit && (
+                <Button size="small" onClick={() => setFilterRows((rs) => [...rs, { label: '', match: '' }])} sx={{ alignSelf: 'flex-start' }}>
+                  + branch
+                </Button>
+              )}
+            </Stack>
           )}
 
           {/* Live preview */}
@@ -230,6 +284,16 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                     {p.error ? (
                       <Typography variant="body2" sx={{ color: 'error.main', fontFamily: 'monospace', fontSize: '0.75rem' }}>
                         {p.error}
+                      </Typography>
+                    ) : kind === 'filter' ? (
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: (p.after ?? []).length === 0 ? 'warning.main' : 'success.main' }}>
+                        {(p.after ?? []).length === 0
+                          ? 'dropped (no branch matched)'
+                          : `routed to ${(p.after ?? []).length} branch${(p.after ?? []).length === 1 ? '' : 'es'}`}
+                      </Typography>
+                    ) : (p.after ?? []).length === 0 ? (
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'warning.main' }}>
+                        dropped
                       </Typography>
                     ) : (
                       (p.after ?? []).map((a, j) => (

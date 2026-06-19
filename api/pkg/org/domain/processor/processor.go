@@ -93,7 +93,7 @@ type Config interface {
 // transport.kindOrder. It is part of the public surface — JSON Schema
 // enum lists and "(valid: …)" error messages read from it. Tests pin
 // it explicitly.
-var kindOrder = []Kind{KindTemplate, KindTruncate}
+var kindOrder = []Kind{KindTemplate, KindTruncate, KindFilter}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means a new file defining its Kind constant + Config, plus one entry
@@ -101,6 +101,7 @@ var kindOrder = []Kind{KindTemplate, KindTruncate}
 var strategies = map[Kind]Strategy{
 	KindTemplate: template{},
 	KindTruncate: truncate{},
+	KindFilter:   filter{},
 }
 
 // KindValues lists every registered Kind in canonical display order.

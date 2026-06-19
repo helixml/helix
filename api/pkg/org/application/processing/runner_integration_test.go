@@ -173,6 +173,62 @@ func TestTemplateProcessorEndToEnd(t *testing.T) {
 	}
 }
 
+// TestFilterProcessorRouting: a filter with two outputs (a VIP predicate
+// and an unconditional default) routes each message to exactly the
+// outputs whose predicate matches, and the right workers activate.
+func TestFilterProcessorRouting(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	in := r.mkTopic(t, "s-in", "Inbox")
+
+	proc, err := r.procSvc.Create(ctx, org, processors.CreateParams{
+		ID: "p-route", Name: "Router", InputTopicID: in, Kind: processor.KindFilter,
+		Outputs: []processors.OutputSpec{
+			{Label: "vip", Match: `{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}`},
+			{Label: "default", Match: ``},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create filter: %v", err)
+	}
+	vipTopic := proc.Outputs[0].TopicID
+	genTopic := proc.Outputs[1].TopicID
+	r.mkAIWorker(t, "w-senior", vipTopic)
+	r.mkAIWorker(t, "w-triage", genTopic)
+
+	// VIP message → both vip + default.
+	if _, err := r.pub.Publish(ctx, org, in, "boss@vip.com", streaming.Message{Body: "urgent"}); err != nil {
+		t.Fatalf("publish vip: %v", err)
+	}
+	r.waitForActivation(t)
+	time.Sleep(150 * time.Millisecond)
+
+	vipCount, _ := r.store.Events.CountForTopic(ctx, org, vipTopic)
+	genCount, _ := r.store.Events.CountForTopic(ctx, org, genTopic)
+	if vipCount != 1 {
+		t.Errorf("vip topic events = %d, want 1", vipCount)
+	}
+	if genCount != 1 {
+		t.Errorf("default topic events = %d, want 1 (default catches all)", genCount)
+	}
+
+	// Plain message → only the default.
+	if _, err := r.pub.Publish(ctx, org, in, "joe@example.com", streaming.Message{Body: "hi"}); err != nil {
+		t.Fatalf("publish plain: %v", err)
+	}
+	r.waitForActivation(t)
+	time.Sleep(150 * time.Millisecond)
+
+	vipCount2, _ := r.store.Events.CountForTopic(ctx, org, vipTopic)
+	genCount2, _ := r.store.Events.CountForTopic(ctx, org, genTopic)
+	if vipCount2 != 1 {
+		t.Errorf("after plain publish vip topic = %d, want still 1 (no match)", vipCount2)
+	}
+	if genCount2 != 2 {
+		t.Errorf("after plain publish default topic = %d, want 2", genCount2)
+	}
+}
+
 // TestCreateRejectsSelfCycle: a processor whose explicit output topic is
 // also its input topic closes a one-hop cycle and must be rejected.
 func TestCreateRejectsSelfCycle(t *testing.T) {

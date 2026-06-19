@@ -38,6 +38,12 @@ var templateFuncs = txttemplate.FuncMap{
 		}
 		return val
 	},
+	// String predicates — primarily for the filter kind's Output.Match,
+	// but available to template bodies too. Args are (needle, haystack)
+	// so they read naturally: `contains "invoice" .Message.subject`.
+	"contains":  func(sub, s string) bool { return strings.Contains(s, sub) },
+	"hasPrefix": func(pre, s string) bool { return strings.HasPrefix(s, pre) },
+	"hasSuffix": func(suf, s string) bool { return strings.HasSuffix(s, suf) },
 }
 
 // Validate enforces: exactly one output, with an empty Match (a

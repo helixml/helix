@@ -178,7 +178,7 @@ func TestValidateRequiredFields(t *testing.T) {
 
 func TestKindValuesCanonicalOrder(t *testing.T) {
 	got := processor.KindValues()
-	want := []processor.Kind{processor.KindTemplate, processor.KindTruncate}
+	want := []processor.Kind{processor.KindTemplate, processor.KindTruncate, processor.KindFilter}
 	if len(got) != len(want) {
 		t.Fatalf("KindValues len = %d, want %d", len(got), len(want))
 	}
