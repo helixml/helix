@@ -434,9 +434,11 @@ export const blockChatNeuronQwen15B: ProfileBlock = {
   // a subprocess, so command must invoke the api_server module itself (the
   // NVIDIA vllm-openai image bakes that into its entrypoint; this one does not).
   // NEURON_COMPILE_CACHE_URL is listed by name; compose-manager exports its
-  // value from the operator-set HELIX_NEURON_COMPILE_CACHE_URL config knob
-  // (e.g. s3://<bucket>/neuron-cache) so the compiled NEFFs are shared
-  // fleet-wide. Without it set, vLLM falls back to a local compile cache.
+  // value from the operator-set HELIX_NEURON_COMPILE_CACHE_URL config knob so
+  // the compiled NEFFs are shared fleet-wide. The value is s3://<bucket>/<prefix>
+  // where <prefix> is an S3 key prefix, not a folder - only the bucket need
+  // exist; the Neuron SDK creates everything under the prefix. Without it set,
+  // vLLM falls back to a local compile cache.
   composeService: `vllm-neuron-qwen:
     image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.16.0-neuronx-py312-sdk2.30.0-ubuntu24.04
     container_name: vllm-neuron-qwen
