@@ -155,6 +155,10 @@ type TopicNodeData = {
   kind: string
   subscriberCount: number
   messageCount: number
+  // When set, this topic is a processor's auto-provisioned output — it
+  // is managed by that processor and must not be deleted independently
+  // (delete the processor instead, which cascades it).
+  ownedByProcessor?: string
   onSelectTopic: (topicId: string) => void
   onDeleteTopic: (topicId: string) => void
 }
@@ -398,16 +402,24 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
       }}
     >
       <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
-      <Tooltip title="Delete topic">
-        <IconButton
-          className={NO_DRAG_NO_PAN}
-          size="small"
-          onClick={(e) => { e.stopPropagation(); data.onDeleteTopic(data.topicId) }}
-          sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
-        >
-          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Tooltip>
+      {data.ownedByProcessor ? (
+        <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
+          <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
+            ⟜ {data.ownedByProcessor}
+          </Box>
+        </Tooltip>
+      ) : (
+        <Tooltip title="Delete topic">
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            onClick={(e) => { e.stopPropagation(); data.onDeleteTopic(data.topicId) }}
+            sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+          >
+            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
         {data.topicId}
       </Typography>
@@ -504,6 +516,9 @@ type TopicSummary = {
   kind: string
   created_by?: string
   subscribers?: string[]
+  // Set to the owning processor id when this topic is that processor's
+  // auto-provisioned output (managed; not independently deletable).
+  ownedByProcessor?: string
 }
 
 type ProcessorSummary = {
@@ -829,6 +844,7 @@ const buildGraph = (
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
           messageCount: messageCounts[s.id] ?? 0,
+          ownedByProcessor: s.ownedByProcessor,
           onSelectTopic: handlers.onSelectTopic,
           onDeleteTopic: handlers.onDeleteTopic,
         } as TopicNodeData,
@@ -865,9 +881,18 @@ const buildGraph = (
   // different Workers.
   if (processors.length > 0) {
     // Index topic node positions so we can route the proc → outputTopic
-    // edge and (for layout) sit the processor near its input topic.
+    // edge and sit each processor at its input topic's Y (keeping it
+    // within the graph's vertical band — never at the very top, where the
+    // page header would occlude it and make it unclickable).
     const topicNodeIds = new Set<string>()
-    for (const n of nodes) if (n.id.startsWith('topic:')) topicNodeIds.add(n.id.slice('topic:'.length))
+    const topicPosById = new Map<string, { x: number; y: number }>()
+    for (const n of nodes) {
+      if (n.id.startsWith('topic:')) {
+        const tid = n.id.slice('topic:'.length)
+        topicNodeIds.add(tid)
+        topicPosById.set(tid, n.position as { x: number; y: number })
+      }
+    }
 
     let pminTop = Infinity, pmaxRight = -Infinity
     for (const ro of roleOrigin.values()) {
@@ -876,12 +901,27 @@ const buildGraph = (
     }
     if (!isFinite(pminTop)) pminTop = 0
     if (!isFinite(pmaxRight)) pmaxRight = 0
-    // Right of the role frames and the topic column (≈ STREAM_W + gaps).
-    const PROC_COL_X = pmaxRight + 120 + STREAM_W + 160
+    // Just right of the topic column.
+    const PROC_COL_X = pmaxRight + 120 + STREAM_W + 80
     const procStroke = isLight ? 'rgba(90,60,170,0.7)' : 'rgba(180,150,255,0.7)'
 
-    let py = pminTop
+    // Vertical collision avoidance so processors sharing an input topic
+    // (or near Ys) don't stack on top of each other.
+    const usedY: number[] = []
+    const placeY = (preferred: number): number => {
+      let y = preferred
+      for (let guard = 0; guard < 100; guard++) {
+        const clash = usedY.find((uy) => Math.abs(uy - y) < PROC_H + 24)
+        if (clash === undefined) break
+        y = clash + PROC_H + 24
+      }
+      usedY.push(y)
+      return y
+    }
+
     for (const p of processors) {
+      const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
+      const py = placeY(inPos ? inPos.y : pminTop)
       nodes.push({
         id: `processor:${p.id}`,
         type: 'processor',
@@ -898,7 +938,6 @@ const buildGraph = (
         connectable: true,
         selectable: true,
       })
-      py += PROC_H + 40
 
       if (p.inputTopicId && topicNodeIds.has(p.inputTopicId)) {
         edges.push({
@@ -1207,6 +1246,18 @@ const HelixOrgChart: FC = () => {
   )
   const knownRoles = useMemo(() => (rolesData ?? []).map((r) => r.id ?? ''), [rolesData])
   const groups = useMemo(() => groupByRole(flat, knownRoles), [flat, knownRoles])
+  // Map each processor-owned output topic id → owning processor id, so
+  // those topics render as managed (no independent delete).
+  const ownedOutputTopics = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of processorsData ?? []) {
+      for (const o of p.outputs ?? []) {
+        if (o.owned && o.topic_id) m.set(o.topic_id, p.id)
+      }
+    }
+    return m
+  }, [processorsData])
+
   const topics = useMemo<TopicSummary[]>(
     () => (streamsData?.topics ?? []).map((s) => ({
       id: s.id ?? '',
@@ -1214,8 +1265,9 @@ const HelixOrgChart: FC = () => {
       kind: s.kind ?? '',
       created_by: s.created_by,
       subscribers: s.subscribers,
+      ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
     })),
-    [streamsData],
+    [streamsData, ownedOutputTopics],
   )
 
   // Per-topic waiting-message counts for the topic cards. One cached

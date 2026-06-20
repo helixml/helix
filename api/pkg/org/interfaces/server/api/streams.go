@@ -366,6 +366,15 @@ func (a *apiHandler) deleteTopic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
 		return
 	}
+	// Block deletion of a processor-owned output topic: deleting it
+	// independently would leave the processor with a dangling output.
+	// The caller should delete the processor instead (which cascades it).
+	if a.deps.Processors != nil {
+		if pid, owned, ownErr := a.deps.Processors.OwnerOfOutput(ctx, orgID, id); ownErr == nil && owned {
+			writeError(w, http.StatusConflict, fmt.Errorf("topic %q is an output of processor %q; delete the processor instead", id, pid))
+			return
+		}
+	}
 	if err := a.deps.Topics.Delete(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete topic: %w", err))
 		return

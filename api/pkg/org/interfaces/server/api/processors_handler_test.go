@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,6 +181,71 @@ func TestCreateProcessorCycleConflict(t *testing.T) {
 	decode(t, rec, &errDoc)
 	if len(errDoc.Errors) != 1 || errDoc.Errors[0].Status != "409" || errDoc.Errors[0].Detail == "" {
 		t.Errorf("expected one JSON:API error with status 409, got %+v", errDoc.Errors)
+	}
+}
+
+func TestCreateProcessorDuplicateNameConflict(t *testing.T) {
+	var n int
+	deps, st, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return "id-" + string(rune('a'+n)) }, // unique per call
+	)
+	h := orgapi.Handler(deps)
+	seedTopic(t, st, "s-in", "Inbox")
+	body := jsonapiDoc("processors", map[string]any{
+		"name": "Dup", "input_topic_id": "s-in", "kind": "template",
+		"config": map[string]string{"template": "{{ .Message.body }}"},
+	})
+	if rec := do(t, h, "POST", "/processors", body); rec.Code != http.StatusCreated {
+		t.Fatalf("first create = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec := do(t, h, "POST", "/processors", body)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("duplicate name status = %d, want 409 (body=%s)", rec.Code, rec.Body.String())
+	}
+	// Clean, non-raw error detail (no SQLSTATE / driver internals).
+	bodyStr := rec.Body.String()
+	if strings.Contains(bodyStr, "SQLSTATE") || strings.Contains(bodyStr, "duplicate key") {
+		t.Errorf("conflict error leaked raw driver text: %s", bodyStr)
+	}
+}
+
+func TestDeleteProcessorOutputTopicBlocked(t *testing.T) {
+	var n int
+	deps, st, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return "id-" + string(rune('a'+n)) },
+	)
+	h := orgapi.Handler(deps)
+	seedTopic(t, st, "s-in", "Inbox")
+
+	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
+		"name": "Fmt", "input_topic_id": "s-in", "kind": "template",
+		"config": map[string]string{"template": "{{ .Message.body }}"},
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		Data struct {
+			Attributes struct {
+				Outputs []struct {
+					TopicID string `json:"topic_id"`
+				} `json:"outputs"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	decode(t, rec, &doc)
+	outID := doc.Data.Attributes.Outputs[0].TopicID
+
+	// Deleting the processor-owned output topic directly must be blocked.
+	del := do(t, h, "DELETE", "/topics/"+outID, nil)
+	if del.Code != http.StatusConflict {
+		t.Errorf("delete owned output topic = %d, want 409 (body=%s)", del.Code, del.Body.String())
+	}
+	// The topic must still exist.
+	if _, err := st.Topics.Get(context.Background(), "org-test", streaming.TopicID(outID)); err != nil {
+		t.Errorf("owned output topic was deleted despite the guard: %v", err)
 	}
 }
 

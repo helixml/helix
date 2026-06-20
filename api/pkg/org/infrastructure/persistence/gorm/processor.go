@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,6 +13,20 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
+
+// isUniqueViolation reports whether err is a database unique-constraint
+// violation, matched portably by message so we don't import a
+// driver-specific error type (Postgres "SQLSTATE 23505" / "duplicate
+// key", SQLite "UNIQUE constraint failed").
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "23505") ||
+		strings.Contains(s, "duplicate key") ||
+		strings.Contains(s, "UNIQUE constraint failed")
+}
 
 // processorRow is the GORM row for a Processor. Outputs are stored as a
 // JSON column (the slice is small and only ever read/written whole), so
@@ -87,6 +102,18 @@ func newProcessorsRepo(db *gorm.DB) *processorsRepo {
 	return &processorsRepo{Repository: NewRepository[processor.Processor, processorRow](db, processorMapper{}, "processor")}
 }
 
+// Create translates a unique-name violation into a clean store.ErrConflict
+// so callers get a friendly 409 instead of the raw driver error.
+func (r *processorsRepo) Create(ctx context.Context, p processor.Processor) error {
+	if err := r.Repository.Create(ctx, p); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("a processor named %q in this org %w", p.Name, store.ErrConflict)
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *processorsRepo) Get(ctx context.Context, orgID string, id processor.ProcessorID) (processor.Processor, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
@@ -125,11 +152,17 @@ func (r *processorsRepo) Update(ctx context.Context, p processor.Processor) erro
 		"config":         cfg,
 		"outputs":        string(outs),
 	}
-	return r.Repository.Update(ctx,
+	if err := r.Repository.Update(ctx,
 		store.WithOrg(p.OrganizationID),
 		store.WithID(string(p.ID)),
 		store.WithUpdates(updates),
-	)
+	); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("a processor named %q in this org %w", p.Name, store.ErrConflict)
+		}
+		return err
+	}
+	return nil
 }
 
 // Delete removes the processor row. The auto-created output topics are

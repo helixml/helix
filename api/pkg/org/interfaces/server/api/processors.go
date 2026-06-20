@@ -97,7 +97,7 @@ func procErrStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, processors.ErrCycle):
+	case errors.Is(err, processors.ErrCycle), errors.Is(err, store.ErrConflict):
 		return http.StatusConflict
 	default:
 		return http.StatusBadRequest

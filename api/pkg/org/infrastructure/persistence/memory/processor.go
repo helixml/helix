@@ -28,7 +28,7 @@ func (s *processorsRepo) Create(_ context.Context, p processor.Processor) error 
 	}
 	for k2, ex := range s.rows {
 		if k2.OrgID == p.OrganizationID && ex.Name == p.Name {
-			return fmt.Errorf("processor name %q already in use in org %q", p.Name, p.OrganizationID)
+			return fmt.Errorf("a processor named %q in this org %w", p.Name, store.ErrConflict)
 		}
 	}
 	s.rows[k] = p
@@ -84,7 +84,7 @@ func (s *processorsRepo) Update(_ context.Context, p processor.Processor) error 
 				continue
 			}
 			if k2.OrgID == p.OrganizationID && ex.Name == p.Name {
-				return fmt.Errorf("processor name %q already in use in org %q", p.Name, p.OrganizationID)
+				return fmt.Errorf("a processor named %q in this org %w", p.Name, store.ErrConflict)
 			}
 		}
 	}

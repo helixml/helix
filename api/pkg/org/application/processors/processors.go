@@ -205,8 +205,13 @@ func (s *Processors) Delete(ctx context.Context, orgID string, id processor.Proc
 			continue // explicit/shared topic — outlives the processor
 		}
 		if err := s.topics.Delete(ctx, orgID, o.TopicID); err != nil {
-			// Best-effort: the processor is already gone, so a leftover
-			// output topic is inert. Surface but don't fail the delete.
+			// Idempotent: an already-deleted output topic (ErrNotFound) is
+			// fine — the goal state is reached. Any other error is logged
+			// via the wrap but doesn't fail the delete (the processor row
+			// is already gone, so a leftover output topic is inert).
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
 			return fmt.Errorf("processor deleted but output topic %q cleanup failed: %w", o.TopicID, err)
 		}
 	}
@@ -221,6 +226,26 @@ func (s *Processors) Get(ctx context.Context, orgID string, id processor.Process
 // List returns every Processor in the org.
 func (s *Processors) List(ctx context.Context, orgID string) ([]processor.Processor, error) {
 	return s.procs.List(ctx, orgID)
+}
+
+// OwnerOfOutput returns the id of the Processor that owns topicID as an
+// auto-provisioned output, and true, if any does. The topic-delete
+// handler uses it to block independent deletion of a processor-managed
+// output topic (which would leave the processor with a dangling output);
+// the caller should delete the processor instead, which cascades it.
+func (s *Processors) OwnerOfOutput(ctx context.Context, orgID string, topicID streaming.TopicID) (processor.ProcessorID, bool, error) {
+	all, err := s.procs.List(ctx, orgID)
+	if err != nil {
+		return "", false, err
+	}
+	for _, p := range all {
+		for _, o := range p.Outputs {
+			if o.Owned && o.TopicID == topicID {
+				return p.ID, true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
 
 // checkAcyclic rejects a candidate Processor that would close a cycle in

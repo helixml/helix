@@ -21,6 +21,12 @@ import (
 // Repos wrap this with %w so callers can errors.Is it.
 var ErrNotFound = errors.New("record not found")
 
+// ErrConflict signals a uniqueness violation (e.g. two rows with the
+// same org-scoped name). Repos wrap it with %w and a human-readable
+// prefix; adapters errors.Is it to map to 409 Conflict instead of
+// leaking the raw driver error.
+var ErrConflict = errors.New("already exists")
+
 // Every store method takes an explicit `orgID string` parameter
 // (except Create/Update, where the org is carried by the domain
 // aggregate). The composite (id, org_id) PK is what lets short
