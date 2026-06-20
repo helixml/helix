@@ -9484,47 +9484,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/processors/preview": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: preview a processor config",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization ID or slug",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Preview spec",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.ProcessorPreviewRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/orgs/{org}/processors/{id}": {
             "get": {
                 "produces": [
@@ -21403,49 +21362,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.ProcessorPreviewRequest": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "attributes": {
-                            "type": "object",
-                            "properties": {
-                                "config": {
-                                    "type": "object",
-                                    "additionalProperties": true
-                                },
-                                "count": {
-                                    "type": "integer"
-                                },
-                                "input_topic_id": {
-                                    "type": "string"
-                                },
-                                "kind": {
-                                    "type": "string"
-                                },
-                                "outputs": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/definitions/api.ProcessorOutputDTO"
-                                    }
-                                },
-                                "samples": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/definitions/api.previewSampleDTO"
-                                    }
-                                }
-                            }
-                        },
-                        "type": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
         "api.ProcessorWriteRequest": {
             "type": "object",
             "properties": {
@@ -21875,20 +21791,6 @@ const docTemplate = `{
                     }
                 },
                 "worker_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.previewSampleDTO": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "from": {
-                    "type": "string"
-                },
-                "subject": {
                     "type": "string"
                 }
             }

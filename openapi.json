@@ -11375,49 +11375,6 @@
                 }
             }
         },
-        "/api/v1/orgs/{org}/processors/preview": {
-            "post": {
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: preview a processor config",
-                "parameters": [
-                    {
-                        "description": "Organization ID or slug",
-                        "name": "org",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/api.ProcessorPreviewRequest"
-                            }
-                        }
-                    },
-                    "description": "Preview spec",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": true
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/orgs/{org}/processors/{id}": {
             "get": {
                 "tags": [
@@ -25683,49 +25640,6 @@
                     }
                 }
             },
-            "api.ProcessorPreviewRequest": {
-                "type": "object",
-                "properties": {
-                    "data": {
-                        "type": "object",
-                        "properties": {
-                            "attributes": {
-                                "type": "object",
-                                "properties": {
-                                    "config": {
-                                        "type": "object",
-                                        "additionalProperties": true
-                                    },
-                                    "count": {
-                                        "type": "integer"
-                                    },
-                                    "input_topic_id": {
-                                        "type": "string"
-                                    },
-                                    "kind": {
-                                        "type": "string"
-                                    },
-                                    "outputs": {
-                                        "type": "array",
-                                        "items": {
-                                            "$ref": "#/components/schemas/api.ProcessorOutputDTO"
-                                        }
-                                    },
-                                    "samples": {
-                                        "type": "array",
-                                        "items": {
-                                            "$ref": "#/components/schemas/api.previewSampleDTO"
-                                        }
-                                    }
-                                }
-                            },
-                            "type": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
             "api.ProcessorWriteRequest": {
                 "type": "object",
                 "properties": {
@@ -26155,20 +26069,6 @@
                         }
                     },
                     "worker_id": {
-                        "type": "string"
-                    }
-                }
-            },
-            "api.previewSampleDTO": {
-                "type": "object",
-                "properties": {
-                    "body": {
-                        "type": "string"
-                    },
-                    "from": {
-                        "type": "string"
-                    },
-                    "subject": {
                         "type": "string"
                     }
                 }

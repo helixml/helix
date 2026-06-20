@@ -36,9 +36,9 @@ type ProcessorAttributes struct {
 // --- Request DTOs (swagger only) ---------------------------------------
 // These mirror the JSON:API request documents so the generated TS client
 // gets a typed payload argument. Handlers bind through jsonapi.Bind into
-// the *WriteAttributes/previewAttributes structs below; these wrappers
-// exist purely to shape the OpenAPI schema. Config is an open object
-// ({"template": "..."} for the template kind).
+// processorWriteAttributes below; this wrapper exists purely to shape the
+// OpenAPI schema. Config is an open object ({"template": "..."} for the
+// template kind).
 
 // ProcessorWriteRequest is the JSON:API body for create + update.
 type ProcessorWriteRequest struct {
@@ -51,21 +51,6 @@ type ProcessorWriteRequest struct {
 			Config       map[string]interface{} `json:"config,omitempty"`
 			CreatedBy    string                 `json:"created_by,omitempty"`
 			Outputs      []ProcessorOutputDTO   `json:"outputs,omitempty"`
-		} `json:"attributes"`
-	} `json:"data"`
-}
-
-// ProcessorPreviewRequest is the JSON:API body for the preview endpoint.
-type ProcessorPreviewRequest struct {
-	Data struct {
-		Type       string `json:"type"`
-		Attributes struct {
-			Kind         string                 `json:"kind"`
-			Config       map[string]interface{} `json:"config,omitempty"`
-			Outputs      []ProcessorOutputDTO   `json:"outputs,omitempty"`
-			Samples      []previewSampleDTO     `json:"samples,omitempty"`
-			InputTopicID string                 `json:"input_topic_id,omitempty"`
-			Count        int                    `json:"count,omitempty"`
 		} `json:"attributes"`
 	} `json:"data"`
 }
@@ -297,115 +282,6 @@ func (a *apiHandler) deleteProcessor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// previewSampleDTO mirrors the wire shape of a Message sample.
-type previewSampleDTO struct {
-	From    string `json:"from"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-}
-
-// previewAttributes is the request body for POST /processors/preview.
-type previewAttributes struct {
-	Kind    string          `json:"kind"`
-	Config  json.RawMessage `json:"config"`
-	Outputs []struct {
-		TopicID string `json:"topic_id"`
-		Match   string `json:"match"`
-		Label   string `json:"label"`
-	} `json:"outputs"`
-	// Samples are supplied verbatim; when empty, InputTopicID's recent
-	// messages are fetched instead.
-	Samples      []previewSampleDTO `json:"samples"`
-	InputTopicID string             `json:"input_topic_id"`
-	Count        int                `json:"count"`
-}
-
-// previewResultDTO is one before→after pair.
-type previewResultDTO struct {
-	Before previewSampleDTO   `json:"before"`
-	After  []previewSampleDTO `json:"after"`
-	Error  string             `json:"error,omitempty"`
-}
-
-// previewProcessor renders a candidate config against supplied samples
-// (or recent messages from input_topic_id) without persisting.
-//
-// @Summary Helix-org: preview a processor config
-// @Tags HelixOrg
-// @Accept json
-// @Produce json
-// @Param org path string true "Organization ID or slug"
-// @Param payload body api.ProcessorPreviewRequest true "Preview spec"
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/orgs/{org}/processors/preview [post]
-func (a *apiHandler) previewProcessor(w http.ResponseWriter, r *http.Request) {
-	if !a.requireProcessors(w) {
-		return
-	}
-	orgID, err := resolveOrgID(r)
-	if err != nil {
-		jsonapi.WriteError(w, http.StatusBadRequest, err)
-		return
-	}
-	var attrs previewAttributes
-	if err := jsonapi.Bind(r, &attrs); err != nil {
-		jsonapi.WriteError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	samples := make([]streaming.Message, 0, len(attrs.Samples))
-	for _, s := range attrs.Samples {
-		samples = append(samples, streaming.Message{From: s.From, Subject: s.Subject, Body: s.Body})
-	}
-	// No explicit samples → pull recent real messages from the input
-	// topic so the editor shows "what a message looks like" rendered.
-	if len(samples) == 0 && attrs.InputTopicID != "" && a.deps.Queries != nil {
-		count := attrs.Count
-		if count <= 0 || count > 20 {
-			count = 5
-		}
-		events, err := a.deps.Queries.TopicEvents(r.Context(), orgID, streaming.TopicID(attrs.InputTopicID), count)
-		if err != nil {
-			jsonapi.WriteError(w, errStatus(err), fmt.Errorf("fetch sample messages: %w", err))
-			return
-		}
-		for _, ev := range events {
-			if m, err := ev.Message(); err == nil {
-				samples = append(samples, m)
-			}
-		}
-	}
-
-	outs := make([]processors.OutputSpec, 0, len(attrs.Outputs))
-	for _, o := range attrs.Outputs {
-		outs = append(outs, processors.OutputSpec{TopicID: streaming.TopicID(o.TopicID), Match: o.Match, Label: o.Label})
-	}
-
-	pairs, err := a.deps.Processors.Preview(processor.Kind(attrs.Kind), attrs.Config, outs, samples)
-	if err != nil {
-		jsonapi.WriteError(w, http.StatusBadRequest, fmt.Errorf("preview: %w", err))
-		return
-	}
-
-	resources := make([]jsonapi.Resource, 0, len(pairs))
-	for i, p := range pairs {
-		after := make([]previewSampleDTO, 0, len(p.Results))
-		for _, res := range p.Results {
-			after = append(after, previewSampleDTO{From: res.Message.From, Subject: res.Message.Subject, Body: res.Message.Body})
-		}
-		resources = append(resources, jsonapi.Resource{
-			Type: "processor-previews",
-			ID:   fmt.Sprintf("%d", i),
-			Attributes: previewResultDTO{
-				Before: previewSampleDTO{From: p.Before.From, Subject: p.Before.Subject, Body: p.Before.Body},
-				After:  after,
-				Error:  p.Error,
-			},
-		})
-	}
-	jsonapi.Write(w, http.StatusOK, jsonapi.NewDocument(resources))
 }
 
 func toOutputSpecs(attrs processorWriteAttributes) []processors.OutputSpec {

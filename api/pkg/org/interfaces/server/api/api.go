@@ -277,11 +277,9 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
 		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
 		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
-		// Processors — JSON:API CRUD + a non-persisting preview that
-		// renders a candidate config against real/sample messages.
+		// Processors — JSON:API CRUD.
 		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
 		{Pattern: "POST /processors", Handler: http.HandlerFunc(a.createProcessor)},
-		{Pattern: "POST /processors/preview", Handler: http.HandlerFunc(a.previewProcessor)},
 		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
 		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
 		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},

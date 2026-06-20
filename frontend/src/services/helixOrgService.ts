@@ -114,18 +114,6 @@ export interface ProcessorDTO {
   created_at?: string
 }
 
-export interface ProcessorPreviewSample {
-  from?: string
-  subject?: string
-  body?: string
-}
-
-export interface ProcessorPreviewPair {
-  before: ProcessorPreviewSample
-  after: ProcessorPreviewSample[]
-  error?: string
-}
-
 interface JsonApiResource<T> { id: string; type: string; attributes: T }
 interface JsonApiDoc<T> { data: T }
 
@@ -843,6 +831,29 @@ export function useUnsubscribeWorker(workerID: string | undefined) {
   })
 }
 
+// useTopicSampleMessage fetches the single most recent REAL message on a
+// topic (newest first, page size 1) so the processor drawer can show
+// "what a message on this topic looks like". Returns null when the topic
+// has no messages — no synthetic/fake data.
+export function useTopicSampleMessage(topicId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'topics', topicId ?? '', 'sample-message'] as const,
+    queryFn: async () => {
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsMessagesDetail(topicId, orgID, {
+        'page[number]': 1,
+        'page[size]': 1,
+      })
+      const doc = res.data as unknown as { data?: { attributes?: { from?: string; subject?: string; body?: string } }[] }
+      const first = doc.data?.[0]
+      return first?.attributes ?? null
+    },
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
+  })
+}
+
 export function useListHelixOrgProcessors(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
@@ -936,28 +947,3 @@ export function useDeleteHelixOrgProcessor() {
   })
 }
 
-export interface ProcessorPreviewAttrs {
-  kind: string
-  config?: Record<string, unknown>
-  outputs?: { topic_id?: string; match?: string; label?: string }[]
-  samples?: ProcessorPreviewSample[]
-  input_topic_id?: string
-  count?: number
-}
-
-// usePreviewHelixOrgProcessor renders a candidate config server-side and
-// returns before/after pairs. A mutation (not a query) because it is
-// edit-driven and not cacheable by a stable key.
-export function usePreviewHelixOrgProcessor() {
-  const api = useApi()
-  const { orgID } = useHelixOrgBase()
-  return useMutation({
-    mutationFn: async (attrs: ProcessorPreviewAttrs) => {
-      const res = await api.getApiClient().v1OrgsProcessorsPreviewCreate(orgID, {
-        data: { type: 'processor-previews', attributes: attrs },
-      })
-      const doc = res.data as unknown as { data: JsonApiResource<ProcessorPreviewPair>[] }
-      return (doc.data ?? []).map((r) => r.attributes)
-    },
-  })
-}

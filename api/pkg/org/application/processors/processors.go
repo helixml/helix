@@ -276,58 +276,6 @@ func (s *Processors) checkAcyclic(ctx context.Context, orgID string, candidate p
 	return nil
 }
 
-// PreviewPair is one sample run through a candidate Processor: the
-// original input Message and the Results the processor produced (one
-// per matched output). A render error is captured per-pair so a bad
-// template surfaces inline rather than failing the whole preview.
-type PreviewPair struct {
-	Before  streaming.Message
-	Results []processor.Result
-	Error   string
-}
-
-// Preview runs a candidate (kind, config, outputs) against sample
-// Messages without persisting anything — the authoritative render the
-// UI's live preview calls, so there is no Go↔JS template drift. Output
-// topic ids are synthesized for validation when not supplied; they are
-// irrelevant to the rendered body. Returns an error only when the
-// candidate config is itself invalid (so the editor can show why);
-// per-sample render failures are reported in each PreviewPair.Error.
-func (s *Processors) Preview(kind processor.Kind, config json.RawMessage, outputs []OutputSpec, samples []streaming.Message) ([]PreviewPair, error) {
-	specs := outputs
-	if len(specs) == 0 {
-		specs = []OutputSpec{{}}
-	}
-	outs := make([]processor.Output, len(specs))
-	for i, sp := range specs {
-		tid := sp.TopicID
-		if tid == "" {
-			tid = streaming.TopicID(fmt.Sprintf("preview-out-%d", i))
-		}
-		outs[i] = processor.Output{TopicID: tid, Match: sp.Match, Label: sp.Label}
-	}
-	candidate := processor.Processor{
-		ID: "p-preview", OrganizationID: "preview", Name: "preview",
-		InputTopicID: "preview-in", Kind: kind, Config: config,
-		Outputs: outs, CreatedAt: s.now(),
-	}
-	if err := candidate.Validate(); err != nil {
-		return nil, err
-	}
-	pairs := make([]PreviewPair, 0, len(samples))
-	for _, m := range samples {
-		pair := PreviewPair{Before: m}
-		res, err := candidate.Process(m)
-		if err != nil {
-			pair.Error = err.Error()
-		} else {
-			pair.Results = res
-		}
-		pairs = append(pairs, pair)
-	}
-	return pairs, nil
-}
-
 // outputTopicName builds a unique, human-readable name for an
 // auto-provisioned output topic. Processor names are unique per org, so
 // `<procID> output` (single) / `<procID> · <label>` (multi) cannot

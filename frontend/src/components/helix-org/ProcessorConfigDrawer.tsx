@@ -1,16 +1,14 @@
-// ProcessorConfigDrawer creates or edits a Processor — the transform
-// node interposed between a Topic and the Workers that read it. It is
-// opened from the Chart ("+ Processor") and from a processor node's
-// menu (edit mode, `processor` prop set).
+// ProcessorConfigDrawer creates or edits a Processor — the transform /
+// filter node interposed between a Topic and the Workers that read it.
+// Opened from the Chart's "Processor" button (create) and from clicking
+// a processor node (edit, `processor` prop set).
 //
-// The flagship affordance is the LIVE PREVIEW: as the operator edits the
-// template, the drawer (debounced) POSTs /processors/preview and renders
-// real recent messages from the input topic before → after, server-side,
-// so there is no Go↔JS template drift. When the input topic has no
-// recent messages it falls back to a synthetic sample so the editor is
-// never blank.
+// The drawer shows the most recent REAL message on the chosen input
+// topic (no synthetic/fake data, no client-side transform) so the
+// operator can see what their template/predicate will run against. The
+// actual rendering happens server-side at runtime.
 
-import { FC, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Divider from '@mui/material/Divider'
@@ -21,16 +19,14 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
-import ArrowRightAltIcon from '@mui/icons-material/ArrowRightAlt'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   ProcessorDTO,
-  ProcessorPreviewPair,
   useCreateHelixOrgProcessor,
   useUpdateHelixOrgProcessor,
-  usePreviewHelixOrgProcessor,
   useListHelixOrgTopics,
+  useTopicSampleMessage,
 } from '../../services/helixOrgService'
 
 export type ProcessorConfigDrawerProps = {
@@ -56,14 +52,11 @@ const DEFAULT_FILTER_ROWS: FilterRow[] = [
 
 const DEFAULT_TEMPLATE = 'From {{ .Message.from }}: {{ .Message.subject }}\n\n{{ .Message.body }}'
 
-const SYNTHETIC_SAMPLE = { from: 'alice@example.com', subject: 'Invoice #7', body: 'Please review the attached invoice.' }
-
 const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, processor, presetInputTopicId }) => {
   const snackbar = useSnackbar()
   const isEdit = Boolean(processor)
   const createProc = useCreateHelixOrgProcessor()
   const updateProc = useUpdateHelixOrgProcessor()
-  const preview = usePreviewHelixOrgProcessor()
   const { data: topicsData } = useListHelixOrgTopics({ enabled: open })
 
   const [name, setName] = useState('')
@@ -72,14 +65,13 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [maxBytes, setMaxBytes] = useState('500')
   const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
-  const [pairs, setPairs] = useState<ProcessorPreviewPair[]>([])
-  const [previewErr, setPreviewErr] = useState('')
+
+  // Most recent real message on the input topic (null = topic has none).
+  const { data: sample, isFetching: sampleLoading } = useTopicSampleMessage(inputTopicId, { enabled: open && !!inputTopicId })
 
   // Reset form each open from the processor under edit (or defaults).
   useEffect(() => {
     if (!open) return
-    setPairs([])
-    setPreviewErr('')
     if (processor) {
       setName(processor.name ?? '')
       setKind(processor.kind ?? 'template')
@@ -112,34 +104,6 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
     if (kind !== 'filter') return undefined
     return filterRows.map((rw) => ({ label: rw.label, match: rw.match }))
   }, [kind, filterRows])
-
-  // Debounced live preview. Fetches real messages from the input topic;
-  // falls back to a synthetic sample when the topic has none.
-  const previewRef = useRef(preview)
-  previewRef.current = preview
-  useEffect(() => {
-    if (!open) return
-    const handle = setTimeout(async () => {
-      try {
-        let res = await previewRef.current.mutateAsync({
-          kind,
-          config,
-          outputs,
-          input_topic_id: inputTopicId || undefined,
-          count: 5,
-        })
-        if (res.length === 0) {
-          res = await previewRef.current.mutateAsync({ kind, config, outputs, samples: [SYNTHETIC_SAMPLE] })
-        }
-        setPairs(res)
-        setPreviewErr('')
-      } catch (err: any) {
-        setPairs([])
-        setPreviewErr(err?.response?.data?.errors?.[0]?.detail ?? err?.response?.data?.error ?? err?.message ?? 'preview failed')
-      }
-    }, 350)
-    return () => clearTimeout(handle)
-  }, [open, kind, config, outputs, inputTopicId])
 
   const canSubmit = Boolean(name.trim()) && (isEdit || Boolean(inputTopicId))
 
@@ -182,7 +146,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           <TextField
             select size="small" label="Kind" value={kind} fullWidth
             onChange={(e) => setKind(e.target.value)}
-            helperText="A new kind is one Go file — template + truncate ship in v1."
+            helperText="A new kind is one Go file — template, truncate and filter ship in v1."
           >
             {KINDS.map((k) => <MenuItem key={k.value} value={k.value}>{k.label}</MenuItem>)}
           </TextField>
@@ -254,57 +218,34 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             </Stack>
           )}
 
-          {/* Live preview */}
+          {/* Most recent real message on the input topic — context only. */}
           <Box sx={{ mt: 0.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Live preview {inputTopicId ? `(recent messages from ${inputTopicId})` : '(synthetic sample)'}
+              Latest message {inputTopicId ? `on ${inputTopicId}` : ''}
             </Typography>
-            {previewErr ? (
-              <Typography variant="body2" sx={{ color: 'error.main', mt: 0.5, fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                {previewErr}
-              </Typography>
-            ) : pairs.length === 0 ? (
+            {!inputTopicId ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                {preview.isPending ? 'Rendering…' : 'No preview yet.'}
+                Select an input topic to see its latest message.
+              </Typography>
+            ) : sampleLoading ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                Loading…
+              </Typography>
+            ) : !sample ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                No messages on this topic yet.
               </Typography>
             ) : (
-              <Stack spacing={1} sx={{ mt: 0.5 }}>
-                {pairs.map((p, i) => (
-                  <Box key={i} sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1 }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                      before
-                    </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem', mb: 0.5 }}>
-                      {p.before?.body || '(empty)'}
-                    </Typography>
-                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary' }}>
-                      <ArrowRightAltIcon sx={{ fontSize: 16 }} />
-                      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>after</Typography>
-                    </Stack>
-                    {p.error ? (
-                      <Typography variant="body2" sx={{ color: 'error.main', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {p.error}
-                      </Typography>
-                    ) : kind === 'filter' ? (
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: (p.after ?? []).length === 0 ? 'warning.main' : 'success.main' }}>
-                        {(p.after ?? []).length === 0
-                          ? 'dropped (no branch matched)'
-                          : `routed to ${(p.after ?? []).length} branch${(p.after ?? []).length === 1 ? '' : 'es'}`}
-                      </Typography>
-                    ) : (p.after ?? []).length === 0 ? (
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'warning.main' }}>
-                        dropped
-                      </Typography>
-                    ) : (
-                      (p.after ?? []).map((a, j) => (
-                        <Typography key={j} variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                          {a.body || '(empty)'}
-                        </Typography>
-                      ))
-                    )}
-                  </Box>
-                ))}
-              </Stack>
+              <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, mt: 0.5 }}>
+                {(sample.from || sample.subject) && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
+                    {sample.from ? `from ${sample.from}` : ''}{sample.from && sample.subject ? ' · ' : ''}{sample.subject ? `“${sample.subject}”` : ''}
+                  </Typography>
+                )}
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                  {sample.body || '(empty body)'}
+                </Typography>
+              </Box>
             )}
           </Box>
 

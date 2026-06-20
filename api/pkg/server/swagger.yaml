@@ -254,34 +254,6 @@ definitions:
       topic_id:
         type: string
     type: object
-  api.ProcessorPreviewRequest:
-    properties:
-      data:
-        properties:
-          attributes:
-            properties:
-              config:
-                additionalProperties: true
-                type: object
-              count:
-                type: integer
-              input_topic_id:
-                type: string
-              kind:
-                type: string
-              outputs:
-                items:
-                  $ref: '#/definitions/api.ProcessorOutputDTO'
-                type: array
-              samples:
-                items:
-                  $ref: '#/definitions/api.previewSampleDTO'
-                type: array
-            type: object
-          type:
-            type: string
-        type: object
-    type: object
   api.ProcessorWriteRequest:
     properties:
       data:
@@ -563,15 +535,6 @@ definitions:
           $ref: '#/definitions/api.WorkerSubscriptionDTO'
         type: array
       worker_id:
-        type: string
-    type: object
-  api.previewSampleDTO:
-    properties:
-      body:
-        type: string
-      from:
-        type: string
-      subject:
         type: string
     type: object
   filestore.Config:
@@ -17930,33 +17893,6 @@ paths:
             additionalProperties: true
             type: object
       summary: 'Helix-org: update a processor'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/processors/preview:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Organization ID or slug
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Preview spec
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.ProcessorPreviewRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 'Helix-org: preview a processor config'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/roles:

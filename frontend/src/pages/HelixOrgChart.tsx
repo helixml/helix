@@ -748,13 +748,6 @@ const buildGraph = (
   //    vertical columns as needed to fit the tree's height, then within
   //    each column places each topic at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
-  // Processor output topics are collapsed into their processor node and
-  // are NOT drawn as their own topic boxes (design: the processor visibly
-  // sits in between). Their messages remain inspectable via the detail
-  // view; here we just exclude them from the topic layout.
-  const outputTopicIds = new Set<string>()
-  for (const p of processors) for (const ot of p.outputTopicIds) outputTopicIds.add(ot)
-
   if (topics.length > 0) {
     const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
@@ -788,7 +781,6 @@ const buildGraph = (
 
     const resolved: { topic: TopicSummary; subjectWorker: string | null }[] = []
     for (const s of topics) {
-      if (outputTopicIds.has(s.id)) continue // collapsed into a processor node
       let subjectWorker: string | undefined
       if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
         subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
@@ -866,13 +858,16 @@ const buildGraph = (
 
   // ---- Processors -------------------------------------------------------
   // A column of processor boxes to the right of the topic column. Each
-  // draws an input edge from its input topic and an output edge to every
-  // Worker subscribed to one of its (collapsed) output topics.
+  // draws an input edge from its input Topic and one output edge to each
+  // of its output Topics. The output Topics are ordinary Topic nodes
+  // (drawn above), so Workers subscribe to them with the normal
+  // Worker → Topic drag — that is how a router's branches get wired to
+  // different Workers.
   if (processors.length > 0) {
-    const workerSet = new Set<string>()
-    for (const group of groups) for (const wk of group.workers) workerSet.add(wk.id)
-    const subsByTopic = new Map<string, string[]>()
-    for (const tp of topics) subsByTopic.set(tp.id, (tp.subscribers ?? []).filter((w) => workerSet.has(w)))
+    // Index topic node positions so we can route the proc → outputTopic
+    // edge and (for layout) sit the processor near its input topic.
+    const topicNodeIds = new Set<string>()
+    for (const n of nodes) if (n.id.startsWith('topic:')) topicNodeIds.add(n.id.slice('topic:'.length))
 
     let pminTop = Infinity, pmaxRight = -Infinity
     for (const ro of roleOrigin.values()) {
@@ -905,7 +900,7 @@ const buildGraph = (
       })
       py += PROC_H + 40
 
-      if (p.inputTopicId) {
+      if (p.inputTopicId && topicNodeIds.has(p.inputTopicId)) {
         edges.push({
           id: `procin:${p.inputTopicId}->${p.id}`,
           source: `topic:${p.inputTopicId}`,
@@ -915,17 +910,18 @@ const buildGraph = (
           style: { stroke: procStroke, strokeWidth: 1.25 },
         })
       }
-      const targetWorkers = new Set<string>()
-      for (const ot of p.outputTopicIds) for (const w of subsByTopic.get(ot) ?? []) targetWorkers.add(w)
-      for (const w of targetWorkers) {
+      // processor → each output Topic (solid = "produces into"). Workers
+      // then subscribe to those output Topics with the normal drag.
+      for (const ot of p.outputTopicIds) {
+        if (!topicNodeIds.has(ot)) continue
         edges.push({
-          id: `procout:${p.id}->${w}`,
+          id: `procout:${p.id}->${ot}`,
           source: `processor:${p.id}`,
           sourceHandle: 'proc-out',
-          target: `worker:${w}`,
+          target: `topic:${ot}`,
           type: 'deletable',
-          data: { kind: 'proc_out', processorId: p.id, workerId: w },
-          style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
+          data: { kind: 'proc_out', processorId: p.id, topicId: ot },
+          style: { stroke: procStroke, strokeWidth: 1.5 },
         })
       }
     }

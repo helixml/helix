@@ -183,20 +183,6 @@ export interface ApiProcessorOutputDTO {
   topic_id?: string;
 }
 
-export interface ApiProcessorPreviewRequest {
-  data?: {
-    attributes?: {
-      config?: Record<string, any>;
-      count?: number;
-      input_topic_id?: string;
-      kind?: string;
-      outputs?: ApiProcessorOutputDTO[];
-      samples?: ApiPreviewSampleDTO[];
-    };
-    type?: string;
-  };
-}
-
 export interface ApiProcessorWriteRequest {
   data?: {
     attributes?: {
@@ -362,12 +348,6 @@ export interface ApiWorkerSubscriptionDTO {
 export interface ApiWorkerSubscriptionsResponse {
   subscriptions?: ApiWorkerSubscriptionDTO[];
   worker_id?: string;
-}
-
-export interface ApiPreviewSampleDTO {
-  body?: string;
-  from?: string;
-  subject?: string;
 }
 
 export interface FilestoreConfig {
@@ -12070,24 +12050,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, any>, any>({
         path: `/api/v1/orgs/${org}/processors/${id}`,
         method: "PUT",
-        body: payload,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsProcessorsPreviewCreate
-     * @summary Helix-org: preview a processor config
-     * @request POST:/api/v1/orgs/{org}/processors/preview
-     */
-    v1OrgsProcessorsPreviewCreate: (org: string, payload: ApiProcessorPreviewRequest, params: RequestParams = {}) =>
-      this.request<Record<string, any>, any>({
-        path: `/api/v1/orgs/${org}/processors/preview`,
-        method: "POST",
         body: payload,
         type: ContentType.Json,
         format: "json",
