@@ -163,13 +163,23 @@ type TopicNodeData = {
   onDeleteTopic: (topicId: string) => void
 }
 
+type ProcessorBranch = {
+  topicId: string
+  label: string
+  match: string
+}
+
 type ProcessorNodeData = {
   processorId: string
   name: string
   kind: string
-  outputCount: number
+  // One entry per output branch. Each renders a labelled source handle
+  // on the node's right edge; dragging from it to a Worker subscribes
+  // that Worker to the branch's (hidden) output topic.
+  outputs: ProcessorBranch[]
   onSelectProcessor: (processorId: string) => void
   onDeleteProcessor: (processorId: string) => void
+  onInspectBranch: (topicId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -448,60 +458,91 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
 
 // ProcessorNode renders a transform/filter box that sits on the edge
 // between an input Topic (left target handle) and the Workers that read
-// its output (right source handle). Its auto-provisioned output topics
-// are collapsed into this box — they are not drawn separately. Clicking
-// opens the config drawer in edit mode; the trash icon deletes it (and
-// its owned output topics).
-const PROC_W = 180
-const PROC_H = 80
+// its outputs. Each output BRANCH is a labelled source handle ("dot") on
+// the right edge — drag from a branch dot to a Worker to route that
+// branch to them. The branches' backing output topics are collapsed into
+// this box (not drawn separately); click a branch to inspect its topic.
+// Clicking the header opens the config drawer; the trash icon deletes it.
+const PROC_W = 200
+const PROC_HEADER_PX = 52
+const PROC_ROW_PX = 24
+const procNodeHeight = (n: number) => PROC_HEADER_PX + Math.max(1, n) * PROC_ROW_PX + 8
 const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const accent = lightTheme.isLight ? 'rgba(90,60,170,0.9)' : 'rgba(180,150,255,0.9)'
   const bg = 'rgba(140,110,230,0.07)'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
   const handleColor = lightTheme.isLight ? 'rgba(90,60,170,0.6)' : 'rgba(180,150,255,0.6)'
+  const outputs = data.outputs.length > 0 ? data.outputs : [{ topicId: '', label: 'out', match: '' }]
   return (
     <Box
-      onClick={(e) => { e.stopPropagation(); data.onSelectProcessor(data.processorId) }}
       sx={{
         width: PROC_W,
-        height: PROC_H,
+        height: procNodeHeight(outputs.length),
         border: `1px solid ${accent}`,
         borderRadius: 1.5,
         backgroundColor: bg,
-        p: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0.25,
-        cursor: 'pointer',
+        cursor: 'default',
         position: 'relative',
-        '&:hover': { backgroundColor: 'rgba(140,110,230,0.14)' },
+        '&:hover': { backgroundColor: 'rgba(140,110,230,0.10)' },
       }}
     >
-      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
-      <Handle id="proc-out" type="source" position={RFPosition.Right} isConnectable style={{ background: handleColor, width: 10, height: 10 }} />
-      <Tooltip title="Delete processor (and its output topics)">
-        <IconButton
-          className={NO_DRAG_NO_PAN}
-          size="small"
-          onClick={(e) => { e.stopPropagation(); data.onDeleteProcessor(data.processorId) }}
-          sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
-        >
-          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Tooltip>
-      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2 }}>
-        <TransformIcon sx={{ fontSize: 14, color: accent }} />
-        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {data.processorId}
+      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8, top: PROC_HEADER_PX / 2 }} />
+
+      {/* Header — clicking it opens the edit drawer. */}
+      <Box
+        onClick={(e) => { e.stopPropagation(); data.onSelectProcessor(data.processorId) }}
+        sx={{ p: 1, pb: 0.5, cursor: 'pointer' }}
+      >
+        <Tooltip title="Delete processor (and its output topics)">
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            onClick={(e) => { e.stopPropagation(); data.onDeleteProcessor(data.processorId) }}
+            sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+          >
+            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2 }}>
+          <TransformIcon sx={{ fontSize: 14, color: accent }} />
+          <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {data.name}
+          </Typography>
+        </Stack>
+        <Typography variant="caption" sx={{ fontSize: '0.62rem', color: muted, fontFamily: 'monospace' }}>
+          {data.kind} · {data.processorId}
         </Typography>
-      </Stack>
-      <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {data.name}
-      </Typography>
-      <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, mt: 'auto' }}>
-        {data.kind} · {data.outputCount} output{data.outputCount === 1 ? '' : 's'}
-      </Typography>
+      </Box>
+
+      {/* One labelled output port (dot) per branch. */}
+      {outputs.map((o, i) => (
+        <Box
+          key={o.topicId || i}
+          onClick={(e) => { e.stopPropagation(); if (o.topicId) data.onInspectBranch(o.topicId) }}
+          sx={{
+            position: 'absolute',
+            top: PROC_HEADER_PX + i * PROC_ROW_PX,
+            right: 0, left: 0, height: PROC_ROW_PX,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            pr: 1.5, gap: 0.5,
+            cursor: o.topicId ? 'pointer' : 'default',
+            borderTop: '1px dashed rgba(140,110,230,0.25)',
+            '&:hover': { backgroundColor: 'rgba(140,110,230,0.10)' },
+          }}
+        >
+          <Typography variant="caption" sx={{ fontSize: '0.62rem', color: muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {o.label || (o.match ? 'match' : 'default')}{o.match ? '' : ' ·default'}
+          </Typography>
+          <Handle
+            id={o.topicId || `out-${i}`}
+            type="source"
+            position={RFPosition.Right}
+            isConnectable
+            style={{ background: accent, border: '2px solid #fff', width: 13, height: 13, right: -7, top: PROC_HEADER_PX + i * PROC_ROW_PX + PROC_ROW_PX / 2 }}
+          />
+        </Box>
+      ))}
     </Box>
   )
 }
@@ -526,7 +567,7 @@ type ProcessorSummary = {
   name: string
   kind: string
   inputTopicId: string
-  outputTopicIds: string[]
+  outputs: { topicId: string; label: string; match: string; owned: boolean }[]
 }
 
 // buildGraph computes nodes + edges for the chart. Roles are laid out by
@@ -763,6 +804,14 @@ const buildGraph = (
   //    vertical columns as needed to fit the tree's height, then within
   //    each column places each topic at `max(anchorY, cursor)` so it
   //    stays beside its worker yet never overlaps the one above it.
+  // Processor-owned output topics are collapsed into their processor
+  // node (rendered as labelled branch ports), so they are not drawn as
+  // their own Topic boxes — that is what keeps a router from exploding
+  // the canvas. We still need their subscriber lists below to draw the
+  // branch → Worker edges, so they stay in `topics` (just not rendered).
+  const ownedOutputTopicIds = new Set<string>()
+  for (const p of processors) for (const o of p.outputs) if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
+
   if (topics.length > 0) {
     const TRANSCRIPT_PREFIX = 's-transcript-'
     const workerAbs = new Map<string, { x: number; y: number }>()
@@ -796,6 +845,7 @@ const buildGraph = (
 
     const resolved: { topic: TopicSummary; subjectWorker: string | null }[] = []
     for (const s of topics) {
+      if (ownedOutputTopicIds.has(s.id)) continue // collapsed into its processor's branch ports
       let subjectWorker: string | undefined
       if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
         subjectWorker = s.id.slice(TRANSCRIPT_PREFIX.length)
@@ -873,17 +923,12 @@ const buildGraph = (
   }
 
   // ---- Processors -------------------------------------------------------
-  // A column of processor boxes to the right of the topic column. Each
-  // draws an input edge from its input Topic and one output edge to each
-  // of its output Topics. The output Topics are ordinary Topic nodes
-  // (drawn above), so Workers subscribe to them with the normal
-  // Worker → Topic drag — that is how a router's branches get wired to
-  // different Workers.
+  // A processor sits just right of the topic column. It draws an input
+  // edge from its input Topic, and one edge per output BRANCH from that
+  // branch's labelled port to each Worker subscribed to the branch's
+  // (collapsed) output topic. Wiring a branch to a Worker is a drag from
+  // the branch port → the Worker.
   if (processors.length > 0) {
-    // Index topic node positions so we can route the proc → outputTopic
-    // edge and sit each processor at its input topic's Y (keeping it
-    // within the graph's vertical band — never at the very top, where the
-    // page header would occlude it and make it unclickable).
     const topicNodeIds = new Set<string>()
     const topicPosById = new Map<string, { x: number; y: number }>()
     for (const n of nodes) {
@@ -893,6 +938,12 @@ const buildGraph = (
         topicPosById.set(tid, n.position as { x: number; y: number })
       }
     }
+    // Subscribers per topic (incl. the collapsed output topics) so we can
+    // draw branch → Worker edges.
+    const workerSet = new Set<string>()
+    for (const group of groups) for (const wk of group.workers) workerSet.add(wk.id)
+    const subsByTopic = new Map<string, string[]>()
+    for (const tp of topics) subsByTopic.set(tp.id, (tp.subscribers ?? []).filter((w) => workerSet.has(w)))
 
     let pminTop = Infinity, pmaxRight = -Infinity
     for (const ro of roleOrigin.values()) {
@@ -905,23 +956,24 @@ const buildGraph = (
     const PROC_COL_X = pmaxRight + 120 + STREAM_W + 80
     const procStroke = isLight ? 'rgba(90,60,170,0.7)' : 'rgba(180,150,255,0.7)'
 
-    // Vertical collision avoidance so processors sharing an input topic
-    // (or near Ys) don't stack on top of each other.
-    const usedY: number[] = []
-    const placeY = (preferred: number): number => {
+    // Vertical collision avoidance, accounting for each node's height
+    // (which grows with the branch count).
+    const used: { y: number; h: number }[] = []
+    const placeY = (preferred: number, h: number): number => {
       let y = preferred
-      for (let guard = 0; guard < 100; guard++) {
-        const clash = usedY.find((uy) => Math.abs(uy - y) < PROC_H + 24)
+      for (let guard = 0; guard < 200; guard++) {
+        const clash = used.find((u) => y < u.y + u.h + 24 && y + h + 24 > u.y)
         if (clash === undefined) break
-        y = clash + PROC_H + 24
+        y = clash.y + clash.h + 24
       }
-      usedY.push(y)
+      used.push({ y, h })
       return y
     }
 
     for (const p of processors) {
       const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
-      const py = placeY(inPos ? inPos.y : pminTop)
+      const h = procNodeHeight(p.outputs.length)
+      const py = placeY(inPos ? inPos.y : pminTop, h)
       nodes.push({
         id: `processor:${p.id}`,
         type: 'processor',
@@ -930,9 +982,10 @@ const buildGraph = (
           processorId: p.id,
           name: p.name,
           kind: p.kind,
-          outputCount: p.outputTopicIds.length,
+          outputs: p.outputs.map((o) => ({ topicId: o.topicId, label: o.label, match: o.match })),
           onSelectProcessor: handlers.onSelectProcessor,
           onDeleteProcessor: handlers.onDeleteProcessor,
+          onInspectBranch: handlers.onSelectTopic,
         } as ProcessorNodeData,
         draggable: false,
         connectable: true,
@@ -949,19 +1002,22 @@ const buildGraph = (
           style: { stroke: procStroke, strokeWidth: 1.25 },
         })
       }
-      // processor → each output Topic (solid = "produces into"). Workers
-      // then subscribe to those output Topics with the normal drag.
-      for (const ot of p.outputTopicIds) {
-        if (!topicNodeIds.has(ot)) continue
-        edges.push({
-          id: `procout:${p.id}->${ot}`,
-          source: `processor:${p.id}`,
-          sourceHandle: 'proc-out',
-          target: `topic:${ot}`,
-          type: 'deletable',
-          data: { kind: 'proc_out', processorId: p.id, topicId: ot },
-          style: { stroke: procStroke, strokeWidth: 1.5 },
-        })
+      // Each branch port → every Worker subscribed to that branch's
+      // output topic. The edge leaves the branch's own handle
+      // (sourceHandle = the branch topic id) and lands on the Worker.
+      for (const o of p.outputs) {
+        if (!o.topicId) continue
+        for (const wid of subsByTopic.get(o.topicId) ?? []) {
+          edges.push({
+            id: `procout:${p.id}:${o.topicId}->${wid}`,
+            source: `processor:${p.id}`,
+            sourceHandle: o.topicId,
+            target: `worker:${wid}`,
+            type: 'deletable',
+            data: { kind: 'proc_out', processorId: p.id, topicId: o.topicId, workerId: wid },
+            style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
+          })
+        }
       }
     }
   }
@@ -1133,8 +1189,17 @@ const ChartCanvas: FC<{
   //   - worker→topic:  the worker consumes a topic. Persists by
   //     POSTing a (worker, topic) subscription.
   const onConnect = useCallback(
-    ({ source, target }: { source: string | null; target: string | null }) => {
+    ({ source, sourceHandle, target }: { source: string | null; sourceHandle?: string | null; target: string | null }) => {
       if (!source || !target) return
+      // Processor branch port → Worker: subscribe the Worker to that
+      // branch's output topic. The branch's handle id IS the output topic
+      // id (see buildGraph), so the wire carries which branch was dragged.
+      if (source.startsWith('processor:') && target.startsWith('worker:')) {
+        const workerId = target.replace(/^worker:/, '')
+        const topicId = sourceHandle || ''
+        if (workerId && topicId && topicId.startsWith('s-')) onSubscribeWorker(workerId, topicId)
+        return
+      }
       if (!source.startsWith('worker:')) return
       const sourceId = source.replace(/^worker:/, '')
       if (!sourceId) return
@@ -1160,11 +1225,15 @@ const ChartCanvas: FC<{
     (deleted: Edge[]) => {
       for (const e of deleted) {
         const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; topicId?: string } | undefined
-        // Processor wiring edges are structural (input topic ↔ processor,
-        // processor → subscribed worker). They are managed via the
-        // processor drawer / topic subscriptions, not by deleting the
-        // drawn edge, so dropping one is a no-op here.
-        if (d?.kind === 'proc_in' || d?.kind === 'proc_out') {
+        // The input-topic → processor edge is structural (set via the
+        // drawer), so dropping it is a no-op.
+        if (d?.kind === 'proc_in') {
+          continue
+        }
+        // A branch → Worker edge IS a subscription to the branch's output
+        // topic; deleting it unsubscribes the Worker from that branch.
+        if (d?.kind === 'proc_out' && d.workerId && d.topicId) {
+          onUnsubscribeWorker(d.workerId, d.topicId)
           continue
         }
         if (d?.kind === 'sub' && d.workerId && d.topicId) {
@@ -1284,7 +1353,12 @@ const HelixOrgChart: FC = () => {
       name: p.name ?? p.id,
       kind: p.kind ?? '',
       inputTopicId: p.input_topic_id ?? '',
-      outputTopicIds: (p.outputs ?? []).map((o) => o.topic_id).filter(Boolean) as string[],
+      outputs: (p.outputs ?? []).map((o) => ({
+        topicId: o.topic_id ?? '',
+        label: o.label ?? '',
+        match: o.match ?? '',
+        owned: !!o.owned,
+      })),
     })),
     [processorsData],
   )
