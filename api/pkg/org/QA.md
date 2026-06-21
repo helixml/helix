@@ -86,8 +86,14 @@ in that Role on their next MCP request.
    so re-adding them is a deliberate, visible change.
 3. `r-root` vertical-dot menu offers **Open** and an enabled
    **Delete** — no role is protected.
-4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens,
-   Tools field empty.
+4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens
+   (redirect to `…/helix-org/roles/r-test-dm`). Tools field shows
+   the 12 baseline read tools (`managers`, `reports`, `list_workers`,
+   `get_worker`, `list_roles`, `get_role`, `list_streams`,
+   `get_stream`, `list_stream_events`, `read_events`, `worker_log`,
+   `mint_credential`) — these are injected automatically on every new
+   role by `MergeBaseReadTools` so that every Worker has the minimum
+   read surface without the operator having to add them manually.
 5. Click the Tools dropdown. The available tools render. Tick `dm` —
    popper stays open (`disableCloseOnSelect`). Press Escape.
 6. **Save** → snackbar `role r-test-dm saved` → button disables.
@@ -733,9 +739,11 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   `org_reporting_lines` is empty; no `org_positions` / `org_environments`
   table.
 - §2 — `r-root` has a non-empty tool set (position tools absent);
-  multi-select adds/removes a tool; refresh persists; an edit
-  propagates to every Worker in the role on the next MCP
-  `tools/list`.
+  new role creation redirects to the role detail page; a fresh role's
+  tool list shows exactly the 12 `BaseReadTools` (no mutation tools
+  unless the operator adds them); multi-select adds/removes a tool;
+  refresh persists; an edit propagates to every Worker in the role on
+  the next MCP `tools/list`.
 - §3 — AI worker creation doesn't crash the API; firing any worker
   (including the root) succeeds with no protection (204, never a 409
   lock); role delete dialog enumerates the affected workers before

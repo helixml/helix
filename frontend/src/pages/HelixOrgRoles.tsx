@@ -244,7 +244,11 @@ const HelixOrgRoles: FC = () => {
         </DeleteConfirmWindow>
       )}
 
-      <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
+      <NewRoleDialog
+        open={newRoleOpen}
+        onClose={() => setNewRoleOpen(false)}
+        onCreated={openRole}
+      />
     </Page>
   )
 }

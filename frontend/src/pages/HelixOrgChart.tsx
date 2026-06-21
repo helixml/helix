@@ -1283,7 +1283,13 @@ const HelixOrgChart: FC = () => {
         </Box>
       </Box>
 
-      <NewRoleDialog open={roleDialogOpen} onClose={() => setRoleDialogOpen(false)} />
+      <NewRoleDialog
+        open={roleDialogOpen}
+        onClose={() => setRoleDialogOpen(false)}
+        onCreated={(roleId) => {
+          if (orgSlug) router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: roleId })
+        }}
+      />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
         title={
