@@ -12,6 +12,7 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 
+import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import { useCreateHelixOrgRole } from '../../services/helixOrgService'
 
@@ -22,6 +23,7 @@ export type NewRoleDialogProps = {
 
 const NewRoleDialog: FC<NewRoleDialogProps> = ({ open, onClose }) => {
   const snackbar = useSnackbar()
+  const router = useRouter()
   const create = useCreateHelixOrgRole()
   const [id, setId] = useState('')
   const [content, setContent] = useState('')
@@ -42,6 +44,10 @@ const NewRoleDialog: FC<NewRoleDialogProps> = ({ open, onClose }) => {
       await create.mutateAsync({ id: trimmedId, content })
       snackbar.success(`role ${trimmedId} created`)
       onClose()
+      const orgId = router.params.org_id as string | undefined
+      if (orgId) {
+        router.navigate('helix_org_role_detail', { org_id: orgId, role_id: trimmedId })
+      }
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
     }

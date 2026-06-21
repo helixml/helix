@@ -53,9 +53,6 @@ func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("create_role: caller has no OrgID")
 	}
-	// The service unions the caller-supplied tools with the universal
-	// baseline (caller order preserved, baseline appended, deduped) so a
-	// Role can never miss the read primitives every Worker needs.
 	r, err := t.deps.Roles.Create(ctx, orgID, roles.CreateParams{
 		ID:      args.ID,
 		Content: args.Content,

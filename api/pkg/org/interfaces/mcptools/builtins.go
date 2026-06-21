@@ -185,8 +185,8 @@ func (c Config) lifecycleService() *lifecycle.Service {
 }
 
 // rolesService builds the role-mutation application service, injecting
-// BaseReadTools as the universal baseline so the MCP create_role tool and
-// the REST role handlers union the same set.
+// BaseReadTools so Reconcile can backfill pre-existing Roles at startup.
+// New Roles are created empty — BaseTools is not applied at Create time.
 func (c Config) rolesService() *roles.Roles {
 	return roles.New(roles.Deps{
 		Roles:     c.Store.Roles,

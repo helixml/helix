@@ -406,7 +406,8 @@ export function useCreateHelixOrgRole() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreateRoleRequest) => {
-      await api.getApiClient().v1OrgsRolesCreate(orgID, payload)
+      const res = await api.getApiClient().v1OrgsRolesCreate(orgID, payload)
+      return res.data as RoleDTO
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })

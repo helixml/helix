@@ -7,11 +7,8 @@
 // by doing a proper read-modify-write that preserves unpatched fields).
 //
 // The service depends only on the narrow store.Roles repository plus a
-// clock, an id-generator, and the injected base-tool list — never the
-// whole *store.Store (CLAUDE.md §5.0: small interfaces, ≤4
-// collaborators). BaseTools is injected (rather than imported from the
-// tools package) to keep the dependency edge one-way: the tools package
-// imports this service, not the reverse.
+// clock and an id-generator — never the whole *store.Store (CLAUDE.md
+// §5.0: small interfaces, ≤4 collaborators).
 package roles
 
 import (
@@ -39,10 +36,9 @@ type Deps struct {
 	Roles store.Roles
 	Now   func() time.Time
 	NewID func() string
-	// BaseTools is the universal read baseline unioned into every
-	// created Role so no Role can miss the read primitives every Worker
-	// needs. Injected by the wiring (tools.BaseReadTools) to avoid an
-	// import cycle.
+	// BaseTools is the universal read baseline used by Reconcile to
+	// backfill pre-existing Roles at startup. It is NOT injected into new
+	// Roles on Create — operators choose tools explicitly.
 	BaseTools []tool.Name
 }
 
@@ -56,8 +52,7 @@ func New(deps Deps) *Roles {
 }
 
 // CreateParams describes a new Role. ID is optional — when empty a
-// fresh `r-<id>` is minted. Tools is unioned with the injected base
-// read tools; Streams is the typed manifest stored verbatim.
+// fresh `r-<id>` is minted. Tools and Streams are stored as supplied.
 type CreateParams struct {
 	ID      string
 	Content string
@@ -65,15 +60,13 @@ type CreateParams struct {
 	Streams []streaming.StreamID
 }
 
-// Create builds and persists a new Role, returning the created
-// aggregate. The caller's tools are unioned with the base read tools
-// (caller order preserved, baseline appended, deduped).
+// Create builds and persists a new Role, returning the created aggregate.
 func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgchart.Role, error) {
 	id := orgchart.RoleID(strings.TrimSpace(p.ID))
 	if id == "" {
 		id = orgchart.RoleID("r-" + r.newID())
 	}
-	role, err := orgchart.NewRole(id, p.Content, MergeTools(p.Tools, r.baseTools), p.Streams, r.now(), orgID)
+	role, err := orgchart.NewRole(id, p.Content, p.Tools, p.Streams, r.now(), orgID)
 	if err != nil {
 		return orgchart.Role{}, err
 	}

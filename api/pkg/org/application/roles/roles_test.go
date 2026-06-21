@@ -16,8 +16,7 @@ import (
 
 func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
-// baseline is a small injected tool baseline so the union behaviour is
-// testable without importing the tools package (which imports roles).
+// baseline is the injected tool set used by Reconcile tests.
 var baseline = []tool.Name{"managers", "reports"}
 
 func newService(st *store.Store) *Roles {
@@ -53,9 +52,8 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 	if !got.CreatedAt.Equal(fixedClock()) {
 		t.Fatalf("CreatedAt = %v", got.CreatedAt)
 	}
-	// Caller's tool is preserved at head, baseline unioned and deduped.
-	if len(got.Tools) != 3 || got.Tools[0] != "publish" || got.Tools[1] != "managers" || got.Tools[2] != "reports" {
-		t.Fatalf("tools union wrong: %v", got.Tools)
+	if len(got.Tools) != 1 || got.Tools[0] != "publish" {
+		t.Fatalf("tools = %v, want [publish]", got.Tools)
 	}
 	if len(got.Streams) != 1 || got.Streams[0] != "s-general" {
 		t.Fatalf("streams = %v", got.Streams)
@@ -70,7 +68,7 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 	}
 }
 
-func TestRolesCreate_EmptyToolsGetsBaseline(t *testing.T) {
+func TestRolesCreate_EmptyToolsStaysEmpty(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -78,12 +76,8 @@ func TestRolesCreate_EmptyToolsGetsBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	want := map[tool.Name]bool{"managers": true, "reports": true}
-	for _, n := range got.Tools {
-		delete(want, n)
-	}
-	if len(want) != 0 {
-		t.Fatalf("baseline tools missing: %v (got %v)", want, got.Tools)
+	if len(got.Tools) != 0 {
+		t.Fatalf("expected empty tools, got %v", got.Tools)
 	}
 }
 
