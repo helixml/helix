@@ -173,15 +173,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			}
 		}
 
-		// Apply substitutions for all model fields
-
-		// Main provider/model
-		applySubstitution("provider/model", assistant.Provider, assistant.Model,
-			func(p string) { assistant.Provider = p },
-			func(m string) { assistant.Model = m })
-
-		// Agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Reasoning model
 			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
 				func(p string) { assistant.ReasoningModelProvider = p },
@@ -201,10 +193,29 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			applySubstitution("small_generation_model", assistant.SmallGenerationModelProvider, assistant.SmallGenerationModel,
 				func(p string) { assistant.SmallGenerationModelProvider = p },
 				func(m string) { assistant.SmallGenerationModel = m })
+		} else {
+			// Main provider/model for non-agent assistants.
+			applySubstitution("provider/model", assistant.Provider, assistant.Model,
+				func(p string) { assistant.Provider = p },
+				func(m string) { assistant.Model = m })
 		}
 	}
 
 	return substitutions, nil
+}
+
+func normalizeHelixAgentAssistantSpecs(app *types.App) {
+	if app == nil {
+		return
+	}
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+		if assistant.AgentType != types.AgentTypeHelixAgent {
+			continue
+		}
+		assistant.Provider = ""
+		assistant.Model = ""
+	}
 }
 
 // findModelSubstitution finds the first available model from the alternatives list.
@@ -467,6 +478,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 			Msg("No model classes provided, skipping substitution")
 	}
 
+	normalizeHelixAgentAssistantSpecs(app)
+
 	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
@@ -615,22 +628,31 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		Msg("Available providers during validation")
 
 	// Helper function to validate a provider/model pair
-	validateProviderModel := func(fieldName, provider, model string, assistantName string, isAgentMode bool) error {
+	validateProviderModel := func(fieldName, provider, model string, assistantName string, allowEmptyProvider bool) error {
 		if provider == "" && model == "" {
 			return nil // Both empty is ok
 		}
 
-		if model == "" && !isAgentMode {
+		if provider == "" && !allowEmptyProvider {
 			log.Error().
 				Str("user_id", user.ID).
 				Str("assistant_name", assistantName).
 				Str("field_name", fieldName).
-				Msg("Validation failed: assistant has no model and is not in agent mode")
+				Msg("Validation failed: assistant has no provider")
+			return fmt.Errorf("assistant '%s' must have a provider for %s", assistantName, fieldName)
+		}
+
+		if model == "" {
+			log.Error().
+				Str("user_id", user.ID).
+				Str("assistant_name", assistantName).
+				Str("field_name", fieldName).
+				Msg("Validation failed: assistant has no model")
 			return fmt.Errorf("assistant '%s' must have a model for %s", assistantName, fieldName)
 		}
 
-		// If provider set, check if we have it
-		if provider != "" && !isAgentMode {
+		// If provider set, check if we have it.
+		if provider != "" {
 			if !providerKnown(provider) {
 				log.Error().
 					Str("user_id", user.ID).
@@ -658,6 +680,10 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("agent_type", string(assistant.GetAgentType())).
 			Msg("Validating individual assistant")
 
+		if assistant.AgentType == types.AgentTypeHelixAgent && (assistant.Provider != "" || assistant.Model != "") {
+			return fmt.Errorf("helix_agent assistant '%s' must not set top-level provider/model; use reasoning_model_provider, generation_model_provider, small_reasoning_model_provider, and small_generation_model_provider", assistant.Name)
+		}
+
 		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
 			// Provider and model are only required in explicit API key mode,
 			// where the agent routes through the Helix proxy.
@@ -672,13 +698,13 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		}
 
 		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, true)
 		if err != nil {
 			return err
 		}
 
 		// If in agent mode, validate all agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Validate reasoning model
 			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
 			if err != nil {
@@ -1032,6 +1058,8 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+
+	normalizeHelixAgentAssistantSpecs(&update)
 
 	err = s.validateProvidersAndModels(r.Context(), user, &update)
 	if err != nil {
@@ -2013,6 +2041,7 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	app.Updated = time.Now()
 
 	app.Config.Helix.Name = r.URL.Query().Get("name")
+	normalizeHelixAgentAssistantSpecs(app)
 
 	app, err = s.Store.CreateApp(r.Context(), app)
 	if err != nil {
