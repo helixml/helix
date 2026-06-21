@@ -968,17 +968,14 @@ func TestWorkerRoleBaselineReadsOverMCP(t *testing.T) {
 	}
 }
 
-// TestCreateRoleInjectsBaselineOverMCP simulates the second half of the
-// §13 regression: an owner who creates a role with a minimal mutation-
-// only tools list. Without baseline injection, a Worker hired into that
-// role would have no way to read its reporting graph. With injection,
-// every BaseReadTools entry is on the hired Worker's MCP surface.
-func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
+// TestCreateRolePreservesCallerToolsOverMCP verifies that a role created via
+// create_role exposes exactly the caller-supplied tools on the hired Worker's
+// MCP surface — no baseline is injected by create_role; operators add reads
+// explicitly via the role detail page.
+func TestCreateRolePreservesCallerToolsOverMCP(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
-	// Seed a manager worker to act as (the chart's New-Role → Add-Worker
-	// entry point, now that there is no auto-seeded owner).
 	seedActingWorker(t, s, "org-test", "w-owner", "r-owner", mcptools.OwnerRoleTools())
 
 	reg := mcptools.NewRegistry()
@@ -991,9 +988,8 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
-	// Owner creates a §13-style QA-engineer role with only the mutation
-	// tools its prompt mentions. No reads are listed by the caller —
-	// the baseline must arrive via injection.
+	// Owner creates a role with only the caller-supplied mutation tools.
+	// No baseline is appended — the role stores exactly these four.
 	invokeExpectID(t, ownerSession, mcptools.CreateRoleName, map[string]any{
 		"id":      "r-qa",
 		"content": "# QA Engineer\nDM and publish only.",
@@ -1016,15 +1012,19 @@ func TestCreateRoleInjectsBaselineOverMCP(t *testing.T) {
 	for _, tl := range res.Tools {
 		got[tl.Name] = true
 	}
-	for _, name := range mcptools.BaseReadTools {
-		if !got[name] {
-			t.Errorf("baseline tool %q missing from w-qa-1 MCP surface; got: %+v", name, got)
-		}
-	}
-	// Caller-supplied tools must also still be present.
+	// Only the caller-supplied tools should be present on the MCP surface.
 	for _, name := range []string{"dm", "publish", "subscribe", "read_events"} {
 		if !got[name] {
 			t.Errorf("caller-specified tool %q missing from w-qa-1 MCP surface; got: %+v", name, got)
+		}
+	}
+	// Baseline tools must NOT be injected by create_role.
+	for _, name := range mcptools.BaseReadTools {
+		if name == "read_events" {
+			continue // read_events is also in the caller list above; skip it
+		}
+		if got[name] {
+			t.Errorf("baseline tool %q unexpectedly present on w-qa-1 MCP surface (create_role must not inject baseline)", name)
 		}
 	}
 }

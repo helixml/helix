@@ -59,49 +59,29 @@ func invokeCreateRole(t *testing.T, deps Config, caller orgchart.Worker, args st
 	return role
 }
 
-// TestCreateRoleEmptyToolsGetsFullBaseline simulates a caller that
-// forgets the `tools` field entirely (or passes []). The created Role
-// must still expose the full read baseline — otherwise its Workers
-// would have no MCP surface at all and §13-style introspection would
-// silently fail.
-func TestCreateRoleEmptyToolsGetsFullBaseline(t *testing.T) {
+// TestCreateRoleEmptyToolsStaysEmpty simulates a caller that forgets the
+// `tools` field entirely (or passes []). The created Role must store an
+// empty tools list — no baseline is injected at creation time; operators
+// add tools explicitly via the role detail page.
+func TestCreateRoleEmptyToolsStaysEmpty(t *testing.T) {
 	t.Parallel()
 	deps, caller := newCreateRoleCaller(t, "org-test")
 	role := invokeCreateRole(t, deps, caller, `{"id":"r-empty","content":"# Empty role"}`)
-	if !reflect.DeepEqual(role.Tools, BaseReadTools) {
-		t.Fatalf("empty-tools role drifted from BaseReadTools.\n got: %v\nwant: %v", role.Tools, BaseReadTools)
+	if len(role.Tools) != 0 {
+		t.Fatalf("empty-tools role should have no tools.\n got: %v\nwant: []", role.Tools)
 	}
 }
 
-// TestCreateRoleUnionWithCallerTools is the headline behaviour: a
-// caller-supplied tools list is preserved (order + custom tools) and
-// the baseline is appended. The duplicate `managers` in the caller
-// input — already part of the baseline — must not appear twice.
-func TestCreateRoleUnionWithCallerTools(t *testing.T) {
+// TestCreateRoleCallerToolsPreserved verifies that a caller-supplied tools
+// list is stored verbatim — no baseline is appended. The created Role holds
+// exactly the tools the caller provided, in the order given.
+func TestCreateRoleCallerToolsPreserved(t *testing.T) {
 	t.Parallel()
 	deps, caller := newCreateRoleCaller(t, "org-test")
 	role := invokeCreateRole(t, deps, caller,
 		`{"id":"r-qa","content":"# QA","tools":["publish","managers","subscribe"]}`)
-	want := []tool.Name{
-		// Caller's order preserved, deduped (managers comes from the
-		// caller, not from the baseline appendage).
-		PublishName,
-		ManagersName,
-		SubscribeName,
-		// Baseline tail in BaseReadTools order, minus the already-present `managers`.
-		ReportsName,
-		ListWorkersName,
-		GetWorkerName,
-		ListRolesName,
-		GetRoleName,
-		ListStreamsName,
-		GetStreamName,
-		ListStreamEventsName,
-		ReadEventsName,
-		WorkerLogName,
-		MintCredentialName,
-	}
+	want := []tool.Name{PublishName, ManagersName, SubscribeName}
 	if !reflect.DeepEqual(role.Tools, want) {
-		t.Fatalf("create_role union drifted.\n got: %v\nwant: %v", role.Tools, want)
+		t.Fatalf("create_role did not preserve caller tools.\n got: %v\nwant: %v", role.Tools, want)
 	}
 }

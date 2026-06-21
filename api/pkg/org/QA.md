@@ -79,8 +79,9 @@ in that Role on their next MCP request.
 
 1. **Roles** in the middle sidebar. Columns: ID / Content / Tools /
    Streams / Updated.
-2. `r-root` (seeded in §1) shows the baseline read tools the New-Role
-   flow injects (`managers`, `reports`, `read_events`, … — non-empty).
+2. `r-root` (seeded in §1) shows an **empty tools list** — the New-Role
+   dialog no longer injects a baseline; operators add tools explicitly
+   via the role detail page after creation.
    The removed position tools (`create_position`, `list_positions`,
    `get_position`, `list_position_children`) are NOT present — pin
    so re-adding them is a deliberate, visible change.
@@ -444,9 +445,9 @@ abstractly (escalate up via `managers`+`dm`; brief down via
 `reports`+`publish` to the team stream). Both are MCP tools on each
 Worker's surface — call them via `tools/call` at
 `/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` (the same endpoint §2.8
-uses for `tools/list`). The seeded `r-root` and every Role drafted via
-`/role` carry `managers` + `reports` (baseline reads are injected on
-create).
+uses for `tools/list`). New Roles start with an empty tools list — operators must add
+`managers` and `reports` (and any other reads) explicitly via the role
+detail page after creating the role.
 
 Setup: in a fresh role that lists `managers`, `reports`, hire AI
 `w-mgr` (parent `w-root`), AI `w-rep` (parent `w-mgr`), and AI `w-sub`
@@ -732,9 +733,9 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   Role → Add Worker creates `w-root` (`role_id = r-root`);
   `org_reporting_lines` is empty; no `org_positions` / `org_environments`
   table.
-- §2 — `r-root` has a non-empty tool set (position tools absent);
-  multi-select adds/removes a tool; refresh persists; an edit
-  propagates to every Worker in the role on the next MCP
+- §2 — `r-root` starts with an empty tool set (no baseline is injected
+  on create); multi-select adds/removes a tool; refresh persists; an
+  edit propagates to every Worker in the role on the next MCP
   `tools/list`.
 - §3 — AI worker creation doesn't crash the API; firing any worker
   (including the root) succeeds with no protection (204, never a 409
