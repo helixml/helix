@@ -66,14 +66,16 @@ type CreateParams struct {
 }
 
 // Create builds and persists a new Role, returning the created
-// aggregate. The caller's tools are unioned with the base read tools
-// (caller order preserved, baseline appended, deduped).
+// aggregate. The caller's tools are stored verbatim — no baseline is
+// injected at creation time, so a new Role starts with exactly the
+// tools the caller supplied (empty by default from the UI). Operators
+// can add tools explicitly via the role detail page.
 func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgchart.Role, error) {
 	id := orgchart.RoleID(strings.TrimSpace(p.ID))
 	if id == "" {
 		id = orgchart.RoleID("r-" + r.newID())
 	}
-	role, err := orgchart.NewRole(id, p.Content, MergeTools(p.Tools, r.baseTools), p.Streams, r.now(), orgID)
+	role, err := orgchart.NewRole(id, p.Content, p.Tools, p.Streams, r.now(), orgID)
 	if err != nil {
 		return orgchart.Role{}, err
 	}

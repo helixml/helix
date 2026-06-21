@@ -42,11 +42,6 @@ func (a *apiHandler) createRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("id is required"))
 		return
 	}
-	// The service unions the caller's tools with the universal read
-	// baseline — same merge the MCP create_role tool applies. Without
-	// this, the chart UI's "New Role" dialog (no tools picker) would
-	// create Roles with empty tool lists and every Worker holding them
-	// would have no MCP surface at all.
 	rl, err := a.deps.Roles.Create(r.Context(), orgID, roles.CreateParams{
 		ID:      strings.TrimSpace(req.ID),
 		Content: req.Content,

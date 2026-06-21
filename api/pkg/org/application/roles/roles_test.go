@@ -53,9 +53,9 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 	if !got.CreatedAt.Equal(fixedClock()) {
 		t.Fatalf("CreatedAt = %v", got.CreatedAt)
 	}
-	// Caller's tool is preserved at head, baseline unioned and deduped.
-	if len(got.Tools) != 3 || got.Tools[0] != "publish" || got.Tools[1] != "managers" || got.Tools[2] != "reports" {
-		t.Fatalf("tools union wrong: %v", got.Tools)
+	// Only the caller's tool is present — no baseline injected at create time.
+	if len(got.Tools) != 1 || got.Tools[0] != "publish" {
+		t.Fatalf("tools wrong: %v", got.Tools)
 	}
 	if len(got.Streams) != 1 || got.Streams[0] != "s-general" {
 		t.Fatalf("streams = %v", got.Streams)
@@ -70,7 +70,7 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 	}
 }
 
-func TestRolesCreate_EmptyToolsGetsBaseline(t *testing.T) {
+func TestRolesCreate_EmptyToolsStaysEmpty(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -78,12 +78,8 @@ func TestRolesCreate_EmptyToolsGetsBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	want := map[tool.Name]bool{"managers": true, "reports": true}
-	for _, n := range got.Tools {
-		delete(want, n)
-	}
-	if len(want) != 0 {
-		t.Fatalf("baseline tools missing: %v (got %v)", want, got.Tools)
+	if len(got.Tools) != 0 {
+		t.Fatalf("new role should have empty tools, got %v", got.Tools)
 	}
 }
 
@@ -133,7 +129,7 @@ func TestRolesUpdate_ContentOnlyPreservesToolsStreams(t *testing.T) {
 	if got.Content != "# new" {
 		t.Fatalf("content = %q", got.Content)
 	}
-	// Tools (publish + baseline) and streams survive the content-only patch.
+	// Tools and streams survive the content-only patch.
 	if len(got.Tools) == 0 {
 		t.Fatalf("tools wiped: %v", got.Tools)
 	}

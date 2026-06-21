@@ -244,7 +244,13 @@ const HelixOrgRoles: FC = () => {
         </DeleteConfirmWindow>
       )}
 
-      <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
+      <NewRoleDialog
+        open={newRoleOpen}
+        onClose={() => setNewRoleOpen(false)}
+        onCreated={(id) => {
+          if (orgSlug) router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: id })
+        }}
+      />
     </Page>
   )
 }
