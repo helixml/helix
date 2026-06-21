@@ -44,8 +44,6 @@ const HireWorkerDrawer: FC<HireWorkerDrawerProps> = ({ open, onClose, presetRole
   const { data: workersData } = useListHelixOrgWorkers({ enabled: open })
 
   const [id, setId] = useState('')
-  // Human workers aren't supported yet — default to AI and disable the
-  // Human option below.
   const [kind, setKind] = useState<'ai' | 'human'>('ai')
   const [identity, setIdentity] = useState('')
   const [roleId, setRoleId] = useState(presetRoleId ?? '')
@@ -140,10 +138,9 @@ const HireWorkerDrawer: FC<HireWorkerDrawerProps> = ({ open, onClose, presetRole
             value={kind}
             onChange={(e) => setKind(e.target.value as 'ai' | 'human')}
             fullWidth
-            helperText="Human workers aren't supported yet."
           >
-            <MenuItem value="human" disabled>Human</MenuItem>
-            <MenuItem value="ai">AI</MenuItem>
+            <MenuItem value="human">Human</MenuItem>
+            <MenuItem value="ai">AI agent</MenuItem>
           </TextField>
           <TextField
             size="small"
