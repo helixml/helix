@@ -36,6 +36,7 @@ import {
   RoleDTO,
   useDeleteHelixOrgRole,
   useListHelixOrgRoles,
+  useListHelixOrgWorkers,
 } from '../services/helixOrgService'
 
 const HelixOrgRoles: FC = () => {
@@ -47,6 +48,7 @@ const HelixOrgRoles: FC = () => {
   const orgSlug = router.params.org_id as string | undefined
 
   const { data, isLoading } = useListHelixOrgRoles()
+  const { data: workersData } = useListHelixOrgWorkers()
   const deleteRole = useDeleteHelixOrgRole()
 
   const roles = data ?? []
@@ -54,6 +56,11 @@ const HelixOrgRoles: FC = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentRole, setCurrentRole] = useState<RoleDTO | null>(null)
   const [newRoleOpen, setNewRoleOpen] = useState(false)
+
+  const workers = workersData ?? []
+  const affectedWorkers = deleting
+    ? workers.filter((w) => w.role_id === deleting.id).map((w) => w.id ?? '').filter(Boolean)
+    : []
 
   const openRole = (roleId: string) => {
     if (!orgSlug) return
@@ -241,6 +248,17 @@ const HelixOrgRoles: FC = () => {
             Worker holding this Role is fired and their per-Worker subscriptions are dropped.
             This is irreversible.
           </Typography>
+          {affectedWorkers.length > 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Workers that will be fired:{' '}
+              {affectedWorkers.map((id, i) => (
+                <span key={id}>
+                  {i > 0 && ', '}
+                  <b style={{ fontFamily: 'monospace' }}>{id}</b>
+                </span>
+              ))}
+            </Typography>
+          )}
         </DeleteConfirmWindow>
       )}
 
