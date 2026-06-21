@@ -37,7 +37,29 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		AppID: appID,
 	}
 
-	if orgID != "" {
+	switch {
+	case appID != "":
+		// Knowledge is an app-scoped resource. Authorize against the app
+		// itself (the same way getApp does) instead of owner-equality, so
+		// everyone who can see the agent can see its knowledge — including
+		// org members editing a shared project agent they don't personally
+		// own. ensureKnowledge stamps each row with the app owner's id, so an
+		// owner-scoped list hides knowledge from any other authorized viewer
+		// (and a non-owner re-adding a source would silently delete the
+		// owner's existing sources). Listing by app_id alone is safe because
+		// app IDs are globally unique and access is gated by the check below.
+		app, err := s.Store.GetApp(ctx, appID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+			}
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		// No owner filter — app authorization is the gate.
+	case orgID != "":
 		org, err := s.lookupOrg(ctx, orgID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -50,7 +72,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		}
 		query.OwnerType = types.OwnerTypeOrg
 		query.Owner = org.ID
-	} else {
+	default:
 		query.OwnerType = user.Type
 		query.Owner = user.ID
 	}
