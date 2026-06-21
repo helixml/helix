@@ -36,6 +36,7 @@ import {
   RoleDTO,
   useDeleteHelixOrgRole,
   useListHelixOrgRoles,
+  useListHelixOrgWorkers,
 } from '../services/helixOrgService'
 
 const HelixOrgRoles: FC = () => {
@@ -47,6 +48,7 @@ const HelixOrgRoles: FC = () => {
   const orgSlug = router.params.org_id as string | undefined
 
   const { data, isLoading } = useListHelixOrgRoles()
+  const { data: allWorkers } = useListHelixOrgWorkers()
   const deleteRole = useDeleteHelixOrgRole()
 
   const roles = data ?? []
@@ -229,20 +231,39 @@ const HelixOrgRoles: FC = () => {
         </MenuItem>
       </Menu>
 
-      {deleting && (
-        <DeleteConfirmWindow
-          title="role"
-          submitTitle="Delete"
-          onSubmit={handleDelete}
-          onCancel={() => setDeleting(undefined)}
-        >
-          <Typography variant="body1">
-            Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> cascades: every
-            Worker holding this Role is fired and their per-Worker subscriptions are dropped.
-            This is irreversible.
-          </Typography>
-        </DeleteConfirmWindow>
-      )}
+      {deleting && (() => {
+        const affectedWorkers = (allWorkers ?? [])
+          .filter((w) => w.role_id === deleting.id)
+          .map((w) => w.id)
+          .filter(Boolean) as string[]
+        return (
+          <DeleteConfirmWindow
+            title="role"
+            submitTitle="Delete"
+            onSubmit={handleDelete}
+            onCancel={() => setDeleting(undefined)}
+          >
+            <Typography variant="body1">
+              Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> is irreversible.
+            </Typography>
+            {affectedWorkers.length > 0 ? (
+              <Typography variant="body1" sx={{ mt: 1 }}>
+                The following {affectedWorkers.length === 1 ? 'worker' : 'workers'} will be fired:{' '}
+                {affectedWorkers.map((id, i) => (
+                  <span key={id}>
+                    <b style={{ fontFamily: 'monospace' }}>{id}</b>
+                    {i < affectedWorkers.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </Typography>
+            ) : (
+              <Typography variant="body1" sx={{ mt: 1 }}>
+                No workers currently hold this role.
+              </Typography>
+            )}
+          </DeleteConfirmWindow>
+        )
+      })()}
 
       <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
     </Page>

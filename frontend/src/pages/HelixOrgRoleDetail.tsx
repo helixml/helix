@@ -44,6 +44,7 @@ import {
   useDeleteHelixOrgRole,
   useHelixOrgRole,
   useListHelixOrgTools,
+  useListHelixOrgWorkers,
   useUpdateHelixOrgRole,
 } from '../services/helixOrgService'
 
@@ -57,6 +58,7 @@ const HelixOrgRoleDetail: FC = () => {
 
   const { data, isLoading } = useHelixOrgRole(roleId)
   const { data: toolCatalogue } = useListHelixOrgTools()
+  const { data: allWorkers } = useListHelixOrgWorkers()
   const updateRole = useUpdateHelixOrgRole()
   const deleteRole = useDeleteHelixOrgRole()
 
@@ -85,6 +87,11 @@ const HelixOrgRoleDetail: FC = () => {
       .map<ToolDTO>((name) => ({ name, description: '(not in current catalogue)' }))
     return [...cat, ...extras]
   }, [toolCatalogue, tools])
+
+  const affectedWorkers = useMemo(
+    () => (allWorkers ?? []).filter((w) => w.role_id === roleId).map((w) => w.id).filter(Boolean) as string[],
+    [allWorkers, roleId],
+  )
 
   const dirty = useMemo(() => {
     if (!data) return false
@@ -292,10 +299,23 @@ const HelixOrgRoleDetail: FC = () => {
           onCancel={() => setConfirmingDelete(false)}
         >
           <Typography variant="body1">
-            Deleting role <b style={{ fontFamily: 'monospace' }}>{roleId}</b> cascades:
-            every position under it is deleted and every worker in those positions is fired.
-            This is irreversible.
+            Deleting role <b style={{ fontFamily: 'monospace' }}>{roleId}</b> is irreversible.
           </Typography>
+          {affectedWorkers.length > 0 ? (
+            <Typography variant="body1" sx={{ mt: 1 }}>
+              The following {affectedWorkers.length === 1 ? 'worker' : 'workers'} will be fired:{' '}
+              {affectedWorkers.map((id, i) => (
+                <span key={id}>
+                  <b style={{ fontFamily: 'monospace' }}>{id}</b>
+                  {i < affectedWorkers.length - 1 ? ', ' : ''}
+                </span>
+              ))}
+            </Typography>
+          ) : (
+            <Typography variant="body1" sx={{ mt: 1 }}>
+              No workers currently hold this role.
+            </Typography>
+          )}
         </DeleteConfirmWindow>
       )}
     </Page>
