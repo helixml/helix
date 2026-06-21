@@ -265,7 +265,11 @@ const HelixOrgRoles: FC = () => {
         )
       })()}
 
-      <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
+      <NewRoleDialog
+        open={newRoleOpen}
+        onClose={() => setNewRoleOpen(false)}
+        onCreated={(id) => openRole(id)}
+      />
     </Page>
   )
 }

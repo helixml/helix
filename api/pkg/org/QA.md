@@ -86,8 +86,14 @@ in that Role on their next MCP request.
    so re-adding them is a deliberate, visible change.
 3. `r-root` vertical-dot menu offers **Open** and an enabled
    **Delete** — no role is protected.
-4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens,
-   Tools field empty.
+4. **+ New Role** → `r-test-dm`, content `# DM`. UI navigates to the
+   new role's detail page (`…/helix-org/roles/r-test-dm`). Tools field
+   shows the 12 baseline read tools (`managers`, `reports`,
+   `list_workers`, `get_worker`, `list_roles`, `get_role`,
+   `list_streams`, `get_stream`, `list_stream_events`, `read_events`,
+   `worker_log`, `mint_credential`) — the `BaseReadTools` set injected
+   by `MergeBaseReadTools` on every new Role. No additional tools are
+   pre-selected beyond this baseline.
 5. Click the Tools dropdown. The available tools render. Tick `dm` —
    popper stays open (`disableCloseOnSelect`). Press Escape.
 6. **Save** → snackbar `role r-test-dm saved` → button disables.

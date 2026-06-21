@@ -18,9 +18,10 @@ import { useCreateHelixOrgRole } from '../../services/helixOrgService'
 export type NewRoleDialogProps = {
   open: boolean
   onClose: () => void
+  onCreated?: (roleId: string) => void
 }
 
-const NewRoleDialog: FC<NewRoleDialogProps> = ({ open, onClose }) => {
+const NewRoleDialog: FC<NewRoleDialogProps> = ({ open, onClose, onCreated }) => {
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgRole()
   const [id, setId] = useState('')
@@ -42,6 +43,7 @@ const NewRoleDialog: FC<NewRoleDialogProps> = ({ open, onClose }) => {
       await create.mutateAsync({ id: trimmedId, content })
       snackbar.success(`role ${trimmedId} created`)
       onClose()
+      onCreated?.(trimmedId)
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'create role failed')
     }
