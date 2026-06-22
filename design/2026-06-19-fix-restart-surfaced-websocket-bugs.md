@@ -82,29 +82,41 @@ Clearing `ZedThreadID` makes Zed create a new thread; Helix's `handleThreadCreat
 
 `buildExtraHosts()` (`api/pkg/hydra/devcontainer.go:1100`) resolves `api` to a concrete IP at container-creation time and bakes `api:<ip>` / `outer-api:<ip>` into the desktop via `hostConfig.ExtraHosts` (`:877`). The entry is immutable for the container's lifetime. When `api` is recreated on a new IP, surviving desktops dial a dead address and Zed reconnects forever. Compounding: `./stack stop` doesn't stop `sandbox-nvidia` (gated behind the `code-nvidia` profile, `docker-compose.dev.yaml:216`), so desktops survive a full stop/start while `api` gets a new IP — guaranteeing a stale pin. The recovery path `autoStartDevContainerForSession` is a no-op when the container already exists, so nothing self-heals.
 
-### Recommended fix (primary): pin `api` to a static IP on the helix network
+### Why we pin an IP at all (Phil's question — answered from the code)
 
-Give the `api` service a fixed IPv4 on the `helix_default` network (explicit `ipam` subnet + `ipv4_address` in `docker-compose.dev.yaml`, and the prod compose). Then the baked `/etc/hosts` value is **permanently correct** across any `api` recreation, and surviving desktops reconnect automatically once `api` is back. This addresses root cause #1 directly without touching the hot path.
+The desktop runs inside the sandbox's **inner dockerd** on a `bridge` network (`devcontainer.go:842`); it has no route to the outer compose network where `api` lives. So `buildExtraHosts()` resolves `api` once (`net.LookupHost("api")`, `:1104`) and writes `api:<ip>` / `outer-api:<ip>` into the desktop's `/etc/hosts`. Two needs are bundled into that one line:
 
-**Why this over alternatives:**
-- Desktops run inside the sandbox's **inner dockerd**, not the outer compose network, so they cannot simply join `helix_default` to use live Docker DNS (this is exactly why `ExtraHosts` exists — see the `host-gateway` rejection comment at `devcontainer.go:1112-1119`). So "use dynamic DNS" is not available.
-- A static IP makes the existing IP-pinning mechanism reliable instead of replacing it.
+1. **Bridge inner→outer:** give the desktop *some* way to resolve the outer `api` name. Legitimate.
+2. **Defeat Helix-in-Helix DNS shadowing:** when Helix runs inside a Helix desktop, the nested inner compose creates its *own* `api` service that would shadow the real outer one; `outer-api` is the escape-hatch name. Also legitimate.
 
-### Recommended complement (self-heal): recreate the desktop on persistent reconnect failure
+Neither need requires **freezing the IP**. That is the actual defect: it snapshots a value that Docker reassigns on every `api` recreation, and because **`/etc/hosts` takes precedence over DNS**, the frozen entry also *shadows* the live resolution path that would otherwise self-correct.
 
-A static IP prevents the common case but not a subnet reconfiguration or a manual `docker compose up` that reassigns IPs. Add a self-heal: when a session has a live desktop *container* but no WS connection for longer than a threshold (the auto-wake cold-start path already detects "no WS" — `auto_wake_stuck_interactions.go:425-435`), and the container's baked `api` IP no longer matches the current `api` IP, **recreate** the desktop container (which re-runs `buildExtraHosts()` with the fresh IP) instead of the current no-op re-kick. This makes the system self-healing regardless of how `api` was recreated.
+This is also why it never bites production: there `HELIX_API_URL` is a real FQDN resolved by normal DNS (`:796-816`), so nothing is pinned. The bug is specific to the compose/self-hosted topology where `api` is a Docker service name with a volatile IP.
 
-**Scope guard:** the self-heal must be bounded (reuse the existing `AutoWakeCount` retry cap) so a genuinely-unreachable api doesn't churn desktop recreation forever.
+### Recommended fix (primary): resolve `api` dynamically, stop freezing the IP
 
-### Cheap defense-in-depth (optional)
+Phil is right that the static-IP idea is backwards — it doubles down on the snapshot. The sandbox already has the machinery to resolve `api` *live*: it runs a **dns-proxy** (`sandbox/dns-proxy/main.go`, `sandbox/05-start-dns-proxy.sh`) bound to the inner bridge gateway that forwards queries to the outer Docker embedded DNS, which always returns `api`'s current IP. The fix is to route the desktop's resolution of `api`/`outer-api` through that proxy and **remove the frozen `ExtraHosts` pin** (`devcontainer.go:877`, `1100-1126`):
 
-Make `./stack stop` also stop `sandbox-nvidia` and its inner desktops, so nothing survives a full stop/start with a stale pin. This narrows the repro but does not fix the root cause (a bare `api` recreation still bites), so it is secondary to the static IP.
+- Point the desktop container's resolver at the sandbox dns-proxy (per-container `--dns <SANDBOX_GATEWAY>` via `HostConfig.DNS`, or the inner dockerd's `daemon.json` `dns`), and have the proxy answer `api`/`outer-api` by live-resolving the real outer `api` (the proxy already forwards to the outer embedded DNS).
+- Then an `api` restart → new IP → the desktop re-resolves on its next reconnect attempt and recovers on its own. No stale pin, no static-IP compose change, no `/etc/hosts` rewrite.
+- `outer-api` stays the shadow-proof name for the nested H-in-H case, but resolved dynamically through the proxy instead of pinned.
+
+**First implementation step (must confirm):** trace whether desktop containers *already* point their resolver at the dns-proxy gateway. There is no `HostConfig.DNS` set in `devcontainer.go` today, and `daemon.json` (`04-start-dockerd.sh:66-93`) sets no default `dns`, so the wiring likely needs to be added. If desktops already use the proxy, the fix collapses to simply deleting the `api`/`outer-api` lines from `buildExtraHosts()` and letting DNS win.
+
+### Defense-in-depth (optional, bounded): self-heal a desktop that still can't connect
+
+If dynamic resolution can't recover a given desktop (e.g. a cached/wedged Zed connection), add a bounded self-heal: when a session has a live desktop *container* but no WS past a threshold (the auto-wake cold-start path already detects "no WS" — `auto_wake_stuck_interactions.go:425-435`), **recreate** the desktop container instead of the current no-op re-kick. Bound it with the existing `AutoWakeCount` cap so a genuinely-down `api` doesn't churn recreation forever. With the dynamic-DNS fix in place this should rarely fire — it is a backstop, not the primary mechanism.
+
+### Note on `./stack stop`
+
+The issue notes `./stack stop` leaves `sandbox-nvidia` (and its desktops) running while `api` is recreated, which is what makes a full restart reliably trigger the stale pin. With dynamic resolution this is no longer a correctness problem (survivors re-resolve), so changing `stop` is unnecessary — leave it unless there's an independent reason to tear desktops down.
 
 ### Test plan
 - Start stack, get a connected desktop (prompts complete).
-- `./stack stop && ./stack start` (or recreate only `api`).
-- With the static-IP fix: assert the surviving desktop reconnects within one Zed retry interval and a queued prompt is delivered.
-- With the self-heal: force an IP change, assert the desktop container is recreated and reconnects, bounded by the retry cap.
+- `./stack stop && ./stack start` (or recreate only `api` so it lands on a new IP).
+- Assert the surviving desktop re-resolves `api` to the new IP and reconnects within one Zed retry interval, and a queued prompt is delivered — **without** recreating the desktop container.
+- Verify `/etc/hosts` in the desktop no longer contains a pinned `api`/`outer-api` IP (or that DNS resolution wins over it).
+- H-in-H regression: in a nested Helix-in-Helix desktop, confirm `outer-api` still resolves to the *real* outer api and not the nested compose's `api`.
 
 ---
 
@@ -114,8 +126,8 @@ Make `./stack stop` also stop `sandbox-nvidia` and its inner desktops, so nothin
 |-------|-----------|----------------|------|-------|
 | #2642 | API (Go) + chat handler | API only (Air hot-reload) | Low — removes a key, fixes a loop bound | 1st (ship first, unblocks chat path) |
 | #2643 | API (Go) correlation | API only | Medium — touches hot streaming path; must test live + restart | 2nd |
-| #2641 | compose + hydra | compose change; hydra recreate logic = `build-sandbox` | Medium — networking change, test full restart | 3rd (independent) |
+| #2641 | hydra + sandbox dns-proxy | `build-sandbox` (hydra/DNS wiring runs in sandbox) | Medium — DNS/networking change, test full restart + H-in-H | 3rd (independent) |
 
-None of the three depends on another. #2642 and #2643 are pure Go (API Air hot-reload). #2641 touches compose + hydra and needs a sandbox rebuild for the self-heal portion.
+None of the three depends on another. #2642 and #2643 are pure Go (API Air hot-reload). #2641 touches hydra DNS wiring (and possibly the sandbox dns-proxy) and needs a sandbox rebuild.
 
 All three must be verified **live against a connected Zed** (per CLAUDE.md: seeded DB rows only exercise the no-connection branch). #2643 specifically must be verified **across an actual `api` restart**, since that is its only trigger.

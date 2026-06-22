@@ -37,10 +37,13 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 - [ ] Live test ACROSS an actual `api` restart on a reused long-lived thread: streamed content lands, interaction completes with real content, no orphan "New Conversation" session
 
 ### #2641 — stale `api` IP pinned in desktop `/etc/hosts`
-- [ ] Pin `api` to a static IPv4 on the helix network (explicit `ipam` + `ipv4_address` in `docker-compose.dev.yaml` and prod compose) so the baked `/etc/hosts` value stays valid
-- [ ] Self-heal: when a session has a live desktop container but no WS past threshold and the container's baked `api` IP no longer matches, recreate the desktop (re-runs `buildExtraHosts()`); bound by existing `AutoWakeCount` cap
-- [ ] Optional defense-in-depth: make `./stack stop` also stop `sandbox-nvidia` + inner desktops
-- [ ] Live test: full `stop`/`start` → surviving desktop reconnects and delivers queued prompt
+Root cause is the **frozen IP**, not the lack of a route: `/etc/hosts` pin shadows the live DNS the sandbox already provides. Resolve `api` dynamically instead of freezing it (NOT a static IP — that doubles down on the snapshot, per Phil's review).
+- [ ] Confirm whether desktop containers already point their resolver at the sandbox dns-proxy gateway (no `HostConfig.DNS` in `devcontainer.go`; `daemon.json` at `04-start-dockerd.sh:66-93` sets no default `dns`) — wire it if not (`HostConfig.DNS = <SANDBOX_GATEWAY>` or inner `daemon.json` `dns`)
+- [ ] Have the sandbox dns-proxy (`sandbox/dns-proxy/main.go`) answer `api`/`outer-api` by live-resolving the real outer `api`
+- [ ] Remove the frozen `api`/`outer-api` lines from `buildExtraHosts()` (`devcontainer.go:1100-1126`) / drop `ExtraHosts` (`:877`) so DNS wins
+- [ ] Defense-in-depth (optional, bounded): self-heal recreates a desktop that still can't connect after threshold, capped by `AutoWakeCount` (`auto_wake_stuck_interactions.go:425-435`) — backstop only
+- [ ] Live test: full `stop`/`start` (api gets a new IP) → surviving desktop re-resolves and reconnects WITHOUT recreation; verify no pinned IP in `/etc/hosts`
+- [ ] H-in-H regression: nested desktop's `outer-api` still resolves to the real outer api
 
 ## Later: full `acp_thread_id` re-keying refactor (separate task)
 - [ ] Replace `requestToInteractionMapping` lookup in `handleMessageCompleted` Step 1 (sync:2570-2598) with the `acp_thread_id` DB query
