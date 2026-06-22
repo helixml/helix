@@ -52,9 +52,9 @@ message_completed paths. So the codebase is already substantially `acp_thread_id
 
 ### #2641 — stale `api` IP pinned in desktop `/etc/hosts` (build third; independent subsystem)
 Root cause is the **frozen IP**, not the lack of a route: `/etc/hosts` pin shadows the live DNS the sandbox already provides. Resolve `api` dynamically instead of freezing it (NOT a static IP — that doubles down on the snapshot, per Luke's review).
-- [ ] Confirm whether desktop containers already point their resolver at the sandbox dns-proxy gateway (no `HostConfig.DNS` in `devcontainer.go`; `daemon.json` at `04-start-dockerd.sh:66-93` sets no default `dns`) — wire it if not (`HostConfig.DNS = <SANDBOX_GATEWAY>` or inner `daemon.json` `dns`)
-- [ ] Have the sandbox dns-proxy (`sandbox/dns-proxy/main.go`) answer `api`/`outer-api` by live-resolving the real outer `api`
-- [ ] Remove the frozen `api`/`outer-api` lines from `buildExtraHosts()` (`devcontainer.go:1100-1126`) / drop `ExtraHosts` (`:877`) so DNS wins
-- [ ] Defense-in-depth (optional, bounded): self-heal recreates a desktop that still can't connect after threshold, capped by `AutoWakeCount` (`auto_wake_stuck_interactions.go:425-435`) — backstop only
-- [ ] Live test: full `stop`/`start` (api gets a new IP) → surviving desktop re-resolves and reconnects WITHOUT recreation; verify no pinned IP in `/etc/hosts`
-- [ ] H-in-H regression: nested desktop's `outer-api` still resolves to the real outer api
+- [x] Confirmed the wiring: no `HostConfig.DNS` in `devcontainer.go` and no default `dns` in `daemon.json` (`04-start-dockerd.sh:66-93`); the dns-proxy binds the bridge gateway (`05-start-dns-proxy.sh`) but nothing pointed desktops at it explicitly. Wired `HostConfig.DNS = sandboxDNSGateway()` (`10.(212+depth).0.1`) on the default-bridge path.
+- [x] Taught the dns-proxy (`sandbox/dns-proxy/main.go`) an `outer-api`→`api` alias (default on) so it re-resolves the real outer `api` on every query. `api` itself already resolves dynamically through the proxy (real outer compose service), so no rewrite needed for it.
+- [x] Removed the frozen pin from the default-bridge path: drop `ExtraHosts`, rely on dns-proxy DNS (kept `buildExtraHosts` only for the non-bridge fallback). Build-verified (`go build ./pkg/hydra/ ./pkg/server/`, `dns-proxy`).
+- [ ] Self-heal (optional, bounded) — **SKIPPED**: the dynamic-DNS fix removes the need; adding unverified recreate-on-stale code would be over-engineering. Recommend only if dynamic DNS proves insufficient in practice.
+- [ ] **BLOCKED (live verify):** full `stop`/`start` → surviving desktop re-resolves WITHOUT recreation; no pinned IP in `/etc/hosts`. Needs `build-sandbox` (blocked by the qwen-code build break in this env). **High blast radius** — verify before merge.
+- [ ] **BLOCKED (live verify):** H-in-H nested desktop `outer-api` resolves to the real outer api via the alias.
