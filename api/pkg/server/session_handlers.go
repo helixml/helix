@@ -2325,6 +2325,80 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 	}, nil
 }
 
+// foregroundSessionThread godoc
+// @Summary Foreground this session's Zed thread on the desktop
+// @Description Tells the per-spec-task Zed desktop to open (foreground) the thread that
+// @Description belongs to THIS session, so the streamed desktop tracks the session the
+// @Description user is viewing. A spec task can have multiple sessions/threads sharing one
+// @Description desktop; the chat panel and message routing are already session-scoped, but
+// @Description nothing previously told the desktop to follow the selected session — so the
+// @Description foregrounded thread could differ from the one messages were sent to. This is
+// @Description session-scoped and never guesses a "latest" thread. It no-ops (200) when the
+// @Description session has no thread yet or the desktop WS is not connected, and crucially
+// @Description NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/foreground-thread [post]
+func (s *HelixAPIServer) foregroundSessionThread(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	if session.Metadata.ZedThreadID == "" {
+		// No thread to foreground yet (e.g. first message not sent). Not an error.
+		return map[string]string{"status": "noop", "reason": "no_thread"}, nil
+	}
+
+	// CRITICAL: gate on a live connection. sendOpenThreadCommand →
+	// sendCommandToExternalAgent auto-starts a dev container on a connection miss;
+	// foregrounding a thread must never boot a desktop. If the desktop isn't
+	// connected there is nothing to foreground.
+	if _, connected := s.externalAgentWSManager.getConnection(sessionID); !connected {
+		return map[string]string{"status": "noop", "reason": "desktop_not_connected"}, nil
+	}
+
+	agentName := s.getAgentNameForSession(ctx, session)
+	if err := s.sendOpenThreadCommand(sessionID, session.Metadata.ZedThreadID, agentName); err != nil {
+		// A reconnect race can close the connection between the check above and the
+		// send. This is best-effort foregrounding, not a state mutation — surface as
+		// a no-op rather than a 500.
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("zed_thread_id", session.Metadata.ZedThreadID).
+			Msg("foreground-thread: open_thread send failed")
+		return map[string]string{"status": "noop", "reason": "send_failed"}, nil
+	}
+
+	return map[string]string{"status": "ok"}, nil
+}
+
 // restartCrashedAgentThread godoc
 // @Summary Restart the external agent after an in-container crash
 // @Description Tears down the half-dead desktop container and brings up a fresh one

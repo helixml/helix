@@ -1063,6 +1063,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/restart-agent", system.Wrapper(apiServer.restartCrashedAgentThread)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/foreground-thread", system.Wrapper(apiServer.foregroundSessionThread)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/output", system.Wrapper(apiServer.getSessionOutput)).Methods(http.MethodGet)
 
 	// Preview-token URLs for sharing a session's running port over a
