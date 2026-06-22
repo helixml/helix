@@ -25874,7 +25874,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It is injected into\nthe sandbox container as ANTHROPIC_MODEL so Claude Code uses it instead of its\nbuilt-in default (Sonnet). Empty means default to \"claude-opus-4-6\".",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"claude-opus-4-6\".",
                     "type": "string"
                 },
                 "code_agent_credential_type": {

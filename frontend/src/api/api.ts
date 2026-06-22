@@ -2119,9 +2119,10 @@ export interface TypesAssistantConfig {
   calculator?: TypesAssistantCalculator;
   /**
    * ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
-   * "claude_code" and CodeAgentCredentialType is "subscription". It is injected into
-   * the sandbox container as ANTHROPIC_MODEL so Claude Code uses it instead of its
-   * built-in default (Sonnet). Empty means default to "claude-opus-4-6".
+   * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
+   * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
+   * which the claude-agent-acp package reads (resolveModelPreference) to pick the
+   * model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
    */
   claude_subscription_model?: string;
   /**
