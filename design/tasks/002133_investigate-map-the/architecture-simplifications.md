@@ -6,21 +6,44 @@ part of the approved fix scope — flagged separately so the fix PR stays focuse
 
 Ranked by leverage (impact ÷ risk).
 
-## 1. Collapse the five correlation maps into one DB-backed resolver (highest leverage)
+## 1. Collapse the five correlation maps into a two-phase, DB-backed resolver (highest leverage)
 Today routing state lives in five in-memory maps under one mutex — `contextMappings`,
 `requestToSessionMapping`, `requestToInteractionMapping`, `interactionToPromptMapping`,
 `sessionToCommenterMapping` — plus a separate `streamingContexts` map under its own mutex.
-Every inbound Zed event ultimately needs just two facts: **which session** and **which
-interaction**. Both are already derivable from persisted state:
-- session ← `acp_thread_id` via `session.Metadata.ZedThreadID` (`findSessionByZedThreadID`)
-- interaction ← most-recent-waiting (or restart-recovered) interaction for that session
-
 The maps are a caching layer that has accidentally become a source of truth — which is why
 a restart (which empties them) loses correlation (#2641/#2642/#2643 all share this cause).
-**Simplification:** one `resolve(acpThreadID) -> (session, interaction)` chokepoint backed by
-the DB, with the maps demoted to a pure optimisation that may be empty without any
-correctness loss. This is the re-key direction; doing it wholesale (not just for #2643's
-path) would delete most of the ~130 critical sections.
+
+**Correction (Luke, 2026-06-22):** `acp_thread_id` does NOT identify an interaction — it is
+1:1 with a *session* only. So the resolver is two phases, and only the first is keyed on the
+thread id:
+
+- **Phase 1 — session:** `acp_thread_id -> session`. Already clean and persisted via
+  `session.Metadata.ZedThreadID` (`findSessionByZedThreadID`). 1:1, survives restart.
+- **Phase 2 — interaction:** `(session, event) -> interaction`. The thread id is no help
+  here. Today this is a heuristic stack — `request_id` mapping if present, else
+  most-recent-`waiting`, else restart-recovery — and that guesswork is where all three bugs
+  live.
+
+The robust Phase 2 uses **explicit turn-state**, not the thread id. Invariant: an ACP thread
+runs **one turn at a time** (no new turn until the previous completes, modulo interrupt), so
+a session has at most one *active* interaction at any instant. Make that explicit and
+persisted:
+
+- the session carries a **current-turn pointer** (e.g. an `active_interaction_id` column),
+  set when a turn starts and cleared on completion;
+- `resolveInteraction(session)` returns that pointer — no `request_id`, no most-recent-waiting
+  scan, no restart guess, and it survives restart because it's a DB column.
+
+`request_id` then isn't needed for routing at all (at most a sanity assertion). The one
+wrinkle — Zed's wrapper flushing buffered events from a *previous* turn under a stale id —
+is a **content-dedup** concern (the accumulator already drops replays by content/`message_id`),
+not a routing concern, so it doesn't argue for keeping `request_id` as the key.
+
+**Simplification:** one `resolveSession(acpThreadID)` + one `resolveInteraction(session)`
+(explicit turn pointer) chokepoint, with the in-memory maps demoted to a pure optimisation
+that may be empty without correctness loss. This is the "explicit turn-state behind one
+swappable chokepoint" direction from the rewrite-strategy doc; done wholesale it deletes most
+of the ~130 critical sections.
 
 ## 2. State-based idempotency instead of the consumed-sentinel ("") dedup
 Duplicate `message_completed` events are currently de-duped by writing `""` into
