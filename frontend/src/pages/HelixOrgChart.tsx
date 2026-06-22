@@ -30,6 +30,7 @@ import {
   MiniMap,
   Node,
   NodeProps,
+  ConnectionMode,
   Position as RFPosition,
   ReactFlow,
   ReactFlowProvider,
@@ -1205,6 +1206,12 @@ const ChartCanvas: FC<{
       // radius, so wiring into a worker / processor port doesn't require
       // pixel-perfect aim.
       connectionRadius={55}
+      // Loose mode lets a connection END on any handle regardless of
+      // source/target type. Needed because a Worker's only target handle
+      // is on top, but a processor's output approaches from the right
+      // (a source handle) — in strict mode that drop is rejected and the
+      // wire silently fails. onConnect validates which combos are real.
+      connectionMode={ConnectionMode.Loose}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
