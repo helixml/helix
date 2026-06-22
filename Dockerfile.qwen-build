@@ -18,6 +18,7 @@ WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts && \
+    npm run build --workspaces --if-present && \
     npm run bundle
 
 # Collect runtime files into /output

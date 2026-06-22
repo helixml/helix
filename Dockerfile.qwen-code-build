@@ -25,7 +25,8 @@ COPY packages/ ./packages/
 # --ignore-scripts skips husky prepare hooks.
 # Cache mount keeps npm download cache across builds even when layer is rebuilt.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --ignore-scripts
+    npm ci --ignore-scripts && \
+    npm run build --workspaces --if-present
 
 # Copy remaining source and build the bundle.
 COPY . .
