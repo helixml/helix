@@ -370,6 +370,17 @@ type Compute struct {
 	// The operator is responsible for the pinned image actually existing
 	// in a registry the workers can pull from.
 	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
+
+	// NeuronCompileCacheURL and RunnerReadinessTimeout are runner-side knobs
+	// (read by compose-manager inside the sandbox) that the Manager forwards
+	// onto provisioned hosts. They share the operator-facing names
+	// HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT with the
+	// vars compose-manager reads directly on bare (install.sh) runners — set
+	// the same var once and it works on both runner topologies. On YD runners
+	// the value travels control-plane -> task env -> bash_script -e -> sandbox.
+	// Empty = not forwarded (compose-manager keeps its own default).
+	NeuronCompileCacheURL  string `envconfig:"HELIX_NEURON_COMPILE_CACHE_URL" default:""`
+	RunnerReadinessTimeout string `envconfig:"HELIX_RUNNER_READINESS_TIMEOUT" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.
