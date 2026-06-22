@@ -35,6 +35,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// ProjectSecretsGetter returns prod-scoped project secrets as `KEY=value`
+// env-var strings to inject into the web service container.
+type ProjectSecretsGetter func(ctx context.Context, projectID string) ([]string, error)
+
 // Controller orchestrates project web service deploys.
 type Controller struct {
 	store         store.Store
@@ -44,6 +48,11 @@ type Controller struct {
 	bootstrapWait time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
 	readinessWait time.Duration // upper bound for waiting for the app to bind to its port
 	readinessPoll time.Duration // poll interval while waiting
+
+	// getProjectSecrets, when set, supplies prod-scoped project secrets to
+	// inject into the web service container env. Optional — nil means no
+	// secrets are injected.
+	getProjectSecrets ProjectSecretsGetter
 }
 
 // New constructs a Controller. The defaults are sized for typical
@@ -58,6 +67,11 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		readinessWait: 90 * time.Second,
 		readinessPoll: 2 * time.Second,
 	}
+}
+
+// SetProjectSecretsGetter wires the prod-scoped secret injection callback.
+func (c *Controller) SetProjectSecretsGetter(getter ProjectSecretsGetter) {
+	c.getProjectSecrets = getter
 }
 
 // DeployRequest is the input to Redeploy.
@@ -154,7 +168,7 @@ func (c *Controller) runDeploy(
 	}
 
 	// Deploy the requested code in place (stops the old app first).
-	if err := c.deployInPlace(ctx, sb, repo, req.CommitSHA, state.ContainerPort); err != nil {
+	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort); err != nil {
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
 	}
@@ -165,7 +179,7 @@ func (c *Controller) runDeploy(
 	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
 		// Roll back to the last-known-good commit so the site comes back up
 		// against the same intact /data. The data is never touched either way.
-		c.rollback(ctx, sb, repo, previousSHA, state.ContainerPort)
+		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort)
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
 		return
 	}
@@ -254,7 +268,11 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 //
 // The exec runs to completion once the app is LAUNCHED (not necessarily
 // ready) — the app is backgrounded via setsid. Readiness is polled separately.
-func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, sha string, containerPort int) error {
+//
+// Prod-scoped project secrets are injected via the exec environment (see
+// projectSecretEnv) so they reach startup.sh without being written into the
+// command line or logs.
+func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int) error {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return err
@@ -262,14 +280,43 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 
 	script := deployScript(repo.CloneURL, sha, containerPort)
 
+	// Inject prod-scoped project secrets via the exec environment (NOT inlined
+	// into the shell script) so the values don't leak into command logs. The
+	// `setsid env HELIX_WEB_SERVICE_PORT=... bash .helix/startup.sh` in the
+	// deploy script inherits this exec process environment, so secrets propagate
+	// through to startup.sh.
+	env := c.projectSecretEnv(ctx, projectID, sb.ID)
+
 	_, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
 		SandboxID:      sb.ID,
 		Cmd:            "/bin/bash",
 		Args:           []string{"-c", script},
 		Cwd:            "/",
+		Env:            env,
 		TimeoutSeconds: int(c.bootstrapWait.Seconds()),
 	})
 	return execErr
+}
+
+// projectSecretEnv returns the prod-scoped project secrets as `KEY=value`
+// env-var strings to inject into the web service container. Returns an empty
+// slice (never nil-panics) when no getter is wired, no project is set, or the
+// getter fails — a secret-load failure must not block a deploy.
+func (c *Controller) projectSecretEnv(ctx context.Context, projectID, sandboxID string) []string {
+	env := []string{}
+	if c.getProjectSecrets == nil || projectID == "" {
+		return env
+	}
+	secretEnv, err := c.getProjectSecrets(ctx, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("failed to load prod project secrets, continuing without them")
+		return env
+	}
+	if len(secretEnv) > 0 {
+		env = append(env, secretEnv...)
+		log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("injected prod project secrets into web service env")
+	}
+	return env
 }
 
 // rollback re-deploys a previously-live commit in place after a failed
@@ -277,12 +324,12 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 // logged, not surfaced (the deploy is already being marked failed). When there
 // is no previous commit (first-ever deploy), there is nothing to roll back to;
 // the broken app is left stopped.
-func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, previousSHA string, containerPort int) {
+func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, previousSHA string, containerPort int) {
 	if previousSHA == "" {
 		log.Warn().Str("sandbox_id", sb.ID).Msg("deploy failed and no previous commit to roll back to; app left stopped")
 		return
 	}
-	if err := c.deployInPlace(ctx, sb, repo, previousSHA, containerPort); err != nil {
+	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rollback to previous commit failed")
 		return
 	}

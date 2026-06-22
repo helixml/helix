@@ -2913,6 +2913,8 @@ export interface TypesCreateSecretRequest {
   name?: string;
   /** optional, if set, the secret will be available to the specified project */
   project_id?: string;
+  /** optional, one of "dev", "prod", "both"; defaults to "both" */
+  scope?: string;
   value?: string;
 }
 
@@ -5342,8 +5344,19 @@ export interface TypesSecret {
   ownerType?: TypesOwnerType;
   /** optional, if set, the secret will be available as env var in project sessions */
   project_id?: string;
+  /**
+   * Scope controls which environment a project secret is injected into.
+   * Defaults to "both" so pre-existing secrets keep their original behaviour.
+   */
+  scope?: TypesSecretScope;
   updated?: string;
   value?: number[];
+}
+
+export enum TypesSecretScope {
+  SecretScopeDev = "dev",
+  SecretScopeProd = "prod",
+  SecretScopeBoth = "both",
 }
 
 export interface TypesServerConfigForFrontend {

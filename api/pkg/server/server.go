@@ -580,8 +580,16 @@ func NewServer(
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 	// Wire project-secret injection into HydraExecutor so every desktop container
 	// (spec task, exploratory session, resume) picks up project secrets without
-	// each caller having to remember.
-	externalAgentExecutor.SetProjectSecretsGetter(apiServer.GetProjectSecretsAsEnvVars)
+	// each caller having to remember. Desktop containers are the "dev"
+	// environment, so they only receive dev- and both-scoped secrets.
+	externalAgentExecutor.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
+		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
+	})
+	// Web service deploys are the "prod" environment, so they receive prod- and
+	// both-scoped secrets, injected into the deployed container's environment.
+	apiServer.webServiceController.SetProjectSecretsGetter(func(ctx context.Context, projectID string) ([]string, error) {
+		return apiServer.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeProd)
+	})
 	// Set the attachment blob reader so the service can pull uploaded files from the filestore.
 	apiServer.specDrivenTaskService.ReadAttachmentBlob = apiServer.readSpecTaskAttachmentBlob
 

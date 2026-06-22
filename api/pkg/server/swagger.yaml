@@ -4626,6 +4626,9 @@ definitions:
         description: optional, if set, the secret will be available to the specified
           project
         type: string
+      scope:
+        description: optional, one of "dev", "prod", "both"; defaults to "both"
+        type: string
       value:
         type: string
     type: object
@@ -8580,6 +8583,12 @@ definitions:
         description: optional, if set, the secret will be available as env var in
           project sessions
         type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/types.SecretScope'
+        description: |-
+          Scope controls which environment a project secret is injected into.
+          Defaults to "both" so pre-existing secrets keep their original behaviour.
       updated:
         type: string
       value:
@@ -8587,6 +8596,16 @@ definitions:
           type: integer
         type: array
     type: object
+  types.SecretScope:
+    enum:
+    - dev
+    - prod
+    - both
+    type: string
+    x-enum-varnames:
+    - SecretScopeDev
+    - SecretScopeProd
+    - SecretScopeBoth
   types.ServerConfigForFrontend:
     properties:
       apps_enabled:
