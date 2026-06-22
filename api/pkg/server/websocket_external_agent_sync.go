@@ -1031,9 +1031,13 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Msg("Notifying external agent of new interaction")
 
 	// Build command data - include acp_thread_id if session already has one (for follow-up messages)
+	//
+	// NOTE: we deliberately do NOT set "role" here. The Zed sync client drops any
+	// chat_message with role=="user" as a UI-sync echo (websocket_sync.rs:421), so a
+	// genuine prompt sent through this path was being silently discarded (#2642). The
+	// queue path (sendQueuedPromptToSession) never set role and works; this matches it.
 	commandData := map[string]interface{}{
 		"message":    interaction.PromptMessage,
-		"role":       "user",
 		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
 	}
 
