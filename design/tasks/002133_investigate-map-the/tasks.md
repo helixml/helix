@@ -26,7 +26,18 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 
 **Single PR (per Luke's review).** All three fixes land in one PR on `feature/002133-forensic-map-of` (pushed). Internal order: #2642 → #2643 → #2641, each its own commit.
 
-> **STATUS (2026-06-22):** All three implemented and `go build`-verified. **Verification is env-blocked:** the inner dev env can't provision a live Zed desktop (startup `build-sandbox`/`build-ubuntu` failed on an unrelated qwen-code build error) and has no C compiler (server unit tests need CGO/tree-sitter). So none of the mandated live tests or `TestWebSocketSyncSuite` could run here — they must run in CI / on a working env before merge. Test-status is flagged honestly per task below.
+> **STATUS (2026-06-22):** All three implemented and `go build`-verified. Verification is partial — see the corrected env note below.
+>
+> **CORRECTION — Zed CAN run here (I was wrong earlier).** The real blocker wasn't "no live Zed", it was a missing desktop image+version (the startup `build-ubuntu` never wrote `/opt/images/helix-ubuntu.version`, so the sandbox heartbeat reported `desktop_versions: {}` and the API couldn't resolve an image tag). Fixed by hand:
+> 1. `docker save localhost:5000/helix-ubuntu:f918d1 | docker compose exec -T sandbox-nvidia docker load`
+> 2. inside the sandbox: `docker tag localhost:5000/helix-ubuntu:f918d1 helix-ubuntu:f918d1` and `echo -n f918d1 > /opt/images/helix-ubuntu.version`
+> 3. wait ~30s for the heartbeat, then "START DESKTOP" on the task.
+>
+> Result: desktop launches, GNOME+video live, and **Zed's sync WebSocket connects to the API** (`Zed.log`: `WebSocket connected! Response status: 101`, message loop running, `agent_ready` sent). So the sync path is exercisable here.
+>
+> **What still blocked turn-level verification:** (a) the test session was wedged in `error` from the original cold-start failure and a fresh turn didn't fire; (b) agent provider/model config warnings (`model info not found for model: (anthropic/)`, ChatGPT provider auth error) suggest turns may not complete without fixing model config. So I did NOT get a completed agent turn to assert on for #2642/#2643.
+> **#2641 is not testable by any desktop here regardless:** hydra (`api/pkg/hydra/`) is NOT hot-reloaded by Air — the running sandbox has the old binary, so launched desktops use the OLD IP-pin path. Testing my hydra change needs a hydra rebuild+redeploy into the sandbox (`build-sandbox`, or the docker cp hot-loop in CLAUDE.md).
+> No C compiler either, so `TestWebSocketSyncSuite` (CGO) still couldn't run. Net: live turn-level + #2641 verification still pending a cleaner run / CI.
 >
 > **Scope change from the plan:** the full `acp_thread_id` map-removal re-key was NOT done. On reading the code, the chokepoint already routes by `acp_thread_id` with DB fallbacks; #2643 was a recovery-gap, now fixed. Removing the maps/sentinel is a complexity reduction with no correctness benefit and real regression risk — reclassified to `architecture-simplifications.md` for separate, verifiable work.
 
