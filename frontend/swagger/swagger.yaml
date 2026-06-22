@@ -3360,6 +3360,14 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      claude_subscription_model:
+        description: |-
+          ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+          "claude_code" and CodeAgentCredentialType is "subscription". It flows through
+          CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
+          which the claude-agent-acp package reads (resolveModelPreference) to pick the
+          model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+        type: string
       code_agent_credential_type:
         allOf:
         - $ref: '#/definitions/types.CodeAgentCredentialType'

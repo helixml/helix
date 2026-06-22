@@ -116,10 +116,14 @@ function get_sandbox_names() {
 # killed (the sandbox's persistent state lives in volumes, not the container).
 function cleanup_sandbox_orphans() {
   local stale
+  # Trailing `|| true` is load-bearing under `set -euo pipefail`: when there are
+  # no orphans, `grep` exits 1, `pipefail` propagates it, and the command
+  # substitution would abort the whole script (the common clean-machine case —
+  # this previously failed `build-sandbox` with "Failed to build sandbox").
   stale=$(docker ps -a --filter status=created --filter status=exited \
             --format '{{.ID}} {{.Names}}' 2>/dev/null \
           | grep -E ' [0-9a-f]+_helix-sandbox-(nvidia|amd-intel|software|macos)-1$' \
-          | awk '{print $1}')
+          | awk '{print $1}' || true)
   if [[ -n "$stale" ]]; then
     echo "🧹 Removing stale hash-prefixed sandbox container(s) from an interrupted recreate"
     echo "$stale" | xargs -r docker rm -f >/dev/null 2>&1 || true
@@ -433,6 +437,15 @@ function _start_services() {
   setup_dev_networking
 
   echo "🐳 Starting docker compose"
+
+  # Pre-create host bind-mount source dirs that are otherwise absent on a fresh
+  # checkout (they're gitignored). If we let `docker compose up -d` materialise
+  # them, the Docker daemon creates them as root:root — and then `build-ubuntu`,
+  # running as the unprivileged dev user, can't write
+  # `sandbox-images/<image>.version`, so the desktop image builds but the sandbox
+  # heartbeat advertises no version and no session can start. Creating it here
+  # (as the invoking user) before `up -d` keeps it user-writable.
+  mkdir -p sandbox-images
 
   # Setup sandbox profile based on GPU detection
   setup_sandbox_profile
@@ -939,9 +952,24 @@ function build-desktop() {
     echo "ℹ️  Image unchanged (layers cached)"
   fi
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  # Always write version file (even if image unchanged, fixes stale version files).
+  # The sandbox reads this to know which desktop image to run; a stale/missing value
+  # means "no session can start". `sandbox-images/` is a docker bind-mount source, so
+  # if `docker compose up` materialised it first it may be root-owned and unwritable
+  # by this (unprivileged) build. Self-heal ownership best-effort, then FAIL LOUDLY
+  # rather than silently leaving a stale version (this path runs with `set -e` off
+  # under build-sandbox, so a plain failed redirect would otherwise be swallowed).
+  mkdir -p sandbox-images 2>/dev/null || true
+  local VERSION_FILE="sandbox-images/${IMAGE_NAME}.version"
+  if ! echo "${IMAGE_TAG}" > "$VERSION_FILE" 2>/dev/null; then
+    sudo -n chown -R "$(id -u):$(id -g)" sandbox-images 2>/dev/null || true
+    if ! echo "${IMAGE_TAG}" > "$VERSION_FILE" 2>/dev/null; then
+      echo "❌ Cannot write ${VERSION_FILE} (owned by $(stat -c %U sandbox-images 2>/dev/null || echo '?'))."
+      echo "   This breaks the sandbox desktop-version heartbeat. Fix ownership and rebuild:"
+      echo "     sudo chown -R \$(id -u):\$(id -g) sandbox-images"
+      return 1
+    fi
+  fi
   echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
