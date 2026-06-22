@@ -51,26 +51,32 @@ All three were surfaced by one event: an `api` container restart on a long-runni
 
 But note: the issue text says the empty-response path "Matched interaction by request_id mapping." After a restart the map is empty, so the more general failure is the `message_added` stream landing on a nil interaction because the streaming context's most-recent-waiting fallback didn't fire (or fired against the wrong/empty set). The fix removes dependence on the in-memory map.
 
-### Fix: resolve the interaction from `acp_thread_id` + DB when `request_id` is absent/unmapped
+### Fix: re-key routing on the persisted `acp_thread_id` (full re-key, this PR)
 
-In `getOrCreateStreamingContext`, when `requestID == ""` **or** the `requestToInteractionMapping` lookup misses, derive the target interaction directly:
+> **Scope decision (per Luke's review):** the full `acp_thread_id` re-key — previously deferred to a "later" task — is folded into this pass. It is the structural fix for the common cause behind all three bugs, and it is **evidence-based, not speculative**: the forensic map's restart-survival matrix shows `acp_thread_id`/`ZedThreadID` is the *only* DB-persisted piece of correlation state, while all five maps + `streamingContexts` are in-memory-only and destroyed on restart. Routing on the persisted key is what makes the system survive an `api` restart. A minimal "additive fallback" would leave the fragile request_id-primary path in place — two coexisting correlation mechanisms — which is harder to maintain and still leaks bugs through paths the fallback doesn't cover. So we commit to the re-key now.
 
-1. `helixSessionID` is already resolved upstream in `handleMessageAdded` via `contextMappings[acp_thread_id]`, which itself falls back to `findSessionByZedThreadID` (DB) on a restart miss (`:1116`). So the session is recoverable from the persisted `session.Metadata.ZedThreadID` without any in-memory state.
-2. Query the most-recent `state=waiting` interaction for that session+generation (the logic already exists at `:1636-1643`) and bind to it.
+Make `acp_thread_id` the **primary routing key**, derived behind a single chokepoint:
 
-The existing most-recent-waiting fallback at `:1636-1643` is the right mechanism; the bug is that on a reused thread after restart it can produce `nil` because the lookup ordering / generation filter or an empty context shortcut skips it. The fix is to make the `acp_thread_id`→session→waiting-interaction path the **primary** resolution when `request_id` is empty, not a best-effort afterthought, and to ensure `handleMessageAdded`'s `targetInteraction == nil` branch (`:1391-1396`) retries this resolution rather than logging-and-dropping.
+1. **Chokepoint.** `getOrCreateStreamingContext` (`websocket_external_agent_sync.go:1491`) is the function nearly all routing already flows through (forensic-map seam #1). Make it resolve target interaction as: `acp_thread_id` → session (via `contextMappings`, which already falls back to `findSessionByZedThreadID` / persisted `session.Metadata.ZedThreadID` on a restart miss, `:1116`) → most-recent `state=waiting` interaction for that session+generation (logic already exists at `:1636-1643`). No dependence on any in-memory map for the primary path.
+2. **`request_id` demoted to an in-thread disambiguator, not the key.** ACP runs one turn at a time per thread, so `acp_thread_id` + most-recent-waiting is sufficient to route. Keep `request_id` only where it genuinely refines (matching a specific in-flight turn when present) and for **duplicate-completion dedup** — do not rip out the dedup/sentinel logic blindly; replace it with an interaction-state check (a `completed` interaction rejects a second completion) so correctness no longer depends on the consumed-sentinel (`""`) in `requestToInteractionMapping`.
+3. **Retire the request_id-primary lookups** at the call sites the forensic map named: `getOrCreateStreamingContext` (`:1491`), `handleMessageCompleted` Step 1 (`:2570-2598`), and the writes in `sendQueuedPromptToSession` (`:3254-3264`). `handleMessageAdded`'s `targetInteraction == nil` branch (`:1391-1396`) resolves via the chokepoint instead of logging-and-dropping. Verify the auto-wake re-send path (`auto_wake_stuck_interactions.go:603-607`) routes through the same chokepoint.
+4. **Keep the chokepoint swappable.** Derive turn-state (running / done / waiting) behind this one function so that when ACP v2's `state_update` notification lands we swap the *source* of transitions rather than rewrite — the design intent from the rewrite-strategy doc.
 
-**Scope guard:** This is the minimal version of forensic-map seam #2. Do NOT delete `requestToInteractionMapping` in this PR — only add the `acp_thread_id`-based resolution as a reliable fallback for the no-`request_id` case. Full removal of the map is a later refactor.
+This subsumes the former "Later: full re-key" task; that section is removed.
+
+**Honest cost (not a robustness doubt — an execution one):** the re-key touches the ~130 critical sections that read those maps. The robustness gain is certain; the risk is regression in concurrent-turn and dedup edge cases. That is what the expanded test matrix below must cover. If, during implementation, an inbound event that needs routing turns out to lack `acp_thread_id` (the map answers this — confirm during the change), fall back to its existing request_id binding for *that event only* and log it loudly rather than silently dropping.
 
 ### Why the "use a fresh thread" workaround is unacceptable (from the issue)
 
 Clearing `ZedThreadID` makes Zed create a new thread; Helix's `handleThreadCreated` then spawns a **new orphan session** ("New Conversation") and delivers the reply there, leaving the worker's interaction `waiting`. `restartSessionContainer` deliberately preserves `ZedThreadID`, so it restores the exact thread that triggers the drop. The reused-thread path must work — hence the fix above.
 
-### Test plan (must be live, per CLAUDE.md)
-- Live spec-task session with a reused long-lived thread (non-empty `ZedThreadID`).
-- Restart the `api` container (`docker compose -f docker-compose.dev.yaml restart api`).
-- Send a follow-up prompt → assert the streamed assistant content lands on the waiting interaction and it completes with real content (no "empty response," no orphan "New Conversation" session created).
-- Confirm `getOrCreateStreamingContext` logged `has_interaction=true` after the restart.
+### Test plan (must be live, per CLAUDE.md; expanded for the re-key)
+- **Restart survival (the bug):** live spec-task session with a reused long-lived thread (non-empty `ZedThreadID`); restart the `api` container (`docker compose -f docker-compose.dev.yaml restart api`); send a follow-up → assert streamed content lands on the waiting interaction and completes with real content (no "empty response," no orphan "New Conversation"). Confirm `getOrCreateStreamingContext` logged `has_interaction=true` after restart.
+- **Happy path unchanged:** fresh thread (with `thread_created`) still routes correctly.
+- **Dedup:** a duplicate `message_completed` for an already-`completed` interaction is rejected by the state check, not by the consumed-sentinel — assert no double-write, no error re-queue.
+- **Concurrent/sequential turns on one thread:** send turn B before turn A's completion is fully processed → assert each completion lands on its own interaction (this is the case `request_id`-as-disambiguator must still cover).
+- **Queue path + auto-wake:** both route through the chokepoint and resolve the right interaction without the request_id maps.
+- **Regression:** run the Go unit suite (`TestWebSocketSyncSuite`) and the Zed↔Helix E2E (`run_docker_e2e.sh`, both agents) — the 9-phase E2E exercises new-thread, follow-up, non-visible-thread, interrupt, and rapid 3-turn cancel, which are exactly the correlation edges the re-key touches.
 
 ---
 
@@ -120,14 +126,16 @@ The issue notes `./stack stop` leaves `sandbox-nvidia` (and its desktops) runnin
 
 ---
 
-## Sequencing & risk
+## Scope: one PR (per Luke's review)
 
-| Issue | Subsystem | Rebuild needed | Risk | Order |
-|-------|-----------|----------------|------|-------|
-| #2642 | API (Go) + chat handler | API only (Air hot-reload) | Low — removes a key, fixes a loop bound | 1st (ship first, unblocks chat path) |
-| #2643 | API (Go) correlation | API only | Medium — touches hot streaming path; must test live + restart | 2nd |
-| #2641 | hydra + sandbox dns-proxy | `build-sandbox` (hydra/DNS wiring runs in sandbox) | Medium — DNS/networking change, test full restart + H-in-H | 3rd (independent) |
+All three fixes **plus** the full `acp_thread_id` re-key land in a **single PR**. Build it in this internal order so each layer is independently verifiable before the next stacks on top:
 
-None of the three depends on another. #2642 and #2643 are pure Go (API Air hot-reload). #2641 touches hydra DNS wiring (and possibly the sandbox dns-proxy) and needs a sandbox rebuild.
+| Layer | Subsystem | Rebuild | Risk | Build order within the PR |
+|-------|-----------|---------|------|---------------------------|
+| #2642 — `role` drop + notify storm | API (Go) + chat handler | API only (Air hot-reload) | Low — removes a key, fixes a loop bound | 1st (smallest, unblocks chat path) |
+| #2643 + full re-key | API (Go) correlation | API only | **High** — touches the ~130 critical sections; the substantive change | 2nd (the core) |
+| #2641 — dynamic DNS | hydra + sandbox dns-proxy | `build-sandbox` | Medium — DNS/networking; test full restart + H-in-H | 3rd (independent subsystem) |
 
-All three must be verified **live against a connected Zed** (per CLAUDE.md: seeded DB rows only exercise the no-connection branch). #2643 specifically must be verified **across an actual `api` restart**, since that is its only trigger.
+The three are functionally independent, so they can be reviewed as distinct commits within the one PR. **One honest note for the reviewer:** #2641 is a different subsystem (sandbox DNS, needs `build-sandbox`) from the Go correlation work; keeping it as its own commit means it can be reverted or split out without unpicking the re-key if CI/topology surprises arise. The re-key (#2643) is the high-risk centre of the PR — its expanded test matrix above (restart survival, dedup, concurrent turns, full E2E both agents) is the gate for the whole PR.
+
+All layers must be verified **live against a connected Zed** (per CLAUDE.md: seeded DB rows only exercise the no-connection branch). The re-key must additionally be verified **across an actual `api` restart** and against the **Zed↔Helix E2E** suite, since that is where the correlation edges live.
