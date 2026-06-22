@@ -133,13 +133,27 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "claude_code subscription mode - explicit credential type",
+			name: "claude_code subscription mode - defaults to Opus",
 			assistant: &types.AssistantConfig{
 				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
+				Model:     "claude-opus-4-6",
+				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "claude_code subscription mode - honours ClaudeSubscriptionModel override",
+			assistant: &types.AssistantConfig{
+				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+				ClaudeSubscriptionModel: "claude-haiku-4-5-latest",
+			},
+			want: &types.CodeAgentConfig{
+				AgentName: "claude",
+				Model:     "claude-haiku-4-5-latest",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
@@ -153,6 +167,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
+				Model:     "claude-opus-4-6",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},

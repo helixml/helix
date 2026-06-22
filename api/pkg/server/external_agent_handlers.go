@@ -148,21 +148,12 @@ func (apiServer *HelixAPIServer) subscriptionEnvForSession(ctx context.Context, 
 			Msg("claude_code subscription mode but no active Claude subscription found for session owner")
 		return nil
 	}
-	// Pick the model Claude Code should use. Without this, Claude Code
-	// falls back to its built-in default (Sonnet); subscription users want
-	// Opus by default for harder work, with an optional per-agent override.
-	model := asst.ClaudeSubscriptionModel
-	if model == "" {
-		model = "claude-opus-4-6"
-	}
 	out := []string{
 		// Anthropic-direct; overrides the helix-proxy URL baked into
 		// the container env list.
 		"ANTHROPIC_BASE_URL=https://api.anthropic.com",
 		// Clear ANTHROPIC_API_KEY so Claude Code falls back to OAuth.
 		"ANTHROPIC_API_KEY=",
-		// Default model for subscription mode (overridable per-agent).
-		"ANTHROPIC_MODEL=" + model,
 	}
 	encKey, err := crypto.GetEncryptionKey()
 	if err != nil {

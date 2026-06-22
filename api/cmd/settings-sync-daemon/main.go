@@ -454,6 +454,14 @@ func (d *SettingsDaemon) injectAvailableModels() {
 		return
 	}
 
+	// claude_code uses the claude-agent-acp adapter, which resolves its model
+	// from managed-settings.json — not Zed's language_models. Never inject a
+	// Custom model entry for it. (In api_key mode APIType=="anthropic" is caught
+	// below, but in subscription mode APIType is empty, so guard on runtime.)
+	if d.codeAgentConfig.Runtime == "claude_code" {
+		return
+	}
+
 	// Skip injection for providers where Zed has built-in model definitions.
 	// Zed's built-ins have correct context lengths (e.g. 200K for claude-opus-4-6),
 	// cache configuration, beta headers, thinking mode support, etc.
