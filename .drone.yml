@@ -1365,11 +1365,16 @@ platform:
   os: linux
   arch: amd64
 
+# Runs on every push (incl. PR branches) AND tags. The cheap source-build
+# steps (clone-dependencies, build-qwen-code, build-zed) run everywhere so
+# bundle/compile breakage is caught pre-merge — build-zed is a cache hit
+# keyed by ZED_COMMIT, so it only does real work when the pin changes.
+# The heavy/publishing steps (zed-e2e-test, build-desktops, build-sandbox,
+# push-sandbox) are gated to main + tags via per-step `when:` blocks below.
 trigger:
-  ref:
-    include:
-      - refs/heads/main
-      - refs/tags/*
+  event:
+    - push
+    - tag
 
 volumes:
   - name: dockersocket
@@ -1617,6 +1622,12 @@ steps:
         path: /drone/src/cache
     depends_on:
       - build-zed
+    # E2E test (real LLM calls) runs on main + tags only, not on PR branches.
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
   # Step 4: Build and push desktop images to registry
   - name: build-desktops
@@ -1678,6 +1689,12 @@ steps:
     depends_on:
       - build-qwen-code
       - build-zed
+    # Desktop image build pushes to the registry — main + tags only.
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
   # Step 5: Build sandbox image
   - name: build-sandbox
@@ -1707,6 +1724,12 @@ steps:
         path: /var/run/docker.sock
     depends_on:
       - build-desktops
+    # Depends on build-desktops' image refs — main + tags only.
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
   # Step 6: Push to registry (gated on E2E test passing)
   - name: push-sandbox
@@ -1745,6 +1768,12 @@ steps:
     depends_on:
       - build-sandbox
       - zed-e2e-test
+    # Publishing step — main + tags only.
+    when:
+      ref:
+        include:
+          - refs/heads/main
+          - refs/tags/*
 
 ---
 # ====================================================================
