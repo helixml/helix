@@ -280,6 +280,36 @@ func TestTaskEnvironmentSetsGPUVendor(t *testing.T) {
 	}
 }
 
+func TestTaskEnvironmentForwardsRunnerKnobs(t *testing.T) {
+	// The cache URL + readiness timeout are read by compose-manager INSIDE the
+	// sandbox; on a YD runner they only arrive if taskEnvironment emits them
+	// (and bash_script forwards them). Without this they're silently dead on YD.
+	p, err := NewProvider(Config{
+		APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w",
+		NeuronCompileCacheURL:  "s3://bucket/neuron-cache",
+		RunnerReadinessTimeout: "45m",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	env := p.taskEnvironment(compute.Spec{Labels: map[string]string{"helix.sandbox_id": "x"}})
+	if env["HELIX_NEURON_COMPILE_CACHE_URL"] != "s3://bucket/neuron-cache" {
+		t.Errorf("HELIX_NEURON_COMPILE_CACHE_URL: got %q", env["HELIX_NEURON_COMPILE_CACHE_URL"])
+	}
+	if env["HELIX_RUNNER_READINESS_TIMEOUT"] != "45m" {
+		t.Errorf("HELIX_RUNNER_READINESS_TIMEOUT: got %q", env["HELIX_RUNNER_READINESS_TIMEOUT"])
+	}
+	// Unset knobs must not inject keys (compose-manager keeps its own default).
+	p2, _ := NewProvider(Config{APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w"})
+	env2 := p2.taskEnvironment(compute.Spec{Labels: map[string]string{"helix.sandbox_id": "x"}})
+	if _, ok := env2["HELIX_NEURON_COMPILE_CACHE_URL"]; ok {
+		t.Error("cache URL should be absent when unset")
+	}
+	if _, ok := env2["HELIX_RUNNER_READINESS_TIMEOUT"]; ok {
+		t.Error("readiness timeout should be absent when unset")
+	}
+}
+
 func TestProviderNameDifferentDeploymentTags(t *testing.T) {
 	// Cross-tenancy regression guard: two Providers with the same
 	// kind but different deployment tags MUST report different

@@ -113,6 +113,18 @@ sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # status flip without OS-signal delivery. When YD does signal, this
 # fix lets us shut down cleanly; when it doesn't, the only recourse
 # is `yd-terminate` on the Compute Requirement (which kills the VM).
+# DELIVERY CONTRACT: this `-e` list is the ONLY way a control-plane / operator
+# env var reaches compose-manager (and everything else) inside the sandbox on a
+# YD-provisioned runner. If you add a var that compose-manager or the sandbox
+# reads, it MUST be forwarded here (or set by install.sh for bare runners) or it
+# is silently dead on YD hosts. Values for the optional knobs below arrive via
+# the YD task environment (provider.taskEnvironment); `-e NAME` passes them
+# through from this script's env. Only forward when set so an unconfigured knob
+# leaves compose-manager on its own default.
+EXTRA_ENV=""
+[ -n "${HELIX_NEURON_COMPILE_CACHE_URL:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_NEURON_COMPILE_CACHE_URL"
+[ -n "${HELIX_RUNNER_READINESS_TIMEOUT:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_RUNNER_READINESS_TIMEOUT"
+
 sudo docker run --rm --name "$CONTAINER_NAME" \
   --privileged $GPU_FLAGS $DEVICE_FLAGS \
   -v /var/lib/docker \
@@ -121,6 +133,7 @@ sudo docker run --rm --name "$CONTAINER_NAME" \
   -e SANDBOX_INSTANCE_ID="$SANDBOX_ID" \
   -e GPU_VENDOR="$GPU_VENDOR" \
   -e MAX_SANDBOXES="$MAX_SANDBOXES" \
+  $EXTRA_ENV \
   "$IMG" &
 DOCKER_PID=$!
 wait "$DOCKER_PID"
