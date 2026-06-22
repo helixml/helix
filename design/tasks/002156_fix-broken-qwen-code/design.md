@@ -59,10 +59,28 @@ until it merges to main. Same gap applies to `build-controlplane-*`.
 
 Runs as two parallel pipelines (amd64 + arm64).
 
-### Decision (pending user confirmation)
+### Decision (final)
 
-Run the **build** steps on PR branches so build/bundle breakage is caught pre-merge,
-while keeping publish/push and the Mac DMG release-only. Open question: whether to
-also run `zed-e2e-test` on every PR push (correctness vs ~7 min + per-push Anthropic
-API cost). Leaning: include all build steps; gate `zed-e2e-test` + all publish/push
-steps to main/tags. (To be finalised before editing `.drone.yml`.)
+Run the **source-build steps** of `build-sandbox-amd64` on PR branches; keep
+everything heavy or publishing on main + tags.
+
+- `build-sandbox-amd64` trigger changed from `ref: [main, tags]` to `event: [push, tag]`.
+- **Ungated (run on PRs too):** `clone-dependencies`, `build-qwen-code`, `build-zed`.
+  These push nothing. `build-qwen-code` catches the exact bug class. `build-zed` is a
+  cache hit keyed by `ZED_COMMIT` (build #1900: 8-line `cp` from cache), so it only does
+  the ~12 min Rust build when a PR bumps the zed pin — exactly when you want it validated.
+- **Gated to `refs/heads/main` + `refs/tags/*` via per-step `when:`:** `zed-e2e-test`
+  (real LLM cost), `build-desktops` (pushes to registry), `build-sandbox` (needs
+  build-desktops' image refs), `push-sandbox` (publishes).
+- `build-sandbox-arm64` left unchanged (main + tags only) — one macOS Docker Desktop
+  runner shouldn't take every PR; the qwen Dockerfile is arch-agnostic for this failure
+  so amd64 coverage is sufficient.
+- `build-macos-dmg` unchanged (tags-only).
+
+**Why not run `build-desktops`/`build-sandbox` on PRs too:** they are coupled to
+registry pushes (`build-desktops` does `docker login` + `push` inline and writes the
+`sandbox-images/*.ref` files that `build-sandbox` bakes in). Covering the desktop/sandbox
+*image* build on PRs would need a build/push split refactor of the release path — out of
+scope here. Residual gap: breakage in `Dockerfile.ubuntu-helix` / `Dockerfile.sway-helix`
+/ `Dockerfile.sandbox` still only surfaces on main. The reported bug (qwen bundle) is
+fully covered.
