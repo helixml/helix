@@ -8,13 +8,27 @@ This was latent before v0.14.4 because there were no workspace packages that nee
 
 ## Fix
 
-Add an explicit workspace build step **after** `npm ci --ignore-scripts` and **before** `npm run bundle` in both Dockerfiles in the helix repo:
+Add an explicit workspace build step **after** `npm ci --ignore-scripts` and **before** `npm run bundle` in both Dockerfiles in the helix repo, building **only the packages the bundle consumes as built modules**, in dependency order:
 
 ```dockerfile
-npm run build --workspaces --if-present
+npm run build \
+  --workspace=@qwen-code/web-templates \
+  --workspace=@qwen-code/channel-base \
+  --workspace=@qwen-code/channel-telegram \
+  --workspace=@qwen-code/channel-weixin \
+  --workspace=@qwen-code/channel-dingtalk
 ```
 
-`--if-present` makes the command a no-op for workspaces that have no `build` script, keeping it future-safe. `--ignore-scripts` on the install phase is still kept — it only prevents lifecycle scripts during `npm ci` (husky's `prepare`), not subsequent explicit `npm run` calls.
+`--ignore-scripts` on the install phase is still kept — it only prevents lifecycle scripts during `npm ci` (husky's `prepare`), not subsequent explicit `npm run` calls.
+
+### Why NOT `npm run build --workspaces --if-present`
+
+The first attempt used `--workspaces` (all packages). **It failed in CI (build #2396)** for two reasons:
+
+1. **`npm run --workspaces` runs packages in directory order, not dependency order.** `packages/cli` built before `web-templates`/`webui`, failing with `TS2307: Cannot find module '@qwen-code/web-templates'`. It also requires `npm run generate` (for `generated/git-commit.js`) to have run first.
+2. **It builds packages the bundle doesn't need** — `cli`, `webui`, `vscode-ide-companion`, `sdk-*` — and those have their own prerequisites (`vscode-ide-companion` needs `webui` built).
+
+The canonical `scripts/build.js` confirms the real dependency order (core → web-templates → channels/base → channel adapters → cli → webui → sdk → vscode-ide-companion) and runs `npm run generate` first. But the **bundle** (`npm run bundle` = `generate` + esbuild + copy assets) bundles `cli`/`core` from *source* and only needs the workspace packages it imports as built modules — exactly `web-templates` + the channel adapters (the 9 esbuild errors in #2350 named only those). Those packages built cleanly in #2396; only the unneeded `cli`/`vscode` packages failed. So we build just that minimal set, in dependency order (`channel-base` before the adapters).
 
 ## Files to Change
 
