@@ -14838,6 +14838,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the interaction state update (interrupted) flows to the frontend via WebSocket.
+     *
+     * @tags Sessions
+     * @name V1SessionsCancelCreate
+     * @summary Cancel the current agent turn
+     * @request POST:/api/v1/sessions/{id}/cancel
+     * @secure
+     */
+    v1SessionsCancelCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/cancel`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get decrypted Claude credentials for use inside a desktop container. Only accepts runner/session-scoped tokens.
      *
      * @tags Claude

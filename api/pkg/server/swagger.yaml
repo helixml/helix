@@ -21969,6 +21969,43 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/cancel:
+    post:
+      description: |-
+        Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+        interaction state update (interrupted) flows to the frontend via WebSocket.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Cancel the current agent turn
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/claude-credentials:
     get:
       description: |-
