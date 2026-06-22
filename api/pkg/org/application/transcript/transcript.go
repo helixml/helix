@@ -11,7 +11,7 @@
 // narrating what it just did must not re-trigger the managers observing
 // it (that would loop forever). Contrast application/publishing, whose
 // Publish is the signal path (append + notify + dispatch). The two share
-// the streaming.Stream substrate but mean different things.
+// the streaming.Topic substrate but mean different things.
 package transcript
 
 import (
@@ -30,7 +30,7 @@ import (
 // satisfies it. Mirror of publishing.Notifier — kept behind a narrow
 // interface so this package doesn't depend on the concrete bus.
 type Notifier interface {
-	Notify(orgID string, streamID streaming.StreamID)
+	Notify(orgID string, topicID streaming.TopicID)
 }
 
 // Recorder appends turns to Workers' transcripts. It owns only the narrow
@@ -68,7 +68,7 @@ func New(deps Deps) *Recorder {
 }
 
 // Record appends one turn (body) to the Worker's transcript — the
-// `s-transcript-<workerID>` stream — with the canonical Message envelope
+// `s-transcript-<workerID>` topic — with the canonical Message envelope
 // ({from: workerID, body}) and notifies observers so live UI subscribers
 // see it. Recording is observe-only: it never dispatches, so a Worker
 // recording its own turn never re-triggers its observers.
@@ -81,10 +81,10 @@ func (r *Recorder) Record(ctx context.Context, orgID string, workerID orgchart.W
 	if r == nil || r.events == nil || r.newID == nil || r.now == nil || strings.TrimSpace(body) == "" {
 		return "", nil
 	}
-	streamID := activation.TranscriptID(workerID)
+	topicID := activation.TranscriptID(workerID)
 	event, err := streaming.NewMessageEvent(
 		streaming.EventID("e-"+r.newID()),
-		streamID,
+		topicID,
 		workerID,
 		streaming.Message{From: string(workerID), Body: body},
 		r.now(),
@@ -103,7 +103,7 @@ func (r *Recorder) Record(ctx context.Context, orgID string, workerID orgchart.W
 		return "", err
 	}
 	if r.notifier != nil {
-		r.notifier.Notify(orgID, streamID)
+		r.notifier.Notify(orgID, topicID)
 	}
 	return event.ID, nil
 }

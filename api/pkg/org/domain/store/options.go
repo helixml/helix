@@ -11,7 +11,7 @@
 //   - Query holds conditions, raw clauses, joins, ordering, paging
 //   - WithCondition / WithConditionIn / WithLimit / WithOrderAsc /
 //     WithOrderDesc / WithWhere are the primitives
-//   - Per-store helpers like WithOrg, WithStreamID delegate to those
+//   - Per-store helpers like WithOrg, WithTopicID delegate to those
 //     primitives
 //
 // The infrastructure side (api/pkg/org/store/gorm) translates Query

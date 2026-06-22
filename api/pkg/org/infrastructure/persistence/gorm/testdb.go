@@ -17,7 +17,7 @@ import (
 //
 // The interface contract is identical: composite (id, org_id) PKs,
 // store.ErrNotFound on cross-tenant lookups, append-only events,
-// per-tenant unique stream names. Tests that pass against this Store
+// per-tenant unique topic names. Tests that pass against this Store
 // pass against the gorm one.
 //
 // Returns a fresh store per call so test isolation is automatic.

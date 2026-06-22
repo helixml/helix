@@ -187,7 +187,7 @@ func (NoopSessionPreamble) Snapshot(_ context.Context, _ string) ([]byte, error)
 //  1. Subscribe FIRST so no frames are missed.
 //  2. Request the late-joiner snapshot from the host (if any).
 //  3. Synthesise an initial types.WebsocketEvent from the snapshot bytes and
-//     emit it on the channel before the live stream starts arriving.
+//     emit it on the channel before the live topic starts arriving.
 //
 // The buffer size matches the typical burst (per-token-emit). Raise
 // it if logs show drops.

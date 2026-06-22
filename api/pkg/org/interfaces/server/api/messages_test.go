@@ -14,26 +14,26 @@ import (
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
-// seedStreamWithEvents creates a local-transport stream and appends n
+// seedTopicWithEvents creates a local-transport topic and appends n
 // message events (e-0 oldest … e-(n-1) newest), one minute apart.
-func seedStreamWithEvents(t *testing.T, st *store.Store, id string, n int) {
+func seedTopicWithEvents(t *testing.T, st *store.Store, id string, n int) {
 	t.Helper()
 	ctx := context.Background()
-	stream, err := streaming.NewStream(
-		streaming.StreamID(id), id, "",
+	topic, err := streaming.NewTopic(
+		streaming.TopicID(id), id, "",
 		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
 		transport.Transport{Kind: transport.KindLocal}, "org-test",
 	)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 	for i := 0; i < n; i++ {
 		body := fmt.Sprintf(`{"from":"w-owner","subject":"s%d","body":"body %d"}`, i, i)
 		ev, err := streaming.NewEvent(
-			streaming.EventID(fmt.Sprintf("e-%d", i)), streaming.StreamID(id),
+			streaming.EventID(fmt.Sprintf("e-%d", i)), streaming.TopicID(id),
 			"w-owner", body, time.Date(2026, 5, 22, 12, i, 0, 0, time.UTC), "org-test",
 		)
 		if err != nil {
@@ -45,16 +45,16 @@ func seedStreamWithEvents(t *testing.T, st *store.Store, id string, n int) {
 	}
 }
 
-// TestListStreamMessages_FirstPage pins the JSON:API shape: data is a
+// TestListTopicMessages_FirstPage pins the JSON:API shape: data is a
 // `messages` array newest-first, meta carries the full total + page
 // state, and the links object has self/first/next/last (no prev on
 // page 1).
-func TestListStreamMessages_FirstPage(t *testing.T) {
+func TestListTopicMessages_FirstPage(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-msgs", 5)
+	seedTopicWithEvents(t, st, "s-msgs", 5)
 
-	rec := do(t, h, "GET", "/streams/s-msgs/messages?page[size]=2&page[number]=1", nil)
+	rec := do(t, h, "GET", "/topics/s-msgs/messages?page[size]=2&page[number]=1", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -93,14 +93,14 @@ func TestListStreamMessages_FirstPage(t *testing.T) {
 	}
 }
 
-// TestListStreamMessages_LastPartialPage pins the tail: the final page
+// TestListTopicMessages_LastPartialPage pins the tail: the final page
 // holds the remainder, has prev, and no next. meta.total is unchanged.
-func TestListStreamMessages_LastPartialPage(t *testing.T) {
+func TestListTopicMessages_LastPartialPage(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-msgs", 5)
+	seedTopicWithEvents(t, st, "s-msgs", 5)
 
-	rec := do(t, h, "GET", "/streams/s-msgs/messages?page[size]=2&page[number]=3", nil)
+	rec := do(t, h, "GET", "/topics/s-msgs/messages?page[size]=2&page[number]=3", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -120,14 +120,14 @@ func TestListStreamMessages_LastPartialPage(t *testing.T) {
 	}
 }
 
-// TestListStreamMessages_BeyondLastPage pins that requesting a page past
+// TestListTopicMessages_BeyondLastPage pins that requesting a page past
 // the end returns an empty data array (not an error), with total intact.
-func TestListStreamMessages_BeyondLastPage(t *testing.T) {
+func TestListTopicMessages_BeyondLastPage(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-msgs", 3)
+	seedTopicWithEvents(t, st, "s-msgs", 3)
 
-	rec := do(t, h, "GET", "/streams/s-msgs/messages?page[size]=2&page[number]=9", nil)
+	rec := do(t, h, "GET", "/topics/s-msgs/messages?page[size]=2&page[number]=9", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -141,14 +141,14 @@ func TestListStreamMessages_BeyondLastPage(t *testing.T) {
 	}
 }
 
-// TestListStreamMessages_EmptyStream pins total:0 / data:[] for a stream
+// TestListTopicMessages_EmptyTopic pins total:0 / data:[] for a topic
 // with no messages.
-func TestListStreamMessages_EmptyStream(t *testing.T) {
+func TestListTopicMessages_EmptyTopic(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-empty", 0)
+	seedTopicWithEvents(t, st, "s-empty", 0)
 
-	rec := do(t, h, "GET", "/streams/s-empty/messages", nil)
+	rec := do(t, h, "GET", "/topics/s-empty/messages", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -162,15 +162,15 @@ func TestListStreamMessages_EmptyStream(t *testing.T) {
 	}
 }
 
-// TestListStreamMessages_TotalConsistentAcrossPages pins that meta.total
+// TestListTopicMessages_TotalConsistentAcrossPages pins that meta.total
 // is the full count regardless of which page is fetched.
-func TestListStreamMessages_TotalConsistentAcrossPages(t *testing.T) {
+func TestListTopicMessages_TotalConsistentAcrossPages(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-msgs", 5)
+	seedTopicWithEvents(t, st, "s-msgs", 5)
 
 	for _, page := range []string{"1", "2", "3"} {
-		rec := do(t, h, "GET", "/streams/s-msgs/messages?page[size]=2&page[number]="+page, nil)
+		rec := do(t, h, "GET", "/topics/s-msgs/messages?page[size]=2&page[number]="+page, nil)
 		var doc orgapi.MessagesDocument
 		decode(t, rec, &doc)
 		if doc.Meta.Total != 5 {
@@ -179,27 +179,27 @@ func TestListStreamMessages_TotalConsistentAcrossPages(t *testing.T) {
 	}
 }
 
-// TestListStreamMessages_UnknownStream pins 404 for a stream that
+// TestListTopicMessages_UnknownTopic pins 404 for a topic that
 // doesn't exist (rather than an empty 200).
-func TestListStreamMessages_UnknownStream(t *testing.T) {
+func TestListTopicMessages_UnknownTopic(t *testing.T) {
 	deps, _, _ := newDeps(t)
 	h := orgapi.Handler(deps)
 
-	rec := do(t, h, "GET", "/streams/s-ghost/messages", nil)
+	rec := do(t, h, "GET", "/topics/s-ghost/messages", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status: got %d, want 404; body=%s", rec.Code, rec.Body)
 	}
 }
 
-// TestListStreamMessages_BadPagingParams pins 400 for non-numeric /
+// TestListTopicMessages_BadPagingParams pins 400 for non-numeric /
 // out-of-range paging params.
-func TestListStreamMessages_BadPagingParams(t *testing.T) {
+func TestListTopicMessages_BadPagingParams(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	h := orgapi.Handler(deps)
-	seedStreamWithEvents(t, st, "s-msgs", 2)
+	seedTopicWithEvents(t, st, "s-msgs", 2)
 
 	for _, q := range []string{"page[number]=0", "page[number]=abc", "page[size]=-1"} {
-		rec := do(t, h, "GET", "/streams/s-msgs/messages?"+q, nil)
+		rec := do(t, h, "GET", "/topics/s-msgs/messages?"+q, nil)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status got %d, want 400; body=%s", q, rec.Code, rec.Body)
 		}

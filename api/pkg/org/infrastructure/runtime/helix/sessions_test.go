@@ -76,7 +76,7 @@ func (f *fakePubSub) publish(t *testing.T, topic string, payload []byte) {
 }
 
 // TestSubscribeSessionUpdatesEmitsSnapshotThenLiveFrames pins the
-// snapshot-then-stream order: the late-joiner snapshot frame must
+// snapshot-then-topic order: the late-joiner snapshot frame must
 // arrive before any subsequent live patches.
 func TestSubscribeSessionUpdatesEmitsSnapshotThenLiveFrames(t *testing.T) {
 	t.Parallel()

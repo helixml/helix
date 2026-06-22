@@ -1,18 +1,18 @@
-// Package streams is the application service that owns the structural
-// Stream use cases — Create, Update, Delete — plus the inbound-transport
+// Package topics is the application service that owns the structural
+// Topic use cases — Create, Update, Delete — plus the inbound-transport
 // provisioning seam (InstallInbound / InboundStatus), which orchestrates
 // the streaming.Inbound domain port. It is the single home for the
-// stream-mutation logic that the MCP `create_stream` tool and the REST
-// stream handlers used to each implement independently. Both adapters now
+// topic-mutation logic that the MCP `create_topic` tool and the REST
+// topic handlers used to each implement independently. Both adapters now
 // parse their protocol and delegate here, so the invariants (auto-id,
 // transport defaulting, the update read-modify-write merge, org-scoping)
 // cannot drift between callers.
 //
-// The service depends only on the narrow store.Streams repository
+// The service depends only on the narrow store.Topics repository
 // interface plus a clock and id-generator — never the whole
 // *store.Store (CLAUDE.md helix-org philosophy: small interfaces,
 // ≤4 collaborators).
-package streams
+package topics
 
 import (
 	"context"
@@ -26,10 +26,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// Streams owns the stream-mutation use cases. It is a collection-shaped
+// Topics owns the topic-mutation use cases. It is a collection-shaped
 // noun (CLAUDE.md §5.0: name by what it is, not what it does).
-type Streams struct {
-	streams store.Streams
+type Topics struct {
+	topics store.Topics
 	now     func() time.Time
 	newID   func() string
 	// provisioners is the per-transport-Kind inbound-webhook registry the
@@ -41,7 +41,7 @@ type Streams struct {
 // Deps are the constructor-injected collaborators for New. Grouping
 // them in a struct keeps the call site reading as named fields.
 type Deps struct {
-	Streams store.Streams
+	Topics store.Topics
 	Now     func() time.Time
 	NewID   func() string
 	// Provisioners maps a transport Kind to its inbound-webhook
@@ -51,18 +51,18 @@ type Deps struct {
 	Provisioners map[transport.Kind]streaming.Inbound
 }
 
-// New constructs the Streams service. Now/NewID fall back to wall-clock
+// New constructs the Topics service. Now/NewID fall back to wall-clock
 // time and a counter-free stub so a partially-wired Deps still produces
-// valid streams in tests; production always supplies both.
-func New(deps Deps) *Streams {
+// valid topics in tests; production always supplies both.
+func New(deps Deps) *Topics {
 	now := deps.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Streams{streams: deps.Streams, now: now, newID: deps.NewID, provisioners: deps.Provisioners}
+	return &Topics{topics: deps.Topics, now: now, newID: deps.NewID, provisioners: deps.Provisioners}
 }
 
-// CreateParams describes a new Stream. ID is optional — when empty a
+// CreateParams describes a new Topic. ID is optional — when empty a
 // fresh `s-<id>` is minted. Transport's zero value means "local".
 type CreateParams struct {
 	ID          string
@@ -72,22 +72,22 @@ type CreateParams struct {
 	Transport   transport.Transport
 }
 
-// Create builds and persists a new Stream, returning the created
+// Create builds and persists a new Topic, returning the created
 // aggregate. Name uniqueness and org-scoping are enforced by the repo;
-// transport defaulting and validation by streaming.NewStream.
-func (s *Streams) Create(ctx context.Context, orgID string, p CreateParams) (streaming.Stream, error) {
-	id := streaming.StreamID(strings.TrimSpace(p.ID))
+// transport defaulting and validation by streaming.NewTopic.
+func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (streaming.Topic, error) {
+	id := streaming.TopicID(strings.TrimSpace(p.ID))
 	if id == "" {
-		id = streaming.StreamID("s-" + s.newID())
+		id = streaming.TopicID("s-" + s.newID())
 	}
-	stream, err := streaming.NewStream(id, p.Name, p.Description, p.CreatedBy, s.now(), p.Transport, orgID)
+	topic, err := streaming.NewTopic(id, p.Name, p.Description, p.CreatedBy, s.now(), p.Transport, orgID)
 	if err != nil {
-		return streaming.Stream{}, err
+		return streaming.Topic{}, err
 	}
-	if err := s.streams.Create(ctx, stream); err != nil {
-		return streaming.Stream{}, err
+	if err := s.topics.Create(ctx, topic); err != nil {
+		return streaming.Topic{}, err
 	}
-	return stream, nil
+	return topic, nil
 }
 
 // TransportPatch is the partial transport update applied by Update.
@@ -99,7 +99,7 @@ type TransportPatch struct {
 	Config json.RawMessage
 }
 
-// UpdateParams patches the mutable subset of a Stream: name,
+// UpdateParams patches the mutable subset of a Topic: name,
 // description, and (optionally) transport kind + config.
 type UpdateParams struct {
 	Name        string
@@ -107,14 +107,14 @@ type UpdateParams struct {
 	Transport   *TransportPatch
 }
 
-// Update reads the existing Stream, merges the patch, and persists the
+// Update reads the existing Topic, merges the patch, and persists the
 // result — the read-modify-write the REST handler used to do inline.
 // Returns store.ErrNotFound (wrapped) when the (orgID, id) row is
 // absent, including cross-tenant id guesses.
-func (s *Streams) Update(ctx context.Context, orgID string, id streaming.StreamID, p UpdateParams) (streaming.Stream, error) {
-	existing, err := s.streams.Get(ctx, orgID, id)
+func (s *Topics) Update(ctx context.Context, orgID string, id streaming.TopicID, p UpdateParams) (streaming.Topic, error) {
+	existing, err := s.topics.Get(ctx, orgID, id)
 	if err != nil {
-		return streaming.Stream{}, err
+		return streaming.Topic{}, err
 	}
 	tr := existing.Transport
 	if p.Transport != nil {
@@ -125,24 +125,24 @@ func (s *Streams) Update(ctx context.Context, orgID string, id streaming.StreamI
 			tr.Config = p.Transport.Config
 		}
 	}
-	updated, err := streaming.NewStream(
+	updated, err := streaming.NewTopic(
 		existing.ID, p.Name, p.Description,
 		existing.CreatedBy, existing.CreatedAt, tr, existing.OrganizationID,
 	)
 	if err != nil {
-		return streaming.Stream{}, err
+		return streaming.Topic{}, err
 	}
-	if err := s.streams.Update(ctx, updated); err != nil {
-		return streaming.Stream{}, err
+	if err := s.topics.Update(ctx, updated); err != nil {
+		return streaming.Topic{}, err
 	}
 	return updated, nil
 }
 
-// Delete removes the Stream row. Subscriptions cascade in the repo
-// (worker-anchored rows drop with the stream). Returns store.ErrNotFound
+// Delete removes the Topic row. Subscriptions cascade in the repo
+// (worker-anchored rows drop with the topic). Returns store.ErrNotFound
 // (wrapped) when the row is absent.
-func (s *Streams) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
-	return s.streams.Delete(ctx, orgID, id)
+func (s *Topics) Delete(ctx context.Context, orgID string, id streaming.TopicID) error {
+	return s.topics.Delete(ctx, orgID, id)
 }
 
 // ---- Inbound transport wiring -------------------------------------------
@@ -150,51 +150,51 @@ func (s *Streams) Delete(ctx context.Context, orgID string, id streaming.StreamI
 // The inbound/outbound transport ports (streaming.Inbound /
 // streaming.Outbound) and their value types are domain ports in the
 // streaming package. What lives here is the application orchestration over
-// the inbound port: InstallInbound / InboundStatus read the Stream,
+// the inbound port: InstallInbound / InboundStatus read the Topic,
 // dispatch to the provisioner registered for its transport Kind, and
 // persist the result. (The outbound side is driven by the dispatcher,
 // which owns its own streaming.Outbound registry — there is no
-// streams-service seam for it.)
+// topics-service seam for it.)
 
-// InstallInbound provisions the provider-side inbound hook for a Stream
+// InstallInbound provisions the provider-side inbound hook for a Topic
 // and persists the resulting transport config. It dispatches on the
-// Stream's transport Kind — every transport that needs external
+// Topic's transport Kind — every transport that needs external
 // registration plugs in a streaming.Inbound provisioner without touching
 // this seam.
-func (s *Streams) InstallInbound(ctx context.Context, orgID string, id streaming.StreamID) (streaming.InstallResult, error) {
-	stream, err := s.streams.Get(ctx, orgID, id)
+func (s *Topics) InstallInbound(ctx context.Context, orgID string, id streaming.TopicID) (streaming.InstallResult, error) {
+	topic, err := s.topics.Get(ctx, orgID, id)
 	if err != nil {
 		return streaming.InstallResult{}, err
 	}
-	p, ok := s.provisioners[stream.Transport.Kind]
+	p, ok := s.provisioners[topic.Transport.Kind]
 	if !ok {
-		return streaming.InstallResult{}, &streaming.Failure{Kind: streaming.FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", streaming.ErrInboundUnsupported, stream.Transport.Kind)}
+		return streaming.InstallResult{}, &streaming.Failure{Kind: streaming.FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", streaming.ErrInboundUnsupported, topic.Transport.Kind)}
 	}
-	inbound, err := p.Install(ctx, orgID, stream)
+	inbound, err := p.Install(ctx, orgID, topic)
 	if err != nil {
 		return streaming.InstallResult{}, err
 	}
 	if inbound.Config != nil {
 		if _, err := s.Update(ctx, orgID, id, UpdateParams{
-			Name:        stream.Name,
-			Description: stream.Description,
+			Name:        topic.Name,
+			Description: topic.Description,
 			Transport:   &TransportPatch{Config: inbound.Config},
 		}); err != nil {
-			return streaming.InstallResult{}, &streaming.Failure{Kind: streaming.FailInternal, Err: fmt.Errorf("persist hook onto stream %q: %w", id, err)}
+			return streaming.InstallResult{}, &streaming.Failure{Kind: streaming.FailInternal, Err: fmt.Errorf("persist hook onto topic %q: %w", id, err)}
 		}
 	}
 	return inbound, nil
 }
 
-// InboundStatus reports the live inbound-hook state for a Stream.
-func (s *Streams) InboundStatus(ctx context.Context, orgID string, id streaming.StreamID) (streaming.InboundState, error) {
-	stream, err := s.streams.Get(ctx, orgID, id)
+// InboundStatus reports the live inbound-hook state for a Topic.
+func (s *Topics) InboundStatus(ctx context.Context, orgID string, id streaming.TopicID) (streaming.InboundState, error) {
+	topic, err := s.topics.Get(ctx, orgID, id)
 	if err != nil {
 		return streaming.InboundState{}, err
 	}
-	p, ok := s.provisioners[stream.Transport.Kind]
+	p, ok := s.provisioners[topic.Transport.Kind]
 	if !ok {
-		return streaming.InboundState{}, &streaming.Failure{Kind: streaming.FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", streaming.ErrInboundUnsupported, stream.Transport.Kind)}
+		return streaming.InboundState{}, &streaming.Failure{Kind: streaming.FailBadRequest, Err: fmt.Errorf("%w (kind=%q)", streaming.ErrInboundUnsupported, topic.Transport.Kind)}
 	}
-	return p.Status(ctx, orgID, stream)
+	return p.Status(ctx, orgID, topic)
 }

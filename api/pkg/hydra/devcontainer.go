@@ -682,6 +682,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":

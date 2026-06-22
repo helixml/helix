@@ -45,7 +45,7 @@ func (a *apiHandler) listWorkerSubscriptions(w http.ResponseWriter, r *http.Requ
 	resp := WorkerSubscriptionsResponse{WorkerID: string(wid), Subscriptions: make([]WorkerSubscriptionDTO, 0, len(subs))}
 	for _, sub := range subs {
 		resp.Subscriptions = append(resp.Subscriptions, WorkerSubscriptionDTO{
-			StreamID:  string(sub.StreamID),
+			TopicID:  string(sub.TopicID),
 			CreatedAt: sub.CreatedAt.Format(time.RFC3339),
 		})
 	}
@@ -53,13 +53,13 @@ func (a *apiHandler) listWorkerSubscriptions(w http.ResponseWriter, r *http.Requ
 }
 
 // subscribeWorker adds a subscription on the given worker to the
-// stream in the request body. Idempotent — re-subscribing returns
+// topic in the request body. Idempotent — re-subscribing returns
 // 200 with the existing row's metadata.
 //
-// @Summary Helix-org: subscribe a worker to a stream
+// @Summary Helix-org: subscribe a worker to a topic
 // @Tags HelixOrg
 // @Param id path string true "Worker ID"
-// @Param payload body api.SubscribeWorkerRequest true "stream to subscribe to"
+// @Param payload body api.SubscribeWorkerRequest true "topic to subscribe to"
 // @Success 200 {object} api.WorkerSubscriptionDTO
 // @Success 201 {object} api.WorkerSubscriptionDTO
 // @Failure 404 {object} api.ErrorResponse
@@ -82,12 +82,12 @@ func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	streamID := streaming.StreamID(strings.TrimSpace(req.StreamID))
-	if streamID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("stream_id is required"))
+	topicID := streaming.TopicID(strings.TrimSpace(req.TopicID))
+	if topicID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("topic_id is required"))
 		return
 	}
-	sub, created, err := a.deps.Subscriptions.Subscribe(ctx, orgID, wid, streamID)
+	sub, created, err := a.deps.Subscriptions.Subscribe(ctx, orgID, wid, topicID)
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("subscribe worker %s: %w", wid, err))
 		return
@@ -97,21 +97,21 @@ func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, WorkerSubscriptionDTO{
-		StreamID:  string(sub.StreamID),
+		TopicID:  string(sub.TopicID),
 		CreatedAt: sub.CreatedAt.Format(time.RFC3339),
 	})
 }
 
-// unsubscribeWorker drops the (worker, stream) subscription row.
+// unsubscribeWorker drops the (worker, topic) subscription row.
 //
-// @Summary Helix-org: unsubscribe a worker from a stream
+// @Summary Helix-org: unsubscribe a worker from a topic
 // @Tags HelixOrg
 // @Param id path string true "Worker ID"
-// @Param stream_id path string true "Stream ID"
+// @Param topic_id path string true "Topic ID"
 // @Success 204
 // @Failure 404 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id} [delete]
+// @Router /api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id} [delete]
 func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	orgID, err := resolveOrgID(r)
@@ -120,12 +120,12 @@ func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wid := orgchart.WorkerID(r.PathValue("id"))
-	streamID := streaming.StreamID(r.PathValue("stream_id"))
-	if wid == "" || streamID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("worker id and stream id are required"))
+	topicID := streaming.TopicID(r.PathValue("topic_id"))
+	if wid == "" || topicID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("worker id and topic id are required"))
 		return
 	}
-	if err := a.deps.Subscriptions.Unsubscribe(ctx, orgID, wid, streamID); err != nil {
+	if err := a.deps.Subscriptions.Unsubscribe(ctx, orgID, wid, topicID); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete subscription: %w", err))
 		return
 	}

@@ -3,7 +3,7 @@
 // role-mutation logic the MCP create_role/update_role tools and the
 // REST role handlers used to each implement independently (and had
 // already drifted: the MCP update_role rebuilt the Role with only
-// Content, silently wiping Tools and Streams — this service fixes that
+// Content, silently wiping Tools and Topics — this service fixes that
 // by doing a proper read-modify-write that preserves unpatched fields).
 //
 // The service depends only on the narrow store.Roles repository plus a
@@ -57,12 +57,12 @@ func New(deps Deps) *Roles {
 
 // CreateParams describes a new Role. ID is optional — when empty a
 // fresh `r-<id>` is minted. Tools is unioned with the injected base
-// read tools; Streams is the typed manifest stored verbatim.
+// read tools; Topics is the typed manifest stored verbatim.
 type CreateParams struct {
 	ID      string
 	Content string
 	Tools   []tool.Name
-	Streams []streaming.StreamID
+	Topics []streaming.TopicID
 }
 
 // Create builds and persists a new Role, returning the created
@@ -73,7 +73,7 @@ func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 	if id == "" {
 		id = orgchart.RoleID("r-" + r.newID())
 	}
-	role, err := orgchart.NewRole(id, p.Content, MergeTools(p.Tools, r.baseTools), p.Streams, r.now(), orgID)
+	role, err := orgchart.NewRole(id, p.Content, MergeTools(p.Tools, r.baseTools), p.Topics, r.now(), orgID)
 	if err != nil {
 		return orgchart.Role{}, err
 	}
@@ -85,11 +85,11 @@ func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgch
 
 // UpdateParams patches the mutable fields of a Role. A nil pointer
 // leaves the corresponding field unchanged — this is what preserves
-// Tools/Streams on a content-only update (the old MCP bug).
+// Tools/Topics on a content-only update (the old MCP bug).
 type UpdateParams struct {
 	Content *string
 	Tools   *[]tool.Name
-	Streams *[]streaming.StreamID
+	Topics *[]streaming.TopicID
 }
 
 // Update reads the existing Role, applies the patch via the domain's
@@ -107,8 +107,8 @@ func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.RoleID, p 
 	if p.Tools != nil {
 		updated = updated.WithTools(*p.Tools)
 	}
-	if p.Streams != nil {
-		updated = updated.WithStreams(*p.Streams)
+	if p.Topics != nil {
+		updated = updated.WithTopics(*p.Topics)
 	}
 	updated = updated.WithUpdatedAt(r.now())
 	if err := r.roles.Update(ctx, updated); err != nil {
@@ -122,7 +122,7 @@ func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.RoleID, p 
 // helixml/helix#2546 — Roles created before the baseline existed (or via
 // create_role calls that omitted reads like `managers` / `reports`)
 // would otherwise leave their Workers permanently unable to introspect
-// the reporting graph or read subscribed streams.
+// the reporting graph or read subscribed topics.
 //
 // Idempotent: a Role already at the baseline is left untouched (no write,
 // no UpdatedAt bump), so a second run with no drift performs no updates.

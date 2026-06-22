@@ -125,9 +125,9 @@ const HelixOrgRoles: FC = () => {
         {r.tools?.length ?? 0}
       </Typography>
     ),
-    streams: (
+    topics: (
       <Typography variant="body2" color="text.secondary">
-        {r.streams?.length ?? 0}
+        {r.topics?.length ?? 0}
       </Typography>
     ),
     updated: (
@@ -159,7 +159,7 @@ const HelixOrgRoles: FC = () => {
               <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
               <Typography variant="body2" color="text.secondary">
                 A Role defines a job description: the markdown content tells a Worker what they're for, the
-                tools list is the Worker's MCP tool surface, and the streams list flags which inbound events the Role's
+                tools list is the Worker's MCP tool surface, and the topics list flags which inbound events the Role's
                 prompt expects. Workers hold a Role directly — tools and prompt come from here.
               </Typography>
             </Box>
@@ -196,7 +196,7 @@ const HelixOrgRoles: FC = () => {
                 { name: 'name', title: 'ID' },
                 { name: 'contentPreview', title: 'Content' },
                 { name: 'tools', title: 'Tools' },
-                { name: 'streams', title: 'Streams' },
+                { name: 'topics', title: 'Topics' },
                 { name: 'updated', title: 'Updated' },
               ]}
               data={tableData}

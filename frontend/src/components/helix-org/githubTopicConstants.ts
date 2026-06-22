@@ -1,5 +1,5 @@
-// githubStreamConstants holds the small bits of GitHub-transport
-// metadata shared between the New Stream dialog and the per-stream
+// githubTopicConstants holds the small bits of GitHub-transport
+// metadata shared between the New Topic dialog and the per-topic
 // Edit dialog: the curated event whitelist with rich descriptions,
 // and the regex patterns that mirror the backend's
 // transport/github.go validator.

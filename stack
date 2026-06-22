@@ -104,9 +104,35 @@ function get_sandbox_names() {
   fi
 }
 
+# Remove hash-prefixed sandbox containers ("<id>_helix-sandbox-<variant>-1")
+# left behind by an interrupted `docker compose up` recreate. During a recreate
+# docker renames the previous container to "<id>_<name>" before creating the
+# replacement and removes it afterwards; if that sequence is interrupted
+# (OOM/SIGKILL/disk-full) the renamed container survives, shadows the canonical
+# name, and breaks name-based `docker exec` into the sandbox (the cause of
+# "No such container: helix-sandbox-nvidia-1" during image transfer).
+#
+# Only NON-RUNNING leftovers are removed, so a live sandbox/session is never
+# killed (the sandbox's persistent state lives in volumes, not the container).
+function cleanup_sandbox_orphans() {
+  local stale
+  stale=$(docker ps -a --filter status=created --filter status=exited \
+            --format '{{.ID}} {{.Names}}' 2>/dev/null \
+          | grep -E ' [0-9a-f]+_helix-sandbox-(nvidia|amd-intel|software|macos)-1$' \
+          | awk '{print $1}')
+  if [[ -n "$stale" ]]; then
+    echo "🧹 Removing stale hash-prefixed sandbox container(s) from an interrupted recreate"
+    echo "$stale" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  fi
+}
+
 # Helper function to detect GPU type and set appropriate sandbox profile
 # Sets COMPOSE_PROFILES to include 'code-nvidia' (NVIDIA) or 'code-amd-intel' (AMD/Intel) if not already set
 function setup_sandbox_profile() {
+  # Sweep any hash-prefixed sandbox orphans before reconciling, so docker compose
+  # can recreate with the canonical name instead of stacking another prefix.
+  cleanup_sandbox_orphans
+
   # Check if COMPOSE_PROFILES was explicitly set to a non-empty value in environment
   # (empty string triggers auto-detection, non-empty respects user's choice)
   local env_was_set=""
@@ -951,7 +977,18 @@ function transfer-desktop-to-sandbox() {
   fi
   get_sandbox_names
 
+  # Resolve the ACTUAL sandbox container id from compose rather than trusting the
+  # canonical name. An interrupted recreate can leave the live container with a
+  # hash-prefixed name ("<id>_helix-sandbox-nvidia-1"); name-based `docker exec`
+  # then fails with "No such container". `compose ps -q` tracks by service label,
+  # so it returns the right container whatever it's called. Fall back to the
+  # canonical name if compose can't resolve it.
   local SANDBOX_CONTAINER_NAME="$SANDBOX_CONTAINER"
+  local _resolved_sandbox_id
+  _resolved_sandbox_id=$(docker compose -f docker-compose.dev.yaml ps -q "$SANDBOX_SERVICE" 2>/dev/null | head -n1)
+  if [[ -n "$_resolved_sandbox_id" ]]; then
+    SANDBOX_CONTAINER_NAME="$_resolved_sandbox_id"
+  fi
 
   # Helper function for docker commands against sandbox
   sandbox_docker() {
@@ -1355,6 +1392,7 @@ function build-sandbox() {
   get_sandbox_names
 
   echo "🔄 Restarting sandbox container ($SANDBOX_SERVICE) with updated image..."
+  cleanup_sandbox_orphans
   docker compose -f docker-compose.dev.yaml rm -f "$SANDBOX_SERVICE"
   docker compose -f docker-compose.dev.yaml up -d "$SANDBOX_SERVICE"
 
