@@ -16,9 +16,21 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 COPY . /app
 WORKDIR /app
 
+# Build only the workspace packages the bundle consumes as built modules
+# (esbuild resolves these to their dist/), in dependency order: web-templates
+# and the channel adapters (channel-base first — the adapters depend on it).
+# We can't use `npm run build --workspaces` because npm runs workspaces in
+# directory order, not dependency order (cli would build before web-templates),
+# and it would also build packages the bundle doesn't need (cli, webui,
+# vscode-ide-companion) which require `npm run generate` to have run first.
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts && \
-    npm run build --workspaces --if-present && \
+    npm run build \
+      --workspace=@qwen-code/web-templates \
+      --workspace=@qwen-code/channel-base \
+      --workspace=@qwen-code/channel-telegram \
+      --workspace=@qwen-code/channel-weixin \
+      --workspace=@qwen-code/channel-dingtalk && \
     npm run bundle
 
 # Collect runtime files into /output
