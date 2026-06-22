@@ -123,6 +123,7 @@ export interface ICreateAgentParams {
 
   codeAgentRuntime?: CodeAgentRuntime;
   codeAgentCredentialType?: 'api_key' | 'subscription';
+  claudeSubscriptionModel?: string;
 
   model?: string;
   provider?: string;
@@ -226,6 +227,7 @@ export const useAppsContext = (): IAppsContext => {
               agent_type: params.agentType || 'helix_agent',
               code_agent_runtime: params.agentType === 'zed_external' ? (params.codeAgentRuntime || 'zed_agent') : undefined,
               code_agent_credential_type: params.agentType === 'zed_external' ? (params.codeAgentCredentialType || 'api_key') : undefined,
+              claude_subscription_model: params.agentType === 'zed_external' ? params.claudeSubscriptionModel : undefined,
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,

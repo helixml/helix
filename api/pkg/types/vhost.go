@@ -52,12 +52,17 @@ func (VHostRoute) TableName() string { return "vhost_routes" }
 // ProjectWebServiceState is the per-project enablement and runtime state for
 // the web-service hosting feature.
 type ProjectWebServiceState struct {
-	ProjectID         string    `gorm:"primaryKey" json:"project_id"`
-	Enabled           bool      `json:"enabled"`
-	ContainerPort     int       `json:"container_port"` // port the project's web app binds to inside its container
-	ActiveSandboxID   string    `json:"active_sandbox_id,omitempty"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	CreatedAt         time.Time `json:"created_at"`
+	ProjectID       string `gorm:"primaryKey" json:"project_id"`
+	Enabled         bool   `json:"enabled"`
+	ContainerPort   int    `json:"container_port"` // port the project's web app binds to inside its container
+	ActiveSandboxID string `json:"active_sandbox_id,omitempty"`
+	// HostDeviceID is the runner the project's web service is pinned to. It is
+	// recorded from the web-service sandbox after first provision and surfaced
+	// for visibility. Enforcement of the pin lives in the sandbox scheduler's
+	// persistent-sandbox sticky guard; this column mirrors it for the UI/API.
+	HostDeviceID string    `json:"host_device_id,omitempty" gorm:"size:255"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // WebServiceDeployStatus tracks the lifecycle of a single web-service deploy.

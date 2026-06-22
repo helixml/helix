@@ -112,6 +112,17 @@ type Config struct {
 	// will docker-run. Last positional in the docker run args.
 	HelixImage string
 
+	// NeuronCompileCacheURL and RunnerReadinessTimeout are operator
+	// config (HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT)
+	// that compose-manager consumes INSIDE the sandbox container. They have
+	// to be forwarded explicitly: compose-manager's env on a YD runner is
+	// only what bash_script's `docker run -e` list injects, so a knob set on
+	// the control plane is otherwise dead on YD hosts (it only reaches
+	// install.sh runners). taskEnvironment puts them in the task env and
+	// bash_script forwards them with `-e`. Empty = not forwarded.
+	NeuronCompileCacheURL  string
+	RunnerReadinessTimeout string
+
 	// HTTPClient overrides the default *http.Client. Tests inject
 	// an httptest-backed client. Nil falls back to http.DefaultClient.
 	HTTPClient *http.Client
@@ -482,6 +493,17 @@ func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
 	// node count.
 	if spec.GPUVendor != "" {
 		env["GPU_VENDOR"] = spec.GPUVendor
+	}
+	// Forward operator knobs that compose-manager reads inside the sandbox.
+	// Without this they never reach a YD runner (see Config fields). The
+	// names are kept identical so compose-manager's existing env lookups
+	// (HELIX_NEURON_COMPILE_CACHE_URL / HELIX_RUNNER_READINESS_TIMEOUT) work
+	// unchanged; bash_script forwards them with `-e`.
+	if p.cfg.NeuronCompileCacheURL != "" {
+		env["HELIX_NEURON_COMPILE_CACHE_URL"] = p.cfg.NeuronCompileCacheURL
+	}
+	if p.cfg.RunnerReadinessTimeout != "" {
+		env["HELIX_RUNNER_READINESS_TIMEOUT"] = p.cfg.RunnerReadinessTimeout
 	}
 	if len(env) == 0 {
 		return nil

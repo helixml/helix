@@ -38,6 +38,7 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
+import { CLAUDE_SUBSCRIPTION_MODELS, DEFAULT_CLAUDE_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
@@ -263,6 +264,11 @@ const AppSettings: FC<AppSettingsProps> = ({
     app.generation_model_provider ? 'api_key' : 'subscription'
   )
 
+  // Claude subscription model (Opus/Sonnet/Haiku). Empty defaults to Opus.
+  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(
+    app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL
+  )
+
   // Provider availability checks for Claude Code mode selector
   const router = useRouter()
   const orgName = router.params.org_id
@@ -348,6 +354,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setClaudeCodeMode(
         app.code_agent_credential_type === 'subscription' ? 'subscription' : 'api_key'
       )
+      setClaudeSubscriptionModel(app.claude_subscription_model || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
       // External agent display settings
       setResolution(app.external_agent_config?.resolution as '1080p' | '4k' | '5k' || '1080p')
       setDesktopType(app.external_agent_config?.desktop_type as 'ubuntu' | 'sway' || 'ubuntu')
@@ -713,6 +720,31 @@ const AppSettings: FC<AppSettingsProps> = ({
                     <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
                       Connect a Claude subscription or add an Anthropic API key in Settings &gt; Providers.
                     </Typography>
+                  )}
+                  {claudeCodeMode === 'subscription' && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Model
+                      </Typography>
+                      <FormControl fullWidth>
+                        <Select
+                          size="small"
+                          value={claudeSubscriptionModel}
+                          disabled={readOnly}
+                          onChange={(e) => {
+                            const nextModel = e.target.value
+                            setClaudeSubscriptionModel(nextModel)
+                            onUpdate({ claude_subscription_model: nextModel })
+                          }}
+                        >
+                          {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                            <MenuItem key={m.id} value={m.id}>
+                              <Typography variant="body2">{m.label}</Typography>
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Box>
                   )}
                 </Box>
 

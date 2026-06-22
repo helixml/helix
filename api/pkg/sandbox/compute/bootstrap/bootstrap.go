@@ -194,9 +194,11 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 			WorkerTag:     workerTag,
 			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
 			MaxRetries:    cfg.Yellowdog.MaxRetries,
-			HelixURL:      serverURL,
-			RunnerToken:   runnerToken,
-			HelixImage:    sandboxImage,
+			HelixURL:               serverURL,
+			RunnerToken:            runnerToken,
+			HelixImage:             sandboxImage,
+			NeuronCompileCacheURL:  cfg.NeuronCompileCacheURL,
+			RunnerReadinessTimeout: cfg.RunnerReadinessTimeout,
 		})
 	default:
 		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)

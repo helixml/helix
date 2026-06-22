@@ -178,6 +178,32 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
           <Divider />
 
           <Box>
+            <Typography variant="subtitle1" gutterBottom>
+              Storage &amp; runner
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Durable data lives at <code>/data</code> inside the container —
+              write your database, uploads and other persistent files there
+              (your <code>.helix/startup.sh</code> receives the path as
+              <code>$HELIX_WEB_SERVICE_DATA_DIR</code>). It survives redeploys
+              and reboots.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Pinned runner:{' '}
+              <code>{state?.host_device_id || 'assigned on first deploy'}</code>.
+              The service is pinned to this runner so its data stays reachable.
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Deploys restart the app in place (one instance at a time, so a
+              database is never opened by two processes), which causes a brief
+              restart window of downtime. For zero-downtime blue/green or
+              scaling, deploy to an external Kubernetes cluster instead.
+            </Typography>
+          </Box>
+
+          <Divider />
+
+          <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
               <Typography variant="subtitle1">Domains</Typography>
               <Tooltip title="Trigger a deploy at the current HEAD of the primary repo">

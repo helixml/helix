@@ -1563,6 +1563,13 @@ type AssistantConfig struct {
 	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
 	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
 
+	// ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+	// "claude_code" and CodeAgentCredentialType is "subscription". It flows through
+	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
+	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
+	// model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
+
 	// GooseRecipeRepoURL is the external git URL of the attached repository
 	// that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
 	// Resolved against attached GitRepositories at sandbox-start time.

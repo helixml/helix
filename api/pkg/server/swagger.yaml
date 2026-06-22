@@ -3360,6 +3360,14 @@ definitions:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
         $ref: '#/definitions/types.AssistantCalculator'
+      claude_subscription_model:
+        description: |-
+          ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+          "claude_code" and CodeAgentCredentialType is "subscription". It flows through
+          CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
+          which the claude-agent-acp package reads (resolveModelPreference) to pick the
+          model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+        type: string
       code_agent_credential_type:
         allOf:
         - $ref: '#/definitions/types.CodeAgentCredentialType'
@@ -4585,6 +4593,12 @@ definitions:
         description: |-
           ProjectID optionally associates the sandbox with a project the caller
           belongs to. Empty means org-scoped only.
+        type: string
+      purpose:
+        description: |-
+          Purpose is an optional marker (e.g. "web-service") that selects extra
+          provisioning behaviour. Empty for ordinary sandboxes. Not settable via
+          the public REST API — set internally by the web-service controller.
         type: string
       runtime:
         allOf:
@@ -7426,6 +7440,13 @@ definitions:
         type: string
       enabled:
         type: boolean
+      host_device_id:
+        description: |-
+          HostDeviceID is the runner the project's web service is pinned to. It is
+          recorded from the web-service sandbox after first provision and surfaced
+          for visibility. Enforcement of the pin lives in the sandbox scheduler's
+          persistent-sandbox sticky guard; this column mirrors it for the UI/API.
+        type: string
       project_id:
         type: string
       updated_at:
@@ -8262,6 +8283,13 @@ definitions:
           ProjectID is optional. When set, the sandbox is associated with a
           specific project for organisational/UI grouping purposes; nothing in the
           lifecycle path branches on it. Empty means org-scoped only.
+        type: string
+      purpose:
+        description: |-
+          Purpose is an optional marker describing what the sandbox is used for.
+          Empty for ordinary agent/dev sandboxes. "web-service" marks the single
+          long-lived sandbox that hosts a project's web service; the provisioner
+          uses it to bind-mount the per-project durable data dir at /data.
         type: string
       runtime:
         $ref: '#/definitions/types.SandboxRuntime'
@@ -22148,6 +22176,54 @@ paths:
       summary: Clear a session's conversation
       tags:
       - sessions
+  /api/v1/sessions/{id}/foreground-thread:
+    post:
+      description: |-
+        Tells the per-spec-task Zed desktop to open (foreground) the thread that
+        belongs to THIS session, so the streamed desktop tracks the session the
+        user is viewing. A spec task can have multiple sessions/threads sharing one
+        desktop; the chat panel and message routing are already session-scoped, but
+        nothing previously told the desktop to follow the selected session — so the
+        foregrounded thread could differ from the one messages were sent to. This is
+        session-scoped and never guesses a "latest" thread. It no-ops (200) when the
+        session has no thread yet or the desktop WS is not connected, and crucially
+        NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Foreground this session's Zed thread on the desktop
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/fork:
     post:
       consumes:

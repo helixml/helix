@@ -66,6 +66,17 @@ run_test() {
         TEST_PASSED=false
     fi
 
+    # The remote default branch must never be helix-specs. On GitHub the first
+    # branch pushed to an empty repo becomes the default; a regression in the
+    # seed ordering would make helix-specs the default here.
+    REMOTE_HEAD=$(git -C ../remote.git symbolic-ref HEAD 2>/dev/null | sed 's@^refs/heads/@@')
+    if [ "$REMOTE_HEAD" = "helix-specs" ]; then
+        echo "  Remote default branch is helix-specs (WRONG)"
+        TEST_PASSED=false
+    else
+        echo "  Remote default branch: ${REMOTE_HEAD:-<unset>} (not helix-specs)"
+    fi
+
     # Check current state
     FINAL_BRANCH=$(git branch --show-current 2>/dev/null)
     if [ -n "$FINAL_BRANCH" ]; then
@@ -172,6 +183,58 @@ run_test "Azure DevOps style (master, no origin/HEAD)" '
     # Simulate Azure DevOps: remove origin/HEAD symbolic ref
     rm -f .git/refs/remotes/origin/HEAD
 '
+
+# Test 9: Empty repo where the default-branch seed push fails.
+# helix-specs must NOT be pushed/created (it would otherwise become the
+# upstream default branch), and the function must report failure.
+echo ""
+echo "--------------------------------------------"
+echo "TEST: Empty repo with failing seed push"
+echo "--------------------------------------------"
+cd /tmp
+rm -rf test-helix-specs-seedfail
+mkdir test-helix-specs-seedfail
+cd test-helix-specs-seedfail
+git init --bare remote.git 2>/dev/null
+git clone remote.git work 2>/dev/null
+cd work
+# Point origin at a non-existent remote so every push (including the seed) fails.
+git remote set-url origin /tmp/test-helix-specs-seedfail/nonexistent.git
+
+SEEDFAIL_PASSED=true
+if create_helix_specs_branch "$(pwd)"; then
+    echo "  Function returned success (expected failure)"
+    SEEDFAIL_PASSED=false
+else
+    echo "  Function returned failure (correct)"
+fi
+
+if [ "$HELIX_SPECS_BRANCH_EXISTS" = false ]; then
+    echo "  HELIX_SPECS_BRANCH_EXISTS=false (correct)"
+else
+    echo "  HELIX_SPECS_BRANCH_EXISTS=$HELIX_SPECS_BRANCH_EXISTS (expected false)"
+    SEEDFAIL_PASSED=false
+fi
+
+# helix-specs must not have been created locally either.
+if git rev-parse --verify helix-specs >/dev/null 2>&1; then
+    echo "  helix-specs branch was created locally (WRONG)"
+    SEEDFAIL_PASSED=false
+else
+    echo "  helix-specs not created (correct)"
+fi
+
+if [ "$SEEDFAIL_PASSED" = true ]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo ""
+    echo "PASSED: Empty repo with failing seed push"
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo ""
+    echo "FAILED: Empty repo with failing seed push"
+fi
+cd /tmp
+rm -rf test-helix-specs-seedfail
 
 echo ""
 echo "=============================================="

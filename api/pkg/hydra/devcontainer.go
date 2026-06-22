@@ -871,11 +871,26 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		hostConfig.CapAdd = []string{"SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"}
 	}
 
-	// Add ExtraHosts so the container can resolve "api" hostname.
-	// The container is on bridge network but needs to reach the API
-	// on the helix_* Docker network. We resolve "api" from the sandbox's
-	// perspective and add it as an extra host entry.
-	hostConfig.ExtraHosts = dm.buildExtraHosts()
+	// Resolve "api"/"outer-api" via the sandbox dns-proxy instead of pinning a
+	// concrete IP into /etc/hosts. The proxy (sandbox/dns-proxy, bound on the
+	// bridge gateway) forwards to the outer Docker DNS and re-resolves on every
+	// query, so a recreated `api` container is picked up automatically. The old
+	// ExtraHosts pin baked the IP at creation time and went stale on any API
+	// restart, stranding surviving desktops forever (#2641). /etc/hosts entries
+	// take precedence over DNS, so the pin also *shadowed* this dynamic path —
+	// hence we drop it entirely and point the resolver at the proxy.
+	//
+	// Only do this on the default bridge (the standard desktop path). Host
+	// networking shares the sandbox's resolver already, and an explicit custom
+	// network is the caller's responsibility.
+	if networkMode == "bridge" {
+		if gw := dm.sandboxDNSGateway(); gw != "" {
+			hostConfig.DNS = []string{gw}
+		}
+	} else {
+		// Non-bridge (e.g. host) keeps the legacy behaviour for now.
+		hostConfig.ExtraHosts = dm.buildExtraHosts()
+	}
 
 	// Build mounts
 	mounts, err := dm.buildMounts(req)
@@ -1096,8 +1111,37 @@ func (dm *DevContainerManager) buildMounts(req *CreateDevContainerRequest) ([]mo
 	return mounts, nil
 }
 
+// sandboxDNSGateway returns the address of the sandbox dns-proxy that desktop
+// containers should use as their resolver: the gateway of this dockerd's default
+// bridge. The sandbox's dockerd uses pool 10.(212+depth).0.0/16 (see
+// sandbox/04-start-dockerd.sh) and the dns-proxy binds the .0.1 gateway of the
+// first /24 (see sandbox/05-start-dns-proxy.sh), so the address is
+// 10.(212+depth).0.1. Returns "" if the depth is implausible.
+//
+// NOTE: the dns-proxy startup script currently hard-codes 10.213.0.1 (depth 1),
+// so resolution via the proxy is only wired for the standard (non-nested) sandbox
+// today; deeper nesting needs the proxy bind made depth-aware to match.
+func (dm *DevContainerManager) sandboxDNSGateway() string {
+	depth := 1
+	if depthStr := os.Getenv("HELIX_DOCKER_DEPTH"); depthStr != "" {
+		if d, err := strconv.Atoi(depthStr); err == nil && d >= 1 {
+			depth = d
+		}
+	}
+	octet := 212 + depth
+	if octet > 255 {
+		return ""
+	}
+	return fmt.Sprintf("10.%d.0.1", octet)
+}
+
 // buildExtraHosts returns Docker ExtraHosts entries (format: "hostname:ip")
 // so the desktop container can reach services on the helix compose network.
+//
+// DEPRECATED for the default-bridge desktop path: this pins a concrete IP at
+// container-creation time, which goes stale on any API restart (#2641). The
+// bridge path now resolves "api"/"outer-api" dynamically via the dns-proxy
+// (see sandboxDNSGateway). Retained only for the non-bridge fallback.
 func (dm *DevContainerManager) buildExtraHosts() []string {
 	var extraHosts []string
 

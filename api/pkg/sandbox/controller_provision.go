@@ -284,6 +284,19 @@ func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hy
 		ReadOnly:    false,
 	})
 
+	// Web-service durable data mount. Keyed by project (NOT sandbox ID) so the
+	// data survives across redeploys and even a rebuild of the single
+	// web-service sandbox. The web app writes its database / uploads here via
+	// HELIX_WEB_SERVICE_DATA_DIR=/data. This dir is never removed on sandbox
+	// delete (see webServiceDataDir / Delete).
+	if sandbox.Purpose == types.SandboxPurposeWebService && sandbox.ProjectID != "" {
+		mounts = append(mounts, hydra.MountConfig{
+			Source:      c.webServiceDataDir(sandbox.ProjectID),
+			Destination: "/data",
+			ReadOnly:    false,
+		})
+	}
+
 	// Desktop-only mounts — same as the spec-task hydra executor, minus the
 	// Zed-specific paths since HELIX_DISABLE_AGENT=1 keeps the agent stack
 	// off. Without /var/lib/docker as a volume the desktop init script
@@ -309,6 +322,13 @@ func (c *Controller) buildMounts(sandbox *types.Sandbox, spec *RuntimeSpec) []hy
 	}
 
 	return mounts
+}
+
+// webServiceDataDir returns the host path of a project's durable web-service
+// data dir. Keyed by project ID (not sandbox ID) so it outlives any single
+// deploy/sandbox. Deliberately never deleted by sandbox teardown.
+func (c *Controller) webServiceDataDir(projectID string) string {
+	return filepath.Join(c.workspaceDir, "webservice", projectID, "data")
 }
 
 // specForSandbox returns the RuntimeSpec for an existing row. For runtimes

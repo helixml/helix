@@ -1240,8 +1240,12 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 
 	// Send via the unified helper, notifying the commenter of responses.
 	// interactionID is returned directly — avoids the fragile session-based queue
-	// lookup that breaks when the connected session differs from PlanningSessionID
-	// (e.g. after Zed thread compaction creates a new work session).
+	// lookup that breaks when the agent's live session differs from PlanningSessionID.
+	// That divergence comes from a user spinning up a separate thread/session in the
+	// Zed UI (handleUserCreatedThread); auto-compaction, by contrast, now summarises
+	// in-place within the same thread and does NOT fork a new session (older Zed builds
+	// did — hence this note). In practice the desktop's anchor connection is the
+	// planning session, so sends still resolve to PlanningSessionID.
 	// interrupt=true: a design-review comment is reactive feedback that should preempt
 	// any in-flight agent turn so the latest input takes priority over stale work.
 	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy, true)

@@ -2118,6 +2118,14 @@ export interface TypesAssistantConfig {
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
+   * ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is
+   * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
+   * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
+   * which the claude-agent-acp package reads (resolveModelPreference) to pick the
+   * model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+   */
+  claude_subscription_model?: string;
+  /**
    * CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.
    * "api_key" (default/empty): uses an API key routed through the Helix proxy.
    * "subscription": uses OAuth credentials directly (e.g., Claude subscription).
@@ -2883,6 +2891,12 @@ export interface TypesCreateSandboxRequest {
    * belongs to. Empty means org-scoped only.
    */
   project_id?: string;
+  /**
+   * Purpose is an optional marker (e.g. "web-service") that selects extra
+   * provisioning behaviour. Empty for ordinary sandboxes. Not settable via
+   * the public REST API — set internally by the web-service controller.
+   */
+  purpose?: string;
   /**
    * Runtime selects one of the operator-configured runtimes
    * (e.g. "headless-ubuntu", "node22", "ubuntu-desktop"). Mutually
@@ -4595,6 +4609,13 @@ export interface TypesProjectWebServiceState {
   container_port?: number;
   created_at?: string;
   enabled?: boolean;
+  /**
+   * HostDeviceID is the runner the project's web service is pinned to. It is
+   * recorded from the web-service sandbox after first provision and surfaced
+   * for visibility. Enforcement of the pin lives in the sandbox scheduler's
+   * persistent-sandbox sticky guard; this column mirrors it for the UI/API.
+   */
+  host_device_id?: string;
   project_id?: string;
   updated_at?: string;
 }
@@ -5111,6 +5132,13 @@ export interface TypesSandbox {
    * lifecycle path branches on it. Empty means org-scoped only.
    */
   project_id?: string;
+  /**
+   * Purpose is an optional marker describing what the sandbox is used for.
+   * Empty for ordinary agent/dev sandboxes. "web-service" marks the single
+   * long-lived sandbox that hosts a project's web service; the provisioner
+   * uses it to bind-mount the per-project durable data dir at /data.
+   */
+  purpose?: string;
   runtime?: TypesSandboxRuntime;
   started_at?: string;
   status?: TypesSandboxStatus;
@@ -14918,6 +14946,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SessionsClearCreate: (id: string, params: RequestParams = {}) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/clear`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Tells the per-spec-task Zed desktop to open (foreground) the thread that belongs to THIS session, so the streamed desktop tracks the session the user is viewing. A spec task can have multiple sessions/threads sharing one desktop; the chat panel and message routing are already session-scoped, but nothing previously told the desktop to follow the selected session — so the foregrounded thread could differ from the one messages were sent to. This is session-scoped and never guesses a "latest" thread. It no-ops (200) when the session has no thread yet or the desktop WS is not connected, and crucially NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+     *
+     * @tags Sessions
+     * @name V1SessionsForegroundThreadCreate
+     * @summary Foreground this session's Zed thread on the desktop
+     * @request POST:/api/v1/sessions/{id}/foreground-thread
+     * @secure
+     */
+    v1SessionsForegroundThreadCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/foreground-thread`,
         method: "POST",
         secure: true,
         format: "json",

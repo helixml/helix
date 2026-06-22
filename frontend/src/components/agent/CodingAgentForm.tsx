@@ -10,6 +10,15 @@ import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
+// Hardcoded Anthropic model tiers offered in Claude subscription mode.
+// These ids match the backend default and the /claude-subscriptions/models endpoint.
+export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6 (recommended)' },
+  { id: 'claude-sonnet-4-5-latest', label: 'Claude Sonnet 4.5' },
+  { id: 'claude-haiku-4-5-latest', label: 'Claude Haiku 4.5' },
+]
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-4-6'
+
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime
   claudeCodeMode: ClaudeCodeMode
@@ -104,6 +113,9 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   const apps = useApps()
   const [createError, setCreateError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  // Claude subscription mode has a fixed three-tier model choice (Opus/Sonnet/Haiku),
+  // kept local because the create-form parents don't round-trip extra value fields.
+  const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
   const { hasAnthropicProvider, hasClaudeSubscription } = useCodingAgentProviderState(value, onChange)
   const showModelPicker = value.codeAgentRuntime !== 'claude_code' || value.claudeCodeMode === 'api_key'
   const isClaudeCodeSubscription = value.codeAgentRuntime === 'claude_code' && value.claudeCodeMode === 'subscription'
@@ -138,6 +150,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
         agentType: AGENT_TYPE_ZED_EXTERNAL,
         codeAgentRuntime: value.codeAgentRuntime,
         codeAgentCredentialType: value.claudeCodeMode === 'subscription' ? 'subscription' : 'api_key',
+        claudeSubscriptionModel: isClaudeCodeSubscription ? claudeSubscriptionModel : undefined,
         provider: providerToUse,
         model: modelToUse,
         organizationId: createAgentOrganizationId,
@@ -177,6 +190,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
     createAgentDescription,
     createAgentOrganizationId,
     isClaudeCodeSubscription,
+    claudeSubscriptionModel,
     onAgentCreated,
     onCreateStateChange,
     value.agentName,
@@ -295,6 +309,29 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
             <Alert severity="warning" sx={{ mt: 1 }}>
               Connect a Claude subscription or add an Anthropic API key in Providers.
             </Alert>
+          )}
+          {isClaudeCodeSubscription && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>
+                Model
+              </Typography>
+              <FormControl fullWidth>
+                <Select
+                  size="small"
+                  value={claudeSubscriptionModel}
+                  disabled={disabled}
+                  onChange={(event) => setClaudeSubscriptionModel(event.target.value)}
+                  sx={selectSx}
+                  MenuProps={{ PaperProps: { sx: menuPaperSx } }}
+                >
+                  {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      <Typography variant="body2">{m.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
           )}
         </Box>
       )}

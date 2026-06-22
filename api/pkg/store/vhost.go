@@ -175,6 +175,21 @@ func (s *PostgresStore) SetActiveWebServiceSandbox(ctx context.Context, projectI
 		}).Error
 }
 
+// SetWebServiceHostDeviceID records the runner the project's web service is
+// pinned to. Recorded once from the web-service sandbox after first provision.
+func (s *PostgresStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
+	if projectID == "" {
+		return fmt.Errorf("project_id is required")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.ProjectWebServiceState{}).
+		Where("project_id = ?", projectID).
+		Updates(map[string]interface{}{
+			"host_device_id": hostDeviceID,
+			"updated_at":     time.Now(),
+		}).Error
+}
+
 // --- web_service_deploys ---
 
 // CreateWebServiceDeploy inserts a new deploy row.

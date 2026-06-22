@@ -567,6 +567,12 @@ export interface IAssistantConfig {
    */
   code_agent_credential_type?: 'api_key' | 'subscription';
   /**
+   * ClaudeSubscriptionModel is the Anthropic model used when code_agent_runtime is
+   * 'claude_code' and code_agent_credential_type is 'subscription'. Empty defaults to
+   * 'claude-opus-4-6'.
+   */
+  claude_subscription_model?: string;
+  /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
@@ -804,6 +810,7 @@ export interface IAppFlatState {
   small_generation_model_provider?: string
   code_agent_runtime?: 'zed_agent' | 'qwen_code' | 'claude_code' | 'gemini_cli' | 'codex_cli' | 'goose_code'
   code_agent_credential_type?: 'api_key' | 'subscription'
+  claude_subscription_model?: string
   goose_recipe_repo_url?: string
   goose_recipes?: IAssistantGooseRecipe[]
   context_limit?: number

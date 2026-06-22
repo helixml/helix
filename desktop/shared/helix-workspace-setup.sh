@@ -39,18 +39,6 @@ SETUP_LOG="$HOME/.helix-setup.log"
 : > "$SETUP_LOG" || true
 exec > >(tee -a "$SETUP_LOG") 2>&1
 
-# How long the cleanup_and_prompt menu waits for a human at the terminal before
-# giving up and exiting with the original failure code. Without this timeout an
-# unattended spec-task agent's setup failure parks the script on `read` forever:
-# Zed never sees ~/.helix-setup-complete, no WebSocket ever connects, and the
-# API eventually times out with the generic
-#   "Agent never connected after auto-wake cold-start retries"
-# banner — burying the real error in the framebuffer scrollback.
-#
-# 60s gives a watching human plenty of time to react while still freeing the
-# session for the API to report the real failure when no one is there.
-HELIX_SETUP_PROMPT_TIMEOUT="${HELIX_SETUP_PROMPT_TIMEOUT:-60}"
-
 # Trap any exit (success or failure) to show interactive menu
 # This ensures users can see errors and debug
 cleanup_and_prompt() {
@@ -91,20 +79,17 @@ JSON
     echo "  1) Close this window"
     echo "  2) Start an interactive shell for debugging"
     echo ""
-    # Time out the prompt so unattended containers don't block forever on
-    # read. Default to "1) Close" so the container exits with the real
-    # exit code, which lets the API observe and report the failure.
-    local choice=""
-    if read -t "$HELIX_SETUP_PROMPT_TIMEOUT" -p "Enter choice [1-2] (auto-close in ${HELIX_SETUP_PROMPT_TIMEOUT}s): " choice; then
-        : # got input
-    else
-        echo ""
-        echo "(no input within ${HELIX_SETUP_PROMPT_TIMEOUT}s — closing)"
-        choice=1
-    fi
+    # Block indefinitely so the window stays open until the user decides —
+    # they often want to inspect whether the stack actually started up.
+    read -p "Enter choice [1-2]: " choice
 
     case "$choice" in
-        2)
+        1)
+            # Disable trap before exiting to avoid infinite loop
+            trap - EXIT
+            exit $exit_code
+            ;;
+        2|*)
             echo ""
             echo "Starting interactive shell..."
             echo "Type 'exit' to close this window."
@@ -115,12 +100,6 @@ JSON
                 cd "$HOME/work"
             fi
             exec bash
-            ;;
-        *)
-            # Default (1 or timeout): disable trap to avoid recursion and
-            # exit with the original code so the parent observes the failure.
-            trap - EXIT
-            exit $exit_code
             ;;
     esac
 }
@@ -350,8 +329,16 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
                     if git push -u origin main 2>&1; then
                         echo "    ✅ Repository initialized with main branch"
                     else
-                        echo "    ❌ Failed to push initial commit"
-                        echo "    You may need to initialize this repository manually"
+                        # Hard fail: seeding main on the upstream is the
+                        # authoritative first step. If it fails we must not
+                        # continue - the branch-checkout step below FATALs on an
+                        # empty upstream, and helix-specs would otherwise be
+                        # pushed first and become the upstream default branch.
+                        echo "    ❌ FATAL: Failed to push initial commit to main"
+                        echo "    The upstream is still empty; refusing to continue so"
+                        echo "    helix-specs does not become the default branch."
+                        cd "$WORK_DIR"
+                        exit 1
                     fi
 
                     cd "$WORK_DIR"

@@ -140,11 +140,16 @@ function clipboardReadAny(): Promise<ClipboardReadResult> {
         ) {
           window.removeEventListener("message", handler);
           const mime = event.data.mime as string | undefined;
-          if (mime === "image/png" && typeof event.data.base64 === "string") {
-            resolve({ mime: "image/png", base64: event.data.base64 });
-          } else if (typeof event.data.text === "string" && event.data.text) {
-            // Includes old-parent responses that lacked `mime` entirely.
+          // Prefer non-empty text/plain over image/png for parity with the
+          // navigator.clipboard.read() branch. Includes old-parent responses
+          // that lacked `mime` entirely.
+          if (typeof event.data.text === "string" && event.data.text) {
             resolve({ mime: "text/plain", text: event.data.text });
+          } else if (
+            mime === "image/png" &&
+            typeof event.data.base64 === "string"
+          ) {
+            resolve({ mime: "image/png", base64: event.data.base64 });
           } else {
             resolve({ mime: "empty" });
           }
@@ -177,16 +182,21 @@ function clipboardReadAny(): Promise<ClipboardReadResult> {
     .then(async (items): Promise<ClipboardReadResult> => {
       if (items.length === 0) return { mime: "empty" };
       const item = items[0];
+      // Prefer non-empty text/plain over image/png. A text copy from the remote
+      // now leaves a 1x1 placeholder image/png on the clipboard alongside the
+      // text (see PLACEHOLDER_PNG_BASE64); checking image first would paste the
+      // transparent pixel instead of the text on paste-back. Genuine image
+      // copies carry an empty text/plain, so they still fall through to image.
+      if (item.types.includes("text/plain")) {
+        const blob = await item.getType("text/plain");
+        const text = await blob.text();
+        if (text) return { mime: "text/plain", text };
+      }
       if (item.types.includes("image/png")) {
         const blob = await item.getType("image/png");
         const buf = await blob.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
         return { mime: "image/png", base64 };
-      }
-      if (item.types.includes("text/plain")) {
-        const blob = await item.getType("text/plain");
-        const text = await blob.text();
-        return { mime: "text/plain", text };
       }
       return { mime: "empty" };
     })
@@ -207,6 +217,18 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   }
   return bytes;
 }
+
+// Minimal valid 1x1 transparent PNG. The gesture-anchored ClipboardItem in
+// the copy handler must declare both text/plain and image/png up front (we
+// don't know which the remote produced until the async fetch resolves). Chrome
+// runs every image written to the clipboard through a decode/sanitize step and
+// REJECTS the entire navigator.clipboard.write() if any image/png
+// representation fails to decode — so the "no image this time" fallback must be
+// a fully decodable PNG, not a zero-byte Blob (which silently broke all text
+// copy on Chrome). Generated with Pillow (RGBA 1x1, alpha 0) and verified:
+// 70 bytes, valid signature, IHDR/IDAT/IEND with correct CRC-32s.
+const PLACEHOLDER_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==";
 
 function hashClipboardData(d: TypesClipboardData | null | undefined): string {
   if (!d || !d.type || !d.data) return "";
@@ -4132,7 +4154,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           if (d?.type === "image" && d.data) {
             return new Blob([base64ToBytes(d.data)], { type: "image/png" });
           }
-          return new Blob([], { type: "image/png" });
+          // Not an image copy: fall back to a valid 1x1 transparent PNG, NOT a
+          // zero-byte Blob. Chrome rejects the whole clipboard write if the
+          // image/png representation can't be decoded, which would discard the
+          // valid text/plain alongside it (the Chrome copy regression).
+          return new Blob([base64ToBytes(PLACEHOLDER_PNG_BASE64)], {
+            type: "image/png",
+          });
         });
 
         // Plain browser (not iframe) with modern ClipboardItem support:

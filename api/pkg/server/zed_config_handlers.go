@@ -662,11 +662,20 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		agentName = "claude"
 		if isSubscription {
 			// Subscription mode: Claude Code talks directly to Anthropic
-			// using OAuth credentials from ~/.claude/.credentials.json
+			// using OAuth credentials from ~/.claude/.credentials.json.
+			// Provider/baseURL/apiType stay empty (the daemon detects
+			// subscription mode by BaseURL == ""), but we DO set the model:
+			// the settings-sync-daemon writes it into managed-settings.json,
+			// which the claude-agent-acp package reads via
+			// resolveModelPreference(). Without it Claude Code defaults to
+			// Sonnet. Default to Opus for harder work.
 			providerName = ""
 			baseURL = ""
 			apiType = ""
-			model = ""
+			model = assistant.ClaudeSubscriptionModel
+			if model == "" {
+				model = "claude-opus-4-6"
+			}
 		} else {
 			// API key mode: route through Helix proxy.
 			// IMPORTANT: Use helixURL without "/v1" suffix because the Anthropic SDK

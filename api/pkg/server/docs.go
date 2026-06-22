@@ -16228,6 +16228,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/foreground-thread": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tells the per-spec-task Zed desktop to open (foreground) the thread that\nbelongs to THIS session, so the streamed desktop tracks the session the\nuser is viewing. A spec task can have multiple sessions/threads sharing one\ndesktop; the chat panel and message routing are already session-scoped, but\nnothing previously told the desktop to follow the selected session — so the\nforegrounded thread could differ from the one messages were sent to. This is\nsession-scoped and never guesses a \"latest\" thread. It no-ops (200) when the\nsession has no thread yet or the desktop WS is not connected, and crucially\nNEVER auto-starts a dev container (foregrounding must not boot a desktop).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Foreground this session's Zed thread on the desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/fork": {
             "post": {
                 "security": [
@@ -25873,6 +25934,10 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
+                "claude_subscription_model": {
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"claude-opus-4-6\".",
+                    "type": "string"
+                },
                 "code_agent_credential_type": {
                     "description": "CodeAgentCredentialType specifies how the code agent authenticates with the LLM provider.\n\"api_key\" (default/empty): uses an API key routed through the Helix proxy.\n\"subscription\": uses OAuth credentials directly (e.g., Claude subscription).",
                     "allOf": [
@@ -27539,6 +27604,10 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "description": "ProjectID optionally associates the sandbox with a project the caller\nbelongs to. Empty means org-scoped only.",
+                    "type": "string"
+                },
+                "purpose": {
+                    "description": "Purpose is an optional marker (e.g. \"web-service\") that selects extra\nprovisioning behaviour. Empty for ordinary sandboxes. Not settable via\nthe public REST API — set internally by the web-service controller.",
                     "type": "string"
                 },
                 "runtime": {
@@ -31549,6 +31618,10 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean"
                 },
+                "host_device_id": {
+                    "description": "HostDeviceID is the runner the project's web service is pinned to. It is\nrecorded from the web-service sandbox after first provision and surfaced\nfor visibility. Enforcement of the pin lives in the sandbox scheduler's\npersistent-sandbox sticky guard; this column mirrors it for the UI/API.",
+                    "type": "string"
+                },
                 "project_id": {
                     "type": "string"
                 },
@@ -32687,6 +32760,10 @@ const docTemplate = `{
                 },
                 "project_id": {
                     "description": "ProjectID is optional. When set, the sandbox is associated with a\nspecific project for organisational/UI grouping purposes; nothing in the\nlifecycle path branches on it. Empty means org-scoped only.",
+                    "type": "string"
+                },
+                "purpose": {
+                    "description": "Purpose is an optional marker describing what the sandbox is used for.\nEmpty for ordinary agent/dev sandboxes. \"web-service\" marks the single\nlong-lived sandbox that hosts a project's web service; the provisioner\nuses it to bind-mount the per-project durable data dir at /data.",
                     "type": "string"
                 },
                 "runtime": {

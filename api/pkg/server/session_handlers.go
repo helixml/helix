@@ -658,24 +658,23 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
-	// Track which interactions are new (for external agent notification)
-	// For existing sessions, only the last interaction(s) are new (from current generation)
-	// For new sessions, all interactions are new
+	// Track which interactions are new (for external agent notification).
+	//
+	// appendOrOverwrite always appends exactly ONE new user interaction — the prompt
+	// being sent — as the last element of session.Interactions (both the single-message
+	// and the regenerate paths). So the only genuinely-new interaction is the last one.
+	//
+	// We previously derived this by scanning backwards for the first interaction whose
+	// GenerationID < session.GenerationID. That was broken (#2642): on a long-lived
+	// session whose interactions all share the current generation (the common case — the
+	// generation only bumps on regenerate, and the regenerate path rewrites every kept
+	// interaction to the new generation at appendOrOverwrite), the scan found no boundary,
+	// left the start index at 0, and re-notified the ENTIRE history (~1381 Notify calls
+	// observed for one message → "external agent send channel full"). Notify only the new
+	// interaction.
 	newInteractionsStartIndex := 0
-	if startReq.SessionID != "" {
-		// Existing session - find where old interactions end by checking GenerationID
-		// Only notify about interactions from the current generation
-		for i := len(session.Interactions) - 1; i >= 0; i-- {
-			if session.Interactions[i].GenerationID < session.GenerationID {
-				// This interaction is from a previous generation
-				newInteractionsStartIndex = i + 1
-				break
-			}
-		}
-		log.Debug().
-			Int("total_interactions", len(session.Interactions)).
-			Int("new_start_index", newInteractionsStartIndex).
-			Msg("Tracking new interactions for external agent notification")
+	if len(session.Interactions) > 0 {
+		newInteractionsStartIndex = len(session.Interactions) - 1
 	}
 
 	// Write the initial interactions
@@ -2323,6 +2322,80 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 		RequestID:     requestID,
 		InteractionID: interactionID,
 	}, nil
+}
+
+// foregroundSessionThread godoc
+// @Summary Foreground this session's Zed thread on the desktop
+// @Description Tells the per-spec-task Zed desktop to open (foreground) the thread that
+// @Description belongs to THIS session, so the streamed desktop tracks the session the
+// @Description user is viewing. A spec task can have multiple sessions/threads sharing one
+// @Description desktop; the chat panel and message routing are already session-scoped, but
+// @Description nothing previously told the desktop to follow the selected session — so the
+// @Description foregrounded thread could differ from the one messages were sent to. This is
+// @Description session-scoped and never guesses a "latest" thread. It no-ops (200) when the
+// @Description session has no thread yet or the desktop WS is not connected, and crucially
+// @Description NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/foreground-thread [post]
+func (s *HelixAPIServer) foregroundSessionThread(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	if session.Metadata.ZedThreadID == "" {
+		// No thread to foreground yet (e.g. first message not sent). Not an error.
+		return map[string]string{"status": "noop", "reason": "no_thread"}, nil
+	}
+
+	// CRITICAL: gate on a live connection. sendOpenThreadCommand →
+	// sendCommandToExternalAgent auto-starts a dev container on a connection miss;
+	// foregrounding a thread must never boot a desktop. If the desktop isn't
+	// connected there is nothing to foreground.
+	if _, connected := s.externalAgentWSManager.getConnection(sessionID); !connected {
+		return map[string]string{"status": "noop", "reason": "desktop_not_connected"}, nil
+	}
+
+	agentName := s.getAgentNameForSession(ctx, session)
+	if err := s.sendOpenThreadCommand(sessionID, session.Metadata.ZedThreadID, agentName); err != nil {
+		// A reconnect race can close the connection between the check above and the
+		// send. This is best-effort foregrounding, not a state mutation — surface as
+		// a no-op rather than a 500.
+		log.Warn().Err(err).
+			Str("session_id", sessionID).
+			Str("zed_thread_id", session.Metadata.ZedThreadID).
+			Msg("foreground-thread: open_thread send failed")
+		return map[string]string{"status": "noop", "reason": "send_failed"}, nil
+	}
+
+	return map[string]string{"status": "ok"}, nil
 }
 
 // restartCrashedAgentThread godoc

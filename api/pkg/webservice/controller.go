@@ -1,13 +1,24 @@
 // Package webservice orchestrates the deploy lifecycle for a project's
-// hosted web application: provisioning a sandbox, cloning the primary
-// repo, running .helix/startup.sh, and cutting traffic over to the new
-// container by updating project_web_service_state.ActiveSandboxID.
+// hosted web application.
+//
+// Deploys are IN-PLACE on a single long-lived, runner-pinned sandbox per
+// project — NOT blue/green. A web app that owns a database keeps that DB on
+// disk under /data, and two processes must never open the same on-disk
+// database concurrently (Postgres refuses; SQLite corrupts). So a deploy
+// stops the running app BEFORE starting the new one — at most one instance
+// ever touches /data. This costs a brief restart window of downtime, which is
+// the correct trade for data safety. Operators who need zero-downtime
+// blue/green or horizontal scaling point Helix at an external Kubernetes
+// cluster instead (see design doc 002107).
+//
+// The durable data dir /data is bind-mounted by the sandbox provisioner,
+// keyed by project (not sandbox id), so it survives redeploys and reboots.
+// The sandbox is Persistent=true, so the scheduler's sticky guard pins it to
+// its runner and refuses to relocate it (which would orphan local-disk data).
 //
 // The Controller wires together pre-existing primitives: sandbox.Controller
 // for provisioning, hydra.RevDialClient for in-container exec, and
-// store.Store for persistence. There is no new runner-side workload type
-// — the bootstrap script runs as a detached exec inside a plain headless
-// sandbox.
+// store.Store for persistence.
 package webservice
 
 import (
@@ -34,6 +45,7 @@ type Controller struct {
 	sandboxes     *sandbox.Controller
 	provisionWait time.Duration // upper bound for waiting for sandbox status=running
 	provisionPoll time.Duration // poll interval while waiting
+	bootstrapWait time.Duration // upper bound for the in-place deploy exec (clone/fetch/launch)
 	readinessWait time.Duration // upper bound for waiting for the app to bind to its port
 	readinessPoll time.Duration // poll interval while waiting
 
@@ -51,6 +63,7 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		sandboxes:     sc,
 		provisionWait: 3 * time.Minute,
 		provisionPoll: 2 * time.Second,
+		bootstrapWait: 5 * time.Minute,
 		readinessWait: 90 * time.Second,
 		readinessPoll: 2 * time.Second,
 	}
@@ -120,9 +133,15 @@ func (c *Controller) Redeploy(ctx context.Context, req DeployRequest) (*types.We
 	return deploy, nil
 }
 
-// runDeploy executes the long-running provision → bootstrap → cutover
-// flow. Detached so the API request returns quickly. Every state
+// runDeploy executes the long-running ensure-sandbox → in-place deploy →
+// readiness flow. Detached so the API request returns quickly. Every state
 // transition is persisted so the UI can reflect progress.
+//
+// In-place model: the project has ONE web-service sandbox. A deploy stops the
+// running app, fetches/checks out the new code, and restarts the app — so the
+// durable /data is only ever opened by one process (single writer). On
+// readiness failure we roll back to the previously-live commit so the site
+// returns to last-known-good against the same intact /data.
 func (c *Controller) runDeploy(
 	deployID string,
 	req DeployRequest,
@@ -130,22 +149,27 @@ func (c *Controller) runDeploy(
 	repo *types.GitRepository,
 	state *types.ProjectWebServiceState,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+2*time.Minute)
 	defer cancel()
 
 	if err := c.markBuilding(ctx, deployID); err != nil {
 		log.Warn().Err(err).Str("deploy_id", deployID).Msg("failed to mark deploy building")
 	}
 
-	sb, err := c.provisionSandbox(ctx, req, project)
+	// Capture the commit that is currently live so we can roll back to it if
+	// this deploy fails its readiness check.
+	previousSHA := c.lastLiveSHA(ctx, req.ProjectID)
+
+	// Get-or-create the project's single, runner-pinned web-service sandbox.
+	sb, err := c.ensureSandbox(ctx, req, project, state)
 	if err != nil {
-		c.markFailed(ctx, deployID, "", fmt.Sprintf("provision sandbox: %s", err))
+		c.markFailed(ctx, deployID, "", fmt.Sprintf("ensure sandbox: %s", err))
 		return
 	}
 
-	if err := c.runBootstrap(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort); err != nil {
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("bootstrap: %s", err))
-		// Leave the sandbox running so the operator can exec in and debug.
+	// Deploy the requested code in place (stops the old app first).
+	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort); err != nil {
+		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
 	}
 
@@ -153,40 +177,51 @@ func (c *Controller) runDeploy(
 	// response (even 4xx/5xx) as "the app is bound" — what matters here
 	// is that the listener exists, not that the app likes the request.
 	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
+		// Roll back to the last-known-good commit so the site comes back up
+		// against the same intact /data. The data is never touched either way.
+		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort)
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
-		// Sandbox stays up; operator can inspect logs / exec.
 		return
 	}
 
-	// Cut over routing.
-	previousSandboxID := state.ActiveSandboxID
+	// Same sandbox across deploys, but keep active_sandbox_id authoritative.
 	if err := c.store.SetActiveWebServiceSandbox(ctx, req.ProjectID, sb.ID); err != nil {
-		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("cutover: %s", err))
+		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("set active sandbox: %s", err))
 		return
 	}
 
 	// Mark this deploy live; supersede the previous live row if any.
 	c.markLive(ctx, deployID, sb.ID)
 	c.markSupersededPrevious(ctx, deployID, req.ProjectID)
-
-	// Stop the previous sandbox to free resources. Best-effort.
-	if previousSandboxID != "" && previousSandboxID != sb.ID {
-		if err := c.sandboxes.Delete(ctx, previousSandboxID); err != nil {
-			log.Warn().Err(err).
-				Str("previous_sandbox_id", previousSandboxID).
-				Str("new_sandbox_id", sb.ID).
-				Msg("failed to stop previous web service sandbox after cutover")
-		}
-	}
 }
 
-// provisionSandbox creates a new web-service sandbox for the project
-// and polls until it reports status=running.
-func (c *Controller) provisionSandbox(ctx context.Context, req DeployRequest, project *types.Project) (*types.Sandbox, error) {
+// ensureSandbox returns the project's single web-service sandbox, creating it
+// on the first deploy. The sandbox is Persistent=true (so the scheduler pins
+// it to its runner and refuses to relocate it) and never auto-expires. On
+// first creation we record the bound runner onto the project state for
+// visibility. If an existing sandbox is not running, we fail loudly rather
+// than silently moving the service off its data — the pinned runner is likely
+// offline.
+func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, project *types.Project, state *types.ProjectWebServiceState) (*types.Sandbox, error) {
+	if state.ActiveSandboxID != "" {
+		sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+		if err == nil && sb != nil {
+			if sb.Status != types.SandboxStatusRunning {
+				return nil, fmt.Errorf("web service sandbox %s is not running (status=%s); its pinned runner may be offline — refusing to relocate (data is on the original runner)", sb.ID, sb.Status)
+			}
+			return sb, nil
+		}
+		// Row gone (deleted): fall through and provision a fresh one. The
+		// durable /data dir is keyed by project, so it is reattached.
+		log.Warn().Err(err).Str("project_id", project.ID).Str("sandbox_id", state.ActiveSandboxID).
+			Msg("recorded web-service sandbox is gone; provisioning a fresh one (durable /data is project-keyed and reattaches)")
+	}
+
 	createReq := &types.CreateSandboxRequest{
 		Name:           fmt.Sprintf("web-service-%s", project.ID),
 		Runtime:        types.SandboxRuntimeHeadlessUbuntu,
 		ProjectID:      project.ID,
+		Purpose:        types.SandboxPurposeWebService,
 		Persistent:     true,
 		TimeoutSeconds: -1, // never auto-expire — web services are long-lived
 	}
@@ -204,6 +239,15 @@ func (c *Controller) provisionSandbox(ctx context.Context, req DeployRequest, pr
 		}
 		switch latest.Status {
 		case types.SandboxStatusRunning:
+			// Record this sandbox as active and pin the project to its runner.
+			if err := c.store.SetActiveWebServiceSandbox(ctx, project.ID, latest.ID); err != nil {
+				log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record active web-service sandbox")
+			}
+			if latest.HostDeviceID != "" {
+				if err := c.store.SetWebServiceHostDeviceID(ctx, project.ID, latest.HostDeviceID); err != nil {
+					log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to record web-service runner pin")
+				}
+			}
 			return latest, nil
 		case types.SandboxStatusFailed, types.SandboxStatusStopped:
 			return nil, fmt.Errorf("sandbox %s reached terminal status %s before running", latest.ID, latest.Status)
@@ -217,50 +261,39 @@ func (c *Controller) provisionSandbox(ctx context.Context, req DeployRequest, pr
 	return nil, fmt.Errorf("sandbox %s did not reach running state within %s", sb.ID, c.provisionWait)
 }
 
-// runBootstrap execs a detached shell inside the freshly-provisioned
-// sandbox that clones the repo, optionally checks out the requested
-// SHA, and runs `.helix/startup.sh`. The exec returns immediately —
-// `startup.sh` typically becomes the long-running web server process.
-func (c *Controller) runBootstrap(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int) error {
+// deployInPlace execs a shell inside the existing web-service sandbox that:
+//  1. stops the previously-launched app (so /data has a single writer),
+//  2. clones the repo on first run / fetches + checks out the requested SHA,
+//  3. launches `.helix/startup.sh` in its own session, recording its PID.
+//
+// The exec runs to completion once the app is LAUNCHED (not necessarily
+// ready) — the app is backgrounded via setsid. Readiness is polled separately.
+//
+// Prod-scoped project secrets are injected via the exec environment (see
+// projectSecretEnv) so they reach startup.sh without being written into the
+// command line or logs.
+func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int) error {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return err
 	}
 
-	checkout := ""
-	if sha != "" {
-		checkout = fmt.Sprintf(" && git checkout %s", shellEscape(sha))
-	}
-
-	script := strings.Join([]string{
-		"set -e",
-		"mkdir -p /workspace",
-		"cd /workspace",
-		"if [ ! -d .git ]; then",
-		"  git clone --depth 50 " + shellEscape(repo.CloneURL) + " .",
-		"fi",
-		"git fetch --all" + checkout,
-		"chmod +x .helix/startup.sh 2>/dev/null || true",
-		"if [ -f .helix/startup.sh ]; then",
-		fmt.Sprintf("  exec env HELIX_WEB_SERVICE_PORT=%d bash .helix/startup.sh", containerPort),
-		"else",
-		"  echo 'No .helix/startup.sh found in repository' >&2; exit 2",
-		"fi",
-	}, "\n")
+	script := deployScript(repo.CloneURL, sha, containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
-	// `exec env HELIX_WEB_SERVICE_PORT=... bash startup.sh` above inherits this
-	// process environment, so secrets propagate through to startup.sh.
+	// `setsid env HELIX_WEB_SERVICE_PORT=... bash .helix/startup.sh` in the
+	// deploy script inherits this exec process environment, so secrets propagate
+	// through to startup.sh.
 	env := c.projectSecretEnv(ctx, projectID, sb.ID)
 
 	_, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
-		SandboxID: sb.ID,
-		Cmd:       "/bin/bash",
-		Args:      []string{"-c", script},
-		Cwd:       "/",
-		Env:       env,
-		Detached:  true,
+		SandboxID:      sb.ID,
+		Cmd:            "/bin/bash",
+		Args:           []string{"-c", script},
+		Cwd:            "/",
+		Env:            env,
+		TimeoutSeconds: int(c.bootstrapWait.Seconds()),
 	})
 	return execErr
 }
@@ -284,6 +317,82 @@ func (c *Controller) projectSecretEnv(ctx context.Context, projectID, sandboxID 
 		log.Info().Int("secret_count", len(secretEnv)).Str("project_id", projectID).Str("sandbox_id", sandboxID).Msg("injected prod project secrets into web service env")
 	}
 	return env
+}
+
+// rollback re-deploys a previously-live commit in place after a failed
+// deploy, so the site returns to last-known-good. Best-effort: failures are
+// logged, not surfaced (the deploy is already being marked failed). When there
+// is no previous commit (first-ever deploy), there is nothing to roll back to;
+// the broken app is left stopped.
+func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, previousSHA string, containerPort int) {
+	if previousSHA == "" {
+		log.Warn().Str("sandbox_id", sb.ID).Msg("deploy failed and no previous commit to roll back to; app left stopped")
+		return
+	}
+	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort); err != nil {
+		log.Error().Err(err).Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rollback to previous commit failed")
+		return
+	}
+	log.Info().Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rolled back web service to previous commit after failed deploy")
+}
+
+// lastLiveSHA returns the commit SHA of the project's most recent live (or
+// superseded) deploy, or "" if there is none. Used to roll back on failure.
+func (c *Controller) lastLiveSHA(ctx context.Context, projectID string) string {
+	deploys, err := c.store.ListWebServiceDeploys(ctx, projectID, 50)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list deploys for rollback baseline")
+		return ""
+	}
+	for _, d := range deploys {
+		if (d.Status == types.WebServiceDeployStatusLive || d.Status == types.WebServiceDeployStatusSuperseded) && d.CommitSHA != "" {
+			return d.CommitSHA
+		}
+	}
+	return ""
+}
+
+// deployScript builds the in-place deploy shell script. It stops any
+// previously-launched app (tracked via a pidfile under /data) BEFORE starting
+// the new one, guaranteeing a single writer of the durable /data dir. The app
+// is launched in its own session (setsid) so we can stop its whole process
+// group on the next deploy. It receives HELIX_WEB_SERVICE_PORT and
+// HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under the
+// latter so state survives redeploys and reboots.
+func deployScript(cloneURL, sha string, containerPort int) string {
+	checkout := ""
+	if sha != "" {
+		checkout = "git checkout " + shellEscape(sha)
+	}
+	return strings.Join([]string{
+		"set -e",
+		"mkdir -p /data /workspace",
+		"PIDFILE=/data/.helix-webservice.pid",
+		"LOGFILE=/data/.helix-webservice.log",
+		// Stop the previous app instance (single-writer guarantee). setsid made
+		// it a group leader, so PID == PGID and `kill -- -PID` stops the group.
+		`if [ -f "$PIDFILE" ]; then`,
+		`  OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)`,
+		`  if [ -n "$OLDPID" ]; then`,
+		`    kill -TERM -"$OLDPID" 2>/dev/null || kill -TERM "$OLDPID" 2>/dev/null || true`,
+		`    for _ in $(seq 1 30); do kill -0 "$OLDPID" 2>/dev/null || break; sleep 1; done`,
+		`    kill -KILL -"$OLDPID" 2>/dev/null || true`,
+		`  fi`,
+		`  rm -f "$PIDFILE"`,
+		"fi",
+		"cd /workspace",
+		"if [ ! -d .git ]; then",
+		"  git clone --depth 50 " + shellEscape(cloneURL) + " .",
+		"fi",
+		"git fetch --all",
+		checkout,
+		"chmod +x .helix/startup.sh 2>/dev/null || true",
+		"if [ ! -f .helix/startup.sh ]; then",
+		"  echo 'No .helix/startup.sh found in repository' >&2; exit 2",
+		"fi",
+		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash .helix/startup.sh >"$LOGFILE" 2>&1 &`, containerPort),
+		`echo $! > "$PIDFILE"`,
+	}, "\n")
 }
 
 // waitForReady polls the container's configured port via the existing
