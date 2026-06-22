@@ -8815,6 +8815,10 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      auto_restart_on_crash:
+        description: 'Autonomous surfaces: auto-recover the agent on crash (no human
+          to click Restart)'
+        type: boolean
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -8918,6 +8922,20 @@ definitions:
       assistant_id:
         description: which assistant are we talking to?
         type: string
+      auto_restart_count:
+        type: integer
+      auto_restart_on_crash:
+        description: |-
+          Autonomous crash recovery. Set true at session creation for surfaces with
+          no human present to click the in-chat Restart button (spec tasks, org
+          workers). When the external agent crashes mid-turn, the websocket crash
+          handler auto-invokes the canonical restart primitive instead of leaving
+          the session errored+idle. Human desktop sessions leave this false and keep
+          the explicit button. AutoRestartCount bounds consecutive auto-restarts
+          without an intervening successful turn (anti-storm guard); it is reset to 0
+          on the next successful completion and lives on the SESSION (not the prompt)
+          so ResetCrashedPromptsForSession can't zero the restart budget.
+        type: boolean
       avatar:
         type: string
       callback_url:
@@ -8993,6 +9011,8 @@ definitions:
       implementation_task_index:
         description: Index of implementation task this session handles
         type: integer
+      last_auto_restart_at:
+        type: string
       manually_review_questions:
         type: boolean
       parent_session_id:
@@ -21787,6 +21807,43 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/cancel:
+    post:
+      description: |-
+        Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+        interaction state update (interrupted) flows to the frontend via WebSocket.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Cancel the current agent turn
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/claude-credentials:
     get:
       description: |-

@@ -5497,6 +5497,8 @@ export interface TypesSessionChatRequest {
   app_id?: string;
   /** Which assistant are we speaking to? */
   assistant_id?: string;
+  /** Autonomous surfaces: auto-recover the agent on crash (no human to click Restart) */
+  auto_restart_on_crash?: boolean;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
   /** Configuration for external agents */
@@ -5561,6 +5563,19 @@ export interface TypesSessionMetadata {
   app_query_params?: Record<string, string>;
   /** which assistant are we talking to? */
   assistant_id?: string;
+  auto_restart_count?: number;
+  /**
+   * Autonomous crash recovery. Set true at session creation for surfaces with
+   * no human present to click the in-chat Restart button (spec tasks, org
+   * workers). When the external agent crashes mid-turn, the websocket crash
+   * handler auto-invokes the canonical restart primitive instead of leaving
+   * the session errored+idle. Human desktop sessions leave this false and keep
+   * the explicit button. AutoRestartCount bounds consecutive auto-restarts
+   * without an intervening successful turn (anti-storm guard); it is reset to 0
+   * on the next successful completion and lives on the SESSION (not the prompt)
+   * so ResetCrashedPromptsForSession can't zero the restart budget.
+   */
+  auto_restart_on_crash?: boolean;
   avatar?: string;
   /** Webhook URL to POST on session completion */
   callback_url?: string;
@@ -5603,6 +5618,7 @@ export interface TypesSessionMetadata {
   helix_version?: string;
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
+  last_auto_restart_at?: string;
   manually_review_questions?: boolean;
   /**
    * Fork lineage — set on a session created by forking from a parent.
@@ -14702,6 +14718,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1SessionsAgentConfigAppliedCreate: (id: string, params: RequestParams = {}) =>
       this.request<ServerAgentConfigAppliedResponse, any>({
         path: `/api/v1/sessions/${id}/agent-config-applied`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the interaction state update (interrupted) flows to the frontend via WebSocket.
+     *
+     * @tags Sessions
+     * @name V1SessionsCancelCreate
+     * @summary Cancel the current agent turn
+     * @request POST:/api/v1/sessions/{id}/cancel
+     * @secure
+     */
+    v1SessionsCancelCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/cancel`,
         method: "POST",
         secure: true,
         format: "json",

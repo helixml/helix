@@ -15815,6 +15815,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the\ninteraction state update (interrupted) flows to the frontend via WebSocket.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Cancel the current agent turn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -33118,6 +33173,10 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)",
+                    "type": "boolean"
+                },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
@@ -33261,6 +33320,13 @@ const docTemplate = `{
                     "description": "which assistant are we talking to?",
                     "type": "string"
                 },
+                "auto_restart_count": {
+                    "type": "integer"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous crash recovery. Set true at session creation for surfaces with\nno human present to click the in-chat Restart button (spec tasks, org\nworkers). When the external agent crashes mid-turn, the websocket crash\nhandler auto-invokes the canonical restart primitive instead of leaving\nthe session errored+idle. Human desktop sessions leave this false and keep\nthe explicit button. AutoRestartCount bounds consecutive auto-restarts\nwithout an intervening successful turn (anti-storm guard); it is reset to 0\non the next successful completion and lives on the SESSION (not the prompt)\nso ResetCrashedPromptsForSession can't zero the restart budget.",
+                    "type": "boolean"
+                },
                 "avatar": {
                     "type": "string"
                 },
@@ -33365,6 +33431,9 @@ const docTemplate = `{
                 "implementation_task_index": {
                     "description": "Index of implementation task this session handles",
                     "type": "integer"
+                },
+                "last_auto_restart_at": {
+                    "type": "string"
                 },
                 "manually_review_questions": {
                     "type": "boolean"
