@@ -1,13 +1,8 @@
-# Requirements: Prevent git config Lock Contention During Container Startup
+# Requirements: Prevent git config Lock Contention During Parallel Clone
 
 ## Problem
 
-When a task phase transition fires while the container is still running its startup setup, two processes attempt to write `~/.gitconfig` simultaneously:
-
-1. `helix-workspace-setup.sh` — runs sequential `git config --global` calls (user.name, user.email, pull.rebase, credential.helper)
-2. `syncGitIdentityToUser` in the API — fires `git config --global user.email` and `git config --global user.name` via `ExecInDesktop` on a task phase transition
-
-One of the writers loses the lock and fails:
+The setup script clones all project repositories in parallel (background `git clone` jobs) to speed up startup. Occasionally one or more of the parallel `git clone` processes writes to `~/.gitconfig` (credential negotiation, auto-detected settings, etc.). When multiple clones do this simultaneously they race for `~/.gitconfig.lock` and one or more fail:
 
 ```
 error: could not lock config file /home/retro/.gitconfig: File exists
@@ -17,11 +12,10 @@ Setup exits with code 255 and the session never starts.
 
 ## User Story
 
-As a Helix user whose session restarts at the same time as a task phase transition, I want workspace setup to succeed without a `git config` lock conflict.
+As a Helix user with multiple project repositories, I want workspace setup to succeed reliably even when cloning several repos at once.
 
 ## Acceptance Criteria
 
-- When `syncGitIdentityToUser` fires while `helix-workspace-setup.sh` is still running, it does not cause a lock conflict with the setup script's git config calls
-- Setup succeeds reliably even when phase transitions occur concurrently
-- If setup is still in progress, `syncGitIdentityToUser` either waits or defers gracefully
-- No user-visible change when there is no contention
+- Workspace setup completes successfully for projects with multiple repositories
+- The `git config` lock contention error does not occur during the clone phase
+- Existing parallel clone behaviour can be preserved if a serialisation approach is used, or clones may be made sequential if that is simpler

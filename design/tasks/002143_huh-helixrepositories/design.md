@@ -1,39 +1,41 @@
-# Design: Prevent git config Lock Contention During Container Startup
+# Design: Prevent git config Lock Contention During Parallel Clone
 
 ## Root Cause
 
-Two concurrent processes write to `~/.gitconfig`:
+`helix-workspace-setup.sh` launches all repository clones as background processes (line 291):
 
-- **`helix-workspace-setup.sh`**: sets `user.name`, `user.email`, `pull.rebase`, `credential.helper` sequentially at container startup
-- **`syncGitIdentityToUser`** (`api/pkg/services/spec_driven_task_service.go:1548`): called by the API on task phase transitions, runs `git config --global user.email` then `git config --global user.name` via `ExecInDesktop`
-
-These can overlap when a container restarts mid-task. The setup script already writes a signal file (`~/.helix-setup-complete`) when it finishes.
-
-## Fix: Check Setup Signal Before Running git config in the API
-
-In `syncGitIdentityToUser`, before calling `ExecInDesktop` for git config, check whether `~/.helix-setup-complete` exists. If it does not, the setup script is still running — skip the identity sync silently and return `nil`.
-
-The setup script already sets the correct identity (it reads `GIT_USER_NAME` / `GIT_USER_EMAIL` env vars), so the API's sync is redundant during the startup window. The next legitimate phase transition after setup completes will sync the identity correctly.
-
-```go
-// Skip if the container setup hasn't finished yet — the setup script
-// writes git identity itself and holds the .gitconfig lock.
-checkSetup := []string{"test", "-f", "/home/retro/.helix-setup-complete"}
-if err := s.ExecInDesktop(ctx, sessionID, checkSetup); err != nil {
-    // File absent → setup still running; skip to avoid lock contention
-    log.Info()...Msg("Container setup not complete, skipping git identity sync")
-    return nil
-}
+```bash
+git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1 &
 ```
 
-Place this check at the top of `syncGitIdentityToUser`, after the early-exit guards.
+When multiple clones run concurrently they each invoke git's credential negotiation and/or auto-detection, which can write to `~/.gitconfig`. With five repos cloning in parallel, several processes attempt to acquire `~/.gitconfig.lock` simultaneously, and those that lose the race fail with a lock error.
 
-## Why Not flock / Retry
+## Fix: Run Clones Sequentially
 
-- `flock` requires changing both the script and the Go code, and adds complexity for a race window that is seconds wide
-- Retry loops paper over the symptom; the API calling git config during setup is the root issue
-- The signal file already exists and encodes exactly the condition we need to check
+Remove the `&` from the clone command and remove the parallel PID-tracking arrays. Each clone runs to completion before the next starts. The wait loop and CLONE_FAILED check remain unchanged so error reporting is unaffected.
+
+Sequential clones are simpler and correct. The parallel optimisation was not load-bearing — typical clone times are dominated by network latency, and the number of repos is small (usually ≤ 5).
+
+```bash
+# Before (parallel)
+git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1 &
+CLONE_PIDS+=($!)
+
+# After (sequential — clone blocks, no PID tracking needed)
+if git clone "$GIT_CLONE_URL" "$CLONE_DIR" 2>&1; then
+    echo "    ✅ $REPO_NAME cloned successfully"
+else
+    echo "    ❌ FAILED to clone $REPO_NAME"
+    exit 1
+fi
+```
+
+The PID arrays (`CLONE_PIDS`, `CLONE_NAMES`, `CLONE_DIRS`) and the post-loop `wait` section can be removed or simplified since success/failure is known immediately.
+
+## Alternative Considered: flock Serialisation
+
+Wrapping each git invocation with `flock` would preserve parallelism but adds complexity without meaningful benefit — the bottleneck is network I/O, not CPU, and the lock contention only manifests because of the parallel design. Sequential clones remove the problem entirely.
 
 ## Files to Change
 
-- `api/pkg/services/spec_driven_task_service.go` — add setup-complete check in `syncGitIdentityToUser`
+- `desktop/shared/helix-workspace-setup.sh` — remove `&` from clone command, inline success/error handling, remove PID-tracking arrays and wait loop
