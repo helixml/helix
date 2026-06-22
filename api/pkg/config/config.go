@@ -178,6 +178,15 @@ type Compute struct {
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
 
+	// GPUVendor is the accelerator family of the hosts this Manager
+	// provisions ("nvidia", "amd", "neuron", or "" for the provider's
+	// default). It flows onto every provisioned host's task environment as
+	// GPU_VENDOR, which the runner launch script uses to pick the right
+	// docker device flags (e.g. neuron -> mount /dev/neuron* instead of
+	// --gpus all). A pool is single-vendor; set this to match the compute
+	// requirement's instance type (e.g. "neuron" for an inf2 pool).
+	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
+
 	// DeploymentTag distinguishes work requirements created by this
 	// Helix install from WRs created by other tooling (e.g. someone
 	// running yd-submit directly against the same YD account) or by
@@ -346,6 +355,21 @@ type Compute struct {
 	// workers in a docker-pull-retry loop; loud failure, easy
 	// diagnostic (and the resolved image is logged at boot).
 	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
+
+	// SandboxImage pins the FULL helix-sandbox image reference the YD
+	// provider dispatches (e.g.
+	// "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"). When set it is
+	// used verbatim and BYPASSES version derivation + SandboxRegistry — so
+	// it is the escape hatch for builds where data.Version is a placeholder
+	// (dev/source builds like a local Air stack) or for pinning a specific
+	// SHA when testing an in-flight sandbox PR. This mirrors the
+	// yellowdog-poc config.toml `helix_image` override.
+	//
+	// Leave empty for normal releases: the version-derived tag is the
+	// "release-tag-is-the-truth" default the provisioning loop relies on.
+	// The operator is responsible for the pinned image actually existing
+	// in a registry the workers can pull from.
+	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.

@@ -427,6 +427,44 @@ func TestBootstrapNilStoreErrors(t *testing.T) {
 	}
 }
 
+func TestBootstrapSandboxImageOverrideBypassesVersionGuard(t *testing.T) {
+	// Force a placeholder version so the version-derived image path would
+	// fatal (the dev/source-build case, e.g. a local Air stack).
+	orig := data.Version
+	data.Version = "<unknown>"
+	defer func() { data.Version = orig }()
+
+	base := config.Compute{
+		Provider:                "yellowdog",
+		DeploymentTag:           "prod",
+		Floor:                   1,
+		ReconcileInterval:       30 * time.Second,
+		HealthCheckTimeout:      10 * time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      30 * time.Minute,
+		Yellowdog: config.Yellowdog{
+			APIKeyID: "k", APISecret: "s", BaseURL: "https://portal.yellowdog.co/api",
+			Namespace: "development", WorkerTag: "helix-prod", TaskTimeout: 4 * time.Hour,
+		},
+	}
+
+	// Without an override, the placeholder version must fail the build.
+	if _, err := Bootstrap(base, 20, "https://helix.example.com", "tok", nullStore{}); err == nil {
+		t.Fatal("expected version-guard failure without SandboxImage override")
+	}
+
+	// With the override set, Bootstrap succeeds despite the placeholder version.
+	withImg := base
+	withImg.SandboxImage = "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"
+	mgr, err := Bootstrap(withImg, 20, "https://helix.example.com", "tok", nullStore{})
+	if err != nil {
+		t.Fatalf("SandboxImage override should bypass the version guard, got: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil Manager with SandboxImage override")
+	}
+}
+
 func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
 	cfg := config.Compute{
 		Provider:                "yellowdog",
