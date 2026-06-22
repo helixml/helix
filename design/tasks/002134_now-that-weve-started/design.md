@@ -1,18 +1,17 @@
 # Design: Configurable Model Selection for Claude Subscription Mode
 
-## How Subscription Mode Currently Works
+## How the Claude Code model is actually controlled (corrected)
 
-Helix runs the Claude Code agent inside a sandbox container, launched through a headless Zed (Claude ACP). The model the agent uses is therefore controlled by the **container environment**, not by anything Helix sends over ACP.
+Helix runs the Claude Code agent inside a sandbox container, launched through a headless Zed (Claude ACP). The model is driven by `CodeAgentConfig.Model`, which the settings-sync-daemon writes into the container's **`/etc/claude-code/managed-settings.json`**. The `claude-agent-acp` package reads that file via `resolveModelPreference()` (substring-matches `claude-opus-4-6` → its canonical value id). The daemon also mirrors it into Zed settings `agent_servers.claude-acp.default_model`.
 
-1. In `buildCodeAgentConfigFromAssistant()` (`api/pkg/server/zed_config_handlers.go:611`, branch at lines 661–678), when `isSubscription=true` and `runtime=claude_code`, the model fields are explicitly cleared (`model = ""`). So the ACP-side `CodeAgentConfig.Model` is empty in subscription mode — no model directive flows that way.
-2. `subscriptionEnvForSession()` (`api/pkg/server/external_agent_handlers.go:130`, returns `[]string`) injects `ANTHROPIC_BASE_URL=https://api.anthropic.com`, clears `ANTHROPIC_API_KEY=`, and (for setup-token creds) sets `CLAUDE_CODE_OAUTH_TOKEN` — but sets **no model**.
-3. Without `ANTHROPIC_MODEL` in the environment, Claude Code picks its own built-in default (currently Sonnet) — which is the behaviour we want to change.
+1. `buildCodeAgentConfigFromAssistant()` (`api/pkg/server/zed_config_handlers.go`, `claude_code`+subscription branch) previously hard-cleared `model = ""` in subscription mode → daemon wrote `{}` → claude-agent-acp defaulted to **Sonnet**. That's the behaviour we change.
+2. The daemon (`api/cmd/settings-sync-daemon/main.go`, `writeClaudeManagedSettings()`) writes `{"model": codeAgentConfig.Model}` and sets `agent_servers.claude-acp.default_model` when `Model != ""`.
 
-### Why the env var (and not Zed's ACP model selector)
+### ⚠️ Correction from the first implementation pass
 
-`ANTHROPIC_MODEL` is the documented Claude Code env var for the default model. Env vars returned by `subscriptionEnvForSession()` are appended to `agent.Env` (`external_agent_handlers.go:105`) and applied **last** in `buildEnvVars()` (`api/pkg/external-agent/hydra_executor.go:1248`), so they win over the base env and reach the in-container `claude` process. This is the single cleanest injection point.
+The first pass injected `ANTHROPIC_MODEL` via `subscriptionEnvForSession()`. **That is the wrong layer** — claude-agent-acp resolves its model from `managed-settings.json`, not that env var, so the env injection was effectively a no-op against Sonnet. It was reverted. The correct lever is `CodeAgentConfig.Model` → `managed-settings.json` (the pathway the codebase is already built around; the daemon's own comment uses `claude-opus-4-6` as the worked example).
 
-We deliberately do **not** use Zed's ACP per-agent model-selection plumbing. That code path in the Zed fork (`crates/agent_servers/`) is currently mid-merge and inconsistent — the `default_model`/`favorite_models` settings fields referenced by `claude.rs` no longer exist on `CustomAgentServerSettings`, and `AcpConnection` does not implement a model selector. The env-var approach is layer-correct (it's a Helix container concern), simpler, and avoids that broken surface entirely.
+We also deliberately do **not** touch Zed's ACP per-agent model-selection plumbing (`crates/agent_servers/`) — it's mid-merge/inconsistent and the wrong layer for a Helix container concern.
 
 ## Changes Required
 
@@ -26,9 +25,21 @@ Add one new field after `CodeAgentCredentialType` (line 1564), following the str
 ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 ```
 
-### 2. Backend — `subscriptionEnvForSession()` (`api/pkg/server/external_agent_handlers.go:130`)
+### 2. Backend — `buildCodeAgentConfigFromAssistant()` (`api/pkg/server/zed_config_handlers.go`)
 
-The function already loads the parent app's assistant config (`asst`) and only returns a non-empty slice when `runtime=claude_code` + `IsSubscription()` + an active subscription. After building the base env slice (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY=`), inject the model env var:
+In the `claude_code` + subscription branch, set the model (default Opus) instead of clearing it. The daemon writes it to `managed-settings.json`:
+
+```go
+if isSubscription {
+    providerName = ""; baseURL = ""; apiType = ""
+    model = assistant.ClaudeSubscriptionModel
+    if model == "" { model = "claude-opus-4-6" }
+}
+```
+
+Also guard `injectAvailableModels()` in the daemon to skip `claude_code` (the now-set model must not be injected as a bogus `openai` Custom model when `APIType` is empty in subscription mode).
+
+<details><summary>Superseded first-pass approach (ANTHROPIC_MODEL env injection — reverted)</summary>
 
 ```go
 model := asst.ClaudeSubscriptionModel
@@ -38,7 +49,9 @@ if model == "" {
 out = append(out, "ANTHROPIC_MODEL="+model)
 ```
 
-This goes right after setting `ANTHROPIC_API_KEY=` so Opus is the default and user overrides persist. Because this is gated on subscription mode, API-key mode is untouched.
+This was reverted — it does not actually change the model (claude-agent-acp ignores `ANTHROPIC_MODEL` in favour of managed-settings.json).
+
+</details>
 
 ### 3. Frontend — `CodingAgentForm.tsx` (`frontend/src/components/agent/CodingAgentForm.tsx`)
 

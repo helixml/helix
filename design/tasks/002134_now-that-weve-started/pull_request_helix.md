@@ -2,24 +2,27 @@
 
 ## Summary
 
-In Claude Code **subscription** mode, Helix never told Claude Code which model to use, so it fell back to its own built-in default (Sonnet). This adds a per-agent model choice and makes **Opus the default** for harder work.
+In Claude Code **subscription** mode, Helix never told Claude Code which model to use, so it fell back to its built-in default (Sonnet). This makes **Opus the default** and adds a per-agent model picker (Opus / Sonnet / Haiku).
 
-The model is applied by injecting `ANTHROPIC_MODEL` into the sandbox container env in `subscriptionEnvForSession()` — the same layer that already sets `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` for subscription sessions. Claude Code (launched via Zed/ACP inside the container) inherits it. This deliberately avoids Zed's ACP per-agent model plumbing, which is the wrong layer for a Helix container concern.
+The model flows through the existing, documented pathway: `buildCodeAgentConfigFromAssistant` sets `CodeAgentConfig.Model`, the settings-sync-daemon writes it to the container's `/etc/claude-code/managed-settings.json`, and the `claude-agent-acp` package reads it via `resolveModelPreference()`. (An earlier iteration injected `ANTHROPIC_MODEL`, but that's the wrong layer — the adapter resolves its model from managed-settings, not that env var — so it was reverted.)
 
 ## Changes
 
 - **`api/pkg/types/types.go`** — add `AssistantConfig.ClaudeSubscriptionModel`.
-- **`api/pkg/server/external_agent_handlers.go`** — `subscriptionEnvForSession()` now appends `ANTHROPIC_MODEL=<model>`, defaulting to `claude-opus-4-6` when the field is empty. Only runs in claude_code + subscription mode, so api_key mode is unaffected.
-- **Frontend** — a hardcoded Opus / Sonnet / Haiku dropdown for subscription mode in both the create form (`CodingAgentForm.tsx`) and the edit form (`AppSettings.tsx`), defaulting to Opus. `claude_subscription_model` is threaded through `types.ts`, `apps.tsx` (`createAgent`), `utils/app.ts` (flat-state), and `useApp.ts` (merge).
-- **Generated artifacts** — regenerated OpenAPI client (`api.ts`, `swagger.yaml/json`, `openapi.json`, `docs.go`).
-- **Tests** — `external_agent_handlers_subscription_model_test.go`: ANTHROPIC_MODEL defaults to Opus, honours an override, and is absent in api_key mode (3/3 passing).
+- **`api/pkg/server/zed_config_handlers.go`** — in the `claude_code` + subscription branch of `buildCodeAgentConfigFromAssistant`, set `Model` to `ClaudeSubscriptionModel`, defaulting to `claude-opus-4-6`. (api_key mode unchanged.)
+- **`api/cmd/settings-sync-daemon/main.go`** — guard `injectAvailableModels()` to skip `claude_code` (it uses managed-settings, not Zed `language_models`; without the guard, the now-set model would be injected as a bogus `openai` Custom model in subscription mode where `APIType` is empty).
+- **Frontend** — hardcoded Opus / Sonnet / Haiku dropdown for subscription mode in the create form (`CodingAgentForm.tsx`) and edit form (`AppSettings.tsx`), defaulting to Opus. `claude_subscription_model` threaded through `types.ts`, `apps.tsx`, `utils/app.ts`, `useApp.ts`.
+- **`Dockerfile.qwen-code-build`** — copy root `tsconfig.json` before the qwen workspace build (it extends `../../tsconfig.json`; without it the build fails `TS5083`). Unblocks `./stack build-ubuntu`. *(Drive-by fix for a pre-existing main bug; can be split into its own PR if preferred.)*
+- Regenerated OpenAPI client; backend unit tests.
 
 ## Verification
 
-- `go build ./pkg/...` and `CGO_ENABLED=1 go test ./pkg/server/` (new tests) pass.
-- `yarn tsc` passes.
-- NOT run locally (no full inner-Helix stack in the build env): end-to-end create-session → `docker exec ... env | grep ANTHROPIC_MODEL`. Needs a reviewer with a live stack or CI to confirm the container actually receives the var.
+- `go build ./cmd/... ./pkg/...`, `CGO_ENABLED=1 go test ./pkg/server/` (subscription→Opus default, Haiku override, api_key untouched), and `yarn tsc` / `yarn build` all pass.
+- **Live, end-to-end in the inner Helix** with a real Claude subscription token: created a `claude_code`+subscription agent (no explicit model), started a real session container, and confirmed:
+  - `/etc/claude-code/managed-settings.json` → `{"model":"claude-opus-4-6"}`
+  - Zed `agent_servers.claude-acp.default_model` → `"claude-opus-4-6"`
+- Confirmed the three model IDs match the live `/api/v1/claude-subscriptions/models` endpoint.
 
 ## Model IDs
 
-`claude-opus-4-6`, `claude-sonnet-4-5-latest`, `claude-haiku-4-5-latest` — match the existing `/api/v1/claude-subscriptions/models` endpoint.
+`claude-opus-4-6`, `claude-sonnet-4-5-latest`, `claude-haiku-4-5-latest`.
