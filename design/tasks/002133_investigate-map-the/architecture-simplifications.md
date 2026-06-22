@@ -24,6 +24,8 @@ thread id:
   most-recent-`waiting`, else restart-recovery — and that guesswork is where all three bugs
   live.
 
+**Sharper #2643 root cause (Opus re-review, 2026-06-22):** the bug is a **divergence between two resolvers**. `handleMessageCompleted` resolves the interaction via the `request_id`→interaction mapping (Step 1); `handleMessageAdded`/`getOrCreateStreamingContext` resolves via `request_id`-if-present → most-recent-`waiting` → restart-recovery. After a restart these two paths can pick *different* interactions (or the read path picks none), so streamed content lands on one interaction (or is dropped) while the completion marks another empty → "empty response". Broadening the restart-recovery scan (the original Sonnet change) does NOT reconcile the two paths and can itself misroute, so it was reverted. The real fix is the explicit current-turn pointer below, used by BOTH paths.
+
 The robust Phase 2 uses **explicit turn-state**, not the thread id. Invariant: an ACP thread
 runs **one turn at a time** (no new turn until the previous completes, modulo interrupt), so
 a session has at most one *active* interaction at any instant. Make that explicit and

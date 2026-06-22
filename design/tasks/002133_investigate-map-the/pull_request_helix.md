@@ -21,19 +21,20 @@ Each fix is an independent commit so they can be reviewed (or reverted) separate
   interactions shared the current generation — which re-notified the whole history
   (~1381 `Notify` calls for one message → "send channel full").
 
-**#2643 — reused-thread response dropped after restart** (`fix(api): recover interrupted…`)
-- On restart `ResetRunningInteractions` flips every `waiting` interaction to
-  `error`/`"Interrupted"`. A reused ACP thread sends no `thread_created` and its
-  `message_added` carries no `request_id`, so the resumed response resolved to a nil
-  interaction and was dropped. The existing recovery only checked the *last* row; broadened
-  it to a backward scan that recovers the most-recent restart-interrupted interaction,
-  stopping at the first `Complete` row so a stale turn is never resurrected behind a
-  completed one. The remaining genuinely-unroutable drop now logs loudly with `acp_thread_id`.
-- Note: the streaming chokepoint already routes by `acp_thread_id`→session→waiting/recovered
-  interaction with DB fallbacks, so this is a recovery-gap fix, not a re-key. Further removal
-  of the in-memory correlation maps / consumed-sentinel is recommended separately as an
-  architectural simplification (no correctness benefit, regression risk) — see
-  `helix-specs .../architecture-simplifications.md`.
+**#2643 — reused-thread response dropped after restart** (`fix(api): revert risky #2643…`)
+- **This PR does NOT fix #2643 in code — it only improves diagnosability.** A re-review
+  found the true cause is a *divergence between two resolvers*: `handleMessageCompleted`
+  resolves the interaction via the `request_id`→interaction mapping, while
+  `getOrCreateStreamingContext` resolves via most-recent-`waiting`/restart-recovery. After a
+  restart these can pick different interactions, so streamed content lands on one (or is
+  dropped) while the completion marks another empty.
+- The only #2643 change kept here is **loud logging** on the unroutable `message_added` drop
+  (now includes `acp_thread_id`+`request_id`). An earlier attempt to broaden the restart
+  recovery scan was **reverted** — it was an unverified guess that could misroute by
+  resurrecting a stale interrupted turn behind a more-recent cancelled/errored one.
+- The real fix — an explicit per-session current-turn pointer used by *both* resolvers — is
+  written up in `helix-specs .../architecture-simplifications.md` §1 and needs live
+  verification; recommended as the follow-on rather than shipped unverified.
 
 **#2641 — stale `api` IP pinned in desktop `/etc/hosts`** (`fix(hydra): resolve api via…`)
 - Desktops baked `api`'s IP into `/etc/hosts` at creation (`buildExtraHosts`); the immutable
