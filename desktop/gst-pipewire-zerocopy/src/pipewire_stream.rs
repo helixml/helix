@@ -698,15 +698,16 @@ fn run_pipewire_loop(
         None
     };
 
-    // 1-frame latch (HELIX_FRAME_LATCH=1): instead of sampling the buffer Mutter
-    // just handed us (whose GPU write may still be in flight — NVIDIA has no
-    // implicit dma-buf sync and Mutter's screencast does NOT export an explicit
-    // fence), we sample the PREVIOUS buffer, which Mutter finished a frame ago.
-    // This sidesteps the missing fence without blocking the capture loop, at the
-    // cost of ~1 frame (16ms) of latency. We hold one extra PipeWire buffer.
+    // 1-frame latch (default ON; disable with HELIX_FRAME_LATCH=0): instead of
+    // sampling the buffer Mutter just handed us (whose GPU write may still be in
+    // flight — NVIDIA has no implicit dma-buf sync and Mutter's screencast does
+    // NOT export an explicit fence), we sample the PREVIOUS buffer, which Mutter
+    // finished a frame ago. This sidesteps the missing fence without blocking the
+    // capture loop (verified: 60fps, no reorder under load), at the cost of ~1
+    // frame (~16ms) of latency. We hold one extra PipeWire buffer.
     let frame_latch_enabled: bool = std::env::var("HELIX_FRAME_LATCH")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+        .unwrap_or(true);
     if frame_latch_enabled {
         eprintln!("[FRAME_LATCH] enabled (HELIX_FRAME_LATCH=1): sampling previous buffer");
     }
