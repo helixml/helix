@@ -534,29 +534,23 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                 },
               ]).map((tile) => {
                 const isSelected = repoMode === tile.mode
-                const isDisabled = !!preselectedRepoId && tile.mode !== 'select'
                 return (
                   <Paper
                     key={tile.mode}
                     variant="outlined"
-                    onClick={() => {
-                      if (!preselectedRepoId) setRepoMode(tile.mode)
-                    }}
+                    onClick={() => setRepoMode(tile.mode)}
                     sx={(theme) => ({
                       p: 1.5,
-                      cursor: preselectedRepoId ? 'default' : 'pointer',
+                      cursor: 'pointer',
                       borderColor: isSelected ? theme.palette.secondary.main : theme.palette.divider,
                       borderWidth: isSelected ? 2 : 1,
                       bgcolor: isSelected ? 'action.selected' : 'transparent',
-                      opacity: isDisabled ? 0.5 : 1,
                       transition: 'border-color 0.15s, background-color 0.15s',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 0.5,
                       minHeight: 104,
-                      '&:hover': preselectedRepoId
-                        ? {}
-                        : { borderColor: isSelected ? theme.palette.secondary.main : theme.palette.text.secondary },
+                      '&:hover': { borderColor: isSelected ? theme.palette.secondary.main : theme.palette.text.secondary },
                     })}
                   >
                     <Box sx={{ color: isSelected ? 'secondary.main' : 'text.secondary' }}>
@@ -582,7 +576,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
                       value={selectedRepoId}
                       label="Select Repository"
                       onChange={(e) => setSelectedRepoId(e.target.value)}
-                      disabled={reposLoading || !!preselectedRepoId}
+                      disabled={reposLoading}
                     >
                       {codeRepos.map((repo) => (
                         <MenuItem key={repo.id} value={repo.id}>

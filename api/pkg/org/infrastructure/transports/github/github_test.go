@@ -3,10 +3,10 @@
 //
 //   - HMAC-SHA256 signature verification on /github/webhook (good /
 //     bad / missing).
-//   - Repo routing: deliveries route to every Stream whose
+//   - Repo routing: deliveries route to every Topic whose
 //     Transport.Config.Repo equals payload.repository.full_name.
-//   - Per-stream event filter: only event types listed in the
-//     stream's `events` whitelist become Events; others are accepted
+//   - Per-topic event filter: only event types listed in the
+//     topic's `events` whitelist become Events; others are accepted
 //     (200) but dropped.
 //   - Envelope mapping: From=sender.login, Subject=upstream title
 //     verbatim, Body=upstream user-typed text verbatim,
@@ -16,7 +16,7 @@
 //   - Inbound-only: dispatcher fires; broadcaster wakes; helix's
 //     Source on the resulting Event is empty.
 //   - Method/body validation: GET → 405, malformed JSON → 400.
-//   - Domain transport validation: stream config requires repo +
+//   - Domain transport validation: topic config requires repo +
 //     non-empty events whitelist; event names must match
 //     ^[a-z][a-z0-9_]+$ (so typos are caught) but are not limited to
 //     a fixed set.
@@ -100,20 +100,20 @@ func setGitHubConfig(t *testing.T, reg *configregistry.Registry, token, secret s
 	}
 }
 
-// seedGitHubStream creates a github-transport Stream with the given
-// repo and event whitelist. Returns the persisted Stream.
-func seedGitHubStream(t *testing.T, st *store.Store, id streaming.StreamID, repo string, events []string) streaming.Stream {
+// seedGitHubTopic creates a github-transport Topic with the given
+// repo and event whitelist. Returns the persisted Topic.
+func seedGitHubTopic(t *testing.T, st *store.Store, id streaming.TopicID, repo string, events []string) streaming.Topic {
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": events})
-	stream, err := streaming.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
+	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
 		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
-	return stream
+	return topic
 }
 
 // signBody returns the value of the X-Hub-Signature-256 header for
@@ -231,7 +231,7 @@ func TestInboundIssuesOpened(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org",
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org",
 		[]string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
@@ -241,7 +241,7 @@ func TestInboundIssuesOpened(t *testing.T) {
 		t.Fatalf("status = %d, body = %q, want 204", resp.StatusCode, resp.Body)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -305,7 +305,7 @@ func TestInboundPullRequestLabeled(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"pull_request"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"pull_request"})
 
 	body, _ := json.Marshal(pullRequestLabeledPayload("helixml/helix-org", "docs"))
 	resp := post(t, tp.HandleInbound(), body, "pull_request", "d-2", "")
@@ -313,7 +313,7 @@ func TestInboundPullRequestLabeled(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -343,13 +343,13 @@ func TestInboundPullRequestLabeled(t *testing.T) {
 
 // TestInboundIssueCommentMapsBodyToCommentBody: for comment events,
 // Body is `comment.body` (the user-typed text), Subject is the
-// parent issue's title (so a reader skimming the stream sees what
+// parent issue's title (so a reader skimming the topic sees what
 // thread the comment is on).
 func TestInboundIssueCommentMapsBodyToCommentBody(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issue_comment"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issue_comment"})
 
 	body, _ := json.Marshal(issueCommentCreatedPayload("helixml/helix-org"))
 	resp := post(t, tp.HandleInbound(), body, "issue_comment", "d-3", "")
@@ -357,7 +357,7 @@ func TestInboundIssueCommentMapsBodyToCommentBody(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.Body != "I hit the same thing — happy to send a PR." {
 		t.Fatalf("Body = %q (want comment.body verbatim)", msg.Body)
@@ -376,14 +376,14 @@ func TestInboundBadSignatureReturns401(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
 	resp := post(t, tp.HandleInbound(), body, "issues", "d-1", "sha256=deadbeef")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (bad sig must not append)", len(events))
 	}
@@ -399,7 +399,7 @@ func TestInboundMissingSignatureReturns401(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
 	resp := post(t, tp.HandleInbound(), body, "issues", "d-1", "-")
@@ -409,21 +409,21 @@ func TestInboundMissingSignatureReturns401(t *testing.T) {
 }
 
 // TestInboundUnknownRepoReturns200NoAppend: a delivery for a repo
-// that no Stream is configured for is accepted (200) so GitHub stops
+// that no Topic is configured for is accepted (200) so GitHub stops
 // retrying, but no event is appended. Operators should see this in
 // the logs; tests just assert the no-op.
 func TestInboundUnknownRepoReturns200NoAppend(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("someone-else/their-repo"))
 	resp := post(t, tp.HandleInbound(), body, "issues", "d-1", "")
 	if resp.StatusCode/100 != 2 {
 		t.Fatalf("status = %d, want 2xx", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0", len(events))
 	}
@@ -433,21 +433,21 @@ func TestInboundUnknownRepoReturns200NoAppend(t *testing.T) {
 }
 
 // TestInboundEventTypeFilterDrops: a delivery for an event type not
-// in the stream's `events` whitelist is accepted (so GitHub stops
+// in the topic's `events` whitelist is accepted (so GitHub stops
 // retrying) but does not become an Event.
 func TestInboundEventTypeFilterDrops(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	// Stream wants only `issues`; we'll send a `pull_request`.
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	// Topic wants only `issues`; we'll send a `pull_request`.
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(pullRequestLabeledPayload("helixml/helix-org", "docs"))
 	resp := post(t, tp.HandleInbound(), body, "pull_request", "d-1", "")
 	if resp.StatusCode/100 != 2 {
 		t.Fatalf("status = %d, want 2xx", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (filtered out)", len(events))
 	}
@@ -456,15 +456,15 @@ func TestInboundEventTypeFilterDrops(t *testing.T) {
 	}
 }
 
-// TestInboundFanOutToMultipleStreams: two streams configured for the
+// TestInboundFanOutToMultipleTopics: two topics configured for the
 // same repo with overlapping event whitelists both receive a copy of
 // the event.
-func TestInboundFanOutToMultipleStreams(t *testing.T) {
+func TestInboundFanOutToMultipleTopics(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-docs", "helixml/helix-org", []string{"issues", "pull_request"})
-	seedGitHubStream(t, st, "s-triage", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-docs", "helixml/helix-org", []string{"issues", "pull_request"})
+	seedGitHubTopic(t, st, "s-triage", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
 	resp := post(t, tp.HandleInbound(), body, "issues", "d-1", "")
@@ -472,13 +472,13 @@ func TestInboundFanOutToMultipleStreams(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	docsEv, _ := st.Events.ListForStream(context.Background(), "org-test", "s-docs", 10)
-	triageEv, _ := st.Events.ListForStream(context.Background(), "org-test", "s-triage", 10)
+	docsEv, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-docs", 10)
+	triageEv, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-triage", 10)
 	if len(docsEv) != 1 || len(triageEv) != 1 {
 		t.Fatalf("fan-out = %d / %d, want 1 / 1", len(docsEv), len(triageEv))
 	}
 	if got := len(rd.snapshot()); got != 2 {
-		t.Fatalf("dispatcher fired %d times, want 2 (one per stream)", got)
+		t.Fatalf("dispatcher fired %d times, want 2 (one per topic)", got)
 	}
 }
 
@@ -522,14 +522,14 @@ func TestInboundDeliveryIDIsMessageID(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix-org"))
 	resp := post(t, tp.HandleInbound(), body, "issues", "particular-uuid-here", "")
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.MessageID != "particular-uuid-here" {
 		t.Fatalf("MessageID = %q, want particular-uuid-here", msg.MessageID)
@@ -542,7 +542,7 @@ func TestInboundEmptySenderTolerated(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "tok", testWebhookSecret)
-	seedGitHubStream(t, st, "s-github", "helixml/helix-org", []string{"issues"})
+	seedGitHubTopic(t, st, "s-github", "helixml/helix-org", []string{"issues"})
 
 	payload := issuesOpenedPayload("helixml/helix-org")
 	delete(payload, "sender")
@@ -552,14 +552,14 @@ func TestInboundEmptySenderTolerated(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-github", 10)
 	msg, _ := events[0].Message()
 	if msg.From != "" {
 		t.Fatalf("From = %q, want empty for sender-less event", msg.From)
 	}
 }
 
-// TestTransportValidateGitHub: stream-config validation. Required:
+// TestTransportValidateGitHub: topic-config validation. Required:
 // non-empty repo of form "owner/name", non-empty events list. Event
 // names must match ^[a-z][a-z0-9_]+$ — curated names (issues,
 // pull_request, …) work, custom event names from new GitHub event
@@ -659,7 +659,7 @@ func TestGitHubConfigRoundTrip(t *testing.T) {
 }
 
 // TestTokenFallsBackToOAuthResolver pins the user-facing contract
-// "reinstate the GitHub stream and reuse the existing GitHub
+// "reinstate the GitHub topic and reuse the existing GitHub
 // integration for Auth". Operators previously had to paste a GitHub
 // PAT into transport.github.token; the recommended path is now to
 // connect a GitHub OAuth provider via Settings → Connected Services
@@ -734,7 +734,7 @@ func TestTokenFallsBackToOAuthResolver(t *testing.T) {
 // TestInboundWildcardEvents pins the "send me everything" default.
 // GitHub honours `events: ["*"]` as a wildcard meaning every event
 // type; helix's transport mirrors that semantic in contains() so a
-// stream configured with ["*"] receives every delivery regardless of
+// topic configured with ["*"] receives every delivery regardless of
 // the X-GitHub-Event header. Regression guard: before the wildcard
 // landed, ["*"] would have been treated as a literal event name and
 // no deliveries would ever match.
@@ -743,7 +743,7 @@ func TestInboundWildcardEvents(t *testing.T) {
 
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
-	seedGitHubStream(t, st, streaming.StreamID("s-everything"), "helixml/helix", []string{"*"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-everything"), "helixml/helix", []string{"*"})
 
 	cases := []struct {
 		name    string
@@ -773,7 +773,7 @@ func TestInboundWildcardEvents(t *testing.T) {
 			if res.StatusCode != http.StatusNoContent {
 				t.Fatalf("status = %d, want 204 (wildcard should accept %q): body=%s", res.StatusCode, tc.event, res.Body)
 			}
-			events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-everything"), 50)
+			events, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-everything"), 50)
 			if err != nil {
 				t.Fatalf("list events: %v", err)
 			}
@@ -797,7 +797,7 @@ func TestInboundFormEncodedBody(t *testing.T) {
 
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
-	seedGitHubStream(t, st, streaming.StreamID("s-form"), "helixml/helix", []string{"issues"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-form"), "helixml/helix", []string{"issues"})
 
 	payload, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
 	// GitHub form-encoding: percent-encode the JSON, prefix with `payload=`.
@@ -821,7 +821,7 @@ func TestInboundFormEncodedBody(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want 204; body=%s", resp.StatusCode, body)
 	}
-	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-form"), 50)
+	events, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-form"), 50)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -837,65 +837,65 @@ func urlEncodeForTest(raw []byte) string {
 	return url.QueryEscape(string(raw))
 }
 
-// TestInboundForStreamPinnedRouting pins the per-stream variant
-// of the inbound handler. HandleInboundForStream(streamID) routes
-// deliveries to ONLY that stream — even when another github stream
+// TestInboundForTopicPinnedRouting pins the per-topic variant
+// of the inbound handler. HandleInboundForTopic(topicID) routes
+// deliveries to ONLY that topic — even when another github topic
 // in the same org would match by repo + events. Operators get a 1:1
-// "GitHub webhook → helix stream" mapping with the per-stream URL,
+// "GitHub webhook → helix topic" mapping with the per-topic URL,
 // instead of the fan-out the org-level handler does.
-func TestInboundForStreamPinnedRouting(t *testing.T) {
+func TestInboundForTopicPinnedRouting(t *testing.T) {
 	t.Parallel()
 
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
-	// Two streams for the SAME repo + same events — the only thing
+	// Two topics for the SAME repo + same events — the only thing
 	// that differs is which one the operator pasted the URL into.
-	seedGitHubStream(t, st, streaming.StreamID("s-target"), "helixml/helix", []string{"issues"})
-	seedGitHubStream(t, st, streaming.StreamID("s-bystander"), "helixml/helix", []string{"issues"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-target"), "helixml/helix", []string{"issues"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-bystander"), "helixml/helix", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
-	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-target")), body, "issues", "del-pin-1", "")
+	res := post(t, tp.HandleInboundForTopic(streaming.TopicID("s-target")), body, "issues", "del-pin-1", "")
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
 	}
 
-	// Targeted stream got the event.
-	target, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-target"), 50)
+	// Targeted topic got the event.
+	target, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-target"), 50)
 	if err != nil {
 		t.Fatalf("list target events: %v", err)
 	}
 	if len(target) != 1 {
-		t.Fatalf("target stream events = %d, want 1", len(target))
+		t.Fatalf("target topic events = %d, want 1", len(target))
 	}
-	// Bystander stream did NOT — even though its (repo, events)
-	// config matched the delivery, the per-stream handler pinned
+	// Bystander topic did NOT — even though its (repo, events)
+	// config matched the delivery, the per-topic handler pinned
 	// fan-out to s-target only.
-	by, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-bystander"), 50)
+	by, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-bystander"), 50)
 	if err != nil {
 		t.Fatalf("list bystander events: %v", err)
 	}
 	if len(by) != 0 {
-		t.Fatalf("bystander stream events = %d, want 0 (per-stream handler should not fan out)", len(by))
+		t.Fatalf("bystander topic events = %d, want 0 (per-topic handler should not fan out)", len(by))
 	}
 }
 
-// TestInboundForStreamAppliesRepoFilter pins that the per-stream
-// handler still honours the stream's own repo whitelist. A delivery
+// TestInboundForTopicAppliesRepoFilter pins that the per-topic
+// handler still honours the topic's own repo whitelist. A delivery
 // for a different repo lands on the pinned URL but is dropped
 // (with 204 so GitHub stops retrying) without becoming an event.
-func TestInboundForStreamAppliesRepoFilter(t *testing.T) {
+func TestInboundForTopicAppliesRepoFilter(t *testing.T) {
 	t.Parallel()
 
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
-	seedGitHubStream(t, st, streaming.StreamID("s-helix"), "helixml/helix", []string{"issues"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-helix"), "helixml/helix", []string{"issues"})
 
 	body, _ := json.Marshal(issuesOpenedPayload("other-owner/other-repo"))
-	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-helix")), body, "issues", "del-wrong-repo", "")
+	res := post(t, tp.HandleInboundForTopic(streaming.TopicID("s-helix")), body, "issues", "del-wrong-repo", "")
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
 	}
-	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-helix"), 50)
+	events, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-helix"), 50)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -904,23 +904,23 @@ func TestInboundForStreamAppliesRepoFilter(t *testing.T) {
 	}
 }
 
-// TestInboundForStreamAppliesEventFilter pins the event-whitelist
-// filter for the per-stream handler. A delivery for an event NOT
-// in the stream's `events` list drops with 204.
-func TestInboundForStreamAppliesEventFilter(t *testing.T) {
+// TestInboundForTopicAppliesEventFilter pins the event-whitelist
+// filter for the per-topic handler. A delivery for an event NOT
+// in the topic's `events` list drops with 204.
+func TestInboundForTopicAppliesEventFilter(t *testing.T) {
 	t.Parallel()
 
 	tp, st, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
-	seedGitHubStream(t, st, streaming.StreamID("s-issues-only"), "helixml/helix", []string{"issues"})
+	seedGitHubTopic(t, st, streaming.TopicID("s-issues-only"), "helixml/helix", []string{"issues"})
 
 	// `pull_request` is NOT in the whitelist.
 	body, _ := json.Marshal(pullRequestLabeledPayload("helixml/helix", "ready"))
-	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-issues-only")), body, "pull_request", "del-wrong-event", "")
+	res := post(t, tp.HandleInboundForTopic(streaming.TopicID("s-issues-only")), body, "pull_request", "del-wrong-event", "")
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body=%s", res.StatusCode, res.Body)
 	}
-	events, err := st.Events.ListForStream(context.Background(), "org-test", streaming.StreamID("s-issues-only"), 50)
+	events, err := st.Events.ListForTopic(context.Background(), "org-test", streaming.TopicID("s-issues-only"), 50)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -929,18 +929,18 @@ func TestInboundForStreamAppliesEventFilter(t *testing.T) {
 	}
 }
 
-// TestInboundForStreamUnknownStreamReturns404 pins that POSTing to
-// the per-stream URL for a non-existent stream returns 404. (The
-// org-level handler returns 204 for unknown repos; the per-stream
-// handler is stricter because the stream ID is in the URL.)
-func TestInboundForStreamUnknownStreamReturns404(t *testing.T) {
+// TestInboundForTopicUnknownTopicReturns404 pins that POSTing to
+// the per-topic URL for a non-existent topic returns 404. (The
+// org-level handler returns 204 for unknown repos; the per-topic
+// handler is stricter because the topic ID is in the URL.)
+func TestInboundForTopicUnknownTopicReturns404(t *testing.T) {
 	t.Parallel()
 
 	tp, _, _, _, reg := newTestTransport(t)
 	setGitHubConfig(t, reg, "", testWebhookSecret)
 
 	body, _ := json.Marshal(issuesOpenedPayload("helixml/helix"))
-	res := post(t, tp.HandleInboundForStream(streaming.StreamID("s-does-not-exist")), body, "issues", "del-missing", "")
+	res := post(t, tp.HandleInboundForTopic(streaming.TopicID("s-does-not-exist")), body, "issues", "del-missing", "")
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", res.StatusCode, res.Body)
 	}

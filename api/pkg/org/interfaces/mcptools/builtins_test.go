@@ -26,7 +26,7 @@ import (
 // over MCP: each tool does one primitive thing, and the test drives the
 // hiring ritual step by step.
 //
-// Owner is pre-seeded. Owner creates a #general Stream, subscribes
+// Owner is pre-seeded. Owner creates a #general Topic, subscribes
 // themselves, defines a CEO Role (markdown content), creates a Position,
 // then hires the CEO with an identityContent. The
 // Worker's IdentityContent is stored in the domain alongside the Role —
@@ -56,7 +56,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 			mcptools.CreateRoleName,
 			mcptools.UpdateRoleName,
 			mcptools.HireWorkerName,
-			mcptools.CreateStreamName,
+			mcptools.CreateTopicName,
 			mcptools.SubscribeName,
 			mcptools.PublishName,
 		},
@@ -73,11 +73,11 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateStreamName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
 		"id":   "s-general",
 		"name": "general",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"streamId": "s-general"})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-general"})
 
 	invokeExpectID(t, ownerSession, mcptools.CreateRoleName, map[string]any{
 		"id":      "r-ceo",
@@ -105,7 +105,7 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	// hire_worker also creates the transcript and subscribes
 	// the hiring Worker's POSITION (not the worker itself) — sub
 	// rows are now position-anchored. w-owner is in p-root.
-	if _, err := s.Streams.Get(ctx, "org-test", "s-transcript-w-ceo"); err != nil {
+	if _, err := s.Topics.Get(ctx, "org-test", "s-transcript-w-ceo"); err != nil {
 		t.Fatalf("transcript missing for w-ceo: %v", err)
 	}
 	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", "s-transcript-w-ceo"); err != nil {
@@ -118,19 +118,19 @@ func TestDemoOwnerHiresCEO(t *testing.T) {
 	}
 
 	// Stand in for the CEO's hire activation: subscribe to the
-	// stream they were told about. The dispatcher isn't wired in
+	// topic they were told about. The dispatcher isn't wired in
 	// this test, so we drive it manually. The subscribe tool resolves
 	// the caller worker → its position and persists the subscription
 	// on the position.
 	ceoSession := connectMCP(t, srv.URL, "w-ceo")
-	invokeOK(t, ceoSession, mcptools.SubscribeName, map[string]any{"streamId": "s-general"})
+	invokeOK(t, ceoSession, mcptools.SubscribeName, map[string]any{"topicId": "s-general"})
 
 	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-ceo", "s-general"); err != nil {
 		t.Fatalf("CEO position subscription on s-general missing: %v", err)
 	}
 
 	invokeExpectID(t, ownerSession, mcptools.PublishName, map[string]any{
-		"streamId": "s-general",
+		"topicId": "s-general",
 		"body":     "please hire all of your staff",
 	})
 	ceoEvents, err := s.Events.ListForWorker(ctx, "org-test", "w-ceo", 10)
@@ -241,12 +241,12 @@ func TestUpdateRoleAndIdentityAreDomainWrites(t *testing.T) {
 	}
 }
 
-// TestStreamMembers exercises the read-only stream_members tool:
+// TestTopicMembers exercises the read-only topic_members tool:
 // before any subscriber, members is empty; after a Worker subscribes,
 // they appear in the list. This is the "wait until Renée is part of
-// the stream" primitive — managers call this before publishing if
+// the topic" primitive — managers call this before publishing if
 // they need to know whether a particular Worker is listening.
-func TestStreamMembers(t *testing.T) {
+func TestTopicMembers(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -265,7 +265,7 @@ func TestStreamMembers(t *testing.T) {
 	ownerRole, _ := orgchart.NewRole(
 		"r-owner",
 		"# Owner",
-		[]tool.Name{mcptools.CreateStreamName, mcptools.StreamMembersName, mcptools.SubscribeName},
+		[]tool.Name{mcptools.CreateTopicName, mcptools.TopicMembersName, mcptools.SubscribeName},
 		nil,
 		now,
 		"org-test",
@@ -293,7 +293,7 @@ func TestStreamMembers(t *testing.T) {
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 	listenerSession := connectMCP(t, srv.URL, "w-listener")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateStreamName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
 		"id":   "s-room",
 		"name": "room",
 	})
@@ -303,7 +303,7 @@ func TestStreamMembers(t *testing.T) {
 		t.Fatalf("members before subscribe = %v, want empty", got)
 	}
 
-	invokeOK(t, listenerSession, mcptools.SubscribeName, map[string]any{"streamId": "s-room"})
+	invokeOK(t, listenerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-room"})
 
 	if got := membersOf(t, ownerSession, "s-room"); len(got) != 1 || got[0] != "w-listener" {
 		t.Fatalf("members after subscribe = %v, want [w-listener]", got)
@@ -311,8 +311,8 @@ func TestStreamMembers(t *testing.T) {
 }
 
 // TestInviteWorkers verifies one Worker can subscribe others to a
-// Stream — the primitive that lets the initiator open a DM by creating
-// a Stream and adding both parties, without requiring the recipient to
+// Topic — the primitive that lets the initiator open a DM by creating
+// a Topic and adding both parties, without requiring the recipient to
 // self-subscribe first.
 func TestInviteWorkers(t *testing.T) {
 	t.Parallel()
@@ -332,7 +332,7 @@ func TestInviteWorkers(t *testing.T) {
 	ownerRole, _ := orgchart.NewRole(
 		"r-owner",
 		"# Owner",
-		[]tool.Name{mcptools.CreateStreamName, mcptools.InviteWorkersName, mcptools.StreamMembersName},
+		[]tool.Name{mcptools.CreateTopicName, mcptools.InviteWorkersName, mcptools.TopicMembersName},
 		nil,
 		now,
 		"org-test",
@@ -356,14 +356,14 @@ func TestInviteWorkers(t *testing.T) {
 
 	ownerSession := connectMCP(t, srv.URL, "w-owner")
 
-	invokeExpectID(t, ownerSession, mcptools.CreateStreamName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
 		"id":   "s-dm",
 		"name": "alice ↔ bob",
 	})
 
-	// Owner adds both parties to the stream in one call.
+	// Owner adds both parties to the topic in one call.
 	invokeOK(t, ownerSession, mcptools.InviteWorkersName, map[string]any{
-		"streamId":  "s-dm",
+		"topicId":  "s-dm",
 		"workerIds": []string{"w-alice", "w-bob"},
 	})
 
@@ -382,7 +382,7 @@ func TestInviteWorkers(t *testing.T) {
 	// new one is a no-op for the existing subscription and a success
 	// for the rest.
 	invokeOK(t, ownerSession, mcptools.InviteWorkersName, map[string]any{
-		"streamId":  "s-dm",
+		"topicId":  "s-dm",
 		"workerIds": []string{"w-alice", "w-owner"},
 	})
 	got = membersOf(t, ownerSession, "s-dm")
@@ -392,7 +392,7 @@ func TestInviteWorkers(t *testing.T) {
 
 	// Unknown worker -> error, no partial subscription created.
 	if _, err := invokeTool(t, ownerSession, mcptools.InviteWorkersName, map[string]any{
-		"streamId":  "s-dm",
+		"topicId":  "s-dm",
 		"workerIds": []string{"w-ghost"},
 	}); err == nil {
 		t.Fatalf("inviting unknown worker should error")
@@ -405,7 +405,7 @@ func TestInviteWorkers(t *testing.T) {
 // TestDM exercises the dm tool over MCP. DM channels are provisioned by
 // topology for reporting pairs, so the test wires a reporting line
 // (Alice manages Bob) and reconciles first; the dm call then publishes
-// over the existing per-pair Stream, and the reverse DM reuses it.
+// over the existing per-pair Topic, and the reverse DM reuses it.
 func TestDM(t *testing.T) {
 	t.Parallel()
 
@@ -461,14 +461,14 @@ func TestDM(t *testing.T) {
 	}
 	var out struct {
 		ID       string `json:"id"`
-		StreamID string `json:"streamId"`
+		TopicID string `json:"topicId"`
 		To       string `json:"to"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal dm: %v", err)
 	}
-	if out.StreamID != "s-dm-w-alice-w-bob" {
-		t.Fatalf("streamId = %q, want s-dm-w-alice-w-bob", out.StreamID)
+	if out.TopicID != "s-dm-w-alice-w-bob" {
+		t.Fatalf("topicId = %q, want s-dm-w-alice-w-bob", out.TopicID)
 	}
 	if out.To != "w-bob" {
 		t.Fatalf("to = %q, want w-bob", out.To)
@@ -477,8 +477,8 @@ func TestDM(t *testing.T) {
 	// Both positions are subscribed (the DM tool resolves participants
 	// → their positions); the event landed in the store.
 	for _, pid := range []orgchart.WorkerID{"w-alice", "w-bob"} {
-		if _, err := s.Subscriptions.Find(ctx, "org-test", pid, streaming.StreamID(out.StreamID)); err != nil {
-			t.Fatalf("%s not subscribed to %s: %v", pid, out.StreamID, err)
+		if _, err := s.Subscriptions.Find(ctx, "org-test", pid, streaming.TopicID(out.TopicID)); err != nil {
+			t.Fatalf("%s not subscribed to %s: %v", pid, out.TopicID, err)
 		}
 	}
 	events, _ := s.Events.ListForWorker(ctx, "org-test", "w-bob", 10)
@@ -496,7 +496,7 @@ func TestDM(t *testing.T) {
 		t.Fatalf("dm envelope = %+v, want from=w-alice to=[w-bob]", msg)
 	}
 
-	// Bob replies. Reverse direction reuses the same Stream — the IDs
+	// Bob replies. Reverse direction reuses the same Topic — the IDs
 	// are sorted, so A→B and B→A share one ordered conversation.
 	raw, err = invokeTool(t, bobSession, mcptools.DMName, map[string]any{
 		"toWorkerId": "w-alice",
@@ -506,11 +506,11 @@ func TestDM(t *testing.T) {
 		t.Fatalf("reply dm: %v", err)
 	}
 	var reply struct {
-		StreamID string `json:"streamId"`
+		TopicID string `json:"topicId"`
 	}
 	_ = json.Unmarshal(raw, &reply)
-	if reply.StreamID != out.StreamID {
-		t.Fatalf("reply streamId = %q, want %q (DM stream should be reused)", reply.StreamID, out.StreamID)
+	if reply.TopicID != out.TopicID {
+		t.Fatalf("reply topicId = %q, want %q (DM topic should be reused)", reply.TopicID, out.TopicID)
 	}
 
 	// Alice can read the conversation through her own subscription.
@@ -529,8 +529,8 @@ func TestDM(t *testing.T) {
 }
 
 // TestReadsOverMCP exercises the read tools: an Owner with the
-// full builtin tool set lists workers, lists streams, and reads back
-// events on subscribed streams, all over MCP.
+// full builtin tool set lists workers, lists topics, and reads back
+// events on subscribed topics, all over MCP.
 func TestReadsOverMCP(t *testing.T) {
 	t.Parallel()
 
@@ -550,12 +550,12 @@ func TestReadsOverMCP(t *testing.T) {
 		"r-owner",
 		"# Owner",
 		[]tool.Name{
-			mcptools.CreateStreamName,
+			mcptools.CreateTopicName,
 			mcptools.SubscribeName,
 			mcptools.PublishName,
 			mcptools.ListWorkersName,
-			mcptools.ListStreamsName,
-			mcptools.ListStreamEventsName,
+			mcptools.ListTopicsName,
+			mcptools.ListTopicEventsName,
 			mcptools.ReadEventsName,
 		},
 		nil,
@@ -586,30 +586,30 @@ func TestReadsOverMCP(t *testing.T) {
 	}
 
 	// Drive a small mutation through to populate read targets.
-	invokeExpectID(t, ownerSession, mcptools.CreateStreamName, map[string]any{
+	invokeExpectID(t, ownerSession, mcptools.CreateTopicName, map[string]any{
 		"id":   "s-news",
 		"name": "news",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"streamId": "s-news"})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-news"})
 	invokeExpectID(t, ownerSession, mcptools.PublishName, map[string]any{
-		"streamId": "s-news",
+		"topicId": "s-news",
 		"body":     "first event",
 	})
 
-	rawStreams, err := invokeTool(t, ownerSession, mcptools.ListStreamsName, map[string]any{})
+	rawTopics, err := invokeTool(t, ownerSession, mcptools.ListTopicsName, map[string]any{})
 	if err != nil {
-		t.Fatalf("list_streams: %v", err)
+		t.Fatalf("list_topics: %v", err)
 	}
-	var listStreamsOut struct {
-		Streams []struct {
+	var listTopicsOut struct {
+		Topics []struct {
 			ID string `json:"id"`
-		} `json:"streams"`
+		} `json:"topics"`
 	}
-	if err := json.Unmarshal(rawStreams, &listStreamsOut); err != nil {
-		t.Fatalf("unmarshal list_streams: %v", err)
+	if err := json.Unmarshal(rawTopics, &listTopicsOut); err != nil {
+		t.Fatalf("unmarshal list_topics: %v", err)
 	}
-	if len(listStreamsOut.Streams) != 1 || listStreamsOut.Streams[0].ID != "s-news" {
-		t.Fatalf("list_streams = %+v, want [{s-news}]", listStreamsOut.Streams)
+	if len(listTopicsOut.Topics) != 1 || listTopicsOut.Topics[0].ID != "s-news" {
+		t.Fatalf("list_topics = %+v, want [{s-news}]", listTopicsOut.Topics)
 	}
 
 	rawEvents, err := invokeTool(t, ownerSession, mcptools.ReadEventsName, map[string]any{})
@@ -629,11 +629,11 @@ func TestReadsOverMCP(t *testing.T) {
 	}
 }
 
-func membersOf(t *testing.T, session *mcp.ClientSession, streamID string) []string {
+func membersOf(t *testing.T, session *mcp.ClientSession, topicID string) []string {
 	t.Helper()
-	raw, err := invokeTool(t, session, mcptools.StreamMembersName, map[string]any{"streamId": streamID})
+	raw, err := invokeTool(t, session, mcptools.TopicMembersName, map[string]any{"topicId": topicID})
 	if err != nil {
-		t.Fatalf("stream_members %s: %v", streamID, err)
+		t.Fatalf("topic_members %s: %v", topicID, err)
 	}
 	var out struct {
 		Members []string `json:"members"`
@@ -645,7 +645,7 @@ func membersOf(t *testing.T, session *mcp.ClientSession, streamID string) []stri
 }
 
 // TestWorkerLog covers the worker_log shortcut: read a Worker's
-// activation transcript by workerId without having to know the stream
+// activation transcript by workerId without having to know the topic
 // naming convention. The first call auto-subscribes the caller; later
 // calls are pure reads. since/limit semantics mirror read_events.
 func TestWorkerLog(t *testing.T) {
@@ -679,15 +679,15 @@ func TestWorkerLog(t *testing.T) {
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
 	// Pre-create the transcript + seed a couple of events. In
-	// production hire_worker creates the stream and the spawner
+	// production hire_worker creates the topic and the spawner
 	// publishes events; here we shortcut.
-	streamID := streaming.StreamID("s-transcript-w-bot")
-	stream, _ := streaming.NewStream(streamID, "Activations: w-bot", "", "w-owner", now, transport.Transport{}, "org-test")
-	mustCreate(t, s.Streams.Create(ctx, stream))
+	topicID := streaming.TopicID("s-transcript-w-bot")
+	topic, _ := streaming.NewTopic(topicID, "Activations: w-bot", "", "w-owner", now, transport.Transport{}, "org-test")
+	mustCreate(t, s.Topics.Create(ctx, topic))
 	for i, body := range []string{"--- session start ---", "assistant: hello", "=== exit: ok ==="} {
 		ev, _ := streaming.NewEvent(
 			streaming.EventID(fmt.Sprintf("e-%d", i)),
-			streamID,
+			topicID,
 			"w-bot",
 			body,
 			now.Add(time.Duration(i)*time.Second),
@@ -721,7 +721,7 @@ func TestWorkerLog(t *testing.T) {
 	if out.Events[0].Body != "=== exit: ok ===" {
 		t.Fatalf("newest = %q, want exit marker", out.Events[0].Body)
 	}
-	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", streamID); err != nil {
+	if _, err := s.Subscriptions.Find(ctx, "org-test", "w-owner", topicID); err != nil {
 		t.Fatalf("owner position not subscribed after worker_log: %v", err)
 	}
 
@@ -748,7 +748,7 @@ func TestWorkerLog(t *testing.T) {
 	}
 
 	// Human Worker has no transcript — clear error, not a generic
-	// "stream not found".
+	// "topic not found".
 	if _, err := invokeTool(t, ownerSession, mcptools.WorkerLogName, map[string]any{
 		"workerId": "w-owner",
 	}); err == nil {
@@ -789,9 +789,9 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	bot, _ := orgchart.NewAIWorker("w-bot", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, bot))
 
-	streamID := activation.TranscriptID("w-bot")
-	str, _ := streaming.NewStream(streamID, "Activations: w-bot", "", "w-owner", base, transport.Transport{}, "org-test")
-	mustCreate(t, s.Streams.Create(ctx, str))
+	topicID := activation.TranscriptID("w-bot")
+	str, _ := streaming.NewTopic(topicID, "Activations: w-bot", "", "w-owner", base, transport.Transport{}, "org-test")
+	mustCreate(t, s.Topics.Create(ctx, str))
 
 	// Two activations, non-overlapping windows. Events at +1s and +2s
 	// land inside their respective activation's window.
@@ -822,7 +822,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		{"e-2b", a2Start.Add(2 * time.Second), "assistant: a2-second"},
 	}
 	for _, p := range plan {
-		ev, _ := streaming.NewEvent(streaming.EventID(p.id), streamID, "w-bot", p.body, p.at, "org-test")
+		ev, _ := streaming.NewEvent(streaming.EventID(p.id), topicID, "w-bot", p.body, p.at, "org-test")
 		mustCreate(t, s.Events.Append(ctx, ev))
 	}
 
@@ -835,7 +835,7 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 		} `json:"events"`
 	}
 
-	// Without activationId: every event on the stream comes back.
+	// Without activationId: every event on the topic comes back.
 	raw, err := invokeTool(t, ownerSession, mcptools.WorkerLogName, map[string]any{"workerId": "w-bot"})
 	if err != nil {
 		t.Fatalf("worker_log no filter: %v", err)
@@ -900,8 +900,8 @@ func TestWorkerLogFiltersByActivationID(t *testing.T) {
 	// Worker's activation IDs.
 	other, _ := orgchart.NewAIWorker("w-other", "r-owner", "", "org-test")
 	mustCreate(t, s.Workers.Create(ctx, other))
-	otherStream, _ := streaming.NewStream(activation.TranscriptID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
-	mustCreate(t, s.Streams.Create(ctx, otherStream))
+	otherTopic, _ := streaming.NewTopic(activation.TranscriptID("w-other"), "Activations: w-other", "", "w-owner", base, transport.Transport{}, "org-test")
+	mustCreate(t, s.Topics.Create(ctx, otherTopic))
 	a3, _ := activation.New("a-3", "w-other", []activation.Trigger{{Kind: activation.TriggerHire}}, base, "org-test")
 	mustCreate(t, s.Activations.Create(ctx, a3))
 	if _, err := invokeTool(t, ownerSession, mcptools.WorkerLogName, map[string]any{

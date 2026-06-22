@@ -49,7 +49,7 @@ type RoleDTO struct {
 	ID        string   `json:"id"`
 	Content   string   `json:"content"`
 	Tools     []string `json:"tools,omitempty"`
-	Streams   []string `json:"streams,omitempty"`
+	Topics   []string `json:"topics,omitempty"`
 	CreatedAt string   `json:"created_at,omitempty"`
 	UpdatedAt string   `json:"updated_at,omitempty"`
 }
@@ -159,9 +159,9 @@ type SetSettingRequest struct {
 	Value string `json:"value"`
 }
 
-// StreamDTO is one row in GET /streams plus the recent-events feed
-// the UI uses to render each stream's card.
-type StreamDTO struct {
+// TopicDTO is one row in GET /topics plus the recent-events feed
+// the UI uses to render each topic's card.
+type TopicDTO struct {
 	ID                 string                 `json:"id"`
 	Name               string                 `json:"name"`
 	Description        string                 `json:"description,omitempty"`
@@ -176,41 +176,41 @@ type StreamDTO struct {
 	EffectivePublicURL string                 `json:"effective_public_url,omitempty"`
 }
 
-// CreateStreamRequest is the body of POST /streams.
-type CreateStreamRequest struct {
+// CreateTopicRequest is the body of POST /topics.
+type CreateTopicRequest struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// As is the Worker that creates the stream — the worker whose chat
-	// the human is in. Empty leaves the stream unattributed (CreatedBy is
+	// As is the Worker that creates the topic — the worker whose chat
+	// the human is in. Empty leaves the topic unattributed (CreatedBy is
 	// cosmetic: it only anchors the node on the chart).
 	As        string                 `json:"as,omitempty"`
 	Transport *TransportRequestField `json:"transport,omitempty"`
 }
 
-// TransportRequestField mirrors the MCP create_stream tool's transport sub-object.
+// TransportRequestField mirrors the MCP create_topic tool's transport sub-object.
 type TransportRequestField struct {
 	Kind   string                 `json:"kind"`
 	Config map[string]interface{} `json:"config,omitempty"`
 }
 
-// UpdateStreamRequest is the body of PUT /streams/{id}.
-type UpdateStreamRequest struct {
+// UpdateTopicRequest is the body of PUT /topics/{id}.
+type UpdateTopicRequest struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Transport   *TransportRequestField `json:"transport,omitempty"`
 }
 
-// StreamsResponse is the body of GET /streams.
-type StreamsResponse struct {
-	Streams []StreamDTO `json:"streams"`
+// TopicsResponse is the body of GET /topics.
+type TopicsResponse struct {
+	Topics []TopicDTO `json:"topics"`
 	Recent  []EventCard `json:"recent,omitempty"`
 }
 
-// EventCard is one entry in a stream's event feed.
+// EventCard is one entry in a topic's event feed.
 type EventCard struct {
 	ID          string `json:"id"`
-	StreamID    string `json:"stream_id"`
+	TopicID    string `json:"topic_id"`
 	Source      string `json:"source,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	Body        string `json:"body"`
@@ -221,9 +221,56 @@ type EventCard struct {
 	MessageBody string `json:"message_body,omitempty"`
 }
 
+// MessageAttributes is the JSON:API `attributes` object for a
+// `messages` resource: the decoded Message envelope plus the event
+// coordinates. Body is the visible text — the parsed Message.Body when
+// the event carries a Message, otherwise the raw stored body.
+type MessageAttributes struct {
+	TopicID   string   `json:"topic_id"`
+	Source     string   `json:"source,omitempty"`
+	CreatedAt  string   `json:"created_at"`
+	From       string   `json:"from,omitempty"`
+	To         []string `json:"to,omitempty"`
+	Subject    string   `json:"subject,omitempty"`
+	Body       string   `json:"body"`
+	HasMessage bool     `json:"has_message"`
+	// Raw is the canonical Message envelope JSON exactly as stored — the
+	// same shape a processor's `.Message` template/filter context sees
+	// ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
+	// operators which fields are available.
+	Raw string `json:"raw,omitempty"`
+}
+
+// MessageResource is one JSON:API resource object in the messages list.
+type MessageResource struct {
+	Type       string            `json:"type"`
+	ID         string            `json:"id"`
+	Attributes MessageAttributes `json:"attributes"`
+}
+
+// MessagesMeta is the top-level `meta` of the messages document:
+// total item count plus the pagination state.
+type MessagesMeta struct {
+	Total      int `json:"total"`
+	Page       int `json:"page"`
+	Size       int `json:"size"`
+	TotalPages int `json:"total_pages"`
+}
+
+// MessagesDocument is the JSON:API document returned by
+// GET /topics/{id}/messages. It documents the concrete shape the
+// jsonapi composition helpers emit so the generated OpenAPI client has
+// a typed response. Links are page-relative references
+// (self/first/prev/next/last).
+type MessagesDocument struct {
+	Data  []MessageResource `json:"data"`
+	Meta  MessagesMeta      `json:"meta"`
+	Links map[string]string `json:"links,omitempty"`
+}
+
 // WorkerSubscriptionDTO is one row in a worker's subscription list.
 type WorkerSubscriptionDTO struct {
-	StreamID  string `json:"stream_id"`
+	TopicID  string `json:"topic_id"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -236,10 +283,10 @@ type WorkerSubscriptionsResponse struct {
 
 // SubscribeWorkerRequest is the POST /workers/{id}/subscriptions body.
 type SubscribeWorkerRequest struct {
-	StreamID string `json:"stream_id"`
+	TopicID string `json:"topic_id"`
 }
 
-// PublishRequest is the body of POST /streams/{id}/publish.
+// PublishRequest is the body of POST /topics/{id}/publish.
 type PublishRequest struct {
 	Body    string   `json:"body"`
 	Subject string   `json:"subject,omitempty"`
@@ -250,7 +297,7 @@ type PublishRequest struct {
 	As string `json:"as,omitempty"`
 }
 
-// PublishResponse is the body of POST /streams/{id}/publish on success.
+// PublishResponse is the body of POST /topics/{id}/publish on success.
 type PublishResponse struct {
 	EventID string `json:"event_id"`
 }
@@ -265,12 +312,12 @@ type CreateRoleRequest struct {
 	ID      string   `json:"id"`
 	Content string   `json:"content"`
 	Tools   []string `json:"tools,omitempty"`
-	Streams []string `json:"streams,omitempty"`
+	Topics []string `json:"topics,omitempty"`
 }
 
 // UpdateRoleRequest is the body of PUT /roles/{id}.
 type UpdateRoleRequest struct {
 	Content *string  `json:"content,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
-	Streams []string `json:"streams,omitempty"`
+	Topics []string `json:"topics,omitempty"`
 }

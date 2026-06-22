@@ -134,7 +134,6 @@ const GitRepoDetail: FC = () => {
 
   const currentOrg = account.organizationTools.organization
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
-  const ownerId = currentOrg?.id || account.user?.id || ''
 
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
@@ -153,8 +152,15 @@ const GitRepoDetail: FC = () => {
   const { data: allProjects = [] } = useListProjects(currentOrg?.id)
   const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
 
-  // Fetch all repositories for the create project dialog
-  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories({ ownerId })
+  // Fetch all repositories for the create project dialog.
+  // Org repos are keyed by organization_id (not owner_id), so we must query by
+  // organizationId when in an org — mirroring the Projects page. Querying by
+  // owner_id with the org id returns nothing and leaves the dialog empty.
+  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
   const createRepoMutation = useCreateGitRepository()
 
   // Query parameters

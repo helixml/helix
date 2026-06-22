@@ -2151,20 +2151,19 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 	return s.sendCommandToExternalAgent(sessionID, command)
 }
 
-// stopExternalAgentSession godoc
-// @Summary Stop external Zed agent session
-// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// cancelSessionTurn godoc
+// @Summary Cancel the current agent turn
+// @Description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+// @Description interaction state update (interrupted) flows to the frontend via WebSocket.
 // @Tags Sessions
 // @Produce json
 // @Param id path string true "Session ID"
-// @Success 200 {object} map[string]string
+// @Success 202 {object} map[string]string
 // @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
-// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
-// cancelSessionTurn cancels the active turn for a session by sending cancel_current_turn to Zed.
-// Returns 202 Accepted immediately; the interaction state update flows to the frontend via WebSocket.
+// @Router /api/v1/sessions/{id}/cancel [post]
 func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -2187,6 +2186,18 @@ func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"status": "accepted"}, nil
 }
 
+// stopExternalAgentSession godoc
+// @Summary Stop external Zed agent session
+// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
 func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -2429,6 +2440,127 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 	return resetCount, nil
 }
 
+// autoRestartMaxAttempts bounds how many times Helix will automatically
+// recreate a crashed autonomous-surface (spec-task / org-worker) container
+// without an intervening successful turn. Past this we stop and leave the
+// prompt crash-marked (terminal) for a human to investigate, so a
+// boot-crash-looping agent can't trigger an endless container-rebuild storm.
+const autoRestartMaxAttempts = 3
+
+// autoRestartMinBackoff is the base gap before an automatic restart. The actual
+// wait grows exponentially per consecutive attempt (autoRestartMinBackoff <<
+// count → 15s, 30s, 60s), so a fast crash loop is throttled. It is a var (not a
+// const) only so tests can drop it to zero; production never reassigns it.
+var autoRestartMinBackoff = 15 * time.Second
+
+// maybeAutoRestartCrashedAgent automatically recovers a crashed external agent
+// for AUTONOMOUS surfaces — spec tasks and org workers — where no human is
+// present to click the in-chat Restart button. It is called from the websocket
+// crash handlers right after a prompt is crash-marked.
+//
+// Human desktop sessions (Metadata.AutoRestartOnCrash == false) are left
+// untouched: they keep the explicit button. The recovery itself reuses the
+// canonical restartSessionContainer primitive (StopDesktop → recreate → reset
+// crashed prompts → kick queue), so "restart" cannot diverge across surfaces.
+//
+// Guard rails against a boot-crash loop: a sync.Map dedupes concurrent triggers
+// (a single crash can surface as both thread_load_error and chat_response_error);
+// Metadata.AutoRestartCount bounds consecutive restarts without an intervening
+// success (reset to 0 on the next successful completion); and an exponential
+// backoff throttles the cadence.
+func (s *HelixAPIServer) maybeAutoRestartCrashedAgent(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	// Dedupe concurrent triggers for the same session — a crash can arrive via
+	// both thread_load_error and chat_response_error. First caller wins; the
+	// rest no-op until this one finishes.
+	if _, inflight := s.autoRestartInflight.LoadOrStore(sessionID, struct{}{}); inflight {
+		return
+	}
+	defer s.autoRestartInflight.Delete(sessionID)
+
+	ctx := context.Background()
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Auto-restart: session lookup failed — skipping")
+		return
+	}
+
+	// Only autonomous surfaces opt in; human desktop sessions keep the button.
+	if !session.Metadata.AutoRestartOnCrash {
+		return
+	}
+	if session.Metadata.AgentType != "zed_external" {
+		return
+	}
+
+	// Anti-storm: stop after the budget is spent. The crash stays terminal
+	// (prompt crash-marked) so the failure is visible rather than silently
+	// churning containers forever.
+	if session.Metadata.AutoRestartCount >= autoRestartMaxAttempts {
+		log.Error().
+			Str("session_id", sessionID).
+			Int("attempts", session.Metadata.AutoRestartCount).
+			Msg("🛑 [HELIX] Auto-restart budget exhausted — leaving crashed agent terminal (avoids container-rebuild storm)")
+		return
+	}
+
+	attempt := session.Metadata.AutoRestartCount
+	backoff := autoRestartMinBackoff * time.Duration(int64(1)<<uint(attempt))
+
+	// The autonomous surface's session owner (spec-task creator / worker
+	// service user) is already authorized for this session — drive the restart
+	// as them.
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	if err != nil || user == nil {
+		log.Error().Err(err).Str("session_id", sessionID).Str("owner", session.Owner).
+			Msg("Auto-restart: owner lookup failed — skipping")
+		return
+	}
+
+	log.Warn().
+		Str("session_id", sessionID).
+		Int("attempt", attempt+1).
+		Int("max", autoRestartMaxAttempts).
+		Dur("backoff", backoff).
+		Msg("♻️ [HELIX] Auto-restarting crashed autonomous agent (no human present to click Restart)")
+
+	time.Sleep(backoff)
+
+	// Persist the incremented budget BEFORE restarting, on a fresh read, so a
+	// restart that itself boot-crashes still counts toward the cap and a
+	// concurrent metadata write isn't clobbered. The counter lives on the
+	// session, so ResetCrashedPromptsForSession (inside restartSessionContainer)
+	// won't zero it — only a successful completion resets it.
+	fresh, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || fresh == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Auto-restart: re-read failed — skipping")
+		return
+	}
+	fresh.Metadata.AutoRestartCount = attempt + 1
+	fresh.Metadata.LastAutoRestartAt = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *fresh); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Auto-restart: failed to persist restart budget — skipping")
+		return
+	}
+
+	if _, herr := s.restartSessionContainer(ctx, user, fresh); herr != nil {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("error", herr.Error()).
+			Int("attempt", attempt+1).
+			Msg("Auto-restart of crashed agent failed")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("attempt", attempt+1).
+		Msg("✅ [HELIX] Auto-restarted crashed autonomous agent — container recreated, prompts re-queued")
+}
+
 // attachProjectContext sets agent.ProjectID and loads the project's
 // repositories, populating agent.RepositoryIDs and agent.PrimaryRepositoryID
 // via DesktopAgent.SetRepoContext. No-op when projectID is empty.
@@ -2533,6 +2665,13 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 				CallbackURL:  req.CallbackURL,
 			},
 		}
+	}
+
+	// Autonomous surfaces (org workers) ask for crash auto-recovery. Set it on
+	// the metadata after the build/reuse branch so it sticks on the reused
+	// exploratory singleton too, not only on a freshly minted row.
+	if req.AutoRestartOnCrash {
+		session.Metadata.AutoRestartOnCrash = true
 	}
 
 	session, err = appendOrOverwrite(session, req)

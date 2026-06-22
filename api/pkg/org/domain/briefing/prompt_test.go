@@ -18,7 +18,7 @@ func TestRenderTriggerGitHub(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
-		StreamID:  "s-github",
+		TopicID:  "s-github",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
@@ -34,7 +34,7 @@ func TestRenderTriggerGitHub(t *testing.T) {
 	got := renderTrigger(tr)
 
 	wants := []string{
-		"stream:      s-github",
+		"topic:      s-github",
 		"event:       e-abc",
 		"time:        2026-04-28T12:27:23Z",
 		"from:        philwinder",
@@ -66,13 +66,13 @@ func TestRenderTriggerEmail(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
-		StreamID:  "s-support",
+		TopicID:  "s-support",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
 			From:      "alice@example.com",
 			To:        []string{"abc123+sam@inbound.postmarkapp.com"},
-			Subject:   "[eng] Re: Webhook stream isn't firing",
+			Subject:   "[eng] Re: Webhook topic isn't firing",
 			Body:      "Most webhook flow issues are config or subscription mismatches.",
 			ThreadID:  "<root@example.com>",
 			InReplyTo: "<original@example.com>",
@@ -85,7 +85,7 @@ func TestRenderTriggerEmail(t *testing.T) {
 	wants := []string{
 		"from:        alice@example.com",
 		"to:          abc123+sam@inbound.postmarkapp.com",
-		"subject:     [eng] Re: Webhook stream isn't firing",
+		"subject:     [eng] Re: Webhook topic isn't firing",
 		"thread_id:   <root@example.com>",
 		"in_reply_to: <original@example.com>",
 		"message_id:  <msg-2@example.com>",
@@ -104,7 +104,7 @@ func TestRenderTriggerWorkerPublished(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
-		StreamID:  "s-general",
+		TopicID:  "s-general",
 		Source:    "w-alice",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
@@ -135,7 +135,7 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
-		StreamID:  "s-github",
+		TopicID:  "s-github",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
 			From:    "philwinder",

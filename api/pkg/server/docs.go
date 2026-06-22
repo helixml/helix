@@ -9371,7 +9371,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Delivery accepted but no matching streams"
+                        "description": "Delivery accepted but no matching topics"
                     },
                     "204": {
                         "description": "Delivery accepted and fanned out"
@@ -9412,6 +9412,183 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.OrgOverview"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/processors": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list processors",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: create a processor",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Processor spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/processors/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: get a processor",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Processor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: update a processor",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Processor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Processor spec",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ProcessorWriteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: delete a processor",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Processor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
@@ -9735,7 +9912,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams": {
+        "/api/v1/orgs/{org}/tools": {
             "get": {
                 "security": [
                     {
@@ -9748,12 +9925,39 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: list streams",
+                "summary": "Helix-org: list available MCP tools",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamsResponse"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/api.ToolDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list topics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.TopicsResponse"
                         }
                     }
                 }
@@ -9773,15 +9977,15 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: create a stream",
+                "summary": "Helix-org: create a topic",
                 "parameters": [
                     {
-                        "description": "Stream spec",
+                        "description": "Topic spec",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.CreateStreamRequest"
+                            "$ref": "#/definitions/api.CreateTopicRequest"
                         }
                     }
                 ],
@@ -9789,7 +9993,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9801,7 +10005,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}": {
+        "/api/v1/orgs/{org}/topics/{id}": {
             "get": {
                 "security": [
                     {
@@ -9814,11 +10018,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: get a stream",
+                "summary": "Helix-org: get a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9828,7 +10032,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "404": {
@@ -9854,22 +10058,22 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: update a stream",
+                "summary": "Helix-org: update a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "Stream patch",
+                        "description": "Topic patch",
                         "name": "payload",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.UpdateStreamRequest"
+                            "$ref": "#/definitions/api.UpdateTopicRequest"
                         }
                     }
                 ],
@@ -9877,7 +10081,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.StreamDTO"
+                            "$ref": "#/definitions/api.TopicDTO"
                         }
                     },
                     "400": {
@@ -9903,11 +10107,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: delete a stream",
+                "summary": "Helix-org: delete a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9926,7 +10130,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/events": {
+        "/api/v1/orgs/{org}/topics/{id}/events": {
             "get": {
                 "security": [
                     {
@@ -9934,16 +10138,16 @@ const docTemplate = `{
                     }
                 ],
                 "produces": [
-                    "text/event-stream"
+                    "text/event-topic"
                 ],
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: SSE stream of events for one stream",
+                "summary": "Helix-org: SSE topic of events for one topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -9959,7 +10163,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/install-webhook": {
+        "/api/v1/orgs/{org}/topics/{id}/github/install-webhook": {
             "post": {
                 "security": [
                     {
@@ -9972,11 +10176,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: auto-install the webhook for a github stream",
+                "summary": "Helix-org: auto-install the webhook for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10010,7 +10214,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/github/webhook-status": {
+        "/api/v1/orgs/{org}/topics/{id}/github/webhook-status": {
             "get": {
                 "security": [
                     {
@@ -10023,11 +10227,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: live webhook status for a github stream",
+                "summary": "Helix-org: live webhook status for a github topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10049,7 +10253,64 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/streams/{id}/publish": {
+        "/api/v1/orgs/{org}/topics/{id}/messages": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/vnd.api+json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list a topic's messages (JSON:API, paginated)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page number (default 1)",
+                        "name": "page[number]",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (default 50, max 200)",
+                        "name": "page[size]",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.MessagesDocument"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/publish": {
             "post": {
                 "security": [
                     {
@@ -10065,11 +10326,11 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: publish a message to a stream",
+                "summary": "Helix-org: publish a message to a topic",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Stream ID",
+                        "description": "Topic ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -10101,33 +10362,6 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/orgs/{org}/tools": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "HelixOrg"
-                ],
-                "summary": "Helix-org: list available MCP tools",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/api.ToolDTO"
-                            }
                         }
                     }
                 }
@@ -10667,7 +10901,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: subscribe a worker to a stream",
+                "summary": "Helix-org: subscribe a worker to a topic",
                 "parameters": [
                     {
                         "type": "string",
@@ -10677,7 +10911,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "stream to subscribe to",
+                        "description": "topic to subscribe to",
                         "name": "payload",
                         "in": "body",
                         "required": true,
@@ -10708,7 +10942,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}": {
+        "/api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}": {
             "delete": {
                 "security": [
                     {
@@ -10718,7 +10952,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: unsubscribe a worker from a stream",
+                "summary": "Helix-org: unsubscribe a worker from a topic",
                 "parameters": [
                     {
                         "type": "string",
@@ -10729,8 +10963,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Stream ID",
-                        "name": "stream_id",
+                        "description": "Topic ID",
+                        "name": "topic_id",
                         "in": "path",
                         "required": true
                     }
@@ -15724,6 +15958,95 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/agent-config-applied": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by the in-desktop settings-sync daemon after it hot-reloads Zed's config for an agent switch. Delivers the pending handoff to the live Zed thread without waiting for a process restart. Internal coordination endpoint.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Notify that an in-place agent switch's config has been applied in the container",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentConfigAppliedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the\ninteraction state update (interrupted) flows to the frontend via WebSocket.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Cancel the current agent turn",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/claude-credentials": {
             "get": {
                 "security": [
@@ -15830,6 +16153,58 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/clear": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes all interactions for a session while preserving the session\nrecord (ID, name, project, owner, model, metadata). For Zed-backed\nsessions the Zed thread is also reset so the agent starts fresh.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Clear a session's conversation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
                         }
                     },
                     "403": {
@@ -16661,6 +17036,52 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/switch-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Switches the agentic framework on the SAME session without forking or restarting the container. Rewrites Zed's config to the new agent, which Zed hot-reloads live (MCP context servers reconcile without a process restart), then repopulates a fresh thread with the prior transcript. Falls back to a clean Zed restart only if the live reload doesn't take.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Switch the agent framework on a running session in place",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID to switch the agent on",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Target agent selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SwitchAgentResponse"
                         }
                     }
                 }
@@ -20666,13 +21087,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -20680,11 +21101,11 @@ const docTemplate = `{
                 }
             }
         },
-        "api.CreateStreamRequest": {
+        "api.CreateTopicRequest": {
             "type": "object",
             "properties": {
                 "as": {
-                    "description": "As is the Worker that creates the stream — the worker whose chat\nthe human is in. Empty leaves the stream unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
+                    "description": "As is the Worker that creates the topic — the worker whose chat\nthe human is in. Empty leaves the topic unattributed (CreatedBy is\ncosmetic: it only anchors the node on the chart).",
                     "type": "string"
                 },
                 "description": {
@@ -20733,13 +21154,13 @@ const docTemplate = `{
                 "source": {
                     "type": "string"
                 },
-                "stream_id": {
-                    "type": "string"
-                },
                 "subject": {
                     "type": "string"
                 },
                 "to": {
+                    "type": "string"
+                },
+                "topic_id": {
                     "type": "string"
                 }
             }
@@ -20752,7 +21173,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "install_url": {
-                    "description": "InstallURL is where the New Stream gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
+                    "description": "InstallURL is where the New Topic gate sends the user to install the\napp (https://github.com/apps/\u003cslug\u003e/installations/new). Populated from\nthe created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.",
                     "type": "string"
                 },
                 "installed": {
@@ -20819,7 +21240,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "state": {
-                    "description": "State is one of:\n  \"installed\" — a webhook for this stream's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
+                    "description": "State is one of:\n  \"installed\" — a webhook for this topic's payload URL exists on the repo\n  \"missing\"   — GitHub was reachable and has no such webhook (needs install)\n  \"unknown\"   — couldn't determine (no repo / no public URL / no creds /\n                GitHub error); see Detail. The UI falls back to stored state.",
                     "type": "string"
                 },
                 "webhook_html_url": {
@@ -20879,6 +21300,93 @@ const docTemplate = `{
                 }
             }
         },
+        "api.MessageAttributes": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "string"
+                },
+                "has_message": {
+                    "type": "boolean"
+                },
+                "raw": {
+                    "description": "Raw is the canonical Message envelope JSON exactly as stored — the\nsame shape a processor's ` + "`" + `.Message` + "`" + ` template/filter context sees\n({\"from\":…,\"subject\":…,\"body\":…,\"thread_id\":…,…}). Lets the UI show\noperators which fields are available.",
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.MessageResource": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/api.MessageAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.MessagesDocument": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.MessageResource"
+                    }
+                },
+                "links": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/api.MessagesMeta"
+                }
+            }
+        },
+        "api.MessagesMeta": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.OrgOverview": {
             "type": "object",
             "properties": {
@@ -20892,6 +21400,63 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/api.RoleBadge"
+                    }
+                }
+            }
+        },
+        "api.ProcessorOutputDTO": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "match": {
+                    "type": "string"
+                },
+                "owned": {
+                    "type": "boolean"
+                },
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ProcessorWriteRequest": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "attributes": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                },
+                                "created_by": {
+                                    "type": "string"
+                                },
+                                "input_topic_id": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "outputs": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/api.ProcessorOutputDTO"
+                                    }
+                                }
+                            }
+                        },
+                        "type": {
+                            "type": "string"
+                        }
                     }
                 }
             }
@@ -20945,13 +21510,13 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -21024,7 +21589,26 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamDTO": {
+        "api.SubscribeWorkerRequest": {
+            "type": "object",
+            "properties": {
+                "topic_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.ToolDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.TopicDTO": {
             "type": "object",
             "properties": {
                 "can_publish": {
@@ -21072,7 +21656,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.StreamsResponse": {
+        "api.TopicsResponse": {
             "type": "object",
             "properties": {
                 "recent": {
@@ -21081,30 +21665,11 @@ const docTemplate = `{
                         "$ref": "#/definitions/api.EventCard"
                     }
                 },
-                "streams": {
+                "topics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/api.StreamDTO"
+                        "$ref": "#/definitions/api.TopicDTO"
                     }
-                }
-            }
-        },
-        "api.SubscribeWorkerRequest": {
-            "type": "object",
-            "properties": {
-                "stream_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ToolDTO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
                 }
             }
         },
@@ -21126,13 +21691,13 @@ const docTemplate = `{
                 "content": {
                     "type": "string"
                 },
-                "streams": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
-                "tools": {
+                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -21140,7 +21705,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.UpdateStreamRequest": {
+        "api.UpdateTopicRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -21270,7 +21835,7 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
-                "stream_id": {
+                "topic_id": {
                     "type": "string"
                 }
             }
@@ -22489,6 +23054,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "hostname": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentConfigAppliedResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
                     "type": "string"
                 }
             }
@@ -24417,6 +24990,31 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "server.SwitchAgentRequest": {
+            "type": "object",
+            "properties": {
+                "code_agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SwitchAgentResponse": {
+            "type": "object",
+            "properties": {
+                "agent_runtime": {
+                    "$ref": "#/definitions/types.CodeAgentRuntime"
+                },
+                "helix_app_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
                 }
             }
         },
@@ -27896,11 +28494,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "nvidia",
-                "amd"
+                "amd",
+                "neuron"
             ],
             "x-enum-varnames": [
                 "GPUVendorNVIDIA",
-                "GPUVendorAMD"
+                "GPUVendorAMD",
+                "GPUVendorNeuron"
             ]
         },
         "types.GitHub": {
@@ -32241,7 +32841,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "active_sandboxes": {
-                    "description": "Sandbox capacity",
+                    "description": "Sandbox capacity. MaxSandboxes is set explicitly at auto-register\nand Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS\n(default 20); the gorm default below only applies to rows inserted\nvia paths that don't set the field. Kept aligned with the env-var\ndefault to avoid surprises.",
                     "type": "integer"
                 },
                 "compute_state": {
@@ -32836,6 +33436,10 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)",
+                    "type": "boolean"
+                },
                 "callback_url": {
                     "description": "Webhook URL to POST on session completion",
                     "type": "string"
@@ -32948,6 +33552,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "agent_switched_at": {
+                    "description": "AgentSwitchedAt is set when the agent framework is switched IN PLACE on\nthis same session (no fork / new container) — see\ndesign/tasks/002111_so-we-recently-added-a/design.md. It marks that a\nfork_seed interaction carrying the prior thread's transcript exists on\nTHIS session, so maybePrependTranscript seeds the new Zed thread even\nthough ParentSessionID is empty (the session continues from itself).",
+                    "type": "string"
+                },
                 "agent_type": {
                     "description": "Agent type: \"helix\" or \"zed_external\"",
                     "type": "string"
@@ -32974,6 +33582,13 @@ const docTemplate = `{
                 "assistant_id": {
                     "description": "which assistant are we talking to?",
                     "type": "string"
+                },
+                "auto_restart_count": {
+                    "type": "integer"
+                },
+                "auto_restart_on_crash": {
+                    "description": "Autonomous crash recovery. Set true at session creation for surfaces with\nno human present to click the in-chat Restart button (spec tasks, org\nworkers). When the external agent crashes mid-turn, the websocket crash\nhandler auto-invokes the canonical restart primitive instead of leaving\nthe session errored+idle. Human desktop sessions leave this false and keep\nthe explicit button. AutoRestartCount bounds consecutive auto-restarts\nwithout an intervening successful turn (anti-storm guard); it is reset to 0\non the next successful completion and lives on the SESSION (not the prompt)\nso ResetCrashedPromptsForSession can't zero the restart budget.",
+                    "type": "boolean"
                 },
                 "avatar": {
                     "type": "string"
@@ -33079,6 +33694,9 @@ const docTemplate = `{
                 "implementation_task_index": {
                     "description": "Index of implementation task this session handles",
                     "type": "integer"
+                },
+                "last_auto_restart_at": {
+                    "type": "string"
                 },
                 "manually_review_questions": {
                     "type": "boolean"

@@ -13,7 +13,7 @@ import (
 )
 
 // TestQueries_ReadsAcrossAggregates exercises the read facade end to end
-// against the in-memory store: seed a role, worker, stream, subscription,
+// against the in-memory store: seed a role, worker, topic, subscription,
 // and event, then read each back through Queries.
 func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	t.Parallel()
@@ -29,8 +29,8 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	if err := st.Workers.Create(ctx, wk); err != nil {
 		t.Fatal(err)
 	}
-	stream, _ := streaming.NewStream("s-1", "s-1", "", "w-owner", now, transport.LocalTransport(), "org-test")
-	if err := st.Streams.Create(ctx, stream); err != nil {
+	topic, _ := streaming.NewTopic("s-1", "s-1", "", "w-owner", now, transport.LocalTransport(), "org-test")
+	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatal(err)
 	}
 	sub, _ := streaming.NewSubscription("w-mark", "s-1", now, "org-test")
@@ -44,7 +44,7 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 
 	q := New(Deps{
 		Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines,
-		Streams: st.Streams, Subscriptions: st.Subscriptions, Events: st.Events,
+		Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events,
 	})
 
 	if roles, err := q.ListRoles(ctx, "org-test"); err != nil || len(roles) != 1 {
@@ -53,17 +53,17 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	if got, err := q.GetWorker(ctx, "org-test", "w-mark"); err != nil || got.ID() != "w-mark" {
 		t.Fatalf("GetWorker = %v, %v", got, err)
 	}
-	if streams, err := q.ListStreams(ctx, "org-test"); err != nil || len(streams) != 1 {
-		t.Fatalf("ListStreams = %v, %v", streams, err)
+	if topics, err := q.ListTopics(ctx, "org-test"); err != nil || len(topics) != 1 {
+		t.Fatalf("ListTopics = %v, %v", topics, err)
 	}
-	if subs, err := q.StreamSubscribers(ctx, "org-test", "s-1"); err != nil || len(subs) != 1 {
-		t.Fatalf("StreamSubscribers = %v, %v", subs, err)
+	if subs, err := q.TopicSubscribers(ctx, "org-test", "s-1"); err != nil || len(subs) != 1 {
+		t.Fatalf("TopicSubscribers = %v, %v", subs, err)
 	}
 	if subs, err := q.WorkerSubscriptions(ctx, "org-test", "w-mark"); err != nil || len(subs) != 1 {
 		t.Fatalf("WorkerSubscriptions = %v, %v", subs, err)
 	}
-	if events, err := q.StreamEvents(ctx, "org-test", "s-1", 10); err != nil || len(events) != 1 {
-		t.Fatalf("StreamEvents = %v, %v", events, err)
+	if events, err := q.TopicEvents(ctx, "org-test", "s-1", 10); err != nil || len(events) != 1 {
+		t.Fatalf("TopicEvents = %v, %v", events, err)
 	}
 	if events, err := q.AllEvents(ctx, "org-test", 10); err != nil || len(events) != 1 {
 		t.Fatalf("AllEvents = %v, %v", events, err)

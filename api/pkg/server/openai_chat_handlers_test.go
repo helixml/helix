@@ -66,7 +66,7 @@ func (s *FindProviderWithModelSuite) TestGlobal_BareIDMatchesCachedModel() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	cacheKey := "openai:" + string(types.OwnerTypeSystem)
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-5.2"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-5.2"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "gpt-5.2", "user_x", "")
@@ -85,7 +85,7 @@ func (s *FindProviderWithModelSuite) TestDBProvider_PrefixedIDMatchesViaResidue(
 	}, nil).AnyTimes()
 
 	cacheKey := "user/openai:org_test"
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-5.2"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-5.2"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "user/openai/gpt-5.2", "user_x", "org_test")
@@ -114,7 +114,7 @@ func (s *FindProviderWithModelSuite) TestGlobal_PrefixedIDMatchesViaResidue() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{}, nil).AnyTimes()
 
 	cacheKey := "openai:" + string(types.OwnerTypeSystem)
-	s.server.cache.SetWithTTL(cacheKey, `[{"id":"gpt-4o"}]`, 1, time.Minute)
+	s.server.cache.SetWithTTL(cacheKey, `{"Models":[{"id":"gpt-4o"}],"FetchedAt":"2030-01-01T00:00:00Z"}`, 1, time.Minute)
 	s.server.cache.Wait()
 
 	provider, bare := s.server.findProviderWithModel(context.Background(), "openai/gpt-4o", "user_x", "")

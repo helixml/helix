@@ -101,7 +101,7 @@ import { optimisticallyMarkSessionStarting } from "../../utils/optimisticSession
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from "../session/EmbeddedSessionView";
-import ForkAgentControl from "../session/ForkAgentControl";
+import SwitchAgentControl from "../session/SwitchAgentControl";
 import SharePreviewSection from "./SharePreviewSection";
 import {
   Panel,
@@ -602,8 +602,24 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
     enabled: !!activeSessionId,
+    refetchInterval: 3000,
   });
   const sessionData = sessionResponse?.data;
+
+  const isAgentBusy = useMemo(() => {
+    const interactions = sessionData?.interactions;
+    if (!interactions || interactions.length === 0) return false;
+    return interactions[interactions.length - 1].state === 'waiting';
+  }, [sessionData?.interactions]);
+
+  const handleCancelTurn = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      await api.getApiClient().v1SessionsCancelCreate(activeSessionId);
+    } catch (error: any) {
+      snackbar.error(error?.message || "Failed to cancel");
+    }
+  }, [activeSessionId, api, snackbar]);
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
 
@@ -1955,21 +1971,13 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       );
                     })()}
                   </Box>
-                  {/* Fork-to-different-agent dropdown. Picking a new agent
-                      forks the current session (preserves transcript) and
-                      switches the chat panel to the child session. See
-                      design/tasks/002081_kickoff-mid-session/. */}
+                  {/* Switch-agent dropdown. Picking a new agent switches the
+                      framework IN PLACE on the current session (same id, same
+                      container, transcript preserved) — no fork. See
+                      design/tasks/002111_so-we-recently-added-a/. */}
                   {activeSessionId && (
                     <Box sx={{ ml: "auto", mr: 1, flexShrink: 0 }}>
-                      <ForkAgentControl
-                        sessionId={activeSessionId}
-                        onForked={(newSessionId) => {
-                          // Stay on the spec task page; route the chat panel
-                          // to the freshly-forked session. The session selector
-                          // below picks up the new id on next render.
-                          setSelectedThreadSessionId(newSessionId);
-                        }}
-                      />
+                      <SwitchAgentControl sessionId={activeSessionId} />
                     </Box>
                   )}
                   <Tooltip title="Collapse chat panel">
@@ -2815,6 +2823,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         sessionViewRef.current?.scrollToBottom()
                       }
                       placeholder="Send message to agent..."
+                      onCancel={activeSessionId ? handleCancelTurn : undefined}
+                      isAgentBusy={isAgentBusy}
                     />
                   </Box>
                 </Box>

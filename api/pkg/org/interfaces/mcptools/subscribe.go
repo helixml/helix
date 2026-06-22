@@ -12,8 +12,8 @@ import (
 )
 
 // Subscribe adds a Subscription between the caller and the given
-// Stream. A Worker subscribes themselves; see invite_workers for
-// adding other Workers to a Stream.
+// Topic. A Worker subscribes themselves; see invite_workers for
+// adding other Workers to a Topic.
 type Subscribe struct {
 	deps Deps
 }
@@ -24,14 +24,14 @@ var subscribeSchema = mustSchema[subscribeArgs]()
 
 func (t *Subscribe) Name() tool.Name { return SubscribeName }
 func (t *Subscribe) Description() string {
-	return "Subscribe the calling Worker to a Stream. Idempotent: a no-op if already subscribed. " +
+	return "Subscribe the calling Worker to a Topic. Idempotent: a no-op if already subscribed. " +
 		"Subscriptions are per-Worker: firing this Worker drops the subscription, and a new " +
 		"hire into the same Role does not automatically inherit it."
 }
 func (t *Subscribe) InputSchema() *jsonschema.Schema { return subscribeSchema }
 
 type subscribeArgs struct {
-	StreamID string `json:"streamId"`
+	TopicID string `json:"topicId"`
 }
 
 func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -39,17 +39,17 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.StreamID == "" {
-		return nil, fmt.Errorf("streamId is required")
+	if args.TopicID == "" {
+		return nil, fmt.Errorf("topicId is required")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("subscribe: caller has no OrgID")
 	}
-	streamID := streaming.StreamID(args.StreamID)
+	topicID := streaming.TopicID(args.TopicID)
 	workerID := inv.Caller.ID()
-	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, workerID, streamID); err != nil {
+	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, workerID, topicID); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"workerId": string(workerID), "streamId": string(streamID)})
+	return json.Marshal(map[string]string{"workerId": string(workerID), "topicId": string(topicID)})
 }

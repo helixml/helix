@@ -26,10 +26,10 @@ import (
 // arbitrary peer or a skip-level Worker has no channel and is refused.
 // This is deliberate: peer-to-peer / cross-tree reach is a decision the
 // org makes by wiring a reporting line (or explicitly creating a
-// stream), not something any Worker can do implicitly to anyone.
+// topic), not something any Worker can do implicitly to anyone.
 //
-// The Stream ID is deterministic from the sorted pair
-// (channels.DMStreamID), so A→B and B→A land on the same Stream and the
+// The Topic ID is deterministic from the sorted pair
+// (channels.DMTopicID), so A→B and B→A land on the same Topic and the
 // back-and-forth stays ordered in one place. The managers / reports
 // read tools hand back that same id so callers know which channel to use.
 type DM struct {
@@ -48,7 +48,7 @@ func (t *DM) Description() string {
 		"`reports` to message one 1:1). There is NO implicit DM channel to an " +
 		"arbitrary peer or a skip-level worker: those have no channel and the call is " +
 		"refused. The channel is provisioned automatically when the reporting line " +
-		"exists. Publishes the body and returns the streamId — read_events on it " +
+		"exists. Publishes the body and returns the topicId — read_events on it " +
 		"(with wait) to catch the reply."
 }
 func (t *DM) InputSchema() *jsonschema.Schema { return dmSchema }
@@ -84,17 +84,17 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	// the caller has no reporting relationship with the recipient — say
 	// so plainly rather than silently minting a channel that the org
 	// never sanctioned.
-	streamID := channels.DMStreamID(sender, recipient)
-	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
+	topicID := channels.DMTopicID(sender, recipient)
+	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf(
 				"no DM channel with %q: you can only DM workers you share a reporting line with — "+
 					"your managers (call `managers`) or your direct reports (call `reports`). "+
 					"To reach %q directly, a reporting line must be wired between you; "+
-					"otherwise escalate to a manager or brief via your team stream",
+					"otherwise escalate to a manager or brief via your team topic",
 				recipient, recipient)
 		}
-		return nil, fmt.Errorf("lookup dm stream %q: %w", streamID, err)
+		return nil, fmt.Errorf("lookup dm topic %q: %w", topicID, err)
 	}
 
 	msg := streaming.Message{
@@ -105,14 +105,14 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	// Delegate to the publishing service — the single owner of the
 	// append → notify → dispatch trio. dm must NOT reimplement it (that
 	// is how the DM fan-out drifts from every other publish path).
-	event, err := t.deps.Publishing.Publish(ctx, orgID, streamID, string(sender), msg)
+	event, err := t.deps.Publishing.Publish(ctx, orgID, topicID, string(sender), msg)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]string{
 		"id":       string(event.ID),
-		"streamId": string(streamID),
+		"topicId": string(topicID),
 		"to":       string(recipient),
 	})
 }

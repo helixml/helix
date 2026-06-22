@@ -75,6 +75,21 @@ type Options struct {
 	// HELIX_RUNNER_OFFLINE.
 	Offline bool
 
+	// NeuronCompileCacheURL, if set, is exported as NEURON_COMPILE_CACHE_URL
+	// into the `docker compose` environment so Neuron (Inferentia/Trainium)
+	// profiles share a compiled-graph cache. vLLM-Neuron compiles the model on
+	// first start; with this set, the NEFFs are uploaded once and every other
+	// runner loads them instead of recompiling. Empty means vLLM uses a local
+	// (ephemeral) cache. Implements HELIX_NEURON_COMPILE_CACHE_URL.
+	//
+	// Format: "s3://<bucket>/<prefix>" (or a local path). The part after the
+	// bucket is an S3 key PREFIX, not a folder - there is nothing to pre-create
+	// beyond the bucket itself; the Neuron SDK writes the substructure
+	// (<prefix>/neuronxcc-<version>/MODULE_<hash>/...) under it on first compile.
+	// The runner host must have credentials for the backend (e.g. an instance
+	// role for s3://).
+	NeuronCompileCacheURL string
+
 	// ReadinessPollInterval is how often we poll service health after
 	// `up -d`. Default 2s.
 	ReadinessPollInterval time.Duration
@@ -245,6 +260,13 @@ func (m *Manager) Trim(ctx context.Context, olderThan time.Duration) error {
 func (m *Manager) runCompose(ctx context.Context, args ...string) error {
 	full := append([]string{"compose"}, args...)
 	cmd := exec.CommandContext(ctx, m.opts.DockerComposeBinary, full...)
+	// Export the Neuron compile-cache URL into the compose environment so
+	// profiles that pass `- NEURON_COMPILE_CACHE_URL` through resolve it.
+	// Leaving cmd.Env nil would inherit os.Environ(); we only override when
+	// the knob is set so we still inherit everything else.
+	if m.opts.NeuronCompileCacheURL != "" {
+		cmd.Env = append(os.Environ(), "NEURON_COMPILE_CACHE_URL="+m.opts.NeuronCompileCacheURL)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

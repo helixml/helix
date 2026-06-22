@@ -539,7 +539,7 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The service validates both endpoints, guards the DAG against
-	// cycles, wires the line, and reconciles the activation/team Streams
+	// cycles, wires the line, and reconciles the activation/team Topics
 	// the new edge implies — one place, shared invariants.
 	switch err := a.deps.Workers.AddParent(ctx, orgID, id, managerID); {
 	case err == nil:
@@ -579,9 +579,9 @@ func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, errors.New("worker id and parent_id are required"))
 		return
 	}
-	// The service drops the line and reconciles the Streams the dropped
+	// The service drops the line and reconciles the Topics the dropped
 	// edge implies (unsubscribe ex-manager from the report's activation
-	// stream, remove report from the ex-manager's team stream).
+	// topic, remove report from the ex-manager's team topic).
 	switch err := a.deps.Workers.RemoveParent(ctx, orgID, id, managerID); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)

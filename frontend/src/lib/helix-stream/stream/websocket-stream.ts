@@ -10,7 +10,9 @@ import { StreamSettings } from "../component/settings_menu"
 import { defaultStreamInputConfig, StreamInput } from "./input"
 import { createSupportedVideoFormatsBits, VideoCodecSupport } from "./video"
 import { WsVideoCodec, WsVideoCodecType, codecToWebCodecsString, codecToDisplayName } from "./codecs"
-import { isMobileOrTablet } from "../../../utils/isMobileOrTablet"
+import { isMobileOrTablet, isAppleWebKit } from "../../../utils/isMobileOrTablet"
+import { PlayoutScheduler } from "./playout-scheduler"
+import { WebGLVideoRenderer } from "./webgl-video-renderer"
 import {
   WsMessageType,
   CursorImageData,
@@ -53,7 +55,13 @@ export class WebSocketStream {
 
   // Canvas for rendering
   private canvas: HTMLCanvasElement | null = null
+  // Exactly one of these is set, chosen per platform in setCanvas():
+  //  - canvasCtx (2D, desynchronized): Chrome/Firefox — drawImage(VideoFrame) is a
+  //    zero-copy video-overlay scanout there, buttery at 4K60.
+  //  - videoRenderer (WebGL2): Safari/WebKit — its 2D drawImage(VideoFrame) is not
+  //    GPU-accelerated (per-frame CPU copy → ~4fps at 4K), so it needs the texture path.
   private canvasCtx: CanvasRenderingContext2D | null = null
+  private videoRenderer: WebGLVideoRenderer | null = null
 
   // WebCodecs decoders
   private videoDecoder: VideoDecoder | null = null
@@ -172,34 +180,16 @@ export class WebSocketStream {
   private minRenderIntervalMs = 0                     // Min render interval seen
   private maxRenderIntervalMs = 0                     // Max render interval seen
 
-  // === Adaptive playout buffer ===
-  // The network (esp. WiFi) delivers the evenly-sent stream in bursts (~80ms gaps
-  // then catch-up). Rendering on arrival shows that as judder. A PTS-clocked
-  // playout buffer presents frames at the source cadence, absorbing arrival
-  // jitter — at the cost of latency equal to the buffer depth.
-  //
-  // To keep typing responsive, the buffer is ADAPTIVE: it collapses to ~0 the
-  // moment there is keyboard/mouse input (low keypress-to-photon latency, accept
-  // occasional judder), and only ramps back up after the user has been idle for a
-  // few seconds (smooth passive video). The target depth tracks the ACTUAL
-  // measured jitter (recent receive-interval spread), not a fixed number.
-  private playoutEnabled = true
-  private playoutQueue: Array<{ frame: VideoFrame; ptsUs: number; arrivalMs: number }> = []
-  private playoutDelayMs = 0                          // effective buffer depth (ms); stats only
-  private lastInputMs = 0                             // perf.now() of last keyboard/mouse input
-  private playoutRaf: number | null = null
-  private playoutLastTickMs = 0
-  private playoutLastPresentMs = 0                    // perf.now() of last presented frame (pacing)
-  private playoutTargetFrames = 0                     // desired buffer depth (frames); 0 = low-latency path
-  private playoutTargetFramesPrev = 0
-  private playoutPrerolling = false                   // true while (re)building the buffer
-  private playoutTargetDecayAccumMs = 0              // accumulator for slow target decay
-  private playoutNominalIntervalMs = 1000 / 60        // measured median frame interval (frames<->ms + pacing)
-  private readonly PLAYOUT_MAX_DELAY_MS = 120         // cap on buffer depth / added latency
-  private readonly PLAYOUT_IDLE_RAMP_MS = 2500        // engage the buffer only after this much input-idle
-  private readonly PLAYOUT_MAX_QUEUE = 30             // safety cap on queued (decoded) frames
-  private readonly PLAYOUT_DEPTH_SLACK = 2            // tolerate target+SLACK depth before a catch-up drop
-  private readonly PLAYOUT_TARGET_DECAY_MS = 2000     // shrink the buffer by at most 1 frame per this interval
+  // Adaptive playout buffer. Owns all frame queuing, pacing and dropping, and is
+  // the single authority over what reaches the canvas (see PlayoutScheduler):
+  // decoded frames go in via push(), and exactly one frame per display repaint
+  // comes out via the renderVideoFrame callback. Depth tracks measured receive
+  // jitter and collapses to 0 on input for low latency.
+  private playout = new PlayoutScheduler(
+    (frame) => this.renderVideoFrame(frame),
+    () => { this.framesDropped++ },
+    () => this.receiveIntervalSamples,
+  )
 
   // Adaptive input throttling based on RTT
   // Reduces mouse/scroll event rate when network latency is high to prevent frame queueing
@@ -285,6 +275,9 @@ export class WebSocketStream {
     this.userName = userName
     this.avatarUrl = avatarUrl
     this.streamerSize = this.calculateStreamerSize(viewerScreenSize)
+    // DIAGNOSTIC build marker — confirms the browser loaded the new bundle (not a
+    // cached one). If you don't see this line in the console, you're on stale JS.
+    console.log("%c[helix-stream] PLAYOUT BUILD = coalesce-refactor-v3 (single scheduler)", "color:#0a0;font-weight:bold;font-size:14px")
 
     // Query parameter overrides for decoder testing:
     // ?softdecode=1 - force software decoding (for latency testing)
@@ -858,7 +851,7 @@ export class WebSocketStream {
     }
 
     // Drop any frames buffered from a previous decoder generation.
-    this.clearPlayout()
+    this.playout.clear()
 
     // Increment decoder generation to invalidate stale callbacks
     const thisGeneration = ++this.decoderGeneration
@@ -929,7 +922,7 @@ export class WebSocketStream {
 
     this.videoDecoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
-        this.enqueueForPlayout(frame)
+        this.playout.push(frame)
       },
       error: (e: Error) => {
         // Check if this callback is from a stale decoder (already replaced)
@@ -1003,184 +996,17 @@ export class WebSocketStream {
     }
   }
 
-  /** Record keyboard/mouse/touch activity so the playout buffer collapses for low latency. */
+  /** Keyboard/mouse/touch activity collapses the playout buffer for low latency. */
   private notifyInteraction() {
-    this.lastInputMs = performance.now()
-    // Instant response: collapse any smoothing buffer on the first input so the
-    // frame reflecting this keystroke is presented the moment it arrives. After
-    // the first input the buffer is already empty, so this is a no-op.
-    if (this.playoutTargetFrames > 0 || this.playoutQueue.length > 1) {
-      this.collapsePlayoutNow()
-    }
+    this.playout.notifyInteraction()
   }
 
-  /** Snap to the freshest frame and drop the buffer so the next decoded frame —
-   *  the one reflecting the user's input — is presented with no added latency. */
-  private collapsePlayoutNow() {
-    let newest: { frame: VideoFrame; ptsUs: number; arrivalMs: number } | null = null
-    for (const item of this.playoutQueue) {
-      if (newest) { try { newest.frame.close() } catch { /* noop */ }; this.framesDropped++ }
-      newest = item
-    }
-    this.playoutQueue = []
-    this.playoutTargetFrames = 0
-    this.playoutTargetFramesPrev = 0
-    this.playoutPrerolling = false
-    this.playoutDelayMs = 0
-    if (this.playoutRaf !== null) {
-      cancelAnimationFrame(this.playoutRaf)
-      this.playoutRaf = null
-    }
-    if (newest) this.renderVideoFrame(newest.frame)
-  }
-
-  /** Drop all buffered frames and reset playout state (close/reconfig/discontinuity). */
-  private clearPlayout() {
-    for (const item of this.playoutQueue) {
-      try { item.frame.close() } catch { /* already closed */ }
-    }
-    this.playoutQueue = []
-    this.playoutTargetFrames = 0
-    this.playoutTargetFramesPrev = 0
-    this.playoutPrerolling = false
-    this.playoutDelayMs = 0
-    if (this.playoutRaf !== null) {
-      cancelAnimationFrame(this.playoutRaf)
-      this.playoutRaf = null
-    }
-  }
-
-  /** Entry point from the decoder. Presents immediately on the low-latency path,
-   *  otherwise queues for vsync-genlocked, depth-buffered playout. */
-  private enqueueForPlayout(frame: VideoFrame) {
-    if (this.closed) { try { frame.close() } catch { /* noop */ }; return }
-    if (!this.playoutEnabled) { this.renderVideoFrame(frame); return }
-
-    const now = performance.now()
-    const interacting = now - this.lastInputMs < this.PLAYOUT_IDLE_RAMP_MS
-    // Fast path: interacting with no buffer -> present immediately (don't even
-    // wait for the next rAF) so keypress-to-photon stays minimal.
-    if (interacting && this.playoutTargetFrames === 0 && this.playoutQueue.length === 0) {
-      this.renderVideoFrame(frame)
-      return
-    }
-
-    this.playoutQueue.push({ frame, ptsUs: frame.timestamp, arrivalMs: now })
-    while (this.playoutQueue.length > this.PLAYOUT_MAX_QUEUE) {
-      const old = this.playoutQueue.shift()
-      if (old) { try { old.frame.close() } catch { /* noop */ }; this.framesDropped++ }
-    }
-    if (this.playoutRaf === null) {
-      this.playoutLastTickMs = now
-      this.playoutRaf = requestAnimationFrame(() => this.playoutTick())
-    }
-  }
-
-  /** Update the target buffer depth (frames) from measured receive jitter, and
-   *  track the median frame interval. Rises immediately to cover new jitter,
-   *  decays slowly (peak-hold) so the depth stays stable — a twitchy target was
-   *  what made the old wall-clock buffer oscillate into periodic stutter. */
-  private updatePlayoutTarget(now: number, dtMs: number) {
-    const interacting = now - this.lastInputMs < this.PLAYOUT_IDLE_RAMP_MS
-    const s = this.receiveIntervalSamples
-    let raw = 0
-    if (s.length >= 5) {
-      const sorted = [...s].sort((a, b) => a - b)
-      const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]
-      const median = at(0.5) || this.playoutNominalIntervalMs
-      this.playoutNominalIntervalMs = median
-      if (!interacting && s.length >= 30) {
-        const jitter = at(0.99) - median // worst-case late arrival above the cadence
-        // Deadband: only build a buffer for meaningful jitter (> ~half a frame).
-        // Below that we stay on the smooth, zero-latency present-newest path —
-        // this is why a clean connection never "kicks in" and never stutters.
-        if (jitter >= median * 0.5) {
-          const maxFrames = Math.max(1, Math.floor(this.PLAYOUT_MAX_DELAY_MS / median))
-          raw = Math.max(1, Math.min(maxFrames, Math.round(jitter / median)))
-        }
-      }
-    }
-
-    if (raw >= this.playoutTargetFrames) {
-      this.playoutTargetFrames = raw
-      this.playoutTargetDecayAccumMs = 0
-    } else {
-      this.playoutTargetDecayAccumMs += dtMs
-      if (this.playoutTargetDecayAccumMs >= this.PLAYOUT_TARGET_DECAY_MS) {
-        this.playoutTargetFrames = Math.max(raw, this.playoutTargetFrames - 1)
-        this.playoutTargetDecayAccumMs = 0
-      }
-    }
-  }
-
-  /** rAF-driven, vsync-genlocked playout. Presents from a FIFO whose *depth* is
-   *  the jitter buffer, paced to the source frame rate. Because presentation is
-   *  tied to the display refresh (not an absolute PTS wall-clock), there is no
-   *  phase walk against the vsync grid — that walk was what made the old
-   *  wall-clock buffer stutter (periodic ~50ms gaps) the moment it held frames.
-   *  At target depth 0 this degenerates to "present the newest frame each
-   *  refresh", identical to the smooth buffer-off path. */
-  private playoutTick() {
-    this.playoutRaf = null
-    if (this.closed) { this.clearPlayout(); return }
-    const now = performance.now()
-    const dtMs = Math.max(0, now - this.playoutLastTickMs)
-    this.playoutLastTickMs = now
-
-    this.updatePlayoutTarget(now, dtMs)
-    const target = this.playoutTargetFrames
-    // A rise in target means we must (re)build the buffer to the new depth.
-    if (target > this.playoutTargetFramesPrev) this.playoutPrerolling = true
-    this.playoutTargetFramesPrev = target
-
-    const q = this.playoutQueue
-
-    if (q.length === 0) {
-      // Underflow: nothing to present. Rebuild the buffer before resuming so we
-      // ride over the *next* stall too. Loop stops here; restarts on next enqueue.
-      if (target > 0) this.playoutPrerolling = true
-      this.playoutDelayMs = target * this.playoutNominalIntervalMs
-      return
-    }
-
-    if (target === 0) {
-      // Smooth low-latency path: present the newest frame this refresh and drop
-      // the rest. Identical to buffer-off behaviour; genlocked to vsync.
-      const newest = q.pop() as { frame: VideoFrame; ptsUs: number; arrivalMs: number }
-      for (const item of q) { try { item.frame.close() } catch { /* noop */ }; this.framesDropped++ }
-      q.length = 0
-      this.playoutPrerolling = false
-      this.renderVideoFrame(newest.frame)
-      this.playoutLastPresentMs = now
-    } else {
-      if (this.playoutPrerolling && q.length > target) this.playoutPrerolling = false
-
-      // Steady state: present one (oldest) frame, paced to the source rate so we
-      // present once per source-frame regardless of the display's refresh rate
-      // (one-per-refresh on a 60Hz panel, every-other on 120Hz). While
-      // prerolling we hold the last frame to let the buffer fill (a one-time
-      // pause when the buffer engages or after an underflow, not a per-frame cost).
-      const paceReady = now - this.playoutLastPresentMs >= this.playoutNominalIntervalMs * 0.75
-      if (!this.playoutPrerolling && paceReady) {
-        const item = q.shift() as { frame: VideoFrame; ptsUs: number; arrivalMs: number }
-        this.renderVideoFrame(item.frame)
-        this.playoutLastPresentMs = now
-        // Catch-up: bound latency if the queue ran deeper than target+slack
-        // (clock drift, or a burst after a stall). Rare single drops.
-        while (q.length > target + this.PLAYOUT_DEPTH_SLACK) {
-          const old = q.shift() as { frame: VideoFrame; ptsUs: number; arrivalMs: number }
-          try { old.frame.close() } catch { /* noop */ }
-          this.framesDropped++
-        }
-      }
-    }
-
-    this.playoutDelayMs = (this.playoutPrerolling ? target : this.playoutQueue.length) * this.playoutNominalIntervalMs
-
-    if (this.playoutQueue.length > 0) {
-      this.playoutRaf = requestAnimationFrame(() => this.playoutTick())
-    }
-  }
+  // DIAGNOSTIC (temporary): backward-present detection — flash red + log if a
+  // frame's PTS goes older than the last one drawn (a true reorder reaching the
+  // canvas). Also logs the playout depth/state so we can tell reorder from lag.
+  private lastPresentedPtsUs = -1
+  private outOfOrderPresents = 0
+  private _lastLagLogMs = 0
 
   private renderVideoFrame(frame: VideoFrame) {
     // CRITICAL: Prevent rendering after stream is closed
@@ -1190,7 +1016,7 @@ export class WebSocketStream {
       return
     }
 
-    if (!this.canvas || !this.canvasCtx) {
+    if (!this.canvas || (!this.videoRenderer && !this.canvasCtx)) {
       frame.close()
       this.framesDropped++
       return
@@ -1210,13 +1036,44 @@ export class WebSocketStream {
         targetHeight = Math.round(targetHeight * scale)
       }
     }
+    // Resize the canvas to the (mobile-capped) frame size — shared by both paths.
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth
       this.canvas.height = targetHeight
     }
 
+    // DIAGNOSTIC (temporary): detect a backward present (old frame reaching canvas).
+    const _ptsUs = frame.timestamp
+    if (this.lastPresentedPtsUs >= 0 && _ptsUs >= 0 && _ptsUs < this.lastPresentedPtsUs) {
+      this.outOfOrderPresents++
+      console.warn(
+        `[PRESENT-OOO] #${this.outOfOrderPresents} pts BACKWARDS by ` +
+        `${((this.lastPresentedPtsUs - _ptsUs) / 1000).toFixed(1)}ms ` +
+        `(playout depth=${this.playout.bufferMs}ms state=${this.playout.state})`,
+      )
+    }
+    if (_ptsUs >= 0) this.lastPresentedPtsUs = _ptsUs
+
+    // DIAGNOSTIC (temporary): during-drag lag probe. frameAge = how stale the
+    // frame being shown is (now - capture PTS; valid because meta == localhost so
+    // clocks match). If this spikes while dragging, the picture is lagging — and
+    // decodeQ vs playout depth says whether it's the decoder or the buffer.
+    const _nowMs = performance.now()
+    if (_nowMs - this._lastLagLogMs > 400) {
+      this._lastLagLogMs = _nowMs
+      const ageMs = Date.now() - _ptsUs / 1000
+      console.log(
+        `[LAG] frameAge=${ageMs.toFixed(0)}ms decodeQ=${this.videoDecoder?.decodeQueueSize ?? "?"} ` +
+        `playout=${this.playout.bufferMs}ms/${this.playout.state} qLen=${this.playout.queueLength} fps=${this.currentFps}`,
+      )
+    }
+
     // Draw frame to canvas
-    this.canvasCtx.drawImage(frame, 0, 0)
+    if (this.videoRenderer) {
+      this.videoRenderer.draw(frame, targetWidth, targetHeight)
+    } else if (this.canvasCtx) {
+      this.canvasCtx.drawImage(frame, 0, 0)
+    }
     frame.close()
     this.framesDecoded++
 
@@ -2131,10 +1988,27 @@ export class WebSocketStream {
 
   setCanvas(canvas: HTMLCanvasElement) {
     this.canvas = canvas
-    this.canvasCtx = canvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true, // Lower latency
-    })
+    this.videoRenderer?.dispose()
+    this.videoRenderer = null
+    this.canvasCtx = null
+
+    // Platform-optimized render path (see field comment). Chrome's desynchronized
+    // 2D canvas treats drawImage(VideoFrame) as a zero-copy overlay scanout and is
+    // the fastest path there; Safari/WebKit does NOT GPU-accelerate it (capped ~4fps
+    // at 4K), so WebKit uses the WebGL2 texture path instead.
+    if (isAppleWebKit()) {
+      try {
+        this.videoRenderer = new WebGLVideoRenderer(canvas)
+      } catch (e) {
+        console.error("[WebSocketStream] WebGL2 renderer init failed, falling back to 2D:", e)
+        this.canvasCtx = canvas.getContext("2d", { alpha: false, desynchronized: true })
+      }
+    } else {
+      this.canvasCtx = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true, // zero-copy low-latency present on Chrome
+      })
+    }
   }
 
   /**
@@ -2296,13 +2170,10 @@ export class WebSocketStream {
       // Raw sample arrays for sparkline + burst rendering (snapshot copies, not refs)
       receiveIntervalSamples: this.receiveIntervalSamples.slice(),
       renderIntervalSamples: this.renderIntervalSamples.slice(),
-      playoutBufferMs: Math.round(this.playoutDelayMs),
-      // Why the buffer is at its current depth: 'smoothing' (engaged), or one of
-      // the two zero cases — 'interactive' (collapsed for low latency on recent
-      // input) vs 'idle' (no jitter worth buffering).
-      playoutState: this.playoutDelayMs > 0
-        ? 'smoothing'
-        : (performance.now() - this.lastInputMs < this.PLAYOUT_IDLE_RAMP_MS ? 'interactive' : 'idle'),
+      playoutBufferMs: this.playout.bufferMs,
+      // Why the buffer is at its current depth: 'smoothing' (engaged), 'interactive'
+      // (collapsed for low latency on recent input), or 'idle' (no jitter to buffer).
+      playoutState: this.playout.state,
       // Debug flags
       usingSoftwareDecoder: this.forceSoftwareDecoding,
       // Frame health monitoring (for iOS Safari stall detection)
@@ -2543,13 +2414,15 @@ export class WebSocketStream {
     this.closed = true
 
     // Drop any buffered playout frames (closes VideoFrames, cancels the rAF loop)
-    this.clearPlayout()
+    this.playout.dispose()
 
     // CRITICAL: Clear canvas references FIRST to prevent any further rendering
     // This must happen before decoder cleanup to ensure no frames are drawn
     // after close() is called (even if decoder has frames in queue)
     this.canvas = null
     this.canvasCtx = null
+    this.videoRenderer?.dispose()
+    this.videoRenderer = null
 
     // Cancel any pending reconnection
     if (this.reconnectTimeoutId) {

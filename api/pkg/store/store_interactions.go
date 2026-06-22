@@ -310,6 +310,15 @@ func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID str
 	return nil
 }
 
+// ClearSessionInteractions hard-deletes all interactions for a session in a
+// single statement. The session row is untouched. Deleting zero rows is not an
+// error, so this is idempotent on an already-empty session.
+func (s *PostgresStore) ClearSessionInteractions(ctx context.Context, sessionID string) error {
+	return s.gdb.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Delete(&types.Interaction{}).Error
+}
+
 // GetLatestInteractionsForSessions returns the newest interaction for each
 // supplied session ID, keyed by session_id. Sessions with no interactions are
 // absent from the returned map. Used by the spec-task list handler to derive

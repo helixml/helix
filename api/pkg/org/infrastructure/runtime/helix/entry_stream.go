@@ -2,10 +2,10 @@ package helix
 
 import "github.com/helixml/helix/api/pkg/types"
 
-// EntryStream is a per-session translator from Helix's response-entry
+// EntryTopic is a per-session translator from Helix's response-entry
 // patch wire format into stable, "settled" transcript events.
 //
-// Helix streams `types.EntryPatch[]` frames over the WebSocket. Each patch
+// Helix topics `types.EntryPatch[]` frames over the WebSocket. Each patch
 // targets one entry in the session's response-entry array (indexed
 // by `Index`, identified by `MessageID`). Text and tool_call entries
 // can be extended in place; a new MessageID at the same Index means
@@ -13,7 +13,7 @@ import "github.com/helixml/helix/api/pkg/types"
 // calls additionally carry `ToolStatus` ("In Progress" | "Completed"
 // | …).
 //
-// `EntryStream` accumulates the full content of each entry and
+// `EntryTopic` accumulates the full content of each entry and
 // invokes the supplied callback once an entry is *settled*:
 //
 //   - `text` entries settle when a different MessageID appears at
@@ -26,12 +26,12 @@ import "github.com/helixml/helix/api/pkg/types"
 // The callback's view is the same shape for both AI Worker
 // activation transcripts and the chat SSE bridge, so they can render
 // identically without needing to know about EntryPatches.
-type EntryStream struct {
+type EntryTopic struct {
 	emit    func(Event)
 	entries map[int]*entryState
 }
 
-// Event is one settled transcript event surfaced by EntryStream. The
+// Event is one settled transcript event surfaced by EntryTopic. The
 // text/tool_use/tool_result distinction is the canonical line shape
 // for activation transcripts; both helix-org's transcript and
 // the chat HTML bridge consume the same set.
@@ -42,7 +42,7 @@ type Event struct {
 }
 
 // EventKind constants are the canonical activation-transcript line
-// tags every consumer (s-transcript stream, chat bridge) reads.
+// tags every consumer (s-transcript topic, chat bridge) reads.
 const (
 	EventAssistant       = "assistant"
 	EventToolUse         = "tool_use"
@@ -61,11 +61,11 @@ type entryState struct {
 	settled    bool // true once the closing event for this entry has been emitted
 }
 
-// NewEntryStream returns a fresh translator. emit is called once per
+// NewEntryTopic returns a fresh translator. emit is called once per
 // settled event. emit must be safe to call from the goroutine
 // driving Apply.
-func NewEntryStream(emit func(Event)) *EntryStream {
-	return &EntryStream{emit: emit, entries: map[int]*entryState{}}
+func NewEntryTopic(emit func(Event)) *EntryTopic {
+	return &EntryTopic{emit: emit, entries: map[int]*entryState{}}
 }
 
 // Apply consumes one types.WebsocketEvent frame from SubscribeUpdates. It
@@ -74,7 +74,7 @@ func NewEntryStream(emit func(Event)) *EntryStream {
 // interaction_update snapshots) are also handled — they may carry
 // terminal `types.Interaction.State` indicating end-of-turn, which flushes
 // any open text entries.
-func (s *EntryStream) Apply(u types.WebsocketEvent) {
+func (s *EntryTopic) Apply(u types.WebsocketEvent) {
 	for _, p := range u.EntryPatches {
 		s.applyPatch(p)
 	}
@@ -91,7 +91,7 @@ func (s *EntryStream) Apply(u types.WebsocketEvent) {
 	}
 }
 
-func (s *EntryStream) applyPatch(p types.EntryPatch) {
+func (s *EntryTopic) applyPatch(p types.EntryPatch) {
 	cur, exists := s.entries[p.Index]
 	if !exists || cur.messageID != p.MessageID {
 		// New entry at this index — seal the previous occupant first.
@@ -122,7 +122,7 @@ func (s *EntryStream) applyPatch(p types.EntryPatch) {
 // Flush emits closing events for any unsealed entries. Call at end
 // of session (terminal status) or on disconnect when the caller
 // wants to drain whatever's been accumulated.
-func (s *EntryStream) Flush() {
+func (s *EntryTopic) Flush() {
 	// Iterate in deterministic order so transcripts are stable.
 	for i := 0; i <= maxIndex(s.entries); i++ {
 		e, ok := s.entries[i]
@@ -143,7 +143,7 @@ func maxIndex(m map[int]*entryState) int {
 	return max
 }
 
-func (s *EntryStream) seal(e *entryState) {
+func (s *EntryTopic) seal(e *entryState) {
 	if e.settled {
 		return
 	}

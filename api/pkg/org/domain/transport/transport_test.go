@@ -152,7 +152,7 @@ func TestTransportValidate_GitHub(t *testing.T) {
 		{"wildcard only", `{"repo":"a/b","events":["*"]}`, ""},
 		{"wildcard mixed", `{"repo":"a/b","events":["*","issues"]}`, ""},
 
-		// Malformed names still rejected at create_stream time.
+		// Malformed names still rejected at create_topic time.
 		{"uppercase event", `{"repo":"a/b","events":["Push"]}`, `invalid event "Push"`},
 		{"dash event", `{"repo":"a/b","events":["pull-request"]}`, `invalid event "pull-request"`},
 		{"leading digit event", `{"repo":"a/b","events":["1_event"]}`, `invalid event "1_event"`},

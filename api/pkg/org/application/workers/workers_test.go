@@ -23,7 +23,7 @@ func newService(st *store.Store) *Workers {
 		Workers:    st.Workers,
 		Roles:      rolesSvc,
 		Lines:      st.ReportingLines,
-		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: fixedClock}),
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedClock}),
 	})
 }
 
@@ -32,7 +32,7 @@ func newService(st *store.Store) *Workers {
 func seedWorker(t *testing.T, st *store.Store, orgID string) orgchart.WorkerID {
 	t.Helper()
 	ctx := context.Background()
-	role, err := orgchart.NewRole("r-eng", "# Engineer", []tool.Name{"publish"}, []streaming.StreamID{"s-a"}, fixedClock(), orgID)
+	role, err := orgchart.NewRole("r-eng", "# Engineer", []tool.Name{"publish"}, []streaming.TopicID{"s-a"}, fixedClock(), orgID)
 	if err != nil {
 		t.Fatalf("new role: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestWorkersUpdateIdentity_OrgScoping(t *testing.T) {
 
 // TestWorkersUpdateRole_UpdatesHeldRoleContent: updating a worker's role
 // rewrites the content of the role the worker holds, preserving the
-// role's tools and streams (the same invariant the roles service owns).
+// role's tools and topics (the same invariant the roles service owns).
 func TestWorkersUpdateRole_UpdatesHeldRoleContent(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
@@ -111,9 +111,9 @@ func TestWorkersUpdateRole_UpdatesHeldRoleContent(t *testing.T) {
 	if got.Content != "# Engineer v2" {
 		t.Fatalf("content = %q", got.Content)
 	}
-	// Tools + streams preserved.
-	if len(got.Tools) == 0 || got.Streams[0] != "s-a" {
-		t.Fatalf("tools/streams lost: tools=%v streams=%v", got.Tools, got.Streams)
+	// Tools + topics preserved.
+	if len(got.Tools) == 0 || got.Topics[0] != "s-a" {
+		t.Fatalf("tools/topics lost: tools=%v topics=%v", got.Tools, got.Topics)
 	}
 	stored, _ := st.Roles.Get(ctx, "org-test", "r-eng")
 	if stored.Content != "# Engineer v2" {

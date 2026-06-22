@@ -42,8 +42,22 @@ GPU_VENDOR="${GPU_VENDOR:-nvidia}"
 MAX_SANDBOXES="${MAX_SANDBOXES:-2}"
 # GPU_FLAGS / DEVICE_FLAGS are unquoted on use - operator-provided
 # strings are tokenised by the shell to become individual docker run args.
-GPU_FLAGS="${GPU_FLAGS:---gpus all}"
-DEVICE_FLAGS="${DEVICE_FLAGS:---device /dev/dri/renderD128 --device /dev/dri/card1}"
+if [ "$GPU_VENDOR" = "neuron" ]; then
+  # AWS Inferentia/Trainium: no --gpus / runtime. Mount every /dev/neuron*
+  # device node (count varies by inf2/trn SKU) so hydra can pass them through
+  # to the nested Docker. Globbed here on the host because the control plane
+  # can't know the device-node count. Operator-provided DEVICE_FLAGS wins.
+  GPU_FLAGS="${GPU_FLAGS:-}"
+  if [ -z "${DEVICE_FLAGS:-}" ]; then
+    DEVICE_FLAGS=""
+    for nd in /dev/neuron*; do
+      [ -e "$nd" ] && DEVICE_FLAGS="$DEVICE_FLAGS --device $nd"
+    done
+  fi
+else
+  GPU_FLAGS="${GPU_FLAGS:---gpus all}"
+  DEVICE_FLAGS="${DEVICE_FLAGS:---device /dev/dri/renderD128 --device /dev/dri/card1}"
+fi
 
 echo "=== Helix runner $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 echo "helix_url=$HELIX_URL"
@@ -53,15 +67,16 @@ echo "sandbox_id=$SANDBOX_ID"
 echo "gpu_vendor=$GPU_VENDOR gpu_flags=$GPU_FLAGS device_flags=$DEVICE_FLAGS max_sandboxes=$MAX_SANDBOXES"
 
 # Cleanup on task abort or normal exit. Without this, a YD task cancel
-# (CANCELLING transition - YD agent sends SIGTERM to this script) leaves
-# the helix-sandbox container running, which holds the GPU slot and
-# prevents the next task on this worker from launching. Patterned after
-# YD's own docker-run.sh userdata script. Docker --rm alone isn't enough:
-# it covers clean exits but not abort-by-signal, and not SIGKILL at all.
+# leaves the helix-sandbox container running, holding the GPU slot
+# and blocking the next task on this worker. Docker --rm covers clean
+# container exits but not abort-by-signal.
 cleanup() {
   echo "=== Cleanup: stopping container $CONTAINER_NAME ==="
   sudo docker stop -t 10 "$CONTAINER_NAME" 2>/dev/null || true
   sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+  if [ -n "${DOCKER_PID:-}" ]; then
+    wait "$DOCKER_PID" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 # Re-raise on signal so the EXIT trap fires AND the right exit code is
@@ -76,9 +91,28 @@ trap 'exit 130' INT
 # and the new task will never start.
 sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
-# Run docker in the foreground (NOT exec) so this bash process stays
-# alive and owns signal handling. With `exec`, bash is replaced by
-# docker and the trap above never fires.
+# Run docker BACKGROUNDED (& + wait) rather than in the foreground.
+# Bash queues signals received during a foreground synchronous command
+# and only delivers them after that command exits - so a SIGTERM from
+# YD on abort would sit queued behind `docker run`, which never exits
+# on its own, and the EXIT/TERM traps above would never fire. The
+# previous "foreground (NOT exec)" comment got that wrong: foreground
+# DOES make bash the parent process, but it ALSO makes bash unable to
+# act on signals until the child terminates.
+#
+# The `wait` builtin DOES respond to signals immediately: it returns
+# with status > 128 (= 128 + signal number) and bash runs the trap,
+# which stops the container, which causes the docker client to exit,
+# which our subsequent wait inside cleanup() then reaps. Net effect:
+# a clean SIGTERM path from YD to the helix-sandbox container.
+#
+# Caveat: this is correct on the bash side. Whether YD's agent
+# actually delivers SIGTERM on task abort is a separate concern -
+# empirically (2026-06-16) `yd-abort` returned success but tasks
+# stayed EXECUTING, suggesting YD's abort is sometimes a platform
+# status flip without OS-signal delivery. When YD does signal, this
+# fix lets us shut down cleanly; when it doesn't, the only recourse
+# is `yd-terminate` on the Compute Requirement (which kills the VM).
 sudo docker run --rm --name "$CONTAINER_NAME" \
   --privileged $GPU_FLAGS $DEVICE_FLAGS \
   -v /var/lib/docker \
@@ -87,4 +121,6 @@ sudo docker run --rm --name "$CONTAINER_NAME" \
   -e SANDBOX_INSTANCE_ID="$SANDBOX_ID" \
   -e GPU_VENDOR="$GPU_VENDOR" \
   -e MAX_SANDBOXES="$MAX_SANDBOXES" \
-  "$IMG"
+  "$IMG" &
+DOCKER_PID=$!
+wait "$DOCKER_PID"

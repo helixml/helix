@@ -76,6 +76,9 @@ func (nullStore) UpdateSandboxInstanceProviderID(context.Context, string, string
 func (nullStore) DeregisterSandboxInstance(context.Context, string) error {
 	return nil
 }
+func (nullStore) ListRunnerAssignments(context.Context) ([]*types.RunnerAssignment, error) {
+	return nil, nil
+}
 
 func TestBootstrapDisabledWhenProviderUnset(t *testing.T) {
 	// THE core disabled-by-default contract: HELIX_COMPUTE_PROVIDER
@@ -83,7 +86,7 @@ func TestBootstrapDisabledWhenProviderUnset(t *testing.T) {
 	// behavioural change for existing deployments. Returning (nil,
 	// nil) is how the boot path detects "disabled" without a
 	// sentinel.
-	mgr, err := Bootstrap(config.Compute{}, "", "", nullStore{})
+	mgr, err := Bootstrap(config.Compute{}, 20, "", "", nullStore{})
 	if err != nil {
 		t.Fatalf("expected nil error for disabled config, got %v", err)
 	}
@@ -105,7 +108,7 @@ func TestBootstrapDisabledIgnoresAllOtherFields(t *testing.T) {
 		MaxConcurrentProvisions: 3,
 		MaxProvisioningAge:      30 * time.Minute,
 	}
-	mgr, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -121,7 +124,7 @@ func TestBootstrapErrorsWhenNoTagAndNoNamespace(t *testing.T) {
 	cfg := config.Compute{
 		Provider: "yellowdog",
 	}
-	_, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err == nil {
 		t.Fatal("expected error for missing DeploymentTag + no namespace, got nil")
 	}
@@ -181,7 +184,7 @@ func TestBootstrapDerivesTagFromYellowdogNamespace(t *testing.T) {
 			TaskTimeout: time.Hour,
 		},
 	}
-	mgr, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -202,7 +205,7 @@ func TestBootstrapUnknownProviderErrors(t *testing.T) {
 		Provider:      "nonesuch",
 		DeploymentTag: "prod",
 	}
-	_, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err == nil {
 		t.Fatal("expected error for unknown provider, got nil")
 	}
@@ -231,7 +234,7 @@ func TestBootstrapDerivesWorkerTagFromNamespace(t *testing.T) {
 			TaskTimeout: time.Hour,
 		},
 	}
-	mgr, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err != nil {
 		t.Fatalf("Bootstrap with empty WorkerTag should auto-derive, got error: %v", err)
 	}
@@ -386,7 +389,7 @@ func TestBootstrapErrorsWhenWorkerTagAndNamespaceBothEmpty(t *testing.T) {
 	// yellowdog.NewProvider, since Namespace is required for the
 	// provider itself; WorkerTag derivation never gets a chance to
 	// run with no namespace input.
-	_, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err == nil {
 		t.Fatal("expected error when Namespace is empty (which blocks both Namespace validation and WorkerTag derivation)")
 	}
@@ -404,7 +407,7 @@ func TestBootstrapYellowdogRequiresCredentials(t *testing.T) {
 		MaxProvisioningAge:      time.Minute,
 		// Yellowdog block empty - missing APIKeyID/APISecret etc.
 	}
-	_, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err == nil {
 		t.Fatal("expected error for missing yellowdog credentials, got nil")
 	}
@@ -415,12 +418,50 @@ func TestBootstrapNilStoreErrors(t *testing.T) {
 		Provider:      "yellowdog",
 		DeploymentTag: "prod",
 	}
-	_, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nil)
+	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nil)
 	if err == nil {
 		t.Fatal("expected error for nil store, got nil")
 	}
 	if !strings.Contains(err.Error(), "store") {
 		t.Fatalf("error should mention store, got %q", err.Error())
+	}
+}
+
+func TestBootstrapSandboxImageOverrideBypassesVersionGuard(t *testing.T) {
+	// Force a placeholder version so the version-derived image path would
+	// fatal (the dev/source-build case, e.g. a local Air stack).
+	orig := data.Version
+	data.Version = "<unknown>"
+	defer func() { data.Version = orig }()
+
+	base := config.Compute{
+		Provider:                "yellowdog",
+		DeploymentTag:           "prod",
+		Floor:                   1,
+		ReconcileInterval:       30 * time.Second,
+		HealthCheckTimeout:      10 * time.Second,
+		MaxConcurrentProvisions: 1,
+		MaxProvisioningAge:      30 * time.Minute,
+		Yellowdog: config.Yellowdog{
+			APIKeyID: "k", APISecret: "s", BaseURL: "https://portal.yellowdog.co/api",
+			Namespace: "development", WorkerTag: "helix-prod", TaskTimeout: 4 * time.Hour,
+		},
+	}
+
+	// Without an override, the placeholder version must fail the build.
+	if _, err := Bootstrap(base, 20, "https://helix.example.com", "tok", nullStore{}); err == nil {
+		t.Fatal("expected version-guard failure without SandboxImage override")
+	}
+
+	// With the override set, Bootstrap succeeds despite the placeholder version.
+	withImg := base
+	withImg.SandboxImage = "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"
+	mgr, err := Bootstrap(withImg, 20, "https://helix.example.com", "tok", nullStore{})
+	if err != nil {
+		t.Fatalf("SandboxImage override should bypass the version guard, got: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil Manager with SandboxImage override")
 	}
 }
 
@@ -442,7 +483,7 @@ func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
 			TaskTimeout: 4 * time.Hour,
 		},
 	}
-	mgr, err := Bootstrap(cfg, "https://helix.example.com", "test-token", nullStore{})
+	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}

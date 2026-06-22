@@ -9,13 +9,13 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-func TestNewStream(t *testing.T) {
+func TestNewTopic(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name      string
-		id        streaming.StreamID
+		id        streaming.TopicID
 		stName    string
 		createdBy orgchart.WorkerID
 		createdAt time.Time
@@ -31,10 +31,10 @@ func TestNewStream(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s, err := streaming.NewStream(tc.id, tc.stName, "desc", tc.createdBy, tc.createdAt, transport.Transport{}, "org-test")
+			s, err := streaming.NewTopic(tc.id, tc.stName, "desc", tc.createdBy, tc.createdAt, transport.Transport{}, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
-				t.Fatalf("streaming.NewStream error = %v, wantErr = %v", err, tc.wantErr)
+				t.Fatalf("streaming.NewTopic error = %v, wantErr = %v", err, tc.wantErr)
 			}
 			if !gotErr {
 				if s.ID != tc.id {
@@ -51,24 +51,24 @@ func TestNewStream(t *testing.T) {
 	}
 }
 
-func TestNewStreamNormalisesTimezone(t *testing.T) {
+func TestNewTopicNormalisesTimezone(t *testing.T) {
 	t.Parallel()
 	loc := time.FixedZone("UTC+5", 5*3600)
 	ts := time.Date(2026, 4, 24, 17, 0, 0, 0, loc)
-	s, err := streaming.NewStream("s-1", "general", "", "w-owner", ts, transport.Transport{}, "org-test")
+	s, err := streaming.NewTopic("s-1", "general", "", "w-owner", ts, transport.Transport{}, "org-test")
 	if err != nil {
-		t.Fatalf("streaming.NewStream: %v", err)
+		t.Fatalf("streaming.NewTopic: %v", err)
 	}
 	if s.CreatedAt.Location() != time.UTC {
 		t.Fatalf("CreatedAt location = %v, want UTC", s.CreatedAt.Location())
 	}
 }
 
-func TestNewStreamRejectsUnknownTransport(t *testing.T) {
+func TestNewTopicRejectsUnknownTransport(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
-	_, err := streaming.NewStream("s-1", "general", "", "w-owner", now, transport.Transport{Kind: "bogus"}, "org-test")
+	_, err := streaming.NewTopic("s-1", "general", "", "w-owner", now, transport.Transport{Kind: "bogus"}, "org-test")
 	if err == nil {
-		t.Fatal("streaming.NewStream with unknown transport: want error, got nil")
+		t.Fatal("streaming.NewTopic with unknown transport: want error, got nil")
 	}
 }

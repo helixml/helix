@@ -1,8 +1,8 @@
 // Package server exposes the HTTP surface: the per-Worker MCP endpoint
 // (/orgs/{org}/workers/{id}/mcp — every Worker is its own MCP server,
 // scoped to the tools in its Role) and the inbound webhook endpoint
-// (/webhooks/{org}/{streamID}). Neither handler touches a store
-// repository: caller/role resolution and stream reads go through the
+// (/webhooks/{org}/{topicID}). Neither handler touches a store
+// repository: caller/role resolution and topic reads go through the
 // queries read facade, and inbound events go through the publishing
 // service (append → notify → dispatch). The store stays in the
 // composition root, behind those services.
@@ -54,13 +54,13 @@ func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wake
 		Roles:          s.Roles,
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
-		Streams:        s.Streams,
+		Topics:        s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Events:         s.Events,
 		Activations:    s.Activations,
 	})
 	pd := publishing.Deps{
-		Streams: s.Streams,
+		Topics: s.Topics,
 		Events:  s.Events,
 		Now:     func() time.Time { return time.Now().UTC() },
 		NewID:   uuid.NewString,
@@ -93,7 +93,7 @@ type Route struct {
 }
 
 // Handler returns an http.Handler with all built-in routes registered
-// (MCP per-worker, /webhooks/{streamID}) plus any extras passed in by
+// (MCP per-worker, /webhooks/{topicID}) plus any extras passed in by
 // the wiring layer. The request-logging middleware wraps the lot.
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
@@ -103,7 +103,7 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 	// OrgIDFromContext, so this route wraps the inner handler in a
 	// middleware that lifts {org} into the request context.
 	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
-	mux.Handle("POST /webhooks/{org}/{streamID}", s.webhookHandler())
+	mux.Handle("POST /webhooks/{org}/{topicID}", s.webhookHandler())
 	for _, r := range extras {
 		mux.Handle(r.Pattern, r.Handler)
 	}

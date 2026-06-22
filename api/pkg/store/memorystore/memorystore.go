@@ -321,6 +321,21 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 	return result, int64(len(result)), nil
 }
 
+// ClearSessionInteractions deletes every interaction for a session,
+// mirroring the gorm store's atomic delete-by-session_id. Idempotent: a
+// session with no interactions is a no-op. Backs the clear-session
+// coordinator (and the org spawner's pre-reactivation clear).
+func (m *MemoryStore) ClearSessionInteractions(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, i := range m.interactions {
+		if i.SessionID == sessionID {
+			delete(m.interactions, id)
+		}
+	}
+	return nil
+}
+
 // --- Stubs for methods called in goroutines (prevent panics) ---
 
 // Design review comments — always return "not found" (no comments in test)
