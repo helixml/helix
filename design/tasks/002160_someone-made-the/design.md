@@ -109,3 +109,19 @@ The script is baked into the desktop image at `/usr/local/bin/helix-workspace-se
 ```
 
 Then start a new session to test.
+
+## Implementation Notes
+
+- **Change applied** to `desktop/shared/helix-workspace-setup.sh` on branch `feature/002160-restore-blocking` (commit `revert(desktop): remove workspace-setup terminal auto-close timeout`). Net: 9 insertions, 30 deletions — the diff exactly restores the pre-`389435bb1` blocking-prompt code.
+- **Sentinel + log tee kept**, `auto_wake_stuck_interactions.go` untouched, as designed. No merge conflict, clean merge of `origin/main`.
+
+### Verification done (script-level)
+- `bash -n` syntax check: passes.
+- Menu routing test (harness exercising the reverted `case`): `1` → close + exit with original code; `2`, bare Enter, and any other input → interactive shell. Confirms the terminal stays open by default (no auto-close).
+- `grep` confirms no lingering `HELIX_SETUP_PROMPT_TIMEOUT` references anywhere in the repo.
+- The `read` at the menu has no `-t` timeout flag.
+
+### Verification NOT done (blocked — be honest)
+- **`./stack build-ubuntu` + fresh-session live test was NOT run.** `build-ubuntu` → `build-desktop ubuntu` calls `build-qwen-code` first, which currently **fails** with pre-existing TypeScript errors in the qwen-code repo (`error TS5083: Cannot read file '/build/tsconfig.json'`, plus many `TS18028/TS2802/TS2503` errors). This is the same failure that broke the inner Helix stack's own startup (`/tmp/helix-startup.log`: `❌ Failed to build qwen-code` → `❌ Error: Failed to build sandbox`). It is unrelated to this shell-script change.
+- Because that build fails before baking the script into the image, and no inner-stack containers are running, the live terminal-prompt behavior could not be observed end-to-end in this environment.
+- **To verify once the qwen-code build is fixed:** run `./stack build-ubuntu`, start a new spec-task session, let workspace setup finish, and confirm the terminal shows `Enter choice [1-2]:` with no countdown and waits indefinitely (pressing Enter drops into a shell).

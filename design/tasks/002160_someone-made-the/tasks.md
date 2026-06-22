@@ -5,5 +5,6 @@
 - [x] Restore the original `case` so `1` closes the window and `2|*` (including a bare Enter) opens an interactive shell — terminal stays open for inspection
 - [x] Keep the `~/.helix-setup.log` tee, the `~/.helix-setup-failed` sentinel write, and the start-of-script sentinel cleanup — do NOT remove these
 - [x] Leave `api/pkg/server/auto_wake_stuck_interactions.go` unchanged (avoids the merge conflict and keeps UI error surfacing)
-- [ ] Run `./stack build-ubuntu` to bake the updated script into the desktop image
-- [ ] Start a new session and verify the terminal prompt waits indefinitely (no 60s countdown) and pressing Enter drops into a shell so the stack can be inspected
+- [x] Verify script-level: `bash -n` passes, menu routing test confirms `1`=close+exit, `2`/Enter/other=shell, no `HELIX_SETUP_PROMPT_TIMEOUT` references remain
+- [ ] BLOCKED: `./stack build-ubuntu` to bake the script into the desktop image — `build-ubuntu` calls `build-qwen-code` which fails on pre-existing TypeScript errors (unrelated to this change; same failure broke inner-stack startup). Run once qwen-code build is fixed.
+- [ ] BLOCKED: Start a new session and verify the prompt waits indefinitely (no countdown) and Enter drops into a shell — requires the desktop image rebuild above + a running stack (no containers up in this env)
