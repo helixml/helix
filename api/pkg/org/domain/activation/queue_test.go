@@ -68,7 +68,7 @@ func TestQueueSerializesPerWorker(t *testing.T) {
 // TestQueueDrainsTriggersOneAtATime — two triggers landing while the
 // first activation is running are NOT coalesced. Each is delivered in
 // its own Spawner call, one trigger per call, in arrival (FIFO) order.
-// This is the context-bounding behaviour: a busy Stream can never fold
+// This is the context-bounding behaviour: a busy Topic can never fold
 // its backlog into one oversized activation.
 func TestQueueDrainsTriggersOneAtATime(t *testing.T) {
 	t.Parallel()

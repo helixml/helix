@@ -1,4 +1,4 @@
-// Package dispatch turns a publish on a Stream into one activation per
+// Package dispatch turns a publish on a Topic into one activation per
 // subscribed AI Worker. The server is the event bus; Workers are
 // reactors. Each activation is a single fresh run of the Spawner — no
 // long-running agent loops, no in-process state per worker beyond a
@@ -15,8 +15,8 @@
 // queue: new triggers arriving while an activation is in flight wait
 // in the queue and are processed one at a time, in arrival order, as
 // the current activation finishes. Triggers are not coalesced — each
-// activation carries exactly one trigger so that a busy Stream (e.g. a
-// GitHub Stream firing an event per commit, CI run and issue) can't
+// activation carries exactly one trigger so that a busy Topic (e.g. a
+// GitHub Topic firing an event per commit, CI run and issue) can't
 // fold its backlog into one oversized activation that exhausts the
 // Worker's context window. The trade-off is more (sequential)
 // activations under burst traffic.
@@ -36,7 +36,7 @@ import (
 
 // Dispatcher routes Events to subscribed AI Workers and runs the
 // configured Spawner for each one. It also fans Events out to the
-// registered streaming.Outbound emitter for the Stream's Transport Kind
+// registered streaming.Outbound emitter for the Topic's Transport Kind
 // (webhook, email, …) — but it knows nothing about how each transport
 // delivers; that lives behind the streaming.Outbound port.
 //
@@ -45,10 +45,20 @@ import (
 // activation.Queue in B5.10; Dispatcher delegates Enqueue to its
 // embedded Queue and focuses on the event-side fan-out.
 type Dispatcher struct {
-	store    *store.Store
-	queue    *activation.Queue
-	logger   *slog.Logger
-	outbound map[transport.Kind]streaming.Outbound
+	store           *store.Store
+	queue           *activation.Queue
+	logger          *slog.Logger
+	outbound        map[transport.Kind]streaming.Outbound
+	processorRunner ProcessorRunner
+}
+
+// ProcessorRunner is the late-bound execution arm that turns an Event
+// into the Processor outputs its Topic feeds. application/processing.Runner
+// satisfies it; declared here (not imported) so dispatch does not depend
+// on processing — the wiring is Dispatcher.New → build publishing →
+// build Runner → RegisterProcessorRunner, exactly like RegisterOutbound.
+type ProcessorRunner interface {
+	Run(ctx context.Context, e streaming.Event, msg streaming.Message)
 }
 
 // New returns a Dispatcher. spawner may be nil to disable activation
@@ -74,6 +84,15 @@ func New(s *store.Store, spawner runtime.Spawner, logger *slog.Logger) *Dispatch
 // with no registered emitter no-op on outbound.
 func (d *Dispatcher) RegisterOutbound(kind transport.Kind, e streaming.Outbound) {
 	d.outbound[kind] = e
+}
+
+// RegisterProcessorRunner wires the execution arm that fans an Event
+// out to the Processors reading its Topic. Late-bound for the same
+// reason as RegisterOutbound: the Runner depends on the publishing
+// service, which is built after the Dispatcher. nil runner → Dispatch's
+// processor fan-out no-ops.
+func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
+	d.processorRunner = r
 }
 
 // DispatchHire fires a hire-time activation for a freshly-created AI
@@ -118,8 +137,8 @@ func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID or
 }
 
 // Dispatch fans an Event out to every AI Worker subscribed to its
-// Stream (skipping the Worker that sourced the event) and emits an
-// outbound webhook POST if the Stream's Transport is configured for
+// Topic (skipping the Worker that sourced the event) and emits an
+// outbound webhook POST if the Topic's Transport is configured for
 // it. Each fan-out target — subscriber activation, outbound POST —
 // runs on its own goroutine with its own background context, so a
 // slow target never stalls the publish that triggered Dispatch.
@@ -143,9 +162,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		d.logger.Error("dispatch: parse message — skipping fan-out", "event", e.ID, "err", err)
 		return
 	}
-	subs, err := d.store.Subscriptions.ListForStream(ctx, orgID, e.StreamID)
+	subs, err := d.store.Subscriptions.ListForTopic(ctx, orgID, e.TopicID)
 	if err != nil {
-		d.logger.Error("dispatch: list subscriptions", "stream", e.StreamID, "err", err)
+		d.logger.Error("dispatch: list subscriptions", "topic", e.TopicID, "err", err)
 		return
 	}
 	// Resolve the publishing Worker's kind once so every fan-out target
@@ -178,7 +197,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		trigger := activation.Trigger{
 			Kind:       activation.TriggerEvent,
 			EventID:    e.ID,
-			StreamID:   e.StreamID,
+			TopicID:   e.TopicID,
 			Source:     e.Source,
 			SourceKind: sourceKind,
 			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
@@ -186,17 +205,25 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		}
 		d.queue.Enqueue(orgID, w.ID(), trigger)
 	}
+	// Processor fan-out: hand the event + parsed message to the
+	// execution arm, which publishes each processor's output back
+	// through the same publish→dispatch path (so output topics dispatch
+	// to their own subscribers, and processor chains just recurse).
+	// Late-bound; no-op until RegisterProcessorRunner is called.
+	if d.processorRunner != nil {
+		d.processorRunner.Run(ctx, e, msg)
+	}
 }
 
-// emitOutbound dispatches Event-level outbound traffic for Streams
+// emitOutbound dispatches Event-level outbound traffic for Topics
 // whose Transport is configured for it: webhook (HTTP POST) or email
-// (Postmark API). No-op for local Streams or for transports without
+// (Postmark API). No-op for local Topics or for transports without
 // the necessary config. Failures are logged and dropped — the
 // underlying append has already succeeded.
 //
 // Events with empty Source ("system-emitted", typically inbound
 // events from this transport's own webhook handler) are not
-// re-emitted. Otherwise a bidirectional Stream (one that's both
+// re-emitted. Otherwise a bidirectional Topic (one that's both
 // inbound and outbound on the same provider) would echo every
 // inbound message straight back out to itself — never useful, often
 // catastrophic. Worker-published events (Source != "") still emit.
@@ -207,22 +234,22 @@ func (d *Dispatcher) emitOutbound(ctx context.Context, e streaming.Event) {
 	if e.Source == "" {
 		return
 	}
-	stream, err := d.store.Streams.Get(ctx, e.OrganizationID, e.StreamID)
+	topic, err := d.store.Topics.Get(ctx, e.OrganizationID, e.TopicID)
 	if err != nil {
-		// Stream was deleted, or store error. Either way nothing to emit;
+		// Topic was deleted, or store error. Either way nothing to emit;
 		// the append-side code path has already logged anything material.
 		return
 	}
-	emitter, ok := d.outbound[stream.Transport.Kind]
+	emitter, ok := d.outbound[topic.Transport.Kind]
 	if !ok {
-		return // local stream, or a transport with no outbound emitter
+		return // local topic, or a transport with no outbound emitter
 	}
 	// Fire on a goroutine with a background context: the delivery must
 	// outlive the request that triggered Dispatch. The emitter owns its
 	// own timeout, config parsing, and failure logging.
 	go func() { //nolint:gosec // intentional: the send outlives the triggering request
-		if err := emitter.Emit(context.Background(), stream, e); err != nil {
-			d.logger.Warn("dispatch.emit", "stream", e.StreamID, "event", e.ID, "kind", stream.Transport.Kind, "err", err)
+		if err := emitter.Emit(context.Background(), topic, e); err != nil {
+			d.logger.Warn("dispatch.emit", "topic", e.TopicID, "event", e.ID, "kind", topic.Transport.Kind, "err", err)
 		}
 	}()
 }

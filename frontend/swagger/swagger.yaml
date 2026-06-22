@@ -10,21 +10,21 @@ definitions:
         type: string
       id:
         type: string
-      streams:
-        items:
-          type: string
-        type: array
       tools:
         items:
           type: string
         type: array
+      topics:
+        items:
+          type: string
+        type: array
     type: object
-  api.CreateStreamRequest:
+  api.CreateTopicRequest:
     properties:
       as:
         description: |-
-          As is the Worker that creates the stream — the worker whose chat
-          the human is in. Empty leaves the stream unattributed (CreatedBy is
+          As is the Worker that creates the topic — the worker whose chat
+          the human is in. Empty leaves the topic unattributed (CreatedBy is
           cosmetic: it only anchors the node on the chart).
         type: string
       description:
@@ -57,11 +57,11 @@ definitions:
         type: string
       source:
         type: string
-      stream_id:
-        type: string
       subject:
         type: string
       to:
+        type: string
+      topic_id:
         type: string
     type: object
   api.GitHubInstallationStatus:
@@ -74,7 +74,7 @@ definitions:
         type: boolean
       install_url:
         description: |-
-          InstallURL is where the New Stream gate sends the user to install the
+          InstallURL is where the New Topic gate sends the user to install the
           app (https://github.com/apps/<slug>/installations/new). Populated from
           the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
         type: string
@@ -131,7 +131,7 @@ definitions:
       state:
         description: |-
           State is one of:
-            "installed" — a webhook for this stream's payload URL exists on the repo
+            "installed" — a webhook for this topic's payload URL exists on the repo
             "missing"   — GitHub was reachable and has no such webhook (needs install)
             "unknown"   — couldn't determine (no repo / no public URL / no creds /
                           GitHub error); see Detail. The UI falls back to stored state.
@@ -188,9 +188,14 @@ definitions:
         type: string
       has_message:
         type: boolean
-      source:
+      raw:
+        description: |-
+          Raw is the canonical Message envelope JSON exactly as stored — the
+          same shape a processor's `.Message` template/filter context sees
+          ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
+          operators which fields are available.
         type: string
-      stream_id:
+      source:
         type: string
       subject:
         type: string
@@ -198,6 +203,8 @@ definitions:
         items:
           type: string
         type: array
+      topic_id:
+        type: string
     type: object
   api.MessageResource:
     properties:
@@ -243,6 +250,43 @@ definitions:
           $ref: '#/definitions/api.RoleBadge'
         type: array
     type: object
+  api.ProcessorOutputDTO:
+    properties:
+      label:
+        type: string
+      match:
+        type: string
+      owned:
+        type: boolean
+      topic_id:
+        type: string
+    type: object
+  api.ProcessorWriteRequest:
+    properties:
+      data:
+        properties:
+          attributes:
+            properties:
+              config:
+                additionalProperties: true
+                type: object
+              created_by:
+                type: string
+              input_topic_id:
+                type: string
+              kind:
+                type: string
+              name:
+                type: string
+              outputs:
+                items:
+                  $ref: '#/definitions/api.ProcessorOutputDTO'
+                type: array
+            type: object
+          type:
+            type: string
+        type: object
+    type: object
   api.PublishRequest:
     properties:
       as:
@@ -278,11 +322,11 @@ definitions:
         type: string
       id:
         type: string
-      streams:
+      tools:
         items:
           type: string
         type: array
-      tools:
+      topics:
         items:
           type: string
         type: array
@@ -329,7 +373,19 @@ definitions:
       value:
         type: string
     type: object
-  api.StreamDTO:
+  api.SubscribeWorkerRequest:
+    properties:
+      topic_id:
+        type: string
+    type: object
+  api.ToolDTO:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TopicDTO:
     properties:
       can_publish:
         type: boolean
@@ -361,28 +417,16 @@ definitions:
           type: string
         type: array
     type: object
-  api.StreamsResponse:
+  api.TopicsResponse:
     properties:
       recent:
         items:
           $ref: '#/definitions/api.EventCard'
         type: array
-      streams:
+      topics:
         items:
-          $ref: '#/definitions/api.StreamDTO'
+          $ref: '#/definitions/api.TopicDTO'
         type: array
-    type: object
-  api.SubscribeWorkerRequest:
-    properties:
-      stream_id:
-        type: string
-    type: object
-  api.ToolDTO:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
     type: object
   api.TransportRequestField:
     properties:
@@ -396,16 +440,16 @@ definitions:
     properties:
       content:
         type: string
-      streams:
-        items:
-          type: string
-        type: array
       tools:
         items:
           type: string
         type: array
+      topics:
+        items:
+          type: string
+        type: array
     type: object
-  api.UpdateStreamRequest:
+  api.UpdateTopicRequest:
     properties:
       description:
         type: string
@@ -488,7 +532,7 @@ definitions:
     properties:
       created_at:
         type: string
-      stream_id:
+      topic_id:
         type: string
     type: object
   api.WorkerSubscriptionsResponse:
@@ -8815,6 +8859,10 @@ definitions:
       assistant_id:
         description: Which assistant are we speaking to?
         type: string
+      auto_restart_on_crash:
+        description: 'Autonomous surfaces: auto-recover the agent on crash (no human
+          to click Restart)'
+        type: boolean
       callback_url:
         description: Webhook URL to POST on session completion
         type: string
@@ -8918,6 +8966,20 @@ definitions:
       assistant_id:
         description: which assistant are we talking to?
         type: string
+      auto_restart_count:
+        type: integer
+      auto_restart_on_crash:
+        description: |-
+          Autonomous crash recovery. Set true at session creation for surfaces with
+          no human present to click the in-chat Restart button (spec tasks, org
+          workers). When the external agent crashes mid-turn, the websocket crash
+          handler auto-invokes the canonical restart primitive instead of leaving
+          the session errored+idle. Human desktop sessions leave this false and keep
+          the explicit button. AutoRestartCount bounds consecutive auto-restarts
+          without an intervening successful turn (anti-storm guard); it is reset to 0
+          on the next successful completion and lives on the SESSION (not the prompt)
+          so ResetCrashedPromptsForSession can't zero the restart budget.
+        type: boolean
       avatar:
         type: string
       callback_url:
@@ -8993,6 +9055,8 @@ definitions:
       implementation_task_index:
         description: Index of implementation task this session handles
         type: integer
+      last_auto_restart_at:
+        type: string
       manually_review_questions:
         type: boolean
       parent_session_id:
@@ -17690,7 +17754,7 @@ paths:
           type: object
       responses:
         "200":
-          description: Delivery accepted but no matching streams
+          description: Delivery accepted but no matching topics
         "204":
           description: Delivery accepted and fanned out
         "401":
@@ -17718,6 +17782,124 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: get org overview'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/processors:
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: list processors'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.ProcessorWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: create a processor'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/processors/{id}:
+    delete:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: 'Helix-org: delete a processor'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: get a processor'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Processor ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Processor spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.ProcessorWriteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Helix-org: update a processor'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/roles:
@@ -17919,7 +18101,7 @@ paths:
       summary: 'Helix-org: set a setting'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams:
+  /api/v1/orgs/{org}/tools:
     get:
       produces:
       - application/json
@@ -17927,42 +18109,58 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.StreamsResponse'
+            items:
+              $ref: '#/definitions/api.ToolDTO'
+            type: array
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: list streams'
+      summary: 'Helix-org: list available MCP tools'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/topics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TopicsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list topics'
       tags:
       - HelixOrg
     post:
       consumes:
       - application/json
       parameters:
-      - description: Stream spec
+      - description: Topic spec
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/api.CreateStreamRequest'
+          $ref: '#/definitions/api.CreateTopicRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.StreamDTO'
+            $ref: '#/definitions/api.TopicDTO'
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: create a stream'
+      summary: 'Helix-org: create a topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}:
+  /api/v1/orgs/{org}/topics/{id}:
     delete:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -17976,12 +18174,12 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: delete a stream'
+      summary: 'Helix-org: delete a topic'
       tags:
       - HelixOrg
     get:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -17992,38 +18190,38 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.StreamDTO'
+            $ref: '#/definitions/api.TopicDTO'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: get a stream'
+      summary: 'Helix-org: get a topic'
       tags:
       - HelixOrg
     put:
       consumes:
       - application/json
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
         type: string
-      - description: Stream patch
+      - description: Topic patch
         in: body
         name: payload
         required: true
         schema:
-          $ref: '#/definitions/api.UpdateStreamRequest'
+          $ref: '#/definitions/api.UpdateTopicRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.StreamDTO'
+            $ref: '#/definitions/api.TopicDTO'
         "400":
           description: Bad Request
           schema:
@@ -18034,19 +18232,19 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: update a stream'
+      summary: 'Helix-org: update a topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}/events:
+  /api/v1/orgs/{org}/topics/{id}/events:
     get:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
         type: string
       produces:
-      - text/event-stream
+      - text/event-topic
       responses:
         "200":
           description: 'SSE: event: message / data: [EventCard,...]'
@@ -18054,13 +18252,13 @@ paths:
             type: string
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: SSE stream of events for one stream'
+      summary: 'Helix-org: SSE topic of events for one topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}/github/install-webhook:
+  /api/v1/orgs/{org}/topics/{id}/github/install-webhook:
     post:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -18086,13 +18284,13 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: auto-install the webhook for a github stream'
+      summary: 'Helix-org: auto-install the webhook for a github topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}/github/webhook-status:
+  /api/v1/orgs/{org}/topics/{id}/github/webhook-status:
     get:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -18110,13 +18308,13 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: live webhook status for a github stream'
+      summary: 'Helix-org: live webhook status for a github topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}/messages:
+  /api/v1/orgs/{org}/topics/{id}/messages:
     get:
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -18146,15 +18344,15 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: list a stream''s messages (JSON:API, paginated)'
+      summary: 'Helix-org: list a topic''s messages (JSON:API, paginated)'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/streams/{id}/publish:
+  /api/v1/orgs/{org}/topics/{id}/publish:
     post:
       consumes:
       - application/json
       parameters:
-      - description: Stream ID
+      - description: Topic ID
         in: path
         name: id
         required: true
@@ -18182,23 +18380,7 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: publish a message to a stream'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/tools:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/api.ToolDTO'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list available MCP tools'
+      summary: 'Helix-org: publish a message to a topic'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/workers:
@@ -18539,7 +18721,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: stream to subscribe to
+      - description: topic to subscribe to
         in: body
         name: payload
         required: true
@@ -18560,10 +18742,10 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe a worker to a stream'
+      summary: 'Helix-org: subscribe a worker to a topic'
       tags:
       - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/subscriptions/{stream_id}:
+  /api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}:
     delete:
       parameters:
       - description: Worker ID
@@ -18571,9 +18753,9 @@ paths:
         name: id
         required: true
         type: string
-      - description: Stream ID
+      - description: Topic ID
         in: path
-        name: stream_id
+        name: topic_id
         required: true
         type: string
       responses:
@@ -18585,7 +18767,7 @@ paths:
             $ref: '#/definitions/api.ErrorResponse'
       security:
       - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe a worker from a stream'
+      summary: 'Helix-org: unsubscribe a worker from a topic'
       tags:
       - HelixOrg
   /api/v1/projects:
@@ -21787,6 +21969,43 @@ paths:
         container
       tags:
       - sessions
+  /api/v1/sessions/{id}/cancel:
+    post:
+      description: |-
+        Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+        interaction state update (interrupted) flows to the frontend via WebSocket.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Cancel the current agent turn
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/claude-credentials:
     get:
       description: |-

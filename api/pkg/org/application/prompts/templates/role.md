@@ -18,7 +18,7 @@ they own.}
 
 `tool_a`, `tool_b`. {Note on shell tools if non-default.}
 
-## Streams
+## Topics
 
 - `s-foo` — {what they do with it}.
 - `s-bar` — {what they do with it}.
@@ -62,7 +62,7 @@ Default tools: pick from what the org has — typically `subscribe`,
 `publish`, `read_events`, `dm`, `managers`, `reports`. `managers` and
 `reports` let the Worker resolve its reporting lines live — escalate up
 to a manager (`managers` + `dm`), brief down to its reports (`reports` +
-`publish` to the team stream). List both on any Role that sits in a
+`publish` to the team topic). List both on any Role that sits in a
 hierarchy. Don't list `hire_worker` or `create_role` unless the title
 implies seniority.
 
@@ -87,7 +87,7 @@ direction most likely to want a tweak:
 
 > Saved as `r-…`. Want to change anything? Common edits:
 > - **Triggers** — different events, or different responses
-> - **Streams** — add/remove which channels they read/write
+> - **Topics** — add/remove which channels they read/write
 > - **Tools** — broader or tighter MCP scope
 > - **Constraints** — what they should never do
 >
@@ -104,15 +104,15 @@ person, then chain:
    Worker (default `w-owner`). The Worker's MCP tools come live from
    the Role you just saved; no `tools` parameter is needed (or
    accepted).
-2. **Stand up their streams.** For each stream the Role's Streams
+2. **Stand up their topics.** For each topic the Role's Topics
    section lists:
-   - call `list_streams` first — another Worker may already have
+   - call `list_topics` first — another Worker may already have
      created it
    - if it exists, `subscribe` the new Worker (subscriptions are
      per-Worker — they die when the Worker is fired)
-   - if not, `create_stream` then `subscribe`
+   - if not, `create_topic` then `subscribe`
 
-   A Worker hired without their streams subscribed is half-hired —
+   A Worker hired without their topics subscribed is half-hired —
    they have nothing to listen to.
 
 Don't ask permission for each tool call — chain them.

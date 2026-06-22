@@ -1,10 +1,10 @@
 // Package role_test characterises Role's public behaviour: the New
 // constructor's validation rules, the immutability of timestamps after
-// construction, and (new in B7) the typed Tools and Streams fields.
+// construction, and (new in B7) the typed Tools and Topics fields.
 //
 // Coverage versus the legacy helix-org/domain/role_test.go: every case
 // the legacy file pinned is preserved (valid, empty id, empty content,
-// zero time), and the new Tools / Streams fields get their own
+// zero time), and the new Tools / Topics fields get their own
 // validation cases (nil, empty, populated, mixed). The legacy file is
 // deleted in this same commit.
 package orgchart_test
@@ -65,13 +65,13 @@ func TestNew_RejectsZeroTime(t *testing.T) {
 	}
 }
 
-// --- Tools and Streams (new in B7) --------------------------------------
+// --- Tools and Topics (new in B7) --------------------------------------
 
-func TestNew_NilToolsAndStreamsAreValid(t *testing.T) {
+func TestNew_NilToolsAndTopicsAreValid(t *testing.T) {
 	t.Parallel()
-	// A Role with no declared tools or streams is valid — the hiring
+	// A Role with no declared tools or topics is valid — the hiring
 	// caller's prompt is responsible for figuring out which tools to list
-	// and streams to subscribe from Content alone.
+	// and topics to subscribe from Content alone.
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	r, err := orgchart.NewRole("r-minimal", "# Minimal", nil, nil, now, "org-test")
 	if err != nil {
@@ -80,41 +80,41 @@ func TestNew_NilToolsAndStreamsAreValid(t *testing.T) {
 	if r.Tools != nil {
 		t.Fatalf("Tools = %v, want nil", r.Tools)
 	}
-	if r.Streams != nil {
-		t.Fatalf("Streams = %v, want nil", r.Streams)
+	if r.Topics != nil {
+		t.Fatalf("Topics = %v, want nil", r.Topics)
 	}
 }
 
-func TestNew_EmptyToolsAndStreamsAreValid(t *testing.T) {
+func TestNew_EmptyToolsAndTopicsAreValid(t *testing.T) {
 	t.Parallel()
 	// Empty slices are equivalent to nil — neither is invalid.
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := orgchart.NewRole("r-minimal", "# Minimal", []tool.Name{}, []streaming.StreamID{}, now, "org-test")
+	r, err := orgchart.NewRole("r-minimal", "# Minimal", []tool.Name{}, []streaming.TopicID{}, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v, want nil", err)
 	}
 	if len(r.Tools) != 0 {
 		t.Fatalf("Tools = %v, want empty", r.Tools)
 	}
-	if len(r.Streams) != 0 {
-		t.Fatalf("Streams = %v, want empty", r.Streams)
+	if len(r.Topics) != 0 {
+		t.Fatalf("Topics = %v, want empty", r.Topics)
 	}
 }
 
-func TestNew_PopulatedToolsAndStreamsRoundTrip(t *testing.T) {
+func TestNew_PopulatedToolsAndTopicsRoundTrip(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	tools := []tool.Name{"read_events", "publish", "subscribe"}
-	streams := []streaming.StreamID{"s-general", "s-inbox"}
-	r, err := orgchart.NewRole("r-secretary", "# Secretary", tools, streams, now, "org-test")
+	topics := []streaming.TopicID{"s-general", "s-inbox"}
+	r, err := orgchart.NewRole("r-secretary", "# Secretary", tools, topics, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}
 	if !sliceEqual(r.Tools, tools) {
 		t.Fatalf("Tools = %v, want %v", r.Tools, tools)
 	}
-	if !sliceEqualStream(r.Streams, streams) {
-		t.Fatalf("Streams = %v, want %v", r.Streams, streams)
+	if !sliceEqualTopic(r.Topics, topics) {
+		t.Fatalf("Topics = %v, want %v", r.Topics, topics)
 	}
 }
 
@@ -129,24 +129,24 @@ func TestNew_OnlyToolsDeclared(t *testing.T) {
 	if len(r.Tools) != 1 || r.Tools[0] != "hire_worker" {
 		t.Fatalf("Tools = %v, want [hire_worker]", r.Tools)
 	}
-	if r.Streams != nil {
-		t.Fatalf("Streams = %v, want nil", r.Streams)
+	if r.Topics != nil {
+		t.Fatalf("Topics = %v, want nil", r.Topics)
 	}
 }
 
-func TestNew_OnlyStreamsDeclared(t *testing.T) {
+func TestNew_OnlyTopicsDeclared(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	streams := []streaming.StreamID{"s-broadcast"}
-	r, err := orgchart.NewRole("r-watcher", "# Watcher", nil, streams, now, "org-test")
+	topics := []streaming.TopicID{"s-broadcast"}
+	r, err := orgchart.NewRole("r-watcher", "# Watcher", nil, topics, now, "org-test")
 	if err != nil {
 		t.Fatalf("New() = %v", err)
 	}
 	if r.Tools != nil {
 		t.Fatalf("Tools = %v, want nil", r.Tools)
 	}
-	if len(r.Streams) != 1 || r.Streams[0] != "s-broadcast" {
-		t.Fatalf("Streams = %v, want [s-broadcast]", r.Streams)
+	if len(r.Topics) != 1 || r.Topics[0] != "s-broadcast" {
+		t.Fatalf("Topics = %v, want [s-broadcast]", r.Topics)
 	}
 }
 
@@ -164,7 +164,7 @@ func sliceEqual(a, b []tool.Name) bool {
 	return true
 }
 
-func sliceEqualStream(a, b []streaming.StreamID) bool {
+func sliceEqualTopic(a, b []streaming.TopicID) bool {
 	if len(a) != len(b) {
 		return false
 	}

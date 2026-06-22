@@ -602,8 +602,24 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Fetch session data
   const { data: sessionResponse } = useGetSession(activeSessionId || "", {
     enabled: !!activeSessionId,
+    refetchInterval: 3000,
   });
   const sessionData = sessionResponse?.data;
+
+  const isAgentBusy = useMemo(() => {
+    const interactions = sessionData?.interactions;
+    if (!interactions || interactions.length === 0) return false;
+    return interactions[interactions.length - 1].state === 'waiting';
+  }, [sessionData?.interactions]);
+
+  const handleCancelTurn = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      await api.getApiClient().v1SessionsCancelCreate(activeSessionId);
+    } catch (error: any) {
+      snackbar.error(error?.message || "Failed to cancel");
+    }
+  }, [activeSessionId, api, snackbar]);
   const taskMetadataError =
     typeof task?.metadata?.error === "string" ? task.metadata.error : "";
 
@@ -2807,6 +2823,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                         sessionViewRef.current?.scrollToBottom()
                       }
                       placeholder="Send message to agent..."
+                      onCancel={activeSessionId ? handleCancelTurn : undefined}
+                      isAgentBusy={isAgentBusy}
                     />
                   </Box>
                 </Box>

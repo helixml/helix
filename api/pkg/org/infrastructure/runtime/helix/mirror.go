@@ -238,7 +238,7 @@ func (m *Mirror) pump(ctx context.Context, b *bridge, ownerID, sessionID string,
 		}
 		select {
 		case <-ctx.Done():
-			b.stream.Flush()
+			b.topic.Flush()
 			return
 		case <-time.After(delay):
 		}

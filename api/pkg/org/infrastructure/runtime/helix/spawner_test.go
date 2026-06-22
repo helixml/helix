@@ -253,19 +253,19 @@ func TestSpawnerAttachesHelixOrgMCPEveryActivation(t *testing.T) {
 }
 
 // TestBridgeRendersEntryPatchEvents verifies that the bridge's
-// EntryStream callback produces the same line shapes the claude
+// EntryTopic callback produces the same line shapes the claude
 // bridge emits — assistant text, tool_use, tool_result.
 func TestBridgeRendersEntryPatchEvents(t *testing.T) {
 	t.Parallel()
 	var got []string
 	b := newBridge(func(s string) { got = append(got, s) })
-	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
+	b.topic.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "hi", PatchOffset: 0},
 	}})
-	b.stream.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
+	b.topic.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 1, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, ToolName: "publish", ToolStatus: "Completed"},
 	}})
-	b.stream.Flush()
+	b.topic.Flush()
 	if len(got) < 3 {
 		t.Fatalf("expected ≥3 events, got %d: %v", len(got), got)
 	}
@@ -712,9 +712,9 @@ func TestSpawnerFollowUpSurvivesDownDesktop(t *testing.T) {
 // TestSpawnerRecordsActivationRowOnSuccess pins B5.6 — the Spawner
 // MUST create an activation row at start and complete it with
 // StatusOK at end, so the audit/replay surface stays in sync with
-// the transcript stream. The id derives from cfg.NewID with the
+// the transcript topic. The id derives from cfg.NewID with the
 // "a-" prefix; StartedAt/EndedAt come from cfg.Now; TranscriptID
-// is the canonical StreamID derivation; Outcome.Status reflects the
+// is the canonical TopicID derivation; Outcome.Status reflects the
 // Spawner's return value.
 func TestSpawnerRecordsActivationRowOnSuccess(t *testing.T) {
 	t.Parallel()

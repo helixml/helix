@@ -51,7 +51,7 @@ func (a *apiHandler) createRole(w http.ResponseWriter, r *http.Request) {
 		ID:      strings.TrimSpace(req.ID),
 		Content: req.Content,
 		Tools:   toToolNames(req.Tools),
-		Streams: toStreamIDs(req.Streams),
+		Topics: toTopicIDs(req.Topics),
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("create role: %w", err))
@@ -90,7 +90,7 @@ func (a *apiHandler) getRole(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, roleDTO(rl))
 }
 
-// updateRole rewrites a Role's content / tools / streams.
+// updateRole rewrites a Role's content / tools / topics.
 //
 // @Summary Helix-org: update a role
 // @Tags HelixOrg
@@ -123,15 +123,15 @@ func (a *apiHandler) updateRole(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
-	var streamsPatch *[]streaming.StreamID
-	if req.Streams != nil {
-		s := toStreamIDs(req.Streams)
-		streamsPatch = &s
+	var topicsPatch *[]streaming.TopicID
+	if req.Topics != nil {
+		s := toTopicIDs(req.Topics)
+		topicsPatch = &s
 	}
 	updated, err := a.deps.Roles.Update(r.Context(), orgID, id, roles.UpdateParams{
 		Content: req.Content,
 		Tools:   toolsPatch,
-		Streams: streamsPatch,
+		Topics: topicsPatch,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update role: %w", err))
@@ -190,14 +190,14 @@ func toToolNames(in []string) []tool.Name {
 	return out
 }
 
-func toStreamIDs(in []string) []streaming.StreamID {
+func toTopicIDs(in []string) []streaming.TopicID {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]streaming.StreamID, 0, len(in))
+	out := make([]streaming.TopicID, 0, len(in))
 	for _, s := range in {
 		if t := strings.TrimSpace(s); t != "" {
-			out = append(out, streaming.StreamID(t))
+			out = append(out, streaming.TopicID(t))
 		}
 	}
 	return out
@@ -262,8 +262,8 @@ func roleDTO(r orgchart.Role) RoleDTO {
 	for _, t := range r.Tools {
 		dto.Tools = append(dto.Tools, string(t))
 	}
-	for _, s := range r.Streams {
-		dto.Streams = append(dto.Streams, string(s))
+	for _, s := range r.Topics {
+		dto.Topics = append(dto.Topics, string(s))
 	}
 	return dto
 }

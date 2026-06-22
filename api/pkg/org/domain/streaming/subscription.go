@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// Subscription is a Worker's link to a Stream. The (WorkerID, StreamID)
+// Subscription is a Worker's link to a Topic. The (WorkerID, TopicID)
 // pair is the identity — there is no synthetic ID.
 //
 // Subscriptions are WORKER-anchored: firing a Worker drops its
 // subscriptions. The hiring playbook re-subscribes new hires
 // explicitly, which lets two Workers in the same Role consume
-// different streams (specialisation) or only the on-call subset of a
+// different topics (specialisation) or only the on-call subset of a
 // role wake up on a given event (load patterns).
 //
 // WorkerID is an orgchart.WorkerID carried as a plain string; the
@@ -20,18 +20,18 @@ import (
 type Subscription struct {
 	OrganizationID string
 	WorkerID       string // orgchart.WorkerID
-	StreamID       StreamID
+	TopicID       TopicID
 	CreatedAt      time.Time
 }
 
 // NewSubscription validates and constructs a Subscription. orgID is
 // required — subscriptions are tenant-scoped.
-func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, orgID string) (Subscription, error) {
+func NewSubscription(workerID string, topicID TopicID, createdAt time.Time, orgID string) (Subscription, error) {
 	if workerID == "" {
 		return Subscription{}, errors.New("subscription workerId is empty")
 	}
-	if streamID == "" {
-		return Subscription{}, errors.New("subscription streamId is empty")
+	if topicID == "" {
+		return Subscription{}, errors.New("subscription topicId is empty")
 	}
 	if createdAt.IsZero() {
 		return Subscription{}, errors.New("subscription createdAt is zero")
@@ -42,7 +42,7 @@ func NewSubscription(workerID string, streamID StreamID, createdAt time.Time, or
 	return Subscription{
 		OrganizationID: orgID,
 		WorkerID:       workerID,
-		StreamID:       streamID,
+		TopicID:       topicID,
 		CreatedAt:      createdAt.UTC(),
 	}, nil
 }

@@ -1,6 +1,6 @@
 // GitHubAppConnect is the single create / install / add-repos / manage surface
 // for the org's Helix GitHub App, shared by the Settings page (mode="panel")
-// and the New Stream dialog (mode="gate"). It owns the install-status query and
+// and the New Topic dialog (mode="gate"). It owns the install-status query and
 // the popup flows (useGitHubAppActions) so both call sites stay identical.
 //
 // The flow it guides:
@@ -150,7 +150,7 @@ export const GitHubAppConnect: FC<{ mode: 'panel' | 'gate'; onChange?: () => voi
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Typography variant="h6" sx={{ mb: 0.5 }}>GitHub App</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Helix acts on GitHub as a bot via an org-owned GitHub App: Workers clone / push / open PRs as the bot, and GitHub stream events are delivered through the app's webhook.
+        Helix acts on GitHub as a bot via an org-owned GitHub App: Workers clone / push / open PRs as the bot, and GitHub topic events are delivered through the app's webhook.
       </Typography>
       <Stack spacing={2}>
         {steps}

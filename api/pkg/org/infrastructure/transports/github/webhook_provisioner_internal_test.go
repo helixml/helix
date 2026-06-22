@@ -29,18 +29,18 @@ func newReg(t *testing.T) *configregistry.Registry {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	reg := configregistry.New(st.Configs)
-	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
+	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
 	reg.Register(configregistry.Spec{Key: "transport.github", Type: configregistry.TypeObject})
 	return reg
 }
 
-// ghStream builds a github-transport Stream with the given config JSON.
-// Built as a struct literal (not streaming.NewStream) on purpose: NewStream
+// ghTopic builds a github-transport Topic with the given config JSON.
+// Built as a struct literal (not streaming.NewTopic) on purpose: NewTopic
 // runs Transport.Validate(), which rejects empty / malformed repos — but
 // those are exactly the degraded configs we need to exercise the
 // provisioner's repo guards against.
-func ghStream(configJSON string) streaming.Stream {
-	return streaming.Stream{
+func ghTopic(configJSON string) streaming.Topic {
+	return streaming.Topic{
 		ID:             "s-gh",
 		OrganizationID: provOrg,
 		Name:           "s-gh",
@@ -75,9 +75,9 @@ func TestSplitRepo(t *testing.T) {
 func TestPayloadURL(t *testing.T) {
 	t.Parallel()
 	p := NewWebhookProvisioner(nil, nil, "https://meta.helix.ml/")
-	// Trailing slash on the base is trimmed; org + stream id are escaped.
+	// Trailing slash on the base is trimmed; org + topic id are escaped.
 	got := p.payloadURL("https://meta.helix.ml/", "org ab", "s-x/y")
-	want := "https://meta.helix.ml/api/v1/orgs/org%20ab/streams/s-x%2Fy/github/webhook"
+	want := "https://meta.helix.ml/api/v1/orgs/org%20ab/topics/s-x%2Fy/github/webhook"
 	if got != want {
 		t.Fatalf("payloadURL = %q, want %q", got, want)
 	}
@@ -95,7 +95,7 @@ func TestResolvePublicURL(t *testing.T) {
 	}
 
 	// Org config override wins over the server URL.
-	if err := reg.Set(ctx, provOrg, "streams.public_url", `"https://override.example"`); err != nil {
+	if err := reg.Set(ctx, provOrg, "topics.public_url", `"https://override.example"`); err != nil {
 		t.Fatalf("set override: %v", err)
 	}
 	if got := p.resolvePublicURL(ctx, provOrg); got != "https://override.example" {
@@ -205,7 +205,7 @@ func TestInstall_PreconditionGuards(t *testing.T) {
 		name       string
 		publicURL  string
 		token      TokenResolver
-		streamJSON string
+		topicJSON string
 		wantKind   streaming.FailKind
 	}{
 		{"no public url", "", okToken, repoCfg, streaming.FailPrecondition},
@@ -217,7 +217,7 @@ func TestInstall_PreconditionGuards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewWebhookProvisioner(newReg(t), tc.token, tc.publicURL)
-			_, err := p.Install(ctx, provOrg, ghStream(tc.streamJSON))
+			_, err := p.Install(ctx, provOrg, ghTopic(tc.topicJSON))
 			if err == nil {
 				t.Fatal("expected Install to fail before the GitHub call")
 			}
@@ -244,7 +244,7 @@ func TestStatus_DegradesToUnknown(t *testing.T) {
 		name       string
 		publicURL  string
 		token      TokenResolver
-		streamJSON string
+		topicJSON string
 	}{
 		{"no repo", "https://meta.helix.ml", okToken, `{}`},
 		{"malformed repo", "https://meta.helix.ml", okToken, `{"repo":"noslash"}`},
@@ -256,7 +256,7 @@ func TestStatus_DegradesToUnknown(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := NewWebhookProvisioner(newReg(t), tc.token, tc.publicURL)
-			state, err := p.Status(ctx, provOrg, ghStream(tc.streamJSON))
+			state, err := p.Status(ctx, provOrg, ghTopic(tc.topicJSON))
 			if err != nil {
 				t.Fatalf("Status should degrade, not error: %v", err)
 			}

@@ -12,7 +12,7 @@ import (
 // side: today Event.Source is a orgchart.WorkerID typed string (the
 // publishing Worker, or empty for system-emitted). SourcePrincipal
 // lifts that into a typed streaming.Principal so downstream code
-// (dispatcher, worker_log, /ui/streams) can read a Principal without
+// (dispatcher, worker_log, /ui/topics) can read a Principal without
 // inferring from value shape per-call.
 //
 // As the alpha grows transports that emit Events with non-Worker

@@ -30,9 +30,9 @@ func (t *CreateRole) Description() string {
 	return "Define a new Role with markdown content. The content is what every Worker " +
 		"holding this Role reads on activation. `tools` is the live MCP surface for " +
 		"every Worker in this Role — populate it with every " +
-		"MCP tool the Role needs. `streams` is a typed manifest of Stream IDs the " +
+		"MCP tool the Role needs. `topics` is a typed manifest of Topic IDs the " +
 		"Role's prompt expects to operate on (the hiring caller still drives " +
-		"create_stream/subscribe explicitly). Use update_role to amend any field later " +
+		"create_topic/subscribe explicitly). Use update_role to amend any field later " +
 		"— a tools change propagates to every Worker in this Role on their next MCP " +
 		"request."
 }
@@ -41,7 +41,7 @@ type createRoleArgs struct {
 	ID      string               `json:"id,omitempty"`
 	Content string               `json:"content"`
 	Tools   []tool.Name          `json:"tools,omitempty"`
-	Streams []streaming.StreamID `json:"streams,omitempty"`
+	Topics []streaming.TopicID `json:"topics,omitempty"`
 }
 
 func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -60,7 +60,7 @@ func (t *CreateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		ID:      args.ID,
 		Content: args.Content,
 		Tools:   args.Tools,
-		Streams: args.Streams,
+		Topics: args.Topics,
 	})
 	if err != nil {
 		return nil, err

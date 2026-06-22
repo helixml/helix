@@ -10,8 +10,8 @@ import (
 
 // TestTranscriptIDIsDeterministicFromWorkerID pins the wire-level shape
 // of the transcript ID. Every consumer of a Worker's transcript
-// — worker_log, the owner-chat bridge, the streams page, hire_worker — uses
-// this constructor to find the same Stream the Spawner writes to.
+// — worker_log, the owner-chat bridge, the topics page, hire_worker — uses
+// this constructor to find the same Topic the Spawner writes to.
 // Changing the shape silently is a data-loss bug; this test makes the
 // shape part of the public contract.
 func TestTranscriptIDIsDeterministicFromWorkerID(t *testing.T) {
@@ -19,7 +19,7 @@ func TestTranscriptIDIsDeterministicFromWorkerID(t *testing.T) {
 	cases := []struct {
 		name string
 		in   orgchart.WorkerID
-		want streaming.StreamID
+		want streaming.TopicID
 	}{
 		{"owner", "w-owner", "s-transcript-w-owner"},
 		{"ai", "w-alice", "s-transcript-w-alice"},
