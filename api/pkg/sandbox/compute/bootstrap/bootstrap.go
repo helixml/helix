@@ -166,9 +166,17 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 		if err != nil {
 			return nil, err
 		}
-		sandboxImage, err := helixSandboxImage(cfg.SandboxRegistry)
-		if err != nil {
-			return nil, err
+		// HELIX_COMPUTE_SANDBOX_IMAGE pins the full image verbatim and
+		// bypasses version derivation — the escape hatch for dev/source
+		// builds (placeholder data.Version) and for pinning an in-flight
+		// sandbox SHA. Falls back to the version-derived tag when unset.
+		sandboxImage := cfg.SandboxImage
+		if sandboxImage == "" {
+			var err error
+			sandboxImage, err = helixSandboxImage(cfg.SandboxRegistry)
+			if err != nil {
+				return nil, err
+			}
 		}
 		// Log the resolved image at boot so operators can diagnose
 		// pull failures (typo'd hostname, mistyped account ID) by
