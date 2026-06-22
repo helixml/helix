@@ -103,6 +103,7 @@ func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerTok
 		HardIdleTimeout:         cfg.HardIdleTimeout,
 		SpecTemplate: compute.Spec{
 			MaxSandboxes: maxSandboxesPerHost,
+			GPUVendor:    cfg.GPUVendor,
 		},
 	})
 	if err != nil {

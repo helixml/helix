@@ -42,8 +42,22 @@ GPU_VENDOR="${GPU_VENDOR:-nvidia}"
 MAX_SANDBOXES="${MAX_SANDBOXES:-2}"
 # GPU_FLAGS / DEVICE_FLAGS are unquoted on use - operator-provided
 # strings are tokenised by the shell to become individual docker run args.
-GPU_FLAGS="${GPU_FLAGS:---gpus all}"
-DEVICE_FLAGS="${DEVICE_FLAGS:---device /dev/dri/renderD128 --device /dev/dri/card1}"
+if [ "$GPU_VENDOR" = "neuron" ]; then
+  # AWS Inferentia/Trainium: no --gpus / runtime. Mount every /dev/neuron*
+  # device node (count varies by inf2/trn SKU) so hydra can pass them through
+  # to the nested Docker. Globbed here on the host because the control plane
+  # can't know the device-node count. Operator-provided DEVICE_FLAGS wins.
+  GPU_FLAGS="${GPU_FLAGS:-}"
+  if [ -z "${DEVICE_FLAGS:-}" ]; then
+    DEVICE_FLAGS=""
+    for nd in /dev/neuron*; do
+      [ -e "$nd" ] && DEVICE_FLAGS="$DEVICE_FLAGS --device $nd"
+    done
+  fi
+else
+  GPU_FLAGS="${GPU_FLAGS:---gpus all}"
+  DEVICE_FLAGS="${DEVICE_FLAGS:---device /dev/dri/renderD128 --device /dev/dri/card1}"
+fi
 
 echo "=== Helix runner $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 echo "helix_url=$HELIX_URL"
