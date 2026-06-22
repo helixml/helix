@@ -24,7 +24,11 @@ These tasks cover the investigation (done) and the fix for the three restart-sur
 
 See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix design, rationale, and test plans. Implementation is the next phase (these are NOT done yet).
 
-**Single PR (per Luke's review).** All three fixes plus the full `acp_thread_id` re-key land in one PR. The re-key is folded into #2643 (no longer a "later" task) because it is the structural fix for the common cause — the restart-survival matrix shows `acp_thread_id`/`ZedThreadID` is the only DB-persisted correlation state; everything else is in-memory and dies on restart. Build internally in the order below (smallest → core → independent subsystem) so each layer is verifiable before the next stacks.
+**Single PR (per Luke's review).** All three fixes land in one PR on `feature/002133-forensic-map-of` (pushed). Internal order: #2642 → #2643 → #2641, each its own commit.
+
+> **STATUS (2026-06-22):** All three implemented and `go build`-verified. **Verification is env-blocked:** the inner dev env can't provision a live Zed desktop (startup `build-sandbox`/`build-ubuntu` failed on an unrelated qwen-code build error) and has no C compiler (server unit tests need CGO/tree-sitter). So none of the mandated live tests or `TestWebSocketSyncSuite` could run here — they must run in CI / on a working env before merge. Test-status is flagged honestly per task below.
+>
+> **Scope change from the plan:** the full `acp_thread_id` map-removal re-key was NOT done. On reading the code, the chokepoint already routes by `acp_thread_id` with DB fallbacks; #2643 was a recovery-gap, now fixed. Removing the maps/sentinel is a complexity reduction with no correctness benefit and real regression risk — reclassified to `architecture-simplifications.md` for separate, verifiable work.
 
 ### #2642 — chat path `role:"user"` drop + N-notify storm (build first)
 - [x] Remove `"role": "user"` from `NotifyExternalAgentOfNewInteraction` command data (`websocket_external_agent_sync.go:1033-1041`)
