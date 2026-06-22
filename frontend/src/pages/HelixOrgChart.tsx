@@ -44,6 +44,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import HireWorkerDrawer from '../components/helix-org/HireWorkerDrawer'
 import NewRoleDialog from '../components/helix-org/NewRoleDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
+import ProcessorNode, { ProcessorNodeData, procNodeHeight } from '../components/helix-org/ProcessorNode'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -161,25 +162,6 @@ type TopicNodeData = {
   ownedByProcessor?: string
   onSelectTopic: (topicId: string) => void
   onDeleteTopic: (topicId: string) => void
-}
-
-type ProcessorBranch = {
-  topicId: string
-  label: string
-  match: string
-}
-
-type ProcessorNodeData = {
-  processorId: string
-  name: string
-  kind: string
-  // One entry per output branch. Each renders a labelled source handle
-  // on the node's right edge; dragging from it to a Worker subscribes
-  // that Worker to the branch's (hidden) output topic.
-  outputs: ProcessorBranch[]
-  onSelectProcessor: (processorId: string) => void
-  onDeleteProcessor: (processorId: string) => void
-  onInspectBranch: (topicId: string) => void
 }
 
 // ReactFlow uses these CSS class names internally — children of a node
@@ -452,97 +434,6 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           </Typography>
         </Tooltip>
       </Stack>
-    </Box>
-  )
-}
-
-// ProcessorNode renders a transform/filter box that sits on the edge
-// between an input Topic (left target handle) and the Workers that read
-// its outputs. Each output BRANCH is a labelled source handle ("dot") on
-// the right edge — drag from a branch dot to a Worker to route that
-// branch to them. The branches' backing output topics are collapsed into
-// this box (not drawn separately); click a branch to inspect its topic.
-// Clicking the header opens the config drawer; the trash icon deletes it.
-const PROC_W = 200
-const PROC_HEADER_PX = 52
-const PROC_ROW_PX = 24
-const procNodeHeight = (n: number) => PROC_HEADER_PX + Math.max(1, n) * PROC_ROW_PX + 8
-const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
-  const lightTheme = useLightTheme()
-  const accent = lightTheme.isLight ? 'rgba(90,60,170,0.9)' : 'rgba(180,150,255,0.9)'
-  const bg = 'rgba(140,110,230,0.07)'
-  const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const handleColor = lightTheme.isLight ? 'rgba(90,60,170,0.6)' : 'rgba(180,150,255,0.6)'
-  const outputs = data.outputs.length > 0 ? data.outputs : [{ topicId: '', label: 'out', match: '' }]
-  return (
-    <Box
-      sx={{
-        width: PROC_W,
-        height: procNodeHeight(outputs.length),
-        border: `1px solid ${accent}`,
-        borderRadius: 1.5,
-        backgroundColor: bg,
-        cursor: 'default',
-        position: 'relative',
-        '&:hover': { backgroundColor: 'rgba(140,110,230,0.10)' },
-      }}
-    >
-      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8, top: PROC_HEADER_PX / 2 }} />
-
-      {/* Header — clicking it opens the edit drawer. */}
-      <Box
-        onClick={(e) => { e.stopPropagation(); data.onSelectProcessor(data.processorId) }}
-        sx={{ p: 1, pb: 0.5, cursor: 'pointer' }}
-      >
-        <Tooltip title="Delete processor (and its output topics)">
-          <IconButton
-            className={NO_DRAG_NO_PAN}
-            size="small"
-            onClick={(e) => { e.stopPropagation(); data.onDeleteProcessor(data.processorId) }}
-            sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
-          >
-            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Tooltip>
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2 }}>
-          <TransformIcon sx={{ fontSize: 14, color: accent }} />
-          <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {data.name}
-          </Typography>
-        </Stack>
-        <Typography variant="caption" sx={{ fontSize: '0.62rem', color: muted, fontFamily: 'monospace' }}>
-          {data.kind} · {data.processorId}
-        </Typography>
-      </Box>
-
-      {/* One labelled output port (dot) per branch. */}
-      {outputs.map((o, i) => (
-        <Box
-          key={o.topicId || i}
-          onClick={(e) => { e.stopPropagation(); if (o.topicId) data.onInspectBranch(o.topicId) }}
-          sx={{
-            position: 'absolute',
-            top: PROC_HEADER_PX + i * PROC_ROW_PX,
-            right: 0, left: 0, height: PROC_ROW_PX,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            pr: 1.5, gap: 0.5,
-            cursor: o.topicId ? 'pointer' : 'default',
-            borderTop: '1px dashed rgba(140,110,230,0.25)',
-            '&:hover': { backgroundColor: 'rgba(140,110,230,0.10)' },
-          }}
-        >
-          <Typography variant="caption" sx={{ fontSize: '0.62rem', color: muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {o.label || (o.match ? 'match' : 'default')}{o.match ? '' : ' ·default'}
-          </Typography>
-          <Handle
-            id={o.topicId || `out-${i}`}
-            type="source"
-            position={RFPosition.Right}
-            isConnectable
-            style={{ background: accent, border: '2px solid #fff', width: 13, height: 13, right: -7, top: PROC_HEADER_PX + i * PROC_ROW_PX + PROC_ROW_PX / 2 }}
-          />
-        </Box>
-      ))}
     </Box>
   )
 }
@@ -1275,8 +1166,11 @@ const ChartCanvas: FC<{
       zoomOnScroll
     >
       <Background gap={20} size={1} />
-      <Controls showInteractive={false} />
-      <MiniMap pannable zoomable maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'} />
+      {/* Both overlays anchored bottom-left so they never sit on top of
+          the topic / processor column on the right (whose ports must
+          stay grabbable). */}
+      <Controls showInteractive={false} position="top-left" />
+      <MiniMap pannable zoomable position="bottom-left" maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'} />
     </ReactFlow>
   )
 }
