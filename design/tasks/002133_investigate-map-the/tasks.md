@@ -27,9 +27,9 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 **Single PR (per Luke's review).** All three fixes plus the full `acp_thread_id` re-key land in one PR. The re-key is folded into #2643 (no longer a "later" task) because it is the structural fix for the common cause — the restart-survival matrix shows `acp_thread_id`/`ZedThreadID` is the only DB-persisted correlation state; everything else is in-memory and dies on restart. Build internally in the order below (smallest → core → independent subsystem) so each layer is verifiable before the next stacks.
 
 ### #2642 — chat path `role:"user"` drop + N-notify storm (build first)
-- [ ] Remove `"role": "user"` from `NotifyExternalAgentOfNewInteraction` command data (`websocket_external_agent_sync.go:1034-1038`)
-- [ ] Confirm nothing on the Helix→Zed `chat_message` path requires `role` (grep Zed `IncomingChatMessage`)
-- [ ] Fix the history-storm: notify only the newly appended interaction(s), not the broken generation-boundary scan (`session_handlers.go:664-674`, `:708`); root cause is the generation rewrite at `:1018-1026`
+- [~] Remove `"role": "user"` from `NotifyExternalAgentOfNewInteraction` command data (`websocket_external_agent_sync.go:1034-1038`)
+- [~] Confirm nothing on the Helix→Zed `chat_message` path requires `role` (grep Zed `IncomingChatMessage`)
+- [~] Fix the history-storm: notify only the newly appended interaction(s), not the broken generation-boundary scan (`session_handlers.go:664-674`, `:708`); root cause is the generation rewrite at `:1018-1026`
 - [ ] Live test: chat-path prompt runs an ACP turn; long-lived session fires exactly one `Notify`; queue path still works
 
 ### #2643 + full `acp_thread_id` re-key — the core change (build second)
