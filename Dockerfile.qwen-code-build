@@ -19,6 +19,11 @@ WORKDIR /build
 # Copy package manifests and workspace packages first for layer caching.
 # npm ci only re-runs when these files change.
 COPY package.json package-lock.json ./
+# Root tsconfig.json must be present BEFORE the workspace build below: each
+# workspace's tsconfig extends "../../tsconfig.json" (which carries target/lib
+# es2022/ES2023). Without it `tsc --build` fails with TS5083 and falls back to
+# ES5 defaults (TS18028 private-identifier / TS2802 iterator errors).
+COPY tsconfig.json ./
 COPY packages/ ./packages/
 
 # Install dependencies — cached as a Docker layer when manifests unchanged.
