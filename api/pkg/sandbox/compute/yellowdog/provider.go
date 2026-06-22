@@ -467,12 +467,21 @@ func (p *Provider) taskArguments() []string {
 // Any other spec.Labels are passed through verbatim - useful for
 // operator-supplied YD-side tagging / debugging.
 func (p *Provider) taskEnvironment(spec compute.Spec) map[string]string {
-	env := make(map[string]string, len(spec.Labels)+1)
+	env := make(map[string]string, len(spec.Labels)+2)
 	for k, v := range spec.Labels {
 		env[k] = v
 	}
 	if id := spec.Labels["helix.sandbox_id"]; id != "" {
 		env["SANDBOX_INSTANCE_ID"] = id
+	}
+	// GPU_VENDOR tells the embedded bash_script which docker device flags to
+	// use when launching helix-sandbox. Without it the script defaults to
+	// nvidia (--gpus all), which fails on a neuron/inf2 host. The device
+	// flags themselves are derived host-side in bash_script (it globs
+	// /dev/neuron*) because the control plane can't know the host's device
+	// node count.
+	if spec.GPUVendor != "" {
+		env["GPU_VENDOR"] = spec.GPUVendor
 	}
 	if len(env) == 0 {
 		return nil
