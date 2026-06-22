@@ -921,7 +921,10 @@ const buildGraph = (
       }
       // Each branch port → every Worker subscribed to that branch's
       // output topic. The edge leaves the branch's own handle
-      // (sourceHandle = the branch topic id) and lands on the Worker.
+      // (sourceHandle = the branch topic id) and lands on the Worker's
+      // right-side DATA handle (id "topic") — the same side a Worker uses
+      // to subscribe to topics. Data flow stays on the sides; the top /
+      // bottom handles are reserved for org structure (reporting lines).
       for (const o of p.outputs) {
         if (!o.topicId) continue
         for (const wid of subsByTopic.get(o.topicId) ?? []) {
@@ -930,6 +933,7 @@ const buildGraph = (
             source: `processor:${p.id}`,
             sourceHandle: o.topicId,
             target: `worker:${wid}`,
+            targetHandle: 'topic',
             type: 'deletable',
             data: { kind: 'proc_out', processorId: p.id, topicId: o.topicId, workerId: wid },
             style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
