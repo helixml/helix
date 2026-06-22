@@ -9,6 +9,11 @@ type GPUVendor string
 const (
 	GPUVendorNVIDIA GPUVendor = "nvidia"
 	GPUVendorAMD    GPUVendor = "amd"
+	// GPUVendorNeuron covers all AWS neuronx silicon (Inferentia2 inf2.*
+	// SKUs and Trainium trn1/trn2) — same device-node family and serving
+	// path, so one vendor value. inf1 (older neuron-cc runtime) is not
+	// supported.
+	GPUVendorNeuron GPUVendor = "neuron"
 )
 
 // ProfileModel describes one model exposed by a profile, derived by parsing

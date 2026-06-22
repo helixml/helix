@@ -23,8 +23,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -36,18 +36,18 @@ func New() *store.Store {
 	subs := &subscriptionsRepo{rows: map[subKey]streaming.Subscription{}}
 	lines := &reportingLinesRepo{rows: map[lineKey]struct{}{}}
 	workers := &workersRepo{rows: map[orgKey]orgchart.Worker{}, subs: subs, lines: lines}
-	streams := &streamsRepo{rows: map[orgKey]streaming.Stream{}, subs: subs}
+	topics := &topicsRepo{rows: map[orgKey]streaming.Topic{}, subs: subs}
 	return &store.Store{
 		Roles:              &rolesRepo{rows: map[orgKey]orgchart.Role{}},
 		Workers:            workers,
 		ReportingLines:     lines,
 		WorkerRuntimeState: &runtimeStateRepo{rows: map[runtimeKey]string{}},
-		Streams:            streams,
+		Topics:            topics,
 		Subscriptions:      subs,
 		Events:             &eventsRepo{rows: []streaming.Event{}, subs: subs, workers: workers},
-		Environments:       &environmentsRepo{rows: map[orgKey]environment.Environment{}},
 		Configs:            &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:        &activationsRepo{rows: map[orgKey]*activation.Activation{}},
+		Processors:         &processorsRepo{rows: map[orgKey]processor.Processor{}},
 	}
 }
 
@@ -345,48 +345,48 @@ func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, workerID orgch
 	return nil
 }
 
-// ---- Streams ------------------------------------------------------------
+// ---- Topics ------------------------------------------------------------
 
-type streamsRepo struct {
+type topicsRepo struct {
 	mu   sync.RWMutex
-	rows map[orgKey]streaming.Stream
+	rows map[orgKey]streaming.Topic
 	// subs is held by reference so Delete can cascade: every
-	// subscription to a deleted stream is dropped, mirroring the gorm
+	// subscription to a deleted topic is dropped, mirroring the gorm
 	// store.
 	subs *subscriptionsRepo
 }
 
-func (s *streamsRepo) Create(_ context.Context, st streaming.Stream) error {
+func (s *topicsRepo) Create(_ context.Context, st streaming.Topic) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	k := orgKey{OrgID: st.OrganizationID, ID: string(st.ID)}
 	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("stream %q in org %q: already exists", st.ID, st.OrganizationID)
+		return fmt.Errorf("topic %q in org %q: already exists", st.ID, st.OrganizationID)
 	}
 	// Enforce composite (org_id, name) uniqueness to mirror the gorm
-	// idx_stream_org_name constraint.
+	// idx_topic_org_name constraint.
 	for k2, ex := range s.rows {
 		if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
-			return fmt.Errorf("stream name %q already in use in org %q", st.Name, st.OrganizationID)
+			return fmt.Errorf("topic name %q already in use in org %q", st.Name, st.OrganizationID)
 		}
 	}
 	s.rows[k] = st
 	return nil
 }
 
-func (s *streamsRepo) Get(_ context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error) {
+func (s *topicsRepo) Get(_ context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if st, ok := s.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
 		return st, nil
 	}
-	return streaming.Stream{}, fmt.Errorf("stream %q in org %q: %w", id, orgID, store.ErrNotFound)
+	return streaming.Topic{}, fmt.Errorf("topic %q in org %q: %w", id, orgID, store.ErrNotFound)
 }
 
-func (s *streamsRepo) List(_ context.Context, orgID string) ([]streaming.Stream, error) {
+func (s *topicsRepo) List(_ context.Context, orgID string) ([]streaming.Topic, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]streaming.Stream, 0)
+	out := make([]streaming.Topic, 0)
 	for k, st := range s.rows {
 		if k.OrgID == orgID {
 			out = append(out, st)
@@ -396,10 +396,10 @@ func (s *streamsRepo) List(_ context.Context, orgID string) ([]streaming.Stream,
 	return out, nil
 }
 
-func (s *streamsRepo) ListByTransportKind(_ context.Context, kind transport.Kind) ([]streaming.Stream, error) {
+func (s *topicsRepo) ListByTransportKind(_ context.Context, kind transport.Kind) ([]streaming.Topic, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]streaming.Stream, 0)
+	out := make([]streaming.Topic, 0)
 	for _, st := range s.rows {
 		if st.Transport.Kind == kind {
 			out = append(out, st)
@@ -414,23 +414,23 @@ func (s *streamsRepo) ListByTransportKind(_ context.Context, kind transport.Kind
 	return out, nil
 }
 
-func (s *streamsRepo) Update(_ context.Context, st streaming.Stream) error {
+func (s *topicsRepo) Update(_ context.Context, st streaming.Topic) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	k := orgKey{OrgID: st.OrganizationID, ID: string(st.ID)}
 	existing, ok := s.rows[k]
 	if !ok {
-		return fmt.Errorf("stream %q in org %q: %w", st.ID, st.OrganizationID, store.ErrNotFound)
+		return fmt.Errorf("topic %q in org %q: %w", st.ID, st.OrganizationID, store.ErrNotFound)
 	}
 	// Re-check the composite (org_id, name) uniqueness when name
-	// changes — mirror the gorm idx_stream_org_name constraint.
+	// changes — mirror the gorm idx_topic_org_name constraint.
 	if st.Name != existing.Name {
 		for k2, ex := range s.rows {
 			if k2 == k {
 				continue
 			}
 			if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
-				return fmt.Errorf("stream name %q already in use in org %q", st.Name, st.OrganizationID)
+				return fmt.Errorf("topic name %q already in use in org %q", st.Name, st.OrganizationID)
 			}
 		}
 	}
@@ -442,20 +442,20 @@ func (s *streamsRepo) Update(_ context.Context, st streaming.Stream) error {
 	return nil
 }
 
-// Delete removes the stream and cascades its subscriptions, matching
-// the gorm store: every worker-anchored row for this stream is dropped
-// so none dangle past the stream row.
-func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.StreamID) error {
+// Delete removes the topic and cascades its subscriptions, matching
+// the gorm store: every worker-anchored row for this topic is dropped
+// so none dangle past the topic row.
+func (s *topicsRepo) Delete(_ context.Context, orgID string, id streaming.TopicID) error {
 	s.mu.Lock()
 	key := orgKey{OrgID: orgID, ID: string(id)}
 	if _, ok := s.rows[key]; !ok {
 		s.mu.Unlock()
-		return fmt.Errorf("stream %q in org %q: %w", id, orgID, store.ErrNotFound)
+		return fmt.Errorf("topic %q in org %q: %w", id, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, key)
 	s.mu.Unlock()
 	if s.subs != nil {
-		s.subs.deleteAllForStream(orgID, id)
+		s.subs.deleteAllForTopic(orgID, id)
 	}
 	return nil
 }
@@ -465,7 +465,7 @@ func (s *streamsRepo) Delete(_ context.Context, orgID string, id streaming.Strea
 type subKey struct {
 	OrgID    string
 	WorkerID string
-	StreamID string
+	TopicID string
 }
 
 type subscriptionsRepo struct {
@@ -476,20 +476,20 @@ type subscriptionsRepo struct {
 func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: sub.OrganizationID, WorkerID: string(sub.WorkerID), StreamID: string(sub.StreamID)}
+	k := subKey{OrgID: sub.OrganizationID, WorkerID: string(sub.WorkerID), TopicID: string(sub.TopicID)}
 	if _, ok := s.rows[k]; ok {
-		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.WorkerID, sub.StreamID, sub.OrganizationID)
+		return fmt.Errorf("subscription %q→%q in org %q: already exists", sub.WorkerID, sub.TopicID, sub.OrganizationID)
 	}
 	s.rows[k] = sub
 	return nil
 }
 
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error {
+func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, WorkerID: string(workerID), TopicID: string(topicID)}
 	if _, ok := s.rows[k]; !ok {
-		return fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
+		return fmt.Errorf("subscription %q→%q in org %q: %w", workerID, topicID, orgID, store.ErrNotFound)
 	}
 	delete(s.rows, k)
 	return nil
@@ -508,27 +508,27 @@ func (s *subscriptionsRepo) deleteAllForWorker(orgID string, workerID orgchart.W
 	}
 }
 
-// deleteAllForStream drops every subscription to the given stream.
-// Used by streamsRepo.Delete to cascade — idempotent, no error when
-// the stream has no subscribers.
-func (s *subscriptionsRepo) deleteAllForStream(orgID string, streamID streaming.StreamID) {
+// deleteAllForTopic drops every subscription to the given topic.
+// Used by topicsRepo.Delete to cascade — idempotent, no error when
+// the topic has no subscribers.
+func (s *subscriptionsRepo) deleteAllForTopic(orgID string, topicID streaming.TopicID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.rows {
-		if k.OrgID == orgID && k.StreamID == string(streamID) {
+		if k.OrgID == orgID && k.TopicID == string(topicID) {
 			delete(s.rows, k)
 		}
 	}
 }
 
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
+func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	k := subKey{OrgID: orgID, WorkerID: string(workerID), StreamID: string(streamID)}
+	k := subKey{OrgID: orgID, WorkerID: string(workerID), TopicID: string(topicID)}
 	if sub, ok := s.rows[k]; ok {
 		return sub, nil
 	}
-	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", workerID, streamID, orgID, store.ErrNotFound)
+	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", workerID, topicID, orgID, store.ErrNotFound)
 }
 
 func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
@@ -540,16 +540,16 @@ func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, worke
 			out = append(out, sub)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StreamID < out[j].StreamID })
+	sort.Slice(out, func(i, j int) bool { return out[i].TopicID < out[j].TopicID })
 	return out, nil
 }
 
-func (s *subscriptionsRepo) ListForStream(_ context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error) {
+func (s *subscriptionsRepo) ListForTopic(_ context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]streaming.Subscription, 0)
 	for k, sub := range s.rows {
-		if k.OrgID == orgID && k.StreamID == string(streamID) {
+		if k.OrgID == orgID && k.TopicID == string(topicID) {
 			out = append(out, sub)
 		}
 	}
@@ -578,14 +578,14 @@ func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
 	return nil
 }
 
-func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error) {
+func (e *eventsRepo) ListForTopic(_ context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make([]streaming.Event, 0)
 	// Newest first.
 	for i := len(e.rows) - 1; i >= 0; i-- {
 		ev := e.rows[i]
-		if ev.OrganizationID != orgID || ev.StreamID != streamID {
+		if ev.OrganizationID != orgID || ev.TopicID != topicID {
 			continue
 		}
 		out = append(out, ev)
@@ -596,8 +596,43 @@ func (e *eventsRepo) ListForStream(_ context.Context, orgID string, streamID str
 	return out, nil
 }
 
+func (e *eventsRepo) PageForTopic(_ context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]streaming.Event, 0)
+	skipped := 0
+	// Newest first, same ordering as ListForTopic.
+	for i := len(e.rows) - 1; i >= 0; i-- {
+		ev := e.rows[i]
+		if ev.OrganizationID != orgID || ev.TopicID != topicID {
+			continue
+		}
+		if offset > 0 && skipped < offset {
+			skipped++
+			continue
+		}
+		out = append(out, ev)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (e *eventsRepo) CountForTopic(_ context.Context, orgID string, topicID streaming.TopicID) (int, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	count := 0
+	for _, ev := range e.rows {
+		if ev.OrganizationID == orgID && ev.TopicID == topicID {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
-	// Match gorm's join semantics: events on streams the worker is
+	// Match gorm's join semantics: events on topics the worker is
 	// subscribed to. Subscriptions are worker-anchored.
 	if e.workers == nil {
 		return nil, errors.New("eventsRepo: workers repo not wired")
@@ -612,16 +647,16 @@ func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID o
 	if err != nil {
 		return nil, err
 	}
-	subscribed := map[streaming.StreamID]bool{}
+	subscribed := map[streaming.TopicID]bool{}
 	for _, sub := range subs {
-		subscribed[sub.StreamID] = true
+		subscribed[sub.TopicID] = true
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make([]streaming.Event, 0)
 	for i := len(e.rows) - 1; i >= 0; i-- {
 		ev := e.rows[i]
-		if ev.OrganizationID != orgID || !subscribed[ev.StreamID] {
+		if ev.OrganizationID != orgID || !subscribed[ev.TopicID] {
 			continue
 		}
 		out = append(out, ev)
@@ -632,17 +667,17 @@ func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID o
 	return out, nil
 }
 
-func (e *eventsRepo) ListSince(_ context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error) {
-	// Empty stream set returns nothing — the caller passed no streams
+func (e *eventsRepo) ListSince(_ context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error) {
+	// Empty topic set returns nothing — the caller passed no topics
 	// to listen on, so there's nothing to return. Matches gorm's
 	// IN ()-on-empty behaviour.
-	if len(streamIDs) == 0 {
+	if len(topicIDs) == 0 {
 		return []streaming.Event{}, nil
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	wanted := map[streaming.StreamID]bool{}
-	for _, s := range streamIDs {
+	wanted := map[streaming.TopicID]bool{}
+	for _, s := range topicIDs {
 		wanted[s] = true
 	}
 	// Find the index of `since`; events strictly after it are
@@ -663,7 +698,7 @@ func (e *eventsRepo) ListSince(_ context.Context, orgID string, streamIDs []stre
 		if ev.OrganizationID != orgID {
 			continue
 		}
-		if !wanted[ev.StreamID] {
+		if !wanted[ev.TopicID] {
 			continue
 		}
 		out = append(out, ev)
@@ -689,44 +724,6 @@ func (e *eventsRepo) ListAll(_ context.Context, orgID string, limit int) ([]stre
 		}
 	}
 	return out, nil
-}
-
-// ---- Environments ------------------------------------------------------
-
-type environmentsRepo struct {
-	mu   sync.RWMutex
-	rows map[orgKey]environment.Environment
-}
-
-func (e *environmentsRepo) Create(_ context.Context, env environment.Environment) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	k := orgKey{OrgID: env.OrganizationID, ID: string(env.WorkerID)}
-	if _, ok := e.rows[k]; ok {
-		return fmt.Errorf("environment for worker %q in org %q: already exists", env.WorkerID, env.OrganizationID)
-	}
-	e.rows[k] = env
-	return nil
-}
-
-func (e *environmentsRepo) Get(_ context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if env, ok := e.rows[orgKey{OrgID: orgID, ID: string(workerID)}]; ok {
-		return env, nil
-	}
-	return environment.Environment{}, fmt.Errorf("environment for worker %q in org %q: %w", workerID, orgID, store.ErrNotFound)
-}
-
-func (e *environmentsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	k := orgKey{OrgID: orgID, ID: string(workerID)}
-	if _, ok := e.rows[k]; !ok {
-		return fmt.Errorf("environment for worker %q in org %q: %w", workerID, orgID, store.ErrNotFound)
-	}
-	delete(e.rows, k)
-	return nil
 }
 
 // ---- Configs -----------------------------------------------------------

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { ServerForkSessionRequest, TypesSession } from '../api/api';
+import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -45,7 +45,7 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false; skipInteractions?: boolean }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false | ((query: any) => number | false); skipInteractions?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const skipInteractions = options?.skipInteractions ?? false
@@ -57,6 +57,14 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean; 
       skipInteractions ? { skipInteractions: '1' } : undefined,
     ),
     enabled: options?.enabled ?? true,
+    // Don't hammer a session we can't read: a 4xx (403 forbidden / 404
+    // gone) is permanent, so retrying it is pointless noise. Other errors
+    // (5xx, network) keep the default retry.
+    retry: (failureCount: number, error: any) => {
+      const status = error?.response?.status
+      if (status >= 400 && status < 500) return false
+      return failureCount < 3
+    },
     refetchInterval: options?.refetchInterval,
     // Prevent immediate refetches when multiple consumers share this query.
     // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
@@ -121,6 +129,28 @@ export function useForkSession(sessionId: string) {
       // Parent transitioned to paused; refresh its session row.
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       // Refresh any session lists so the new child appears.
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+// useSwitchAgent switches the agent framework on the given session IN PLACE —
+// same session, same desktop container. The backend rewrites Zed's config to
+// the new agent, restarts Zed, and repopulates a fresh thread with the prior
+// transcript. Unlike useForkSession, no new session id is created; the session
+// id is unchanged, so callers just refresh the existing session's data.
+//
+// See design/tasks/002111_so-we-recently-added-a/design.md.
+export function useSwitchAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerSwitchAgentRequest) =>
+      apiClient.v1SessionsSwitchAgentCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // The session's agent changed in place; refresh its row + any lists.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
   })

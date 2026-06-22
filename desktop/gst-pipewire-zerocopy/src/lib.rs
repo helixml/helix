@@ -13,6 +13,7 @@ mod gl_blit;
 mod metrics;
 mod pipewire_stream;
 mod pipewiresrc;
+mod sync_timeline;
 
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     pipewiresrc::register(plugin)?;

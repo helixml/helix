@@ -23,7 +23,7 @@ import (
 // Spawner runs an AI Worker's agent process for a single activation
 // and BLOCKS until the process exits. The triggers slice tells the
 // Spawner (and through it, the agent) why this activation is happening
-// — first hire, or one or more events on subscribed Streams that
+// — first hire, or one or more events on subscribed Topics that
 // arrived while a previous activation was running. The Dispatcher
 // coalesces bursts so the slice is usually length 1, but the agent
 // must handle longer slices when traffic queues up.
@@ -34,7 +34,7 @@ import (
 //
 // The zero value — nil — means "no process will be spawned", which
 // is correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, envPath string, triggers []activation.Trigger) error
+type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
 // Worker into wherever that Worker's runtime reads them at activation
@@ -61,7 +61,7 @@ type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID,
 // are safe no-ops — implementations skip the mirror and return nil.
 //
 // Naming: see ADR-0001 §7 — MirrorFile, not PublishFile. "Publish"
-// is reserved for the MCP-tool sense ("append an Event to a Stream").
+// is reserved for the MCP-tool sense ("append an Event to a Topic").
 type WorkspaceSync interface {
 	MirrorFile(ctx context.Context, orgID string, workerID orgchart.WorkerID, name, content, message string) error
 }

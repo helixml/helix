@@ -6,13 +6,13 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// TestEntryStreamTextSettlesOnReplace verifies the core invariant: a
+// TestEntryTopicTextSettlesOnReplace verifies the core invariant: a
 // text entry is held open until its slot is replaced by a different
 // MessageID, then the full accumulated content is emitted.
-func TestEntryStreamTextSettlesOnReplace(t *testing.T) {
+func TestEntryTopicTextSettlesOnReplace(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 
 	// Three append-only patches against the same MessageID.
 	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
@@ -40,12 +40,12 @@ func TestEntryStreamTextSettlesOnReplace(t *testing.T) {
 	}
 }
 
-// TestEntryStreamToolCompletes verifies that a tool_call entry seals
+// TestEntryTopicToolCompletes verifies that a tool_call entry seals
 // when ToolStatus reaches Completed.
-func TestEntryStreamToolCompletes(t *testing.T) {
+func TestEntryTopicToolCompletes(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 
 	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, PatchOffset: 0, ToolName: "fetch", ToolStatus: "In Progress"},
@@ -61,12 +61,12 @@ func TestEntryStreamToolCompletes(t *testing.T) {
 	}
 }
 
-// TestEntryStreamToolFailedEmitsError verifies that ToolStatus=Failed
+// TestEntryTopicToolFailedEmitsError verifies that ToolStatus=Failed
 // produces a tool_result-error rather than tool_result.
-func TestEntryStreamToolFailedEmitsError(t *testing.T) {
+func TestEntryTopicToolFailedEmitsError(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 
 	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: "boom", ToolName: "x", ToolStatus: "In Progress"},
@@ -79,12 +79,12 @@ func TestEntryStreamToolFailedEmitsError(t *testing.T) {
 	}
 }
 
-// TestEntryStreamFlushSealsOpenText verifies Flush emits any open
+// TestEntryTopicFlushSealsOpenText verifies Flush emits any open
 // text entries, e.g. on session terminal state.
-func TestEntryStreamFlushSealsOpenText(t *testing.T) {
+func TestEntryTopicFlushSealsOpenText(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 	s.Apply(types.WebsocketEvent{EntryPatches: []types.EntryPatch{
 		{Index: 0, MessageID: "m1", Type: "text", Patch: "answer", PatchOffset: 0},
 	}})
@@ -94,15 +94,15 @@ func TestEntryStreamFlushSealsOpenText(t *testing.T) {
 	}
 }
 
-// TestEntryStreamSnapshotReplayDoesNotDoubleEmit verifies that
+// TestEntryTopicSnapshotReplayDoesNotDoubleEmit verifies that
 // re-applying the same patches (e.g. a late-joiner snapshot) doesn't
 // duplicate events. The MessageID matches and PatchOffset starts
 // from 0 with full content; the splice clamps so content reaches a
 // stable end-state without producing extra emits.
-func TestEntryStreamSnapshotReplayDoesNotDoubleEmit(t *testing.T) {
+func TestEntryTopicSnapshotReplayDoesNotDoubleEmit(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 	patches := []types.EntryPatch{
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: `{"x":1}`, PatchOffset: 0, ToolName: "fetch", ToolStatus: "In Progress"},
 		{Index: 0, MessageID: "t1", Type: "tool_call", Patch: ` done`, PatchOffset: 7, ToolStatus: "Completed"},
@@ -116,12 +116,12 @@ func TestEntryStreamSnapshotReplayDoesNotDoubleEmit(t *testing.T) {
 	}
 }
 
-// TestEntryStreamInteractionErrorEmitsErrorEvent verifies that an
+// TestEntryTopicInteractionErrorEmitsErrorEvent verifies that an
 // `interaction_update` with State="error" surfaces an error event.
-func TestEntryStreamInteractionErrorEmitsErrorEvent(t *testing.T) {
+func TestEntryTopicInteractionErrorEmitsErrorEvent(t *testing.T) {
 	t.Parallel()
 	var got []Event
-	s := NewEntryStream(func(e Event) { got = append(got, e) })
+	s := NewEntryTopic(func(e Event) { got = append(got, e) })
 	s.Apply(types.WebsocketEvent{Interaction: &types.Interaction{State: "error", Error: "boom"}})
 	if len(got) != 1 || got[0].Kind != EventError || got[0].Text != "boom" {
 		t.Errorf("expected one error event, got %v", got)

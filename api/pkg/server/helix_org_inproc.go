@@ -483,6 +483,9 @@ func (c *inProcHelixClient) StartSession(ctx context.Context, params runtimeheli
 		Provider:       types.Provider(params.Provider),
 		Model:          params.Model,
 		SessionRole:    "exploratory",
+		// Org workers are fully autonomous — nobody is watching to click the
+		// in-chat Restart button — so recover the agent automatically on crash.
+		AutoRestartOnCrash: true,
 		Messages: []*types.Message{{
 			Role:    "user",
 			Content: types.MessageContent{Parts: []any{params.Prompt}},
@@ -509,6 +512,48 @@ func (c *inProcHelixClient) SendMessage(ctx context.Context, sessionID, prompt s
 	}
 	if _, herr := c.server.sendSessionMessage(nil, r); herr != nil {
 		return fmt.Errorf("send session message to %s: %s", sessionID, herr.Error())
+	}
+	return nil
+}
+
+// ClearSession wipes a session's conversation history — and, for a
+// Zed/ACP external-agent session, resets the Zed thread — via the same
+// handler the public POST /sessions/{id}/clear endpoint uses. The
+// spawner calls this before every worker re-activation so each turn
+// starts on a fresh context window instead of growing one long-lived
+// session until it hits the model limit and compacts. Authorization is
+// identical to SendMessage's path (authorizeUserToSession ActionUpdate),
+// so the service/hiring user the activation already runs as is allowed.
+func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("ClearSession: sessionID is required")
+	}
+	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/clear", nil, map[string]string{"id": sessionID})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.clearSessionHandler(nil, r); herr != nil {
+		return fmt.Errorf("clear session %s: %s", sessionID, herr.Error())
+	}
+	return nil
+}
+
+// RestartSession recreates a session's desktop container via the same
+// canonical backend primitive the in-chat restart button uses
+// (POST /sessions/{id}/restart-agent → restartSessionContainer). The
+// worker-page "Restart agent session" button reaches this through the
+// helix-org SessionRestarter port, so both surfaces share one
+// implementation and "restart" cannot diverge.
+func (c *inProcHelixClient) RestartSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("RestartSession: sessionID is required")
+	}
+	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/restart-agent", nil, map[string]string{"id": sessionID})
+	if err != nil {
+		return err
+	}
+	if _, herr := c.server.restartCrashedAgentThread(nil, r); herr != nil {
+		return fmt.Errorf("restart agent session %s: %s", sessionID, herr.Error())
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 // Package github implements helix-org's inbound GitHub webhooks
 // transport. A single HTTP handler at /github/webhook turns every
-// signed delivery into Events on the Streams configured for that
+// signed delivery into Events on the Topics configured for that
 // repo.
 //
 // Server-level configuration lives in the operational config
@@ -11,14 +11,14 @@
 //	  "webhook_secret": "<random hex>"         // HMAC-SHA256 over body
 //	}
 //
-// Streams declare `{"repo":"owner/name","events":[...]}`. The
-// transport HMAC-verifies the delivery, fans it out to every Stream
+// Topics declare `{"repo":"owner/name","events":[...]}`. The
+// transport HMAC-verifies the delivery, fans it out to every Topic
 // whose `repo` matches `payload.repository.full_name` and whose
 // `events` whitelist contains the X-GitHub-Event header value, and
 // builds a canonical Message envelope per the design doc.
 //
 // Outbound is intentionally not supported. Workers act on the repo
-// via `gh` in their Environment; publish to a github stream is
+// via `gh` in their Environment; publish to a github topic is
 // rejected at the publish tool with an explanatory error. See
 // design/github-transport.md.
 package github
@@ -41,10 +41,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 )
 
 // Config is the parsed shape of the operational-config row
@@ -103,7 +103,7 @@ type Transport struct {
 	orgID         string
 	registry      *configregistry.Registry
 	store         *store.Store
-	broadcaster   *streamhub.Hub
+	broadcaster   *wakebus.Bus
 	dispatcher    Dispatcher
 	tokenResolver TokenResolver
 	logger        *slog.Logger
@@ -114,7 +114,7 @@ type Transport struct {
 // dispatcher (for activating subscribed Workers on inbound).
 // dispatcher and broadcaster may be nil for tests that don't
 // exercise those paths.
-func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *streamhub.Hub, d Dispatcher, logger *slog.Logger) *Transport {
+func New(orgID string, reg *configregistry.Registry, st *store.Store, bc *wakebus.Bus, d Dispatcher, logger *slog.Logger) *Transport {
 	return &Transport{
 		orgID:       orgID,
 		registry:    reg,
@@ -227,7 +227,7 @@ func decodeWebhookPayload(contentType string, body []byte) (map[string]any, erro
 
 // HandleInbound is the http.Handler GitHub POSTs each signed
 // delivery to. It HMAC-verifies the body, then fans the parsed
-// payload out to every Stream whose repo + events whitelist
+// payload out to every Topic whose repo + events whitelist
 // matches.
 //
 // Status codes:
@@ -235,7 +235,7 @@ func decodeWebhookPayload(contentType string, body []byte) (map[string]any, erro
 //   - 400 on unparseable body
 //   - 405 on non-POST
 //   - 204 on success (event appended) and on no-op (delivery for a
-//     repo we have no streams for, or for an event type no stream
+//     repo we have no topics for, or for an event type no topic
 //     wants — both 2xx so GitHub stops retrying)
 func (t *Transport) HandleInbound() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -285,19 +285,19 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 
-		// Find every stream this delivery should fan out to.
+		// Find every topic this delivery should fan out to.
 		branch := payloadBranch(eventType, payload)
-		streams, err := t.matchingStreams(r.Context(), repo, eventType, branch)
+		topics, err := t.matchingTopics(r.Context(), repo, eventType, branch)
 		if err != nil {
-			t.logger.Error("github.inbound: match streams", "repo", repo, "err", err)
+			t.logger.Error("github.inbound: match topics", "repo", repo, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if len(streams) == 0 {
-			// Either no Stream is configured for this repo, or none of
+		if len(topics) == 0 {
+			// Either no Topic is configured for this repo, or none of
 			// them want this event type. Log so misconfigurations are
 			// visible; respond 2xx so GitHub stops retrying.
-			t.logger.Info("github.inbound: no matching streams", "repo", repo, "event", eventType, "delivery", deliveryID)
+			t.logger.Info("github.inbound: no matching topics", "repo", repo, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -324,7 +324,7 @@ func (t *Transport) HandleInbound() http.Handler {
 		}
 
 		now := nowUTC()
-		for _, s := range streams {
+		for _, s := range topics {
 			event, err := streaming.NewMessageEvent(
 				streaming.EventID("e-"+uuid.NewString()),
 				s.ID,
@@ -334,11 +334,11 @@ func (t *Transport) HandleInbound() http.Handler {
 				t.orgID,
 			)
 			if err != nil {
-				t.logger.Error("github.inbound: build event", "stream", s.ID, "err", err)
+				t.logger.Error("github.inbound: build event", "topic", s.ID, "err", err)
 				continue
 			}
 			if err := t.store.Events.Append(r.Context(), event); err != nil {
-				t.logger.Error("github.inbound: append", "stream", s.ID, "err", err)
+				t.logger.Error("github.inbound: append", "topic", s.ID, "err", err)
 				continue
 			}
 			if t.broadcaster != nil {
@@ -348,7 +348,7 @@ func (t *Transport) HandleInbound() http.Handler {
 				t.dispatcher.Dispatch(r.Context(), event)
 			}
 			t.logger.Info("github.inbound",
-				"stream", s.ID, "repo", repo, "event", eventType,
+				"topic", s.ID, "repo", repo, "event", eventType,
 				"delivery", deliveryID, "from", msg.From)
 		}
 
@@ -356,17 +356,17 @@ func (t *Transport) HandleInbound() http.Handler {
 	})
 }
 
-// HandleInboundForStream is the per-stream variant of HandleInbound.
+// HandleInboundForTopic is the per-topic variant of HandleInbound.
 // It HMAC-verifies the delivery the same way, but pins fanout to a
-// single Stream identified by streamID rather than scanning every
-// github stream in the org. The stream's own (repo, events)
+// single Topic identified by topicID rather than scanning every
+// github topic in the org. The topic's own (repo, events)
 // configuration still applies — a delivery for the wrong repo or
-// for an event the stream doesn't whitelist returns 204 (dropped)
+// for an event the topic doesn't whitelist returns 204 (dropped)
 // so GitHub stops retrying. Use this handler when you want one
-// GitHub webhook → one helix stream (the recommended setup on the
+// GitHub webhook → one helix topic (the recommended setup on the
 // detail page); the org-level handler stays for fan-out delivery
-// across every matching github stream.
-func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Handler {
+// across every matching github topic.
+func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -374,7 +374,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		}
 		cfg, err := t.config(r.Context())
 		if err != nil {
-			t.logger.Error("github.inbound.stream: config", "err", err)
+			t.logger.Error("github.inbound.topic: config", "err", err)
 			http.Error(w, "transport not configured", http.StatusServiceUnavailable)
 			return
 		}
@@ -384,8 +384,8 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 			return
 		}
 		if !verifySignature(cfg.WebhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
-			t.logger.Warn("github.inbound.stream: bad signature",
-				"stream", streamID,
+			t.logger.Warn("github.inbound.topic: bad signature",
+				"topic", topicID,
 				"delivery", r.Header.Get("X-GitHub-Delivery"),
 				"event", r.Header.Get("X-GitHub-Event"))
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
@@ -393,54 +393,54 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		}
 		payload, err := decodeWebhookPayload(r.Header.Get("Content-Type"), body)
 		if err != nil {
-			t.logger.Warn("github.inbound.stream: decode body", "stream", streamID, "err", err)
+			t.logger.Warn("github.inbound.topic: decode body", "topic", topicID, "err", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		eventType := r.Header.Get("X-GitHub-Event")
 		deliveryID := r.Header.Get("X-GitHub-Delivery")
-		stream, err := t.store.Streams.Get(r.Context(), t.orgID, streamID)
+		topic, err := t.store.Topics.Get(r.Context(), t.orgID, topicID)
 		if err != nil {
-			t.logger.Warn("github.inbound.stream: lookup", "stream", streamID, "err", err)
-			http.Error(w, "stream not found", http.StatusNotFound)
+			t.logger.Warn("github.inbound.topic: lookup", "topic", topicID, "err", err)
+			http.Error(w, "topic not found", http.StatusNotFound)
 			return
 		}
-		if stream.Transport.Kind != transport.KindGitHub {
-			http.Error(w, "stream is not a github transport", http.StatusBadRequest)
+		if topic.Transport.Kind != transport.KindGitHub {
+			http.Error(w, "topic is not a github transport", http.StatusBadRequest)
 			return
 		}
-		streamCfg, err := stream.Transport.GitHubConfig()
+		topicCfg, err := topic.Transport.GitHubConfig()
 		if err != nil {
-			t.logger.Error("github.inbound.stream: parse stream config", "stream", streamID, "err", err)
-			http.Error(w, "stream config invalid", http.StatusInternalServerError)
+			t.logger.Error("github.inbound.topic: parse topic config", "topic", topicID, "err", err)
+			http.Error(w, "topic config invalid", http.StatusInternalServerError)
 			return
 		}
 		repo := repoFullName(payload)
 		if repo == "" {
-			t.logger.Info("github.inbound.stream: no repository in payload",
-				"stream", streamID, "event", eventType, "delivery", deliveryID)
+			t.logger.Info("github.inbound.topic: no repository in payload",
+				"topic", topicID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// Stream-level filters: drop on repo or event-whitelist
+		// Topic-level filters: drop on repo or event-whitelist
 		// mismatch with 204 so GitHub stops retrying. This is the
 		// same drop semantics as the org-level handler.
-		if !repoMatches(streamCfg.Repo, repo) {
-			t.logger.Info("github.inbound.stream: repo mismatch",
-				"stream", streamID, "stream_repo", streamCfg.Repo, "payload_repo", repo,
+		if !repoMatches(topicCfg.Repo, repo) {
+			t.logger.Info("github.inbound.topic: repo mismatch",
+				"topic", topicID, "topic_repo", topicCfg.Repo, "payload_repo", repo,
 				"event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !contains(streamCfg.Events, eventType) {
-			t.logger.Info("github.inbound.stream: event not whitelisted",
-				"stream", streamID, "event", eventType, "delivery", deliveryID)
+		if !contains(topicCfg.Events, eventType) {
+			t.logger.Info("github.inbound.topic: event not whitelisted",
+				"topic", topicID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !branchAllowed(streamCfg.Branches, payloadBranch(eventType, payload)) {
-			t.logger.Info("github.inbound.stream: branch not in filter",
-				"stream", streamID, "event", eventType, "delivery", deliveryID)
+		if !branchAllowed(topicCfg.Branches, payloadBranch(eventType, payload)) {
+			t.logger.Info("github.inbound.topic: branch not in filter",
+				"topic", topicID, "event", eventType, "delivery", deliveryID)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -449,7 +449,7 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		payload["event"] = eventType
 		extraJSON, err := json.Marshal(payload)
 		if err != nil {
-			t.logger.Error("github.inbound.stream: re-marshal", "err", err)
+			t.logger.Error("github.inbound.topic: re-marshal", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -464,53 +464,53 @@ func (t *Transport) HandleInboundForStream(streamID streaming.StreamID) http.Han
 		now := nowUTC()
 		event, err := streaming.NewMessageEvent(
 			streaming.EventID("e-"+uuid.NewString()),
-			stream.ID,
+			topic.ID,
 			"",
 			msg,
 			now,
 			t.orgID,
 		)
 		if err != nil {
-			t.logger.Error("github.inbound.stream: build event", "stream", streamID, "err", err)
+			t.logger.Error("github.inbound.topic: build event", "topic", topicID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if err := t.store.Events.Append(r.Context(), event); err != nil {
-			t.logger.Error("github.inbound.stream: append", "stream", streamID, "err", err)
+			t.logger.Error("github.inbound.topic: append", "topic", topicID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if t.broadcaster != nil {
-			t.broadcaster.Notify(t.orgID, stream.ID)
+			t.broadcaster.Notify(t.orgID, topic.ID)
 		}
 		if t.dispatcher != nil {
 			t.dispatcher.Dispatch(r.Context(), event)
 		}
-		t.logger.Info("github.inbound.stream",
-			"stream", stream.ID, "repo", repo, "event", eventType,
+		t.logger.Info("github.inbound.topic",
+			"topic", topic.ID, "repo", repo, "event", eventType,
 			"delivery", deliveryID, "from", msg.From)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
 
-// matchingStreams returns every github-transport Stream whose repo
+// matchingTopics returns every github-transport Topic whose repo
 // matches `repo` (case-insensitive) and whose events whitelist
 // contains `eventType`. Linear scan is fine at the scale we expect;
 // indexed lookups are an obvious follow-on if installations ever
-// grow many github streams.
-func (t *Transport) matchingStreams(ctx context.Context, repo, eventType, branch string) ([]streaming.Stream, error) {
-	all, err := t.store.Streams.List(ctx, t.orgID)
+// grow many github topics.
+func (t *Transport) matchingTopics(ctx context.Context, repo, eventType, branch string) ([]streaming.Topic, error) {
+	all, err := t.store.Topics.List(ctx, t.orgID)
 	if err != nil {
-		return nil, fmt.Errorf("list streams: %w", err)
+		return nil, fmt.Errorf("list topics: %w", err)
 	}
-	var matched []streaming.Stream
+	var matched []streaming.Topic
 	for _, s := range all {
 		if s.Transport.Kind != transport.KindGitHub {
 			continue
 		}
 		cfg, err := s.Transport.GitHubConfig()
 		if err != nil {
-			t.logger.Warn("github.inbound: stream config parse", "stream", s.ID, "err", err)
+			t.logger.Warn("github.inbound: topic config parse", "topic", s.ID, "err", err)
 			continue
 		}
 		if !repoMatches(cfg.Repo, repo) {
@@ -546,10 +546,10 @@ func payloadBranch(eventType string, payload map[string]any) string {
 	return ""
 }
 
-// branchAllowed reports whether a delivery's branch passes a stream's branch
+// branchAllowed reports whether a delivery's branch passes a topic's branch
 // filter. Patterns are "*" (all branches), an exact name ("main"), or a prefix
 // glob ("release/*"). A non-branch event (branch=="") is unaffected, as is an
-// absent/empty filter (for streams created before this field existed).
+// absent/empty filter (for topics created before this field existed).
 func branchAllowed(patterns []string, branch string) bool {
 	if len(patterns) == 0 || branch == "" {
 		return true
@@ -571,7 +571,7 @@ func branchAllowed(patterns []string, branch string) bool {
 	return false
 }
 
-// repoMatches reports whether a stream's configured repo filter matches a
+// repoMatches reports whether a topic's configured repo filter matches a
 // delivery's repository full_name. Supports:
 //   - exact repo: "owner/name" (case-insensitive)
 //   - org wildcard: "owner/*" matches every repo under that owner — the

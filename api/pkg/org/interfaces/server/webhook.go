@@ -6,40 +6,33 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// nowUTC returns the current wall-clock time in UTC. Kept as a package
-// helper so handlers stay short and the time source is easy to audit.
-func nowUTC() time.Time { return time.Now().UTC() }
-
 // maxWebhookBody caps the body size we'll accept on a webhook POST.
 // 1 MiB is comfortable for text payloads and prevents an obvious DoS.
 const maxWebhookBody = 1 << 20
 
-// webhookHandler accepts inbound POSTs on /webhooks/<streamID> and
-// turns each request body into an Event on that Stream. The Stream
+// webhookHandler accepts inbound POSTs on /webhooks/<topicID> and
+// turns each request body into an Event on that Topic. The Topic
 // must exist and have transport.kind == webhook; otherwise 404.
 //
 // Source attribution on the resulting Event is empty (system-emitted,
 // per streaming.NewEvent's contract). The dispatcher is invoked so AI
-// Workers subscribed to the Stream are activated; the broadcaster is
+// Workers subscribed to the Topic are activated; the broadcaster is
 // notified so any long-poll observer wakes.
 func (s *Server) webhookHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		streamID := streaming.StreamID(r.PathValue("streamID"))
-		if streamID == "" {
-			http.Error(w, "missing streamID", http.StatusNotFound)
+		topicID := streaming.TopicID(r.PathValue("topicID"))
+		if topicID == "" {
+			http.Error(w, "missing topicID", http.StatusNotFound)
 			return
 		}
-		// Webhook URL shape: /webhooks/{org}/{streamID}. The org segment
-		// is required under composite (id, org_id) PKs — stream IDs are
+		// Webhook URL shape: /webhooks/{org}/{topicID}. The org segment
+		// is required under composite (id, org_id) PKs — topic IDs are
 		// not globally unique across helix tenants.
 		orgID := r.PathValue("org")
 		if orgID == "" {
@@ -50,18 +43,18 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		stream, err := s.store.Streams.Get(r.Context(), orgID, streamID)
+		topic, err := s.queries.GetTopic(r.Context(), orgID, topicID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				http.Error(w, fmt.Sprintf("stream %q: not found", streamID), http.StatusNotFound)
+				http.Error(w, fmt.Sprintf("topic %q: not found", topicID), http.StatusNotFound)
 				return
 			}
-			s.logger.Error("webhook: lookup stream", "stream", streamID, "err", err)
+			s.logger.Error("webhook: lookup topic", "topic", topicID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if stream.Transport.Kind != transport.KindWebhook {
-			http.Error(w, fmt.Sprintf("stream %q is not a webhook stream", streamID), http.StatusNotFound)
+		if topic.Transport.Kind != transport.KindWebhook {
+			http.Error(w, fmt.Sprintf("topic %q is not a webhook topic", topicID), http.StatusNotFound)
 			return
 		}
 
@@ -75,38 +68,25 @@ func (s *Server) webhookHandler() http.Handler {
 			return
 		}
 
-		// Wrap the inbound bytes into the canonical Message envelope.
+		if s.publishing == nil {
+			s.logger.Error("webhook: publishing service not wired", "topic", topicID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Append → notify → dispatch through the publishing service.
 		// From is empty — webhook callers are arbitrary external systems
 		// with no helix Worker identity; routing decisions about "who
 		// sent this" belong in the receiving Role's prompt.
-		event, err := streaming.NewMessageEvent(
-			streaming.EventID("e-"+uuid.NewString()),
-			streamID,
-			"", // system-emitted; webhooks have no Worker source
-			streaming.Message{Body: string(body)},
-			nowUTC(),
-			orgID,
-		)
+		event, err := s.publishing.Publish(r.Context(), orgID, topicID, "", streaming.Message{Body: string(body)})
 		if err != nil {
-			http.Error(w, "build event: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := s.store.Events.Append(r.Context(), event); err != nil {
-			s.logger.Error("webhook: append event", "stream", streamID, "err", err)
+			s.logger.Error("webhook: publish event", "topic", topicID, "err", err)
 			http.Error(w, "append event", http.StatusInternalServerError)
 			return
 		}
 
-		if s.broadcaster != nil {
-			s.broadcaster.Notify(orgID, streamID)
-		}
-		if s.dispatcher != nil {
-			s.dispatcher.Dispatch(r.Context(), event)
-		}
-
 		ack, _ := json.Marshal(map[string]string{
 			"id":       string(event.ID),
-			"streamId": string(streamID),
+			"topicId": string(topicID),
 		})
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(ack)

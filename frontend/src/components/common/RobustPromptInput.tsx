@@ -205,12 +205,27 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   // and Claude Agent process. Detected by error_message marker (authoritative)
   // rather than nextRetryAt timestamp comparison so the UI reacts immediately
   // even before the polled prompt sync lands the new next_retry_at value.
+  // Authoritative crash signal: the backend's MarkPromptAsCrashed pins
+  // next_retry_at to a far-future sentinel (year 9999) to suppress auto-retry.
+  // Detecting that is robust to the many transport/wrapper error wordings a wedged
+  // or dead agent connection produces ("ede_diagnostic …", "response channel
+  // cancelled", "send failed because receiver is gone", …) — we don't have to
+  // enumerate them. See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
+  const crashedBySentinel = isFailed && !!entry.nextRetryAt && entry.nextRetryAt > Date.now() + ONE_YEAR_MS
+  // Fast-path string markers (kept in sync with the backend agentCrashErrorMarkers)
+  // so the Restart affordance can render on the first failure, before the crashed
+  // next_retry_at sentinel has synced to the client.
   const crashedErrorMarkers = [
     'Claude Agent process exited',
     'Session not found',
+    'ede_diagnostic',
+    'response channel cancelled',
+    'receiver is gone',
   ]
-  const isCrashed = isFailed && !!entry.errorMessage &&
+  const crashedByMarker = isFailed && !!entry.errorMessage &&
     crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const isCrashed = crashedBySentinel || crashedByMarker
   const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
     transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
   const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
@@ -581,6 +596,22 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
 
+  // Canonical "still actionable in the queue" list, failed-first. Computed in ONE
+  // place so every consumer — queue display, the interrupt toggle, the empty-Enter
+  // interrupt-promotion, the client-side pump — operates on the SAME set.
+  // Previously each site recomputed [...failedPrompts, ...pendingPrompts]
+  // independently, and the promotion path diverged to pendingPrompts-only — so it
+  // silently skipped a prompt the instant the backend deferred it to 'failed'
+  // (which a long current turn does almost immediately).
+  //
+  // We exclude 'sending' (backend has dispatched to Zed, awaiting first
+  // message_added): once a message is in flight it can't be promoted/toggled, and
+  // showing it in the queue until the *next* sync flips it to 'sent' is the lag
+  // that makes a just-sent prompt linger. Dropping 'sending' hides it optimistically
+  // the moment dispatch is confirmed; if it later bounces it returns via 'failed'.
+  // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+  const queuedPrompts = [...failedPrompts, ...pendingPrompts].filter(p => p.status !== 'sending')
+
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
 
@@ -606,7 +637,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     if (processingRef.current || !isOnline || disabled) return
 
     // Interrupt-mode messages first, then queue-mode, each oldest-first.
-    const sortedQueue = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+    const sortedQueue = [...queuedPrompts].sort((a, b) => {
       const aInterrupt = a.interrupt !== false
       const bInterrupt = b.interrupt !== false
       if (aInterrupt && !bInterrupt) return -1
@@ -644,7 +675,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       setSendingId(null)
       processingRef.current = false
     }
-  }, [backendQueueEnabled, isOnline, disabled, failedPrompts, pendingPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+  }, [backendQueueEnabled, isOnline, disabled, queuedPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
 
   // Pump the queue when messages are pending and we're online.
   useEffect(() => {
@@ -735,7 +766,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [draft, adjustHeight])
 
   // Notify parent when queue changes (affects overall height)
-  const queueLength = pendingPrompts.length + failedPrompts.length
+  const queueLength = queuedPrompts.length
   useEffect(() => {
     if (onHeightChange) {
       // Small delay to allow Collapse animation to start
@@ -805,11 +836,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Toggle interrupt mode for a queued message
   const handleToggleInterrupt = useCallback((entryId: string) => {
-    const entry = [...failedPrompts, ...pendingPrompts].find(e => e.id === entryId)
+    const entry = queuedPrompts.find(e => e.id === entryId)
     if (entry) {
       updateInterrupt(entryId, entry.interrupt === false)
     }
-  }, [failedPrompts, pendingPrompts, updateInterrupt])
+  }, [queuedPrompts, updateInterrupt])
 
   // Restart Zed thread after a Claude Agent crash. Calls the backend endpoint
   // which clears the dead acp_thread_id and resets crashed prompts back to
@@ -923,7 +954,10 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
       if (!content && attachments.length === 0) {
         if (disabled) return
-        const candidates = pendingPrompts.filter(p =>
+        // Promote the most-recent NON-interrupt queued message to interrupt.
+        // Scans queuedPrompts (failed + pending) so a deferred message — the one
+        // the user is actually trying to escalate — is still a candidate.
+        const candidates = queuedPrompts.filter(p =>
           p.interrupt === false &&
           !p.deleted &&
           p.id !== sendingId &&
@@ -983,7 +1017,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, pendingPrompts, updateInterrupt, sendingId, editingId])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, queuedPrompts, updateInterrupt, sendingId, editingId])
 
   // Add a file as an attachment (queues for upload, uploads if online)
   const addFileAsAttachment = useCallback((file: File): string => {
@@ -1204,7 +1238,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }
 
   // All queued messages (pending + failed), sorted: interrupt mode first, then queue mode
-  const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+  const queuedMessages = [...queuedPrompts].sort((a, b) => {
     // Interrupt mode (true or undefined) comes first
     const aInterrupt = a.interrupt !== false
     const bInterrupt = b.interrupt !== false

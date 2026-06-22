@@ -16,13 +16,13 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 )
 
 // caught is one POST observed by the test catcher.
@@ -93,6 +93,10 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(s, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Register the real webhook outbound emitter so these tests exercise
+	// the dispatch→webhook wiring end-to-end. The HTTP-mechanics edge
+	// cases live in the webhook package's own tests.
+	d.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	return d, s
 }
 
@@ -109,7 +113,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -162,22 +166,15 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	env, err := environment.New(workerID, t.TempDir(), now, "org-test")
-	if err != nil {
-		t.Fatalf("new env: %v", err)
-	}
-	if err := s.Environments.Create(ctx, env); err != nil {
-		t.Fatalf("create env: %v", err)
-	}
 }
 
-// seedSubscription persists a Worker→Stream subscription.
-func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, streamID streaming.StreamID) {
+// seedSubscription persists a Worker→Topic subscription.
+func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, topicID streaming.TopicID) {
 	t.Helper()
 	if _, err := s.Workers.Get(context.Background(), "org-test", workerID); err != nil {
 		t.Fatalf("get worker %q for subscription: %v", workerID, err)
 	}
-	sub, err := streaming.NewSubscription(string(workerID), streamID, time.Now().UTC(), "org-test")
+	sub, err := streaming.NewSubscription(string(workerID), topicID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
@@ -186,16 +183,16 @@ func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, 
 	}
 }
 
-// seedWebhookStream creates a Stream of the given Transport and returns
+// seedWebhookTopic creates a Topic of the given Transport and returns
 // its ID.
-func seedWebhookStream(t *testing.T, s *store.Store, id streaming.StreamID, transport transport.Transport) {
+func seedWebhookTopic(t *testing.T, s *store.Store, id streaming.TopicID, transport transport.Transport) {
 	t.Helper()
-	stream, err := streaming.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
+	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := s.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := s.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 }
 
@@ -208,25 +205,25 @@ var eventCounter atomic.Uint64
 // header-safe ID. Source is set to a non-empty sentinel so emit
 // runs (events with empty Source are treated as inbound and skipped
 // by the dispatcher to avoid echo loops).
-func makeEvent(t *testing.T, streamID streaming.StreamID, body string) streaming.Event {
+func makeEvent(t *testing.T, topicID streaming.TopicID, body string) streaming.Event {
 	t.Helper()
-	id := streaming.EventID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
-	e, err := streaming.NewEvent(id, streamID, "w-test", body, time.Now().UTC(), "org-test")
+	id := streaming.EventID(fmt.Sprintf("e-%s-%d", topicID, eventCounter.Add(1)))
+	e, err := streaming.NewEvent(id, topicID, "w-test", body, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}
 	return e
 }
 
-// TestDispatchEmitsOutbound is the happy path: a webhook stream with
+// TestDispatchEmitsOutbound is the happy path: a webhook topic with
 // an outbound_url POSTs the event body to the catcher when Dispatch
-// runs. Headers identify the source stream and event.
+// runs. Headers identify the source topic and event.
 func TestDispatchEmitsOutbound(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-out", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-out", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	e := makeEvent(t, "s-out", "hello world")
 	d.Dispatch(context.Background(), e)
@@ -238,48 +235,48 @@ func TestDispatchEmitsOutbound(t *testing.T) {
 	if got.method != http.MethodPost {
 		t.Fatalf("method = %q, want POST", got.method)
 	}
-	if h := got.headers.Get("X-Helix-Stream"); h != "s-out" {
-		t.Fatalf("X-Helix-Stream = %q", h)
+	if h := got.headers.Get("X-Helix-Topic"); h != "s-out" {
+		t.Fatalf("X-Helix-Topic = %q", h)
 	}
 	if h := got.headers.Get("X-Helix-Event"); h == "" {
 		t.Fatalf("X-Helix-Event missing")
 	}
 }
 
-// TestDispatchSkipsLocalStream proves a TransportLocal stream emits
-// nothing — local streams stay local even when the catcher exists.
-func TestDispatchSkipsLocalStream(t *testing.T) {
+// TestDispatchSkipsLocalTopic proves a TransportLocal topic emits
+// nothing — local topics stay local even when the catcher exists.
+func TestDispatchSkipsLocalTopic(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-local", transport.LocalTransport())
+	seedWebhookTopic(t, s, "s-local", transport.LocalTransport())
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-local", "should not leave"))
 	c.expectNone(t, 200*time.Millisecond)
 }
 
 // TestDispatchSkipsWebhookWithoutURL proves an inbound-only webhook
-// stream — same Kind but no outbound_url — does not emit. This is the
+// topic — same Kind but no outbound_url — does not emit. This is the
 // existing inbound demo behaviour: still works after we added emit.
 func TestDispatchSkipsWebhookWithoutURL(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-inbox", transport.Transport{Kind: transport.KindWebhook})
+	seedWebhookTopic(t, s, "s-inbox", transport.Transport{Kind: transport.KindWebhook})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-inbox", "inbound only"))
 	c.expectNone(t, 200*time.Millisecond)
 }
 
-// TestDispatchHandlesMissingStream proves a publish on a stream that
+// TestDispatchHandlesMissingTopic proves a publish on a topic that
 // has been deleted (or never existed) doesn't panic — the dispatcher
 // silently no-ops.
-func TestDispatchHandlesMissingStream(t *testing.T) {
+func TestDispatchHandlesMissingTopic(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, _ := newDispatcher(t)
 
-	// No stream seeded. Just dispatch.
+	// No topic seeded. Just dispatch.
 	d.Dispatch(context.Background(), makeEvent(t, "s-ghost", "vanished"))
 	c.expectNone(t, 100*time.Millisecond)
 }
@@ -292,7 +289,7 @@ func TestDispatchTolerates5xx(t *testing.T) {
 	c.status.Store(http.StatusInternalServerError)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-flaky", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-flaky", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-flaky", "boom"))
 
@@ -320,7 +317,7 @@ func TestDispatchTolerates4xx(t *testing.T) {
 	c.status.Store(http.StatusBadRequest)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-rejecty", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-rejecty", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-rejecty", "nope"))
 	got := c.waitFor(t, 2*time.Second)
@@ -332,16 +329,18 @@ func TestDispatchTolerates4xx(t *testing.T) {
 // TestDispatchTolerates_UnreachableHost proves an unreachable target
 // (port closed) is logged-and-dropped with a bounded timeout — the
 // dispatcher returns immediately, and a follow-up dispatch on a
-// healthy stream still works.
+// healthy topic still works.
 func TestDispatchTolerates_UnreachableHost(t *testing.T) {
 	t.Parallel()
 	d, s := newDispatcher(t)
 	// 127.0.0.1:1 is reserved and reliably refuses connections.
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: "http://127.0.0.1:1/dead"})
-	seedWebhookStream(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Use a tiny client timeout so the test runs fast.
-	d.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 200 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-dead", "void"))
@@ -363,8 +362,10 @@ func TestDispatchHonoursClientTimeout(t *testing.T) {
 	c.delay.Store(int64(2 * time.Second)) // longer than the client timeout
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
-	d.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	seedWebhookTopic(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
+	d.RegisterOutbound(transport.KindWebhook, e)
 
 	start := time.Now()
 	d.Dispatch(context.Background(), makeEvent(t, "s-slow", "patience"))
@@ -383,7 +384,7 @@ func TestDispatchConcurrent(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-stress", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-stress", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	const n = 25
 	var wg sync.WaitGroup
@@ -416,7 +417,7 @@ func TestDispatchBinaryPayload(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-bin", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-bin", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	body := "líne 1 — α β γ\n\x00\nemoji: 🚀"
 	d.Dispatch(context.Background(), makeEvent(t, "s-bin", body))
@@ -428,22 +429,22 @@ func TestDispatchBinaryPayload(t *testing.T) {
 
 // TestDispatchInvalidStoredConfigDoesNotCrash exercises the defensive
 // path where transport.Config is malformed at runtime (impossible via
-// the normal NewStream path, since Validate rejects it — but a manual
+// the normal NewTopic path, since Validate rejects it — but a manual
 // DB edit could create it). The dispatcher logs and continues.
 func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
 	t.Parallel()
 	d, s := newDispatcher(t)
-	// Bypass NewStream's Validate by inserting the malformed Stream
+	// Bypass NewTopic's Validate by inserting the malformed Topic
 	// directly through the store.
-	bogus := streaming.Stream{
+	bogus := streaming.Topic{
 		ID:        "s-bogus",
 		Name:      "bogus",
 		CreatedBy: "w-owner",
 		CreatedAt: time.Now().UTC(),
 		Transport: transport.Transport{Kind: transport.KindWebhook, Config: []byte(`{not valid`)},
 	}
-	if err := s.Streams.Create(context.Background(), bogus); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := s.Topics.Create(context.Background(), bogus); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-bogus", "ignored"))
@@ -451,7 +452,7 @@ func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
 }
 
 // TestDispatchRespectsStoreLookupErrors proves a store that errors on
-// Streams.Get (rather than returning ErrNotFound) is handled — the
+// Topics.Get (rather than returning ErrNotFound) is handled — the
 // dispatcher logs and returns; downstream subscriber fan-out still
 // works for the next event.
 func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
@@ -459,9 +460,9 @@ func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-ok", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-ok", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
-	// Dispatch on a missing stream first — should noop without affecting
+	// Dispatch on a missing topic first — should noop without affecting
 	// the next dispatch.
 	d.Dispatch(context.Background(), makeEvent(t, "s-missing", "lost"))
 	c.expectNone(t, 100*time.Millisecond)
@@ -476,27 +477,27 @@ func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
 
 // TestDispatchContentTypeAndPath proves the outbound POST hits the
 // configured path and uses a generic content-type — the body is opaque
-// so application/octet-stream is the safest default.
+// so application/octet-topic is the safest default.
 func TestDispatchContentTypeAndPath(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	// URL with a path so we can verify it's preserved.
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL() + "/some/where"})
-	seedWebhookStream(t, s, "s-path", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-path", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-path", "x"))
 	got := c.waitFor(t, 2*time.Second)
 	if got.path != "/some/where" {
 		t.Fatalf("path = %q, want /some/where", got.path)
 	}
-	if ct := got.headers.Get("Content-Type"); ct != "application/octet-stream" {
+	if ct := got.headers.Get("Content-Type"); ct != "application/octet-topic" {
 		t.Fatalf("Content-Type = %q", ct)
 	}
 }
 
 // TestDispatchSkipsPublisher pins the rule that an AI Worker which
-// publishes to a Stream they themselves are subscribed to is NOT
+// publishes to a Topic they themselves are subscribed to is NOT
 // re-activated on their own event. This is the cheapest available
 // brake on broadcast cascades — without it, a single publish would
 // activate the publisher in a loop. Other subscribers are still
@@ -504,7 +505,7 @@ func TestDispatchContentTypeAndPath(t *testing.T) {
 func TestDispatchSkipsPublisher(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-publisher", "s-team")
@@ -541,7 +542,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 func TestDispatchAttachesSourceKind(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-other", "s-team")
@@ -572,18 +573,18 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 	}
 }
 
-// TestDispatchCoalescesEvents pins the cost-saving rule that drove this
-// design: while one activation is in flight for a Worker, any further
-// events that arrive on Streams that Worker subscribes to are
-// appended to a per-Worker queue and delivered to the Spawner as one
-// batched activation when the current one finishes — not five
-// separate fresh-claude runs.
+// TestDispatchDeliversEventsOneAtATime pins the context-bounding rule
+// that drove this design: while one activation is in flight for a
+// Worker, any further events that arrive on Topics that Worker
+// subscribes to are appended to a per-Worker queue and delivered to
+// the Spawner one trigger per activation, in arrival order — never
+// folded into one oversized batch that would blow the Worker's context
+// budget.
 //
 // Shape of the test: the spawner blocks on the very first call so we
 // can publish more events behind it, then we release it and assert
-// the second Spawner call receives all the events that queued during
-// the block as one slice.
-func TestDispatchCoalescesEvents(t *testing.T) {
+// each queued event drains in its own Spawner call, FIFO.
+func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -596,7 +597,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, _ string, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -611,7 +612,7 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-eng")
 	seedSubscription(t, s, "w-eng", "s-team")
 
@@ -635,9 +636,9 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	publish("e-1", "first")
 	<-started
 
-	// Three more events while activation #1 is held. These should NOT
-	// each trigger a fresh Spawner call — they should pool in the queue
-	// and be drained as one batch when activation #1 returns.
+	// Three more events while activation #1 is held. Each should drain
+	// in its own Spawner call once activation #1 returns — never pooled
+	// into one batch.
 	publish("e-2", "two")
 	publish("e-3", "three")
 	publish("e-4", "four")
@@ -647,41 +648,38 @@ func TestDispatchCoalescesEvents(t *testing.T) {
 	// goroutines that resolve subs/env can still be in flight.
 	time.Sleep(100 * time.Millisecond)
 
-	// Release the first activation; the runner now drains the batch.
+	// Release the first activation; the runner now drains the queue one
+	// trigger at a time.
 	close(release)
 
-	// Two Spawner calls total: one with [e-1], one with [e-2, e-3, e-4].
-	a1 := waitForActivation(t, rec, 2*time.Second)
-	a2 := waitForActivation(t, rec, 2*time.Second)
-
-	if len(a1.Triggers) != 1 || a1.Triggers[0].EventID != "e-1" {
-		t.Fatalf("activation #1 = %d trigger(s) %+v, want [e-1]", len(a1.Triggers), eventIDs(a1.Triggers))
-	}
-	if len(a2.Triggers) != 3 {
-		t.Fatalf("activation #2 = %d triggers %+v, want 3", len(a2.Triggers), eventIDs(a2.Triggers))
-	}
-	wantIDs := []streaming.EventID{"e-2", "e-3", "e-4"}
+	// Four Spawner calls total, each carrying a single event in FIFO
+	// order: [e-1], [e-2], [e-3], [e-4].
+	wantIDs := []streaming.EventID{"e-1", "e-2", "e-3", "e-4"}
 	for i, want := range wantIDs {
-		if a2.Triggers[i].EventID != want {
-			t.Fatalf("activation #2 trigger order = %+v, want %+v", eventIDs(a2.Triggers), wantIDs)
+		a := waitForActivation(t, rec, 2*time.Second)
+		if len(a.Triggers) != 1 {
+			t.Fatalf("activation #%d = %d triggers %+v, want exactly 1", i+1, len(a.Triggers), eventIDs(a.Triggers))
+		}
+		if a.Triggers[0].EventID != want {
+			t.Fatalf("activation #%d event = %q, want %q (FIFO order broken)", i+1, a.Triggers[0].EventID, want)
 		}
 	}
 
-	// And no third activation is fired — the runner exits cleanly when
+	// And no fifth activation is fired — the runner exits cleanly when
 	// the queue drains.
 	select {
 	case extra := <-rec:
-		t.Fatalf("unexpected third activation: %+v", extra)
+		t.Fatalf("unexpected fifth activation: %+v", extra)
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("Spawner calls = %d, want 2", got)
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("Spawner calls = %d, want 4 (one per event)", got)
 	}
 }
 
 // waitForActivation pulls one recordedActivation off rec or fails the
-// test on timeout. Centralised so the coalescing test reads cleanly.
+// test on timeout. Centralised so the one-at-a-time test reads cleanly.
 func waitForActivation(t *testing.T, rec <-chan recordedActivation, timeout time.Duration) recordedActivation {
 	t.Helper()
 	select {
@@ -713,7 +711,7 @@ func eventIDs(ts []activation.Trigger) []streaming.EventID {
 func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-listener")
 	seedSubscription(t, s, "w-listener", "s-bad")
 

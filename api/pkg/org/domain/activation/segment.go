@@ -6,7 +6,7 @@ import (
 )
 
 // SegmentKind enumerates the variants of activation-transcript line.
-// The wire format is the prefix before ": " on the published Stream
+// The wire format is the prefix before ": " on the published Topic
 // event body — every consumer matches on this prefix to render
 // (chat UI) or summarise (worker_log).
 type SegmentKind string
@@ -30,7 +30,7 @@ const (
 	SegmentError SegmentKind = "error"
 
 	// SegmentUser is a user-bubble line. Emitted by the owner-chat
-	// path so the human's turns appear on s-activations-w-owner
+	// path so the human's turns appear on s-transcript-w-owner
 	// alongside the assistant's.
 	SegmentUser SegmentKind = "user"
 )
@@ -43,7 +43,7 @@ const (
 const segmentBodyLimit = 500
 
 // TranscriptSegment is one settled line on a Worker's activation
-// transcript Stream — assistant text, tool call, tool result, etc.
+// transcript Topic — assistant text, tool call, tool result, etc.
 // It is the typed shape that replaces the historical "prefix: body"
 // strings invented per-emitter (`assistant: …`, `tool_use foo: …`).
 // Writers build a segment and call Marker(); readers do the inverse

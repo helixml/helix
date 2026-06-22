@@ -8,46 +8,88 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
 // newDeps builds a fresh in-memory store + config registry + hub for
-// one test. The registry has no specs registered — individual tests
-// add the ones they need.
+// one test, with all application services constructed over them (the
+// Phase-D shape: the REST adapter holds services, not the store). The
+// registry has no specs registered — individual tests add the ones they
+// need.
 func newDeps(t *testing.T) (orgapi.Deps, *store.Store, *configregistry.Registry) {
+	return newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { return "test-id" },
+	)
+}
+
+// newDepsClock is newDeps with an explicit clock + id-generator so
+// parity tests can pin deterministic store state across both adapters.
+func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (orgapi.Deps, *store.Store, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("new in-memory nats: %v", err)
 	}
-	hub := streamhub.New(ps)
+	hub := wakebus.New(ps)
 	reg := configregistry.New(st.Configs)
+	topo := reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: clock})
+
+	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: clock, NewID: newID, BaseTools: mcptools.BaseReadTools})
 
 	deps := orgapi.Deps{
-		Store:    st,
-		Configs:  reg,
-		Hub:      hub,
-		Owner:    "w-owner",
-		Topology: &topology.Reconciler{Store: st},
-		NewID:    func() string { return "test-id" },
-		Now:      func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		Topics: topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
+		Roles:   rolesSvc,
+		Workers: workers.New(workers.Deps{
+			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: topo,
+		}),
+		// Hire + Fire live on the lifecycle service. EnvsDir/Now/NewID
+		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
+		// tests don't exercise the Helix-side teardown.
+		Lifecycle: &lifecycle.Service{
+			Store: st, Reconciler: topo,
+			Now: clock, NewID: newID,
+		},
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Workers: st.Workers, Now: clock}),
+		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: hub, Now: clock, NewID: newID}),
+		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Activations:   activations.New(activations.Deps{Repo: st.Activations, Now: clock, NewID: newID}),
+		Processors: processors.New(processors.Deps{
+			Processors: st.Processors,
+			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
+			Now:        clock, NewID: newID,
+		}),
+		Configs: reg,
+		Hub:     hub,
 	}
 	return deps, st, reg
 }
@@ -150,7 +192,7 @@ func TestGetSettings_RedactsSecretValues(t *testing.T) {
 	h := orgapi.Handler(deps)
 
 	rawValue := `{"token":"sekrit-XXXX","from":"ops@example.com"}`
-	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue, orgchart.WorkerID("w-owner")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", rawValue); err != nil {
 		t.Fatalf("set value: %v", err)
 	}
 
@@ -358,8 +400,8 @@ func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, 
 }
 
 // TestPostGitHubWebhook_RoutesToInboundHandler pins the regression
-// behind "GitHub streams created but never receive anything": the
-// streams API accepts kind=github and the inbound transport handler
+// behind "GitHub topics created but never receive anything": the
+// topics API accepts kind=github and the inbound transport handler
 // exists in infrastructure/transports/github, but the route was
 // never wired into the org-scoped API mux. POSTing a properly-signed
 // GitHub delivery to /github/webhook used to 404; tail the API logs
@@ -367,7 +409,7 @@ func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, 
 // misconfigured when in fact helix was deaf to it.
 //
 // Set up: configure transport.github with a webhook_secret + token,
-// seed a github-kind Stream for repo "owner/name" listening for
+// seed a github-kind Topic for repo "owner/name" listening for
 // `issues`, sign a body with that secret, POST it. Expect 204 (the
 // transport's success status for "event appended"), not 404.
 func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
@@ -390,21 +432,28 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 		repo          = "octocat/hello-world"
 	)
 	rawCfg, _ := json.Marshal(map[string]any{"token": token, "webhook_secret": webhookSecret})
-	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(ctx, "org-test", "transport.github", string(rawCfg)); err != nil {
 		t.Fatalf("set transport.github: %v", err)
 	}
-	streamCfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"issues"}})
-	stream, err := streaming.NewStream(
-		streaming.StreamID("s-gh-issues"), "issues", "",
+	topicCfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"issues"}})
+	topic, err := streaming.NewTopic(
+		streaming.TopicID("s-gh-issues"), "issues", "",
 		"w-owner", time.Now().UTC(),
-		transport.Transport{Kind: transport.KindGitHub, Config: streamCfg},
+		transport.Transport{Kind: transport.KindGitHub, Config: topicCfg},
 		"org-test",
 	)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("seed stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("seed topic: %v", err)
+	}
+
+	// Wire the inbound github handler the way the composition root does:
+	// a per-org transport built over the store. (In production this is
+	// constructed in helix_org.go; the api adapter only serves it.)
+	deps.GitHubInbound = func(orgID string) http.Handler {
+		return githubtransport.New(orgID, reg, st, nil, nil, slog.Default()).HandleInbound()
 	}
 
 	h := orgapi.Handler(deps)
@@ -432,7 +481,7 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 		t.Fatalf("status: got 404 — github webhook route not mounted on org-scoped mux")
 	}
 	// Any 2xx is acceptable: the transport returns 204 on success,
-	// 200 on no-op (no streams). We're only asserting the route
+	// 200 on no-op (no topics). We're only asserting the route
 	// dispatches — semantic correctness of the transport itself is
 	// covered by its own tests.
 	if rec.Code < 200 || rec.Code >= 300 {
@@ -440,28 +489,28 @@ func TestPostGitHubWebhook_RoutesToInboundHandler(t *testing.T) {
 	}
 }
 
-// TestGetStream_IncludesRecentEvents pins the contract the stream
-// detail page depends on: GET /streams/{id} carries a `recent_events`
-// array of the most recent events on that stream, newest first.
-// Without this the per-stream "messages flowing through" view would
+// TestGetTopic_IncludesRecentEvents pins the contract the topic
+// detail page depends on: GET /topics/{id} carries a `recent_events`
+// array of the most recent events on that topic, newest first.
+// Without this the per-topic "messages flowing through" view would
 // have nothing to render on first paint and would have to wait for an
 // SSE frame before showing anything.
-func TestGetStream_IncludesRecentEvents(t *testing.T) {
+func TestGetTopic_IncludesRecentEvents(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
 
 	cfg, _ := json.Marshal(map[string]any{})
-	stream, err := streaming.NewStream(
-		streaming.StreamID("s-newsfeed"), "newsfeed", "",
+	topic, err := streaming.NewTopic(
+		streaming.TopicID("s-newsfeed"), "newsfeed", "",
 		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
 		transport.Transport{Kind: transport.KindLocal, Config: cfg},
 		"org-test",
 	)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 
 	// Append two events; the API must surface both in recent_events.
@@ -471,7 +520,7 @@ func TestGetStream_IncludesRecentEvents(t *testing.T) {
 	} {
 		ev, err := streaming.NewEvent(
 			streaming.EventID(fmt.Sprintf("e-%d", i)),
-			streaming.StreamID("s-newsfeed"),
+			streaming.TopicID("s-newsfeed"),
 			"w-owner",
 			body,
 			time.Date(2026, 5, 22, 12, i, 0, 0, time.UTC),
@@ -486,11 +535,11 @@ func TestGetStream_IncludesRecentEvents(t *testing.T) {
 	}
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "GET", "/streams/s-newsfeed", nil)
+	rec := do(t, h, "GET", "/topics/s-newsfeed", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
-	var got orgapi.StreamDTO
+	var got orgapi.TopicDTO
 	decode(t, rec, &got)
 	if got.ID != "s-newsfeed" {
 		t.Errorf("id: got %q, want s-newsfeed", got.ID)
@@ -513,107 +562,107 @@ func TestGetStream_IncludesRecentEvents(t *testing.T) {
 	}
 }
 
-// seedGithubStream is a per-file helper for the
-// EffectivePublicURL tests — creates a github-transport stream
+// seedGithubTopic is a per-file helper for the
+// EffectivePublicURL tests — creates a github-transport topic
 // inline so the table tests don't duplicate the verbose
-// streaming.NewStream + Streams.Create dance.
-func seedGithubStream(t *testing.T, st *store.Store, id, repo string) {
+// streaming.NewTopic + Topics.Create dance.
+func seedGithubTopic(t *testing.T, st *store.Store, id, repo string) {
 	t.Helper()
 	cfg, _ := json.Marshal(map[string]any{"repo": repo, "events": []string{"*"}})
-	s, err := streaming.NewStream(
-		streaming.StreamID(id), id, "",
+	s, err := streaming.NewTopic(
+		streaming.TopicID(id), id, "",
 		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
 		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test",
 	)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(context.Background(), s); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(context.Background(), s); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 }
 
-// TestGetStream_EffectivePublicURL_PrefersOrgConfig pins the
-// override priority: when `streams.public_url` is set on the org's
+// TestGetTopic_EffectivePublicURL_PrefersOrgConfig pins the
+// override priority: when `topics.public_url` is set on the org's
 // config registry, it wins over the Deps.PublicServerURL (which
 // production wiring sources from SERVER_URL env). The detail
 // page's loopback warning evaluates this field, so getting the
 // priority wrong manifests as a stale warning even after the org
 // admin "fixed" their public URL via the Settings page.
-func TestGetStream_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
+func TestGetTopic_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
 	deps, st, reg := newDeps(t)
 	// SERVER_URL env equivalent — a localhost loopback that the
 	// org admin is in the middle of replacing.
 	deps.PublicServerURL = "http://localhost:8080"
 
-	// streams.public_url override on the org config — the helix-org
+	// topics.public_url override on the org config — the helix-org
 	// Settings page editable row. Registry needs the spec registered
 	// before Set will accept the value.
-	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
-	if err := reg.Set(context.Background(), "org-test", "streams.public_url",
-		`"https://helix.example.com"`, orgchart.WorkerID("w-owner")); err != nil {
-		t.Fatalf("set streams.public_url: %v", err)
+	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
+	if err := reg.Set(context.Background(), "org-test", "topics.public_url",
+		`"https://helix.example.com"`); err != nil {
+		t.Fatalf("set topics.public_url: %v", err)
 	}
 
-	seedGithubStream(t, st, "s-gh", "helixml/helix")
+	seedGithubTopic(t, st, "s-gh", "helixml/helix")
 
-	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-gh", nil)
+	rec := do(t, orgapi.Handler(deps), "GET", "/topics/s-gh", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
-	var got orgapi.StreamDTO
+	var got orgapi.TopicDTO
 	decode(t, rec, &got)
 	if got.EffectivePublicURL != "https://helix.example.com" {
 		t.Errorf("EffectivePublicURL = %q, want override to win over SERVER_URL", got.EffectivePublicURL)
 	}
 }
 
-// TestGetStream_EffectivePublicURL_FallsBackToServerURL pins the
-// fallback: when no `streams.public_url` is set, the SERVER_URL
+// TestGetTopic_EffectivePublicURL_FallsBackToServerURL pins the
+// fallback: when no `topics.public_url` is set, the SERVER_URL
 // env (via Deps.PublicServerURL) is used as-is.
-func TestGetStream_EffectivePublicURL_FallsBackToServerURL(t *testing.T) {
+func TestGetTopic_EffectivePublicURL_FallsBackToServerURL(t *testing.T) {
 	deps, st, reg := newDeps(t)
 	deps.PublicServerURL = "https://server-url-env.example.com"
 	// Register the spec but DON'T set a value — fallback path.
-	reg.Register(configregistry.Spec{Key: "streams.public_url", Type: configregistry.TypeString})
+	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
 
-	seedGithubStream(t, st, "s-fallback", "helixml/helix")
+	seedGithubTopic(t, st, "s-fallback", "helixml/helix")
 
-	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-fallback", nil)
+	rec := do(t, orgapi.Handler(deps), "GET", "/topics/s-fallback", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d", rec.Code)
 	}
-	var got orgapi.StreamDTO
+	var got orgapi.TopicDTO
 	decode(t, rec, &got)
 	if got.EffectivePublicURL != "https://server-url-env.example.com" {
 		t.Errorf("EffectivePublicURL = %q, want SERVER_URL fallback", got.EffectivePublicURL)
 	}
 }
 
-// TestGetStream_EffectivePublicURL_OnlyForGithubStreams pins that
-// the field is NOT populated for non-github streams. (Local /
-// webhook / postmark streams don't need a public URL, so leaving
+// TestGetTopic_EffectivePublicURL_OnlyForGithubTopics pins that
+// the field is NOT populated for non-github topics. (Local /
+// webhook / postmark topics don't need a public URL, so leaving
 // the field zero avoids leaking the SERVER_URL value to UIs that
 // don't show it.)
-func TestGetStream_EffectivePublicURL_OnlyForGithubStreams(t *testing.T) {
+func TestGetTopic_EffectivePublicURL_OnlyForGithubTopics(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	deps.PublicServerURL = "https://example.com"
 
-	// Local-kind stream — EffectivePublicURL should NOT be set.
+	// Local-kind topic — EffectivePublicURL should NOT be set.
 	cfg, _ := json.Marshal(map[string]any{})
-	s, _ := streaming.NewStream(
-		streaming.StreamID("s-local"), "s-local", "",
+	s, _ := streaming.NewTopic(
+		streaming.TopicID("s-local"), "s-local", "",
 		"w-owner", time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
 		transport.Transport{Kind: transport.KindLocal, Config: cfg}, "org-test",
 	)
-	if err := st.Streams.Create(context.Background(), s); err != nil {
+	if err := st.Topics.Create(context.Background(), s); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
-	rec := do(t, orgapi.Handler(deps), "GET", "/streams/s-local", nil)
-	var got orgapi.StreamDTO
+	rec := do(t, orgapi.Handler(deps), "GET", "/topics/s-local", nil)
+	var got orgapi.TopicDTO
 	decode(t, rec, &got)
 	if got.EffectivePublicURL != "" {
-		t.Errorf("EffectivePublicURL = %q, want empty for non-github stream", got.EffectivePublicURL)
+		t.Errorf("EffectivePublicURL = %q, want empty for non-github topic", got.EffectivePublicURL)
 	}
 }

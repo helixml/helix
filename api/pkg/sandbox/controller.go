@@ -215,12 +215,34 @@ func (c *Controller) Delete(ctx context.Context, id string) error {
 
 	if sandbox.HostDeviceID != "" {
 		hydraClient := c.newHydraClient(sandbox.HostDeviceID)
+		// Detach from the caller's ctx for the hydra teardown. If the
+		// HTTP caller goes away (LB closed connection, user navigated
+		// off, ctx cancelled), the container may still be in mid-tear
+		// on the Runner; we want the delete to finish AND the matching
+		// decrement to fire. Mirrors HydraExecutor.StopDesktop's
+		// context-detachment pattern.
+		teardownCtx, teardownCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer teardownCancel()
 		// Delete container — best effort, log but don't block the row deletion.
-		if _, err := hydraClient.DeleteDevContainer(ctx, sandbox.ID); err != nil {
+		deleteSucceeded := true
+		if _, err := hydraClient.DeleteDevContainer(teardownCtx, sandbox.ID); err != nil {
 			log.Warn().Err(err).Str("sandbox_id", id).Msg("hydra DeleteDevContainer failed; continuing with row deletion")
+			deleteSucceeded = false
+		}
+		// Decrement active_sandboxes on the Runner row to match the
+		// increment that fired in Provision. Mirrors HydraExecutor.StopDesktop:
+		// only decrement when the upstream delete actually succeeded, so a
+		// failed delete leaves the counter high (operator visibility +
+		// avoids creating a phantom free-slot the dispatcher would re-fill).
+		// DiscoverContainersFromSandbox is the recovery path for any drift.
+		if deleteSucceeded {
+			if decErr := c.store.DecrementSandboxContainerCount(teardownCtx, sandbox.HostDeviceID); decErr != nil {
+				log.Warn().Err(decErr).Str("sandbox_id", id).Str("host_device_id", sandbox.HostDeviceID).
+					Msg("Failed to decrement active_sandboxes on Runner after sandbox delete")
+			}
 		}
 		// Forget cached command records on hydra.
-		if err := hydraClient.ForgetSandboxOps(ctx, sandbox.ID); err != nil {
+		if err := hydraClient.ForgetSandboxOps(teardownCtx, sandbox.ID); err != nil {
 			log.Debug().Err(err).Str("sandbox_id", id).Msg("hydra ForgetSandboxOps failed")
 		}
 	}

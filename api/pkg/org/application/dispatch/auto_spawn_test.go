@@ -10,10 +10,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-// TestDispatchActivationStreamSpawnsSubscribedWorker pins the auto-
-// spawn-on-activation-stream-event wiring: when a Message event lands
-// on an activation Stream (`s-activations-<workerID>`) and a position
-// is subscribed to that stream, every AI Worker currently filling that
+// TestDispatchTranscriptEventSpawnsSubscribedWorker pins the auto-
+// spawn-on-transcript-event wiring: when a Message event lands
+// on an transcript (`s-transcript-<workerID>`) and a position
+// is subscribed to that topic, every AI Worker currently filling that
 // position must get an activation enqueued — which is what triggers
 // the helix Spawner to provision the per-Worker project and open a
 // fresh chat session (the "Human Desktop").
@@ -21,8 +21,8 @@ import (
 // This is the regression we need to pin after the position-anchored
 // subscriptions refactor (7f3bc73e2). The fan-out path is:
 //
-//	publish on s-activations-<X>
-//	  → Dispatch lists Subscriptions.ListForStream
+//	publish on s-transcript-<X>
+//	  → Dispatch lists Subscriptions.ListForTopic
 //	  → resolves each (position, current AI workers in that position)
 //	  → Queue.Enqueue per worker
 //	  → Spawn callback fires
@@ -33,21 +33,21 @@ import (
 // the full chain to catch a regression that drops the spawn at the
 // end of it (e.g. a position with workers but no Enqueue, or a worker
 // resolved via the position-map but skipped before the Enqueue line).
-func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
+func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
 
 	// A fresh AI worker w-newhire at its own Position. The activation
-	// stream `s-activations-w-newhire` is the per-Worker transcript
-	// stream that hire_worker creates in production.
+	// topic `s-transcript-w-newhire` is the per-Worker transcript
+	// topic that hire_worker creates in production.
 	seedAIWorker(t, s, "w-newhire")
-	streamID := activation.StreamID("w-newhire")
-	seedWebhookStream(t, s, streamID, transport.LocalTransport())
+	topicID := activation.TranscriptID("w-newhire")
+	seedWebhookTopic(t, s, topicID, transport.LocalTransport())
 	// The new worker's OWN position is subscribed to its OWN activation
-	// stream, so any event published to s-activations-w-newhire fans
+	// topic, so any event published to s-transcript-w-newhire fans
 	// out to w-newhire and triggers a Spawn — the desktop auto-starts
 	// without the operator having to click "Open Human Desktop".
-	seedSubscription(t, s, "w-newhire", streamID)
+	seedSubscription(t, s, "w-newhire", topicID)
 
 	// A publisher in a different position (so the publisher-self-skip
 	// rule doesn't suppress the activation).
@@ -55,7 +55,7 @@ func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
 
 	e, err := streaming.NewMessageEvent(
 		"e-activation-1",
-		streamID,
+		topicID,
 		"w-publisher",
 		streaming.Message{From: "w-publisher", Body: "first turn"},
 		time.Now().UTC(),
@@ -72,7 +72,7 @@ func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {
-		t.Fatalf("activations = %d, want 1 (event on s-activations-<W> must spawn W); got %+v", len(got), got)
+		t.Fatalf("activations = %d, want 1 (event on s-transcript-<W> must spawn W); got %+v", len(got), got)
 	}
 	if got[0].WorkerID != "w-newhire" {
 		t.Fatalf("spawned worker = %q, want %q", got[0].WorkerID, "w-newhire")
@@ -85,7 +85,7 @@ func TestDispatchActivationStreamSpawnsSubscribedWorker(t *testing.T) {
 // drives the Spawner to provision the project + open the first
 // session.
 //
-// hire_worker calls Dispatcher.DispatchHire directly (not via a stream
+// hire_worker calls Dispatcher.DispatchHire directly (not via a topic
 // publish) so this is the only path that exercises the
 // `dispatch.DispatchHire → Queue.Enqueue → Spawn` chain at the unit
 // layer. Without it, a newly-hired AI worker would never get its
@@ -97,7 +97,7 @@ func TestDispatchHireEnqueuesSpawn(t *testing.T) {
 
 	seedAIWorker(t, s, "w-fresh-hire")
 
-	d.DispatchHire(context.Background(), "org-test", "w-fresh-hire", "/tmp/env-fresh-hire", activation.ID("a-hire-1"))
+	d.DispatchHire(context.Background(), "org-test", "w-fresh-hire", activation.ID("a-hire-1"))
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {
@@ -126,7 +126,7 @@ func TestDispatchManualEnqueuesSpawn(t *testing.T) {
 	d, s, rec := newDispatcherWithSpawner(t)
 	seedAIWorker(t, s, "w-manual")
 
-	d.DispatchManual(context.Background(), "org-test", "w-manual", "/tmp/env-manual", activation.ID("a-manual-1"))
+	d.DispatchManual(context.Background(), "org-test", "w-manual", activation.ID("a-manual-1"))
 
 	got := drainActivations(t, rec, 500*time.Millisecond)
 	if len(got) != 1 {

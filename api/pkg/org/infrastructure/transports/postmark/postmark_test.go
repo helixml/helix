@@ -13,13 +13,12 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/streamhub"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/postmark"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
 
@@ -43,14 +42,14 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 	return out
 }
 
-func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *streamhub.Hub, *configregistry.Registry) {
+func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordingDispatcher, *wakebus.Bus, *configregistry.Registry) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
 		t.Fatalf("NewInMemoryNats: %v", err)
 	}
-	bc := streamhub.New(ps)
+	bc := wakebus.New(ps)
 	rd := &recordingDispatcher{}
 	reg := configregistry.New(st.Configs)
 	reg.Register(configregistry.Spec{
@@ -65,33 +64,33 @@ func newTestTransport(t *testing.T) (*postmark.Transport, *store.Store, *recordi
 func setPostmarkConfig(t *testing.T, reg *configregistry.Registry, token, inbound, from string) {
 	t.Helper()
 	val, _ := json.Marshal(map[string]string{"token": token, "inbound": inbound, "from": from})
-	if err := reg.Set(context.Background(), "org-test", "transport.postmark", string(val), orgchart.WorkerID("")); err != nil {
+	if err := reg.Set(context.Background(), "org-test", "transport.postmark", string(val)); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 }
 
-func seedEmailStream(t *testing.T, st *store.Store, id streaming.StreamID, alias string) streaming.Stream {
+func seedEmailTopic(t *testing.T, st *store.Store, id streaming.TopicID, alias string) streaming.Topic {
 	t.Helper()
 	cfg, _ := json.Marshal(transport.EmailConfig{Alias: alias})
-	stream, err := streaming.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
+	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
 		transport.Transport{Kind: transport.KindEmail, Config: cfg}, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
-	return stream
+	return topic
 }
 
 // TestInboundHappyPath: a Postmark inbound POST with `+sam` alias
-// lands as an Event on the s-support stream, with all envelope
+// lands as an Event on the s-support topic, with all envelope
 // fields populated and the dispatcher fired.
 func TestInboundHappyPath(t *testing.T) {
 	t.Parallel()
 	tp, st, rd, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailStream(t, st, "s-support", "sam")
+	seedEmailTopic(t, st, "s-support", "sam")
 
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
@@ -100,9 +99,9 @@ func TestInboundHappyPath(t *testing.T) {
 		"From":              "alice@example.com",
 		"OriginalRecipient": "abc123+sam@inbound.postmarkapp.com",
 		"To":                "abc123+sam@inbound.postmarkapp.com",
-		"Subject":           "Webhook stream isn't firing",
+		"Subject":           "Webhook topic isn't firing",
 		"MessageID":         "<msg-1@example.com>",
-		"TextBody":          "I've got a stream set up but POSTs don't wake the worker.",
+		"TextBody":          "I've got a topic set up but POSTs don't wake the worker.",
 		"Headers": []map[string]string{
 			{"Name": "In-Reply-To", "Value": ""},
 		},
@@ -118,7 +117,7 @@ func TestInboundHappyPath(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, got)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -129,7 +128,7 @@ func TestInboundHappyPath(t *testing.T) {
 	if msg.From != "alice@example.com" {
 		t.Fatalf("From = %q", msg.From)
 	}
-	if msg.Subject != "Webhook stream isn't firing" {
+	if msg.Subject != "Webhook topic isn't firing" {
 		t.Fatalf("Subject = %q", msg.Subject)
 	}
 	if !strings.Contains(msg.Body, "POSTs don't wake the worker") {
@@ -150,7 +149,7 @@ func TestInboundNoAliasReturns400(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailStream(t, st, "s-support", "sam")
+	seedEmailTopic(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -171,7 +170,7 @@ func TestInboundUnknownAliasReturns404(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailStream(t, st, "s-support", "sam") // alias=sam exists
+	seedEmailTopic(t, st, "s-support", "sam") // alias=sam exists
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
@@ -205,14 +204,14 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	seedEmailStream(t, st, "s-support", "sam")
+	seedEmailTopic(t, st, "s-support", "sam")
 	srv := httptest.NewServer(tp.HandleInbound())
 	t.Cleanup(srv.Close)
 
 	body, _ := json.Marshal(map[string]any{
 		"From":              "alice@example.com",
 		"OriginalRecipient": "abc123+sam@inbound.postmarkapp.com",
-		"Subject":           "Re: Webhook stream isn't firing",
+		"Subject":           "Re: Webhook topic isn't firing",
 		"MessageID":         "<msg-2@example.com>",
 		"TextBody":          "tried that, still broken",
 		"Headers": []map[string]string{
@@ -226,7 +225,7 @@ func TestInboundReplyPopulatesInReplyTo(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	events, _ := st.Events.ListForStream(context.Background(), "org-test", "s-support", 10)
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-support", 10)
 	msg, _ := events[0].Message()
 	if msg.InReplyTo != "<original@example.com>" {
 		t.Fatalf("InReplyTo = %q", msg.InReplyTo)
@@ -279,7 +278,7 @@ func (fp *fakePostmark) snapshot() []fakePostmarkRequest {
 	return out
 }
 
-// TestEmitOutbound: a Message published to an email stream POSTs to
+// TestEmitOutbound: a Message published to an email topic POSTs to
 // Postmark with all the right fields — From from server config,
 // To/Subject/Body from the Message, ReplyTo derived from alias,
 // InReplyTo / References headers when threading.
@@ -287,7 +286,7 @@ func TestEmitOutbound(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "secret-token", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	stream := seedEmailStream(t, st, "s-support", "sam")
+	topic := seedEmailTopic(t, st, "s-support", "sam")
 
 	fakeSrv, fp := newFakePostmark(t)
 	tp.SetSendURL(fakeSrv.URL)
@@ -302,7 +301,7 @@ func TestEmitOutbound(t *testing.T) {
 	}
 	event, err := streaming.NewMessageEvent(
 		streaming.EventID("e-1"),
-		stream.ID,
+		topic.ID,
 		"w-sam",
 		msg,
 		time.Now().UTC(),
@@ -353,7 +352,7 @@ func TestEmitOverridesFromIfRealAddress(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "default@x.com")
-	stream := seedEmailStream(t, st, "s-billing", "billing")
+	topic := seedEmailTopic(t, st, "s-billing", "billing")
 
 	fakeSrv, fp := newFakePostmark(t)
 	tp.SetSendURL(fakeSrv.URL)
@@ -363,7 +362,7 @@ func TestEmitOverridesFromIfRealAddress(t *testing.T) {
 		To:   []string{"alice@example.com"},
 		Body: "...",
 	}
-	event, _ := streaming.NewMessageEvent("e-1", stream.ID, "w-billing", msg, time.Now().UTC(), "org-test")
+	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "w-billing", msg, time.Now().UTC(), "org-test")
 	if err := tp.Emit(context.Background(), event); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
@@ -377,12 +376,12 @@ func TestEmitNoRecipient(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	stream := seedEmailStream(t, st, "s-support", "sam")
+	topic := seedEmailTopic(t, st, "s-support", "sam")
 
 	msg := streaming.Message{
 		Body: "I forgot the recipient",
 	}
-	event, _ := streaming.NewMessageEvent("e-1", stream.ID, "", msg, time.Now().UTC(), "org-test")
+	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "", msg, time.Now().UTC(), "org-test")
 	err := tp.Emit(context.Background(), event)
 	if err == nil || !strings.Contains(err.Error(), "no recipient") {
 		t.Fatalf("err = %v", err)
@@ -393,7 +392,7 @@ func TestEmitPostmarkError(t *testing.T) {
 	t.Parallel()
 	tp, st, _, _, reg := newTestTransport(t)
 	setPostmarkConfig(t, reg, "tok", "abc123@inbound.postmarkapp.com", "you@gmail.com")
-	stream := seedEmailStream(t, st, "s-support", "sam")
+	topic := seedEmailTopic(t, st, "s-support", "sam")
 
 	fakeSrv, fp := newFakePostmark(t)
 	fp.status = http.StatusUnprocessableEntity
@@ -403,7 +402,7 @@ func TestEmitPostmarkError(t *testing.T) {
 		To:   []string{"alice@example.com"},
 		Body: "...",
 	}
-	event, _ := streaming.NewMessageEvent("e-1", stream.ID, "w-sam", msg, time.Now().UTC(), "org-test")
+	event, _ := streaming.NewMessageEvent("e-1", topic.ID, "w-sam", msg, time.Now().UTC(), "org-test")
 	err := tp.Emit(context.Background(), event)
 	if err == nil || !strings.Contains(err.Error(), "postmark 422") {
 		t.Fatalf("err = %v, want postmark 422", err)

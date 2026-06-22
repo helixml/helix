@@ -1,5 +1,5 @@
 // Package config holds the registry of runtime-mutable operational
-// keys for the org-graph subsystem (Streams, Spawner, transports).
+// keys for the org-graph subsystem (Topics, Spawner, transports).
 // Distinct from the parent api/pkg/config — that one is static,
 // envconfig-driven, loaded once at boot. This registry is dynamic,
 // JSON-typed, and stored in the configs table so operators can
@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
@@ -138,13 +137,24 @@ func (r *Registry) Specs() []Spec {
 	return out
 }
 
+// IsConfigured reports whether an explicit config row exists for
+// (orgID, key) — i.e. the value was set, not merely available via the
+// spec default. Backs the settings page's "Configured" flag. A nil
+// registry or unknown key reports false.
+func (r *Registry) IsConfigured(ctx context.Context, orgID, key string) bool {
+	if r == nil || r.store == nil {
+		return false
+	}
+	if _, err := r.store.Get(ctx, orgID, key); err == nil {
+		return true
+	}
+	return false
+}
+
 // Set validates the value against the registered Spec and upserts the
 // row. Unknown keys (not registered) are rejected — the registry is
 // the source of truth for what's settable.
-//
-// updatedBy is the WorkerID for the audit column; empty is allowed
-// today (auth not yet wired) but reserved.
-func (r *Registry) Set(ctx context.Context, orgID, key, value string, updatedBy orgchart.WorkerID) error {
+func (r *Registry) Set(ctx context.Context, orgID, key, value string) error {
 	spec, ok := r.Spec(key)
 	if !ok {
 		return fmt.Errorf("unknown config key %q (no subsystem has registered it)", key)
@@ -152,7 +162,7 @@ func (r *Registry) Set(ctx context.Context, orgID, key, value string, updatedBy 
 	if err := validateValue(spec, value); err != nil {
 		return fmt.Errorf("validate %q: %w", key, err)
 	}
-	cfg, err := config.New(key, value, time.Now().UTC(), updatedBy, orgID)
+	cfg, err := config.New(key, value, time.Now().UTC(), orgID)
 	if err != nil {
 		return err
 	}

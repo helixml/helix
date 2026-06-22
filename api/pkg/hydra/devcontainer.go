@@ -106,6 +106,12 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 		}
 	}()
 
+	// Disk-pressure emergency-brake monitor: polls the ZFS pool's free percent
+	// on a faster interval and gracefully stops (not deletes) all running dev
+	// containers if free space drops to or below the stop threshold, protecting
+	// the pool from ENOSPC corruption.
+	go dm.runDiskPressureMonitor()
+
 	return dm
 }
 
@@ -285,6 +291,15 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		if err := validateImageVersion(req.Image); err != nil {
 			return nil, err
 		}
+	}
+
+	// Disk-pressure admission control: refuse to start new dev containers when
+	// the ZFS pool's free space is critically low (≤ refuse threshold). This
+	// protects the pool from hitting 0% free, which would cause ENOSPC → XFS
+	// corruption → Postgres/git faults. Fail-open: an unknowable measurement
+	// returns nil and allows the start.
+	if err := checkDiskPressureForStart(); err != nil {
+		return nil, err
 	}
 
 	// Resolve registry-based image ref if available
@@ -666,6 +681,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// The ACP checks (!IS_ROOT || IS_SANDBOX) to allow bypassPermissions mode.
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
+
 
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
@@ -1393,6 +1409,36 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 			Int("explicit_dev_mounts", len(hostConfig.Devices)).
 			Msg("Configured NVIDIA GPU passthrough")
 
+	case "neuron":
+		// AWS Neuron (Inferentia2 / Trainium): mount the /dev/neuron*
+		// device nodes into the nested Docker. All neuronx silicon
+		// presents the same device-node family — one node per Neuron core
+		// (/dev/neuron0, /dev/neuron1, ...). The count varies by instance
+		// type (2 on inf2.xlarge, 16 on inf2.48xlarge, 16 on trn1.32xlarge,
+		// ...), so glob rather than hardcode and the same arm covers every
+		// inf2 SKU and Trainium. The Neuron driver lives on the host (AWS
+		// Neuron DLC AMI); we only pass the device nodes through. No
+		// container runtime, no /dev/kfd, no DRM render node — Neuron has
+		// no display path.
+		//
+		// ponytail: glob covers every inf2/trn SKU; per-core pinning
+		// (gpuIndex) is not wired — add when multi-tenant Neuron packing
+		// on one host is needed (one model per pool in v1, so unused).
+		neuronDevs, _ := filepath.Glob("/dev/neuron*")
+		if len(neuronDevs) == 0 {
+			log.Warn().Msg("neuron passthrough: no /dev/neuron* nodes found in outer container; inner serving stack will not see the accelerator")
+		}
+		for _, dev := range neuronDevs {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Strs("neuron_devs", neuronDevs).Msg("Configured Neuron device passthrough")
+
 	case "amd":
 		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
 		// mounted regardless of pinning) plus the matching render+card
@@ -1734,6 +1780,78 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
 		}
 	}
+}
+
+// ReconcileGC reconciles on-disk ephemeral resources (session zvols and
+// per-task/session workspace dirs) against the DB-derived live-set supplied by
+// the API, reaping anything orphaned and past the grace period.
+//
+// The DB live-set is the durable source of truth (it survives reboots). As
+// extra protection we UNION in the session IDs of currently-running containers
+// from hydra's in-memory map, so an in-flight session whose row hasn't been
+// observed by the API yet is never reaped.
+func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
+	for _, id := range req.LiveSessionIDs {
+		liveSessions[id] = true
+	}
+	liveSpecTasks := make(map[string]bool, len(req.LiveSpecTaskIDs))
+	for _, id := range req.LiveSpecTaskIDs {
+		liveSpecTasks[id] = true
+	}
+
+	// Union in currently-running container session IDs (belt-and-braces).
+	dm.mu.RLock()
+	for sessionID := range dm.containers {
+		liveSessions[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	grace := time.Duration(req.GracePeriodSeconds) * time.Second
+
+	var resp GCReconcileResponse
+
+	// Measure reclaimed space cheaply as the pool-free delta around the reaping
+	// calls (captures both zvol + workspace reclamation in O(1)) — never a
+	// per-directory `du` sweep, which serialises into a 10+ minute backlog that
+	// blocks the reaper ticker. Dry-run frees nothing, so skip the measurement
+	// entirely and keep it fast.
+	var before int64
+	if !req.DryRun {
+		before, _ = poolFreeBytes()
+	}
+
+	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
+	resp.ZvolsReaped = zReaped
+	resp.ZvolsSkipped = zSkipped
+
+	wReaped, wSkipped := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	resp.WorkspacesReaped = wReaped
+	resp.WorkspacesSkipped = wSkipped
+
+	if !req.DryRun {
+		// Ignore measurement errors → 0. Pool free can also move for unrelated
+		// reasons; clamp to a non-negative delta.
+		if after, err := poolFreeBytes(); err == nil {
+			if delta := after - before; delta > 0 {
+				resp.BytesFreed = delta
+			}
+		}
+	}
+
+	log.Info().
+		Bool("dry_run", req.DryRun).
+		Dur("grace", grace).
+		Int("live_sessions", len(liveSessions)).
+		Int("live_spec_tasks", len(liveSpecTasks)).
+		Int("zvols_reaped", len(resp.ZvolsReaped)).
+		Int("zvols_skipped", len(resp.ZvolsSkipped)).
+		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
+		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int64("bytes_freed", resp.BytesFreed).
+		Msg("GC_RECONCILE completed")
+
+	return resp
 }
 
 // GetDevContainer returns the status of a dev container

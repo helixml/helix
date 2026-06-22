@@ -22,25 +22,25 @@ import (
 // capabilities, call update_role; capability is not a per-Worker
 // attribute.
 //
-// Streams is a typed manifest the Role's prompt is expected to
+// Topics is a typed manifest the Role's prompt is expected to
 // subscribe its Workers to. The store does NOT auto-subscribe; the
-// hiring caller drives create_stream/subscribe explicitly because
-// stream lifecycle (creation, transport config, cross-Role sharing)
+// hiring caller drives create_topic/subscribe explicitly because
+// topic lifecycle (creation, transport config, cross-Role sharing)
 // can't be derived mechanically from the Role.
 type Role struct {
 	ID             RoleID
 	OrganizationID string
 	Content        string
 	Tools          []tool.Name
-	Streams        []streaming.StreamID
+	Topics        []streaming.TopicID
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 // NewRole validates and constructs a Role. Treat the returned value
-// as immutable. Tools and Streams may be empty; ID, Content, orgID,
+// as immutable. Tools and Topics may be empty; ID, Content, orgID,
 // and now must all be non-empty (now non-zero).
-func NewRole(id RoleID, content string, tools []tool.Name, streams []streaming.StreamID, now time.Time, orgID string) (Role, error) {
+func NewRole(id RoleID, content string, tools []tool.Name, topics []streaming.TopicID, now time.Time, orgID string) (Role, error) {
 	if id == "" {
 		return Role{}, errors.New("role id is empty")
 	}
@@ -58,8 +58,36 @@ func NewRole(id RoleID, content string, tools []tool.Name, streams []streaming.S
 		OrganizationID: orgID,
 		Content:        content,
 		Tools:          tools,
-		Streams:        streams,
+		Topics:        topics,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
+}
+
+// WithContent returns a copy of the Role with Content replaced. The
+// With* builders are the supported way to mutate a Role outside the
+// domain package (CLAUDE.md §5.0: immutability + tell-don't-ask) — the
+// roles application service composes them instead of poking exported
+// fields in a handler.
+func (r Role) WithContent(content string) Role {
+	r.Content = content
+	return r
+}
+
+// WithTools returns a copy of the Role with Tools replaced.
+func (r Role) WithTools(tools []tool.Name) Role {
+	r.Tools = tools
+	return r
+}
+
+// WithTopics returns a copy of the Role with Topics replaced.
+func (r Role) WithTopics(topics []streaming.TopicID) Role {
+	r.Topics = topics
+	return r
+}
+
+// WithUpdatedAt returns a copy of the Role with UpdatedAt replaced.
+func (r Role) WithUpdatedAt(t time.Time) Role {
+	r.UpdatedAt = t
+	return r
 }

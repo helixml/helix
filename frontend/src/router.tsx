@@ -49,8 +49,8 @@ import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgRoles from './pages/HelixOrgRoles'
 import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
 import HelixOrgSettings from './pages/HelixOrgSettings'
-import HelixOrgStreams from './pages/HelixOrgStreams'
-import HelixOrgStreamDetail from './pages/HelixOrgStreamDetail'
+import HelixOrgTopics from './pages/HelixOrgTopics'
+import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
 import HelixOrgWorkers from './pages/HelixOrgWorkers'
 import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
@@ -540,7 +540,7 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha — Other resources (workers, roles, streams,
+  // helix-org alpha — Other resources (workers, roles, topics,
   // settings) are operated via MCP tools / API; the overview is the
   // visual entry point.
   name: 'helix_org_root',
@@ -584,15 +584,15 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: true, title: 'Helix Org · Settings' },
   render: () => <HelixOrgSettings />,
 }, {
-  name: 'helix_org_streams',
-  path: '/orgs/:org_id/helix-org/streams',
-  meta: { drawer: true, title: 'Helix Org · Streams' },
-  render: () => <HelixOrgStreams />,
+  name: 'helix_org_topics',
+  path: '/orgs/:org_id/helix-org/topics',
+  meta: { drawer: true, title: 'Helix Org · Topics' },
+  render: () => <HelixOrgTopics />,
 }, {
-  name: 'helix_org_stream_detail',
-  path: '/orgs/:org_id/helix-org/streams/:stream_id',
-  meta: { drawer: true, title: 'Helix Org · Stream' },
-  render: () => <HelixOrgStreamDetail />,
+  name: 'helix_org_topic_detail',
+  path: '/orgs/:org_id/helix-org/topics/:topic_id',
+  meta: { drawer: true, title: 'Helix Org · Topic' },
+  render: () => <HelixOrgTopicDetail />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {

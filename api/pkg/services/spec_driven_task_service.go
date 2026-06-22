@@ -392,6 +392,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Stream:           false,
 		SpecTaskID:       task.ID,          // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntime, // For open_thread on resume
+		// Autonomous surface: no human watches a planning run, so recover the
+		// agent automatically on crash rather than stalling errored+idle.
+		AutoRestartOnCrash: true,
 	}
 
 	session := &types.Session{
@@ -624,7 +627,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Resolution:         resolution,
 		ZoomLevel:          zoomLevel,
 		DesktopType:        desktopType,
-		Env: envVars,
+		Env:                envVars,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: launchOrgID,
@@ -800,6 +803,9 @@ func (s *SpecDrivenTaskService) StartJustDoItMode(ctx context.Context, task *typ
 		Stream:           false,
 		SpecTaskID:       task.ID,             // CRITICAL: Set SpecTaskID so session restore uses correct workspace path
 		CodeAgentRuntime: codeAgentRuntimeJDI, // For open_thread on resume
+		// Autonomous surface: no human watches a just-do-it run, so recover the
+		// agent automatically on crash rather than stalling errored+idle.
+		AutoRestartOnCrash: true,
 	}
 
 	session := &types.Session{
@@ -2129,7 +2135,7 @@ func (s *SpecDrivenTaskService) ResumeSession(ctx context.Context, task *types.S
 		DisplayRefreshRate:  displayRefreshRate,
 		Resolution:          fmt.Sprintf("%dx%d", displayWidth, displayHeight),
 		ZoomLevel:           1.0,
-		DesktopType: desktopType,
+		DesktopType:         desktopType,
 		OnBeforeCreate: func(hookCtx context.Context, a *types.DesktopAgent) error {
 			apiKey, err := s.GetOrCreateSessionAPIKey(hookCtx, &SessionAPIKeyRequest{
 				OrganizationID: task.OrganizationID,

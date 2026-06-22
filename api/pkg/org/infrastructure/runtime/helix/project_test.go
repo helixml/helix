@@ -213,7 +213,6 @@ func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProje
 		Workspace:   ws,
 		Store:       st,
 		HelixOrgURL: "http://helix-org:8081",
-		AgentMD:     "# Org policy",
 		Logger:      discardLogger(),
 	}
 }
@@ -269,7 +268,7 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	}
 	git.mu.Lock()
 	defer git.mu.Unlock()
-	for _, p := range []string{".context/agent.md", "workers/w-eng/.context/role.md", "workers/w-eng/.context/identity.md"} {
+	for _, p := range []string{"workers/w-eng/.context/role.md", "workers/w-eng/.context/identity.md"} {
 		if _, ok := git.putFileByPath[p]; !ok {
 			t.Errorf("path %q not pushed", p)
 		}
@@ -430,9 +429,6 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	}
 	if got := git.putFileByPath["workers/w-eng/.context/identity.md"]; got != "# Identity content" {
 		t.Errorf("fast path MUST republish identity.md from DB; got %q, want %q", got, "# Identity content")
-	}
-	if got := git.putFileByPath[".context/agent.md"]; got != "# Org policy" {
-		t.Errorf("fast path MUST republish agent.md from AgentMD; got %q, want %q", got, "# Org policy")
 	}
 }
 

@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
 )
 
 func TestRoleRequiresCreateRoleTool(t *testing.T) {
 	t.Parallel()
-	if got := (prompts.Role{}).RequiresTool(); got != tools.CreateRoleName {
-		t.Fatalf("RequiresTool = %q, want %q", got, tools.CreateRoleName)
+	// "create_role" is the stable public tool name; RegisterBuiltins
+	// fails fast at boot if the registered name ever drifts from it.
+	if got := (prompts.Role{}).RequiresTool(); got != "create_role" {
+		t.Fatalf("RequiresTool = %q, want %q", got, "create_role")
 	}
 }
 
@@ -33,7 +34,7 @@ func TestRoleRendersTemplate(t *testing.T) {
 	// These assertions pin the *contract* of the prompt — that it tells
 	// the LLM to call create_role and produces output the rest of the
 	// org can read. They do not pin every word of the prose.
-	for _, want := range []string{"create_role", "## Triggers", "## Streams", "## Constraints"} {
+	for _, want := range []string{"create_role", "## Triggers", "## Topics", "## Constraints"} {
 		if !strings.Contains(msgs[0].Text, want) {
 			t.Errorf("template missing %q", want)
 		}

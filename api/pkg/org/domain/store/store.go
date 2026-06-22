@@ -1,5 +1,5 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (workers, positions, roles, streams, events,
+// subsystem (workers, positions, roles, topics, events,
 // subscriptions, activations, environments, configs). The concrete
 // implementation lives in the sibling gorm sub-package — dialect-
 // portable GORM, wired against helix's Postgres connection.
@@ -11,8 +11,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
@@ -20,6 +20,12 @@ import (
 // ErrNotFound signals that the requested record does not exist.
 // Repos wrap this with %w so callers can errors.Is it.
 var ErrNotFound = errors.New("record not found")
+
+// ErrConflict signals a uniqueness violation (e.g. two rows with the
+// same org-scoped name). Repos wrap it with %w and a human-readable
+// prefix; adapters errors.Is it to map to 409 Conflict instead of
+// leaking the raw driver error.
+var ErrConflict = errors.New("already exists")
 
 // Every store method takes an explicit `orgID string` parameter
 // (except Create/Update, where the org is carried by the domain
@@ -95,69 +101,96 @@ type WorkerRuntimeState interface {
 	Clear(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) error
 }
 
-// Streams persists named event sources. Streams are created explicitly
-// via the create_stream tool. Every Stream carries a Transport — the
+// Topics persists named event sources. Topics are created explicitly
+// via the create_topic tool. Every Topic carries a Transport — the
 // default (TransportLocal) keeps events local and notifies the
 // in-process broadcaster; other transports compose external I/O over
 // the same local store.
-type Streams interface {
-	Create(ctx context.Context, s streaming.Stream) error
-	Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error)
-	List(ctx context.Context, orgID string) ([]streaming.Stream, error)
-	// ListByTransportKind returns every stream whose transport kind
+type Topics interface {
+	Create(ctx context.Context, s streaming.Topic) error
+	Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error)
+	List(ctx context.Context, orgID string) ([]streaming.Topic, error)
+	// ListByTransportKind returns every topic whose transport kind
 	// matches, across every org. Used by background components that
-	// scan tenant boundaries (e.g. the cron stream scheduler) — NOT
+	// scan tenant boundaries (e.g. the cron topic scheduler) — NOT
 	// for any per-tenant request path. Returns an empty slice when no
-	// streams match; never returns ErrNotFound for "no rows".
-	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Stream, error)
-	// Update replaces the mutable fields on a Stream: name,
+	// topics match; never returns ErrNotFound for "no rows".
+	ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Topic, error)
+	// Update replaces the mutable fields on a Topic: name,
 	// description, and the entire transport (kind + config). The
 	// composite (id, orgID) identifies the row; ID, OrganizationID,
 	// CreatedBy and CreatedAt are immutable and ignored. Returns
 	// store.ErrNotFound when the row doesn't exist.
-	Update(ctx context.Context, s streaming.Stream) error
-	// Delete removes a stream row. Composite key (id, orgID). Callers
-	// (REST handler, MCP delete_stream tool when added) are
+	Update(ctx context.Context, s streaming.Topic) error
+	// Delete removes a topic row. Composite key (id, orgID). Callers
+	// (REST handler, MCP delete_topic tool when added) are
 	// responsible for any cascading subscription / role-manifest
-	// cleanup — the Streams repo itself is intentionally narrow.
-	Delete(ctx context.Context, orgID string, id streaming.StreamID) error
+	// cleanup — the Topics repo itself is intentionally narrow.
+	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
 }
 
-// Subscriptions persists (Worker, Stream) links. The triple
-// (orgID, workerID, streamID) is the key — there is no synthetic ID.
+// Subscriptions persists (Worker, Topic) links. The triple
+// (orgID, workerID, topicID) is the key — there is no synthetic ID.
 // Subscriptions are WORKER-anchored: firing a Worker drops its
 // subscriptions. The hiring playbook re-subscribes new hires
 // explicitly, which lets two Workers in the same Role consume
-// different streams (specialisation) or only the on-call subset of a
+// different topics (specialisation) or only the on-call subset of a
 // role wake up on a given event (load patterns).
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) error
-	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error
+	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error)
 	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error)
-	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error)
+	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error)
 }
 
-// Events persists entries published on a Stream.
+// Events persists entries published on a Topic.
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
-	ListForStream(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error)
+	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error)
+	// PageForTopic returns a window of events on one Topic, newest
+	// first (same ordering as ListForTopic), skipping offset rows and
+	// returning at most limit. Powers page-number pagination of the
+	// REST messages endpoint. offset/limit <= 0 are treated as "no
+	// skip" / "no cap" respectively.
+	PageForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error)
+	// CountForTopic returns the total number of events on one Topic —
+	// the total-count meta the paginated messages endpoint surfaces,
+	// independent of any page window.
+	CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error)
 	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error)
-	ListSince(ctx context.Context, orgID string, streamIDs []streaming.StreamID, since streaming.EventID, limit int) ([]streaming.Event, error)
-	// ListAll returns events across every Stream in the given org,
-	// newest first. Powers the unified "All streams" activity feed in
+	ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error)
+	// ListAll returns events across every Topic in the given org,
+	// newest first. Powers the unified "All topics" activity feed in
 	// the UI. If limit <= 0, no limit is applied — callers are
 	// expected to pass a sane cap.
 	ListAll(ctx context.Context, orgID string, limit int) ([]streaming.Event, error)
 }
 
-// Environments persists the per-Worker directory handle. The manager
-// populates the directory before hire; this table just tracks that a
-// directory exists and which Worker owns it.
-type Environments interface {
-	Create(ctx context.Context, env environment.Environment) error
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID) (environment.Environment, error)
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID) error
+// Processors persists Processor nodes — the transform/filter boxes
+// interposed on the edge between a Topic and its subscribers. A
+// Processor reads one input Topic (InputTopicID) and writes its
+// auto-provisioned output Topics. ListByInputTopic is the dispatch
+// hot path: on every publish the runner asks "which processors read
+// this topic?".
+type Processors interface {
+	Create(ctx context.Context, p processor.Processor) error
+	Get(ctx context.Context, orgID string, id processor.ProcessorID) (processor.Processor, error)
+	List(ctx context.Context, orgID string) ([]processor.Processor, error)
+	// ListByInputTopic returns every processor in the org whose
+	// InputTopicID matches — the dispatcher's fan-out lookup. Returns
+	// an empty slice when none match; never ErrNotFound for "no rows".
+	ListByInputTopic(ctx context.Context, orgID string, in streaming.TopicID) ([]processor.Processor, error)
+	// Update replaces the mutable fields: name, kind, config, outputs.
+	// Composite (id, orgID) identifies the row; ID, OrganizationID,
+	// CreatedBy, CreatedAt are immutable. Returns ErrNotFound when the
+	// row doesn't exist.
+	Update(ctx context.Context, p processor.Processor) error
+	// Delete removes a processor row. Composite key (id, orgID).
+	// Cascading the auto-created output Topics is the caller's job
+	// (the processors application service), mirroring how Topics.Delete
+	// leaves subscription cleanup to its caller.
+	Delete(ctx context.Context, orgID string, id processor.ProcessorID) error
 }
 
 // Configs persists operational-config rows: transport credentials,
@@ -183,10 +216,10 @@ type Store struct {
 	Workers            Workers
 	ReportingLines     ReportingLines
 	WorkerRuntimeState WorkerRuntimeState
-	Streams            Streams
+	Topics            Topics
 	Subscriptions      Subscriptions
 	Events             Events
-	Environments       Environments
 	Configs            Configs
 	Activations        activation.Repository
+	Processors         Processors
 }

@@ -1,13 +1,15 @@
 // Package lifecycle owns the cross-cutting orchestration that
-// composes store + runtime + on-disk state when a Worker is created
-// or destroyed.
+// composes store + runtime when a Worker is created or destroyed.
 //
-// Hire is intentionally not yet a lifecycle method — the canonical
-// hire path is api/pkg/org/tools.HireWorker (an MCP tool), which the
-// REST layer drives via a synthetic Invocation. Fire has no MCP
-// counterpart by design (the LLM should not be able to delete
-// workers from chat), so it lives here as a plain Go service callable
-// from REST handlers only.
+// This package owns the two halves of the Worker lifecycle: Hire (the
+// create cascade — Worker row, reporting line, topology reconcile,
+// hire-activation dispatch) and Fire (the destroy cascade — Helix
+// project/app teardown, store cleanup, topology reconcile), plus the
+// DeleteRole cascade. Both REST and the MCP
+// hire_worker tool drive Hire here, so the hire semantics cannot drift
+// between callers. Fire has no MCP counterpart by design (the LLM
+// should not be able to delete workers from chat), so it is a plain Go
+// service callable from REST handlers only.
 package lifecycle
 
 import (
@@ -15,13 +17,22 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
+	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
+
+// HireDispatcher fires the per-hire activation for a new AI Worker. A
+// narrow interface so the lifecycle service doesn't import the tools
+// package. The composition root's dispatcher satisfies it.
+type HireDispatcher interface {
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+}
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
 // Fire cascade needs to tear down a Worker's Helix-side project and
@@ -37,33 +48,175 @@ type HelixRuntime interface {
 // drives. All fields are required; pass nil HelixRuntime only in
 // tests that don't need the Helix-side teardown.
 type Service struct {
-	Store   *store.Store
-	Helix   HelixRuntime
-	Logger  *slog.Logger
-	EnvsDir string
-	// Owner is the WorkerID of the embedded owner (typically "w-owner").
-	// Fire refuses to delete the owner so the alpha can't be bricked by
-	// a UI misclick.
-	Owner orgchart.WorkerID
+	Store  *store.Store
+	Helix  HelixRuntime
+	Logger *slog.Logger
 
-	// Topology reconciles the activation/team Streams after the Worker
-	// row is gone — it tears down the fired Worker's own Streams and
-	// collapses an ex-manager's team Stream when its last report just
+	// Reconciler reconciles the activation/team Topics after the Worker
+	// row is gone — it tears down the fired Worker's own Topics and
+	// collapses an ex-manager's team Topic when its last report just
 	// left. nil is a no-op (tests without topology wiring).
-	Topology *topology.Reconciler
+	Reconciler *reconcile.Reconciler
 
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
+
+	// --- Hire collaborators (the create half of the lifecycle) ---
+
+	// Dispatcher fires the per-hire activation for a new AI Worker.
+	// nil → no hire activation is dispatched (tests / runtimes without
+	// a dispatcher).
+	Dispatcher HireDispatcher
+	// HireHook runs runtime bookkeeping after the Worker row exists —
+	// the helix runtime persists the hiring user. nil is a no-op.
+	HireHook runtime.HireHook
+	// Now / NewID seam the clock and id-generator. Both are required
+	// for Hire; Fire does not use them.
+	Now   func() time.Time
+	NewID func() string
 }
 
-// ErrOwnerProtected is returned by Fire when the caller targets the
-// embedded owner Worker. The REST layer maps it to 409 Conflict.
-var ErrOwnerProtected = errors.New("cannot fire the owner worker")
+// HireParams describes a new Worker. ID is optional — when empty a
+// fresh `w-<id>` is minted (discouraged; callers should pass a readable
+// handle). ParentID is the manager this hire reports to (empty only for
+// the org owner).
+type HireParams struct {
+	ID              string
+	RoleID          orgchart.RoleID
+	ParentID        orgchart.WorkerID
+	Kind            orgchart.WorkerKind
+	IdentityContent string
+}
 
-// ErrOwnerRoleProtected is returned by DeleteRole when the caller
-// targets the embedded owner role (`r-owner`). REST maps to 409.
-var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
+// HireResult carries the new Worker id and, for AI hires, the
+// pre-allocated hire-activation id.
+type HireResult struct {
+	WorkerID     orgchart.WorkerID
+	ActivationID activation.ID
+}
+
+// Hire brings a Worker into existence: a Worker row carrying the
+// per-hire IdentityContent, the initial reporting line, a topology
+// reconcile, the hiring-user bookkeeping, and — for AI Workers — a
+// pre-allocated hire activation dispatched through the Spawner. This is
+// the single implementation the MCP hire_worker tool and the REST POST
+// /workers handler both call (no synthetic Invocation).
+//
+// State lives in the domain (DB) + the per-Worker repo's helix-specs
+// git branch (role.md / identity.md / agent.md), which the agent pulls
+// inside its sandbox — there is no API-host workspace directory. A
+// Worker's MCP tool surface is derived live from Role.Tools — there is
+// no per-Worker tool record and no tools param.
+func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireResult, error) {
+	if err := p.Kind.Validate(); err != nil {
+		return HireResult{}, err
+	}
+	if p.RoleID == "" {
+		return HireResult{}, fmt.Errorf("roleId is required")
+	}
+	if p.IdentityContent == "" {
+		return HireResult{}, fmt.Errorf("identityContent is required")
+	}
+	if s.NewID == nil || s.Now == nil {
+		return HireResult{}, fmt.Errorf("lifecycle: clock/id-generator not wired")
+	}
+	if s.Store == nil {
+		return HireResult{}, errors.New("lifecycle: store is nil")
+	}
+
+	if _, err := s.Store.Roles.Get(ctx, orgID, p.RoleID); err != nil {
+		return HireResult{}, fmt.Errorf("role %q: %w", p.RoleID, err)
+	}
+
+	var parent *orgchart.WorkerID
+	if p.ParentID != "" {
+		if _, err := s.Store.Workers.Get(ctx, orgID, p.ParentID); err != nil {
+			return HireResult{}, fmt.Errorf("parent worker %q: %w", p.ParentID, err)
+		}
+		parent = &p.ParentID
+	}
+
+	id := orgchart.WorkerID(p.ID)
+	if id == "" {
+		id = orgchart.WorkerID("w-" + s.NewID())
+	}
+	// The id becomes a path segment in the helix-specs git layout
+	// (workers/<id>/.context/…) and in topic ids — reject any traversal
+	// or separator before it propagates.
+	if err := orgchart.ValidID(string(id)); err != nil {
+		return HireResult{}, fmt.Errorf("worker id: %w", err)
+	}
+
+	var wkr orgchart.Worker
+	switch p.Kind {
+	case orgchart.WorkerKindHuman:
+		w, err := orgchart.NewHumanWorker(id, p.RoleID, p.IdentityContent, orgID)
+		if err != nil {
+			return HireResult{}, err
+		}
+		wkr = w
+	case orgchart.WorkerKindAI:
+		w, err := orgchart.NewAIWorker(id, p.RoleID, p.IdentityContent, orgID)
+		if err != nil {
+			return HireResult{}, err
+		}
+		wkr = w
+	default:
+		return HireResult{}, p.Kind.Validate() // unreachable; Validate above rejected it
+	}
+
+	if err := s.Store.Workers.Create(ctx, wkr); err != nil {
+		return HireResult{}, err
+	}
+
+	// Wire the initial reporting line now that both Worker rows exist.
+	if parent != nil && s.Store.ReportingLines != nil {
+		line, err := orgchart.NewReportingLine(orgID, *parent, id)
+		if err != nil {
+			return HireResult{}, err
+		}
+		if err := s.Store.ReportingLines.Add(ctx, line); err != nil {
+			return HireResult{}, fmt.Errorf("add reporting line: %w", err)
+		}
+	}
+
+	// Reconcile the activation/team Topics implied by the new Worker and
+	// its reporting line (mints the hire's transcript + the
+	// manager's team Topic from one declarative pass). A nil Reconciler is
+	// a no-op (the Reconciler guards its own nil receiver).
+	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {
+		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
+	}
+
+	// Persist the hiring user's identity (if the request carried one)
+	// BEFORE dispatch so the Spawner picks it up on its first call.
+	if uid := helix.UserIDFromContext(ctx); uid != "" && s.HireHook != nil {
+		if err := s.HireHook.OnHire(ctx, orgID, id, uid); err != nil {
+			return HireResult{}, fmt.Errorf("hire handler: %w", err)
+		}
+	}
+
+	// Pre-create the hire-Activation audit row so Hire can return the id
+	// synchronously; the Spawner Completes it (matched by
+	// Trigger.ActivationID) rather than minting a sibling.
+	var hireActID activation.ID
+	if p.Kind == orgchart.WorkerKindAI && s.Store.Activations != nil {
+		hireActID = activation.ID("a-" + s.NewID())
+		hireAct, err := activation.New(hireActID, id, []activation.Trigger{{Kind: activation.TriggerHire}}, s.Now(), orgID)
+		if err != nil {
+			return HireResult{}, fmt.Errorf("build hire activation: %w", err)
+		}
+		if err := s.Store.Activations.Create(ctx, hireAct); err != nil {
+			return HireResult{}, fmt.Errorf("persist hire activation: %w", err)
+		}
+	}
+	if p.Kind == orgchart.WorkerKindAI && s.Dispatcher != nil {
+		s.Dispatcher.DispatchHire(ctx, orgID, id, hireActID)
+	}
+
+	return HireResult{WorkerID: id, ActivationID: hireActID}, nil
+}
 
 // Fire tears down a Worker end-to-end:
 //
@@ -75,10 +228,10 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 //  6. Remove the env directory from disk and delete its row.
 //  7. Delete the Worker row.
 //  8. Reconcile topology: tear down the fired Worker's own activation +
-//     team Streams and collapse any ex-manager's team Stream that just
+//     team Topics and collapse any ex-manager's team Topic that just
 //     lost its last report. topology is the single owner of
-//     activation/team Stream lifecycle — there is no inline
-//     Streams.Delete here any more.
+//     activation/team Topic lifecycle — there is no inline
+//     Topics.Delete here any more.
 //
 // Steps 2/3/5/6/8 are best-effort and logged on failure — a half-
 // torn worker is better than refusing to clean up partial state.
@@ -93,13 +246,10 @@ var ErrOwnerRoleProtected = errors.New("cannot delete the owner role")
 // per-Worker tool cascade to clean up.
 //
 // Activation events themselves are intentionally left behind as an
-// audit trail; only the Stream row is dropped.
+// audit trail; only the Topic row is dropped.
 func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
-	}
-	if id == s.Owner {
-		return ErrOwnerProtected
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
@@ -108,14 +258,20 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		return fmt.Errorf("get worker %q: %w", id, err)
 	}
 
-	// Capture the fired Worker's managers BEFORE deletion: the reporting
-	// lines cascade-drop with the Worker row, so ListManagers returns
-	// nothing afterward. We feed these ex-managers to the topology
-	// reconcile below so a manager's team Stream collapses when its last
-	// report leaves.
-	var exManagers []orgchart.WorkerID
+	// Capture the fired Worker's managers AND reports BEFORE deletion: the
+	// reporting lines cascade-drop with the Worker row, so the List* calls
+	// return nothing afterward. We feed both sets to the topology reconcile
+	// below. The ex-managers let a manager's team Topic collapse when its
+	// last report leaves. The ex-reports are needed for DM teardown: the
+	// reconciler's DM-channel cleanup is an all-pairs-of-affected scan, so
+	// to tear down `s-dm-<fired>-<report>` BOTH endpoints must be in the
+	// affected set — without the reports, firing a manager orphans every
+	// `s-dm-<manager>-<report>` channel (the report stays subscribed to a
+	// DM with a now-deleted worker).
+	var exManagers, exReports []orgchart.WorkerID
 	if s.Store.ReportingLines != nil {
 		exManagers, _ = s.Store.ReportingLines.ListManagers(ctx, orgID, id)
+		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
 	}
 
 	state, _ := helix.LoadState(ctx, s.Store, orgID, id)
@@ -146,32 +302,22 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// org_reporting_lines ON DELETE CASCADE foreign keys drop the
 	// lines). Nothing to drop explicitly here.
 
-	if env, err := s.Store.Environments.Get(ctx, orgID, id); err == nil {
-		if env.Path != "" {
-			if rmErr := os.RemoveAll(env.Path); rmErr != nil {
-				s.logger().Warn("fire: remove env dir", "worker", id, "path", env.Path, "err", rmErr)
-			}
-		}
-	}
-	if err := s.Store.Environments.Delete(ctx, orgID, id); err != nil {
-		s.logger().Warn("fire: delete environment row", "worker", id, "err", err)
-	}
-
 	if err := s.Store.Workers.Delete(ctx, orgID, id); err != nil {
 		return fmt.Errorf("delete worker row %q: %w", id, err)
 	}
 
-	// Settle the activation/team Streams now that the row (and its
+	// Settle the activation/team Topics now that the row (and its
 	// reporting lines) are gone. topology is the single owner of their
 	// lifecycle: reconciling `id` tears down the fired Worker's own
-	// activation + team Streams (it has fallen out of the graph), and
-	// reconciling the ex-managers collapses a manager's team Stream when
+	// activation + team Topics (it has fallen out of the graph), and
+	// reconciling the ex-managers collapses a manager's team Topic when
 	// its last report just left. Best-effort: a failure here leaves a
-	// dangling Stream row, not a half-deleted worker, so we log and
+	// dangling Topic row, not a half-deleted worker, so we log and
 	// continue rather than failing the Fire.
-	if s.Topology != nil {
+	if s.Reconciler != nil {
 		affected := append([]orgchart.WorkerID{id}, exManagers...)
-		if err := s.Topology.Reconcile(ctx, orgID, affected...); err != nil {
+		affected = append(affected, exReports...)
+		if err := s.Reconciler.Reconcile(ctx, orgID, affected...); err != nil {
 			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
 		}
 	}
@@ -180,18 +326,13 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 
 // DeleteRole tears down a Role end-to-end:
 //
-//  1. Refuse if id is the canonical owner role ("r-owner").
-//  2. Fire every Worker whose RoleID matches id (each Worker gets
+//  1. Fire every Worker whose RoleID matches id (each Worker gets
 //     the full Fire cascade — project teardown, env removal,
-//     subscriptions, the worker row). Refuses if the owner Worker
-//     holds this role.
-//  3. Delete the Role row.
+//     subscriptions, the worker row).
+//  2. Delete the Role row.
 func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.RoleID) error {
 	if id == "" {
 		return errors.New("role id is empty")
-	}
-	if id == orgchart.RoleID("r-owner") {
-		return ErrOwnerRoleProtected
 	}
 	if s.Store == nil {
 		return errors.New("lifecycle: store is nil")
@@ -211,9 +352,6 @@ func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.Role
 }
 
 // fireWorkersWithRole fires every Worker holding the given Role.
-// Honours the owner-protect rule: if the owner Worker holds the
-// Role, refuse the whole operation — bringing the owner down with
-// a role deletion is always wrong.
 func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID orgchart.RoleID) error {
 	workers, err := s.Store.Workers.List(ctx, orgID)
 	if err != nil {
@@ -222,9 +360,6 @@ func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID 
 	for _, w := range workers {
 		if w.RoleID() != roleID {
 			continue
-		}
-		if w.ID() == s.Owner {
-			return ErrOwnerProtected
 		}
 		if err := s.Fire(ctx, orgID, w.ID()); err != nil {
 			s.logger().Warn("fire worker for role teardown", "role", roleID, "worker", w.ID(), "err", err)

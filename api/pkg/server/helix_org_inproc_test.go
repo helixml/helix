@@ -137,6 +137,53 @@ func TestInProcSpawnerClient_StopExternalAgent_NoSession_ReturnsError(t *testing
 	require.Error(t, err)
 }
 
+// TestInProcSpawnerClient_ClearSession_RemovesInteractionsKeepsSession
+// pins the wiring the spawner relies on before every re-activation:
+// ClearSession routes through clearSessionHandler (so authz matches the
+// SendMessage path), wipes the session's interactions, and preserves the
+// session row itself. An internal (non-Zed) session has a no-op runtime
+// backend, so this exercises the shared DB clear in isolation.
+func TestInProcSpawnerClient_ClearSession_RemovesInteractionsKeepsSession(t *testing.T) {
+	_, store, client, user := newInProcTestSetup(t)
+
+	session, err := store.CreateSession(context.Background(), types.Session{
+		ID:    "ses_clear_1",
+		Owner: user.ID, // owner == service user so authz passes (no orgID)
+	})
+	require.NoError(t, err)
+	_, err = store.CreateInteraction(context.Background(), &types.Interaction{
+		ID:              "int_clear_1",
+		SessionID:       session.ID,
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "prior context",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, client.ClearSession(context.Background(), "ses_clear_1"))
+
+	// Session row preserved.
+	got, err := store.GetSession(context.Background(), "ses_clear_1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	// Interactions gone — the next turn starts on an empty context.
+	ints, _, err := store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+		SessionID:    "ses_clear_1",
+		GenerationID: -1,
+	})
+	require.NoError(t, err)
+	require.Empty(t, ints, "ClearSession must remove the session's interactions")
+}
+
+// TestInProcSpawnerClient_ClearSession_NoSession_ReturnsError confirms a
+// missing session surfaces as an error rather than silently succeeding,
+// so a stale persisted session pointer fails the activation loudly.
+func TestInProcSpawnerClient_ClearSession_NoSession_ReturnsError(t *testing.T) {
+	_, _, client, _ := newInProcTestSetup(t)
+
+	err := client.ClearSession(context.Background(), "ses_does_not_exist")
+	require.Error(t, err)
+}
+
 // TODO: tests for StartSession / SendMessage. StartSession routes to
 // StartExternalAgentSession (starts a real dev container) and
 // SendMessage to sendSessionMessage (needs a connected external-agent

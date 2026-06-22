@@ -142,19 +142,6 @@ func (w *Workspace) EnsureBranch(ctx context.Context, repoID, baseBranch string)
 	return w.git.CreateBranch(ctx, repoID, w.branch, baseBranch)
 }
 
-// WriteOrgFile writes an org-wide file (no worker prefix) onto the
-// Workspace's branch — `.context/<name>`. Used for the org-wide
-// agent.md policy that every Worker reads.
-func (w *Workspace) WriteOrgFile(ctx context.Context, repoID, name, content, message string) error {
-	if repoID == "" {
-		return nil
-	}
-	if err := runtime.ValidateWorkspaceName(name); err != nil {
-		return fmt.Errorf("helix workspace: %w", err)
-	}
-	return w.writeAt(ctx, repoID, ".context/"+name, content, message)
-}
-
 // WriteWorkerFile writes a per-Worker file at
 // `workers/<workerID>/.context/<name>`. Used by WorkerProject's
 // first-apply path; MirrorFile is the public WorkspaceSync surface

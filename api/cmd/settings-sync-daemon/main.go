@@ -160,11 +160,28 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 				"type":    "custom", // Required: Zed deserializes agent_servers using tagged enum
 				"command": "qwen",
 				"args": []string{
+					// --yolo makes qwen start its ACP session in YOLO mode so it
+					// auto-approves every tool call. This is passed on the command
+					// line (not just via the "default_mode" setting below) on
+					// purpose: default_mode only takes effect if the host IDE reads
+					// it and sends an ACP session/set_mode after new_session. The
+					// Zed builds pinned for spec-task sandboxes don't do that for
+					// custom agent servers, so without --yolo qwen stays in
+					// ApprovalMode.DEFAULT and every edit round-trips a
+					// session/request_permission that nobody clicks in a headless
+					// sandbox — the agent stalls on an "Allow all edits?" prompt.
+					"--yolo",
 					"--experimental-acp",
 					"--no-telemetry",
 					"--include-directories", "/home/retro/work",
 				},
 				"env": env,
+				// default_mode is the IDE-mediated equivalent of --yolo: newer Zed
+				// reads it and issues session/set_mode("yolo"), which also keeps the
+				// Zed UI mode indicator in sync. Mirrors claude_code's
+				// "bypassPermissions" entry below. --yolo above is the version-
+				// independent guarantee; this is the nicety for IDEs that honour it.
+				"default_mode": "yolo",
 			},
 		}
 
@@ -1073,7 +1090,71 @@ func (d *SettingsDaemon) runConfigEventLoop() error {
 		if err := d.syncFromHelix(); err != nil {
 			log.Printf("re-sync after config_changed failed: %v", err)
 		}
+		// In-place agent switch coordination:
+		//   field="agent"          → fast path. settings.json has just been
+		//      rewritten; Zed hot-reloads agent_servers + context_servers via
+		//      its SettingsStore observers (no process restart). We then tell
+		//      the API the new config is on disk so it can deliver the new
+		//      thread to the still-running Zed over the live WebSocket.
+		//   field="agent_restart"  → fallback. The API asks for a clean restart
+		//      (e.g. live delivery failed / the new custom agent didn't register
+		//      from the hot-reload). pkill Zed; run_zed_restart_loop respawns it
+		//      and the reconnect path delivers the pending handoff.
+		switch evt.Field {
+		case "agent":
+			d.notifyAgentConfigApplied()
+		case "agent_restart":
+			d.restartZed()
+		}
 	}
+}
+
+// notifyAgentConfigApplied tells the Helix API that settings.json has been
+// rewritten for an in-place agent switch and Zed has had it hot-reloaded, so the
+// API can deliver the new thread over the live external-agent WebSocket without
+// waiting for a process restart + reconnect. Best-effort: if this fails, the
+// API's restart fallback (it sees no new ZedThreadID within its timeout) takes
+// over.
+func (d *SettingsDaemon) notifyAgentConfigApplied() {
+	ctx := context.Background()
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/agent-config-applied", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: failed to build request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("notifyAgentConfigApplied: request failed: %v (API restart fallback will cover this)", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("notifyAgentConfigApplied: API returned status %d", resp.StatusCode)
+		return
+	}
+	log.Printf("notifyAgentConfigApplied: API notified of applied agent config for live thread delivery")
+}
+
+// restartZed kills the running Zed editor process. The desktop's
+// run_zed_restart_loop (start-zed-core.sh) respawns it after a 2s sleep, so the
+// new process reads the freshly-written settings.json — picking up the switched
+// agent's agent_servers and MCP context_servers. Best-effort: if no Zed process
+// is running (e.g. still booting), pkill is a no-op and the first launch already
+// reads the new config.
+func (d *SettingsDaemon) restartZed() {
+	// pkill -x matches the exact process name "zed" (the editor binary), not
+	// the bash restart-loop script, so we only restart the editor.
+	out, err := exec.Command("pkill", "-x", "zed").CombinedOutput()
+	if err != nil {
+		// Exit code 1 just means "no process matched" — fine, nothing to do.
+		log.Printf("restartZed: pkill zed returned: %v (%s) — likely no running Zed yet", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Printf("restartZed: signalled Zed to restart for agent switch; run_zed_restart_loop will respawn with new config")
 }
 
 // applyGNOMEColorScheme runs gsettings to switch GNOME's color scheme. Empty

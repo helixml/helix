@@ -19,16 +19,22 @@ the why.
   relation (see Reporting line), not a field on the Worker.
 - **Reporting line** — an `org_reporting_lines` `(org, manager,
   report)` row meaning *report* reports to *manager*. A Worker may
-  report to several managers; the owner Worker `w-owner` has none.
+  report to several managers; a top-level (root) Worker has none.
   Worker deletion drops every line that references it via
   `ON DELETE CASCADE` foreign keys. The graph is a cycle-guarded DAG.
 - **Subscription** — a `(org, worker, stream)` row. Worker-anchored:
   firing a Worker drops the row, and a new hire into the same Role
   does NOT automatically inherit. The hiring playbook re-subscribes
-  new hires explicitly (see `bootstrap/templates/owner_role.md`).
-  This lets two Workers in the same Role consume different streams
-  (specialisation) or only the on-call subset of a Role wake up on
-  an event (load patterns).
+  new hires explicitly (it's in the Role's own prompt). This lets two
+  Workers in the same Role consume different streams (specialisation)
+  or only the on-call subset of a Role wake up on an event (load
+  patterns).
+
+A fresh org starts **empty**; the human operator builds it from the
+chart — **New Role**, then **Add Worker**. The convention these tests
+follow is to create a root Role `r-root` and a root Worker `w-root`
+(no parent) first. These are ordinary rows with no special status —
+`w-root`/`r-root` can be fired / deleted like any other.
 
 The Chart tab is a ReactFlow canvas. Roles are group frames that
 contain their Workers (a Role can hold many Workers). Worker → Worker
@@ -44,23 +50,26 @@ Acting user has the `helix-org` alpha flag and is a member of the
 test org. Sign in at `/login`, click **Org** in the primary
 sidebar. Tests run against `…/orgs/<org>/helix-org/*`.
 
-## §1. Bootstrap + sidebar
+## §1. Empty org + seed the root
 
 1. Land on `…/helix-org/chart`. Middle sidebar shows highlighted
    **Chart** plus **Roles / Workers / Streams / Settings**.
-2. Chart shows one Role frame: `r-owner` containing one Worker node
-   `w-owner`. No other roles, no other workers.
-3. Network tab: `/workers /roles /streams` requests all
-   2xx in parallel.
-4. Confirm DB:
-   ```sql
-   SELECT id, role_id FROM org_workers WHERE id = 'w-owner';
-   ```
-   One row: `(w-owner, r-owner)`. There is no `parent_id` column —
-   reporting lives in `org_reporting_lines`; confirm it's empty:
-   `SELECT * FROM org_reporting_lines WHERE org_id = '<org>'` returns
-   zero rows. No `org_positions` table exists
-   (`SELECT to_regclass('org_positions')` → NULL).
+2. A fresh org is **empty**: the chart shows the empty state
+   *"No roles yet. Click **New role** to get started."* — no role
+   frames, no worker nodes. Confirm DB:
+   `SELECT count(*) FROM org_workers WHERE organization_id = '<org>'`
+   → 0; `SELECT * FROM org_reporting_lines WHERE org_id = '<org>'`
+   → zero rows. No `org_positions` / `org_environments` tables exist
+   (`SELECT to_regclass('org_environments')` → NULL).
+3. Network tab: `/workers /roles /streams` requests all 2xx in
+   parallel (each returns an empty list).
+4. **Seed the root.** Click **New role** → `r-root`, content
+   `# Root`. It appears on the chart with a **Hire** icon and an
+   enabled **Delete** (no "protected" lock — the root is an ordinary
+   row). Then hire `w-root` into it (kind `human`, no parent) via
+   the role's hire icon. Later sections assume this root exists.
+   Confirm: `SELECT id, role_id FROM org_workers WHERE id = 'w-root'`
+   → `(w-root, r-root)`.
 
 ## §2. Roles list + tool editor
 
@@ -70,12 +79,13 @@ in that Role on their next MCP request.
 
 1. **Roles** in the middle sidebar. Columns: ID / Content / Tools /
    Streams / Updated.
-2. `r-owner` has its bootstrap tool set populated (non-empty). The
-   removed position tools (`create_position`, `list_positions`,
+2. `r-root` (seeded in §1) shows the baseline read tools the New-Role
+   flow injects (`managers`, `reports`, `read_events`, … — non-empty).
+   The removed position tools (`create_position`, `list_positions`,
    `get_position`, `list_position_children`) are NOT present — pin
    so re-adding them is a deliberate, visible change.
-3. `r-owner` vertical-dot menu offers **Open** and a **Delete**
-   disabled with `Owner — protected`.
+3. `r-root` vertical-dot menu offers **Open** and an enabled
+   **Delete** — no role is protected.
 4. **+ New Role** → `r-test-dm`, content `# DM`. Detail page opens,
    Tools field empty.
 5. Click the Tools dropdown. The available tools render. Tick `dm` —
@@ -92,34 +102,36 @@ in that Role on their next MCP request.
 
 ## §3. Hire workers + cascade semantics
 
-Pins the AI-hire path, the owner protections, and the cascade
-dialogs.
+Pins the AI-hire path and the cascade dialogs. No worker or role is
+protected.
 
 1. **+ New Worker** (the Workers tab primary action button; the Chart
    also hires via the per-Role hire icon). Form: `id`, `kind`,
    `role_id` (dropdown), `parent_id` (optional — the new hire's initial
    manager; creates one reporting line), `identity_content`.
 2. Submit kind `ai`, id `w-ai-1`, role `r-test-dm`,
-   parent `w-owner`. Row appears in the Workers table — Role
-   column shows `r-test-dm`, Reports to shows `w-owner`.
+   parent `w-root`. Row appears in the Workers table — Role
+   column shows `r-test-dm`, Reports to shows `w-root`.
 3. Click the `w-ai-1` row → URL becomes
    `…/helix-org/workers/w-ai-1`. The detail page must NOT crash
    the API on first load.
-4. Try **Fire worker** on `w-owner`. Friendly snackbar surfaces
-   the 409 `cannot fire the owner worker`.
+4. **Fire worker** on `w-ai-1` → confirm dialog → worker gone. No
+   worker is protected: firing any worker, including the root `w-root`,
+   succeeds. (Re-hire `w-ai-1` to continue.)
 5. Hire `w-carol` into `r-test-dm`, fire from her detail page →
    confirm dialog. Worker gone from list.
 6. Delete `r-test-dm` from the Roles tab — dialog enumerates
    "fires every Worker holding this Role". Confirm; both the
    role and `w-ai-1` go.
-7. `r-owner` Delete is hidden / API refuses with 409.
+7. `r-root` is deletable too — its **Delete** is enabled and cascades
+   like any other role (it has no special status).
 
 ## §4. Cross-org isolation, persistence, theme
 
 1. **Cross-org isolation** is its own section now — see §16. The
-   shallow smoke test that lived here (switch org, confirm the fresh
-   `r-owner / w-owner` baseline) is subsumed by §16's two-level,
-   colliding-ID gate. Do §16, not a re-run here.
+   shallow smoke test that lived here (switch org, confirm a fresh
+   org starts empty) is subsumed by §16's two-level, colliding-ID
+   gate. Do §16, not a re-run here.
 2. Restart the API container. Everything persists — no `org_*`
    data is dropped on boot.
 3. Toggle the top-right sun/moon. Both modes render the
@@ -129,35 +141,37 @@ dialogs.
 
 `…/helix-org/workers` table — columns ID / Kind / Role / Reports
 to / Identity / Tools. Vertical-dot menu offers **Open** and
-**Fire**; `w-owner`'s Fire shows `Owner — protected`. Filter by
-Role using the column header search (roles can repeat across
-workers, so the list must be filterable, not grouped).
+**Fire** (enabled for every worker — nothing is protected).
+Filter by Role using the column header search (roles can repeat
+across workers, so the list must be filterable, not grouped).
 
 ## §6. Streams list, detail, live tail
 
-Every **AI** Worker has an auto-created `s-activations-<workerID>`
-stream (humans don't need spawner activation, so `w-owner` is the
-only human with one — seeded at bootstrap so chat lands
-somewhere). Both kinds of hierarchy stream are derived from the
-reporting graph by the topology reconciler (`application/topology`):
-the activation stream's subscribers are the Worker's **managers**, and
-any Worker with ≥1 direct report also gets an `s-team-<managerID>`
-broadcast stream (members = manager + direct reports). The Streams
-surface lives at `…/helix-org/streams`.
+Every **AI** Worker has an auto-created `s-transcript-<workerID>`
+stream (its append-only, observable transcript). A manager-less **root**
+Worker also gets one (so a top-level worker's chat turns have a home) —
+including the human `w-root` seeded in §1. The hierarchy streams are
+derived from the reporting graph by the reconciler
+(`application/reconcile`): a transcript's subscribers are the Worker's
+**managers** (a manager-less root has none — its transcript is
+unobserved, never self-subscribed), and any Worker with ≥1 direct
+report also gets an `s-team-<managerID>` broadcast stream (members =
+manager + direct reports). The Streams surface lives at
+`…/helix-org/streams`.
 
 1. **Streams list** — columns ID / Name / Transport / Subscribers
    / Created. Every AI worker has a matching
-   `s-activations-<workerID>` row, plus `s-activations-w-owner`. Any
-   Worker that has at least one direct report also shows an
-   `s-team-<managerID>` row.
+   `s-transcript-<workerID>` row, plus `s-transcript-w-root` (the
+   manager-less root). Any Worker that has at least one direct report
+   also shows an `s-team-<managerID>` row.
 2. **Subscribers column** shows worker ids (not position ids).
-   For a freshly-hired `w-ai-1` (parent `w-owner`),
-   `s-activations-w-ai-1`'s subscriber list is `[w-owner]` — its
-   **manager** is subscribed, because activation-stream observers are
+   For a freshly-hired `w-ai-1` (parent `w-root`),
+   `s-transcript-w-ai-1`'s subscriber list is `[w-root]` — its
+   **manager** is subscribed, because transcript observers are
    derived from the reporting line, not from whoever clicked hire — and
-   explicitly NOT `[w-ai-1]` (a worker subscribed to its own activation
-   stream would loop dispatch). `s-team-w-owner` exists with subscribers
-   `[w-owner, w-ai-1]`.
+   explicitly NOT `[w-ai-1]` (a worker subscribed to its own transcript
+   would loop dispatch). `s-team-w-root` exists with subscribers
+   `[w-root, w-ai-1]`.
 3. **Detail page**: click any stream id. URL becomes
    `…/helix-org/streams/<id>`. Header shows id (monospace) +
    transport kind chip + description + `created by … · ts` +
@@ -227,13 +241,13 @@ Role does NOT inherit.
 ## §9. Stream delete
 
 Firing a worker removes both kinds of hierarchy stream it owns —
-its `s-activations-<workerID>` stream and, if it was a manager, its
+its `s-transcript-<workerID>` stream and, if it was a manager, its
 `s-team-<workerID>` team stream. Topology owns the teardown (Fire
 reconciles after the row is gone; there is no inline stream delete).
 
-1. Hire a fresh AI `w-cleanup`. Its activation stream row + an
-   entry in `s-activations-w-cleanup`'s subscriber list appear.
-2. Fire `w-cleanup`. `s-activations-w-cleanup` row disappears
+1. Hire a fresh AI `w-cleanup`. Its transcript row + an
+   entry in `s-transcript-w-cleanup`'s subscriber list appear.
+2. Fire `w-cleanup`. `s-transcript-w-cleanup` row disappears
    from the Streams list within ~1s (`lifecycle.Fire` →
    `topology.Reconcile`). Events on that stream survive in
    `org_events` as an audit trail.
@@ -242,12 +256,12 @@ reconciles after the row is gone; there is no inline stream delete).
    `s-team-w-cleanup-mgr` now exists (subscribers
    `[w-cleanup-mgr, w-cleanup-rep]`). Fire `w-cleanup-mgr` (the
    confirm dialog notes its report loses its manager). Both
-   `s-activations-w-cleanup-mgr` **and** `s-team-w-cleanup-mgr`
+   `s-transcript-w-cleanup-mgr` **and** `s-team-w-cleanup-mgr`
    disappear from the Streams list:
    `SELECT id FROM org_streams WHERE id IN
-   ('s-activations-w-cleanup-mgr','s-team-w-cleanup-mgr')` returns
+   ('s-transcript-w-cleanup-mgr','s-team-w-cleanup-mgr')` returns
    zero rows. `w-cleanup-rep` survives, keeping its own
-   `s-activations-w-cleanup-rep`.
+   `s-transcript-w-cleanup-rep`.
 
 ## §10. Chat: inline transcript
 
@@ -291,7 +305,7 @@ operator un-pausing it.
      session id (NOT `POST …/prompt-history/sync`, which is the
      spec-task-only path and 400s without a `spec_task_id`). It must
      return 2xx, NOT **401** — the worker's "Human Desktop" session is
-     owned by whoever bootstrapped the org, not necessarily the operator
+     owned by an org member, not necessarily the operator currently
      driving the worker, so the chat endpoint authorizes via org/project
      RBAC (`authorizeUserToSession`, `ActionUpdate`), not strict
      owner-equality. An operator who can see the transcript (read) but
@@ -312,6 +326,25 @@ operator un-pausing it.
    Desktop", "Restart Desktop", or a topbar "Start new chat" button —
    all removed. Chat happens inline; the only restart affordance is the
    Advanced accordion (§14).
+5. **The live desktop stream, not a Start-Desktop placeholder.** The inline
+   transcript is the *text* half; this is the *visual* half — chatting with
+   the worker drives a real GNOME/Zed desktop and the operator must be able to
+   **watch** it. From the worker detail page click the **Project** id in the
+   right rail (§15.2) → lands on the project's spec board
+   (`…/projects/<pid>/specs`). Because the worker you just chatted with (§10.3)
+   has a **running** exploratory session, the board's topbar shows **View
+   Human Desktop** — NOT **Open Human Desktop** (no session) or **Resume Human
+   Desktop** (session stopped). That label is itself the gate: if it reads
+   Open/Resume the desktop isn't live and the chat above didn't actually wake
+   it. Click **View Human Desktop** → routes to the `project-team-desktop`
+   page (`TeamDesktopPage`). Its `ExternalAgentDesktopViewer` (`mode="stream"`)
+   must render the **live streamed desktop** — the agent's actual screen,
+   updating — and must NOT show the **"Desktop Paused"** overlay with its
+   **Start Desktop** button (the paused/stopped state), nor stick on a
+   "Starting Desktop…" / "Desktop may have failed to start" spinner. Type into
+   this page's composer ("Send message to agent…") and the desktop visibly
+   reacts (Zed/agent activity on screen) — confirming the same session backs
+   both the worker-chat transcript and this desktop view.
 
 ## §11. Worker sandbox: Zed launch, per-Worker tools, stale-session recovery
 
@@ -332,26 +365,26 @@ now reconcile the activation/team streams the edge implies (see 3a).
    `r-eng` via the role frame's hire icon: `w-alice`, `w-bob`,
    `w-carol`. All appear as Worker nodes inside the `r-eng` frame with
    no reporting edges (top-level orphans).
-2. Drag from `w-owner`'s **bottom** handle to `w-alice`'s **top**
+2. Drag from `w-root`'s **bottom** handle to `w-alice`'s **top**
    handle. A solid reporting edge appears; snackbar `w-alice now
-   reports to w-owner`. DB: `SELECT manager_id FROM org_reporting_lines
-   WHERE report_id='w-alice' AND org_id='<org>'` → `{w-owner}`. The
-   `r-owner` frame now sits above `r-eng` (dagre lays the role tree out
+   reports to w-root`. DB: `SELECT manager_id FROM org_reporting_lines
+   WHERE report_id='w-alice' AND org_id='<org>'` → `{w-root}`. The
+   `r-root` frame now sits above `r-eng` (dagre lays the role tree out
    from the cross-role edge).
    - **Topology side-effects** (the new manager edge wires the comms
      channels — and they exist ONLY because the edge was wired; the
      orphan workers from step 1 had no team/DM streams, only their own
-     `s-activations-<id>`). `s-activations-w-alice` now has `w-owner` as
+     `s-transcript-<id>`). `s-transcript-w-alice` now has `w-root` as
      a subscriber (the manager observes the report's transcript):
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner}`. The manager's team
+     stream_id='s-transcript-w-alice'` → `{w-root}`. The manager's team
      stream now exists with both of them:
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-team-w-owner'` → `{w-owner, w-alice}`. And the 1:1 DM
+     stream_id='s-team-w-root'` → `{w-root, w-alice}`. And the 1:1 DM
      channel for the edge now exists too — DM channels are scoped to the
      reporting graph, provisioned here, NOT created on demand by the `dm`
      tool: `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-dm-w-alice-w-owner'` → `{w-alice, w-owner}` (id is the
+     stream_id='s-dm-w-alice-w-root'` → `{w-alice, w-root}` (id is the
      sorted pair).
 3. Drag from `w-alice`'s bottom handle to `w-bob`'s top handle →
    `w-bob` reports to `w-alice` (intra-role edge; both stay in
@@ -360,37 +393,37 @@ now reconcile the activation/team streams the edge implies (see 3a).
    regression).** Drag from `w-carol`'s bottom handle to `w-alice`'s
    top handle. A second reporting edge appears; snackbar `w-alice now
    reports to w-carol`. `GET /workers/w-alice → .parent_ids` returns
-   `[w-owner, w-carol]` (order may vary). DB:
+   `[w-root, w-carol]` (order may vary). DB:
    `SELECT manager_id FROM org_reporting_lines WHERE
    report_id='w-alice'` → two rows.
    - **Both managers now observe the transcript.**
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner, w-carol}`. And
+     stream_id='s-transcript-w-alice'` → `{w-root, w-carol}`. And
      `w-carol`'s team stream now exists:
      `SELECT worker_id FROM org_subscriptions WHERE
      stream_id='s-team-w-carol'` → `{w-carol, w-alice}`.
 
    Then select **only** the `w-carol → w-alice` edge and press
    **Delete**: snackbar `w-alice no longer reports to w-carol`; the
-   `w-owner → w-alice` edge survives; `parent_ids` is back to
-   `[w-owner]`.
+   `w-root → w-alice` edge survives; `parent_ids` is back to
+   `[w-root]`.
    - **The ex-manager is unsubscribed — this is the bug this PR fixes.**
      `SELECT worker_id FROM org_subscriptions WHERE
-     stream_id='s-activations-w-alice'` → `{w-owner}` only (NOT
-     `{w-owner, w-carol}` — the old bug left `w-carol` subscribed after
+     stream_id='s-transcript-w-alice'` → `{w-root}` only (NOT
+     `{w-root, w-carol}` — the old bug left `w-carol` subscribed after
      the edge was removed). `s-team-w-carol` is gone (w-carol has no
      other reports), and so is the DM channel for the dropped edge:
      `SELECT id FROM org_streams WHERE id IN
      ('s-team-w-carol','s-dm-w-alice-w-carol')` → zero rows.
-     `w-owner`'s observership, `s-team-w-owner`, and the
-     `s-dm-w-alice-w-owner` channel are untouched.
+     `w-root`'s observership, `s-team-w-root`, and the
+     `s-dm-w-alice-w-root` channel are untouched.
 4. **Cycle guard**: drag from `w-bob`'s bottom handle to `w-alice`'s
    top handle (would make alice→bob→alice). API returns 409; snackbar
    surfaces the cycle error; no edge added. DB unchanged.
-5. Select the `w-owner → w-alice` edge, press **Delete** (and retest
+5. Select the `w-root → w-alice` edge, press **Delete** (and retest
    with **Backspace**, re-adding the edge between the two). Edge gone;
-   snackbar `w-alice no longer reports to w-owner`; the
-   `org_reporting_lines` row for `(w-owner, w-alice)` is gone (no row
+   snackbar `w-alice no longer reports to w-root`; the
+   `org_reporting_lines` row for `(w-root, w-alice)` is gone (no row
    where `report_id='w-alice'`).
 6. Create a stream `s-test` (Streams tab). It appears as a dashed
    node to the right of the tree. Drag from `w-alice`'s **right**
@@ -411,11 +444,12 @@ abstractly (escalate up via `managers`+`dm`; brief down via
 `reports`+`publish` to the team stream). Both are MCP tools on each
 Worker's surface — call them via `tools/call` at
 `/api/v1/mcp/helix-org/<org>/workers/<id>/mcp` (the same endpoint §2.8
-uses for `tools/list`). The owner Role and every Role drafted via
-`/role` carry `managers` + `reports`.
+uses for `tools/list`). The seeded `r-root` and every Role drafted via
+`/role` carry `managers` + `reports` (baseline reads are injected on
+create).
 
 Setup: in a fresh role that lists `managers`, `reports`, hire AI
-`w-mgr` (parent `w-owner`), AI `w-rep` (parent `w-mgr`), and AI `w-sub`
+`w-mgr` (parent `w-root`), AI `w-rep` (parent `w-mgr`), and AI `w-sub`
 (parent `w-rep`) — so `w-rep` is both a report (of `w-mgr`) and a
 manager (of `w-sub`).
 
@@ -423,8 +457,8 @@ manager (of `w-sub`).
    args) → `{"managers":[{"id":"w-mgr","role":"<roleId>",
    "dmStreamId":"s-dm-w-mgr-w-rep"}]}`. The `dmStreamId` is the
    deterministic sorted pair, so `dm`-ing `w-mgr` lands on it. Call
-   `managers` on `w-owner` → `{"managers":[]}` — an **empty array, not
-   null** (the owner reports to no one).
+   `managers` on `w-root` → `{"managers":[]}` — an **empty array, not
+   null** (the root reports to no one).
 2. **`reports` from a manager.** `tools/call reports` on `w-mgr` →
    `teamStreamId` is `"s-team-w-mgr"` (non-null), and the `reports`
    array contains `w-rep` with `dmStreamId":"s-dm-w-mgr-w-rep"` and
@@ -496,7 +530,7 @@ This is the load-bearing tenancy gate. It exists because of the
 cross-tenant leak fixed in
 `https://github.com/helixml/helix/pull/2570` (root cause in
 `design/2026-06-09-org-multitenancy-spawner-leak.md`): a new org's
-owner asked to "create a role and hire a worker" and the role + worker
+operator asked to "create a role and hire a worker" and the role + worker
 landed in a **different** org.
 
 **Two distinct threats — test both.** "Multi-tenancy" here means two
@@ -515,8 +549,9 @@ things, and they need different detectors:
    `(id, org_id)` PK (confirm: `\d org_roles` shows
    `PRIMARY KEY (id, org_id)`), so every write bug we have shipped lived
    in a process-wide layer *above* the store keyed by an id unique only
-   *within* an org — and **every org's owner is `w-owner`**, every owner
-   role is `r-owner`, ids like `r-engineer` repeat across orgs. A test
+   *within* an org — and **every org's root worker is conventionally
+   `w-root`**, its role `r-root`, ids like `r-engineer` repeat across
+   orgs. A test
    with *different* ids per org can pass while the singleton leaks; the
    same id in both orgs is what bites.
 
@@ -531,9 +566,9 @@ frozen-identity leak hides.
 
 **Setup.** Acting user owns (or is a global admin of — `authorizeOrgMember`
 grants admins a temporary owner membership for any org) two helix-org
-orgs, both already bootstrapped (`w-owner`/`r-owner`). On localhost the
-pair is `test` (org-a) and `beta` (org-b); switch between them with the
-top-left org selector.
+orgs, both already seeded with a `w-root`/`r-root` root (per §1). On
+localhost the pair is `test` (org-a) and `beta` (org-b); switch between
+them with the top-left org selector.
 
 ### Read isolation — distinct sentinels, every read surface
 
@@ -547,7 +582,7 @@ the gateway or a store query would leak here.
 ```bash
 KEY=<user api key>
 mcp(){ curl -s -X POST \
-  "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-owner/mcp" \
+  "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-root/mcp" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" -d "$2" \
   | sed -n 's/^data: //p'; }
@@ -561,9 +596,9 @@ mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"creat
    org-b must return `r-secret-bbb` and **never** `r-secret-aaa` /
    `SECRET-A-DATA`; `list_roles` on org-a is the mirror image. Same for
    `list_workers` and `list_streams` — org-a's unique stream ids
-   (e.g. `s-dummy-*`, `s-activations-<an org-a-only worker>`) must be
+   (e.g. `s-dummy-*`, `s-transcript-<an org-a-only worker>`) must be
    absent from org-b's list. The only ids that may appear in both lists
-   are generic per-org rows (`s-activations-w-owner`, `s-team-w-owner`) —
+   are generic per-org rows (`s-transcript-w-root`, `s-team-w-root`) —
    those are each org's *own* row that happens to share an id, not a leak;
    confirm the row's `org_id` and content are the reader's, not the
    other's.
@@ -607,11 +642,11 @@ mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"creat
 5. Switch back to org-a: its `r-mt` / `w-mt` / `r-engineer` are
    unchanged (org-b's writes did not mutate them).
 
-### Level 2 — Helix tool level (the owner's MCP surface)
+### Level 2 — Helix tool level (the root worker's MCP surface)
 
-This is the actually-exploited surface: the org-graph MCP tools the
-owner Worker's agent calls. Endpoint:
-`POST /api/v1/mcp/helix-org/<org>/workers/w-owner/mcp` — auth is a Bearer
+This is the actually-exploited surface: the org-graph MCP tools a
+Worker's agent calls (here the root `w-root`). Endpoint:
+`POST /api/v1/mcp/helix-org/<org>/workers/w-root/mcp` — auth is a Bearer
 api_key for an **alpha-flagged** member (`hasAlphaFeature`,
 `authorizeOrgMember`); the org is resolved from the **URL path**. It
 speaks JSON-RPC; no separate `initialize` is needed, but the request
@@ -623,25 +658,25 @@ comes back as an SSE `data:` line.
    ```bash
    KEY=<user api key>
    mcp(){ curl -s -X POST \
-     "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-owner/mcp" \
+     "http://localhost:8080/api/v1/mcp/helix-org/$1/workers/w-root/mcp" \
      -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" -d "$2" \
      | sed -n 's/^data: //p'; }
    # create_role r-mt in BOTH orgs, then hire_worker w-mt in BOTH
    mcp org-a '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-mt","content":"# MT (a)"}}}'
    mcp org-b '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_role","arguments":{"id":"r-mt","content":"# MT (b)"}}}'
-   mcp org-a '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# a","parentId":"w-owner"}}}'
-   mcp org-b '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# b","parentId":"w-owner"}}}'
+   mcp org-a '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# a","parentId":"w-root"}}}'
+   mcp org-b '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hire_worker","arguments":{"id":"w-mt","roleId":"r-mt","kind":"ai","identityContent":"# b","parentId":"w-root"}}}'
    ```
    Each call returns `{"id":"r-mt"}` / `{"id":"w-mt", "activation_id":…}`.
    The DB queries from Level 1.4 must show one row per org with the right
    per-org content. Critically: a `create_role` against org-b's URL must
    write **zero** rows into org-a (`SELECT count(*) FROM org_roles WHERE
    id='r-mt' AND org_id='<org-a>'` stays at exactly 1).
-2. **The owner agent's stamped MCP URL is its own org — the real leak.**
+2. **The root agent's stamped MCP URL is its own org — the real leak.**
    The gateway above is *always* org-correct (it reads `org` from the
    path). The #2570 bug was upstream of it: the **spawner** stamped the
-   wrong org's MCP URL onto the Worker's agent app, so org-b's owner
+   wrong org's MCP URL onto the Worker's agent app, so org-b's root
    desktop booted pointing at org-a, and the agent's `create_role` /
    `hire_worker` then hit org-a's gateway. Catch it by inspecting what
    the spawner wrote — **after activating org-a first, then org-b:**
@@ -659,7 +694,7 @@ comes back as an SSE `data:` line.
    `POST /api/v1/orgs/<org>/workers/<id>/activate` if a desktop needs a
    nudge.)
 3. **Gold standard — the literal bug report, end-to-end.** With org-a's
-   owner activated first, open **org-b**'s `w-owner` detail page and chat
+   root activated first, open **org-b**'s `w-root` detail page and chat
    (§10): "Create a role `r-chat` and hire an AI worker `w-chat` into
    it." Watch the agent's `create_role` / `hire_worker` tool calls in the
    transcript, then assert `SELECT org_id FROM org_roles WHERE
@@ -668,8 +703,8 @@ comes back as an SSE `data:` line.
 
 The unit-level counterpart is the colliding-IDs integration gate added
 in #2570 (drives Dispatcher → Queue → Spawner with two orgs holding
-identical ids; asserts an org-a event activates only org-a's `w-owner`,
-under org-a, and that both orgs' `w-owner` activate concurrently on
+identical ids; asserts an org-a event activates only org-a's `w-root`,
+under org-a, and that both orgs' `w-root` activate concurrently on
 independent lanes). §16 is the live, end-to-end version of that gate.
 
 ### Known sharp edge — per-Worker repo id is NOT org-scoped
@@ -691,17 +726,149 @@ defect is real: it is the same id-collision class as #2570, one layer
 down in the git-repo service, which #2570 did not cover. Either scope the
 repo id by org or make it collision-proof (ULID, not second-granularity).
 
+> **Terminology note (Stream → Topic rename).** The wire is now a
+> **Topic** everywhere: table `org_topics` (was `org_streams`), REST
+> `/topics…`, MCP `create_topic`/`list_topics`/`get_topic`, frontend
+> `TopicNode`. The `s-` id prefix is unchanged. Older sections above that
+> still say "stream"/`org_streams` should be read as "topic"/`org_topics`.
+
+## §17. Processors (transform / filter / router)
+
+A **Processor** sits on the edge between Topics and reshapes or routes the
+Messages crossing it. It reads **one input Topic** and writes **one or
+more output Topics**; everything still flows through Topics (a branch's
+output Topic is a real, auto-provisioned `org_topics` row, just collapsed
+into the node visually). Kinds (`org_processors.kind`):
+
+- **template** — rewrites `Message.body` via a Go `text/template` against
+  the `{{ .Message.* }}` context. 1 input → 1 output, always passes.
+- **truncate** — caps the body to `max_bytes` (rune-safe). 1 → 1.
+- **filter / router** — N outputs, each a branch with a predicate; a
+  Message goes to every branch whose predicate renders truthy; an empty
+  predicate is the default/catch-all. **A router is just a filter with >1
+  output** — no separate kind.
+
+Execution is a late-bound fan-out arm of the dispatcher: publishing to a
+processor's input Topic runs `Process` and re-publishes each result onto
+the output Topic, which then dispatches to ITS subscribers (so chains
+recurse; a hop guard + create-time cycle check bound it).
+
+**Ports & the data-flow vs org-structure rule (the node design).** The
+node has an **IN** port (left, orange) and one labelled **OUT** port per
+branch (right, purple). Data-flow edges attach to the **SIDES** of nodes;
+the Worker's **top/bottom** handles are reserved for **org structure**
+(reporting lines). A processor-output → Worker edge therefore lands on the
+Worker's **right** data port (`id="topic"`, the same port used to
+subscribe to a Topic), never the top.
+
+Setup: seed `r-root` + an AI `w-root` (§1), and create two local Topics
+`s-in` and `s-feed` (Topics tab). Workers won't run a turn this session
+(no model budget), so verify the data path via DB + the REST publish
+endpoint, not a live activation. Publish:
+`POST /api/v1/orgs/<org>/topics/<id>/publish` with `{"body":…,"subject":…,"as":…}`.
+
+1. **Create a template processor (drawer).** Chart → **Processor** →
+   name `fmt`, kind `template`, input `s-in`, template
+   `From {{ .Message.from }}: {{ .Message.subject }}`. Create. A
+   `processor` node appears (header `fmt`, `IN` on the left, `OUT default`
+   on the right). DB: `org_processors` has one row, kind `template`,
+   `input_topic_id='s-in'`, `outputs` JSON has one `Owned:true` topic;
+   that output `org_topics` row exists.
+2. **Raw-JSON preview + syntax help.** Publish a message to `s-in`
+   (`{"body":"hi","subject":"Order #7","as":"a@vip.com"}`). Reopen `fmt`
+   (click its header). The **"Latest message … raw `{{ .Message }}` JSON"**
+   box shows the canonical envelope pretty-printed
+   (`{"from":"a@vip.com","subject":"Order #7","body":"hi"}`) — this is how
+   the operator discovers the available keys. Click **Show syntax help**:
+   it lists the `.Message.*` fields, the function set
+   (`upper/lower/trunc/default/contains/hasPrefix/hasSuffix`) with the
+   arg-order note (*test string first, field last* — `hasSuffix "@vip.com"
+   .Message.from`), and (filter) the truthy-match rules.
+3. **Execution (data path).** Publish to `s-in`; the output Topic
+   (`outputs[0].topic_id`) gains an event whose decoded body is the
+   rendered string. `org_events` for that topic shows
+   `body="From a@vip.com: Order #7"`. (With a live agent, a Worker
+   subscribed to the output Topic activates with that body.)
+4. **Wire Topic → IN (drag-to-wire input).** On the chart, drag from
+   `s-feed`'s right (amber) handle into `fmt`'s **IN** port. Snackbar
+   `fmt now reads s-feed`; `org_processors.input_topic_id='s-feed'`. The
+   IN edge re-routes from `s-feed`.
+5. **Wire OUT → Worker (drop on the worker's SIDE).** Drag from `fmt`'s
+   **OUT** port and drop **anywhere on `w-root`** (notably its right
+   side — NOT the top). A dashed data edge connects to the Worker's right
+   port; snackbar `w-root now consumes <out-topic>`;
+   `org_subscriptions` has `(w-root, <out-topic>)`. Confirm the edge
+   endpoint is on the Worker's **side**, not the top reporting handle.
+6. **Wire OUT → another processor (chain).** Create a second processor
+   `cap` (truncate, `max_bytes` 20, input `s-in`). Drag `fmt`'s OUT →
+   `cap`'s IN: `cap.input_topic_id` becomes `fmt`'s output topic; a chain
+   edge renders upstream-branch → IN.
+7. **Disconnect the input (delete the IN edge).** Hover the IN edge of
+   `cap`, click the **× / "Disconnect input"**. Snackbar `cap disconnected
+   from its input`; `org_processors.input_topic_id=''` (empty); the edge
+   is gone AND **stays gone after refresh** (it is NOT a no-op that
+   reappears). `cap` is now inert until re-wired.
+8. **Delete a subscription edge.** Delete the `fmt → w-root` data edge →
+   `w-root` drops from that output Topic's subscribers
+   (`org_subscriptions` row gone), persisted across refresh.
+9. **filter / router.** Create `route` (filter, input `s-in`) with two
+   branches: `vip` predicate `{{ hasSuffix "@vip.com" .Message.from }}`,
+   and `default` (empty predicate). Two `OUT` ports render. Publish a VIP
+   (`as:"x@vip.com"`) and a plain (`as:"x@y.com"`) message: the **vip**
+   output Topic gets only the VIP event; the **default** output Topic gets
+   both. Wire each branch port to a different Worker.
+10. **Delete a processor (cascade).** Delete `route` (node trash icon →
+   confirm). The processor row is gone and its **auto-provisioned output
+   Topics are cascaded** (and their subscriptions), but any *explicit*
+   shared output Topic survives.
+
+### §17 regression checks (UX teething bugs — keep these working)
+
+- **Duplicate name → 409, clean message** (not a raw `SQLSTATE 23505` /
+  doubled `create processor: create processor:` leak). Create two
+  processors with the same name in one org → second returns 409
+  `a processor named "X" in this org already exists`.
+- **A processor's owned output Topic is not independently deletable.**
+  Its delete on the Topic list / detail returns **409**
+  (`… is an output of processor …; delete the processor instead`) — never
+  leaving the processor with a dangling output. Deleting the processor is
+  the way to remove it (idempotent if the topic is already gone).
+- **The input edge deletes for real.** Deleting it **disconnects** the
+  input (clears `input_topic_id`) and stays gone — it must NOT be a no-op
+  that vanishes then reappears on refresh.
+- **OUT → Worker works dropping anywhere on the Worker.** Loose
+  connection mode + `connectionRadius` mean you don't have to hit the tiny
+  top target handle; dropping on the Worker's body/side connects.
+- **Data edges attach to node SIDES; top/bottom stay for reporting.** A
+  proc-output → Worker edge ends on the Worker's right data port (≈0px
+  off it), far from the top handle.
+- **Nodes are clickable, not occluded.** Processor nodes sit at their
+  input Topic's Y (clear of the page header); clicking the header opens
+  the edit drawer (it must not be covered by the header description or the
+  MiniMap — the MiniMap lives bottom-left, Controls top-left).
+- **Validation surfaces as 400 with a helpful message, drawer stays
+  open:** empty/malformed template, `max_bytes ≤ 0`, malformed/unknown-func
+  predicate, >1 output on a transform, unknown kind. A genuinely-unknown
+  template field (`{{ .Message.nope }}`) is accepted (renders empty at
+  runtime) — that's correct, not a bug.
+- **Cycle guard on wiring.** Re-pointing a processor's input (or a chain)
+  such that a branch's output leads back to its own input is rejected 409;
+  no edge persists.
+
 ## Pass criteria
 
-- §1 — bootstrap creates one Worker (`w-owner` with `role_id =
-  r-owner`); `org_reporting_lines` is empty; no `org_positions` table.
-- §2 — `r-owner` has a non-empty tool set (position tools absent);
+- §1 — a fresh org is **empty** (no workers/roles); seeding via New
+  Role → Add Worker creates `w-root` (`role_id = r-root`);
+  `org_reporting_lines` is empty; no `org_positions` / `org_environments`
+  table.
+- §2 — `r-root` has a non-empty tool set (position tools absent);
   multi-select adds/removes a tool; refresh persists; an edit
   propagates to every Worker in the role on the next MCP
   `tools/list`.
-- §3 — AI worker creation doesn't crash the API; owner refuses
-  fire (409); role delete dialog enumerates the affected workers
-  before confirm.
+- §3 — AI worker creation doesn't crash the API; firing any worker
+  (including the root) succeeds with no protection (204, never a 409
+  lock); role delete dialog enumerates the affected workers before
+  confirm.
 - §4 — restart persists; both themes render. (Cross-org isolation is
   §16.)
 - §16 — **read isolation**: with distinct sentinels planted per org,
@@ -712,28 +879,28 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   `create_role` / `hire_worker` against an org's URL each appear in
   exactly one org's `org_roles` / `org_workers` (composite-PK rows, one
   per org, distinct content) and write zero rows into the other.
-  Activating org-a's owner first must NOT taint org-b: org-b's `w-mt`
+  Activating org-a's root first must NOT taint org-b: org-b's `w-mt`
   agent app embeds **org-b's** id in its helix-org MCP URL, and an org-b
-  owner-chat "create a role / hire a worker" lands in org-b. Watch the
+  root-chat "create a role / hire a worker" lands in org-b. Watch the
   per-Worker repo-id collision (same worker id + same second across orgs
   fails the second activation on `git_repositories_pkey`).
-- §6 — activation streams' subscribers list contains the Worker's
+- §6 — transcripts' subscribers list contains the Worker's
   manager id (derived from the reporting line, not whoever clicked
   hire); a manager with reports also has an `s-team-<id>` stream; live
   SSE replaces, doesn't append.
 - §8 — subscriptions are worker-keyed; fire drops them; new
   hires do NOT inherit; two workers in the same role can hold
   disjoint subscription sets.
-- §9 — fire removes the worker's activation stream (no orphans), and
+- §9 — fire removes the worker's transcript (no orphans), and
   if the worker was a manager, its `s-team-<id>` stream is torn down
   too (topology owns the teardown).
 - §12.3a — adding a second manager subscribes that manager to the
-  report's activation stream and creates its team stream; **removing
+  report's transcript and creates its team stream; **removing
   the edge unsubscribes the ex-manager** (the reparent-desync
   regression this PR fixes) and tears down the now-empty team stream;
   the surviving manager is untouched.
 - §13 — `managers` returns each manager's id/role/`dmStreamId` (empty
-  array, not null, for the owner); `reports` returns a non-null
+  array, not null, for the root); `reports` returns a non-null
   `s-team-<id>` teamStreamId + each report's `dmStreamId`, flags a
   report that manages its own sub-team (`manages: true` +
   `teamStreamId`), and returns `null` teamStreamId + empty `reports`
@@ -746,7 +913,11 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   otherwise. Sending a message dispatches via `POST …/sessions/chat`
   (the composer does NOT get stuck on "Message queue (saved locally)")
   and the worker's agent replies live in the transcript. No
-  desktop-launch / "Start new chat" buttons remain on the page.
+  desktop-launch / "Start new chat" buttons remain on the page. Following
+  the right-rail **Project** link → spec board → **View Human Desktop**
+  (the running-session label, not Open/Resume) opens `TeamDesktopPage` with
+  a **live** streamed desktop — never the "Desktop Paused" / **Start
+  Desktop** overlay.
 - §14 — every helix-org page's breadcrumb comes from the shared hook;
   the org-name crumb links to the chart from every page (list, detail,
   settings), and detail pages carry an org / Section / leaf trail with
@@ -757,6 +928,19 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   re-activates the worker with a data-loss warning.
 - §11 — fresh sandbox: Zed launches; per-Worker `gh`
   startupScript installs cleanly; `gh auth status` green.
+- §17 — a processor of each kind creates with an auto-provisioned output
+  Topic; the drawer's preview shows the raw `{{ .Message }}` JSON and the
+  syntax help lists fields/functions/match rules; publishing to the input
+  Topic transforms/routes the message onto the right output Topic(s).
+  Wiring works in all three directions — Topic → IN, OUT → Worker (drop
+  on the Worker's **side**, not top), OUT → processor (chain) — and data
+  edges land on node **sides** while top/bottom stay for reporting.
+  **Every edge deletes for real and persists:** the input edge
+  disconnects the input; subscription edges unsubscribe. Duplicate name →
+  409 clean (no raw driver error); an owned output Topic can't be deleted
+  independently (409); deleting the processor cascades its owned outputs.
+  Validation errors are 400 with a helpful message and the drawer stays
+  open.
 - No console errors beyond the three Vite WS errors at startup.
 
 ## Known limitations
@@ -765,13 +949,11 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
 - A Worker's reporting lines are many-to-many (one `org_reporting_lines`
   row per manager–report pair). A Worker may report to several managers
   simultaneously; the graph is a cycle-guarded DAG, not a tree.
-- `w-owner` / `r-owner` are protected at the API; UI hides the
-  trash/fire affordance and surfaces a friendly 409.
 - Adding a reporting line is cycle-guarded server-side: dragging a
   manager edge that would close a reporting loop is rejected with a 409.
 - Org isolation is enforced by composite `(id, org_id)` PKs in the store;
   every tenancy bug to date lived in a process-wide layer above it keyed
-  by an id unique only within an org (`w-owner`, `r-owner`). §16 is the
+  by an id unique only within an org (`w-root`, `r-root`). §16 is the
   colliding-ID gate that exercises that layer. One layer it does NOT yet
   cover is safe: the per-Worker git repo id (`code-<workerID>-<second>`)
   has a **global** PK, so two orgs hiring the same worker id in the same

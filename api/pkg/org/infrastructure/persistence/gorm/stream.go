@@ -14,10 +14,10 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
-type streamRow struct {
+type topicRow struct {
 	ID              string `gorm:"primaryKey;type:text"`
-	OrgID           string `gorm:"primaryKey;type:text;index;uniqueIndex:idx_stream_org_name,priority:1"`
-	Name            string `gorm:"not null;uniqueIndex:idx_stream_org_name,priority:2"`
+	OrgID           string `gorm:"primaryKey;type:text;index;uniqueIndex:idx_topic_org_name,priority:1"`
+	Name            string `gorm:"not null;uniqueIndex:idx_topic_org_name,priority:2"`
 	Description     string
 	CreatedBy       string `gorm:"not null;index"`
 	CreatedAt       time.Time
@@ -25,16 +25,16 @@ type streamRow struct {
 	TransportConfig string `gorm:"not null;default:''"`
 }
 
-func (streamRow) TableName() string { return "org_streams" }
+func (topicRow) TableName() string { return "org_topics" }
 
-type streamMapper struct{}
+type topicMapper struct{}
 
-func (streamMapper) ToRow(s streaming.Stream) (streamRow, error) {
+func (topicMapper) ToRow(s streaming.Topic) (topicRow, error) {
 	cfg := ""
 	if len(s.Transport.Config) > 0 {
 		cfg = string(s.Transport.Config)
 	}
-	return streamRow{
+	return topicRow{
 		ID:              string(s.ID),
 		OrgID:           s.OrganizationID,
 		Name:            s.Name,
@@ -46,13 +46,13 @@ func (streamMapper) ToRow(s streaming.Stream) (streamRow, error) {
 	}, nil
 }
 
-func (streamMapper) ToDomain(row streamRow) (streaming.Stream, error) {
+func (topicMapper) ToDomain(row topicRow) (streaming.Topic, error) {
 	tp := transport.Transport{Kind: transport.Kind(row.TransportKind)}
 	if row.TransportConfig != "" {
 		tp.Config = json.RawMessage(row.TransportConfig)
 	}
-	return streaming.NewStream(
-		streaming.StreamID(row.ID),
+	return streaming.NewTopic(
+		streaming.TopicID(row.ID),
 		row.Name,
 		row.Description,
 		orgchart.WorkerID(row.CreatedBy),
@@ -62,39 +62,39 @@ func (streamMapper) ToDomain(row streamRow) (streaming.Stream, error) {
 	)
 }
 
-type streamsRepo struct {
-	*Repository[streaming.Stream, streamRow]
+type topicsRepo struct {
+	*Repository[streaming.Topic, topicRow]
 }
 
-func newStreamsRepo(db *gorm.DB) *streamsRepo {
-	return &streamsRepo{Repository: NewRepository[streaming.Stream, streamRow](db, streamMapper{}, "stream")}
+func newTopicsRepo(db *gorm.DB) *topicsRepo {
+	return &topicsRepo{Repository: NewRepository[streaming.Topic, topicRow](db, topicMapper{}, "topic")}
 }
 
-func (r *streamsRepo) Get(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error) {
+func (r *topicsRepo) Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
-func (r *streamsRepo) List(ctx context.Context, orgID string) ([]streaming.Stream, error) {
+func (r *topicsRepo) List(ctx context.Context, orgID string) ([]streaming.Topic, error) {
 	return r.Find(ctx, store.WithOrg(orgID), store.WithOrderAsc("id"))
 }
 
-// ListByTransportKind returns every stream whose transport_kind matches,
-// across every org. The cron stream scheduler uses this to enumerate
+// ListByTransportKind returns every topic whose transport_kind matches,
+// across every org. The cron topic scheduler uses this to enumerate
 // schedules globally before placing them on its in-process gocron
 // scheduler. Per-tenant request paths must stay on Get / List.
-func (r *streamsRepo) ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Stream, error) {
-	var rows []streamRow
+func (r *topicsRepo) ListByTransportKind(ctx context.Context, kind transport.Kind) ([]streaming.Topic, error) {
+	var rows []topicRow
 	if err := r.db.WithContext(ctx).
 		Where("transport_kind = ?", string(kind)).
 		Order("org_id, id").
 		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list streams by transport kind %q: %w", kind, err)
+		return nil, fmt.Errorf("list topics by transport kind %q: %w", kind, err)
 	}
-	out := make([]streaming.Stream, 0, len(rows))
+	out := make([]streaming.Topic, 0, len(rows))
 	for _, row := range rows {
-		s, err := (streamMapper{}).ToDomain(row)
+		s, err := (topicMapper{}).ToDomain(row)
 		if err != nil {
-			return nil, fmt.Errorf("hydrate stream %s/%s: %w", row.OrgID, row.ID, err)
+			return nil, fmt.Errorf("hydrate topic %s/%s: %w", row.OrgID, row.ID, err)
 		}
 		out = append(out, s)
 	}
@@ -103,9 +103,9 @@ func (r *streamsRepo) ListByTransportKind(ctx context.Context, kind transport.Ki
 
 // Update rewrites the mutable subset (name, description, transport
 // kind + config) of the row identified by (id, orgID). Immutable
-// fields on the passed Stream are ignored. Returns store.ErrNotFound
+// fields on the passed Topic are ignored. Returns store.ErrNotFound
 // when no row matches.
-func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
+func (r *topicsRepo) Update(ctx context.Context, s streaming.Topic) error {
 	cfg := ""
 	if len(s.Transport.Config) > 0 {
 		cfg = string(s.Transport.Config)
@@ -123,23 +123,23 @@ func (r *streamsRepo) Update(ctx context.Context, s streaming.Stream) error {
 	)
 }
 
-// Delete removes the stream row and structurally cascades the
+// Delete removes the topic row and structurally cascades the
 // subscriptions that reference it: every worker-anchored row for this
-// stream is dropped in the same transaction, so firing a worker (which
-// deletes its s-activations-<id> stream) can't leave other workers'
-// subscriptions pointing at a stream that no longer exists.
-func (r *streamsRepo) Delete(ctx context.Context, orgID string, id streaming.StreamID) error {
+// topic is dropped in the same transaction, so firing a worker (which
+// deletes its s-transcript-<id> topic) can't leave other workers'
+// subscriptions pointing at a topic that no longer exists.
+func (r *topicsRepo) Delete(ctx context.Context, orgID string, id streaming.TopicID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("org_id = ? AND stream_id = ?", orgID, string(id)).
+		if err := tx.Where("org_id = ? AND topic_id = ?", orgID, string(id)).
 			Delete(&subscriptionRow{}).Error; err != nil {
-			return fmt.Errorf("delete stream: drop subscriptions: %w", err)
+			return fmt.Errorf("delete topic: drop subscriptions: %w", err)
 		}
-		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&streamRow{})
+		res := tx.Where("org_id = ? AND id = ?", orgID, string(id)).Delete(&topicRow{})
 		if res.Error != nil {
-			return fmt.Errorf("delete stream: %w", res.Error)
+			return fmt.Errorf("delete topic: %w", res.Error)
 		}
 		if res.RowsAffected == 0 {
-			return fmt.Errorf("stream: %w", store.ErrNotFound)
+			return fmt.Errorf("topic: %w", store.ErrNotFound)
 		}
 		return nil
 	})

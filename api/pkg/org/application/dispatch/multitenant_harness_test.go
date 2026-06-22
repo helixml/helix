@@ -14,9 +14,9 @@ package dispatch_test
 //   - the per-Worker spawner config (frozen to the first org)
 //   - the activation Queue's serialisation lanes (keyed by workerID)
 //   - the transcript Mirror's tracker map (keyed by workerID)
-//   - the streamhub wake topics (keyed by streamID)
+//   - the wakebus wake topics (keyed by topicID)
 //
-// Every org's owner is "w-owner"; user-named streams like "s-general"
+// Every org's owner is "w-owner"; user-named topics like "s-general"
 // collide trivially. So the canonical trigger for this whole bug class
 // is: TWO orgs holding the SAME ids. This file drives that trigger
 // through the real Dispatcher → Queue → Spawner wiring and asserts an
@@ -31,7 +31,7 @@ package dispatch_test
 //   - helix:       TestMirrorIsolatesSameWorkerIDAcrossOrgs,
 //                  TestSpawnerHonorsSharedSemaphore,
 //                  TestEnsureScopesProjectToParamOrg_NotStructOrgID
-//   - streamhub:   TestNotify_IsolatedAcrossOrgs,
+//   - wakebus:   TestNotify_IsolatedAcrossOrgs,
 //                  TestSubscribeAll_IsolatedAcrossOrgs
 
 import (
@@ -44,7 +44,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
-	"github.com/helixml/helix/api/pkg/org/domain/environment"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -61,10 +60,10 @@ type orgActivation struct {
 	WorkerID orgchart.WorkerID
 }
 
-// seedTenant provisions one org with a worker + stream + subscription,
+// seedTenant provisions one org with a worker + topic + subscription,
 // all using caller-supplied ids. Call it twice with the SAME ids and
 // different orgs to set up a collision.
-func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) {
+func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -83,23 +82,16 @@ func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.Wo
 	if err := s.Workers.Create(ctx, w); err != nil {
 		t.Fatalf("[%s] create worker: %v", orgID, err)
 	}
-	env, err := environment.New(workerID, t.TempDir(), now, orgID)
-	if err != nil {
-		t.Fatalf("[%s] new env: %v", orgID, err)
-	}
-	if err := s.Environments.Create(ctx, env); err != nil {
-		t.Fatalf("[%s] create env: %v", orgID, err)
-	}
-	// A local stream (no outbound) so Dispatch's only effect is the
+	// A local topic (no outbound) so Dispatch's only effect is the
 	// subscriber activation we're asserting on.
-	stream, err := streaming.NewStream(streamID, string(streamID), "", workerID, now, transport.LocalTransport(), orgID)
+	topic, err := streaming.NewTopic(topicID, string(topicID), "", workerID, now, transport.LocalTransport(), orgID)
 	if err != nil {
-		t.Fatalf("[%s] new stream: %v", orgID, err)
+		t.Fatalf("[%s] new topic: %v", orgID, err)
 	}
-	if err := s.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("[%s] create stream: %v", orgID, err)
+	if err := s.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("[%s] create topic: %v", orgID, err)
 	}
-	sub, err := streaming.NewSubscription(string(workerID), streamID, now, orgID)
+	sub, err := streaming.NewSubscription(string(workerID), topicID, now, orgID)
 	if err != nil {
 		t.Fatalf("[%s] new subscription: %v", orgID, err)
 	}
@@ -110,10 +102,10 @@ func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.Wo
 
 // TestDispatch_IsolatesCollidingIDsAcrossOrgs is the integration leg of
 // the gate: two orgs with the SAME worker id ("w-owner") subscribed to
-// the SAME stream id ("s-general"). An event for org-a must activate
+// the SAME topic id ("s-general"). An event for org-a must activate
 // ONLY org-a's worker, under org-a — never org-b's identically-named
 // worker. This exercises the real Dispatcher.Dispatch →
-// Subscriptions.ListForStream(org) → Queue.Enqueue(org) → Spawner(org)
+// Subscriptions.ListForTopic(org) → Queue.Enqueue(org) → Spawner(org)
 // path, catching any call site that drops or crosses the org.
 func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	t.Parallel()
@@ -122,13 +114,13 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 
 	const (
 		workerID = orgchart.WorkerID("w-owner")    // identical across orgs
-		streamID = streaming.StreamID("s-general") // identical across orgs
+		topicID = streaming.TopicID("s-general") // identical across orgs
 	)
-	seedTenant(t, s, "org-a", workerID, streamID)
-	seedTenant(t, s, "org-b", workerID, streamID)
+	seedTenant(t, s, "org-a", workerID, topicID)
+	seedTenant(t, s, "org-b", workerID, topicID)
 
 	rec := make(chan orgActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ []activation.Trigger) error {
 		rec <- orgActivation{OrgID: orgID, WorkerID: wid}
 		return nil
 	})
@@ -150,7 +142,7 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 
 	// Event for org-a only. NewMessageEvent encodes the canonical
 	// Message envelope the dispatcher parses before fan-out.
-	eA, err := streaming.NewMessageEvent("e-a-1", streamID, "external",
+	eA, err := streaming.NewMessageEvent("e-a-1", topicID, "external",
 		streaming.Message{From: "external", Body: "for org-a"}, time.Now().UTC(), "org-a")
 	if err != nil {
 		t.Fatalf("new event a: %v", err)
@@ -166,7 +158,7 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	}
 
 	// Now org-b: must activate org-b's worker, under org-b.
-	eB, err := streaming.NewMessageEvent("e-b-1", streamID, "external",
+	eB, err := streaming.NewMessageEvent("e-b-1", topicID, "external",
 		streaming.Message{From: "external", Body: "for org-b"}, time.Now().UTC(), "org-b")
 	if err != nil {
 		t.Fatalf("new event b: %v", err)
@@ -200,14 +192,14 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 
 	const (
 		workerID = orgchart.WorkerID("w-owner")
-		streamID = streaming.StreamID("s-general")
+		topicID = streaming.TopicID("s-general")
 	)
-	seedTenant(t, s, "org-a", workerID, streamID)
-	seedTenant(t, s, "org-b", workerID, streamID)
+	seedTenant(t, s, "org-a", workerID, topicID)
+	seedTenant(t, s, "org-b", workerID, topicID)
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ string, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ []activation.Trigger) error {
 		entered <- orgID
 		<-release
 		return nil
@@ -215,7 +207,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	mkEvent := func(id streaming.EventID, org string) streaming.Event {
-		e, err := streaming.NewMessageEvent(id, streamID, "external",
+		e, err := streaming.NewMessageEvent(id, topicID, "external",
 			streaming.Message{From: "external", Body: "x"}, time.Now().UTC(), org)
 		if err != nil {
 			t.Fatalf("new event: %v", err)

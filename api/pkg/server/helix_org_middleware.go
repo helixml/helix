@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -13,27 +10,25 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/helixml/helix/api/pkg/org/application/bootstrap"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
-	"github.com/helixml/helix/api/pkg/org/application/tools"
-	"github.com/helixml/helix/api/pkg/org/application/topology"
+	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/application/roles"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 )
 
-// helixOrgScope bundles the per-org state the middleware needs to
-// pass into bootstrap and into the handlers. EnvsDir is the per-org
-// working-directory root (envs land under <root>/<orgID>/) so two
-// orgs can both have a `w-owner` Worker without clashing on disk.
+// helixOrgScope bundles the per-org state the middleware needs to pass
+// into the per-org setup and into the handlers.
 type helixOrgScope struct {
 	configs    *configregistry.Registry
 	orgStore   *helixorgstore.Store
-	envsRoot   string
 	helixStore helixstore.Store
 
-	// mirror's EnsureAll runs after bootstrap so pre-existing /
+	// mirror's EnsureAll runs on first request so pre-existing /
 	// inline-chat-only workers are mirrored without an activation first.
 	mirror *runtimehelix.Mirror
 
@@ -41,38 +36,28 @@ type helixOrgScope struct {
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
 	// org. The HelixOrgChart page fires several React Query hooks in
-	// parallel (/chart, /workers, /roles, /streams, …) and every one
-	// of those handlers funnels through ensureBootstrap. Without
-	// singleflight the per-org mutex only guarded the `bootstrapped`
-	// map flag, so multiple goroutines could enter bootstrap.Run at
-	// once — the winner created r-owner / w-owner, every loser
-	// returned "create owner role: already exists" (HTTP 500). The
-	// browser then served the 500 on the first paint and only worked
-	// after a refresh (when `bootstrapped[orgID]` was already true).
+	// parallel (/chart, /workers, /roles, /streams, …) and every one of
+	// those handlers funnels through ensureBootstrap; the singleflight
+	// collapses them into a single per-org setup run.
 	bootstrapFlight singleflight.Group
 }
 
 // newHelixOrgScope wires the data the middleware needs. configs and
-// orgStore are the same instances handed to the helix-org handler;
-// envsRoot is the parent directory under which `<orgID>/w-owner/`
-// will land at bootstrap time.
-func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, envsRoot string, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
+// orgStore are the same instances handed to the helix-org handler.
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,
-		envsRoot:     envsRoot,
 		helixStore:   hs,
 		mirror:       mirror,
 		bootstrapped: map[string]bool{},
 	}
 }
 
-// ensureBootstrap materialises the per-org owner Worker + structural
-// grants on first request for an org. Subsequent calls fast-path on
-// ErrAlreadyInitialised. Also provisions the helix.api_key into the
-// org's config registry so the spawner can use it.
-//
-// The envsDir under <envsRoot>/<orgID>/ is created on demand.
+// ensureBootstrap runs the per-org first-request setup: provision the
+// helix.api_key into the org's config registry, converge any existing
+// graph, and start the transcript mirror. No owner is seeded — orgs
+// start empty. Runs once per org per process (guarded by bootstrapped).
 func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error {
 	s.mu.Lock()
 	if s.bootstrapped[orgID] {
@@ -82,9 +67,9 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	s.mu.Unlock()
 
 	// singleflight collapses concurrent first-load callers for the
-	// same orgID into a single bootstrap.Run; losers wait for the
-	// winner and inherit its (err) result. This prevents the
-	// duplicate-key race described on bootstrapFlight.
+	// same orgID into a single setup run; losers wait for the winner and
+	// inherit its (err) result. This prevents duplicate-key races on the
+	// per-org setup below.
 	_, err, _ := s.bootstrapFlight.Do(orgID, func() (any, error) {
 		// Re-check under the flight: if a prior flight already
 		// finished and flipped the flag, return immediately so we
@@ -97,31 +82,15 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			return nil, nil
 		}
 
-		envsDir := filepath.Join(s.envsRoot, orgID)
-		ownerEnvPath := filepath.Join(envsDir, "w-owner")
-		if err := osMkdirAll(ownerEnvPath); err != nil {
-			return nil, err
-		}
-
-		switch result, err := bootstrap.Run(ctx, s.orgStore, bootstrap.Params{
-			EnvironmentPath: ownerEnvPath,
-			OrganizationID:  orgID,
-		}); {
-		case err == nil:
-			log.Info().
-				Str("org_id", orgID).
-				Str("worker_id", string(result.WorkerID)).
-				Msg("helix-org bootstrap created owner")
-		case errors.Is(err, bootstrap.ErrAlreadyInitialised):
-			// expected on subsequent boots after a previous bootstrap
-		default:
-			return nil, err
-		}
+		// No owner is seeded — orgs start empty. The human creates the
+		// first Role + Worker from the chart UI. This first-request hook
+		// only provisions the per-org service api_key and converges any
+		// graph that already exists (a no-op on a brand-new empty org).
 
 		// Provision a per-org Helix service api_key. Tied to the
-		// first admin user found — see ensureHelixOrgServiceAPIKey
-		// for the idempotency story.
-		if _, err := ensureHelixOrgServiceAPIKey(ctx, orgID, s.helixStore, s.configs); err != nil {
+		// first admin user found — see helixorg.HelixAPIKeys.Service for the
+		// idempotency story.
+		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
 		}
 
@@ -132,7 +101,12 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// Workers hired before the topology reconciler was wired
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
-		rec := &topology.Reconciler{Store: s.orgStore}
+		rec := reconcile.New(reconcile.Deps{
+			Workers:        s.orgStore.Workers,
+			ReportingLines: s.orgStore.ReportingLines,
+			Topics:         s.orgStore.Topics,
+			Subscriptions:  s.orgStore.Subscriptions,
+		})
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
 		}
@@ -143,8 +117,8 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		roleRec := &tools.RoleReconciler{Store: s.orgStore}
-		if err := roleRec.Reconcile(ctx, orgID); err != nil {
+		rolesSvc := roles.New(roles.Deps{Roles: s.orgStore.Roles, BaseTools: mcptools.BaseReadTools})
+		if err := rolesSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
@@ -157,12 +131,6 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		return nil, nil
 	})
 	return err
-}
-
-// osMkdirAll is a tiny indirection so tests can stub if needed; for
-// now it just calls os.MkdirAll with the canonical mode.
-func osMkdirAll(path string) error {
-	return os.MkdirAll(path, 0o750)
 }
 
 // withHelixOrgScope wraps the helix-org handler chain. It resolves
