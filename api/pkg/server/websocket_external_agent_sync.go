@@ -428,13 +428,23 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			// opens the thread it replays history as message_added events that corrupt
 			// the current interaction.
 			if helixSession.Metadata.ZedThreadID != "" {
+				// Reopen THIS session's own thread — the exact thread every
+				// chat_message send path targets (session.Metadata.ZedThreadID).
+				// Do NOT substitute a spec-task-global "latest" thread here: the
+				// connection — and the waiting interaction queued moments earlier
+				// by pickupWaitingInteraction — both belong to helixSession, and
+				// that send uses helixSession.Metadata.ZedThreadID. If open_thread
+				// addresses a different thread, Zed foregrounds/streams one thread
+				// while Helix sends messages into another (opened ≠ sent-to), which
+				// the user sees as their messages vanishing into a thread that
+				// isn't on screen — without ever switching session in the UI.
+				// The global "latest" override never made the send land correctly
+				// (the send was always on the session's own thread); it could only
+				// ever cause the mismatch. Compaction-created threads are their own
+				// Helix sessions (handleUserCreatedThread) and must be driven by
+				// reconnecting under that session, not by retargeting this one.
+				// See design/2026-06-22-zed-open-thread-send-mismatch.md.
 				targetThreadID := helixSession.Metadata.ZedThreadID
-				if helixSession.Metadata.SpecTaskID != "" {
-					latestThreadID := apiServer.findLatestZedThreadForSpecTask(ctx, helixSession.Metadata.SpecTaskID)
-					if latestThreadID != "" {
-						targetThreadID = latestThreadID
-					}
-				}
 
 				agentNameForOpen := apiServer.getAgentNameForSession(ctx, helixSession)
 				log.Info().
@@ -3750,31 +3760,6 @@ func (apiServer *HelixAPIServer) handleAgentReady(sessionID string, syncMsg *typ
 	go apiServer.processAnyPendingPrompt(context.Background(), sessionID)
 
 	return nil
-}
-
-// findLatestZedThreadForSpecTask returns the most recently active Zed thread ID
-// for a spectask. Used on reconnect to open the user's current thread rather than
-// the original one.
-func (apiServer *HelixAPIServer) findLatestZedThreadForSpecTask(ctx context.Context, specTaskID string) string {
-	workSessions, err := apiServer.Controller.Options.Store.ListSpecTaskWorkSessions(ctx, specTaskID)
-	if err != nil || len(workSessions) == 0 {
-		return ""
-	}
-
-	// Find the work session with the most recent activity
-	var latestThread string
-	var latestTime time.Time
-	for _, ws := range workSessions {
-		session, err := apiServer.Controller.Options.Store.GetSession(ctx, ws.HelixSessionID)
-		if err != nil || session == nil {
-			continue
-		}
-		if session.Metadata.ZedThreadID != "" && session.Updated.After(latestTime) {
-			latestTime = session.Updated
-			latestThread = session.Metadata.ZedThreadID
-		}
-	}
-	return latestThread
 }
 
 // findSessionByZedThreadID finds a session by its ZedThreadID metadata
