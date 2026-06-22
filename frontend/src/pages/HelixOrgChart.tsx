@@ -901,6 +901,7 @@ const buildGraph = (
           sourceHandle: 'src',
           target: `processor:${p.id}`,
           type: 'deletable',
+          deletable: false, // required input — re-wire instead of delete
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -914,6 +915,7 @@ const buildGraph = (
           sourceHandle: p.inputTopicId,
           target: `processor:${p.id}`,
           type: 'deletable',
+          deletable: false, // required input — re-wire instead of delete
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -988,8 +990,12 @@ const DeletableEdge: FC<EdgeProps> = ({
   const { deleteElements } = useReactFlow()
   const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
   const kind = (data as { kind?: string } | undefined)?.kind
-  const ariaLabel = kind === 'sub' ? 'Remove subscription' : 'Remove reporting line'
-  const show = hover || selected
+  const ariaLabel = kind === 'sub' || kind === 'proc_out' ? 'Remove subscription' : 'Remove reporting line'
+  // A processor's input edge represents its required input_topic_id — it
+  // can't be "deleted" (only re-wired by dragging a new Topic into the IN
+  // port), so it gets no delete button (deleting it was a no-op that
+  // visually vanished then reappeared on the next refresh).
+  const show = (hover || selected) && kind !== 'proc_in'
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
