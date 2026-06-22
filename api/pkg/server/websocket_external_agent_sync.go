@@ -1050,9 +1050,13 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 		Msg("Notifying external agent of new interaction")
 
 	// Build command data - include acp_thread_id if session already has one (for follow-up messages)
+	//
+	// NOTE: we deliberately do NOT set "role" here. The Zed sync client drops any
+	// chat_message with role=="user" as a UI-sync echo (websocket_sync.rs:421), so a
+	// genuine prompt sent through this path was being silently discarded (#2642). The
+	// queue path (sendQueuedPromptToSession) never set role and works; this matches it.
 	commandData := map[string]interface{}{
 		"message":    interaction.PromptMessage,
-		"role":       "user",
 		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
 	}
 
@@ -1408,11 +1412,18 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				})
 			}
 		} else {
+			// Reaching here means the chokepoint (getOrCreateStreamingContext) found
+			// neither a Waiting interaction nor a restart-interrupted one to recover
+			// for this thread's session — i.e. there is genuinely no interaction to
+			// route this assistant content to (no prompt was ever created for it).
+			// This is the only remaining unroutable case after the #2643 recovery;
+			// log loudly with the thread id so it's diagnosable rather than silent.
 			log.Warn().
 				Str("session_id", sessionID).
-				Str("context_id", contextID).
+				Str("acp_thread_id", contextID).
 				Str("helix_session_id", helixSessionID).
-				Msg("No interaction found to update with assistant response")
+				Str("request_id", messageRequestID).
+				Msg("⚠️ [HELIX] No interaction to route assistant message_added (no Waiting or recoverable interaction for this thread) — content dropped")
 		}
 	} else {
 		// For user messages, check whether a pre-created Waiting interaction already exists
@@ -1665,6 +1676,15 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 	// "error"/"Interrupted" by ResetRunningInteractions. If Zed reconnects and
 	// resumes sending messages, recover by reusing that interaction — reset its
 	// state back to Waiting so it can continue accumulating responses.
+	//
+	// Deliberately only the LAST row. A more-recent turn (e.g. a cancelled
+	// "interrupted" turn, or a separately errored turn) means there is no older
+	// in-flight turn to resume, so we must NOT scan past it and resurrect a stale
+	// interrupted interaction behind it. #2643's true cause is a divergence between
+	// THIS resolver (most-recent-waiting / restart-recovery) and
+	// handleMessageCompleted's request_id-mapping resolver — see
+	// architecture-simplifications.md §1; broadening this scan does not fix that and
+	// risks misrouting, so it stays conservative.
 	if targetInteraction == nil && len(interactions) > 0 {
 		last := interactions[len(interactions)-1]
 		if last.State == types.InteractionStateError && last.Error == "Interrupted" {

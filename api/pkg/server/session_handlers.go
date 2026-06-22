@@ -658,24 +658,23 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
-	// Track which interactions are new (for external agent notification)
-	// For existing sessions, only the last interaction(s) are new (from current generation)
-	// For new sessions, all interactions are new
+	// Track which interactions are new (for external agent notification).
+	//
+	// appendOrOverwrite always appends exactly ONE new user interaction — the prompt
+	// being sent — as the last element of session.Interactions (both the single-message
+	// and the regenerate paths). So the only genuinely-new interaction is the last one.
+	//
+	// We previously derived this by scanning backwards for the first interaction whose
+	// GenerationID < session.GenerationID. That was broken (#2642): on a long-lived
+	// session whose interactions all share the current generation (the common case — the
+	// generation only bumps on regenerate, and the regenerate path rewrites every kept
+	// interaction to the new generation at appendOrOverwrite), the scan found no boundary,
+	// left the start index at 0, and re-notified the ENTIRE history (~1381 Notify calls
+	// observed for one message → "external agent send channel full"). Notify only the new
+	// interaction.
 	newInteractionsStartIndex := 0
-	if startReq.SessionID != "" {
-		// Existing session - find where old interactions end by checking GenerationID
-		// Only notify about interactions from the current generation
-		for i := len(session.Interactions) - 1; i >= 0; i-- {
-			if session.Interactions[i].GenerationID < session.GenerationID {
-				// This interaction is from a previous generation
-				newInteractionsStartIndex = i + 1
-				break
-			}
-		}
-		log.Debug().
-			Int("total_interactions", len(session.Interactions)).
-			Int("new_start_index", newInteractionsStartIndex).
-			Msg("Tracking new interactions for external agent notification")
+	if len(session.Interactions) > 0 {
+		newInteractionsStartIndex = len(session.Interactions) - 1
 	}
 
 	// Write the initial interactions
