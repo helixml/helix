@@ -846,12 +846,19 @@ export function useTopicSampleMessage(topicId: string | undefined, options?: { e
         'page[number]': 1,
         'page[size]': 1,
       })
-      const doc = res.data as unknown as { data?: { attributes?: { from?: string; subject?: string; body?: string } }[] }
+      const doc = res.data as unknown as { data?: { attributes?: ProcessorPreviewSample & { raw?: string } }[] }
       const first = doc.data?.[0]
       return first?.attributes ?? null
     },
     enabled: !!orgID && !!topicId && (options?.enabled ?? true),
   })
+}
+
+export interface ProcessorPreviewSample {
+  from?: string
+  subject?: string
+  body?: string
+  raw?: string
 }
 
 export function useListHelixOrgProcessors(options?: { enabled?: boolean }) {

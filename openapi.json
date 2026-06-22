@@ -25538,6 +25538,10 @@
                     "has_message": {
                         "type": "boolean"
                     },
+                    "raw": {
+                        "description": "Raw is the canonical Message envelope JSON exactly as stored — the\nsame shape a processor's `.Message` template/filter context sees\n({\"from\":…,\"subject\":…,\"body\":…,\"thread_id\":…,…}). Lets the UI show\noperators which fields are available.",
+                        "type": "string"
+                    },
                     "source": {
                         "type": "string"
                     },

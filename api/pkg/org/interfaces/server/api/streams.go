@@ -420,6 +420,7 @@ func messageResource(ev streaming.Event) jsonapi.Resource {
 		attrs.To = msg.To
 		attrs.Subject = msg.Subject
 		attrs.Body = msg.Body
+		attrs.Raw = ev.Body // canonical Message envelope JSON (pre-decode)
 	}
 	return jsonapi.Resource{Type: "messages", ID: string(ev.ID), Attributes: attrs}
 }

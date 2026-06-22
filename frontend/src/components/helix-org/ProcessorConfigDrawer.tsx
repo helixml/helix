@@ -11,9 +11,11 @@
 import { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
+import Link from '@mui/material/Link'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
@@ -46,11 +48,92 @@ const KINDS = [
 
 type FilterRow = { label: string; match: string }
 const DEFAULT_FILTER_ROWS: FilterRow[] = [
-  { label: 'match', match: '{{ if hasSuffix "@vip.com" .Message.from }}1{{ end }}' },
+  { label: 'vip', match: '{{ hasSuffix "@vip.com" .Message.from }}' },
   { label: 'default', match: '' },
 ]
 
 const DEFAULT_TEMPLATE = 'From {{ .Message.from }}: {{ .Message.subject }}\n\n{{ .Message.body }}'
+
+// prettyJson re-indents a canonical Message envelope for display; falls
+// back to the raw string if it isn't valid JSON.
+function prettyJson(raw?: string): string {
+  if (!raw) return ''
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
+// SyntaxHelp is the in-drawer reference for the template / filter
+// languages — the available message fields, the function set (shared by
+// both kinds), and, for filters, how a predicate "matches".
+const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
+  const mono = { fontFamily: 'monospace', fontSize: '0.72rem' as const }
+  const fields: [string, string][] = [
+    ['.Message.from', 'sender, e.g. "alice@vip.com"'],
+    ['.Message.subject', 'subject line'],
+    ['.Message.body', 'message body'],
+    ['.Message.to', 'recipients (list)'],
+    ['.Message.thread_id', 'conversation id'],
+    ['.Message.message_id', 'unique message id'],
+    ['.Message.in_reply_to', 'parent message id'],
+    ['.Message.extra', 'transport-specific extras'],
+  ]
+  const funcs: [string, string][] = [
+    ['upper S', 'UPPERCASE'],
+    ['lower S', 'lowercase'],
+    ['trunc N S', 'cap S to N bytes'],
+    ['default "x" S', '"x" when S is empty'],
+    ['contains "bug" S', 'S contains "bug"'],
+    ['hasPrefix "RE:" S', 'S starts with "RE:"'],
+    ['hasSuffix "@vip.com" S', 'S ends with "@vip.com"'],
+  ]
+  return (
+    <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.015)' }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Fields — the {'{{ .Message.* }}'} context</Typography>
+      {fields.map(([f, d]) => (
+        <Box key={f} sx={{ display: 'flex', gap: 1 }}>
+          <Typography sx={{ ...mono, color: 'primary.main', minWidth: 150 }}>{f}</Typography>
+          <Typography variant="caption" color="text.secondary">{d}</Typography>
+        </Box>
+      ))}
+      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
+        Functions — note the test string comes FIRST, the field LAST
+      </Typography>
+      {funcs.map(([f, d]) => (
+        <Box key={f} sx={{ display: 'flex', gap: 1 }}>
+          <Typography sx={{ ...mono, color: 'primary.main', minWidth: 150 }}>{f}</Typography>
+          <Typography variant="caption" color="text.secondary">{d}</Typography>
+        </Box>
+      ))}
+      {kind === 'filter' && (
+        <>
+          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>Matching</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            A branch receives a message when its predicate renders to a <b>truthy</b> value — anything
+            except empty, <code>false</code>, <code>0</code>, or <code>no</code>.
+          </Typography>
+          <Box sx={{ ...mono, mt: 0.5, whiteSpace: 'pre-wrap' }}>
+            {'simplest:  {{ hasSuffix "@vip.com" .Message.from }}   → true / false\n'}
+            {'or:        {{ if contains "bug" (lower .Message.subject) }}1{{ end }}\n'}
+            {'              → "1" (match) when it contains "bug", else "" (no match)'}
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            The <code>1</code> is just "output something truthy" — any non-empty token works.
+            An <b>empty</b> predicate is the default/catch-all (matches every message). A message can
+            match several branches at once.
+          </Typography>
+        </>
+      )}
+      {kind === 'template' && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+          The rendered text becomes the new message <b>body</b>.
+        </Typography>
+      )}
+    </Box>
+  )
+}
 
 const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, processor, presetInputTopicId }) => {
   const snackbar = useSnackbar()
@@ -65,6 +148,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [maxBytes, setMaxBytes] = useState('500')
   const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
+  const [showHelp, setShowHelp] = useState(false)
 
   // Most recent real message on the input topic (null = topic has none).
   const { data: sample, isFetching: sampleLoading } = useTopicSampleMessage(inputTopicId, { enabled: open && !!inputTopicId })
@@ -168,7 +252,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               onChange={(e) => setTemplate(e.target.value)}
               multiline minRows={4}
               InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-              helperText="Fields: .Message.body/.from/.subject/.thread_id … · funcs: upper lower trunc default contains hasPrefix hasSuffix"
+              helperText="The rendered text becomes the new body. See “syntax help” below for fields & functions."
             />
           )}
           {kind === 'truncate' && (
@@ -181,9 +265,9 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           {kind === 'filter' && (
             <Stack spacing={1}>
               <Typography variant="caption" color="text.secondary">
-                Outputs — each is one branch: a boolean predicate + a destination topic (auto-created).
-                A message is published to every output whose predicate is truthy; an empty predicate is
-                an unconditional default. {isEdit && '(Branches are immutable on edit — recreate to change.)'}
+                Outputs — each is one branch: a predicate + a destination topic (auto-created). A message
+                goes to every branch whose predicate is truthy; an empty predicate is the default/catch-all.
+                See “syntax help” below. {isEdit && '(Branches are immutable on edit — recreate to change.)'}
               </Typography>
               {filterRows.map((row, i) => (
                 <Stack key={i} direction="row" spacing={0.5} alignItems="flex-start">
@@ -211,10 +295,24 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             </Stack>
           )}
 
-          {/* Most recent real message on the input topic — context only. */}
+          {/* Syntax reference (template + filter share the same engine). */}
+          {kind !== 'truncate' && (
+            <Box>
+              <Link component="button" type="button" underline="hover" variant="caption" onClick={() => setShowHelp((v) => !v)}>
+                {showHelp ? '▾ Hide syntax help' : '▸ Show syntax help (fields, functions, matching)'}
+              </Link>
+              <Collapse in={showHelp}>
+                <Box sx={{ mt: 0.5 }}><SyntaxHelp kind={kind} /></Box>
+              </Collapse>
+            </Box>
+          )}
+
+          {/* Most recent real message on the input topic, shown as the raw
+              canonical JSON so the operator can see exactly which fields
+              are available to template / filter on. */}
           <Box sx={{ mt: 0.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Latest message {inputTopicId ? `on ${inputTopicId}` : ''}
+              Latest message {inputTopicId ? `on ${inputTopicId}` : ''} — the raw {'{{ .Message }}'} JSON
             </Typography>
             {!inputTopicId ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
@@ -229,15 +327,17 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                 No messages on this topic yet.
               </Typography>
             ) : (
-              <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, mt: 0.5 }}>
-                {(sample.from || sample.subject) && (
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.7rem', display: 'block', mb: 0.25 }}>
-                    {sample.from ? `from ${sample.from}` : ''}{sample.from && sample.subject ? ' · ' : ''}{sample.subject ? `“${sample.subject}”` : ''}
-                  </Typography>
-                )}
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                  {sample.body || '(empty body)'}
-                </Typography>
+              <Box
+                component="pre"
+                sx={{
+                  m: 0, mt: 0.5, p: 1,
+                  border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1,
+                  backgroundColor: 'rgba(0,0,0,0.025)',
+                  fontFamily: 'monospace', fontSize: '0.72rem', lineHeight: 1.4,
+                  whiteSpace: 'pre', overflow: 'auto', maxHeight: 220,
+                }}
+              >
+                {prettyJson(sample.raw) || JSON.stringify({ from: sample.from, subject: sample.subject, body: sample.body }, null, 2)}
               </Box>
             )}
           </Box>

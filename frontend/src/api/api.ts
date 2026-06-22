@@ -146,6 +146,13 @@ export interface ApiMessageAttributes {
   created_at?: string;
   from?: string;
   has_message?: boolean;
+  /**
+   * Raw is the canonical Message envelope JSON exactly as stored — the
+   * same shape a processor's `.Message` template/filter context sees
+   * ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
+   * operators which fields are available.
+   */
+  raw?: string;
   source?: string;
   subject?: string;
   to?: string[];

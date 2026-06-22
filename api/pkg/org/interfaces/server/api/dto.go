@@ -234,6 +234,11 @@ type MessageAttributes struct {
 	Subject    string   `json:"subject,omitempty"`
 	Body       string   `json:"body"`
 	HasMessage bool     `json:"has_message"`
+	// Raw is the canonical Message envelope JSON exactly as stored — the
+	// same shape a processor's `.Message` template/filter context sees
+	// ({"from":…,"subject":…,"body":…,"thread_id":…,…}). Lets the UI show
+	// operators which fields are available.
+	Raw string `json:"raw,omitempty"`
 }
 
 // MessageResource is one JSON:API resource object in the messages list.
