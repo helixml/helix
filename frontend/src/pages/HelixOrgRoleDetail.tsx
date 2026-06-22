@@ -58,7 +58,7 @@ const HelixOrgRoleDetail: FC = () => {
 
   const { data, isLoading } = useHelixOrgRole(roleId)
   const { data: toolCatalogue } = useListHelixOrgTools()
-  const { data: workersData } = useListHelixOrgWorkers()
+  const { data: workersData, refetch: refetchWorkers } = useListHelixOrgWorkers()
   const updateRole = useUpdateHelixOrgRole()
   const deleteRole = useDeleteHelixOrgRole()
 
@@ -273,7 +273,7 @@ const HelixOrgRoleDetail: FC = () => {
                     variant="outlined"
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
-                    onClick={() => setConfirmingDelete(true)}
+                    onClick={() => { setConfirmingDelete(true); refetchWorkers() }}
                     fullWidth
                   >
                     Delete role

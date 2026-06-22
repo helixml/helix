@@ -48,7 +48,7 @@ const HelixOrgRoles: FC = () => {
   const orgSlug = router.params.org_id as string | undefined
 
   const { data, isLoading } = useListHelixOrgRoles()
-  const { data: workersData } = useListHelixOrgWorkers()
+  const { data: workersData, refetch: refetchWorkers } = useListHelixOrgWorkers()
   const deleteRole = useDeleteHelixOrgRole()
 
   const roles = data ?? []
@@ -228,7 +228,7 @@ const HelixOrgRoles: FC = () => {
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
-            if (currentRole) setDeleting(currentRole)
+            if (currentRole) { setDeleting(currentRole); refetchWorkers() }
           }}
         >
           <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
