@@ -15,25 +15,25 @@ func TestNewSubscription(t *testing.T) {
 	cases := []struct {
 		name    string
 		worker  orgchart.WorkerID
-		stream  streaming.StreamID
+		topic  streaming.TopicID
 		ts      time.Time
 		wantErr bool
 	}{
 		{"valid", "w-1", "s-1", now, false},
 		{"empty worker", "", "s-1", now, true},
-		{"empty stream", "w-1", "", now, true},
+		{"empty topic", "w-1", "", now, true},
 		{"zero time", "w-1", "s-1", time.Time{}, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s, err := streaming.NewSubscription(string(tc.worker), tc.stream, tc.ts, "org-test")
+			s, err := streaming.NewSubscription(string(tc.worker), tc.topic, tc.ts, "org-test")
 			gotErr := err != nil
 			if gotErr != tc.wantErr {
 				t.Fatalf("streaming.NewSubscription error = %v, wantErr = %v", err, tc.wantErr)
 			}
-			if !gotErr && (s.WorkerID != string(tc.worker) || s.StreamID != tc.stream) {
+			if !gotErr && (s.WorkerID != string(tc.worker) || s.TopicID != tc.topic) {
 				t.Fatalf("subscription = %+v", s)
 			}
 		})

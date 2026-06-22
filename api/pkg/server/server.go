@@ -126,6 +126,7 @@ type HelixAPIServer struct {
 	externalAgentSessionMapping map[string]string      // External agent session_id -> Helix session_id mapping
 	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
+	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
@@ -420,11 +421,24 @@ func NewServer(
 	// Helix on the legacy self-registered-host path. A non-nil error
 	// is fatal: better to fail boot than start with a misconfigured
 	// Manager that silently drops Provision calls.
-	computeManager, err := bootstrap.Bootstrap(cfg.Compute, cfg.WebServer.URL, cfg.WebServer.RunnerToken, store)
+	computeManager, err := bootstrap.Bootstrap(cfg.Compute, cfg.SandboxMaxDevContainers, cfg.WebServer.URL, cfg.WebServer.RunnerToken, store)
 	if err != nil {
 		return nil, fmt.Errorf("bootstrap compute subsystem: %w", err)
 	}
 	apiServer.computeManager = computeManager
+
+	// Backfill existing Runner rows with the current ceiling so a change
+	// to HELIX_SANDBOX_MAX_DEV_CONTAINERS takes effect across the fleet
+	// on next API restart, not just for Runners that re-register after
+	// the change. Idempotent (only updates rows that disagree), and
+	// non-fatal: a backfill failure logs but doesn't block boot.
+	if rows, backfillErr := store.BackfillSandboxMaxSandboxes(context.Background(), cfg.SandboxMaxDevContainers); backfillErr != nil {
+		log.Warn().Err(backfillErr).Int("max_dev_containers", cfg.SandboxMaxDevContainers).
+			Msg("Boot-time backfill of sandbox_instances.max_sandboxes failed; existing Runners keep their persisted value")
+	} else if rows > 0 {
+		log.Info().Int("rows_updated", int(rows)).Int("new_value", cfg.SandboxMaxDevContainers).
+			Msg("Backfilled max_sandboxes on existing Runner rows to current HELIX_SANDBOX_MAX_DEV_CONTAINERS")
+	}
 
 	// Sandbox-absorbs-runner: wire the inference router into the
 	// internal helix server so it picks sandboxes by model name. Safe
@@ -693,6 +707,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Automatically shut down desktops that have been idle for too long
 	go external_agent.RunDesktopIdleChecker(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.DesktopIdleTimeout, apiServer.Cfg.DesktopIdleCheckInterval)
 
+	// Durable, DB-driven garbage collection of leaked session zvols and
+	// per-task/session workspace dirs (survives host reboots / API restarts).
+	if apiServer.Cfg.OrphanReaperEnabled {
+		go external_agent.RunOrphanResourceReaper(ctx, apiServer.externalAgentExecutor, apiServer.Store, apiServer.Cfg.OrphanReaperInterval, apiServer.Cfg.OrphanReaperGracePeriod, apiServer.Cfg.OrphanReaperDryRun)
+	}
+
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
@@ -867,7 +887,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 			// helix session.
 			if orgHandlers.publicGitHubWebhookForStream != nil {
 				insecureRouter.
-					Handle("/orgs/{org}/streams/{stream_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+					Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
 					Methods(http.MethodPost)
 			}
 			// GitHub App Manifest flow callbacks — top-level browser
@@ -1026,6 +1046,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	subRouter.HandleFunc("/sessions/{id}", apiServer.getSession).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/sessions/{id}/clear", system.Wrapper(apiServer.clearSessionHandler)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/interactions", system.Wrapper(apiServer.listInteractions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}", system.Wrapper(apiServer.getInteraction)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}/feedback", system.Wrapper(apiServer.feedbackInteraction)).Methods(http.MethodPost)
@@ -1036,6 +1057,8 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/messages", system.Wrapper(apiServer.sendSessionMessage)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/fork", system.Wrapper(apiServer.forkSession)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/switch-agent", system.Wrapper(apiServer.switchAgent)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/agent-config-applied", system.Wrapper(apiServer.agentConfigApplied)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/workspace-status", system.Wrapper(apiServer.workspaceStatus)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/sessions/{id}/cancel", system.Wrapper(apiServer.cancelSessionTurn)).Methods(http.MethodPost)
@@ -2490,17 +2513,23 @@ func (apiServer *HelixAPIServer) ensureSandboxRegistered(ctx context.Context, sa
 			log.Info().
 				Str("sandbox_id", sandboxID).
 				Int("previous_container_count", instance.ActiveSandboxes).
-				Msg("Reset sandbox on reconnect (cleared stale container count)")
+				Msg("Reset sandbox on reconnect (flipped status to online; container count is preserved and will be resynced from hydra by DiscoverContainersFromSandbox)")
 		}
 		return
 	}
 
-	// Not registered - auto-register it
+	// Not registered - auto-register it.
+	//
+	// MaxSandboxes comes from HELIX_SANDBOX_MAX_DEV_CONTAINERS (default 20).
+	// This is the per-Runner ceiling on isolated dev containers that hydra
+	// will spawn inside this helix-sandbox host. Operators tuning for
+	// smaller hosts or wanting the autoscaler to trigger sooner can drop
+	// this without redeploying the runner image.
 	instance := &types.SandboxInstance{
 		ID:           sandboxID,
 		Hostname:     fmt.Sprintf("sandbox-%s", sandboxID),
 		IPAddress:    remoteAddr,
-		MaxSandboxes: 20, // Default capacity
+		MaxSandboxes: apiServer.Cfg.SandboxMaxDevContainers,
 		Status:       "online",
 	}
 

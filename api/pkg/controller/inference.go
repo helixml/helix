@@ -83,6 +83,32 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
+	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
+		if err := c.preflightHelixAgentModels(ctx, user, opts, assistant); err != nil {
+			return nil, nil, err
+		}
+
+		if err := c.evalAndAddOAuthTokens(ctx, nil, opts, user); err != nil {
+			return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+		}
+
+		log.Info().
+			Str("app_id", opts.AppID).
+			Msg("running in agent mode")
+
+		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
+	}
+
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
 	}
@@ -110,24 +136,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
-		log.Info().
-			Str("app_id", opts.AppID).
-			Msg("running in agent mode")
-
-		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
-			OrganizationID: opts.OrganizationID,
-			Assistant:      assistant,
-			User:           user,
-			Request:        req,
-			Options:        opts,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
-		}
-		return resp, &req, nil
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -270,6 +278,32 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
+	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
+		if err := c.preflightHelixAgentModels(ctx, user, opts, assistant); err != nil {
+			return nil, nil, err
+		}
+
+		if err := c.evalAndAddOAuthTokens(ctx, nil, opts, user); err != nil {
+			return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+		}
+
+		log.Info().
+			Str("app_id", opts.AppID).
+			Msg("running in agent mode")
+
+		resp, err := c.runAgentStream(ctx, &runAgentRequest{
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
+	}
+
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
 	}
@@ -297,24 +331,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
-		log.Info().
-			Str("app_id", opts.AppID).
-			Msg("running in agent mode")
-
-		resp, err := c.runAgentStream(ctx, &runAgentRequest{
-			OrganizationID: opts.OrganizationID,
-			Assistant:      assistant,
-			User:           user,
-			Request:        req,
-			Options:        opts,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
-		}
-		return resp, &req, nil
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -402,6 +418,69 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	return stream, &req, nil
+}
+
+type helixAgentModelRef struct {
+	field    string
+	provider string
+	model    string
+}
+
+func helixAgentModelRefs(assistant *types.AssistantConfig) []helixAgentModelRef {
+	if assistant == nil {
+		return nil
+	}
+	return []helixAgentModelRef{
+		{field: "reasoning_model", provider: assistant.ReasoningModelProvider, model: assistant.ReasoningModel},
+		{field: "generation_model", provider: assistant.GenerationModelProvider, model: assistant.GenerationModel},
+		{field: "small_reasoning_model", provider: assistant.SmallReasoningModelProvider, model: assistant.SmallReasoningModel},
+		{field: "small_generation_model", provider: assistant.SmallGenerationModelProvider, model: assistant.SmallGenerationModel},
+	}
+}
+
+func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.User, opts *ChatCompletionOptions, assistant *types.AssistantConfig) error {
+	billingEnabled := false
+	checkedProviders := make(map[string]bool)
+
+	for _, ref := range helixAgentModelRefs(assistant) {
+		if ref.model == "" {
+			return fmt.Errorf("helix_agent assistant %q must configure %s", assistant.Name, ref.field)
+		}
+
+		provider := withFallbackProvider(ref.provider, assistant)
+		if provider == "" {
+			return fmt.Errorf("helix_agent assistant %q must configure %s_provider", assistant.Name, ref.field)
+		}
+
+		if checkedProviders[provider] {
+			continue
+		}
+		checkedProviders[provider] = true
+
+		if err := c.checkInferenceTokenQuota(ctx, user.ID, provider); err != nil {
+			return err
+		}
+
+		client, err := c.getClient(ctx, opts.OrganizationID, user.ID, provider, "")
+		if err != nil {
+			return fmt.Errorf("failed to get client for helix_agent provider %q: %w", provider, err)
+		}
+
+		if client.BillingEnabled() {
+			billingEnabled = true
+		}
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
+	if err != nil {
+		return fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return fmt.Errorf("insufficient balance")
+	}
+
+	return nil
 }
 
 // getClient returns the OpenAI-compatible client for an inference request.

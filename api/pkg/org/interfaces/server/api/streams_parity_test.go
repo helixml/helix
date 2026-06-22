@@ -14,12 +14,12 @@ import (
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
-// TestCreateStreamParity_RESTvsMCP is the load-bearing test for Phase A:
-// the REST POST /streams handler and the MCP create_stream tool now
-// share one application service (application/streams). This asserts they
+// TestCreateTopicParity_RESTvsMCP is the load-bearing test for Phase A:
+// the REST POST /topics handler and the MCP create_topic tool now
+// share one application service (application/topics). This asserts they
 // produce byte-identical store state for the same logical request, so
 // the two adapters can never drift.
-func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
+func TestCreateTopicParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
 
@@ -27,7 +27,7 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	h := orgapi.Handler(restDeps)
 
-	body := orgapi.CreateStreamRequest{
+	body := orgapi.CreateTopicRequest{
 		ID:          "s-parity",
 		Name:        "parity",
 		Description: "shared-service parity",
@@ -37,7 +37,7 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 			Config: map[string]interface{}{"outbound_url": "https://example.com/in"},
 		},
 	}
-	rec := do(t, h, "POST", "/streams", body)
+	rec := do(t, h, "POST", "/topics", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST create: status %d, body=%s", rec.Code, rec.Body)
 	}
@@ -51,9 +51,9 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 	if err := mcptools.RegisterBuiltins(reg, mcpDeps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
-	createStream, err := reg.Get(mcptools.CreateStreamName)
+	createTopic, err := reg.Get(mcptools.CreateTopicName)
 	if err != nil {
-		t.Fatalf("get create_stream tool: %v", err)
+		t.Fatalf("get create_topic tool: %v", err)
 	}
 	caller, err := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 	if err != nil {
@@ -68,16 +68,16 @@ func TestCreateStreamParity_RESTvsMCP(t *testing.T) {
 			"config": map[string]any{"outbound_url": "https://example.com/in"},
 		},
 	})
-	if _, err := createStream.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args}); err != nil {
-		t.Fatalf("MCP create_stream invoke: %v", err)
+	if _, err := createTopic.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: args}); err != nil {
+		t.Fatalf("MCP create_topic invoke: %v", err)
 	}
 
 	// --- Compare resulting store state ---
-	restRow, err := restStore.Streams.Get(context.Background(), "org-test", "s-parity")
+	restRow, err := restStore.Topics.Get(context.Background(), "org-test", "s-parity")
 	if err != nil {
 		t.Fatalf("REST store get: %v", err)
 	}
-	mcpRow, err := mcpStore.Streams.Get(context.Background(), "org-test", "s-parity")
+	mcpRow, err := mcpStore.Topics.Get(context.Background(), "org-test", "s-parity")
 	if err != nil {
 		t.Fatalf("MCP store get: %v", err)
 	}

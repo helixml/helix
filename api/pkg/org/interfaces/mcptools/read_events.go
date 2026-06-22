@@ -29,7 +29,7 @@ const (
 // re-parsing.
 type eventView struct {
 	ID        streaming.EventID  `json:"id"`
-	StreamID  streaming.StreamID `json:"streamId"`
+	TopicID  streaming.TopicID `json:"topicId"`
 	Source    orgchart.WorkerID  `json:"source"`
 	Body      string             `json:"body"`
 	Message   *streaming.Message `json:"message,omitempty"`
@@ -39,7 +39,7 @@ type eventView struct {
 func eventViewOf(e streaming.Event) eventView {
 	view := eventView{
 		ID:        e.ID,
-		StreamID:  e.StreamID,
+		TopicID:  e.TopicID,
 		Source:    e.Source,
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
@@ -51,9 +51,9 @@ func eventViewOf(e streaming.Event) eventView {
 	return view
 }
 
-// ReadEvents returns the events on the Streams the calling Worker
+// ReadEvents returns the events on the Topics the calling Worker
 // subscribes to, newest-first. With wait>0, blocks up to that many
-// seconds for new events on any subscribed Stream.
+// seconds for new events on any subscribed Topic.
 type ReadEvents struct {
 	deps Deps
 }
@@ -121,7 +121,7 @@ func decodeFlexInt(raw json.RawMessage) (int, error) {
 func (t *ReadEvents) Name() tool.Name                 { return ReadEventsName }
 func (t *ReadEvents) InputSchema() *jsonschema.Schema { return readEventsSchema }
 func (t *ReadEvents) Description() string {
-	return "Read events on the Streams you subscribe to, newest first. Pass since=<eventId> " +
+	return "Read events on the Topics you subscribe to, newest first. Pass since=<eventId> " +
 		"to skip everything up to and including a previously-seen event. Pass wait=<seconds> " +
 		"(0..60) to block for new events when nothing is currently waiting after applying " +
 		"`since`. limit defaults to 50, capped at 200."
@@ -161,7 +161,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return marshalEvents(fresh), nil
 	}
 
-	// Resolve worker → subscribed streams.
+	// Resolve worker → subscribed topics.
 	if _, err := t.deps.Queries.GetWorker(ctx, orgID, workerID); err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", workerID, err)
 	}
@@ -169,12 +169,12 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions for worker %q: %w", workerID, err)
 	}
-	streamIDs := make([]streaming.StreamID, 0, len(subs))
+	topicIDs := make([]streaming.TopicID, 0, len(subs))
 	for _, sub := range subs {
-		streamIDs = append(streamIDs, sub.StreamID)
+		topicIDs = append(topicIDs, sub.TopicID)
 	}
-	wake := t.deps.Hub.Subscribe(orgID, streamIDs)
-	defer t.deps.Hub.Unsubscribe(streamIDs, wake)
+	wake := t.deps.Hub.Subscribe(orgID, topicIDs)
+	defer t.deps.Hub.Unsubscribe(topicIDs, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()

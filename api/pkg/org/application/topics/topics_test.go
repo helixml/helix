@@ -1,4 +1,4 @@
-package streams
+package topics
 
 import (
 	"context"
@@ -16,10 +16,10 @@ import (
 // byte-comparable across adapters.
 func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
-func newService(st *store.Store) *Streams {
+func newService(st *store.Store) *Topics {
 	seq := 0
 	return New(Deps{
-		Streams: st.Streams,
+		Topics: st.Topics,
 		Now:     fixedClock,
 		NewID: func() string {
 			seq++
@@ -28,7 +28,7 @@ func newService(st *store.Store) *Streams {
 	})
 }
 
-func TestStreamsCreate_HappyPath(t *testing.T) {
+func TestTopicsCreate_HappyPath(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -44,7 +44,7 @@ func TestStreamsCreate_HappyPath(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	if got.ID != "s-general" || got.Name != "general" || got.Description != "the general channel" {
-		t.Fatalf("unexpected stream: %+v", got)
+		t.Fatalf("unexpected topic: %+v", got)
 	}
 	if got.CreatedBy != "w-owner" {
 		t.Fatalf("CreatedBy = %q, want w-owner", got.CreatedBy)
@@ -61,7 +61,7 @@ func TestStreamsCreate_HappyPath(t *testing.T) {
 	}
 
 	// Persisted and retrievable.
-	stored, err := st.Streams.Get(ctx, "org-test", "s-general")
+	stored, err := st.Topics.Get(ctx, "org-test", "s-general")
 	if err != nil {
 		t.Fatalf("Get after create: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestStreamsCreate_HappyPath(t *testing.T) {
 	}
 }
 
-func TestStreamsCreate_AutoID(t *testing.T) {
+func TestTopicsCreate_AutoID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -85,7 +85,7 @@ func TestStreamsCreate_AutoID(t *testing.T) {
 	}
 }
 
-func TestStreamsCreate_WebhookTransport(t *testing.T) {
+func TestTopicsCreate_WebhookTransport(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -105,7 +105,7 @@ func TestStreamsCreate_WebhookTransport(t *testing.T) {
 	}
 }
 
-func TestStreamsCreate_OrgScoping(t *testing.T) {
+func TestTopicsCreate_OrgScoping(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -119,12 +119,12 @@ func TestStreamsCreate_OrgScoping(t *testing.T) {
 		t.Fatalf("Create org-b: %v", err)
 	}
 	// org-a cannot see org-b's via Get under org-a only sees its own.
-	if _, err := st.Streams.Get(ctx, "org-a", "s-x"); err != nil {
-		t.Fatalf("org-a should see its own stream: %v", err)
+	if _, err := st.Topics.Get(ctx, "org-a", "s-x"); err != nil {
+		t.Fatalf("org-a should see its own topic: %v", err)
 	}
 }
 
-func TestStreamsCreate_EmptyNameRejected(t *testing.T) {
+func TestTopicsCreate_EmptyNameRejected(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -133,7 +133,7 @@ func TestStreamsCreate_EmptyNameRejected(t *testing.T) {
 	}
 }
 
-func TestStreamsUpdate_HappyPath(t *testing.T) {
+func TestTopicsUpdate_HappyPath(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -154,13 +154,13 @@ func TestStreamsUpdate_HappyPath(t *testing.T) {
 	if got.CreatedBy != "w-owner" {
 		t.Fatalf("CreatedBy changed: %q", got.CreatedBy)
 	}
-	stored, _ := st.Streams.Get(ctx, "org-test", "s-1")
+	stored, _ := st.Topics.Get(ctx, "org-test", "s-1")
 	if stored.Name != "new" {
 		t.Fatalf("stored name = %q, want new", stored.Name)
 	}
 }
 
-func TestStreamsUpdate_TransportPatch(t *testing.T) {
+func TestTopicsUpdate_TransportPatch(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -191,7 +191,7 @@ func TestStreamsUpdate_TransportPatch(t *testing.T) {
 	}
 }
 
-func TestStreamsUpdate_NotFound(t *testing.T) {
+func TestTopicsUpdate_NotFound(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -201,7 +201,7 @@ func TestStreamsUpdate_NotFound(t *testing.T) {
 	}
 }
 
-func TestStreamsUpdate_OrgScoping(t *testing.T) {
+func TestTopicsUpdate_OrgScoping(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -216,7 +216,7 @@ func TestStreamsUpdate_OrgScoping(t *testing.T) {
 	}
 }
 
-func TestStreamsDelete_HappyPath(t *testing.T) {
+func TestTopicsDelete_HappyPath(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -227,12 +227,12 @@ func TestStreamsDelete_HappyPath(t *testing.T) {
 	if err := svc.Delete(ctx, "org-test", "s-1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := st.Streams.Get(ctx, "org-test", "s-1"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.Topics.Get(ctx, "org-test", "s-1"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("after delete Get err = %v, want ErrNotFound", err)
 	}
 }
 
-func TestStreamsDelete_NotFound(t *testing.T) {
+func TestTopicsDelete_NotFound(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)

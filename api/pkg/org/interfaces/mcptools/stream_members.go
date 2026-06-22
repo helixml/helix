@@ -12,48 +12,48 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// StreamMembers returns the Worker IDs subscribed to a Stream right
+// TopicMembers returns the Worker IDs subscribed to a Topic right
 // now. Read-only and non-blocking — the manager-style use case is "is
 // the worker I'm about to message actually listening?". Composes with
 // any outstanding-task tracking the caller does: see who's listening,
 // and if the right party isn't, defer the work and reconcile later.
-type StreamMembers struct {
+type TopicMembers struct {
 	deps Deps
 }
 
-const StreamMembersName tool.Name = "stream_members"
+const TopicMembersName tool.Name = "topic_members"
 
-var streamMembersSchema = mustSchema[streamMembersArgs]()
+var topicMembersSchema = mustSchema[topicMembersArgs]()
 
-func (t *StreamMembers) Name() tool.Name                 { return StreamMembersName }
-func (t *StreamMembers) InputSchema() *jsonschema.Schema { return streamMembersSchema }
-func (t *StreamMembers) Description() string {
-	return "List the Worker IDs currently subscribed to a Stream. Returns immediately. " +
+func (t *TopicMembers) Name() tool.Name                 { return TopicMembersName }
+func (t *TopicMembers) InputSchema() *jsonschema.Schema { return topicMembersSchema }
+func (t *TopicMembers) Description() string {
+	return "List the Worker IDs currently subscribed to a Topic. Returns immediately. " +
 		"Use this before publishing if you need to know whether a particular Worker is listening — " +
 		"e.g. before sending the first recruiting brief, check that the recruiter is subscribed."
 }
 
-type streamMembersArgs struct {
-	StreamID string `json:"streamId"`
+type topicMembersArgs struct {
+	TopicID string `json:"topicId"`
 }
 
-func (t *StreamMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args streamMembersArgs
+func (t *TopicMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args topicMembersArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.StreamID == "" {
-		return nil, fmt.Errorf("streamId is required")
+	if args.TopicID == "" {
+		return nil, fmt.Errorf("topicId is required")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
-		return nil, fmt.Errorf("stream_members: caller has no OrgID")
+		return nil, fmt.Errorf("topic_members: caller has no OrgID")
 	}
-	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
-		return nil, fmt.Errorf("stream %q: %w", streamID, err)
+	topicID := streaming.TopicID(args.TopicID)
+	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
+		return nil, fmt.Errorf("topic %q: %w", topicID, err)
 	}
-	subs, err := t.deps.Queries.StreamSubscribers(ctx, orgID, streamID)
+	subs, err := t.deps.Queries.TopicSubscribers(ctx, orgID, topicID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}
@@ -62,7 +62,7 @@ func (t *StreamMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		members = append(members, orgchart.WorkerID(sub.WorkerID))
 	}
 	return json.Marshal(map[string]any{
-		"streamId": string(streamID),
+		"topicId": string(topicID),
 		"members":  members,
 	})
 }

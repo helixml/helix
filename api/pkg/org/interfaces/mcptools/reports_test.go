@@ -10,11 +10,11 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// TestReports_TeamStreamAndDMStreams: jane has two reports; the reports
-// tool returns a non-null team stream id plus each report's DM stream
+// TestReports_TeamTopicAndDMTopics: jane has two reports; the reports
+// tool returns a non-null team topic id plus each report's DM topic
 // id. Neither report manages a sub-team here, so manages is false and no
-// per-report teamStreamId is shown.
-func TestReports_TeamStreamAndDMStreams(t *testing.T) {
+// per-report teamTopicId is shown.
+func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-jane", "r-x", "#", "org-test")
 	tl := &Reports{deps: deps.Build()}
@@ -27,8 +27,8 @@ func TestReports_TeamStreamAndDMStreams(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamStreamID == nil || *got.TeamStreamID != channels.TeamStreamID("w-jane") {
-		t.Fatalf("teamStreamId = %v, want s-team-w-jane", got.TeamStreamID)
+	if got.TeamTopicID == nil || *got.TeamTopicID != channels.TeamTopicID("w-jane") {
+		t.Fatalf("teamTopicId = %v, want s-team-w-jane", got.TeamTopicID)
 	}
 	if len(got.Reports) != 2 {
 		t.Fatalf("reports = %+v, want 2 (w-li, w-sam)", got.Reports)
@@ -37,18 +37,18 @@ func TestReports_TeamStreamAndDMStreams(t *testing.T) {
 		if r.Manages {
 			t.Fatalf("report %s should not manage anyone (no sub-reports)", r.ID)
 		}
-		if r.TeamStreamID != nil {
-			t.Fatalf("non-managing report %s must not carry a teamStreamId", r.ID)
+		if r.TeamTopicID != nil {
+			t.Fatalf("non-managing report %s must not carry a teamTopicId", r.ID)
 		}
-		wantDM := channels.DMStreamID("w-jane", r.ID)
-		if r.DMStreamID != wantDM {
-			t.Fatalf("report %s dmStreamId = %q, want %q", r.ID, r.DMStreamID, wantDM)
+		wantDM := channels.DMTopicID("w-jane", r.ID)
+		if r.DMTopicID != wantDM {
+			t.Fatalf("report %s dmTopicId = %q, want %q", r.ID, r.DMTopicID, wantDM)
 		}
 	}
 }
 
 // TestReports_ManagesFlagSurfacesSubTeam: a report that leads its own
-// sub-team is flagged manages:true and carries its sub-team stream id.
+// sub-team is flagged manages:true and carries its sub-team topic id.
 func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	deps := seedReportingGraph(t)
 	// w-owner's only report is w-jane, who manages li + sam.
@@ -70,17 +70,17 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	if !jane.Manages {
 		t.Fatalf("w-jane should be flagged manages:true")
 	}
-	if jane.TeamStreamID == nil || *jane.TeamStreamID != channels.TeamStreamID("w-jane") {
-		t.Fatalf("w-jane teamStreamId = %v, want s-team-w-jane", jane.TeamStreamID)
+	if jane.TeamTopicID == nil || *jane.TeamTopicID != channels.TeamTopicID("w-jane") {
+		t.Fatalf("w-jane teamTopicId = %v, want s-team-w-jane", jane.TeamTopicID)
 	}
-	if jane.DMStreamID != channels.DMStreamID("w-owner", "w-jane") {
-		t.Fatalf("w-jane dmStreamId = %q, want %q", jane.DMStreamID, channels.DMStreamID("w-owner", "w-jane"))
+	if jane.DMTopicID != channels.DMTopicID("w-owner", "w-jane") {
+		t.Fatalf("w-jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("w-owner", "w-jane"))
 	}
 }
 
-// TestReports_NoReportsNullTeamStream: a leaf worker has no reports —
-// teamStreamId is null and reports is an empty array.
-func TestReports_NoReportsNullTeamStream(t *testing.T) {
+// TestReports_NoReportsNullTeamTopic: a leaf worker has no reports —
+// teamTopicId is null and reports is an empty array.
+func TestReports_NoReportsNullTeamTopic(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
 	tl := &Reports{deps: deps.Build()}
@@ -93,8 +93,8 @@ func TestReports_NoReportsNullTeamStream(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamStreamID != nil {
-		t.Fatalf("teamStreamId = %v, want null", *got.TeamStreamID)
+	if got.TeamTopicID != nil {
+		t.Fatalf("teamTopicId = %v, want null", *got.TeamTopicID)
 	}
 	if got.Reports == nil || len(got.Reports) != 0 {
 		t.Fatalf("reports = %+v, want empty array", got.Reports)

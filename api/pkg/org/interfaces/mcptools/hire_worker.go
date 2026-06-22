@@ -29,15 +29,15 @@ import (
 // `tools` parameter on this tool — the Role's tool list is the whole
 // story.
 //
-// hire_worker does not subscribe to Streams; the hiring Worker does
+// hire_worker does not subscribe to Topics; the hiring Worker does
 // that explicitly after the Worker is alive, typically via the Worker's
 // own on-hire activation. (Per ADR-0001 §1 the canonical term is
-// Stream, not Channel.)
+// Topic, not Channel.)
 //
 // For AI Workers, hire_worker also creates the per-Worker activation
-// Stream (s-transcript-<workerID>) and subscribes the hiring Worker to
+// Topic (s-transcript-<workerID>) and subscribes the hiring Worker to
 // it. The Spawner publishes one event per assistant message, tool call,
-// and tool result to that Stream — the hiring Worker can audit their
+// and tool result to that Topic — the hiring Worker can audit their
 // hires by calling read_events on it. The new Worker themselves is
 // intentionally never subscribed to their own transcript
 // (otherwise self-published events would re-trigger them indefinitely).

@@ -3,7 +3,7 @@
 // `/orgs/:org_id/helix-org/roles/:role_id` and is the destination
 // both the chart's role drawer and the Roles list link to.
 //
-// Stream subscriptions are NOT edited here — subscriptions are
+// Topic subscriptions are NOT edited here — subscriptions are
 // worker-anchored (they live on the Worker, die when it's fired, and
 // aren't inherited by a new hire into the same Role), so they're
 // managed on the Worker detail page, not the Role.
@@ -96,9 +96,9 @@ const HelixOrgRoleDetail: FC = () => {
   const handleSave = async () => {
     if (!roleId) return
     try {
-      // Streams are intentionally omitted — they're worker-anchored and
+      // Topics are intentionally omitted — they're worker-anchored and
       // managed on the Worker detail page. The backend preserves a
-      // Role's existing streams when the field is absent.
+      // Role's existing topics when the field is absent.
       await updateRole.mutateAsync({
         id: roleId,
         content,

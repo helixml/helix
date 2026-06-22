@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Message is the canonical Stream payload. It is always carried as
+// Message is the canonical Topic payload. It is always carried as
 // JSON in Event.Body — the system stores no other shape.
 //
 // Identity convention:

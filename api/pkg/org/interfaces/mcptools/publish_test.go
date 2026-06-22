@@ -14,29 +14,29 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
-// TestPublishRejectsGitHubStream: publishing to a github transport
-// stream is rejected with an explanatory error rather than a silent
-// no-op. GitHub streams are inbound-only; outbound action lives in
+// TestPublishRejectsGitHubTopic: publishing to a github transport
+// topic is rejected with an explanatory error rather than a silent
+// no-op. GitHub topics are inbound-only; outbound action lives in
 // the Worker's `gh`. See design/github-transport.md.
-func TestPublishRejectsGitHubStream(t *testing.T) {
+func TestPublishRejectsGitHubTopic(t *testing.T) {
 	t.Parallel()
 
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 
-	// Seed a github-transport Stream and a caller Worker.
+	// Seed a github-transport Topic and a caller Worker.
 	cfg, _ := json.Marshal(map[string]any{
 		"repo":   "helixml/helix-org",
 		"events": []string{"issues"},
 	})
-	stream, err := streaming.NewStream("s-github", "s-github", "", "w-owner",
+	topic, err := streaming.NewTopic("s-github", "s-github", "", "w-owner",
 		time.Now().UTC(),
 		transport.Transport{Kind: transport.KindGitHub, Config: cfg}, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
@@ -44,7 +44,7 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
-		"streamId": "s-github",
+		"topicId": "s-github",
 		"body":     "this should be rejected",
 	})
 
@@ -60,27 +60,27 @@ func TestPublishRejectsGitHubStream(t *testing.T) {
 	}
 
 	// And no event was appended.
-	events, _ := st.Events.ListForStream(ctx, "org-test", "s-github", 10)
+	events, _ := st.Events.ListForTopic(ctx, "org-test", "s-github", 10)
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want 0 (publish must not append on rejection)", len(events))
 	}
 }
 
-// TestPublishLocalStreamStillWorks: the rejection above must not
-// regress publish to local streams.
-func TestPublishLocalStreamStillWorks(t *testing.T) {
+// TestPublishLocalTopicStillWorks: the rejection above must not
+// regress publish to local topics.
+func TestPublishLocalTopicStillWorks(t *testing.T) {
 	t.Parallel()
 
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
 
-	stream, err := streaming.NewStream("s-general", "s-general", "", "w-owner",
+	topic, err := streaming.NewTopic("s-general", "s-general", "", "w-owner",
 		time.Now().UTC(), transport.LocalTransport(), "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
 
@@ -88,14 +88,14 @@ func TestPublishLocalStreamStillWorks(t *testing.T) {
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
-		"streamId": "s-general",
+		"topicId": "s-general",
 		"body":     "hello",
 	})
 	if _, err := tl.Invoke(ctx, tool.Invocation{Caller: caller, Args: args}); err != nil {
-		t.Fatalf("Invoke = %v, want nil for local stream", err)
+		t.Fatalf("Invoke = %v, want nil for local topic", err)
 	}
 
-	events, _ := st.Events.ListForStream(ctx, "org-test", "s-general", 10)
+	events, _ := st.Events.ListForTopic(ctx, "org-test", "s-general", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}

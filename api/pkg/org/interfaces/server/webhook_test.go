@@ -52,21 +52,21 @@ func (d *recordingDispatcher) snapshot() []streaming.Event {
 // newWebhookServer wires an in-memory store, a real broadcaster, and
 // the supplied dispatcher (may be nil) into a Server. Returns the
 // running httptest.Server plus the store + broadcaster so tests can
-// seed streams and observe wakeups.
+// seed topics and observe wakeups.
 func newWebhookServer(t *testing.T, dispatcher publishing.Dispatcher) (*httptest.Server, *store.Store, *wakebus.Bus) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
-	bc := newStreamhub(t)
+	bc := newTopichub(t)
 	srv := httptest.NewServer(server.NewFromStore(s, mcptools.NewRegistry(), bc, dispatcher, nil).Handler())
 	t.Cleanup(srv.Close)
 	return srv, s, bc
 }
 
-// newStreamhub spins up an in-memory NATS-backed wakebus. The
+// newTopichub spins up an in-memory NATS-backed wakebus. The
 // embedded NATS server is cleaned up at test exit via the test's
 // natural goroutine teardown — the in-memory provider doesn't expose
 // an explicit Close hook.
-func newStreamhub(t *testing.T) *wakebus.Bus {
+func newTopichub(t *testing.T) *wakebus.Bus {
 	t.Helper()
 	ps, err := pubsub.NewInMemoryNats()
 	if err != nil {
@@ -75,33 +75,33 @@ func newStreamhub(t *testing.T) *wakebus.Bus {
 	return wakebus.New(ps)
 }
 
-// seedStream creates a Stream with the given transport kind. The
+// seedTopic creates a Topic with the given transport kind. The
 // caller's createdBy is a fixed test sentinel; we don't seed a
 // matching Worker because the webhook path doesn't read it.
-func seedStream(t *testing.T, s *store.Store, id streaming.StreamID, kind transport.Kind) {
+func seedTopic(t *testing.T, s *store.Store, id streaming.TopicID, kind transport.Kind) {
 	t.Helper()
-	stream, err := streaming.NewStream(id, string(id), "", "w-owner", time.Now().UTC(),
+	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(),
 		transport.Transport{Kind: kind}, "org-test")
 	if err != nil {
-		t.Fatalf("new stream %q: %v", id, err)
+		t.Fatalf("new topic %q: %v", id, err)
 	}
-	if err := s.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("seed stream %q: %v", id, err)
+	if err := s.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("seed topic %q: %v", id, err)
 	}
 }
 
 // TestWebhookPostAppendsEvent walks the happy path: POSTing a body to
-// /webhooks/<streamID> appends an event with empty source (system-
+// /webhooks/<topicID> appends an event with empty source (system-
 // emitted) and the raw body. The dispatcher receives the event, and a
-// long-poll observer of that stream wakes.
+// long-poll observer of that topic wakes.
 func TestWebhookPostAppendsEvent(t *testing.T) {
 	t.Parallel()
 	rd := &recordingDispatcher{}
 	srv, s, bc := newWebhookServer(t, rd)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 
-	wake := bc.Subscribe("org-test", []streaming.StreamID{"s-inbox"})
-	t.Cleanup(func() { bc.Unsubscribe([]streaming.StreamID{"s-inbox"}, wake) })
+	wake := bc.Subscribe("org-test", []streaming.TopicID{"s-inbox"})
+	t.Cleanup(func() { bc.Unsubscribe([]streaming.TopicID{"s-inbox"}, wake) })
 	// wakebus is pubsub-backed (NATS); the SUB has to round-trip to
 	// the embedded server before Publish can route to us. Give it a
 	// short window — the wake check at the bottom of the test then
@@ -119,7 +119,7 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", resp.StatusCode, string(b))
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -139,8 +139,8 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 	if events[0].Source != "" {
 		t.Fatalf("source = %q, want empty (system-emitted)", events[0].Source)
 	}
-	if events[0].StreamID != "s-inbox" {
-		t.Fatalf("streamID = %q, want s-inbox", events[0].StreamID)
+	if events[0].TopicID != "s-inbox" {
+		t.Fatalf("topicID = %q, want s-inbox", events[0].TopicID)
 	}
 
 	dispatched := rd.snapshot()
@@ -156,13 +156,13 @@ func TestWebhookPostAppendsEvent(t *testing.T) {
 }
 
 // TestWebhookPostErrors covers the rejection paths the handler must
-// turn into HTTP errors: unknown streams, wrong-transport streams,
+// turn into HTTP errors: unknown topics, wrong-transport topics,
 // empty bodies, and wrong HTTP methods.
 func TestWebhookPostErrors(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
-	seedStream(t, s, "s-local", transport.KindLocal)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-local", transport.KindLocal)
 
 	cases := []struct {
 		name     string
@@ -171,8 +171,8 @@ func TestWebhookPostErrors(t *testing.T) {
 		body     string
 		wantCode int
 	}{
-		{"unknown stream", "POST", "/webhooks/org-test/s-ghost", "x", http.StatusNotFound},
-		{"wrong-transport stream (local) is not a webhook", "POST", "/webhooks/org-test/s-local", "x", http.StatusNotFound},
+		{"unknown topic", "POST", "/webhooks/org-test/s-ghost", "x", http.StatusNotFound},
+		{"wrong-transport topic (local) is not a webhook", "POST", "/webhooks/org-test/s-local", "x", http.StatusNotFound},
 		{"empty body", "POST", "/webhooks/org-test/s-inbox", "", http.StatusBadRequest},
 		{"GET not allowed", "GET", "/webhooks/org-test/s-inbox", "", http.StatusMethodNotAllowed},
 		{"PUT not allowed", "PUT", "/webhooks/org-test/s-inbox", "x", http.StatusMethodNotAllowed},
@@ -199,12 +199,12 @@ func TestWebhookPostErrors(t *testing.T) {
 }
 
 // TestWebhookErrorsLeaveStoreClean asserts that error paths don't
-// half-create state. After a failed POST, the stream's event list
+// half-create state. After a failed POST, the topic's event list
 // must be empty.
 func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 
 	// Empty body → 400. No event should land.
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader(""))
@@ -216,7 +216,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
 
-	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestWebhookErrorsLeaveStoreClean(t *testing.T) {
 func TestWebhookBodySizeBoundary(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 
 	atLimit := bytes.Repeat([]byte("a"), 1<<20)
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", bytes.NewReader(atLimit))
@@ -261,7 +261,7 @@ func TestWebhookBodySizeBoundary(t *testing.T) {
 func TestWebhookWithNilCollaborators(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 	srv := httptest.NewServer(server.NewFromStore(s, mcptools.NewRegistry(), nil, nil, nil).Handler())
 	t.Cleanup(srv.Close)
 
@@ -274,7 +274,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	events, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -286,7 +286,7 @@ func TestWebhookWithNilCollaborators(t *testing.T) {
 func TestWebhookPreservesBodyExactly(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 
 	body := "line one\nline two\n\ttabbed → emoji 🚀 — UTF-8 preserved"
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "application/json", strings.NewReader(body))
@@ -298,7 +298,7 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	events, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
+	events, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
@@ -312,13 +312,13 @@ func TestWebhookPreservesBodyExactly(t *testing.T) {
 }
 
 // TestWebhookConcurrentPosts fires many parallel POSTs to the same
-// Stream and asserts every one lands as a distinct event with a
+// Topic and asserts every one lands as a distinct event with a
 // matching dispatch.
 func TestWebhookConcurrentPosts(t *testing.T) {
 	t.Parallel()
 	rd := &recordingDispatcher{}
 	srv, s, _ := newWebhookServer(t, rd)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
 
 	const N = 25
 	var wg sync.WaitGroup
@@ -340,7 +340,7 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	}
 	wg.Wait()
 
-	events, err := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 100)
+	events, err := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 100)
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
@@ -360,14 +360,14 @@ func TestWebhookConcurrentPosts(t *testing.T) {
 	}
 }
 
-// TestWebhookDoesNotLeakAcrossStreams verifies that a POST to one
-// webhook stream lands only on that stream — not on a sibling
-// webhook stream that happens to exist.
-func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
+// TestWebhookDoesNotLeakAcrossTopics verifies that a POST to one
+// webhook topic lands only on that topic — not on a sibling
+// webhook topic that happens to exist.
+func TestWebhookDoesNotLeakAcrossTopics(t *testing.T) {
 	t.Parallel()
 	srv, s, _ := newWebhookServer(t, nil)
-	seedStream(t, s, "s-inbox", transport.KindWebhook)
-	seedStream(t, s, "s-other", transport.KindWebhook)
+	seedTopic(t, s, "s-inbox", transport.KindWebhook)
+	seedTopic(t, s, "s-other", transport.KindWebhook)
 
 	resp, err := http.Post(srv.URL+"/webhooks/org-test/s-inbox", "text/plain", strings.NewReader("for inbox"))
 	if err != nil {
@@ -378,8 +378,8 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 
-	inboxEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-inbox", 10)
-	otherEvents, _ := s.Events.ListForStream(context.Background(), "org-test", "s-other", 10)
+	inboxEvents, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-inbox", 10)
+	otherEvents, _ := s.Events.ListForTopic(context.Background(), "org-test", "s-other", 10)
 	if len(inboxEvents) != 1 {
 		t.Fatalf("inbox events = %d, want 1", len(inboxEvents))
 	}
@@ -389,10 +389,10 @@ func TestWebhookDoesNotLeakAcrossStreams(t *testing.T) {
 }
 
 // TestWebhookInboundDoesNotEcho proves that a bidirectional webhook
-// Stream (one with both inbound and outbound configured) does *not*
+// Topic (one with both inbound and outbound configured) does *not*
 // echo inbound POSTs back out to its own outbound URL. The dispatcher
 // skips emit for events with empty Source — i.e. events that came
-// from this transport's own inbound — so a stream that's
+// from this transport's own inbound — so a topic that's
 // bidirectional doesn't loop. Only Worker-published events
 // (Source != "") emit outbound.
 func TestWebhookInboundDoesNotEcho(t *testing.T) {
@@ -408,17 +408,17 @@ func TestWebhookInboundDoesNotEcho(t *testing.T) {
 
 	st := orggorm.GetOrgTestDB(t)
 	d := dispatch.New(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(server.NewFromStore(st, mcptools.NewRegistry(), newStreamhub(t), d, nil).Handler())
+	srv := httptest.NewServer(server.NewFromStore(st, mcptools.NewRegistry(), newTopichub(t), d, nil).Handler())
 	t.Cleanup(srv.Close)
 
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: catcher.URL})
-	stream, err := streaming.NewStream("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
+	topic, err := streaming.NewTopic("s-bridge", "bridge", "", "w-owner", time.Now().UTC(),
 		transport.Transport{Kind: transport.KindWebhook, Config: cfg}, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 
 	body := "round-trip text"

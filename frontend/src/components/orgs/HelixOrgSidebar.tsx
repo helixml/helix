@@ -8,7 +8,7 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 // HelixOrgSidebar is the secondary navigation column for the
 // helix-org alpha. Sits between the primary org-menu rail and the
 // page body. Today: chart + roles + workers. Future Settings /
-// Streams / Audit pages slot in here without touching the page
+// Topics / Audit pages slot in here without touching the page
 // components.
 const HelixOrgSidebar: FC = () => {
   const router = useRouter()
@@ -53,11 +53,11 @@ const HelixOrgSidebar: FC = () => {
           onClick: () => navigateTo('helix_org_workers'),
         },
         {
-          id: 'streams',
-          label: 'Streams',
+          id: 'topics',
+          label: 'Topics',
           icon: <Radio size={18} />,
-          isActive: currentRouteName === 'helix_org_streams',
-          onClick: () => navigateTo('helix_org_streams'),
+          isActive: currentRouteName === 'helix_org_topics',
+          onClick: () => navigateTo('helix_org_topics'),
         },
         {
           id: 'settings',

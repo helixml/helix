@@ -45,6 +45,25 @@ type ServerConfig struct {
 	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
 	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
 
+	// OrphanReaperEnabled toggles the durable, DB-driven orphan-resource reaper
+	// that garbage-collects leaked session zvols and per-task/session workspace
+	// dirs after host reboots / API restarts / failed destroys.
+	OrphanReaperEnabled bool `envconfig:"HELIX_ORPHAN_REAPER_ENABLED" default:"true"`
+
+	// OrphanReaperInterval is how often the orphan-resource reaper computes the
+	// DB live-set and fans it out to connected sandboxes.
+	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
+
+	// OrphanReaperGracePeriod is the minimum age a resource must reach before
+	// the reaper will destroy it. Guards against racing newly-created resources
+	// the DB live-set hasn't caught up with yet.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
+
+	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
+	// without destroying anything. Defaults to true so the safety-critical zvol
+	// destroys are opt-in until an operator has reviewed the dry-run logs.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"true"`
+
 	// SandboxReaperInterval is how often the sandbox-instance reaper scans
 	// the sandbox_instances table for stale rows and flips their status to
 	// offline. Used in conjunction with SandboxStaleThreshold and
@@ -63,6 +82,33 @@ type ServerConfig struct {
 	// Runners are excluded from dispatch well before the reaper flips
 	// their DB row.
 	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
+
+	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
+	// containers (current vocab "sandboxes") that hydra will spawn
+	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
+	// when a Runner is registered (both legacy auto-register and
+	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
+	// as demand pressure, so this value is what determines when scale-up
+	// fires under load.
+	//
+	// NOTE: this value only affects the autoscaler signal today; the
+	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
+	// rejection at the ceiling - new dev containers can still be placed
+	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
+	// dispatcher rejection is tracked separately as a follow-up.
+	//
+	// Default 20. Raise for hosts with more headroom, lower to make
+	// the autoscaler trigger sooner on smaller hosts. Range is not
+	// enforced - sane values are typically 1-50, beyond which the host
+	// kernel will OOM before the limit binds.
+	//
+	// Changing this env var only affects newly-registered Runners and
+	// Manager-provisioned rows on the next boot; existing rows keep
+	// their persisted MaxSandboxes value. A boot-time backfill rewrites
+	// rows that disagree with the current config so the new value takes
+	// effect across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -131,6 +177,15 @@ type Compute struct {
 	// disables the whole subsystem. Currently the only supported
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
+
+	// GPUVendor is the accelerator family of the hosts this Manager
+	// provisions ("nvidia", "amd", "neuron", or "" for the provider's
+	// default). It flows onto every provisioned host's task environment as
+	// GPU_VENDOR, which the runner launch script uses to pick the right
+	// docker device flags (e.g. neuron -> mount /dev/neuron* instead of
+	// --gpus all). A pool is single-vendor; set this to match the compute
+	// requirement's instance type (e.g. "neuron" for an inf2 pool).
+	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
 
 	// DeploymentTag distinguishes work requirements created by this
 	// Helix install from WRs created by other tooling (e.g. someone
@@ -211,6 +266,18 @@ type Compute struct {
 	// grace before convergence resumes.
 	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
 
+	// HardIdleTimeout is the safety override for D4's fleet-pressure
+	// inhibition (see manager.go tryDeprovisionIdle). When ANY Ready
+	// Runner is at-or-over its MaxSandboxes cap, D4 normally won't shed
+	// idle peers - because shedding them would just re-fire D3 next
+	// cycle (the oscillation bug fixed by the inhibition). But if a
+	// stuck session pins a Runner at-cap forever, the inhibition would
+	// hold idle peers alive indefinitely. HardIdleTimeout is the
+	// upper-bound: once an idle Runner crosses this threshold, D4
+	// sheds it regardless of the inhibition. Default 4h covers normal
+	// long-running sessions; set 0 to disable the override entirely.
+	HardIdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_HARD_IDLE_TIMEOUT" default:"4h"`
+
 	// Yellowdog is the provider-specific config block. Only consulted
 	// when Provider="yellowdog".
 	Yellowdog Yellowdog
@@ -288,6 +355,21 @@ type Compute struct {
 	// workers in a docker-pull-retry loop; loud failure, easy
 	// diagnostic (and the resolved image is logged at boot).
 	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
+
+	// SandboxImage pins the FULL helix-sandbox image reference the YD
+	// provider dispatches (e.g.
+	// "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"). When set it is
+	// used verbatim and BYPASSES version derivation + SandboxRegistry — so
+	// it is the escape hatch for builds where data.Version is a placeholder
+	// (dev/source builds like a local Air stack) or for pinning a specific
+	// SHA when testing an in-flight sandbox PR. This mirrors the
+	// yellowdog-poc config.toml `helix_image` override.
+	//
+	// Leave empty for normal releases: the version-derived tag is the
+	// "release-tag-is-the-truth" default the provisioning loop relies on.
+	// The operator is responsible for the pinned image actually existing
+	// in a registry the workers can pull from.
+	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
 }
 
 // Yellowdog is the YellowDog-provider-specific configuration block.

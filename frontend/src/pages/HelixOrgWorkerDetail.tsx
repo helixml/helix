@@ -59,7 +59,7 @@ import { SESSION_TYPE_TEXT } from '../types'
 import {
   useFireHelixOrgWorker,
   useHelixOrgWorker,
-  useListHelixOrgStreams,
+  useListHelixOrgTopics,
   useListWorkerSubscriptions,
   useRestartWorkerAgent,
   useSubscribeWorker,
@@ -169,7 +169,7 @@ const HelixOrgWorkerDetail: FC = () => {
     // projectID alone follows the "only primitives in deps" rule.
   }, [projectID])
 
-  // Subscribe the WebSocket to the inline session so in-flight turns stream
+  // Subscribe the WebSocket to the inline session so in-flight turns topic
   // live (mirrors SpecTaskDetailContent, which likewise omits the streaming
   // context object from deps). Clear on unmount / session change.
   useEffect(() => {
@@ -242,7 +242,7 @@ const HelixOrgWorkerDetail: FC = () => {
                     </Typography>
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches
-                        the session + interactions and live-streams in-flight
+                        the session + interactions and live-topics in-flight
                         turns; it needs a bounded, flex-column container to
                         scroll within. RobustPromptInput drives the same
                         session via streaming.NewInference. */}
@@ -496,42 +496,42 @@ const HelixOrgWorkerDetail: FC = () => {
   )
 }
 
-// SubscriptionsPanel surfaces the streams this Worker consumes — and
+// SubscriptionsPanel surfaces the topics this Worker consumes — and
 // the multi-select to change that set. Subscriptions are
 // worker-anchored: firing the worker drops them; a new hire into the
 // same Role does NOT inherit.
 //
 // Patterned after the role editor's tools multi-select:
-// disableCloseOnSelect so toggling several streams in one pass
+// disableCloseOnSelect so toggling several topics in one pass
 // doesn't bounce the popper closed.
 const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
   const snackbar = useSnackbar()
-  const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgStreams()
+  const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgTopics()
   const { data: subsData, isLoading: subsLoading } = useListWorkerSubscriptions(workerID)
   const subscribe = useSubscribeWorker(workerID)
   const unsubscribe = useUnsubscribeWorker(workerID)
 
-  const allStreams = streamsData?.streams ?? []
+  const allTopics = streamsData?.topics ?? []
   const subscribedIDs = useMemo(
-    () => new Set((subsData?.subscriptions ?? []).map((s) => s.stream_id)),
+    () => new Set((subsData?.subscriptions ?? []).map((s) => s.topic_id)),
     [subsData],
   )
-  const subscribedStreams = useMemo(
-    () => allStreams.filter((s) => subscribedIDs.has(s.id)),
-    [allStreams, subscribedIDs],
+  const subscribedTopics = useMemo(
+    () => allTopics.filter((s) => subscribedIDs.has(s.id)),
+    [allTopics, subscribedIDs],
   )
 
   if (!workerID) {
     return null
   }
 
-  const handleChange = async (_e: unknown, next: typeof allStreams) => {
+  const handleChange = async (_e: unknown, next: typeof allTopics) => {
     const nextIDs = new Set(next.map((s) => s.id))
     const toAdd = next.filter((s) => !subscribedIDs.has(s.id))
-    const toRemove = (subsData?.subscriptions ?? []).filter((s) => !nextIDs.has(s.stream_id))
+    const toRemove = (subsData?.subscriptions ?? []).filter((s) => !nextIDs.has(s.topic_id))
     try {
       for (const s of toAdd) await subscribe.mutateAsync(s.id)
-      for (const s of toRemove) await unsubscribe.mutateAsync(s.stream_id)
+      for (const s of toRemove) await unsubscribe.mutateAsync(s.topic_id)
       if (toAdd.length || toRemove.length) {
         snackbar.success(`subscriptions updated (${toAdd.length} added, ${toRemove.length} removed)`)
       }
@@ -543,14 +543,14 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Subscriptions ({subscribedStreams.length})
+        Subscriptions ({subscribedTopics.length})
       </Typography>
       <Autocomplete
         multiple
         disableCloseOnSelect
         loading={streamsLoading || subsLoading}
-        options={allStreams}
-        value={subscribedStreams}
+        options={allTopics}
+        value={subscribedTopics}
         onChange={handleChange}
         getOptionLabel={(s) => s.id}
         isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -575,7 +575,7 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedStreams.length === 0 ? 'Subscribe this worker to a stream…' : ''}
+            placeholder={subscribedTopics.length === 0 ? 'Subscribe this worker to a topic…' : ''}
             variant="outlined"
             size="small"
           />

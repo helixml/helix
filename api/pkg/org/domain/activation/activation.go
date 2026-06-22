@@ -12,7 +12,7 @@ import (
 
 // ID is the typed identifier for one Activation row. Format
 // convention: `a-<uuid>` — mirrors `e-…` for events, `w-…` for
-// Workers, `s-…` for Streams. Empty IDs are rejected at construction
+// Workers, `s-…` for Topics. Empty IDs are rejected at construction
 // (see New).
 type ID string
 
@@ -51,7 +51,7 @@ type Activation struct {
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	Outcome        Outcome
-	TranscriptID   streaming.StreamID
+	TranscriptID   streaming.TopicID
 }
 
 // New constructs an Activation, validating invariants. orgID is

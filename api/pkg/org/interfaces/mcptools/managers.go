@@ -16,7 +16,7 @@ import (
 )
 
 // Managers is the upward, escalation-direction read: who you report to,
-// and the DM stream you escalate on. Computed live from the reporting
+// and the DM topic you escalate on. Computed live from the reporting
 // graph at call time, so it stays correct as the org is reshaped — the
 // fixed worker-policy prompt can refer to "your managers" abstractly and
 // let a blocked Worker resolve the concrete people only when it needs
@@ -34,7 +34,7 @@ type managersArgs struct{}
 type managerView struct {
 	ID         orgchart.WorkerID  `json:"id"`
 	Role       orgchart.RoleID    `json:"role"`
-	DMStreamID streaming.StreamID `json:"dmStreamId"`
+	DMTopicID streaming.TopicID `json:"dmTopicId"`
 }
 
 type managersResult struct {
@@ -46,11 +46,11 @@ func (t *Managers) InputSchema() *jsonschema.Schema { return managersSchema }
 func (t *Managers) Description() string {
 	return "List the managers you report to — your escalation targets. Takes no " +
 		"arguments; resolves your own reporting lines live. Each manager comes with " +
-		"the deterministic DM stream id you escalate on. When you are blocked on a " +
+		"the deterministic DM topic id you escalate on. When you are blocked on a " +
 		"decision above your authority, call this, then `dm` one manager with the " +
 		"decision needed + options + your recommendation, and `read_events` (with " +
-		"wait) on that dmStreamId for the reply. You already receive your managers' " +
-		"team-stream briefings without asking — those arrive via your subscriptions."
+		"wait) on that dmTopicId for the reply. You already receive your managers' " +
+		"team-topic briefings without asking — those arrive via your subscriptions."
 }
 
 func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -81,7 +81,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 		out = append(out, managerView{
 			ID:         w.ID(),
 			Role:       w.RoleID(),
-			DMStreamID: channels.DMStreamID(caller, m),
+			DMTopicID: channels.DMTopicID(caller, m),
 		})
 	}
 	return json.Marshal(managersResult{Managers: out})

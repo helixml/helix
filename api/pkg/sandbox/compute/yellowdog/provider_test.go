@@ -255,6 +255,31 @@ func TestTaskArgumentsEmptyWhenConfigIncomplete(t *testing.T) {
 	}
 }
 
+func TestTaskEnvironmentSetsGPUVendor(t *testing.T) {
+	// A neuron pool must propagate GPU_VENDOR=neuron to the task env, or the
+	// embedded bash_script defaults to nvidia (--gpus all) and fails on inf2.
+	p, err := NewProvider(Config{
+		APIKeyID: "k", APISecret: "s", Namespace: "n", DeploymentTag: "d", WorkerTag: "w",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	env := p.taskEnvironment(compute.Spec{
+		GPUVendor: "neuron",
+		Labels:    map[string]string{"helix.sandbox_id": "sbx_123"},
+	})
+	if env["GPU_VENDOR"] != "neuron" {
+		t.Errorf("GPU_VENDOR: got %q, want neuron", env["GPU_VENDOR"])
+	}
+	if env["SANDBOX_INSTANCE_ID"] != "sbx_123" {
+		t.Errorf("SANDBOX_INSTANCE_ID: got %q, want sbx_123", env["SANDBOX_INSTANCE_ID"])
+	}
+	// Empty vendor must NOT inject the key (preserves the nvidia default).
+	if env2 := p.taskEnvironment(compute.Spec{Labels: map[string]string{"helix.sandbox_id": "x"}}); func() bool { _, ok := env2["GPU_VENDOR"]; return ok }() {
+		t.Error("GPU_VENDOR should be absent when spec.GPUVendor is empty")
+	}
+}
+
 func TestProviderNameDifferentDeploymentTags(t *testing.T) {
 	// Cross-tenancy regression guard: two Providers with the same
 	// kind but different deployment tags MUST report different
