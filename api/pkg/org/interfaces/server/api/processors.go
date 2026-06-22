@@ -57,8 +57,10 @@ type ProcessorWriteRequest struct {
 
 // processorWriteAttributes is the request attributes for create/update.
 type processorWriteAttributes struct {
-	Name         string          `json:"name"`
-	InputTopicID string          `json:"input_topic_id"`
+	Name string `json:"name"`
+	// Pointer so update can tell "omitted" (nil, leave unchanged) from
+	// "" (disconnect the input). On create, nil/empty both mean no input.
+	InputTopicID *string         `json:"input_topic_id"`
 	Kind         string          `json:"kind"`
 	Config       json.RawMessage `json:"config"`
 	CreatedBy    string          `json:"created_by"`
@@ -166,9 +168,13 @@ func (a *apiHandler) createProcessor(w http.ResponseWriter, r *http.Request) {
 		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
+	input := ""
+	if attrs.InputTopicID != nil {
+		input = *attrs.InputTopicID
+	}
 	p, err := a.deps.Processors.Create(r.Context(), orgID, processors.CreateParams{
 		Name:         attrs.Name,
-		InputTopicID: streaming.TopicID(attrs.InputTopicID),
+		InputTopicID: streaming.TopicID(input),
 		Kind:         processor.Kind(attrs.Kind),
 		Config:       attrs.Config,
 		CreatedBy:    attrs.CreatedBy,
@@ -242,11 +248,16 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 		jsonapi.WriteError(w, http.StatusBadRequest, err)
 		return
 	}
+	var inputPtr *streaming.TopicID
+	if attrs.InputTopicID != nil {
+		tid := streaming.TopicID(*attrs.InputTopicID)
+		inputPtr = &tid
+	}
 	p, err := a.deps.Processors.Update(r.Context(), orgID, id, processors.UpdateParams{
 		Name:         attrs.Name,
 		Kind:         processor.Kind(attrs.Kind),
 		Config:       attrs.Config,
-		InputTopicID: streaming.TopicID(attrs.InputTopicID),
+		InputTopicID: inputPtr,
 	})
 	if err != nil {
 		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("update processor %s: %w", id, err))

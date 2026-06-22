@@ -168,9 +168,10 @@ func (p Processor) Validate() error {
 	if p.Name == "" {
 		return errors.New("processor name is empty")
 	}
-	if p.InputTopicID == "" {
-		return errors.New("processor input topic is empty")
-	}
+	// InputTopicID may be empty: a processor with no input is valid but
+	// inert — it sits on the chart unwired until a Topic (or another
+	// processor's output branch) is connected to its IN port. Deleting
+	// the input edge clears it back to this state.
 	if len(p.Outputs) == 0 {
 		return errors.New("processor has no outputs")
 	}

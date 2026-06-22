@@ -160,7 +160,6 @@ func TestValidateRequiredFields(t *testing.T) {
 		"empty id":     func(p *processor.Processor) { p.ID = "" },
 		"empty org":    func(p *processor.Processor) { p.OrganizationID = "" },
 		"empty name":   func(p *processor.Processor) { p.Name = "" },
-		"empty input":  func(p *processor.Processor) { p.InputTopicID = "" },
 		"no outputs":   func(p *processor.Processor) { p.Outputs = nil },
 		"empty output": func(p *processor.Processor) { p.Outputs = []processor.Output{{TopicID: ""}} },
 		"empty kind":   func(p *processor.Processor) { p.Kind = "" },
@@ -173,6 +172,18 @@ func TestValidateRequiredFields(t *testing.T) {
 				t.Errorf("%s: want error, got nil", name)
 			}
 		})
+	}
+}
+
+func TestEmptyInputIsValid(t *testing.T) {
+	// A processor with no input topic is valid but inert (unwired).
+	p := processor.Processor{
+		ID: "p-1", OrganizationID: "org-1", Name: "n", InputTopicID: "",
+		Kind: processor.KindTemplate, Config: cfg(t, map[string]string{"template": "x"}),
+		Outputs: out("s-out"), CreatedAt: time.Now(),
+	}
+	if err := p.Validate(); err != nil {
+		t.Errorf("empty input should be valid (inert), got %v", err)
 	}
 }
 

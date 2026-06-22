@@ -901,7 +901,6 @@ const buildGraph = (
           sourceHandle: 'src',
           target: `processor:${p.id}`,
           type: 'deletable',
-          deletable: false, // required input — re-wire instead of delete
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -915,7 +914,6 @@ const buildGraph = (
           sourceHandle: p.inputTopicId,
           target: `processor:${p.id}`,
           type: 'deletable',
-          deletable: false, // required input — re-wire instead of delete
           data: { kind: 'proc_in', processorId: p.id },
           style: { stroke: procStroke, strokeWidth: 1.5 },
         })
@@ -990,12 +988,11 @@ const DeletableEdge: FC<EdgeProps> = ({
   const { deleteElements } = useReactFlow()
   const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
   const kind = (data as { kind?: string } | undefined)?.kind
-  const ariaLabel = kind === 'sub' || kind === 'proc_out' ? 'Remove subscription' : 'Remove reporting line'
-  // A processor's input edge represents its required input_topic_id — it
-  // can't be "deleted" (only re-wired by dragging a new Topic into the IN
-  // port), so it gets no delete button (deleting it was a no-op that
-  // visually vanished then reappeared on the next refresh).
-  const show = (hover || selected) && kind !== 'proc_in'
+  const ariaLabel =
+    kind === 'sub' || kind === 'proc_out' ? 'Remove subscription'
+      : kind === 'proc_in' ? 'Disconnect input'
+        : 'Remove reporting line'
+  const show = hover || selected
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
@@ -1166,10 +1163,11 @@ const ChartCanvas: FC<{
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const e of deleted) {
-        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; topicId?: string } | undefined
-        // The input-topic → processor edge is structural (set via the
-        // drawer), so dropping it is a no-op.
-        if (d?.kind === 'proc_in') {
+        const d = e.data as { kind?: string; childWorkerId?: string; parentWorkerId?: string; workerId?: string; topicId?: string; processorId?: string } | undefined
+        // Deleting a processor's input edge disconnects it: clear the
+        // input topic, leaving the processor inert until it's re-wired.
+        if (d?.kind === 'proc_in' && d.processorId) {
+          onSetProcessorInput(d.processorId, '')
           continue
         }
         // A branch → Worker edge IS a subscription to the branch's output
@@ -1190,7 +1188,7 @@ const ChartCanvas: FC<{
         if (childId && parentId && (e.target ?? '').startsWith('worker:')) onRemoveParent(childId, parentId)
       }
     },
-    [onRemoveParent, onUnsubscribeWorker],
+    [onRemoveParent, onUnsubscribeWorker, onSetProcessorInput],
   )
 
   return (
@@ -1430,7 +1428,7 @@ const HelixOrgChart: FC = () => {
           id: processorId,
           attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_topic_id: topicId },
         })
-        snackbar.success(`${processorId} now reads ${topicId}`)
+        snackbar.success(topicId ? `${processorId} now reads ${topicId}` : `${processorId} disconnected from its input`)
       } catch (err: any) {
         snackbar.error(err?.response?.data?.errors?.[0]?.detail ?? err?.response?.data?.error ?? err?.message ?? 'wire input failed')
       }

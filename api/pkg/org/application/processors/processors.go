@@ -161,14 +161,16 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 // UpdateParams describes the mutable fields. Outputs are left as-is when
 // nil; the auto-provisioned output Topics are not re-created on update
 // (changing the branch count is a delete-and-recreate concern for v1).
-// InputTopicID is optional: empty leaves the input unchanged; a non-empty
-// value re-points the processor at a different input topic (used by the
-// chart's drag-to-wire), re-running the cycle check.
+// InputTopicID uses pointer semantics: nil leaves the input unchanged; a
+// non-nil value sets it — including the empty string, which DISCONNECTS
+// the processor (deleting its input edge on the chart), leaving it inert.
+// A non-empty value re-points it at a different input (drag-to-wire),
+// re-running the cycle check.
 type UpdateParams struct {
 	Name         string
 	Kind         processor.Kind
 	Config       json.RawMessage
-	InputTopicID streaming.TopicID
+	InputTopicID *streaming.TopicID
 }
 
 // Update rewrites name/kind/config (and optionally the input topic) on an
@@ -182,8 +184,8 @@ func (s *Processors) Update(ctx context.Context, orgID string, id processor.Proc
 	existing.Name = p.Name
 	existing.Kind = p.Kind
 	existing.Config = p.Config
-	if p.InputTopicID != "" {
-		existing.InputTopicID = p.InputTopicID
+	if p.InputTopicID != nil {
+		existing.InputTopicID = *p.InputTopicID
 	}
 	if err := existing.Validate(); err != nil {
 		return processor.Processor{}, err
