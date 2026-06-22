@@ -147,6 +147,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 		VCPUs:          vcpus,
 		MemoryMB:       memoryMB,
 		Persistent:     req.Persistent,
+		Purpose:        req.Purpose,
 		TimeoutSeconds: timeout,
 		DisplayWidth:   width,
 		DisplayHeight:  height,

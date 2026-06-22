@@ -5789,6 +5789,20 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
+// SetWebServiceHostDeviceID mocks base method.
+func (m *MockStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetWebServiceHostDeviceID", ctx, projectID, hostDeviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetWebServiceHostDeviceID indicates an expected call of SetWebServiceHostDeviceID.
+func (mr *MockStoreMockRecorder) SetWebServiceHostDeviceID(ctx, projectID, hostDeviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWebServiceHostDeviceID", reflect.TypeOf((*MockStore)(nil).SetWebServiceHostDeviceID), ctx, projectID, hostDeviceID)
+}
+
 // SetLicenseKey mocks base method.
 func (m *MockStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
 	m.ctrl.T.Helper()

@@ -23,6 +23,11 @@ const (
 	SandboxRuntimeHeadlessUbuntu SandboxRuntime = "headless-ubuntu"
 )
 
+// SandboxPurposeWebService marks the single long-lived sandbox that hosts a
+// project's web service. The provisioner mounts the per-project durable data
+// dir at /data for sandboxes with this purpose.
+const SandboxPurposeWebService = "web-service"
+
 // SandboxStatus reflects lifecycle state of a sandbox.
 type SandboxStatus string
 
@@ -63,6 +68,12 @@ type Sandbox struct {
 	// underlying container. Empty until the controller schedules it.
 	HostDeviceID string `json:"host_device_id,omitempty" gorm:"size:255;index"`
 	ContainerID  string `json:"container_id,omitempty" gorm:"size:255"`
+
+	// Purpose is an optional marker describing what the sandbox is used for.
+	// Empty for ordinary agent/dev sandboxes. "web-service" marks the single
+	// long-lived sandbox that hosts a project's web service; the provisioner
+	// uses it to bind-mount the per-project durable data dir at /data.
+	Purpose string `json:"purpose,omitempty" gorm:"size:32;index"`
 
 	// Display fields apply to desktop runtimes.
 	DisplayWidth  int `json:"display_width,omitempty"`
@@ -115,6 +126,10 @@ type CreateSandboxRequest struct {
 	// restarts. Files written under /home/retro/work survive teardown until
 	// the sandbox is explicitly deleted.
 	Persistent bool `json:"persistent,omitempty"`
+	// Purpose is an optional marker (e.g. "web-service") that selects extra
+	// provisioning behaviour. Empty for ordinary sandboxes. Not settable via
+	// the public REST API — set internally by the web-service controller.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // UpdateSandboxRequest is the API payload for PATCH /sandboxes/{id}.
