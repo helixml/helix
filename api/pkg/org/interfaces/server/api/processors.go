@@ -243,9 +243,10 @@ func (a *apiHandler) updateProcessor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.deps.Processors.Update(r.Context(), orgID, id, processors.UpdateParams{
-		Name:   attrs.Name,
-		Kind:   processor.Kind(attrs.Kind),
-		Config: attrs.Config,
+		Name:         attrs.Name,
+		Kind:         processor.Kind(attrs.Kind),
+		Config:       attrs.Config,
+		InputTopicID: streaming.TopicID(attrs.InputTopicID),
 	})
 	if err != nil {
 		jsonapi.WriteError(w, procErrStatus(err), fmt.Errorf("update processor %s: %w", id, err))

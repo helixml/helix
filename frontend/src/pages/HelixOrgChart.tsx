@@ -60,6 +60,7 @@ import {
   useListHelixOrgWorkers,
   useListHelixOrgProcessors,
   useDeleteHelixOrgProcessor,
+  useUpdateHelixOrgProcessor,
   useAddWorkerParent,
   useRemoveWorkerParent,
   useSubscribeWorkerAtChart,
@@ -394,6 +395,9 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
       }}
     >
       <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
+      {/* Source handle on the right — drag from a Topic into a
+          Processor's IN port to make that Processor read this Topic. */}
+      <Handle id="src" type="source" position={RFPosition.Right} isConnectable style={{ background: accent, width: 10, height: 10 }} />
       {data.ownedByProcessor ? (
         <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
           <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
@@ -701,7 +705,14 @@ const buildGraph = (
   // the canvas. We still need their subscriber lists below to draw the
   // branch → Worker edges, so they stay in `topics` (just not rendered).
   const ownedOutputTopicIds = new Set<string>()
-  for (const p of processors) for (const o of p.outputs) if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
+  // branchOwner maps a (collapsed) output-topic id → the processor + branch
+  // handle that produces it, so a downstream processor reading that topic
+  // can be wired straight from the upstream branch port (chaining).
+  const branchOwner = new Map<string, string>()
+  for (const p of processors) for (const o of p.outputs) {
+    if (o.owned && o.topicId) ownedOutputTopicIds.add(o.topicId)
+    if (o.topicId) branchOwner.set(o.topicId, p.id)
+  }
 
   if (topics.length > 0) {
     const TRANSCRIPT_PREFIX = 's-transcript-'
@@ -887,10 +898,24 @@ const buildGraph = (
         edges.push({
           id: `procin:${p.inputTopicId}->${p.id}`,
           source: `topic:${p.inputTopicId}`,
+          sourceHandle: 'src',
           target: `processor:${p.id}`,
           type: 'deletable',
           data: { kind: 'proc_in', processorId: p.id },
-          style: { stroke: procStroke, strokeWidth: 1.25 },
+          style: { stroke: procStroke, strokeWidth: 1.5 },
+        })
+      } else if (p.inputTopicId && branchOwner.has(p.inputTopicId) && branchOwner.get(p.inputTopicId) !== p.id) {
+        // Chained: this processor reads an upstream processor's output
+        // branch — draw the edge from that branch port to this IN port.
+        const upstream = branchOwner.get(p.inputTopicId)!
+        edges.push({
+          id: `procchain:${upstream}:${p.inputTopicId}->${p.id}`,
+          source: `processor:${upstream}`,
+          sourceHandle: p.inputTopicId,
+          target: `processor:${p.id}`,
+          type: 'deletable',
+          data: { kind: 'proc_in', processorId: p.id },
+          style: { stroke: procStroke, strokeWidth: 1.5 },
         })
       }
       // Each branch port → every Worker subscribed to that branch's
@@ -1054,10 +1079,13 @@ const ChartCanvas: FC<{
   // pseudo-node; onUnsubscribeWorker fires when they delete that edge.
   onSubscribeWorker: (workerId: string, topicId: string) => void
   onUnsubscribeWorker: (workerId: string, topicId: string) => void
+  // onSetProcessorInput fires when the user wires a Topic (or another
+  // processor's output branch) into a processor's IN port.
+  onSetProcessorInput: (processorId: string, topicId: string) => void
   topics: TopicSummary[]
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
-}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, topics, messageCounts, processors }) => {
+}> = ({ groups, flat, handlers, onAddParent, onRemoveParent, onSubscribeWorker, onUnsubscribeWorker, onSetProcessorInput, topics, messageCounts, processors }) => {
   const lightTheme = useLightTheme()
   const { fitView } = useReactFlow()
 
@@ -1082,15 +1110,32 @@ const ChartCanvas: FC<{
   const onConnect = useCallback(
     ({ source, sourceHandle, target }: { source: string | null; sourceHandle?: string | null; target: string | null }) => {
       if (!source || !target) return
-      // Processor branch port → Worker: subscribe the Worker to that
-      // branch's output topic. The branch's handle id IS the output topic
-      // id (see buildGraph), so the wire carries which branch was dragged.
-      if (source.startsWith('processor:') && target.startsWith('worker:')) {
-        const workerId = target.replace(/^worker:/, '')
-        const topicId = sourceHandle || ''
-        if (workerId && topicId && topicId.startsWith('s-')) onSubscribeWorker(workerId, topicId)
+
+      // Processor OUT branch → (Worker | Processor). The branch handle id
+      // IS the branch's output topic id (see buildGraph), so the wire
+      // carries which branch was dragged.
+      if (source.startsWith('processor:') && sourceHandle && sourceHandle.startsWith('s-')) {
+        const branchTopicId = sourceHandle
+        if (target.startsWith('worker:')) {
+          const workerId = target.replace(/^worker:/, '')
+          if (workerId) onSubscribeWorker(workerId, branchTopicId)
+        } else if (target.startsWith('processor:')) {
+          // Chain: the downstream processor reads this branch's output.
+          const procId = target.replace(/^processor:/, '')
+          if (procId) onSetProcessorInput(procId, branchTopicId)
+        }
         return
       }
+
+      // Topic → Processor IN: that processor now reads this topic.
+      if (source.startsWith('topic:') && target.startsWith('processor:')) {
+        const topicId = source.replace(/^topic:/, '')
+        const procId = target.replace(/^processor:/, '')
+        if (topicId && procId) onSetProcessorInput(procId, topicId)
+        return
+      }
+
+      // Worker → Topic (subscribe) | Worker → Worker (reporting).
       if (!source.startsWith('worker:')) return
       const sourceId = source.replace(/^worker:/, '')
       if (!sourceId) return
@@ -1106,7 +1151,7 @@ const ChartCanvas: FC<{
         onAddParent(targetId, sourceId)
       }
     },
-    [onAddParent, onSubscribeWorker],
+    [onAddParent, onSubscribeWorker, onSetProcessorInput],
   )
 
   // onEdgesDelete severs whatever the edge represented: a reporting edge
@@ -1152,6 +1197,10 @@ const ChartCanvas: FC<{
       onEdgesDelete={onEdgesDelete}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
+      // Snap a dropped connection to the nearest handle within this
+      // radius, so wiring into a worker / processor port doesn't require
+      // pixel-perfect aim.
+      connectionRadius={55}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
@@ -1192,6 +1241,7 @@ const HelixOrgChart: FC = () => {
   const deleteRole = useDeleteHelixOrgRole()
   const deleteTopic = useDeleteHelixOrgTopic()
   const deleteProcessor = useDeleteHelixOrgProcessor()
+  const updateProcessor = useUpdateHelixOrgProcessor()
   const fireWorker = useFireHelixOrgWorker()
   const addParent = useAddWorkerParent()
   const removeParent = useRemoveWorkerParent()
@@ -1361,6 +1411,27 @@ const HelixOrgChart: FC = () => {
     [unsubscribe, snackbar],
   )
 
+  // onSetProcessorInput re-points a processor at a new input topic (from
+  // wiring a Topic — or another processor's output branch — into its IN
+  // port). Preserves the processor's name/kind/config; only the input
+  // changes. The cycle check runs server-side.
+  const onSetProcessorInput = useCallback(
+    async (processorId: string, topicId: string) => {
+      const p = (processorsData ?? []).find((x) => x.id === processorId)
+      if (!p) return
+      try {
+        await updateProcessor.mutateAsync({
+          id: processorId,
+          attrs: { name: p.name ?? processorId, kind: p.kind ?? 'template', config: p.config, input_topic_id: topicId },
+        })
+        snackbar.success(`${processorId} now reads ${topicId}`)
+      } catch (err: any) {
+        snackbar.error(err?.response?.data?.errors?.[0]?.detail ?? err?.response?.data?.error ?? err?.message ?? 'wire input failed')
+      }
+    },
+    [processorsData, updateProcessor, snackbar],
+  )
+
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
     try {
@@ -1509,6 +1580,7 @@ const HelixOrgChart: FC = () => {
                 onRemoveParent={onRemoveParent}
                 onSubscribeWorker={onSubscribeWorker}
                 onUnsubscribeWorker={onUnsubscribeWorker}
+                onSetProcessorInput={onSetProcessorInput}
                 topics={topics}
                 messageCounts={messageCounts}
                 processors={processorSummaries}

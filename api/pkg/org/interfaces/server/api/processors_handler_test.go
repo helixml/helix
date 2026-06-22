@@ -249,6 +249,65 @@ func TestDeleteProcessorOutputTopicBlocked(t *testing.T) {
 	}
 }
 
+func TestUpdateProcessorRewiresInputTopic(t *testing.T) {
+	var n int
+	deps, st, _ := newDepsClock(t,
+		func() time.Time { return time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC) },
+		func() string { n++; return "id-" + string(rune('a'+n)) },
+	)
+	h := orgapi.Handler(deps)
+	seedTopic(t, st, "s-in", "Inbox")
+	seedTopic(t, st, "s-in2", "Inbox 2")
+
+	rec := do(t, h, "POST", "/processors", jsonapiDoc("processors", map[string]any{
+		"name": "P", "input_topic_id": "s-in", "kind": "template",
+		"config": map[string]string{"template": "{{ .Message.body }}"},
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	decode(t, rec, &created)
+	id := created.Data.ID
+
+	// Re-point the input topic (what the chart's drag-to-wire does).
+	rec = do(t, h, "PUT", "/processors/"+id, jsonapiDoc("processors", map[string]any{
+		"name": "P", "kind": "template", "input_topic_id": "s-in2",
+		"config": map[string]string{"template": "{{ .Message.body }}"},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update = %d: %s", rec.Code, rec.Body.String())
+	}
+	var doc struct {
+		Data struct {
+			Attributes struct {
+				InputTopicID string `json:"input_topic_id"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	decode(t, rec, &doc)
+	if doc.Data.Attributes.InputTopicID != "s-in2" {
+		t.Errorf("input after rewire = %q, want s-in2", doc.Data.Attributes.InputTopicID)
+	}
+
+	// Omitting input_topic_id on update leaves it unchanged.
+	rec = do(t, h, "PUT", "/processors/"+id, jsonapiDoc("processors", map[string]any{
+		"name": "P2", "kind": "template",
+		"config": map[string]string{"template": "{{ .Message.body }}"},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update2 = %d: %s", rec.Code, rec.Body.String())
+	}
+	decode(t, rec, &doc)
+	if doc.Data.Attributes.InputTopicID != "s-in2" {
+		t.Errorf("input after name-only update = %q, want s-in2 (unchanged)", doc.Data.Attributes.InputTopicID)
+	}
+}
+
 func TestGetMissingProcessor404(t *testing.T) {
 	deps, _, _ := newDeps(t)
 	h := orgapi.Handler(deps)

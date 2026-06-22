@@ -110,7 +110,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const submit = async () => {
     try {
       if (isEdit && processor) {
-        await updateProc.mutateAsync({ id: processor.id, attrs: { name: name.trim(), kind, config } })
+        await updateProc.mutateAsync({ id: processor.id, attrs: { name: name.trim(), kind, config, input_topic_id: inputTopicId } })
         snackbar.success(`updated ${processor.id}`)
       } else {
         const created = await createProc.mutateAsync({
@@ -150,24 +150,17 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           >
             {KINDS.map((k) => <MenuItem key={k.value} value={k.value}>{k.label}</MenuItem>)}
           </TextField>
-          {isEdit ? (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Input topic (immutable)</Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{inputTopicId}</Typography>
-            </Box>
-          ) : (
-            <TextField
-              select size="small" label="Input topic" value={inputTopicId} fullWidth required
-              onChange={(e) => setInputTopicId(e.target.value)}
-              helperText="The topic this processor reads. An output topic is auto-created; subscribe workers to it on the chart."
-            >
-              {topics.map((tp) => (
-                <MenuItem key={tp.id} value={tp.id ?? ''} sx={{ fontFamily: 'monospace' }}>
-                  {tp.id}{tp.name ? ` — ${tp.name}` : ''}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
+          <TextField
+            select size="small" label="Input topic" value={inputTopicId} fullWidth required
+            onChange={(e) => setInputTopicId(e.target.value)}
+            helperText="The topic this processor reads. An output topic is auto-created; subscribe workers to it on the chart. (You can also re-wire this on the chart by dragging a Topic into the IN port.)"
+          >
+            {topics.map((tp) => (
+              <MenuItem key={tp.id} value={tp.id ?? ''} sx={{ fontFamily: 'monospace' }}>
+                {tp.id}{tp.name ? ` — ${tp.name}` : ''}
+              </MenuItem>
+            ))}
+          </TextField>
           <Divider sx={{ my: 0.5 }} />
           {kind === 'template' && (
             <TextField
