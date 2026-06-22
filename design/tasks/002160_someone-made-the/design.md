@@ -1,72 +1,108 @@
-# Design: Remove Terminal Auto-Close Countdown Prompt from Workspace Setup
+# Design: Restore Blocking Workspace Setup Terminal Prompt (Remove 60s Auto-Close)
+
+## Approach: Surgical Revert of the Timeout (not a full commit revert)
+
+The user asked to "revert that one commit" (`389435bb1`). After investigation, a literal full revert is the wrong tool:
+
+- `git revert 389435bb1` **conflicts** on `api/pkg/server/auto_wake_stuck_interactions.go` — a later commit (`ac9be34b7`) refactored `maybeKickColdStart` to load the session once at the top, so the reverted hunk no longer applies. (Verified by a no-commit dry-run.)
+- The commit bundles an **unrelated, still-wanted feature**: surfacing real setup-failure reasons in the UI via the `~/.helix-setup-failed` sentinel. A full revert removes that too.
+
+So we revert **only the timeout behavior**, which lives entirely in one function of one file.
 
 ## File to Change
 
-`desktop/shared/helix-workspace-setup.sh` — specifically the `cleanup_and_prompt` function and EXIT trap (lines 56–127 in the current file).
+`desktop/shared/helix-workspace-setup.sh` — the `cleanup_and_prompt` function and the `HELIX_SETUP_PROMPT_TIMEOUT` variable above it.
 
-## What to Change
+## Changes
 
-### Current behaviour (introduced in commit `389435bb1`)
+### 1. Remove the `HELIX_SETUP_PROMPT_TIMEOUT` variable
+
+Delete the variable and its comment block (currently ~lines 42–52):
 
 ```bash
+# How long the cleanup_and_prompt menu waits ...
 HELIX_SETUP_PROMPT_TIMEOUT="${HELIX_SETUP_PROMPT_TIMEOUT:-60}"
-
-cleanup_and_prompt() {
-    local exit_code=$?
-    ...
-    # [error sentinel writing on failure]
-    ...
-    echo "What would you like to do?"
-    echo "  1) Close this window"
-    echo "  2) Start an interactive shell for debugging"
-    read -t "$HELIX_SETUP_PROMPT_TIMEOUT" -p "Enter choice [1-2] (auto-close in ${HELIX_SETUP_PROMPT_TIMEOUT}s): " choice
-    # ... handles choice
-}
-trap cleanup_and_prompt EXIT
 ```
 
-### Desired behaviour
+### 2. Restore the blocking `read` and the default-to-shell behavior
 
-Remove the interactive menu entirely. Keep the rest:
+In `cleanup_and_prompt`, the current timed prompt:
 
 ```bash
-cleanup_and_prompt() {
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        echo "❌ Setup failed with exit code $exit_code"
-        # [write ~/.helix-setup-failed sentinel — KEEP THIS]
-    fi
-    trap - EXIT
-    exit $exit_code
-}
-trap cleanup_and_prompt EXIT
+local choice=""
+if read -t "$HELIX_SETUP_PROMPT_TIMEOUT" -p "Enter choice [1-2] (auto-close in ${HELIX_SETUP_PROMPT_TIMEOUT}s): " choice; then
+    : # got input
+else
+    echo ""
+    echo "(no input within ${HELIX_SETUP_PROMPT_TIMEOUT}s — closing)"
+    choice=1
+fi
+
+case "$choice" in
+    2)
+        echo ""
+        echo "Starting interactive shell..."
+        ...
+        exec bash
+        ;;
+    *)
+        # Default (1 or timeout): disable trap and exit with original code
+        trap - EXIT
+        exit $exit_code
+        ;;
+esac
 ```
 
-On success (`exit_code=0`), the script reaches the end of its main body (after the startup script runs) and exits 0. The trap fires, sees exit_code=0, and exits immediately — no menu, no read.
+becomes the original blocking form (pre-`389435bb1`):
 
-On failure, the sentinel is written and the script exits non-zero immediately — no blocking `read`, so unattended sessions still self-report failures to the API.
+```bash
+read -p "Enter choice [1-2]: " choice
 
-## What to Remove
+case "$choice" in
+    1)
+        # Disable trap before exiting to avoid infinite loop
+        trap - EXIT
+        exit $exit_code
+        ;;
+    2|*)
+        echo ""
+        echo "Starting interactive shell..."
+        echo "Type 'exit' to close this window."
+        echo ""
+        if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$HOME/work/$HELIX_PRIMARY_REPO_NAME" ]; then
+            cd "$HOME/work/$HELIX_PRIMARY_REPO_NAME"
+        else
+            cd "$HOME/work"
+        fi
+        exec bash
+        ;;
+esac
+```
 
-- The `HELIX_SETUP_PROMPT_TIMEOUT` variable and its comment block
-- The `echo "What would you like to do?"` / `echo "  1) Close"` / `echo "  2) Start an interactive shell"` lines
-- The `read -t` call and the `if/else` block around it
-- The `case "$choice" in 2) exec bash ;; *) exit ;; esac` block
+Net effect: the prompt waits indefinitely; pressing `1` closes the window, anything else (including a bare Enter) drops into a shell so the user can inspect the running stack.
 
-## What to Keep
+## What to KEEP (do NOT revert)
 
-- The `exec > >(tee -a "$SETUP_LOG") 2>&1` log tee
-- The `~/.helix-setup-failed` sentinel write on failure (API depends on it)
-- The `rm -f "$HOME/.helix-setup-failed"` cleanup at script start
-- The `trap cleanup_and_prompt EXIT` itself — it's needed to catch unexpected exits and write the failure sentinel
+- `exec > >(tee -a "$SETUP_LOG") 2>&1` — the `~/.helix-setup.log` tee.
+- The `~/.helix-setup-failed` sentinel write inside `cleanup_and_prompt`'s failure branch.
+- The `rm -f "$HOME/.helix-setup-failed"` cleanup near the top of the script.
+- `api/pkg/server/auto_wake_stuck_interactions.go` — untouched. The sentinel is still written (before the now-blocking `read`), so the auto-wake worker can still read it via hydra and surface the real error. Leaving this file alone also avoids the merge conflict.
 
-## Why Not Keep the Interactive Shell Option?
+## Considered and Rejected: Full `git revert 389435bb1`
 
-The previous default before `389435bb1` was `2|*)` → exec bash — meaning a blank enter opened a shell. The user's request is to remove the menu, so we drop the interactive shell option as well. If someone wants a shell after setup, they can open a new terminal.
+- Does not apply cleanly (Go conflict from a later refactor) — needs manual conflict resolution.
+- Removes the unrelated `~/.helix-setup-failed` error-surfacing feature, regressing UI error messages back to the generic "agent never connected" banner.
+- Larger blast radius for no benefit to the user's actual complaint (the timeout).
+
+If the user explicitly wants the full revert anyway, the fallback is: `git revert --no-commit 389435bb1`, then resolve the conflict in `auto_wake_stuck_interactions.go` by removing the sentinel-reading block while preserving the later `session`-reuse refactor, then `git revert --continue`.
+
+## Trade-off the User Should Know
+
+Restoring the blocking prompt reintroduces the original behavior where an **unattended** session whose setup *fails* parks on `read` instead of self-closing. This is acceptable for the user's interactive use case (they're watching the terminal). Error surfacing in the UI is unaffected because the sentinel is still written and read out-of-band by the API.
 
 ## Rebuild Required
 
-This script is baked into the desktop image at `/usr/local/bin/helix-workspace-setup.sh`. After the code change is committed, run:
+The script is baked into the desktop image at `/usr/local/bin/helix-workspace-setup.sh`. After committing:
 
 ```
 ./stack build-ubuntu
