@@ -1348,18 +1348,45 @@ fn build_negotiation_params(
     // The use_dmabuf parameter now indicates our PREFERENCE:
     // - use_dmabuf=true: Prefer DmaBuf, fall back to MemFd
     // - use_dmabuf=false: Prefer MemFd, but still accept DmaBuf if Mutter requires it
-    // SPA_DATA_SyncObj = 5. Explicit sync requires us to advertise we accept
-    // SyncObj data blocks, or Mutter won't attach the acquire/release syncobj fds
-    // even when the SyncTimeline meta is negotiated.
-    let mut buffer_types: i32 = (1 << 2) | (1 << 3); // MemFd | DmaBuf = 4 | 8 = 12
-    if crate::sync_timeline::enabled() {
-        buffer_types |= 1 << 5; // + SyncObj
-    }
+    let buffer_types: i32 = (1 << 2) | (1 << 3); // MemFd | DmaBuf = 4 | 8 = 12
     let buffer_type_name = "MemFd+DmaBuf (let PipeWire negotiate)";
     eprintln!(
         "[PIPEWIRE_DEBUG] Buffer types: 0x{:x} ({}) - use_dmabuf={}",
         buffer_types, buffer_type_name, use_dmabuf
     );
+
+    // EXPLICIT-SYNC Buffers param (offered FIRST so PipeWire prefers it). The
+    // trigger is NOT putting SyncObj in dataType — it's a MANDATORY
+    // SPA_PARAM_BUFFERS_metaType = SPA_META_SyncTimeline property, which makes
+    // Mutter select its 3-block explicit-sync buffer variant (video + acquire_fd +
+    // release_fd) and attach the SyncTimeline meta. Mirrors OBS's consumer
+    // (obsproject/obs-studio#11708). If Mutter doesn't support it, this param's
+    // mandatory prop won't match and PipeWire falls back to the plain param below.
+    if crate::sync_timeline::enabled() {
+        const SPA_PARAM_BUFFERS_METATYPE: u32 = 7; // enum spa_param_buffers
+        let es_buffer_obj = Object {
+            type_: SpaTypes::ObjectParamBuffers.as_raw(),
+            id: ParamType::Buffers.as_raw(),
+            properties: vec![
+                Property {
+                    key: SPA_PARAM_BUFFERS_DATATYPE,
+                    flags: PropertyFlags::empty(),
+                    value: Value::Int(1 << 3), // DmaBuf only (plain Int, like OBS)
+                },
+                Property {
+                    key: SPA_PARAM_BUFFERS_METATYPE,
+                    flags: PropertyFlags::MANDATORY,
+                    value: Value::Int(1 << crate::sync_timeline::SPA_META_SYNC_TIMELINE),
+                },
+            ],
+        };
+        if let Ok((cursor, _)) =
+            PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(es_buffer_obj))
+        {
+            params.push(cursor.into_inner());
+            eprintln!("[EXPLICIT_SYNC] Added explicit-sync Buffers param (mandatory metaType=SyncTimeline)");
+        }
+    }
 
     // Use FLAGS choice for dataType (like gnome-remote-desktop's SPA_POD_CHOICE_FLAGS_Int)
     // FLAGS choice tells PipeWire which buffer types we accept as a bitmask
