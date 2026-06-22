@@ -250,7 +250,7 @@ const HelixOrgRoles: FC = () => {
           </Typography>
           {affectedWorkers.length > 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Workers assigned to this role:{' '}
+              Workers that will be fired:{' '}
               {affectedWorkers.map((id, i) => (
                 <span key={id}>
                   {i > 0 && ', '}

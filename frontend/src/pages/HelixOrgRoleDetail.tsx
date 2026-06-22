@@ -44,6 +44,7 @@ import {
   useDeleteHelixOrgRole,
   useHelixOrgRole,
   useListHelixOrgTools,
+  useListHelixOrgWorkers,
   useUpdateHelixOrgRole,
 } from '../services/helixOrgService'
 
@@ -57,8 +58,11 @@ const HelixOrgRoleDetail: FC = () => {
 
   const { data, isLoading } = useHelixOrgRole(roleId)
   const { data: toolCatalogue } = useListHelixOrgTools()
+  const { data: workersData } = useListHelixOrgWorkers()
   const updateRole = useUpdateHelixOrgRole()
   const deleteRole = useDeleteHelixOrgRole()
+
+  const affectedWorkers = (workersData ?? []).filter((w) => w.role_id === roleId)
 
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
@@ -291,11 +295,22 @@ const HelixOrgRoleDetail: FC = () => {
           onSubmit={handleDelete}
           onCancel={() => setConfirmingDelete(false)}
         >
-          <Typography variant="body1">
+          <Typography variant="body1" gutterBottom>
             Deleting role <b style={{ fontFamily: 'monospace' }}>{roleId}</b> cascades:
             every position under it is deleted and every worker in those positions is fired.
             This is irreversible.
           </Typography>
+          {affectedWorkers.length > 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Workers that will be fired:{' '}
+              {affectedWorkers.map((w, i) => (
+                <span key={w.id}>
+                  {i > 0 && ', '}
+                  <b style={{ fontFamily: 'monospace' }}>{w.id}</b>
+                </span>
+              ))}
+            </Typography>
+          )}
         </DeleteConfirmWindow>
       )}
     </Page>
