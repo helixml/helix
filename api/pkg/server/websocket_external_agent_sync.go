@@ -1662,42 +1662,36 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			}
 		}
 	}
-	// After an API restart, ResetRunningInteractions flips every Waiting interaction
-	// to error/"Interrupted" in one UPDATE. A reused thread emits no thread_created
-	// handshake to rebind, and message_added carries no request_id, so without
-	// recovery the resumed assistant response resolves to a nil interaction, is
-	// dropped, and the turn is later marked "empty response" (#2643). Recover by
-	// reusing the most recent restart-interrupted interaction — reset it to Waiting
-	// so it can resume accumulating the response.
+	// After an API restart, the most recent interaction may have been marked as
+	// "error"/"Interrupted" by ResetRunningInteractions. If Zed reconnects and
+	// resumes sending messages, recover by reusing that interaction — reset its
+	// state back to Waiting so it can continue accumulating responses.
 	//
-	// Scan backwards rather than only checking the very last row (the previous
-	// behaviour, which missed the bug whenever a non-recoverable row trailed the
-	// interrupted turn). Stop at the first Complete interaction: a completed turn
-	// means there is no in-flight turn to resume, so we must NOT resurrect an older
-	// interrupted one behind it.
-	if targetInteraction == nil {
-		for i := len(interactions) - 1; i >= 0; i-- {
-			it := interactions[i]
-			if it.State == types.InteractionStateComplete {
-				break
+	// Deliberately only the LAST row. A more-recent turn (e.g. a cancelled
+	// "interrupted" turn, or a separately errored turn) means there is no older
+	// in-flight turn to resume, so we must NOT scan past it and resurrect a stale
+	// interrupted interaction behind it. #2643's true cause is a divergence between
+	// THIS resolver (most-recent-waiting / restart-recovery) and
+	// handleMessageCompleted's request_id-mapping resolver — see
+	// architecture-simplifications.md §1; broadening this scan does not fix that and
+	// risks misrouting, so it stays conservative.
+	if targetInteraction == nil && len(interactions) > 0 {
+		last := interactions[len(interactions)-1]
+		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
+			last.State = types.InteractionStateWaiting
+			last.Error = ""
+			last.Completed = time.Time{}
+			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, last); err != nil {
+				log.Error().Err(err).
+					Str("interaction_id", last.ID).
+					Msg("Failed to recover interrupted interaction")
+			} else {
+				log.Info().
+					Str("interaction_id", last.ID).
+					Str("session_id", helixSessionID).
+					Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
 			}
-			if it.State == types.InteractionStateError && it.Error == "Interrupted" {
-				it.State = types.InteractionStateWaiting
-				it.Error = ""
-				it.Completed = time.Time{}
-				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, it); err != nil {
-					log.Error().Err(err).
-						Str("interaction_id", it.ID).
-						Msg("Failed to recover interrupted interaction after API restart")
-				} else {
-					log.Info().
-						Str("interaction_id", it.ID).
-						Str("session_id", helixSessionID).
-						Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
-				}
-				targetInteraction = it
-				break
-			}
+			targetInteraction = last
 		}
 	}
 
