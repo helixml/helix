@@ -34,17 +34,21 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 
 > **ENV NOTE (2026-06-22):** While bringing up the stack I also observed #2641 live: the sandbox's hydra failed to reach `api` at a stale IP (`10.214.1.10:8080`, connection refused) after the restart before recovering RevDial — exactly the stale-pin failure class. Recorded as supporting evidence for the #2641 fix.
 
-### #2643 + full `acp_thread_id` re-key — the core change (build second)
-Make `acp_thread_id` the **primary routing key** behind one swappable chokepoint; demote `request_id` to an in-thread disambiguator + dedup. This fixes #2643 and removes the in-memory correlation that dies on restart.
-- [ ] Chokepoint: `getOrCreateStreamingContext` (`:1491`) resolves `acp_thread_id`→session (via `contextMappings`/`findSessionByZedThreadID`, persisted `ZedThreadID`)→most-recent-`waiting` interaction (`:1636-1643`) as the **primary** path — no in-memory map dependence
-- [ ] `handleMessageAdded` nil-interaction branch (`:1391-1396`) resolves via the chokepoint instead of logging-and-dropping
-- [ ] Replace `requestToInteractionMapping` lookup in `handleMessageCompleted` Step 1 (`:2570-2598`) with the chokepoint resolution
-- [ ] Stop writing `requestToSessionMapping` / `requestToInteractionMapping` in `sendQueuedPromptToSession` (`:3254-3264`)
-- [ ] Replace consumed-sentinel (`""`) dedup with an interaction-state check (a `completed` interaction rejects a second completion) — don't rip out dedup blindly
-- [ ] Verify auto-wake re-send (`auto_wake_stuck_interactions.go:603-607`) routes through the chokepoint
-- [ ] Keep turn-state (running/done/waiting) behind the chokepoint so ACP v2 `state_update` can swap the source later
-- [ ] If any routing-relevant inbound event lacks `acp_thread_id`, fall back to its request_id binding for that event only and log loudly (confirm during impl)
-- [ ] Live test ACROSS an `api` restart on a reused thread; dedup (duplicate completion rejected); concurrent/sequential turns on one thread; queue + auto-wake; `TestWebSocketSyncSuite` + `run_docker_e2e.sh` (both agents)
+### #2643 — reused-thread response dropped after restart (build second)
+
+**Finding during implementation (changes the scope):** the chokepoint
+`getOrCreateStreamingContext` ALREADY resolves `acp_thread_id`→session (via
+`contextMappings` with `findSessionByZedThreadID`/persisted `ZedThreadID` DB fallback)
+→most-recent-`waiting` interaction, with DB fallbacks on both the message_added and
+message_completed paths. So the codebase is already substantially `acp_thread_id`-routed;
+`request_id` is already only a refinement, not the primary key. #2643 is therefore a
+**recovery-gap bug**, not a request_id-primary design. Fixed the gap:
+
+- [x] Broaden the restart-recovery in `getOrCreateStreamingContext`: scan backwards for the most-recent restart-interrupted (`error`+`"Interrupted"`) interaction instead of only checking the last row; stop at the first `Complete` row so a stale interrupted turn is never resurrected behind a completed one. (`websocket_external_agent_sync.go`, recovery block ~`:1649`)
+- [x] Make `handleMessageAdded`'s remaining nil-interaction branch log loudly with `acp_thread_id`+`request_id` (the only genuinely-unroutable case after recovery) instead of a quiet "No interaction found". Build-verified (`go build ./pkg/server/`).
+- [ ] **BLOCKED (live verify):** restart on a reused thread; dedup; concurrent turns; queue + auto-wake; `TestWebSocketSyncSuite` + `run_docker_e2e.sh`. Same env blocker as #2642 (no live Zed desktop). Needs a working env before merge.
+
+**Reclassified to architecture simplification (NOT in this PR — see `architecture-simplifications.md`):** the further removal of the in-memory correlation maps (`requestToInteractionMapping`/`requestToSessionMapping`) and the consumed-sentinel dedup. These *reduce complexity* but carry regression risk on a 4400-line production hot path with **no correctness benefit** (the maps are already optimisation/dedup, not the routing key), and cannot be live-verified in this environment. Recommending them separately rather than shipping unverified.
 
 ### #2641 — stale `api` IP pinned in desktop `/etc/hosts` (build third; independent subsystem)
 Root cause is the **frozen IP**, not the lack of a route: `/etc/hosts` pin shadows the live DNS the sandbox already provides. Resolve `api` dynamically instead of freezing it (NOT a static IP — that doubles down on the snapshot, per Luke's review).
