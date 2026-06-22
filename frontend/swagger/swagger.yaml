@@ -22157,6 +22157,54 @@ paths:
       summary: Clear a session's conversation
       tags:
       - sessions
+  /api/v1/sessions/{id}/foreground-thread:
+    post:
+      description: |-
+        Tells the per-spec-task Zed desktop to open (foreground) the thread that
+        belongs to THIS session, so the streamed desktop tracks the session the
+        user is viewing. A spec task can have multiple sessions/threads sharing one
+        desktop; the chat panel and message routing are already session-scoped, but
+        nothing previously told the desktop to follow the selected session — so the
+        foregrounded thread could differ from the one messages were sent to. This is
+        session-scoped and never guesses a "latest" thread. It no-ops (200) when the
+        session has no thread yet or the desktop WS is not connected, and crucially
+        NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Foreground this session's Zed thread on the desktop
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/fork:
     post:
       consumes:

@@ -16228,6 +16228,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/foreground-thread": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Tells the per-spec-task Zed desktop to open (foreground) the thread that\nbelongs to THIS session, so the streamed desktop tracks the session the\nuser is viewing. A spec task can have multiple sessions/threads sharing one\ndesktop; the chat panel and message routing are already session-scoped, but\nnothing previously told the desktop to follow the selected session — so the\nforegrounded thread could differ from the one messages were sent to. This is\nsession-scoped and never guesses a \"latest\" thread. It no-ops (200) when the\nsession has no thread yet or the desktop WS is not connected, and crucially\nNEVER auto-starts a dev container (foregrounding must not boot a desktop).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Foreground this session's Zed thread on the desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/fork": {
             "post": {
                 "security": [

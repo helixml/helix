@@ -14940,6 +14940,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Tells the per-spec-task Zed desktop to open (foreground) the thread that belongs to THIS session, so the streamed desktop tracks the session the user is viewing. A spec task can have multiple sessions/threads sharing one desktop; the chat panel and message routing are already session-scoped, but nothing previously told the desktop to follow the selected session — so the foregrounded thread could differ from the one messages were sent to. This is session-scoped and never guesses a "latest" thread. It no-ops (200) when the session has no thread yet or the desktop WS is not connected, and crucially NEVER auto-starts a dev container (foregrounding must not boot a desktop).
+     *
+     * @tags Sessions
+     * @name V1SessionsForegroundThreadCreate
+     * @summary Foreground this session's Zed thread on the desktop
+     * @request POST:/api/v1/sessions/{id}/foreground-thread
+     * @secure
+     */
+    v1SessionsForegroundThreadCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/foreground-thread`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Creates a new session with the target agent, seeded with the parent's transcript, and pauses the parent. The parent remains as a frozen checkpoint.
      *
      * @tags sessions

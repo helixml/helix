@@ -70,7 +70,7 @@ import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
 import { useStreaming } from "../../contexts/streaming";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
@@ -605,6 +605,31 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     refetchInterval: 3000,
   });
   const sessionData = sessionResponse?.data;
+
+  // Keep the streamed Zed desktop foregrounded on the thread of the session the
+  // user is actually viewing. A spec task can have multiple sessions/threads
+  // sharing ONE desktop; the chat panel and message routing are session-scoped,
+  // but selecting a thread previously only re-bound the chat panel — nothing told
+  // the desktop to open that session's thread. So the desktop could show one
+  // thread while messages went to another ("opened != sent-to") with no session
+  // switch. Driving this off the derived activeSessionId covers both thread
+  // selectors and initial mount. Backend no-ops (and never auto-starts a
+  // container) when the desktop isn't connected. See
+  // design/2026-06-22-zed-open-thread-send-mismatch.md.
+  const foregroundThread = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.getApiClient().v1SessionsForegroundThreadCreate(sessionId),
+  });
+  const isSessionPaused = !!sessionData?.config?.paused;
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (!isDesktopRunning) return; // nothing to foreground; also avoids waking a stopped desktop
+    if (isSessionPaused) return;
+    // foregroundThread.mutate is a stable React Query fn; per frontend/CLAUDE.md
+    // the dependency array carries only the primitives that should retrigger this.
+    foregroundThread.mutate(activeSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, isDesktopRunning, isSessionPaused]);
 
   const isAgentBusy = useMemo(() => {
     const interactions = sessionData?.interactions;
