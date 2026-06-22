@@ -952,9 +952,24 @@ function build-desktop() {
     echo "ℹ️  Image unchanged (layers cached)"
   fi
 
-  # Always write version file (even if image unchanged, fixes stale version files)
-  mkdir -p sandbox-images
-  echo "${IMAGE_TAG}" > "sandbox-images/${IMAGE_NAME}.version"
+  # Always write version file (even if image unchanged, fixes stale version files).
+  # The sandbox reads this to know which desktop image to run; a stale/missing value
+  # means "no session can start". `sandbox-images/` is a docker bind-mount source, so
+  # if `docker compose up` materialised it first it may be root-owned and unwritable
+  # by this (unprivileged) build. Self-heal ownership best-effort, then FAIL LOUDLY
+  # rather than silently leaving a stale version (this path runs with `set -e` off
+  # under build-sandbox, so a plain failed redirect would otherwise be swallowed).
+  mkdir -p sandbox-images 2>/dev/null || true
+  local VERSION_FILE="sandbox-images/${IMAGE_NAME}.version"
+  if ! echo "${IMAGE_TAG}" > "$VERSION_FILE" 2>/dev/null; then
+    sudo -n chown -R "$(id -u):$(id -g)" sandbox-images 2>/dev/null || true
+    if ! echo "${IMAGE_TAG}" > "$VERSION_FILE" 2>/dev/null; then
+      echo "❌ Cannot write ${VERSION_FILE} (owned by $(stat -c %U sandbox-images 2>/dev/null || echo '?'))."
+      echo "   This breaks the sandbox desktop-version heartbeat. Fix ownership and rebuild:"
+      echo "     sudo chown -R \$(id -u):\$(id -g) sandbox-images"
+      return 1
+    fi
+  fi
   echo "📦 Version file: ${IMAGE_TAG}"
 
   # Transfer to running sandbox via local registry
