@@ -10,14 +10,14 @@ import (
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
-type fakeNotifier struct{ calls []streaming.StreamID }
+type fakeNotifier struct{ calls []streaming.TopicID }
 
-func (f *fakeNotifier) Notify(_ string, sid streaming.StreamID) { f.calls = append(f.calls, sid) }
+func (f *fakeNotifier) Notify(_ string, sid streaming.TopicID) { f.calls = append(f.calls, sid) }
 
 func fixedNow() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
 // TestRecord_AppendsToTranscriptAndNotifies: a turn lands on the Worker's
-// s-transcript-<id> stream and wakes observers exactly once.
+// s-transcript-<id> topic and wakes observers exactly once.
 func TestRecord_AppendsToTranscriptAndNotifies(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
@@ -31,16 +31,16 @@ func TestRecord_AppendsToTranscriptAndNotifies(t *testing.T) {
 	if id == "" {
 		t.Fatal("expected a non-empty event id")
 	}
-	streamID := activation.TranscriptID("w-bob")
-	evs, err := st.Events.ListForStream(context.Background(), "org-test", streamID, 10)
+	topicID := activation.TranscriptID("w-bob")
+	evs, err := st.Events.ListForTopic(context.Background(), "org-test", topicID, 10)
 	if err != nil {
-		t.Fatalf("ListForStream: %v", err)
+		t.Fatalf("ListForTopic: %v", err)
 	}
 	if len(evs) != 1 {
-		t.Fatalf("want exactly 1 event on %s, got %d", streamID, len(evs))
+		t.Fatalf("want exactly 1 event on %s, got %d", topicID, len(evs))
 	}
-	if len(notif.calls) != 1 || notif.calls[0] != streamID {
-		t.Fatalf("notify calls = %v, want [%s]", notif.calls, streamID)
+	if len(notif.calls) != 1 || notif.calls[0] != topicID {
+		t.Fatalf("notify calls = %v, want [%s]", notif.calls, topicID)
 	}
 }
 

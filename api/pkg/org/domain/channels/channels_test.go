@@ -35,10 +35,10 @@ func line(manager, report orgchart.WorkerID) orgchart.ReportingLine {
 	return l
 }
 
-func membersOf(set Set, sid streaming.StreamID) []orgchart.WorkerID {
+func membersOf(set Set, sid streaming.TopicID) []orgchart.WorkerID {
 	var out []orgchart.WorkerID
 	for k := range set.Members {
-		if k.StreamID == sid {
+		if k.TopicID == sid {
 			out = append(out, k.WorkerID)
 		}
 	}
@@ -61,7 +61,7 @@ func eq(a, b []orgchart.WorkerID) bool {
 // TestRequired_ManagerlessRootHasUnobservedTranscript: a manager-less
 // root worker gets a transcript (so its own chat turns have a home) with
 // NO observers — never self-subscribed — and, with no reports, no team
-// stream.
+// topic.
 func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
 	set := Required([]orgchart.Worker{human("w-root")}, nil)
 
@@ -72,8 +72,8 @@ func TestRequired_ManagerlessRootHasUnobservedTranscript(t *testing.T) {
 	if got := membersOf(set, tx); len(got) != 0 {
 		t.Fatalf("manager-less root transcript observers = %v, want none (no self-subscribe)", got)
 	}
-	if _, ok := set.Channels[TeamStreamID("w-root")]; ok {
-		t.Fatalf("root with no reports must NOT have a team stream")
+	if _, ok := set.Channels[TeamTopicID("w-root")]; ok {
+		t.Fatalf("root with no reports must NOT have a team topic")
 	}
 }
 
@@ -93,11 +93,11 @@ func TestRequired_AIObservedByManagers(t *testing.T) {
 	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
 		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
 	}
-	// w-li is a member of BOTH team streams.
-	if got := membersOf(set, TeamStreamID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
+	// w-li is a member of BOTH team topics.
+	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane members = %v, want [w-jane w-li]", got)
 	}
-	if got := membersOf(set, TeamStreamID("w-bob")); !eq(got, []orgchart.WorkerID{"w-bob", "w-li"}) {
+	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.WorkerID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob members = %v, want [w-bob w-li]", got)
 	}
 }
@@ -119,8 +119,8 @@ func TestRequired_HumanWithManagerNoActivation(t *testing.T) {
 	if _, ok := set.Channels[activation.TranscriptID("w-renee")]; ok {
 		t.Fatalf("managed human must NOT get an transcript")
 	}
-	// And the owner now has a team stream containing renee.
-	if got := membersOf(set, TeamStreamID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner", "w-renee"}) {
+	// And the owner now has a team topic containing renee.
+	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner", "w-renee"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-owner w-renee]", got)
 	}
 }
@@ -131,7 +131,7 @@ func TestRequired_HumanWithManagerNoActivation(t *testing.T) {
 func TestRequired_DanglingLineIgnored(t *testing.T) {
 	workers := []orgchart.Worker{human("w-owner")}
 	set := Required(workers, []orgchart.ReportingLine{line("w-owner", "w-ghost")})
-	if _, ok := set.Channels[TeamStreamID("w-owner")]; ok {
-		t.Fatalf("team stream must not exist when the only report is a ghost")
+	if _, ok := set.Channels[TeamTopicID("w-owner")]; ok {
+		t.Fatalf("team topic must not exist when the only report is a ghost")
 	}
 }

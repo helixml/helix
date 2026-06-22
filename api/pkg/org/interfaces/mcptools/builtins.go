@@ -12,7 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -58,7 +58,7 @@ type Deps struct {
 	// drift on read semantics.
 	Queries       *queries.Queries
 	Roles         *roles.Roles
-	Streams       *streams.Streams
+	Topics       *topics.Topics
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -109,7 +109,7 @@ func (c Config) Build() Deps {
 	return Deps{
 		Queries:             c.Queries,
 		Roles:               c.rolesService(),
-		Streams:             c.streamsService(),
+		Topics:             c.topicsService(),
 		Workers:             c.workersService(),
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.publishingService(),
@@ -125,7 +125,7 @@ func (c Config) Build() Deps {
 func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
 		Subscriptions: c.Store.Subscriptions,
-		Streams:       c.Store.Streams,
+		Topics:       c.Store.Topics,
 		Workers:       c.Store.Workers,
 		Now:           c.Now,
 	})
@@ -137,7 +137,7 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 // pass and then panic).
 func (c Config) publishingService() *publishing.Publishing {
 	pd := publishing.Deps{
-		Streams: c.Store.Streams,
+		Topics: c.Store.Topics,
 		Events:  c.Store.Events,
 		Now:     c.Now,
 		NewID:   c.NewID,
@@ -153,7 +153,7 @@ func (c Config) publishingService() *publishing.Publishing {
 
 // workersService builds the worker-mutation application service. UpdateRole
 // delegates to the roles service so the held-Role content rewrite preserves
-// tools/streams.
+// tools/topics.
 func (c Config) workersService() *workers.Workers {
 	return workers.New(workers.Deps{
 		Workers:    c.Store.Workers,
@@ -196,10 +196,10 @@ func (c Config) rolesService() *roles.Roles {
 	})
 }
 
-// streamsService builds the stream-mutation application service.
-func (c Config) streamsService() *streams.Streams {
-	return streams.New(streams.Deps{
-		Streams: c.Store.Streams,
+// topicsService builds the topic-mutation application service.
+func (c Config) topicsService() *topics.Topics {
+	return topics.New(topics.Deps{
+		Topics: c.Store.Topics,
 		Now:     c.Now,
 		NewID:   c.NewID,
 	})
@@ -223,13 +223,13 @@ func DefaultDeps(s *store.Store) Config {
 	c.Reconciler = reconcile.New(reconcile.Deps{
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
-		Streams:        s.Streams,
+		Topics:        s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Now:            c.Now,
 	})
 	c.Queries = queries.New(queries.Deps{
 		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
-		Streams: s.Streams, Subscriptions: s.Subscriptions, Events: s.Events,
+		Topics: s.Topics, Subscriptions: s.Subscriptions, Events: s.Events,
 		Activations: s.Activations,
 	})
 	return c
@@ -248,9 +248,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&UpdateRole{deps: deps},
 		&UpdateIdentity{deps: deps},
 		&HireWorker{deps: deps},
-		&CreateStream{deps: deps},
+		&CreateTopic{deps: deps},
 		&MintCredential{deps: deps, providers: deps.CredentialProviders},
-		&StreamMembers{deps: deps},
+		&TopicMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
 		&InviteWorkers{deps: deps},
@@ -266,9 +266,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetWorkerProject{deps: deps},
-		&ListStreams{deps: deps},
-		&GetStream{deps: deps},
-		&ListStreamEvents{deps: deps},
+		&ListTopics{deps: deps},
+		&GetTopic{deps: deps},
+		&ListTopicEvents{deps: deps},
 		&ReadEvents{deps: deps},
 		&WorkerLog{deps: deps},
 	}

@@ -26,6 +26,14 @@ type SandboxStore interface {
 	UpdateSandboxInstanceComputeState(ctx context.Context, id, computeState string) error
 	UpdateSandboxInstanceProviderID(ctx context.Context, id, providerID string) error
 	DeregisterSandboxInstance(ctx context.Context, id string) error
+	// ListRunnerAssignments lets D4 (tryDeprovisionIdle) protect any
+	// Runner that has a Runner Profile assigned. A profile-assigned
+	// Runner may be serving inference (e.g. vllm-tiny via compose-
+	// manager) even when active_sandboxes is 0; shedding it would tear
+	// down a live inference service. Only the runner IDs are used;
+	// the full assignment payload is loaded but cheap (one row per
+	// Runner, and the fleet is small).
+	ListRunnerAssignments(ctx context.Context) ([]*types.RunnerAssignment, error)
 }
 
 // ManagerConfig configures a single ComputeManager instance.
@@ -130,6 +138,16 @@ type ManagerConfig struct {
 	// (pure on-demand, no warm baseline) gets full scale-down to
 	// zero hosts once all sandboxes drain.
 	IdleTimeout time.Duration
+
+	// HardIdleTimeout is the absolute upper bound on how long a Ready
+	// host can stay idle, even when the fleet-pressure inhibition
+	// (see tryDeprovisionIdle) would otherwise keep it alive. Without
+	// this safety net a stuck-at-cap Runner (e.g. a session whose
+	// container hangs and never reports ActiveSandboxes=0) would pin
+	// idle Runners next to it indefinitely. Default at the envconfig
+	// boundary is 4h. Set to 0 to disable the override and trust the
+	// inhibition unconditionally.
+	HardIdleTimeout time.Duration
 }
 
 // validate returns an error if cfg is missing required fields or has
@@ -167,6 +185,10 @@ func (cfg ManagerConfig) validate() error {
 	if cfg.IdleTimeout < 0 {
 		return fmt.Errorf("compute.ManagerConfig.IdleTimeout must be >= 0, got %s",
 			cfg.IdleTimeout)
+	}
+	if cfg.HardIdleTimeout < 0 {
+		return fmt.Errorf("compute.ManagerConfig.HardIdleTimeout must be >= 0, got %s",
+			cfg.HardIdleTimeout)
 	}
 	return nil
 }
@@ -442,12 +464,27 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	now := m.now()
 	readyByID := make(map[string]*types.SandboxInstance)
 	readyCount := 0
+	// fleetAtCap tracks whether ANY Ready+online host is currently at or
+	// over its MaxSandboxes. Used below to inhibit shedding so we don't
+	// reclaim an idle pre-warm Runner while another Runner is still
+	// pressed up against its cap - that would just re-fire D3 next
+	// cycle, causing oscillation. See design/2026-06-17-d3-dispatcher-
+	// coupling.md option E for the analysis.
+	//
+	// "At cap" rather than "over cap" because the dispatcher's lowest-
+	// active sort places a new session on the at-cap Runner the moment
+	// the over-cap Runner returns to the at-cap side - so anything
+	// already at MaxSandboxes is plausible imminent overflow.
+	fleetAtCap := false
 	for _, r := range rows {
 		if !isReadyState(r) {
 			continue
 		}
 		readyByID[r.ID] = r
 		readyCount++
+		if isReadyAndOnline(r) && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+			fleetAtCap = true
+		}
 	}
 
 	// Update tracker: mark currently-idle Ready rows; clear busy ones;
@@ -490,6 +527,31 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		return nil
 	}
 
+	// Load the set of Runner IDs that currently have a Runner Profile
+	// assigned. Those Runners may be serving inference (vllm-tiny etc.)
+	// even when active_sandboxes is 0; the dispatcher's idleness
+	// signal only tracks dev-container sandboxes and is blind to
+	// inference traffic served by the compose-managed profile. D4
+	// MUST NOT shed them: tearing down a profile-assigned Runner kills
+	// its inference engine and breaks routed traffic. The operator
+	// un-assigns the profile when they actually want the Runner gone.
+	//
+	// On store error we log and conservatively skip the whole shed
+	// cycle - better to leave an idle Runner alive for one cycle than
+	// risk killing inference because the assignments query timed out.
+	assignedIDs := make(map[string]struct{})
+	assignments, err := m.store.ListRunnerAssignments(ctx)
+	if err != nil {
+		log.Warn().Err(err).
+			Msg("D4: ListRunnerAssignments failed; skipping shed this cycle to avoid killing a profile-assigned Runner")
+		return nil
+	}
+	for _, a := range assignments {
+		if a != nil {
+			assignedIDs[a.RunnerID] = struct{}{}
+		}
+	}
+
 	// Pick the longest-idle candidate that has crossed the IdleTimeout
 	// window. Single deprovision per cycle.
 	//
@@ -512,6 +574,11 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		if now.Sub(idleAt) < m.cfg.IdleTimeout {
 			continue
 		}
+		if _, assigned := assignedIDs[id]; assigned {
+			// Profile-assigned Runner: protected from shed even when
+			// dev-container sandboxes are zero (may be serving inference).
+			continue
+		}
 		r := readyByID[id]
 		if r == nil {
 			continue
@@ -529,6 +596,29 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 	}
 
 	idleFor := now.Sub(candidateIdleSince)
+
+	// Inhibit shedding if any OTHER Runner in the fleet is at-or-over
+	// its MaxSandboxes cap. Reasoning: the candidate is idle precisely
+	// because the dispatcher placed every session on the at-cap Runner
+	// (lowest-active sort, no migration). Shedding the candidate while
+	// load is still pressed against cap just re-fires D3 next cycle
+	// (over-cap trigger or HEADROOM_MIN trigger) and the system
+	// oscillates. The inhibition holds the pre-warm in place until the
+	// real demand drops below cap.
+	//
+	// HardIdleTimeout is the safety net for the pathological case
+	// (e.g. a stuck container that never reports ActiveSandboxes=0):
+	// even if the fleet looks at-cap forever, an idle Runner past the
+	// hard cutoff is shed anyway. Default 4h at the envconfig boundary;
+	// 0 disables the override.
+	if fleetAtCap && (m.cfg.HardIdleTimeout == 0 || idleFor < m.cfg.HardIdleTimeout) {
+		log.Debug().
+			Str("sandbox_id", candidate.ID).
+			Dur("idle_for", idleFor).
+			Dur("hard_idle_timeout", m.cfg.HardIdleTimeout).
+			Msg("compute manager: D4 inhibited; another Runner in fleet is at-cap")
+		return nil
+	}
 	log.Info().
 		Str("sandbox_id", candidate.ID).
 		Str("provider_id", candidate.ProviderID).
@@ -543,12 +633,21 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 			ProviderID:   candidate.ProviderID,
 			SandboxID:    candidate.ID,
 		}
-		// Force=false: this is a graceful scale-down, not a stuck-row
-		// rollback. The Provider's Deprovision is expected to drain
-		// any in-flight workload (per its own semantics) before the
-		// host is reaped upstream.
+		// Force=true: for the YD-as-runner-host model the "task body"
+		// is a persistent supervisor process - there's no in-flight
+		// work to gracefully drain. Force=false maps to YD's "drain"
+		// semantic which waits for the task to exit on its own; since
+		// our task body never exits (it's a long-running helix-sandbox
+		// container), drain mode leaves the WR in CANCELLING
+		// indefinitely. Force=true maps to "abort tasks", which is
+		// the only correct cancel semantic here.
+		//
+		// The Provider.Deprovision contract is "shut this host down";
+		// the differentiation graceful-vs-force came from a generic
+		// VM-pool mental model that doesn't fit YD. Future Providers
+		// with genuine drainable work can opt back into Force=false.
 		if err := m.provider.Deprovision(ctx, handle, DeprovisionOpts{
-			Force:  false,
+			Force:  true,
 			Reason: "idle deprovision (D4)",
 		}); err != nil {
 			// Provider.Deprovision failed. The earlier ultrareview-1
@@ -628,22 +727,47 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 // and a row that timed out is no longer counted.
 func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	available := 0
+	aliveForFloor := 0
 	readyOnlineCount := 0
 	readyCapacity := 0
 	readyDemand := 0
+	// provisioningCapacity is the MaxSandboxes total across rows we've
+	// ALREADY submitted a Provision for but that haven't reached Ready
+	// yet. Counted toward "committed capacity" in the D3 headroom
+	// decision so we don't fire a second Provision in the next cycle
+	// for the same demand the first one is on its way to satisfy.
+	// Without this, a 2-session burst on a single-Runner fleet with
+	// HEADROOM_MIN=1 produces 2 new Runners instead of 1: cycle 1
+	// sees headroom=0 and fires Provision A; cycle 2 (15-30s later,
+	// A still booting since EC2+image pull takes 60-90s) STILL sees
+	// readyCapacity=2/readyDemand=2/headroom=0 and fires Provision B.
+	// The deficit gets double-counted because future-but-not-yet-Ready
+	// capacity is invisible to the math.
+	provisioningCapacity := 0
 	for _, r := range rows {
 		if isAvailable(r) {
 			available++
+		}
+		if isAliveForFloor(r) {
+			aliveForFloor++
 		}
 		if isReadyAndOnline(r) {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
 		}
+		if State(r.ComputeState) == StateProvisioning {
+			provisioningCapacity += int(r.MaxSandboxes)
+		}
 	}
 
-	// Floor pressure: how many short of Floor are we?
-	floorNeed := m.cfg.Floor - available
+	// Floor pressure: how many short of Floor are we? Floor is the
+	// operator's guarantee of HEALTHY capacity, so Ready+offline rows
+	// (whose YD WR is dying and waiting for D4 to shed) do not count -
+	// see isAliveForFloor for the rationale. The Max ceiling further
+	// down still uses `available` so we don't double-provision during
+	// D4's shed cycle.
+	floorNeed := m.cfg.Floor - aliveForFloor
 	if floorNeed < 0 {
 		floorNeed = 0
 	}
@@ -676,7 +800,14 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 	// provisioning 4x on smaller-capacity hosts.
 	demandNeed := 0
 	if m.cfg.Max > m.cfg.Floor && readyOnlineCount > 0 {
-		headroom := readyCapacity - readyDemand
+		// Committed capacity: Ready+online (real serving) PLUS in-flight
+		// provisioning (will serve soon). Both contribute slots toward
+		// the headroom we already have on order. The readyOnlineCount
+		// gate above still uses ONLY real-online so D3 doesn't fire
+		// with zero serving capacity - but for the deficit math, count
+		// committed slots so we don't double-fire across cycles while
+		// a Provision is still in flight.
+		headroom := readyCapacity + provisioningCapacity - readyDemand
 		if headroom < m.cfg.ScaleUpHeadroomMin {
 			slotsShort := m.cfg.ScaleUpHeadroomMin - headroom
 			demandNeed = slotsShort
@@ -961,13 +1092,20 @@ func (m *Manager) provisionOne(ctx context.Context) error {
 	return nil
 }
 
-// isAvailable reports whether a row counts toward the Floor.
+// isAvailable reports whether a row counts as "owned by us, do not
+// double-provision while D4 sheds." Used for the Max ceiling, NOT for
+// the Floor calculation - see isAliveForFloor for that.
 //
 // Ready rows count (host is up and registered). Provisioning rows
 // also count (host is on its way) so we don't double-provision while
 // the first one is still booting. Failed and Terminated rows do not
 // count - they are dead and should be cleaned up by a follow-up
 // idle-deprovision pass.
+//
+// Note: Ready+offline rows count here even though they aren't
+// session-routable, because they're still consuming a YD WR (and the
+// AWS EC2 instance underneath it) until D4 sheds them. Provisioning
+// a replacement on top would temporarily push us past Max.
 func isAvailable(r *types.SandboxInstance) bool {
 	switch State(r.ComputeState) {
 	case StateReady, StateProvisioning:
@@ -975,6 +1113,46 @@ func isAvailable(r *types.SandboxInstance) bool {
 	default:
 		return false
 	}
+}
+
+// isAliveForFloor reports whether a row should count toward the Floor.
+//
+// Unlike isAvailable (which is owner-scoped), this is health-scoped:
+// the Floor is the operator's guarantee of available capacity for
+// sandbox sessions, so an offline row - even one we own - does NOT
+// satisfy it. The sandbox-instance reaper (server/sandbox_instance_reaper.go)
+// flips status to "offline" once last_seen drifts past
+// HELIX_SANDBOX_STALE_THRESHOLD (default 5m). At that point the
+// underlying compute (YD WR + EC2) is either dead or unreachable, so
+// counting it toward Floor leaves the operator below their requested
+// healthy-capacity guarantee for an unbounded amount of time (until
+// D4 happens to shed it).
+//
+// Provisioning rows still count - the host is on its way and the
+// next cycle will see it Ready, so firing another Provision now would
+// be the same double-provision-during-boot bug isAvailable was
+// originally written to prevent.
+//
+// Why a separate predicate, not a tighter isAvailable:
+//
+//	A previous tightening of isAvailable to require Status=="online"
+//	broke the Max ceiling: D4's shed cycle takes one or two reconciles
+//	to run, and during that window the offline-Ready row stops counting
+//	against Max - so Reconcile fires a fresh Provision, then D4 fires
+//	a Deprovision, and we churn. Keeping isAvailable broad for the
+//	ceiling and using this narrower predicate for the Floor gets both
+//	behaviours: prompt replacement of dead hosts, no churn while D4
+//	is in flight.
+//
+// The reaper's 5-minute stale threshold IS the heartbeat-flap defence:
+// by the time status flips to "offline" the row has already missed
+// every heartbeat in that window. A real flap (one missed beat) is
+// well inside the window and never triggers this.
+func isAliveForFloor(r *types.SandboxInstance) bool {
+	// Compose from isReadyAndOnline rather than re-inlining the
+	// (ready AND online) check so future tightening of one predicate
+	// propagates automatically instead of silently drifting.
+	return State(r.ComputeState) == StateProvisioning || isReadyAndOnline(r)
 }
 
 // isReadyState reports whether the row's ComputeState is Ready, ignoring

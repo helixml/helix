@@ -16,8 +16,8 @@ import (
 // `s-transcript-<workerID>` convention. Every caller — hire_worker,
 // worker_log, the owner-chat bridge, the transcripts UI, bootstrap —
 // routes through here. (The `s-` prefix marks it as a row in the shared
-// streams substrate, alongside s-team-/s-dm- channels; the `transcript`
+// topics substrate, alongside s-team-/s-dm- channels; the `transcript`
 // part is its role.)
-func TranscriptID(workerID orgchart.WorkerID) streaming.StreamID {
-	return streaming.StreamID("s-transcript-" + string(workerID))
+func TranscriptID(workerID orgchart.WorkerID) streaming.TopicID {
+	return streaming.TopicID("s-transcript-" + string(workerID))
 }

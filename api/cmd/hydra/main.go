@@ -101,6 +101,19 @@ func run(cmd *cobra.Command, args []string) {
 		cancel()
 	}()
 
+	// Tail per-service log files written by the cont-init.d wrappers
+	// (compose-manager, inference-proxy, sandbox-heartbeat, dockerd)
+	// into the same LogBuffer hydra's zerolog uses. Each tailed line
+	// gets a "[<svc>] " prefix derived from the filename, so the admin
+	// Runner Logs view shows everything in the sandbox container with
+	// no new endpoint or operator config. Done via tee-to-file from
+	// the wrappers rather than a hydra-served Unix socket because
+	// (a) it's a zero-IPC change, (b) the existing wrappers already
+	// pipe through sed, so adding `tee -a` is one line each, and
+	// (c) file-based decoupling means a hydra restart doesn't lose
+	// in-flight log lines from the other services.
+	hydra.StartServiceLogTailers(ctx, logBuffer, "/var/log/helix-services")
+
 	// Start server
 	if err := server.Start(ctx); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start Hydra server")

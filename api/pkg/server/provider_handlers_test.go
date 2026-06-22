@@ -919,3 +919,51 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NoRenameStillInvalida
 	_, found := s.server.cache.Get(key)
 	s.False(found, "cache must be cleared after BaseURL change so next read sees the new upstream")
 }
+
+// TestGetCachedModels_DecodesWrappedPayload guards the cache-format unification.
+// The cache stores the wrapped cachedModels{Models,FetchedAt} payload (the only
+// writer is refreshProviderModels). getCachedModels previously unmarshalled the
+// raw entry into a bare []OpenAIModel, which always failed — leaving the
+// aggregate /v1/models empty for env-baked global providers. It must now decode
+// the wrapped shape.
+func (s *ProviderHandlersSuite) TestGetCachedModels_DecodesWrappedPayload() {
+	key := modelCacheKey("openai", string(types.OwnerTypeSystem))
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "gpt-4o"}, {ID: "gpt-4o-mini"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
+	s.server.cache.Wait()
+
+	models := s.server.getCachedModels(key)
+	s.Require().Len(models, 2, "wrapped cache payload must decode into models")
+	s.Equal("gpt-4o", models[0].ID)
+	s.Equal("gpt-4o-mini", models[1].ID)
+}
+
+// TestFindProviderWithModel_ResolvesFromWrappedCache guards that chat-completion
+// routing can resolve a bare model id against a dynamically-fetched provider's
+// cached model list. Before the fix findProviderWithModel read the cache as a
+// bare []OpenAIModel and silently missed the wrapped payload, so only providers
+// with a static Models list ever resolved.
+func (s *ProviderHandlersSuite) TestFindProviderWithModel_ResolvesFromWrappedCache() {
+	// No env-baked globals in this test.
+	s.manager.EXPECT().ListProviders(gomock.Any(), "").Return([]types.Provider{}, nil)
+
+	// One DB provider with NO static Models list — only the dynamic cache can match.
+	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
+		{Name: "dynprov", Owner: "user_id", BaseURL: "http://dynprov.local"},
+	}, nil)
+
+	key := modelCacheKey("dynprov", "user_id")
+	payload, _ := json.Marshal(cachedModels{
+		Models:    []types.OpenAIModel{{ID: "some-dynamic-model"}},
+		FetchedAt: time.Now(),
+	})
+	s.server.cache.SetWithTTL(key, string(payload), 1, time.Hour)
+	s.server.cache.Wait()
+
+	provider, bareModel := s.server.findProviderWithModel(context.Background(), "some-dynamic-model", "user_id", "")
+	s.Equal("dynprov", provider, "must resolve provider from wrapped cache payload")
+	s.Equal("some-dynamic-model", bareModel)
+}

@@ -120,7 +120,7 @@ func TestMintCredential_MissingProvider(t *testing.T) {
 }
 
 // Caller has no OrgID → canonical "caller has no OrgID" error,
-// mirroring create_stream. This shouldn't normally happen at runtime
+// mirroring create_topic. This shouldn't normally happen at runtime
 // because the MCP server only routes calls from org-scoped Workers,
 // but the tool defends against it for diagnosability.
 func TestMintCredential_MissingOrgID(t *testing.T) {

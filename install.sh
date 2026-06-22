@@ -1044,6 +1044,22 @@ check_intel_amd_gpu() {
     fi
 }
 
+# Function to check for AWS Neuron device (Inferentia2 / Trainium)
+# Detects neuronx hosts (inf2.*, trn1/trn2) by the /dev/neuron* device nodes
+# the Neuron driver creates, or the neuron-ls CLI from the Neuron DLC AMI.
+# Provider-agnostic: true on any inf2/trn host regardless of how it was
+# provisioned (YD, manual EC2, etc.). inf1 (older neuron-cc runtime) is
+# unsupported.
+check_neuron_device() {
+    if ls /dev/neuron0 &> /dev/null; then
+        return 0
+    fi
+    if command -v neuron-ls &> /dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 # Function to check if NVIDIA Docker runtime needs installation
 check_nvidia_runtime_needed() {
     # Only relevant if we have an NVIDIA GPU
@@ -2615,6 +2631,10 @@ if [ "$SANDBOX" = true ]; then
         GPU_TYPE="amd"
         GPU_VENDOR="amd"
         echo "AMD GPU detected with ROCm support"
+    elif check_neuron_device; then
+        GPU_TYPE="neuron"
+        GPU_VENDOR="neuron"
+        echo "AWS Neuron device detected (Inferentia2 / Trainium)"
     elif check_intel_amd_gpu; then
         GPU_TYPE="intel"
         GPU_VENDOR="intel"
@@ -2725,6 +2745,16 @@ elif [ "$GPU_VENDOR" = "amd" ]; then
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "neuron" ]; then
+    # AWS Neuron (Inferentia2 / Trainium): pass every /dev/neuron* node into
+    # the outer helix-sandbox container so hydra can forward them to the
+    # nested Docker. No --gpus / --runtime / DRI (Neuron has no display path).
+    # Glob runs here on the host, so this covers any inf2/trn core count.
+    GPU_FLAGS=""
+    for neuron_dev in /dev/neuron*; do
+        [ -e "$neuron_dev" ] && GPU_FLAGS="$GPU_FLAGS --device $neuron_dev"
+    done
+    GPU_ENV_FLAGS="-e GPU_VENDOR=neuron"
 elif [ "$GPU_VENDOR" = "virtio" ]; then
     # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
     GPU_FLAGS="--device /dev/dri"

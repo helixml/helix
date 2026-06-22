@@ -172,6 +172,9 @@ func (s *ProvisionSuite) expectProvisionStoreCalls(sb *types.Sandbox, host *type
 		// Heartbeat-versioned (desktop) path.
 		s.store.EXPECT().FindAvailableSandboxInstance(gomock.Any(), gomock.Any()).Return(host, nil)
 	}
+	// IncrementSandboxContainerCount is called after CreateDevContainer
+	// succeeds so the autoscaler sees user-facing sandbox API load.
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), host.ID).Return(nil)
 	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sb.ID, host.ID, gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sb.ID, types.SandboxStatusRunning, "").Return(nil)
 }
@@ -270,7 +273,11 @@ func (s *ProvisionSuite) TestProvisionDeletesContainerWhenRowWasDeletedBeforeCon
 
 	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
 	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	// Increment fires after the container is created; the SetSandboxContainer
+	// failure below triggers the rollback path which also decrements.
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), host.ID).Return(nil)
 	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, host.ID, gomock.Any()).Return(store.ErrNotFound)
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), host.ID).Return(nil)
 
 	s.controller.provision(s.ctx, sbID)
 
@@ -297,8 +304,12 @@ func (s *ProvisionSuite) TestProvisionDeletesContainerWhenRowWasDeletedBeforeSta
 
 	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
 	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), host.ID).Return(nil)
 	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, host.ID, gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sbID, types.SandboxStatusRunning, "").Return(store.ErrNotFound)
+	// SetSandboxStatus failure triggers the rollback path; delete succeeds
+	// and the counter increment is rolled back.
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), host.ID).Return(nil)
 
 	s.controller.provision(s.ctx, sbID)
 
@@ -526,6 +537,9 @@ func (s *ProvisionSuite) TestDeleteCallsHydraDeleteAndForgetOps() {
 	}
 	s.store.EXPECT().GetSandbox(s.ctx, sb.ID).Return(sb, nil)
 	s.store.EXPECT().SetSandboxStatus(s.ctx, sb.ID, types.SandboxStatusStopping, "").Return(nil)
+	// Decrement fires after the successful hydra delete to mirror the
+	// Increment that happened on Provision.
+	s.store.EXPECT().DecrementSandboxContainerCount(gomock.Any(), "host-z").Return(nil)
 	s.store.EXPECT().GetAPIKey(s.ctx, gomock.Any()).Return(nil, store.ErrNotFound)
 	s.store.EXPECT().DeleteSandbox(s.ctx, sb.ID).Return(nil)
 
@@ -642,6 +656,7 @@ func (s *ProvisionSuite) TestProvisionRecordsContainerIDFromHydraResponse() {
 	s.expectCreateOK("org_1", sb)
 	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
 	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), "host-recorded").Return(nil)
 	gotContainer := make(chan string, 1)
 	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, "host-recorded", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, _ string, containerID string) error {
@@ -689,6 +704,7 @@ func (s *ProvisionSuite) TestProvisionUsesPendingStatusWhenHydraNotYetRunning() 
 	s.expectCreateOK("org_1", sb)
 	s.store.EXPECT().GetSandbox(gomock.Any(), sbID).Return(sb, nil)
 	s.store.EXPECT().ListSandboxInstances(gomock.Any()).Return([]*types.SandboxInstance{host}, nil)
+	s.store.EXPECT().IncrementSandboxContainerCount(gomock.Any(), "host-a").Return(nil)
 	s.store.EXPECT().SetSandboxContainer(gomock.Any(), sbID, "host-a", gomock.Any()).Return(nil)
 	s.store.EXPECT().SetSandboxStatus(gomock.Any(), sbID, types.SandboxStatusPending, "").Return(nil)
 

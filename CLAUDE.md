@@ -262,6 +262,31 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - **Full tests**: Push and check CI (`gh pr checks` or Drone API)
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
 
+### Don't claim confidence you didn't earn
+- NEVER report quantified confidence ("95% tested", "last 5% works"). Either you ran
+  it end-to-end (say so, with the output) or you did not (say "NOT tested: <what/why>").
+- A unit test that checks a state change (field reset, row deleted) is NOT evidence the
+  feature works. Do not write "covered by unit tests" when the test only asserts the
+  mechanism, not the user-visible outcome.
+- Reasoning by analogy ("same as the fork/X path") is a hypothesis, not a result.
+  Verify the precondition state matches — a live/connected resource is a DIFFERENT
+  state from a fresh/offline one, and lifecycle bugs hide in that gap.
+
+### Test the next operation, not just the state change
+- For any reset/clear/delete/cancel/switch feature, always exercise the IMMEDIATELY
+  FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
+  resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
+
+### Live external-agent (Zed) testing is mandatory for lifecycle changes
+- Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)
+  MUST be tested against a LIVE, connected Zed — not seeded DB rows. Seeded rows only
+  exercise the no-connection branch and miss thread_created routing entirely.
+- To get a live session fast: create a **spec task** (it provisions a git repo, so Zed's
+  workspace setup completes and it opens the sync WebSocket). A bare
+  `agent_type=zed_external` chat session does NOT work — no repo → workspace setup
+  FATALs after 300s → Zed never connects. Liveness check: `config->>'zed_thread_id'` is a
+  non-empty UUID.
+
 ### Quick Log Checks
 ```bash
 docker compose -f docker-compose.dev.yaml logs --tail 50 frontend | grep -i error  # frontend

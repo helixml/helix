@@ -420,6 +420,19 @@ type SessionMetadata struct {
 	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
 	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
+	// Autonomous crash recovery. Set true at session creation for surfaces with
+	// no human present to click the in-chat Restart button (spec tasks, org
+	// workers). When the external agent crashes mid-turn, the websocket crash
+	// handler auto-invokes the canonical restart primitive instead of leaving
+	// the session errored+idle. Human desktop sessions leave this false and keep
+	// the explicit button. AutoRestartCount bounds consecutive auto-restarts
+	// without an intervening successful turn (anti-storm guard); it is reset to 0
+	// on the next successful completion and lives on the SESSION (not the prompt)
+	// so ResetCrashedPromptsForSession can't zero the restart budget.
+	AutoRestartOnCrash bool      `json:"auto_restart_on_crash,omitempty"`
+	AutoRestartCount   int       `json:"auto_restart_count,omitempty"`
+	LastAutoRestartAt  time.Time `json:"last_auto_restart_at,omitempty"`
+
 	// Title history - tracks evolution of session topics (newest first)
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
@@ -486,6 +499,14 @@ type SessionMetadata struct {
 	ForkedAt              time.Time `json:"forked_at,omitempty"`
 	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
 
+	// AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+	// this same session (no fork / new container) — see
+	// design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+	// fork_seed interaction carrying the prior thread's transcript exists on
+	// THIS session, so maybePrependTranscript seeds the new Zed thread even
+	// though ParentSessionID is empty (the session continues from itself).
+	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
+
 	// Pause state — sessions cannot accept new messages while paused.
 	// PausedReason is the only producer in v1: "forked_to:<child_id>".
 	Paused       bool      `json:"paused,omitempty"`
@@ -513,16 +534,17 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID               string               `json:"app_id"`                 // Assign the session settings from the specified app
-	ProjectID           string               `json:"project_id"`             // The project this session belongs to, if any
-	OrganizationID      string               `json:"organization_id"`        // The organization this session belongs to, if any
-	AssistantID         string               `json:"assistant_id"`           // Which assistant are we speaking to?
-	SessionID           string               `json:"session_id"`             // If empty, we will start a new session
-	InteractionID       string               `json:"interaction_id"`         // If empty, we will start a new interaction
-	Stream              bool                 `json:"stream"`                 // If true, we will stream the response
-	SessionRole         string               `json:"session_role,omitempty"` // e.g. "job" — categorizes sessions for filtering
-	CallbackURL         string               `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
-	Type                SessionType          `json:"type"`                   // e.g. text, image
+	AppID               string               `json:"app_id"`                          // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`                      // The project this session belongs to, if any
+	OrganizationID      string               `json:"organization_id"`                 // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`                    // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`                      // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`                  // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`                          // If true, we will stream the response
+	SessionRole         string               `json:"session_role,omitempty"`          // e.g. "job" — categorizes sessions for filtering
+	CallbackURL         string               `json:"callback_url,omitempty"`          // Webhook URL to POST on session completion
+	AutoRestartOnCrash  bool                 `json:"auto_restart_on_crash,omitempty"` // Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)
+	Type                SessionType          `json:"type"`                            // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
 	Messages            []*Message           `json:"messages"`                        // Initial messages
@@ -1082,31 +1104,31 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	RegistrationEnabled                    bool                 `json:"registration_enabled"`
-	AuthProvider                           AuthProvider         `json:"auth_provider"`
-	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
-	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
-	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
-	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
-	ToolsEnabled                           bool                 `json:"tools_enabled"`
-	AppsEnabled                            bool                 `json:"apps_enabled"`
-	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL                string               `json:"rudderstack_data_plane_url"`
-	DisableLLMCallLogging                  bool                 `json:"disable_llm_call_logging"`
-	Version                                string               `json:"version"`
-	LatestVersion                          string               `json:"latest_version"`
-	DeploymentID                           string               `json:"deployment_id"`
-	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
-	HasProviders                           bool                 `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
+	RegistrationEnabled                    bool         `json:"registration_enabled"`
+	AuthProvider                           AuthProvider `json:"auth_provider"`
+	FilestorePrefix                        string       `json:"filestore_prefix"`
+	StripeEnabled                          bool         `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
+	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
+	ToolsEnabled                           bool         `json:"tools_enabled"`
+	AppsEnabled                            bool         `json:"apps_enabled"`
+	RudderStackWriteKey                    string       `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL                string       `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging                  bool         `json:"disable_llm_call_logging"`
+	Version                                string       `json:"version"`
+	LatestVersion                          string       `json:"latest_version"`
+	DeploymentID                           string       `json:"deployment_id"`
+	OrganizationsCreateEnabledForNonAdmins bool         `json:"organizations_create_enabled_for_non_admins"`
+	ProvidersManagementEnabled             bool         `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool         `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
 	// MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
 	// organisation when the session has an org, per user otherwise.
 	// -1 = unlimited. Note: /config is unauthenticated, so this is the
 	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
-	MaxConcurrentDesktops int                  `json:"max_concurrent_desktops"`
-	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	MaxConcurrentDesktops int    `json:"max_concurrent_desktops"`
+	Edition               string `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
 	// DefaultChatSystemPrompt is the system prompt the platform applies to
 	// direct model chats when the user has not customised one. Surfaced to
 	// the frontend so the chat-settings page can prefill the textbox.
@@ -3182,9 +3204,13 @@ type SandboxInstance struct {
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
 	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
 
-	// Sandbox capacity
+	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+	// (default 20); the gorm default below only applies to rows inserted
+	// via paths that don't set the field. Kept aligned with the env-var
+	// default to avoid surprises.
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
+	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
 
 	// Helix version running on this sandbox (git commit hash or release version)

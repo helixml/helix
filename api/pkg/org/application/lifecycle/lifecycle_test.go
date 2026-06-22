@@ -21,12 +21,12 @@ import (
 // even though those workers are gone": the Fire cascade tore down
 // subscriptions, environment, runtime state, and the worker
 // row — but left the per-Worker transcript
-// (s-transcript-<workerID>) lying around, so the Streams page kept
+// (s-transcript-<workerID>) lying around, so the Topics page kept
 // rendering ghost rows for workers that no longer existed and the
 // chart's orphan strip filled up with dashed pseudo-nodes.
 //
 // Activation events themselves are still audit-retained (the
-// `org_events` rows survive); only the Stream row is cleaned up so
+// `org_events` rows survive); only the Topic row is cleaned up so
 // the UI surfaces stop showing it as an active channel.
 func TestFire_RemovesWorkersTranscript(t *testing.T) {
 	t.Parallel()
@@ -50,32 +50,32 @@ func TestFire_RemovesWorkersTranscript(t *testing.T) {
 	if err := st.Workers.Create(ctx, worker); err != nil {
 		t.Fatalf("create worker: %v", err)
 	}
-	streamID := activation.TranscriptID(worker.ID())
-	stream, err := streaming.NewStream(
-		streamID, "Activations: w-ghost", "test",
+	topicID := activation.TranscriptID(worker.ID())
+	topic, err := streaming.NewTopic(
+		topicID, "Activations: w-ghost", "test",
 		worker.ID(), time.Now().UTC(),
 		transport.Transport{}, orgID,
 	)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 
-	// Sanity: the stream is there before we fire.
-	if _, err := st.Streams.Get(ctx, orgID, streamID); err != nil {
+	// Sanity: the topic is there before we fire.
+	if _, err := st.Topics.Get(ctx, orgID, topicID); err != nil {
 		t.Fatalf("precondition: transcript not seeded: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})}
+	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}
 	if err := svc.Fire(ctx, orgID, worker.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	// The stream row must be gone.
-	if _, err := st.Streams.Get(ctx, orgID, streamID); err == nil {
-		t.Fatalf("transcript %q still exists after Fire — orphan regression", streamID)
+	// The topic row must be gone.
+	if _, err := st.Topics.Get(ctx, orgID, topicID); err == nil {
+		t.Fatalf("transcript %q still exists after Fire — orphan regression", topicID)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestFire_RemovesWorkersTranscript(t *testing.T) {
 //     now-deleted worker. With reporting lines, firing the manager must
 //     drop every line that references it (the gorm store does this with
 //     ON DELETE CASCADE; the memory store mirrors it).
-//   - F5: firing a worker deleted its s-transcript-<id> stream but
-//     left OTHER workers' subscriptions to that stream behind.
+//   - F5: firing a worker deleted its s-transcript-<id> topic but
+//     left OTHER workers' subscriptions to that topic behind.
 func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -128,15 +128,15 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 
 	// The manager's transcript + an outside subscriber (mirrors
 	// the hiring caller auto-subscribed to a new hire's activations).
-	mgrStream := activation.TranscriptID(mgr.ID())
-	stream, err := streaming.NewStream(mgrStream, "Activations: w-mgr", "test", mgr.ID(), time.Now().UTC(), transport.Transport{}, orgID)
+	mgrTopic := activation.TranscriptID(mgr.ID())
+	topic, err := streaming.NewTopic(mgrTopic, "Activations: w-mgr", "test", mgr.ID(), time.Now().UTC(), transport.Transport{}, orgID)
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := st.Streams.Create(ctx, stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
-	sub, err := streaming.NewSubscription("w-report", mgrStream, time.Now().UTC(), orgID)
+	sub, err := streaming.NewSubscription("w-report", mgrTopic, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("create subscription: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})}
+	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}
 	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -159,12 +159,12 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 	}
 
 	// F5: no subscription may reference the deleted transcript.
-	subs, err := st.Subscriptions.ListForStream(ctx, orgID, mgrStream)
+	subs, err := st.Subscriptions.ListForTopic(ctx, orgID, mgrTopic)
 	if err != nil {
-		t.Fatalf("list subscriptions for stream: %v", err)
+		t.Fatalf("list subscriptions for topic: %v", err)
 	}
 	if len(subs) != 0 {
-		t.Fatalf("found %d subscription(s) to deleted stream %q, want 0 (F5 orphan-subscription regression)", len(subs), mgrStream)
+		t.Fatalf("found %d subscription(s) to deleted topic %q, want 0 (F5 orphan-subscription regression)", len(subs), mgrTopic)
 	}
 }
 
@@ -213,14 +213,14 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 		t.Fatalf("add reporting line: %v", err)
 	}
 
-	rec := reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions})
+	rec := reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})
 	// Provision the channels the edge implies (transcript observership,
-	// team stream, and — the one under test — the 1:1 DM channel).
+	// team topic, and — the one under test — the 1:1 DM channel).
 	if err := rec.Reconcile(ctx, orgID, "w-mgr", "w-report"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
-	dm := channels.DMStreamID("w-mgr", "w-report")
-	if _, err := st.Streams.Get(ctx, orgID, dm); err != nil {
+	dm := channels.DMTopicID("w-mgr", "w-report")
+	if _, err := st.Topics.Get(ctx, orgID, dm); err != nil {
 		t.Fatalf("precondition: DM channel %q should exist after wiring the edge: %v", dm, err)
 	}
 
@@ -231,13 +231,13 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 
 	// The DM channel must be gone — not left orphaned referencing the
 	// deleted manager.
-	if _, err := st.Streams.Get(ctx, orgID, dm); err == nil {
+	if _, err := st.Topics.Get(ctx, orgID, dm); err == nil {
 		t.Fatalf("DM channel %q still exists after firing the manager — orphan regression", dm)
 	}
 	// And the surviving report must not still be subscribed to it.
-	subs, err := st.Subscriptions.ListForStream(ctx, orgID, dm)
+	subs, err := st.Subscriptions.ListForTopic(ctx, orgID, dm)
 	if err != nil {
-		t.Fatalf("list subscriptions for DM stream: %v", err)
+		t.Fatalf("list subscriptions for DM topic: %v", err)
 	}
 	if len(subs) != 0 {
 		t.Fatalf("found %d subscription(s) to torn-down DM %q, want 0", len(subs), dm)
@@ -250,7 +250,7 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 func newLifecycleSvc(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:      st,
-		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions}),
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions}),
 	}
 }
 
@@ -343,7 +343,7 @@ func TestDeleteRole_NonExistentRoleFiresNobody(t *testing.T) {
 // cascade: a Worker in the doomed Role *manages* a Worker in a different
 // Role. Deleting the role fires the manager; the surviving report must not
 // be left pointing at a deleted manager, and the comms channels that edge
-// implied (team stream + 1:1 DM) must be torn down rather than orphaned.
+// implied (team topic + 1:1 DM) must be torn down rather than orphaned.
 // This is the ISSUE-2 teardown class reached via DeleteRole.
 func TestDeleteRole_ReconcilesSurvivingCrossRoleReport(t *testing.T) {
 	t.Parallel()
@@ -365,16 +365,16 @@ func TestDeleteRole_ReconcilesSurvivingCrossRoleReport(t *testing.T) {
 	}
 
 	svc := newLifecycleSvc(st)
-	// Provision the channels the edge implies (team stream + DM channel).
+	// Provision the channels the edge implies (team topic + DM channel).
 	if err := svc.Reconciler.Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
-	dm := channels.DMStreamID("w-mgr", "w-ic")
-	if _, err := st.Streams.Get(ctx, orgID, dm); err != nil {
+	dm := channels.DMTopicID("w-mgr", "w-ic")
+	if _, err := st.Topics.Get(ctx, orgID, dm); err != nil {
 		t.Fatalf("precondition: DM channel %q should exist: %v", dm, err)
 	}
-	if _, err := st.Streams.Get(ctx, orgID, "s-team-w-mgr"); err != nil {
-		t.Fatalf("precondition: team stream s-team-w-mgr should exist: %v", err)
+	if _, err := st.Topics.Get(ctx, orgID, "s-team-w-mgr"); err != nil {
+		t.Fatalf("precondition: team topic s-team-w-mgr should exist: %v", err)
 	}
 
 	if err := svc.DeleteRole(ctx, orgID, "r-mgmt"); err != nil {
@@ -397,11 +397,11 @@ func TestDeleteRole_ReconcilesSurvivingCrossRoleReport(t *testing.T) {
 		t.Fatalf("w-ic still reports to %v after its manager's role was deleted", mgrs)
 	}
 	// No orphaned comms channels referencing the deleted manager.
-	if _, err := st.Streams.Get(ctx, orgID, dm); err == nil {
+	if _, err := st.Topics.Get(ctx, orgID, dm); err == nil {
 		t.Fatalf("DM channel %q orphaned after DeleteRole", dm)
 	}
-	if _, err := st.Streams.Get(ctx, orgID, "s-team-w-mgr"); err == nil {
-		t.Fatal("team stream s-team-w-mgr orphaned after DeleteRole")
+	if _, err := st.Topics.Get(ctx, orgID, "s-team-w-mgr"); err == nil {
+		t.Fatal("team topic s-team-w-mgr orphaned after DeleteRole")
 	}
 }
 

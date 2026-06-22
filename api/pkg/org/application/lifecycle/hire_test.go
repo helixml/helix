@@ -22,7 +22,7 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 func newHireService(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:      st,
-		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Streams: st.Streams, Subscriptions: st.Subscriptions, Now: hireClock}),
+		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock}),
 		Now:        hireClock,
 		NewID:      func() string { return "id" },
 	}
@@ -65,7 +65,7 @@ func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
 		t.Fatalf("reporting line not wired: %v", managers)
 	}
 	// The reconciler created the hire's transcript.
-	if _, err := st.Streams.Get(ctx, "org-test", "s-transcript-w-new"); err != nil {
+	if _, err := st.Topics.Get(ctx, "org-test", "s-transcript-w-new"); err != nil {
 		t.Fatalf("transcript not reconciled: %v", err)
 	}
 }

@@ -10,10 +10,11 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/streams"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -37,7 +38,7 @@ func resolveOrgID(r *http.Request) (string, error) {
 }
 
 // Dispatcher is the dispatcher port the publish handler invokes when
-// a client posts an event into a stream. Defined here (rather than
+// a client posts an event into a topic. Defined here (rather than
 // imported from server.go's sibling) to keep the import edge
 // one-directional — server/api is below server, not next to it.
 type Dispatcher interface {
@@ -69,12 +70,15 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Streams       *streams.Streams
+	Topics       *topics.Topics
 	Roles         *roles.Roles
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Activations   *activations.Activations
+	// Processors owns the processor CRUD + preview use cases. nil →
+	// the /processors routes return 503 (test wirings that skip it).
+	Processors *processors.Processors
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
@@ -98,7 +102,7 @@ type Deps struct {
 	SessionRestarter SessionRestarter
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
-	// (the transport reads matching streams + appends events). Built at
+	// (the transport reads matching topics + appends events). Built at
 	// the composition root so the api adapter never holds the store. nil
 	// → POST /github/webhook returns 503.
 	GitHubInbound func(orgID string) http.Handler
@@ -128,7 +132,7 @@ type Deps struct {
 	Lifecycle *lifecycle.Service
 
 	// GitHubTokenResolver is the production hook for "reinstate the
-	// GitHub stream + reuse the existing GitHub integration for
+	// GitHub topic + reuse the existing GitHub integration for
 	// Auth". When transport.github.token is empty, the github
 	// transport calls this to look up a GitHub OAuth connection
 	// owned by an org member and return its access token. nil
@@ -153,7 +157,7 @@ type Deps struct {
 
 	// GitHubInstallation reports whether the Helix App is installed for the
 	// org and, if not, where to send the user to install it. Drives the New
-	// Stream "Install Helix" gate. Wired in api/pkg/server (which has the
+	// Topic "Install Helix" gate. Wired in api/pkg/server (which has the
 	// ServiceConnection store + the operator's app slug); nil → the gate
 	// falls back to treating the org as not-installable.
 	GitHubInstallation func(ctx context.Context, orgID string) (GitHubInstallationStatus, error)
@@ -251,7 +255,7 @@ func Routes(deps Deps) []Route {
 		// edits the worker's subscription set through these endpoints.
 		{Pattern: "GET /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.listWorkerSubscriptions)},
 		{Pattern: "POST /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeWorker)},
-		{Pattern: "DELETE /workers/{id}/subscriptions/{stream_id}", Handler: http.HandlerFunc(a.unsubscribeWorker)},
+		{Pattern: "DELETE /workers/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeWorker)},
 		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
 		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
 		{Pattern: "POST /workers/{id}/restart-agent", Handler: http.HandlerFunc(a.restartWorkerAgent)},
@@ -265,13 +269,20 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},
 		{Pattern: "DELETE /settings/{key}", Handler: http.HandlerFunc(a.deleteSetting)},
-		{Pattern: "GET /streams", Handler: http.HandlerFunc(a.listStreams)},
-		{Pattern: "POST /streams", Handler: http.HandlerFunc(a.createStream)},
-		{Pattern: "GET /streams/{id}", Handler: http.HandlerFunc(a.getStream)},
-		{Pattern: "PUT /streams/{id}", Handler: http.HandlerFunc(a.updateStream)},
-		{Pattern: "DELETE /streams/{id}", Handler: http.HandlerFunc(a.deleteStream)},
-		{Pattern: "GET /streams/{id}/events", Handler: http.HandlerFunc(a.streamEventsSSE)},
-		{Pattern: "POST /streams/{id}/publish", Handler: http.HandlerFunc(a.publishToStream)},
+		{Pattern: "GET /topics", Handler: http.HandlerFunc(a.listTopics)},
+		{Pattern: "POST /topics", Handler: http.HandlerFunc(a.createTopic)},
+		{Pattern: "GET /topics/{id}", Handler: http.HandlerFunc(a.getTopic)},
+		{Pattern: "PUT /topics/{id}", Handler: http.HandlerFunc(a.updateTopic)},
+		{Pattern: "DELETE /topics/{id}", Handler: http.HandlerFunc(a.deleteTopic)},
+		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
+		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
+		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
+		// Processors — JSON:API CRUD.
+		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
+		{Pattern: "POST /processors", Handler: http.HandlerFunc(a.createProcessor)},
+		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
+		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
+		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},
 		// Inbound webhook for the GitHub transport. The transport
 		// resolves orgID from the request context (set by the org
 		// middleware) and reads transport.github from the org's
@@ -279,7 +290,7 @@ func Routes(deps Deps) []Route {
 		// route serves every org without rebinding state.
 		{Pattern: "POST /github/webhook", Handler: http.HandlerFunc(a.githubWebhook)},
 		// GitHub helper endpoints. listGitHubRepos powers the
-		// searchable repo dropdown in the New Stream dialog;
+		// searchable repo dropdown in the New Topic dialog;
 		// installGitHubWebhook calls the GitHub API on behalf of the
 		// operator so the only thing the user has to choose is which
 		// repo. Both rely on a working GitHubTokenResolver (i.e. the
@@ -287,8 +298,8 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /github/repos", Handler: http.HandlerFunc(a.listGitHubRepos)},
 		{Pattern: "GET /github/app-installation", Handler: http.HandlerFunc(a.getGitHubAppInstallation)},
 		{Pattern: "POST /github/app-manifest", Handler: http.HandlerFunc(a.startGitHubAppManifest)},
-		{Pattern: "POST /streams/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
-		{Pattern: "GET /streams/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
+		{Pattern: "POST /topics/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
+		{Pattern: "GET /topics/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
 	}
 }
 

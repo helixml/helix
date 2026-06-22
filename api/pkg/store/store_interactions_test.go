@@ -195,3 +195,67 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	suite.Equal(1, int(total))
 	suite.Equal(createdInteraction.ID, interactions[0].ID)
 }
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions() {
+	userID := "user-clear-test"
+	ctx := context.Background()
+
+	session := types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   userID,
+		Created: time.Now(),
+		Updated: time.Now(),
+	}
+	createdSession, err := suite.db.CreateSession(ctx, session)
+	suite.NoError(err)
+	suite.T().Cleanup(func() {
+		_, _ = suite.db.DeleteSession(ctx, createdSession.ID)
+	})
+
+	// Clearing an already-empty session is a no-op and returns success.
+	err = suite.db.ClearSessionInteractions(ctx, session.ID)
+	suite.NoError(err)
+
+	// Seed N interactions.
+	const n = 3
+	for i := 0; i < n; i++ {
+		_, err = suite.db.CreateInteraction(ctx, &types.Interaction{
+			ID:            system.GenerateInteractionID(),
+			SessionID:     session.ID,
+			GenerationID:  1,
+			UserID:        userID,
+			Created:       time.Now(),
+			Updated:       time.Now(),
+			PromptMessage: "msg",
+		})
+		suite.NoError(err)
+	}
+
+	_, total, err := suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: 1,
+	})
+	suite.NoError(err)
+	suite.Equal(n, int(total), "should have seeded N interactions")
+
+	// Clear them.
+	err = suite.db.ClearSessionInteractions(ctx, session.ID)
+	suite.NoError(err)
+
+	// Zero interactions remain.
+	_, total, err = suite.db.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: 1,
+	})
+	suite.NoError(err)
+	suite.Equal(0, int(total), "all interactions should be cleared")
+
+	// Session row is preserved.
+	gotSession, err := suite.db.GetSession(ctx, session.ID)
+	suite.NoError(err)
+	suite.Equal(session.ID, gotSession.ID)
+
+	// Idempotent: clearing again succeeds.
+	err = suite.db.ClearSessionInteractions(ctx, session.ID)
+	suite.NoError(err)
+}

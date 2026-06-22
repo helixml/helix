@@ -2,7 +2,7 @@
 // surface: the tool registry, the invocation pipeline, and the built-in
 // tool implementations. Each tool is a thin adapter that parses its MCP
 // arguments and delegates to an application service (workers, roles,
-// streams, lifecycle, …) — the same services the REST handlers drive —
+// topics, lifecycle, …) — the same services the REST handlers drive —
 // so behaviour cannot drift between the MCP and REST surfaces. The
 // pipeline is scope-agnostic; individual tools own their scope shape and
 // enforcement logic.

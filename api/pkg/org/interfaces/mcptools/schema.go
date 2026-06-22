@@ -33,7 +33,7 @@ var schemaOpts = &jsonschema.ForOptions{
 		),
 		reflect.TypeFor[transport.Kind](): enumSchema(
 			transport.KindValues(),
-			"Stream transport: local (in-process), webhook (HTTP), email (Postmark), github (inbound).",
+			"Topic transport: local (in-process), webhook (HTTP), email (Postmark), github (inbound).",
 		),
 	},
 }

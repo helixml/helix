@@ -251,6 +251,7 @@ export const Interaction: FC<InteractionProps> = ({
       systemPrefix: split.prefix,
       userMessageBody: split.userText,
       systemPrefixLabel: split.label,
+      systemPrefixKind: split.kind,
     };
   }, [interaction, session]);
 
@@ -262,7 +263,13 @@ export const Interaction: FC<InteractionProps> = ({
     systemPrefix,
     userMessageBody,
     systemPrefixLabel,
+    systemPrefixKind,
   } = displayData;
+
+  // When the whole message is system content (no user body), the user
+  // bubble has nothing to show. The CollapsibleSystemPrefix carries the
+  // entire message and replaces the bubble.
+  const isPureSystemMessage = !!systemPrefix && userMessageBody.length === 0;
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedMessage, setEditedMessage] = React.useState(userMessage || "");
@@ -319,9 +326,11 @@ export const Interaction: FC<InteractionProps> = ({
             <CollapsibleSystemPrefix
               prefix={systemPrefix}
               label={
-                systemPrefixLabel?.startsWith("Original Request")
-                  ? "Planning Instructions (cloned task)"
-                  : "Planning Instructions"
+                systemPrefixKind === "approval"
+                  ? "Spec Approved — Implementation Instructions"
+                  : systemPrefixLabel?.startsWith("Original Request")
+                    ? "Planning Instructions (cloned task)"
+                    : "Planning Instructions"
               }
             />
           )}
@@ -335,90 +344,94 @@ export const Interaction: FC<InteractionProps> = ({
             design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
             and the file header of api/pkg/server/auto_wake_stuck_interactions.go
           */}
-          {((interaction as any)?.auto_wake_count ?? 0) > 0 && (
-            <Tooltip
-              title="Helix re-sent this prompt because the agent didn't respond — likely upstream ACP buffering (claude-agent-acp #551 / agent-client-protocol #554). See the helix-side design doc 2026-04-25 for the full story."
-            >
-              <Box
-                sx={(theme) => ({
-                  fontSize: "11px",
-                  color: theme.palette.mode === "light" ? "#888" : "#999",
-                  mb: 0.5,
-                  px: 1,
-                  py: 0.25,
-                  borderRadius: "4px",
-                  backgroundColor:
-                    theme.palette.mode === "light"
-                      ? "rgba(0,0,0,0.04)"
-                      : "rgba(255,255,255,0.06)",
-                  cursor: "help",
-                  userSelect: "none",
-                })}
-              >
-                {"↻ Retried " + ((interaction as any).auto_wake_count) + "× · upstream ACP buffering"}
-              </Box>
-            </Tooltip>
-          )}
-          <InteractionContainer
-            buttons={headerButtons}
-            background={true}
-            align="right"
-            border={true}
-            isAssistant={false}
-          >
-            <InteractionInference
-              serverConfig={serverConfig}
-              session={session}
-              interaction={interaction}
-              imageURLs={imageURLs}
-              message={systemPrefix && !isEditing ? userMessageBody : userMessage}
-              error={interaction?.error}
-              isFromAssistant={false}
-              onFilterDocument={onFilterDocument}
-              onRegenerate={onRegenerate}
-              isEditing={isEditing}
-              editedMessage={editedMessage}
-              setEditedMessage={setEditedMessage}
-              handleCancel={handleCancel}
-              handleSave={handleSave}
-              isLastInteraction={isLastInteraction}
-              sessionSteps={sessionSteps}
-            />
-          </InteractionContainer>
-          {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
-          {!isEditing && userMessage && (
-            <Box
-              sx={{
-                width: "100%",
-                display: "flex",
-                justifyContent: "flex-end",
-                mt: 0.5,
-                gap: 0.5,
-                opacity: isHovering ? 1 : 0,
-                pointerEvents: isHovering ? "auto" : "none",
-                transition: "opacity 0.2s ease-in-out",
-              }}
-            >
-              <CopyButtonWithCheck
-                text={systemPrefix ? userMessageBody : userMessage}
-                alwaysVisible={isHovering}
-              />
-              <Tooltip title="Edit">
-                <IconButton
-                  onClick={handleEditClick}
-                  size="small"
-                  sx={(theme) => ({
-                    color: theme.palette.mode === "light" ? "#888" : "#bbb",
-                    "&:hover": {
-                      color: theme.palette.mode === "light" ? "#000" : "#fff",
-                    },
-                  })}
-                  aria-label="edit"
+          {!isPureSystemMessage && (
+            <>
+              {((interaction as any)?.auto_wake_count ?? 0) > 0 && (
+                <Tooltip
+                  title="Helix re-sent this prompt because the agent didn't respond — likely upstream ACP buffering (claude-agent-acp #551 / agent-client-protocol #554). See the helix-side design doc 2026-04-25 for the full story."
                 >
-                  <EditIcon sx={{ fontSize: 20 }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
+                  <Box
+                    sx={(theme) => ({
+                      fontSize: "11px",
+                      color: theme.palette.mode === "light" ? "#888" : "#999",
+                      mb: 0.5,
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: "4px",
+                      backgroundColor:
+                        theme.palette.mode === "light"
+                          ? "rgba(0,0,0,0.04)"
+                          : "rgba(255,255,255,0.06)",
+                      cursor: "help",
+                      userSelect: "none",
+                    })}
+                  >
+                    {"↻ Retried " + ((interaction as any).auto_wake_count) + "× · upstream ACP buffering"}
+                  </Box>
+                </Tooltip>
+              )}
+              <InteractionContainer
+                buttons={headerButtons}
+                background={true}
+                align="right"
+                border={true}
+                isAssistant={false}
+              >
+                <InteractionInference
+                  serverConfig={serverConfig}
+                  session={session}
+                  interaction={interaction}
+                  imageURLs={imageURLs}
+                  message={systemPrefix && !isEditing ? userMessageBody : userMessage}
+                  error={interaction?.error}
+                  isFromAssistant={false}
+                  onFilterDocument={onFilterDocument}
+                  onRegenerate={onRegenerate}
+                  isEditing={isEditing}
+                  editedMessage={editedMessage}
+                  setEditedMessage={setEditedMessage}
+                  handleCancel={handleCancel}
+                  handleSave={handleSave}
+                  isLastInteraction={isLastInteraction}
+                  sessionSteps={sessionSteps}
+                />
+              </InteractionContainer>
+              {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
+              {!isEditing && userMessage && (
+                <Box
+                  sx={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    mt: 0.5,
+                    gap: 0.5,
+                    opacity: isHovering ? 1 : 0,
+                    pointerEvents: isHovering ? "auto" : "none",
+                    transition: "opacity 0.2s ease-in-out",
+                  }}
+                >
+                  <CopyButtonWithCheck
+                    text={systemPrefix ? userMessageBody : userMessage}
+                    alwaysVisible={isHovering}
+                  />
+                  <Tooltip title="Edit">
+                    <IconButton
+                      onClick={handleEditClick}
+                      size="small"
+                      sx={(theme) => ({
+                        color: theme.palette.mode === "light" ? "#888" : "#bbb",
+                        "&:hover": {
+                          color: theme.palette.mode === "light" ? "#000" : "#fff",
+                        },
+                      })}
+                      aria-label="edit"
+                    >
+                      <EditIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              )}
+            </>
           )}
         </Box>
       )}

@@ -43,7 +43,7 @@ func waitForSegment(t *testing.T, s *store.Store, wid orgchart.WorkerID, want st
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		events, err := s.Events.ListForStream(context.Background(), "org-test", activation.TranscriptID(wid), 200)
+		events, err := s.Events.ListForTopic(context.Background(), "org-test", activation.TranscriptID(wid), 200)
 		if err != nil {
 			t.Fatalf("list events: %v", err)
 		}
@@ -175,7 +175,7 @@ func TestMirrorCapturesUserPrompt(t *testing.T) {
 	if !waitForSegment(t, s, wid, "assistant: 4") {
 		t.Fatal("assistant reply not captured")
 	}
-	events, _ := s.Events.ListForStream(context.Background(), "org-test", activation.TranscriptID(wid), 200)
+	events, _ := s.Events.ListForTopic(context.Background(), "org-test", activation.TranscriptID(wid), 200)
 	userLines := 0
 	for _, e := range events {
 		if msg, err := e.Message(); err == nil && strings.HasPrefix(msg.Body, "user: ") {
