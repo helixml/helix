@@ -60,6 +60,10 @@ pub struct GlBlitter {
     /// texture cached → import_dmabuf is a cheap cache hit. The fd is kept valid
     /// because the Dmabuf owns the dup'd fd for its lifetime.
     slot_dmabufs: HashMap<i32, Dmabuf>,
+    /// Kept so we can import Mutter's explicit acquire fence as an EGLFence and
+    /// `eglWaitSync` (server-side) before sampling the capture buffer — the fix
+    /// for the NVIDIA import race (stale-frame flash). See sync_timeline.rs.
+    egl_display: Arc<EGLDisplay>,
 }
 
 impl GlBlitter {
@@ -82,12 +86,25 @@ impl GlBlitter {
             out_w: 0,
             out_h: 0,
             slot_dmabufs: HashMap::new(),
+            egl_display: egl_display.clone(),
         })
     }
 
     /// Import the capture dma-buf as a GL texture, blit it into our persistent
     /// CUDA buffer, and return a CUDAMemory GstBuffer for nvenc.
-    pub fn process(&mut self, dmabuf: &Dmabuf, pts_ns: i64, slot_fd: i32) -> Result<FrameData, String> {
+    ///
+    /// `acquire_fence`, when present, is Mutter's explicit acquire fence (a
+    /// sync_file fd from SPA_META_SyncTimeline). We `eglWaitSync` on it BEFORE
+    /// sampling so the GPU doesn't read pixels Mutter is still writing. The wait
+    /// is server-side (GPU waits, CPU returns), so it does not stall the capture
+    /// loop. Without it, NVIDIA's lack of implicit dma-buf sync gives a stale frame.
+    pub fn process(
+        &mut self,
+        dmabuf: &Dmabuf,
+        pts_ns: i64,
+        slot_fd: i32,
+        acquire_fence: Option<std::os::fd::OwnedFd>,
+    ) -> Result<FrameData, String> {
         let w = dmabuf.width();
         let h = dmabuf.height();
         let drm_format = dmabuf.format();
@@ -134,6 +151,9 @@ impl GlBlitter {
         // mutable bind borrow and the immutable to_gs_buffer borrow don't conflict
         // — this mirrors wolf's create_frame.
         let t_render = std::time::Instant::now();
+        // Clone the display handle for the acquire-fence wait below (disjoint from
+        // the &mut self.renderer borrow taken by render()).
+        let egl_display = self.egl_display.clone();
         let mut bind_handle = self.output.as_ref().expect("output set above").clone();
         let mut fb = bind_handle
             .bind(&mut self.renderer)
@@ -149,6 +169,19 @@ impl GlBlitter {
             frame
                 .clear(Color32F::BLACK, &[full])
                 .map_err(|e| format!("clear: {:?}", e))?;
+            // NVIDIA import-race fix: before sampling the capture texture, make the
+            // GPU wait for Mutter's explicit acquire fence (server-side eglWaitSync,
+            // so the CPU/capture loop is NOT blocked). The render context is current
+            // here, so the wait is enqueued ahead of render_texture_at. If absent or
+            // unsupported, we just don't wait (== prior behaviour).
+            if let Some(fd) = acquire_fence {
+                use smithay::backend::egl::fence::EGLFence;
+                if EGLFence::supports_importing(&egl_display) {
+                    if let Ok(fence) = EGLFence::import(&egl_display, fd) {
+                        let _ = fence.wait(&egl_display);
+                    }
+                }
+            }
             frame
                 .render_texture_at(
                     &texture,
