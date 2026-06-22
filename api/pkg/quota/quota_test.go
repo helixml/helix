@@ -67,6 +67,12 @@ func (s *QuotaManagerSuite) expectOrgQuotaDefaults(orgID string, wallet *types.W
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal(wallet.OrgID, q.OrganizationID)
+			return nil, nil
+		},
+	)
 }
 
 func freeWallet(userID string) *types.Wallet {
@@ -243,6 +249,12 @@ func (s *QuotaManagerSuite) TestGetQuotas_OrgWithActiveSessions() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(5), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(3), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(100), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{
 		UserID:         "user1",
@@ -538,6 +550,12 @@ func (s *QuotaManagerSuite) TestLimitReached_OrgDesktopReached() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	resp, err := s.manager.LimitReached(context.Background(), &types.QuotaLimitReachedRequest{
 		UserID:         "user1",
@@ -645,6 +663,12 @@ func (s *QuotaManagerSuite) TestGetQuotas_RoutesToOrgWhenOrgIDSet() {
 	s.store.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	s.store.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	s.store.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, q *store.ListSandboxesQuery) ([]*types.Sandbox, error) {
+			s.Require().Equal("org1", q.OrganizationID)
+			return nil, nil
+		},
+	)
 
 	_, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{
 		UserID:         "user1",
@@ -667,4 +691,135 @@ func (s *QuotaManagerSuite) TestGetQuotas_RoutesToUserWhenNoOrgID() {
 		UserID: "user1",
 	})
 	s.NoError(err)
+}
+
+// =============================================================================
+// TestQuotaDesktopResolution — truth table from design doc
+// design/tasks/002031_theres-a-bug-in-the/design.md
+//
+// Inputs:  enforce | freeEnv | proEnv | subscribed | ctx (user/org) | active
+// Outputs: effective MaxConcurrentDesktops, allowed (LimitReached == false)
+//
+// Confirms /api/v1/config and StartDesktop now agree, since the phantom
+// SystemSettings.MaxConcurrentDesktops override no longer exists and both
+// consult the same env-driven tier values via quota.go.
+// =============================================================================
+
+func (s *QuotaManagerSuite) TestQuotaDesktopResolution() {
+	cases := []struct {
+		name        string
+		enforce     bool
+		freeEnv     int
+		proEnv      int
+		subscribed  bool
+		orgScoped   bool
+		activeCount int
+		wantLimit   int
+		wantAllowed bool
+	}{
+		// Row 1: EnforceQuotas off short-circuits everything to -1 (user)
+		{"01_enforce-off-user", false, 2, 30, false, false, 99, -1, true},
+		// Row 2: EnforceQuotas off short-circuits everything to -1 (org)
+		{"02_enforce-off-org", false, 2, 30, true, true, 99, -1, true},
+		// Row 3: Free, per-user, under cap
+		{"03_free-user-under", true, 2, 30, false, false, 1, 2, true},
+		// Row 4: Free, per-user, at cap
+		{"04_free-user-at", true, 2, 30, false, false, 2, 2, false},
+		// Row 5: Free, per-org, under cap
+		{"05_free-org-under", true, 2, 30, false, true, 1, 2, true},
+		// Row 6: Free, per-org, at cap
+		{"06_free-org-at", true, 2, 30, false, true, 2, 2, false},
+		// Row 7: Pro, per-user, under cap
+		{"07_pro-user-under", true, 2, 30, true, false, 29, 30, true},
+		// Row 8: Pro, per-user, at cap
+		{"08_pro-user-at", true, 2, 30, true, false, 30, 30, false},
+		// Row 9: Pro, per-org, at cap
+		{"09_pro-org-at", true, 2, 30, true, true, 30, 30, false},
+		// Row 10: Free env set to -1 → unlimited (user)
+		{"10_free-env-unlimited", true, -1, 30, false, false, 999, -1, true},
+		// Row 11: Pro env set to -1 → unlimited (user)
+		{"11_pro-env-unlimited", true, 2, -1, true, false, 999, -1, true},
+		// Row 12: Custom finite Free cap, per-user, under
+		{"12_custom-free-under", true, 5, 30, false, false, 4, 5, true},
+		// Row 13: Custom finite Free cap, per-user, at
+		{"13_custom-free-at", true, 5, 30, false, false, 5, 5, false},
+		// Row 14: Custom finite Pro cap, per-org, at
+		{"14_custom-pro-org-at", true, 2, 50, true, true, 49, 50, true},
+		// Row 15: Pathological: Free env explicitly 0 (misconfiguration —
+		// operator should set -1 for unlimited). Resolver respects the value.
+		{"15_pathological-free-zero", true, 0, 30, false, false, 0, 0, false},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			// Per-subtest mock controller so we don't leak expectations.
+			ctrl := gomock.NewController(s.T())
+			defer ctrl.Finish()
+
+			st := store.NewMockStore(ctrl)
+			ex := external_agent.NewMockExecutor(ctrl)
+			cfg := &config.ServerConfig{}
+			cfg.SubscriptionQuotas.Projects.Enabled = true
+			cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops = tc.freeEnv
+			cfg.SubscriptionQuotas.Projects.Pro.MaxConcurrentDesktops = tc.proEnv
+			mgr := NewDefaultQuotaManager(st, cfg, ex)
+
+			settings := &types.SystemSettings{EnforceQuotas: tc.enforce}
+
+			req := &types.QuotaLimitReachedRequest{
+				Resource: types.ResourceDesktop,
+			}
+
+			if tc.orgScoped {
+				wallet := &types.Wallet{OrgID: "org1"}
+				if tc.subscribed {
+					wallet.StripeSubscriptionID = "sub_org"
+					wallet.SubscriptionStatus = stripe.SubscriptionStatusActive
+				}
+				st.EXPECT().GetWalletByOrg(gomock.Any(), "org1").Return(wallet, nil)
+				st.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
+
+				sessions := make([]*external_agent.ZedSession, tc.activeCount)
+				for i := range sessions {
+					sessions[i] = &external_agent.ZedSession{OrganizationID: "org1"}
+				}
+				ex.EXPECT().ListSessions().Return(sessions)
+
+				st.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				st.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				st.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				// EnforceQuotas false short-circuits before ListSandboxes is reached on the org path.
+				if tc.enforce {
+					st.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil)
+				} else {
+					st.EXPECT().ListSandboxes(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+				}
+				req.OrganizationID = "org1"
+			} else {
+				wallet := &types.Wallet{UserID: "user1"}
+				if tc.subscribed {
+					wallet.StripeSubscriptionID = "sub_user"
+					wallet.SubscriptionStatus = stripe.SubscriptionStatusActive
+				}
+				st.EXPECT().GetWalletByUser(gomock.Any(), "user1").Return(wallet, nil)
+				st.EXPECT().GetSystemSettings(gomock.Any()).Return(settings, nil)
+
+				sessions := make([]*external_agent.ZedSession, tc.activeCount)
+				for i := range sessions {
+					sessions[i] = &external_agent.ZedSession{UserID: "user1"}
+				}
+				ex.EXPECT().ListSessions().Return(sessions)
+
+				st.EXPECT().GetProjectsCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				st.EXPECT().GetRepositoriesCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				st.EXPECT().GetSpecTasksCount(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+				req.UserID = "user1"
+			}
+
+			resp, err := mgr.LimitReached(context.Background(), req)
+			s.NoError(err)
+			s.Equal(tc.wantLimit, resp.Limit, "effective limit")
+			s.Equal(!tc.wantAllowed, resp.LimitReached, "LimitReached")
+		})
+	}
 }

@@ -1,6 +1,30 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 
 const STORAGE_KEY = 'helix_browser_notif_disabled'
+const SHOWN_KEY = 'helix_browser_notif_shown'
+
+function loadShownIds(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(SHOWN_KEY)
+    if (raw) return new Set(JSON.parse(raw) as string[])
+  } catch {
+    // ignore
+  }
+  return new Set()
+}
+
+function saveShownId(id: string): void {
+  try {
+    const raw = sessionStorage.getItem(SHOWN_KEY)
+    const ids: string[] = raw ? JSON.parse(raw) : []
+    if (!ids.includes(id)) {
+      ids.push(id)
+      sessionStorage.setItem(SHOWN_KEY, JSON.stringify(ids))
+    }
+  } catch {
+    // ignore
+  }
+}
 
 type PermissionState = 'default' | 'granted' | 'denied' | 'unsupported'
 
@@ -23,8 +47,8 @@ export function useBrowserNotifications() {
   const [permission, setPermission] = useState<PermissionState>(getPermissionState)
   const [disabledByUser, setDisabledByUser] = useState(isDisabledByUser)
   // Track which event IDs we've already shown a notification for, so we don't
-  // fire duplicates across re-renders.
-  const shownRef = useRef<Set<string>>(new Set())
+  // fire duplicates across re-renders or remounts.
+  const shownRef = useRef<Set<string>>(loadShownIds())
 
   // Re-sync permission state when the tab regains focus (user may have changed
   // it in browser settings while we were in the background).
@@ -73,6 +97,7 @@ export function useBrowserNotifications() {
       if (permission !== 'granted' || disabledByUser) return
       if (shownRef.current.has(id)) return
       shownRef.current.add(id)
+      saveShownId(id)
 
       try {
         const notification = new Notification(title, {

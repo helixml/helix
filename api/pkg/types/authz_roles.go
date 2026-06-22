@@ -10,6 +10,7 @@ var (
 					ResourceKnowledge,
 					ResourceAccessGrants,
 					ResourceProject,
+					ResourceGitRepository,
 				},
 				Actions: []Action{
 					ActionGet,
@@ -30,6 +31,7 @@ var (
 					ResourceApplication,
 					ResourceKnowledge,
 					ResourceProject,
+					ResourceGitRepository,
 				},
 				Actions: []Action{
 					ActionGet,

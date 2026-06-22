@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -70,6 +71,11 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 		return s.CreateUserMeta(ctx, user)
 	}
 
+	// Track whether we actually need to write. EnsureUserMeta is called from auth
+	// middleware on every request, so an unconditional UPDATE here turns every API
+	// call into two DB round-trips for no gain.
+	dirty := false
+
 	// Ensure existing user has a slug, or regenerate if it looks like a UUID
 	shouldRegenerateSlug := false
 	if existing.Slug == "" {
@@ -87,29 +93,34 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 	if shouldRegenerateSlug {
 		oldSlug := existing.Slug
 		newSlug := s.generateUserSlug(ctx, existing.ID)
-		// Only update if the new slug is different (to avoid unnecessary DB writes)
 		if newSlug != oldSlug {
 			existing.Slug = newSlug
+			dirty = true
 			log.Info().
 				Str("user_id", existing.ID).
 				Str("old_slug", oldSlug).
 				Str("new_slug", newSlug).
 				Msg("regenerating user_meta slug with proper name")
-			return s.UpdateUserMeta(ctx, *existing)
 		}
 	}
 
 	// Merge any new config values from the parameter
-	if user.Config.StripeCustomerID != "" {
+	if user.Config.StripeCustomerID != "" && existing.Config.StripeCustomerID != user.Config.StripeCustomerID {
 		existing.Config.StripeCustomerID = user.Config.StripeCustomerID
+		dirty = true
 	}
-	if user.Config.StripeSubscriptionID != "" {
+	if user.Config.StripeSubscriptionID != "" && existing.Config.StripeSubscriptionID != user.Config.StripeSubscriptionID {
 		existing.Config.StripeSubscriptionID = user.Config.StripeSubscriptionID
+		dirty = true
 	}
-	if user.Config.StripeSubscriptionActive {
+	if user.Config.StripeSubscriptionActive && !existing.Config.StripeSubscriptionActive {
 		existing.Config.StripeSubscriptionActive = user.Config.StripeSubscriptionActive
+		dirty = true
 	}
 
+	if !dirty {
+		return existing, nil
+	}
 	return s.UpdateUserMeta(ctx, *existing)
 }
 
@@ -208,18 +219,28 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 		if query.Type != "" {
 			db = db.Where("type = ?", query.Type)
 		}
-		if query.Email != "" {
-			if strings.Contains(query.Email, "@") {
-				// Full email address - exact match (case-insensitive)
-				db = db.Where("LOWER(email) = LOWER(?)", query.Email)
-			} else {
-				// Domain only - filter by email domain
-				db = db.Where("email ILIKE ?", "%@"+query.Email)
+		if query.Query != "" {
+			// Unified free-text search across email, username, and full_name.
+			// Overrides the separate Email/Username filters.
+			like := "%" + query.Query + "%"
+			db = db.Where("email ILIKE ? OR username ILIKE ? OR full_name ILIKE ?", like, like, like)
+		} else {
+			if query.Email != "" {
+				if strings.Contains(query.Email, "@") {
+					// Full email address - exact match (case-insensitive)
+					db = db.Where("LOWER(email) = LOWER(?)", query.Email)
+				} else {
+					// Domain only - filter by email domain
+					db = db.Where("email ILIKE ?", "%@"+query.Email)
+				}
+			}
+			if query.Username != "" {
+				// Support ILIKE matching for username
+				db = db.Where("username ILIKE ?", "%"+query.Username+"%")
 			}
 		}
-		if query.Username != "" {
-			// Support ILIKE matching for username
-			db = db.Where("username ILIKE ?", "%"+query.Username+"%")
+		if query.Waitlisted != nil {
+			db = db.Where("waitlisted = ?", *query.Waitlisted)
 		}
 	}
 
@@ -311,6 +332,20 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// TouchUserLastSeen writes the last_seen_at column for a user without touching
+// the rest of the record. Callers are responsible for throttling; the store
+// just does the write.
+func (s *PostgresStore) TouchUserLastSeen(ctx context.Context, userID string, at time.Time) error {
+	if userID == "" {
+		return fmt.Errorf("userID cannot be empty")
+	}
+	return s.gdb.WithContext(ctx).
+		Model(&types.User{}).
+		Where("id = ?", userID).
+		Update("last_seen_at", at).
+		Error
 }
 
 // generateUserSlug creates a URL-friendly slug from a user's name, email, or ID

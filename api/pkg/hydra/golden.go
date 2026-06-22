@@ -19,14 +19,15 @@ const (
 	// Each project gets its own golden at {goldenBaseDir}/{projectID}/docker/.
 	goldenBaseDir = "/container-docker/golden"
 
-	// sessionsBaseDir is where per-session Docker data lives.
-	sessionsBaseDir = "/container-docker/sessions"
-
 	// goldenCopyCompleteMarker is written to the session docker dir after a
 	// successful golden cache copy. If absent, the copy was interrupted
 	// (e.g. API crash) and the session dir must be deleted and re-copied.
 	goldenCopyCompleteMarker = ".golden-copy-complete"
 )
+
+// sessionsBaseDir is where per-session Docker data lives.
+// Var (not const) so tests can override it.
+var sessionsBaseDir = "/container-docker/sessions"
 
 // goldenDir returns the golden Docker data path for a project.
 func goldenDir(projectID string) string {
@@ -547,12 +548,127 @@ func PurgeContainersFromGolden(projectID string) error {
 		return fmt.Errorf("failed to remove golden build result marker at %s (risk of premature promotion): %w", resultFile, err)
 	}
 
+	// Prune unreferenced overlay2 layers left behind by previous image builds.
+	pruneUnreferencedOverlay2Layers(golden)
+
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", golden).
 		Msg("Purged container/network/containerd/buildx/volumes/result state from golden cache")
 
 	return nil
+}
+
+// pruneUnreferencedOverlay2Layers removes overlay2 directories that are not
+// referenced by any image in the Docker data directory. During golden builds,
+// ./stack build rebuilds images multiple times — each rebuild creates new
+// overlay2 layer dirs, but the old ones are never cleaned up because dockerd's
+// GC only runs via `docker system prune`. Since we operate on the filesystem
+// after dockerd has stopped, we do the GC ourselves.
+//
+// Safety: this only deletes overlay2 dirs that have NO corresponding entry in
+// the layerdb. Image layers, shared layers, and all tagged images are preserved.
+// BuildKit cache lives on the shared remote builder, not in local overlay2.
+func pruneUnreferencedOverlay2Layers(dockerDir string) {
+	overlay2Dir := filepath.Join(dockerDir, "overlay2")
+	layerdbDir := filepath.Join(dockerDir, "image", "overlay2", "layerdb", "sha256")
+
+	// Read all cache-id files from layerdb — these reference overlay2 dirs
+	referencedDirs := make(map[string]bool)
+
+	layerEntries, err := os.ReadDir(layerdbDir)
+	if err != nil {
+		log.Warn().Err(err).Str("path", layerdbDir).
+			Msg("Cannot read layerdb, skipping overlay2 prune")
+		return
+	}
+
+	for _, entry := range layerEntries {
+		if !entry.IsDir() {
+			continue
+		}
+		cacheIDFile := filepath.Join(layerdbDir, entry.Name(), "cache-id")
+		data, err := os.ReadFile(cacheIDFile)
+		if err != nil {
+			continue
+		}
+		cacheID := strings.TrimSpace(string(data))
+		if cacheID != "" {
+			referencedDirs[cacheID] = true
+		}
+	}
+
+	if len(referencedDirs) == 0 {
+		log.Warn().Msg("No referenced layers found in layerdb, skipping overlay2 prune (safety)")
+		return
+	}
+
+	// List all overlay2 directories
+	overlay2Entries, err := os.ReadDir(overlay2Dir)
+	if err != nil {
+		log.Warn().Err(err).Str("path", overlay2Dir).
+			Msg("Cannot read overlay2 dir, skipping prune")
+		return
+	}
+
+	var pruned int
+	var prunedBytes int64
+	for _, entry := range overlay2Entries {
+		name := entry.Name()
+		// Skip the "l" directory (short symlinks for layer identification)
+		if name == "l" || !entry.IsDir() {
+			continue
+		}
+		if referencedDirs[name] {
+			continue
+		}
+
+		dirPath := filepath.Join(overlay2Dir, name)
+		// Get size before removal for logging
+		var size int64
+		if out, err := exec.Command("du", "-sb", dirPath).Output(); err == nil {
+			fmt.Sscanf(string(out), "%d", &size)
+		}
+
+		if err := os.RemoveAll(dirPath); err != nil {
+			log.Warn().Err(err).Str("path", dirPath).
+				Msg("Failed to remove unreferenced overlay2 dir")
+			continue
+		}
+		pruned++
+		prunedBytes += size
+	}
+
+	// Clean up stale symlinks in overlay2/l/
+	linksDir := filepath.Join(overlay2Dir, "l")
+	if linkEntries, err := os.ReadDir(linksDir); err == nil {
+		var staleLinks int
+		for _, entry := range linkEntries {
+			linkPath := filepath.Join(linksDir, entry.Name())
+			target, err := os.Readlink(linkPath)
+			if err != nil {
+				continue
+			}
+			// Links are relative (e.g., ../abc123/diff), resolve to check existence
+			resolved := filepath.Join(linksDir, target)
+			if _, err := os.Stat(resolved); os.IsNotExist(err) {
+				os.Remove(linkPath)
+				staleLinks++
+			}
+		}
+		if staleLinks > 0 {
+			log.Info().Int("stale_links", staleLinks).
+				Msg("Removed stale overlay2/l/ symlinks")
+		}
+	}
+
+	if pruned > 0 {
+		log.Info().
+			Int("pruned_layers", pruned).
+			Int64("freed_bytes", prunedBytes).
+			Int("referenced_layers", len(referencedDirs)).
+			Msg("Pruned unreferenced overlay2 layers from golden cache")
+	}
 }
 
 // GetGoldenSize returns the size of a project's golden cache in bytes.

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -21,6 +22,8 @@ import (
 // @Tags    knowledge
 
 // @Success 200 {array} types.Knowledge
+// @Param organization_id query string false "Organization ID or name. When set, lists org-owned knowledge instead of personal knowledge."
+// @Param app_id query string false "Filter by app ID"
 // @Router /api/v1/knowledge [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) ([]*types.Knowledge, *system.HTTPError) {
@@ -28,12 +31,53 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 	user := getRequestUser(r)
 
 	appID := r.URL.Query().Get("app_id")
+	orgID := r.URL.Query().Get("organization_id")
 
-	knowledges, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
-		Owner:     user.ID,
-		OwnerType: user.Type,
-		AppID:     appID,
-	})
+	query := &store.ListKnowledgeQuery{
+		AppID: appID,
+	}
+
+	switch {
+	case appID != "":
+		// Knowledge is an app-scoped resource. Authorize against the app
+		// itself (the same way getApp does) instead of owner-equality, so
+		// everyone who can see the agent can see its knowledge — including
+		// org members editing a shared project agent they don't personally
+		// own. ensureKnowledge stamps each row with the app owner's id, so an
+		// owner-scoped list hides knowledge from any other authorized viewer
+		// (and a non-owner re-adding a source would silently delete the
+		// owner's existing sources). Listing by app_id alone is safe because
+		// app IDs are globally unique and access is gated by the check below.
+		app, err := s.Store.GetApp(ctx, appID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+			}
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		if err := s.authorizeUserToApp(ctx, user, app, types.ActionGet); err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+		// No owner filter — app authorization is the gate.
+	case orgID != "":
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		if _, err := s.authorizeOrgMember(ctx, user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to view this organization")
+		}
+		query.OwnerType = types.OwnerTypeOrg
+		query.Owner = org.ID
+	default:
+		query.OwnerType = user.Type
+		query.Owner = user.ID
+	}
+
+	knowledges, err := s.Store.ListKnowledge(ctx, query)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -149,46 +193,24 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 func (s *HelixAPIServer) deleteKnowledgeAndVersions(k *types.Knowledge) error {
 	ctx := context.Background()
 
-	versions, err := s.Store.ListKnowledgeVersions(ctx, &store.ListKnowledgeVersionQuery{
-		KnowledgeID: k.ID,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Get rag client
+	// All versions of this knowledge share the same data_entity, so a single
+	// RAG Delete tears down the kodit repo + data_entity row in one go.
 	ragClient, err := s.Controller.GetRagClient(ctx, k)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting rag client")
 	} else {
-		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
+		if err := ragClient.Delete(ctx, &types.DeleteIndexRequest{
 			DataEntityID: k.GetDataEntityID(),
-		})
-		if err != nil {
+		}); err != nil {
 			log.Warn().
 				Err(err).
 				Str("knowledge_id", k.ID).
 				Str("data_entity_id", k.GetDataEntityID()).
-				Msg("error deleting knowledge")
+				Msg("error deleting knowledge rag state")
 		}
 	}
 
-	// Delete all versions from the store
-	for _, version := range versions {
-		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
-			DataEntityID: version.GetDataEntityID(),
-		})
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("knowledge_id", k.ID).
-				Str("data_entity_id", k.GetDataEntityID()).
-				Msg("error deleting knowledge version")
-		}
-	}
-
-	err = s.Store.DeleteKnowledge(ctx, k.ID)
-	if err != nil {
+	if err := s.Store.DeleteKnowledge(ctx, k.ID); err != nil {
 		return err
 	}
 

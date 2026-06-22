@@ -7,24 +7,32 @@
 # Developers can switch between desktops without version differences.
 # See: design/2025-12-28-kde-vs-sway-compositor-architecture.md
 #
-# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-01-27).
+# BASE IMAGE DIGESTS: Pinned for stable layer caching (2026-04-13).
 # Update digests when intentionally upgrading base images.
-# - ubuntu:25.10 -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
-# - golang:1.25  -> sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2
+# - ubuntu:25.10         -> sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+# - golang:1.25-bookworm -> sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547
 
 # Global ARG: must be before the first FROM to be visible to --build-arg
-# amd64 (default): uses nvidia/cuda to extract CUDA runtime libs
+# amd64 (default): pinned nvidia/cuda digest — cache-stable, no silent updates
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
-ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04
+ARG CUDA_BASE_IMAGE=nvidia/cuda:12.6.3-runtime-ubuntu24.04@sha256:92906d87596d638d35015c6353053121bd299d25943b875763321653884ba924
+
+# Goose CLI commit (kept in sync with sandbox-versions.txt GOOSE_COMMIT).
+# Pinned to a `main` SHA that includes PR #8925 (ACP slash-command
+# discovery), which is not yet in any tagged release (latest stable
+# v1.34.1 was cut before the merge). When goose ships a stable release
+# containing #8925, drop this build stage and switch back to the
+# upstream `download_cli.sh` install path.
+ARG GOOSE_COMMIT=ca26f01d3acd9871691fa8981f05d19aed9a3b82
 
 # ====================================================================
 # Go build stage for Helix binaries
 # ====================================================================
 # Uses Debian-based golang image for GStreamer development libraries.
 # desktop-bridge requires go-gst bindings (CGO) for in-process GStreamer.
-# Pin to specific digest for stable layer caching (golang:1.25 as of 2026-01-27)
+# Pin to specific digest for stable layer caching (golang:1.25-bookworm as of 2026-04-13)
 # Update digest when intentionally upgrading Go version
-FROM golang:1.25@sha256:ce63a16e0f7063787ebb4eb28e72d477b00b4726f79874b3205a965ffd797ab2 AS go-build-env
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-build-env
 
 # Install GStreamer development libraries for go-gst bindings
 # These are required for CGO compilation of desktop-bridge
@@ -44,7 +52,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# Copy Go source AFTER dependencies are downloaded for better caching
+# Copy Go source AFTER dependencies are downloaded for better caching.
+# Note: any Go file change invalidates this layer, but the go build cache
+# mount below ensures only changed packages are recompiled.
 COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -72,6 +82,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Uses TARGETARCH to build the right plugins for the current platform.
 # No --platform directive, so this works on any CI runner architecture.
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS rust-build-env
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 ARG TARGETARCH
 WORKDIR /build
 
@@ -102,7 +113,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy all plugin sources (needed for both architectures)
@@ -113,7 +124,9 @@ COPY desktop/gst-pipewire-zerocopy ./gst-pipewire-zerocopy/
 # Build plugins conditionally based on architecture.
 # On amd64: build pipewirezerocopysrc with CUDA linkage, create vsockenc placeholder
 # On arm64: build vsockenc + pipewirezerocopysrc without CUDA
-RUN <<_BUILD_PLUGINS
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/gst-pipewire-zerocopy/target <<_BUILD_PLUGINS
 set -e
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Building ARM64 plugins ==="
@@ -127,7 +140,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
 
     # Build pipewirezerocopysrc (DMA-BUF passthrough for virtio-gpu)
     cd /build/gst-pipewire-zerocopy && \
-        cargo build --release && \
+        nice -n 19 cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built"
 else
@@ -140,8 +153,7 @@ else
 
     # Build pipewirezerocopysrc with CUDA support
     cd /build/gst-pipewire-zerocopy && \
-        cargo clean && \
-        cargo build --release && \
+        nice -n 19 cargo build --locked --release && \
         cp target/release/libgstpipewirezerocopy.so /libgstpipewirezerocopy.so
     echo "pipewirezerocopysrc built (amd64)"
 
@@ -156,6 +168,7 @@ _BUILD_PLUGINS
 # amd64: uses nvidia/cuda image (default) to get real CUDA runtime libs
 # arm64: pipeline passes --build-arg CUDA_BASE_IMAGE=ubuntu:25.10
 #        which creates empty placeholders (no CUDA on ARM, encoding on macOS host)
+# Both variants are SHA-pinned: amd64 via the ARG default, arm64 via --build-arg.
 ARG CUDA_BASE_IMAGE
 FROM ${CUDA_BASE_IMAGE} AS cuda-libs
 # On amd64 (nvidia/cuda base): libnvrtc is in /usr/local/cuda/lib64/
@@ -168,6 +181,57 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
     fi
 
 # ====================================================================
+# Goose CLI build stage
+# ====================================================================
+# Builds the `goose` binary from a pinned `main` commit. Required
+# because the slash-command-discovery feature (PR #8925) is on main
+# but not in any released tag yet. The default cargo features match
+# upstream's CI for non-vulkan/non-musl Linux builds. Telemetry is
+# disabled at runtime (see ~/.config/goose/profiles below).
+FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e AS goose-build
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
+
+ENV DEBIAN_FRONTEND=noninteractive
+# Build deps. The first block matches goose upstream CI
+# (.github/workflows/build-cli.yml "Install Linux build dependencies"
+# step, standard variant). The extras (libclang-dev, cmake) are needed
+# by the `local-inference` default feature: goose-cli pulls in
+# llama-cpp-sys, which uses bindgen (→ libclang) to generate Rust
+# bindings for llama.cpp, and CMake to build it. GitHub's ubuntu-22.04
+# runner has these pre-installed which is why upstream's CI doesn't
+# list them; our slim base image doesn't.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libdbus-1-dev \
+    libxcb1-dev \
+    libclang-dev \
+    cmake \
+    curl \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust 1.92 — matches goose's rust-toolchain.toml at the pinned commit.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.92.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /build
+ARG GOOSE_COMMIT
+RUN git clone https://github.com/aaif-goose/goose.git . && \
+    git checkout ${GOOSE_COMMIT}
+
+# Build with cargo cache mounts so re-builds at the same commit are
+# fast and so cache survives across GOOSE_COMMIT bumps.
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/build/target \
+    nice -n 19 cargo build --release -p goose-cli --bin goose && \
+    cp target/release/goose /goose-binary && \
+    strip /goose-binary
+
+# ====================================================================
 # Ubuntu GNOME Desktop - Ubuntu 25.10 base with Wayland
 # ====================================================================
 # Ubuntu 25.10 uses GNOME 47+ which has excellent Wayland support.
@@ -178,6 +242,7 @@ RUN if [ -f /usr/local/cuda/lib64/libnvrtc.so.12 ]; then \
 # The headless bridge uses GStreamer's pipewiresrc + waylandsink for
 # zero-copy DMA-BUF transfer from GNOME screen-cast to Wolf.
 FROM ubuntu:25.10@sha256:4a9232cc47bf99defcc8860ef6222c99773330367fcecbf21ba2edb0b810a31e
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base-app)
 ENV \
@@ -191,6 +256,12 @@ ENV \
     NEEDRESTART_SUSPEND=1
 
 ARG TARGETARCH TARGETVARIANT
+
+# Disable AppStream (DEP-11) metadata downloads — not needed in Docker containers,
+# and questing-security/restricted doesn't publish icons indices (404 errors)
+RUN echo 'Acquire::IndexTargets::deb::DEP-11 "false";' > /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons "false";' >> /etc/apt/apt.conf.d/99no-appstream && \
+    echo 'Acquire::IndexTargets::deb::DEP-11-icons-hidpi "false";' >> /etc/apt/apt.conf.d/99no-appstream
 
 # Install GOW base requirements + GNOME packages
 ARG GOSU_VERSION=1.14
@@ -266,7 +337,29 @@ RUN <<_INSTALL_BASE
   gosu nobody true && echo "gosu working!"
 
   echo "**** Setup Firefox PPA ****"
-  add-apt-repository -y ppa:mozillateam/ppa
+  # Launchpad is intermittently unavailable; both `add-apt-repository`
+  # (which hits launchpad.net for the GPG key) and the subsequent
+  # `apt-get update` (which fetches the InRelease file from
+  # ppa.launchpadcontent.net) fail with timeouts during outages.
+  # Three consecutive CI failures on 2026-05-02 prompted this retry
+  # wrapper. Backoff: 5s, 15s, 30s, 60s.
+  # POSIX-compatible (no `local`) so it works under dash, the default
+  # `RUN` shell.
+  retry_apt() {
+    n=0
+    until "$@"; do
+      n=$((n+1))
+      if [ $n -ge 5 ]; then
+        echo "FATAL: apt operation failed after $n attempts: $*"
+        return 1
+      fi
+      sleep_for=$((n*15))
+      [ $n -eq 1 ] && sleep_for=5
+      echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+      sleep $sleep_for
+    done
+  }
+  retry_apt add-apt-repository -y ppa:mozillateam/ppa
 
   echo "**** Configure APT pins ****"
   cat > /etc/apt/preferences.d/mozilla-firefox << 'PINEOF'
@@ -275,7 +368,7 @@ Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 PINEOF
 
-  apt-get update
+  retry_apt apt-get update
 
   echo "**** Install GNOME Desktop (Wayland session) ****"
   apt-get install -y $DE_PACKAGES firefox libavcodec-extra
@@ -291,14 +384,14 @@ PINEOF
 
 _INSTALL_BASE
 
-# Install Go (version extracted from go.mod)
-# This makes Go available for agents running inside the container (Helix-in-Helix)
-# TARGETARCH is set by Docker buildx (amd64 or arm64)
-COPY go.mod /tmp/go.mod
-RUN GO_VERSION=$(grep -E "^go [0-9]" /tmp/go.mod | awk '{print $2}') && \
+# Install Go (version passed via --build-arg from stack, derived from go.mod on host).
+# Passing as a build-arg (instead of COPY-ing go.mod) means dependency bumps in
+# go.mod don't invalidate this layer or any of the downstream apt/npm/install
+# layers — only an actual Go-version change does. TARGETARCH is set by Docker buildx.
+ARG GO_VERSION
+RUN [ -n "${GO_VERSION}" ] || { echo "ERROR: --build-arg GO_VERSION=... is required" >&2; exit 1; } && \
     echo "Installing Go ${GO_VERSION} for ${TARGETARCH}..." && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz && \
-    rm /tmp/go.mod && \
     /usr/local/go/bin/go version
 ENV PATH="/usr/local/go/bin:${PATH}"
 
@@ -455,7 +548,11 @@ echo "Setting default user uid=$(id -u ${UNAME}) gid=$(id -g ${UNAME})"
 echo "Setting umask to ${UMASK}"
 umask "${UMASK}"
 echo "Ensure ${UNAME} home directory is writable"
-chown -R "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
+# Non-recursive: image is built with retro:retro and the persistent home volume is
+# initialized with retro:retro. A recursive chown over a populated home dir at every
+# container start was producing huge metadata-write storms through the ext4-on-zvol +
+# dedup'd ZFS workspace stack (PSI io.full ~67% during cold starts).
+chown "${UNAME}:${UNAME}" "/home/${UNAME}" 2>/dev/null || true
 echo "Ensure XDG_RUNTIME_DIR is writable"
 mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}"
 chown -R "${UNAME}:${UNAME}" "${XDG_RUNTIME_DIR:-/run/user/1000}" 2>/dev/null || true
@@ -677,17 +774,40 @@ RUN apt-get update && \
 # Google Chrome doesn't provide arm64 Linux packages
 RUN <<_INSTALL_CHROME
 set -e
-apt-get update
+
+# Launchpad is intermittently unavailable; both `add-apt-repository`
+# (which hits launchpad.net for the PPA's GPG key) and `apt-get update`
+# (which fetches InRelease from ppa.launchpadcontent.net) fail with
+# timeouts during outages. Three consecutive CI failures on 2026-05-02
+# prompted this retry wrapper. Backoff: 5s, 15s, 30s, 60s.
+# POSIX-compatible (no `local`) so it works under dash, the default
+# `RUN` shell.
+retry_apt() {
+    n=0
+    until "$@"; do
+        n=$((n+1))
+        if [ $n -ge 5 ]; then
+            echo "FATAL: apt operation failed after $n attempts: $*"
+            return 1
+        fi
+        sleep_for=$((n*15))
+        [ $n -eq 1 ] && sleep_for=5
+        echo "apt operation failed (attempt $n), retrying in ${sleep_for}s: $*"
+        sleep $sleep_for
+    done
+}
+
+retry_apt apt-get update
 
 if [ "${TARGETARCH}" = "arm64" ]; then
     echo "=== Installing Chromium for arm64 (XtraDeb PPA) ==="
     # Ubuntu's chromium-browser is a snap transitional package (no snapd in containers).
     # XtraDeb PPA provides real .deb packages named "chromium" (NOT "chromium-browser").
-    apt-get install -y software-properties-common
-    add-apt-repository -y ppa:xtradeb/apps
-    apt-get update
+    retry_apt apt-get install -y software-properties-common
+    retry_apt add-apt-repository -y ppa:xtradeb/apps
+    retry_apt apt-get update
     # Install the real chromium package from XtraDeb + chromedriver
-    apt-get install -y chromium chromium-driver
+    retry_apt apt-get install -y chromium chromium-driver
     # Remove the snap transitional chromium-browser if it got pulled in as a dependency
     apt-get remove -y chromium-browser 2>/dev/null || true
 
@@ -719,6 +839,7 @@ if [ "${TARGETARCH}" = "arm64" ]; then
       "PromotionalTabsEnabled": false,
       "SyncDisabled": true,
       "PasswordManagerEnabled": true,
+      "RestoreOnStartup": 1,
       "BookmarkBarEnabled": false
     }' > /etc/chromium/policies/managed/helix.json
 
@@ -743,7 +864,7 @@ else
       "ImportHistory": false,
       "ImportSavedPasswords": false,
       "ImportSearchEngine": false,
-      "RestoreOnStartup": 5,
+      "RestoreOnStartup": 1,
       "PasswordManagerEnabled": true,
       "PrivacySandboxPromptEnabled": false,
       "PrivacySandboxAdTopicsEnabled": false,
@@ -823,8 +944,19 @@ RUN mkdir -p /etc/skel/.config/google-chrome && \
     echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' \
       > /etc/skel/.config/google-chrome/Default/Preferences
 
-# Install chrome-devtools-mcp globally and pre-build fontconfig cache
-RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
+# Install MCP server packages globally so Zed and Claude Code can invoke them
+# by direct binary path (e.g. /usr/bin/chrome-devtools-mcp) instead of
+# `npx <pkg>@latest`. Going through npx hits the shared _npx cache, and when
+# Zed and Claude Code spawn in parallel against the same cache the install
+# dance ("reify mark retired" — rename node_modules/<pkg> → tmp, reinstall,
+# rename back) races and the JSON-RPC `initialize` never returns. Spec-task
+# logs then show `chrome-devtools context server failed to start: Context
+# server request timeout` (180s). Going via the global binary avoids npx
+# entirely and removes the contention.
+RUN npm install -g \
+        chrome-devtools-mcp@0.25.0 \
+        @modelcontextprotocol/server-github@2025.4.8 \
+    && fc-cache -f -v
 
 # URL capture script for Claude Code OAuth login flow.
 # When BROWSER=/usr/local/bin/helix-capture-browser, `claude auth login` writes
@@ -832,7 +964,15 @@ RUN npm install -g chrome-devtools-mcp@latest && fc-cache -f -v
 # for this file and opens the URL in the user's native browser.
 COPY desktop/shared/helix-capture-browser.sh /usr/local/bin/helix-capture-browser
 COPY desktop/shared/helix-claude-auth-wrapper.sh /usr/local/bin/helix-claude-auth-wrapper
-RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper
+# helix-npx — installed as /usr/local/bin/npx so it shadows the system
+# /usr/bin/npx via PATH order. Gives each `npx <pkg>` invocation its own
+# NPM_CONFIG_CACHE so parallel npx spawns (Zed + Claude both starting
+# the same MCP at session start, or two parallel agent sessions hitting
+# the same package) don't race in npm's `_npx/<hash>` rename dance.
+# Zed's own ACP-wrapper bootstrapping calls npm via absolute path so it
+# bypasses this shim.
+COPY desktop/shared/helix-npx.sh /usr/local/bin/npx
+RUN chmod +x /usr/local/bin/helix-capture-browser /usr/local/bin/helix-claude-auth-wrapper /usr/local/bin/npx
 
 # Install drone-ci-mcp (Helix's Drone CI MCP server for build log navigation)
 # Build and pack the package, then install globally from the tarball
@@ -936,17 +1076,21 @@ RUN mkdir -p /home/retro/.gemini && \
 
 
 
+# Pre-create managed settings dir so the settings-sync-daemon (running as retro) can write to it
+RUN mkdir -p /etc/claude-code && chown retro:retro /etc/claude-code
+
 # Claude Code settings (bypassPermissions etc.) are written at runtime by
 # helix-workspace-setup.sh after symlinking ~/.claude to persistent storage.
 
 RUN mkdir -p /home/retro/.config/zed/themes && \
-    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false}}' > /home/retro/.config/zed/settings.json
+    echo '{"theme":"Ayu Dark","telemetry":{"diagnostics":false,"metrics":false},"agent_servers":{"claude-acp":{"type":"registry"}}}' > /home/retro/.config/zed/settings.json
 
 ENV GEMINI_TELEMETRY_ENABLED=false \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
     DISABLE_TELEMETRY=1 \
     DISABLE_ERROR_REPORTING=1 \
     DISABLE_AUTOUPDATER=1 \
+    OTEL_SDK_DISABLED=true \
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
     ZED_HTTP_INSECURE_TLS=1
 
@@ -983,9 +1127,14 @@ echo "=== Installing Ghostty terminal for ${TARGETARCH} ==="
 
 # Ghostty packages are available for both amd64 and arm64
 # Tag format: 1.2.3-0-ppa1, Package naming: ghostty_1.2.3-0.ppa1_{arch}_25.10.deb
-GHOSTTY_TAG="1.2.3-0-ppa1"
-GHOSTTY_DEB="ghostty_1.2.3-0.ppa1_${TARGETARCH}_25.10.deb"
+GHOSTTY_TAG="1.3.1-0-ppa1"
+GHOSTTY_DEB="ghostty_1.3.1-0.ppa1_${TARGETARCH}_25.10.deb"
 wget --progress=dot:giga "https://github.com/mkasberg/ghostty-ubuntu/releases/download/${GHOSTTY_TAG}/${GHOSTTY_DEB}" -O /tmp/ghostty.deb
+# Install the .deb AND resolve its dependencies (e.g. libgtk4-layer-shell0) in one
+# apt step. The old `dpkg -i || apt-get install -f` worked, but dpkg can't resolve
+# deps so it printed a scary "dpkg: error processing package ghostty / Errors were
+# encountered while processing: ghostty" before the -f recovery. apt resolves the
+# .deb's deps directly — clean install, no misleading error in the build log.
 apt-get install -y /tmp/ghostty.deb
 rm /tmp/ghostty.deb
 echo "=== Ghostty ${GHOSTTY_TAG} installed for ${TARGETARCH} ==="
@@ -1089,6 +1238,16 @@ WORKDIR /opt/qwen-code
 COPY qwen-code-build/ ./
 RUN chmod +x dist/cli.js && \
     ln -sf /opt/qwen-code/dist/cli.js /usr/local/bin/qwen
+
+# Goose CLI (built from $GOOSE_COMMIT in goose-build stage above).
+# Telemetry: OTEL_SDK_DISABLED=true is set in the ENV block above
+# (disables OpenTelemetry exporters globally — goose's telemetry
+# feature relies on OTel, so this is the kill switch).
+# Auto-update: goose's `update` command is user-invoked, not
+# automatic. The binary is pinned via GOOSE_COMMIT so any
+# user-triggered update would be overwritten by the next image build.
+COPY --from=goose-build /goose-binary /usr/local/bin/goose
+RUN chmod +x /usr/local/bin/goose
 
 WORKDIR /
 

@@ -9,7 +9,14 @@
 # Stage 1: Build Go binaries (hydra, sandbox-heartbeat)
 # Note: revdial-client is built into Hydra daemon
 # ====================================================================
-FROM golang:1.25 AS go-builder
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Go version.
+FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS go-builder
+# APP_VERSION is the release tag (or short commit SHA) baked into binaries via
+# -ldflags so data.GetHelixVersion() returns a real value instead of "<unknown>".
+# The runner's heartbeat ships this field to the control plane, where it gates
+# desktop-version matching and shows up in the admin Agent Sandbox dropdown.
+ARG APP_VERSION="v0.0.0+unknown"
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -19,15 +26,28 @@ COPY api/ ./api/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /hydra ./api/cmd/hydra
-# Build sandbox-heartbeat (disk monitoring)
+# Build sandbox-heartbeat (disk monitoring + helix_version heartbeat to the control plane)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+    CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=${APP_VERSION}" -o /sandbox-heartbeat ./api/cmd/sandbox-heartbeat
+# Build compose-manager (sandbox-absorbs-runner pivot: applies operator-assigned
+# runner profiles by running `docker compose` against the inner dockerd).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /compose-manager ./api/cmd/compose-manager
+# Build inference-proxy (body-aware reverse proxy: model name -> container in
+# inner dockerd via Docker DNS).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /inference-proxy ./api/cmd/inference-proxy
 
 # ====================================================================
 # Stage 2: Final sandbox image (based on GOW base pattern)
 # ====================================================================
-FROM ubuntu:25.04 AS sandbox
+# Pin to specific digest for stable layer caching.
+# Update digest when intentionally upgrading Ubuntu version.
+FROM ubuntu:25.04@sha256:27771fb7b40a58237c98e8d3e6b9ecdd9289cec69a857fccfb85ff36294dac20 AS sandbox
+RUN sed -i 's|http://archive.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g; s|http://security.ubuntu.com|http://mirror.ox.ac.uk/sites/archive.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
 
 # Configure default user and set env (from GOW base)
 ENV \
@@ -123,6 +143,20 @@ _INSTALL_ROCM
 # ====================================================================
 # Install Docker + NVIDIA Container Toolkit
 # ====================================================================
+# Pin docker-ce and containerd.io versions explicitly. Without pinning,
+# every sandbox image rebuild silently picks up whatever apt has on the
+# day, which has bitten us across Helix patch releases (e.g. 2.11.0 ->
+# 2.11.2 jumped to Docker 29.x and broke pods reusing the persisted
+# /var/lib/docker PVC). Bumping these is now a deliberate change.
+#
+# To find current versions in the Docker apt repo for the build's Ubuntu
+# release, inside a build of this stage run:
+#   apt-cache madison docker-ce containerd.io
+# Format is "5:VERSION-1~ubuntu.<release>~<codename>" for docker-ce and
+# "VERSION-1~ubuntu.<release>~<codename>" for containerd.io. Bump in
+# this file when ready to upgrade.
+ARG DOCKER_VERSION=5:29.2.1-1~ubuntu.25.04~plucky
+ARG CONTAINERD_VERSION=2.2.1-1~ubuntu.25.04~plucky
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -134,9 +168,9 @@ RUN apt-get update -y && \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
     && apt-get update -y \
     && apt-get install -y --no-install-recommends \
-    docker-ce-cli \
-    docker-ce \
-    containerd.io \
+    docker-ce-cli=${DOCKER_VERSION} \
+    docker-ce=${DOCKER_VERSION} \
+    containerd.io=${CONTAINERD_VERSION} \
     docker-buildx-plugin \
     docker-compose-plugin \
     iproute2 \
@@ -190,7 +224,16 @@ RUN chmod +x /entrypoint.sh \
 # ====================================================================
 COPY --from=go-builder /hydra /usr/local/bin/hydra
 COPY --from=go-builder /sandbox-heartbeat /usr/local/bin/sandbox-heartbeat
-RUN chmod +x /usr/local/bin/hydra /usr/local/bin/sandbox-heartbeat
+COPY --from=go-builder /compose-manager /usr/local/bin/compose-manager
+COPY --from=go-builder /inference-proxy /usr/local/bin/inference-proxy
+RUN chmod +x /usr/local/bin/hydra \
+    /usr/local/bin/sandbox-heartbeat \
+    /usr/local/bin/compose-manager \
+    /usr/local/bin/inference-proxy
+
+# Sandbox-absorbs-runner: directory for the active compose YAML that
+# compose-manager writes and inference-proxy reads.
+RUN mkdir -p /etc/helix
 
 # ====================================================================
 # Copy Helix sandbox init scripts (run after GOW base scripts)
@@ -213,6 +256,12 @@ RUN chmod +x /etc/cont-init.d/60-setup-telemetry-firewall.sh
 COPY sandbox/10-start-hydra.sh /etc/cont-init.d/70-start-hydra.sh
 RUN chmod +x /etc/cont-init.d/70-start-hydra.sh
 
+# Sandbox-absorbs-runner: compose-manager + inference-proxy startup hooks.
+COPY sandbox/12-start-compose-manager.sh /etc/cont-init.d/80-start-compose-manager.sh
+RUN chmod +x /etc/cont-init.d/80-start-compose-manager.sh
+COPY sandbox/14-start-inference-proxy.sh /etc/cont-init.d/85-start-inference-proxy.sh
+RUN chmod +x /etc/cont-init.d/85-start-inference-proxy.sh
+
 # ====================================================================
 # Main startup script
 # ====================================================================
@@ -226,13 +275,14 @@ RUN chmod +x /opt/gow/startup-app.sh
 ENV HELIX_API_URL="" \
     SANDBOX_INSTANCE_ID="" \
     RUNNER_TOKEN="" \
-    GPU_TYPE="nvidia" \
+    GPU_VENDOR="nvidia" \
     MAX_SANDBOXES="10" \
     HELIX_DEV_MODE="false" \
     ZED_IMAGE="helix-sway:latest" \
     HYDRA_ENABLED="true" \
     HELIX_KEEP_DEAD_CONTAINERS="false" \
-    HELIX_SANDBOX_REGISTRY=""
+    HELIX_SANDBOX_REGISTRY="" \
+    HELIX_EXPERIMENTAL_DESKTOPS=""
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/sandbox/

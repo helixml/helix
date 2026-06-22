@@ -144,12 +144,12 @@ const UnifiedSearchBar: FC<UnifiedSearchBarProps> = ({
         // For knowledge, navigate to the app if available
         const appId = result.metadata?.appId
         if (appId) {
-          account.orgNavigate('app', { app_id: appId })
+          account.orgNavigate('agent', { app_id: appId })
         }
       } else if (result.type === 'repository') {
         account.orgNavigate('git-repo-detail', { repoId: result.id })
       } else if (result.type === 'agent') {
-        account.orgNavigate('app', { app_id: result.id })
+        account.orgNavigate('agent', { app_id: result.id })
       } else if (result.type === 'prompt') {
         // For prompts, navigate to the task in the project kanban
         const taskId = result.metadata?.taskId

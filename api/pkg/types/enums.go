@@ -70,8 +70,9 @@ const (
 	InteractionStateNone     InteractionState = ""
 	InteractionStateWaiting  InteractionState = "waiting"
 	InteractionStateEditing  InteractionState = "editing"
-	InteractionStateComplete InteractionState = "complete"
-	InteractionStateError    InteractionState = "error"
+	InteractionStateComplete    InteractionState = "complete"
+	InteractionStateError       InteractionState = "error"
+	InteractionStateInterrupted InteractionState = "interrupted"
 )
 
 type OwnerType string
@@ -301,10 +302,3 @@ const (
 	ScriptRunStateError    ScriptRunState = "error"
 )
 
-type Extractor string
-
-const (
-	ExtractorTika         Extractor = "tika"
-	ExtractorUnstructured Extractor = "unstructured"
-	ExtractorHaystack     Extractor = "haystack"
-)

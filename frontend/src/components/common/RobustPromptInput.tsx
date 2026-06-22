@@ -53,6 +53,7 @@ import {
   Paperclip,
   FileText,
   Camera,
+  StopCircle,
 } from 'lucide-react'
 import {
   DndContext,
@@ -109,6 +110,17 @@ interface RobustPromptInputProps {
   onFileUpload?: (file: File) => Promise<string | null>
   // Deprecated: use onFileUpload instead
   onImagePaste?: (file: File) => Promise<string | null>
+  // Called when user clicks the cancel button to stop the agent's current turn
+  onCancel?: () => void
+  // Whether the agent is currently processing (has a waiting interaction)
+  isAgentBusy?: boolean
+  // Fires synchronously inside handleSend the moment the user submits a
+  // prompt, before the local queue persist or the backend sync POST. The
+  // parent uses this hook to do optimistic UI updates (e.g. flip the cached
+  // session.config.external_agent_status to "starting" so the desktop
+  // viewer shows the spinner without waiting for the next 3s poll).
+  // Must be cheap and synchronous — runs in the user's click handler.
+  onWillSend?: () => void
 }
 
 // Props for sortable queue item
@@ -128,6 +140,8 @@ interface SortableQueueItemProps {
   handleRemoveFromQueue: (id: string) => void
   handleToggleInterrupt: (id: string) => void
   truncateContent: (content: string, maxLen?: number) => string
+  handleRestartAgent: () => void
+  isRestarting: boolean
 }
 
 // Sortable queue item component
@@ -147,6 +161,8 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   handleRemoveFromQueue,
   handleToggleInterrupt,
   truncateContent,
+  handleRestartAgent,
+  isRestarting,
 }) => {
   const {
     attributes,
@@ -164,6 +180,55 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   }
 
   const isFailed = entry.status === 'failed'
+
+  // A transient failure is one we expect to recover from automatically: the
+  // agent is sleeping/booting, the prior turn hasn't drained yet, the WebSocket
+  // is mid-reconnect, etc. The retry will land soon and the message will get
+  // through. These should look like a soft "still working on it" rather than a
+  // hard red error — they're not the user's problem and we don't want them to
+  // act on the warning. Anything else (auth failures, malformed payloads) stays
+  // red so it's visually distinct.
+  const transientErrorMarkers = [
+    'no WebSocket',
+    'no external agent WebSocket',
+    'became busy',
+    'deferring queue prompt',
+    'channel full',
+    'connection replaced',
+    'empty response',
+  ]
+  // A *crashed* failure is the terminal Claude Agent process death case. The
+  // backend detects these strings in handleThreadLoadError and calls
+  // MarkPromptAsCrashed (pinning next_retry_at far in the future) so the
+  // queue's auto-retry stops. The user has to click Restart to recover —
+  // restart clears ZedThreadID + re-sends, causing Zed to spawn a fresh thread
+  // and Claude Agent process. Detected by error_message marker (authoritative)
+  // rather than nextRetryAt timestamp comparison so the UI reacts immediately
+  // even before the polled prompt sync lands the new next_retry_at value.
+  // Authoritative crash signal: the backend's MarkPromptAsCrashed pins
+  // next_retry_at to a far-future sentinel (year 9999) to suppress auto-retry.
+  // Detecting that is robust to the many transport/wrapper error wordings a wedged
+  // or dead agent connection produces ("ede_diagnostic …", "response channel
+  // cancelled", "send failed because receiver is gone", …) — we don't have to
+  // enumerate them. See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
+  const crashedBySentinel = isFailed && !!entry.nextRetryAt && entry.nextRetryAt > Date.now() + ONE_YEAR_MS
+  // Fast-path string markers (kept in sync with the backend agentCrashErrorMarkers)
+  // so the Restart affordance can render on the first failure, before the crashed
+  // next_retry_at sentinel has synced to the client.
+  const crashedErrorMarkers = [
+    'Claude Agent process exited',
+    'Session not found',
+    'ede_diagnostic',
+    'response channel cancelled',
+    'receiver is gone',
+  ]
+  const crashedByMarker = isFailed && !!entry.errorMessage &&
+    crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const isCrashed = crashedBySentinel || crashedByMarker
+  const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
+    transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
+  const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
 
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
@@ -191,7 +256,10 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           : isEditing
             ? (theme) => alpha(theme.palette.info.main, 0.12)
             : isFailed
-              ? (theme) => alpha(theme.palette.error.main, 0.08)
+              ? (theme) => alpha(
+                  isTransientFailure ? theme.palette.warning.main : theme.palette.error.main,
+                  0.08,
+                )
               : 'transparent',
         transition: 'background-color 0.2s',
         '&:hover': !isEditing && !isSending && !isDragging ? {
@@ -244,7 +312,6 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             value={editingContent}
             onChange={(e) => setEditingContent(e.target.value)}
             onKeyDown={handleEditKeyDown}
-            onBlur={handleSaveEdit}
             sx={{
               width: '100%',
               resize: 'none',
@@ -304,15 +371,21 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           }}
           onClick={() => !isSending && handleStartEdit(entry)}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {/* minWidth: 0 lets the Typography ellipsise instead of forcing the
+              row to its intrinsic min-content width. On mobile the latter
+              pushed the actions box (delete button) past the queue container's
+              `overflow: hidden` clip so users couldn't dismiss stuck items.
+              See design/2026-04-30-queue-and-other-stuck-state-bugs.md. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
             <Typography
               variant="body2"
               sx={{
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: isFailed ? 'error.main' : 'text.primary',
+                color: isFailed ? failColor : 'text.primary',
                 flex: 1,
+                minWidth: 0,
               }}
             >
               {truncateContent(entry.content, 50)}
@@ -330,25 +403,94 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             )}
           </Box>
           {isFailed && (
-            <Typography variant="caption" sx={{ color: 'error.main' }}>
-              {entry.nextRetryAt ? (
-                (() => {
-                  const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
-                  return secondsUntilRetry > 0
-                    ? `Failed - retrying in ${secondsUntilRetry}s`
-                    : 'Failed - retrying now...'
-                })()
-              ) : (
-                'Failed - will retry'
+            <Box>
+              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: isCrashed ? 600 : 'inherit' }}>
+                {isCrashed ? (
+                  'Agent crashed. Click restart to attempt to recover.'
+                ) : entry.nextRetryAt ? (
+                  (() => {
+                    const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
+                    if (isTransientFailure) {
+                      return secondsUntilRetry > 0
+                        ? `Waiting for agent — retrying in ${secondsUntilRetry}s`
+                        : 'Waiting for agent — retrying now...'
+                    }
+                    return secondsUntilRetry > 0
+                      ? `Failed - retrying in ${secondsUntilRetry}s`
+                      : 'Failed - retrying now...'
+                  })()
+                ) : (
+                  isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
+                )}
+              </Typography>
+              {isCrashed && (
+                <Box sx={{ mt: 0.5 }}>
+                  <Box
+                    component="button"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation()
+                      handleRestartAgent()
+                    }}
+                    disabled={isRestarting}
+                    sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      px: 1,
+                      py: 0.25,
+                      border: '1px solid',
+                      borderColor: 'error.main',
+                      borderRadius: 1,
+                      bgcolor: 'transparent',
+                      color: 'error.main',
+                      cursor: isRestarting ? 'wait' : 'pointer',
+                      fontSize: '0.75rem',
+                      fontFamily: 'inherit',
+                      '&:hover': !isRestarting ? {
+                        bgcolor: (theme) => alpha(theme.palette.error.main, 0.08),
+                      } : undefined,
+                      '&:disabled': { opacity: 0.6 },
+                    }}
+                  >
+                    {isRestarting ? (
+                      <>
+                        <CircularProgress size={10} sx={{ color: 'error.main' }} />
+                        Restarting...
+                      </>
+                    ) : (
+                      'Restart'
+                    )}
+                  </Box>
+                </Box>
               )}
-            </Typography>
+              {entry.errorMessage && !isCrashed && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: failColor,
+                    opacity: 0.8,
+                    display: 'block',
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    mt: 0.25,
+                  }}
+                  title={entry.errorMessage}
+                >
+                  {entry.errorMessage}
+                </Typography>
+              )}
+            </Box>
           )}
         </Box>
       )}
 
-      {/* Actions - only show when not editing */}
+      {/* Actions - only show when not editing.
+          flexShrink: 0 keeps the delete button visible when the queue panel
+          is narrow (e.g. mobile). Without it the Typography content above
+          could squeeze the actions past the queue container's overflow:hidden
+          clip and leave queue items unrecoverable. */}
       {!isEditing && !isSending && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
           {/* Interrupt toggle */}
           <Tooltip title={entry.interrupt !== false ? "Interrupt mode - click to queue after current" : "Queue mode - click to interrupt"}>
             <IconButton
@@ -403,11 +545,15 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   appendText,
   onFileUpload,
   onImagePaste,
+  onCancel,
+  isAgentBusy = false,
+  onWillSend,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [isRestartingAgent, setIsRestartingAgent] = useState(false)
   // Pending attachments that will be sent with the message
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -427,6 +573,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Editing state for queued messages
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
+  const [editingOriginalContent, setEditingOriginalContent] = useState('')
+  const [editingInterruptMode, setEditingInterruptMode] = useState(false)
 
   const {
     draft,
@@ -448,8 +596,102 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     pinPrompt,
   } = usePromptHistory({ sessionId, specTaskId, projectId, apiClient })
 
+  // Canonical "still actionable in the queue" list, failed-first. Computed in ONE
+  // place so every consumer — queue display, the interrupt toggle, the empty-Enter
+  // interrupt-promotion, the client-side pump — operates on the SAME set.
+  // Previously each site recomputed [...failedPrompts, ...pendingPrompts]
+  // independently, and the promotion path diverged to pendingPrompts-only — so it
+  // silently skipped a prompt the instant the backend deferred it to 'failed'
+  // (which a long current turn does almost immediately).
+  //
+  // We exclude 'sending' (backend has dispatched to Zed, awaiting first
+  // message_added): once a message is in flight it can't be promoted/toggled, and
+  // showing it in the queue until the *next* sync flips it to 'sent' is the lag
+  // that makes a just-sent prompt linger. Dropping 'sending' hides it optimistically
+  // the moment dispatch is confirmed; if it later bounces it returns via 'failed'.
+  // See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+  const queuedPrompts = [...failedPrompts, ...pendingPrompts].filter(p => p.status !== 'sending')
+
   // Track previous appendText to detect changes
   const prevAppendTextRef = useRef<string | undefined>(undefined)
+
+  // Re-entrancy guard for the client-side queue pump below.
+  const processingRef = useRef(false)
+
+  // Backend queue processing only kicks in for spec-task composers: that path
+  // persists prompts via usePromptHistory and the server dispatches them once
+  // synced (keyed on spec_task_id). Plain external-agent sessions — the
+  // project "Human Desktop" (TeamDesktopPage) and org-worker chat — have no
+  // spec_task_id, so the composer must pump the queue itself by calling
+  // onSend, which the parent routes to streaming.NewInference → the running
+  // Zed agent. Without this fallback every queued message just sits forever as
+  // "Message queue (saved locally)" and the agent never sees it. (Regression
+  // from 53b336e01, which deleted the client-side pump on the assumption that
+  // the backend queue was always enabled.)
+  const backendQueueEnabled = !!(specTaskId && projectId && apiClient)
+
+  const processQueue = useCallback(async () => {
+    // Spec-task sessions: the backend owns dispatch after sync.
+    if (backendQueueEnabled) return
+    // Prevent concurrent processing.
+    if (processingRef.current || !isOnline || disabled) return
+
+    // Interrupt-mode messages first, then queue-mode, each oldest-first.
+    const sortedQueue = [...queuedPrompts].sort((a, b) => {
+      const aInterrupt = a.interrupt !== false
+      const bInterrupt = b.interrupt !== false
+      if (aInterrupt && !bInterrupt) return -1
+      if (!aInterrupt && bInterrupt) return 1
+      return a.timestamp - b.timestamp
+    })
+
+    // If editing, block the edited message and everything after it so ordering
+    // is preserved while the user revises.
+    let editingIndex = -1
+    if (editingId) {
+      editingIndex = sortedQueue.findIndex(m => m.id === editingId)
+    }
+
+    const nextToSend = sortedQueue.find((m, index) => {
+      if (m.id === sendingId) return false
+      if (m.status === 'sent') return false
+      if (editingIndex !== -1 && index >= editingIndex) return false
+      return true
+    })
+
+    if (!nextToSend) return
+
+    processingRef.current = true
+    setSendingId(nextToSend.id)
+
+    try {
+      // interrupt=true interrupts the agent's current turn; false queues after.
+      await onSend(nextToSend.content, nextToSend.interrupt !== false)
+      markAsSent(nextToSend.id)
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      markAsFailed(nextToSend.id)
+    } finally {
+      setSendingId(null)
+      processingRef.current = false
+    }
+  }, [backendQueueEnabled, isOnline, disabled, queuedPrompts, sendingId, editingId, onSend, markAsSent, markAsFailed])
+
+  // Pump the queue when messages are pending and we're online.
+  useEffect(() => {
+    if (isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0) && !processingRef.current) {
+      const timer = setTimeout(processQueue, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
+
+  // Continue pumping after each send completes.
+  useEffect(() => {
+    if (!sendingId && isOnline && (pendingPrompts.length > 0 || failedPrompts.length > 0)) {
+      const timer = setTimeout(processQueue, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [sendingId, isOnline, pendingPrompts.length, failedPrompts.length, processQueue])
 
   // Handle prepending text from parent (e.g., uploaded file paths)
   useEffect(() => {
@@ -524,7 +766,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }, [draft, adjustHeight])
 
   // Notify parent when queue changes (affects overall height)
-  const queueLength = pendingPrompts.length + failedPrompts.length
+  const queueLength = queuedPrompts.length
   useEffect(() => {
     if (onHeightChange) {
       // Small delay to allow Collapse animation to start
@@ -554,6 +796,18 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       ? (content ? `${attachmentPaths} ${content}` : attachmentPaths)
       : content
 
+    // Optimistic UI hook: fires synchronously before the queue persist /
+    // backend sync POST so the parent can flip a paused desktop's cached
+    // status to "starting" and render the spinner without waiting for the
+    // 3s session poll. Errors here must not block the send.
+    if (onWillSend) {
+      try {
+        onWillSend()
+      } catch (e) {
+        console.warn('[RobustPromptInput] onWillSend threw:', e)
+      }
+    }
+
     // Add to queue with pending status, passing interrupt mode
     saveToHistory(fullContent, interruptMode)
     clearDraft()
@@ -567,57 +821,112 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       return []
     })
     // Backend handles processing after sync - no need to call processQueue
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, interruptMode, onWillSend])
 
-  // Remove from queue
+  // Remove from queue: tombstone locally first (instant UI update, prevents
+  // re-import on sync), then fire backend DELETE (best effort).
   const handleRemoveFromQueue = useCallback((entryId: string) => {
-    removeFromQueue(entryId)
-  }, [removeFromQueue])
+    removeFromQueue(entryId) // Marks as deleted in localStorage (tombstone)
+    if (apiClient) {
+      apiClient.v1PromptHistoryDelete(entryId).catch((err: unknown) => {
+        console.warn('Failed to delete prompt from backend:', err)
+      })
+    }
+  }, [removeFromQueue, apiClient])
 
   // Toggle interrupt mode for a queued message
   const handleToggleInterrupt = useCallback((entryId: string) => {
-    const entry = [...failedPrompts, ...pendingPrompts].find(e => e.id === entryId)
+    const entry = queuedPrompts.find(e => e.id === entryId)
     if (entry) {
       updateInterrupt(entryId, entry.interrupt === false)
     }
-  }, [failedPrompts, pendingPrompts, updateInterrupt])
+  }, [queuedPrompts, updateInterrupt])
 
-  // Start editing a queued message
+  // Restart Zed thread after a Claude Agent crash. Calls the backend endpoint
+  // which clears the dead acp_thread_id and resets crashed prompts back to
+  // pending — the queue then re-dispatches them, Zed creates a fresh thread,
+  // and a new Claude Agent ACP wrapper is spawned. The local queue UI catches
+  // up via the existing prompt-history poll (~1-2s) so we just disable the
+  // button while the request is in flight; we don't optimistically mutate
+  // local state because the backend is the source of truth for prompt status.
+  const handleRestartAgent = useCallback(() => {
+    if (!apiClient || !sessionId || isRestartingAgent) return
+    setIsRestartingAgent(true)
+    apiClient.v1SessionsRestartAgentCreate(sessionId)
+      .catch((err: unknown) => {
+        console.error('Failed to restart agent thread:', err)
+      })
+      .finally(() => {
+        setIsRestartingAgent(false)
+      })
+  }, [apiClient, sessionId, isRestartingAgent])
+
+  // Start editing a queued message.
+  // To genuinely pause sending, we remove the entry from the backend queue
+  // (DELETE on backend only — keep it locally for the edit UI). On save/cancel,
+  // we delete the old entry locally and re-queue as a new entry.
   const handleStartEdit = useCallback((entry: PromptHistoryEntry) => {
-    // Don't allow editing a message that's currently sending
+    // Don't allow editing a message that's currently being sent
     if (entry.id === sendingId) return
 
+    // Store original content and interrupt mode so we can restore on cancel
+    setEditingOriginalContent(entry.content)
+    setEditingInterruptMode(entry.interrupt !== false)
     setEditingId(entry.id)
     setEditingContent(entry.content)
+
+    // Remove from backend queue so it can't be sent while editing.
+    // Keep the entry locally so the edit UI can render on it.
+    if (apiClient) {
+      apiClient.v1PromptHistoryDelete(entry.id).catch((err: unknown) => {
+        console.warn('Failed to delete prompt from backend during edit:', err)
+      })
+    }
 
     // Focus the edit textarea after render
     setTimeout(() => {
       editTextareaRef.current?.focus()
       editTextareaRef.current?.select()
     }, 50)
-  }, [sendingId])
+  }, [sendingId, apiClient])
 
-  // Save edited message
+  // Save edited message — remove old entry, re-queue with new content.
+  // The old entry was already deleted from the backend in handleStartEdit.
   const handleSaveEdit = useCallback(() => {
     if (!editingId) return
 
     const trimmedContent = editingContent.trim()
+
+    // Remove the old local entry (tombstone it)
+    removeFromQueue(editingId)
+
     if (trimmedContent) {
-      updateContent(editingId, trimmedContent)
-    } else {
-      // If content is empty, remove the message
-      removeFromQueue(editingId)
+      // Re-queue as a new pending entry with the edited content
+      saveToHistory(trimmedContent, editingInterruptMode)
     }
+    // If content is empty, don't re-queue (effectively deletes it)
 
     setEditingId(null)
     setEditingContent('')
-  }, [editingId, editingContent, updateContent, removeFromQueue])
+    setEditingOriginalContent('')
+  }, [editingId, editingContent, editingInterruptMode, removeFromQueue, saveToHistory])
 
-  // Cancel editing
+  // Cancel editing — remove old entry, re-queue original content unchanged.
+  // The old entry was already deleted from the backend in handleStartEdit.
   const handleCancelEdit = useCallback(() => {
+    if (editingId) {
+      // Remove old local entry (tombstone it)
+      removeFromQueue(editingId)
+
+      // Re-queue the original content as a new pending entry
+      if (editingOriginalContent.trim()) {
+        saveToHistory(editingOriginalContent, editingInterruptMode)
+      }
+    }
     setEditingId(null)
     setEditingContent('')
-  }, [])
+    setEditingOriginalContent('')
+  }, [editingId, editingOriginalContent, editingInterruptMode, removeFromQueue, saveToHistory])
 
   // Handle key events in edit textarea
   const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -632,6 +941,9 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Handle key events
   // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
+  // Empty Enter (no draft, no attachments) = promote the most recent queued
+  // entry to interrupt mode, which dispatches it immediately via the existing
+  // sync loop. Equivalent to clicking the lightning icon on that queue item.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -639,8 +951,25 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       const useInterrupt = e.ctrlKey || e.metaKey // metaKey for Mac Cmd key
       const content = draft.trim()
 
-      // Allow sending if there's content OR attachments
-      if ((!content && attachments.length === 0) || disabled) return
+      // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
+      if (!content && attachments.length === 0) {
+        if (disabled) return
+        // Promote the most-recent NON-interrupt queued message to interrupt.
+        // Scans queuedPrompts (failed + pending) so a deferred message — the one
+        // the user is actually trying to escalate — is still a candidate.
+        const candidates = queuedPrompts.filter(p =>
+          p.interrupt === false &&
+          !p.deleted &&
+          p.id !== sendingId &&
+          p.id !== editingId
+        )
+        if (candidates.length === 0) return
+        const target = candidates.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+        updateInterrupt(target.id, true)
+        return
+      }
+
+      if (disabled) return
 
       // Check if any attachments are still uploading
       const uploadingAttachments = attachments.filter(a => a.uploadStatus === 'uploading' || a.uploadStatus === 'pending')
@@ -688,7 +1017,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
         e.preventDefault()
       }
     }
-  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown])
+  }, [draft, disabled, attachments, saveToHistory, clearDraft, navigateUp, navigateDown, queuedPrompts, updateInterrupt, sendingId, editingId])
 
   // Add a file as an attachment (queues for upload, uploads if online)
   const addFileAsAttachment = useCallback((file: File): string => {
@@ -909,7 +1238,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   }
 
   // All queued messages (pending + failed), sorted: interrupt mode first, then queue mode
-  const queuedMessages = [...failedPrompts, ...pendingPrompts].sort((a, b) => {
+  const queuedMessages = [...queuedPrompts].sort((a, b) => {
     // Interrupt mode (true or undefined) comes first
     const aInterrupt = a.interrupt !== false
     const bInterrupt = b.interrupt !== false
@@ -925,7 +1254,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
     <Box
       className="prompt-input-container"
       data-prompt-input="true"
-      sx={{ position: 'relative' }}
+      sx={{ position: 'relative', width: '100%', minWidth: 0 }}
     >
       {/* Queued messages display */}
       <Collapse in={showQueue && queuedMessages.length > 0}>
@@ -949,6 +1278,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               px: 1.5,
               py: 0.75,
               bgcolor: editingId ? 'info.dark' : isOnline ? 'primary.dark' : 'warning.dark',
+              color: editingId ? 'info.contrastText' : isOnline ? 'primary.contrastText' : 'warning.contrastText',
               borderBottom: '1px solid',
               borderColor: 'divider',
             }}
@@ -1003,6 +1333,8 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
                       handleRemoveFromQueue={handleRemoveFromQueue}
                       handleToggleInterrupt={handleToggleInterrupt}
                       truncateContent={truncateContent}
+                      handleRestartAgent={handleRestartAgent}
+                      isRestarting={isRestartingAgent}
                     />
                   ))}
               </SortableContext>
@@ -1208,6 +1540,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
             alignItems: 'center',
             gap: 0.5,
             mt: 1,
+            flexWrap: 'wrap',
           }}
         >
           {/* History button */}
@@ -1333,6 +1666,26 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
               )}
             </IconButton>
           </Tooltip>
+
+          {/* Cancel button - visible when agent is busy */}
+          {isAgentBusy && onCancel && (
+            <Tooltip title="Cancel current turn">
+              <IconButton
+                onClick={onCancel}
+                sx={{
+                  flexShrink: 0,
+                  width: 30,
+                  height: 30,
+                  color: 'warning.main',
+                  '&:hover': {
+                    bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1),
+                  },
+                }}
+              >
+                <StopCircle size={18} />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Send button */}
           {(() => {

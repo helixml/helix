@@ -139,14 +139,51 @@ install_code_repo_hook() {
     cat > "$hooks_dir/commit-msg" << 'HOOK_EOF'
 #!/bin/bash
 # Helix commit-msg hook for code repositories
-# Adds Spec-Ref trailer pointing to helix-specs current state
+# Validates conventional commit format and adds Spec-Ref trailer
 
 COMMIT_MSG_FILE="$1"
 WORK_DIR="${WORK_DIR:-$HOME/work}"
 SPEC_DIR_NAME="${HELIX_SPEC_DIR_NAME:-}"
 HELIX_SPECS_DIR="$WORK_DIR/helix-specs"
 
-# Skip if helix-specs doesn't exist
+# Check if this is an empty commit message (or just comments)
+if ! grep -v '^#' "$COMMIT_MSG_FILE" | grep -q '[^[:space:]]'; then
+    exit 0
+fi
+
+# Get the first non-comment, non-blank line (the subject)
+SUBJECT=$(grep -v '^#' "$COMMIT_MSG_FILE" | grep -m1 '[^[:space:]]')
+
+# Skip validation for merge/revert commits (git generates these)
+case "$SUBJECT" in
+    "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*)
+        ;;
+    *)
+        # Validate conventional commit format
+        CONVENTIONAL_RE='^(feat|fix|refactor|chore|docs|test|style|perf|ci|build|revert)(\([a-z0-9._/-]+\))?!?: .+'
+        if ! echo "$SUBJECT" | grep -qE "$CONVENTIONAL_RE"; then
+            echo "ERROR: Commit message must use conventional commit format." >&2
+            echo "" >&2
+            echo "  Format: type(scope): description" >&2
+            echo "  Types:  feat, fix, refactor, chore, docs, test, style, perf, ci, build, revert" >&2
+            echo "  Scope:  optional (e.g., api, frontend, specs)" >&2
+            echo "" >&2
+            echo "  Examples:" >&2
+            echo "    feat(api): add PR content reading from helix-specs" >&2
+            echo "    fix(frontend): handle empty task list" >&2
+            echo "    chore: bump dependency versions" >&2
+            echo "" >&2
+            echo "  Got: $SUBJECT" >&2
+            exit 1
+        fi
+        # Subject length check (warn, don't fail)
+        if [ ${#SUBJECT} -gt 72 ]; then
+            echo "WARNING: Commit subject is ${#SUBJECT} chars (recommend ≤ 72)." >&2
+        fi
+        ;;
+esac
+
+# Skip Spec-Ref if helix-specs doesn't exist
 if [ ! -d "$HELIX_SPECS_DIR" ]; then
     exit 0
 fi
@@ -156,11 +193,6 @@ SPECS_HASH=$(git -C "$HELIX_SPECS_DIR" rev-parse --short HEAD 2>/dev/null || ech
 
 # Check if Spec-Ref already exists in commit message
 if grep -q "^Spec-Ref:" "$COMMIT_MSG_FILE"; then
-    exit 0
-fi
-
-# Check if this is an empty commit message (or just comments)
-if ! grep -v '^#' "$COMMIT_MSG_FILE" | grep -q '[^[:space:]]'; then
     exit 0
 fi
 

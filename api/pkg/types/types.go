@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -95,6 +95,22 @@ type Interaction struct {
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
+
+	// AutoWakeCount tracks how many times the auto-wake worker has sent a
+	// follow-up "continue" prompt to unstick this interaction. Zero means
+	// this is a normal user-initiated interaction; non-zero on an
+	// auto-wake interaction itself records which retry attempt it is.
+	// See design/2026-04-25-zed-claude-async-event-flush-on-user-input.md.
+	AutoWakeCount int `json:"auto_wake_count" gorm:"default:0;not null"`
+
+	// PromptID links this interaction back to the prompt_history_entry that
+	// created it (when the interaction was dispatched by the queue, as opposed
+	// to being initiated by Zed when the user types in the IDE). Empty for
+	// Zed-initiated interactions. Used by handleMessageAdded /
+	// handleMessageCompleted to mark the originating prompt as 'sent' without
+	// relying on an in-memory map that doesn't survive API restarts. See
+	// design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	PromptID string `json:"prompt_id,omitempty" gorm:"index"`
 }
 
 type FeedbackRequest struct {
@@ -107,6 +123,34 @@ type Feedback string
 const (
 	FeedbackLike    Feedback = "like"
 	FeedbackDislike Feedback = "dislike"
+)
+
+// Interaction.Trigger values for synthetic system interactions that are
+// not user-initiated (those use the default empty string or app-trigger
+// names like "slack", "crisp"). Used by the fork-and-pause flow.
+const (
+	// InteractionTriggerForkSeed marks the single synthetic divider
+	// interaction created on a forked child, carrying lineage metadata
+	// and (for the agent prepend path) a serialized blob of the parent
+	// transcript.
+	InteractionTriggerForkSeed = "fork_seed"
+
+	// InteractionTriggerForkInherited marks an interaction that was
+	// copied from a parent session at fork time. The child now owns
+	// these rows — they live on the child's SessionID — but their
+	// trigger value lets the UI hide destructive actions (regenerate,
+	// edit) and lets a future fork-of-fork still recognise its inherited
+	// vs. own turns when deciding what to copy forward.
+	InteractionTriggerForkInherited = "fork_inherited"
+
+	// InteractionTriggerForkHandoff marks the synthetic first turn fired
+	// automatically when a session is forked. Its prompt explicitly
+	// tells the new agent it's taking over a conversation, includes the
+	// full prior transcript (via maybePrependTranscript), and asks for
+	// a one-or-two-sentence acknowledgment. This turns the otherwise
+	// "cold agent until you first prompt" UX into "agent has visibly
+	// warmed up on the context by the time you arrive on the child".
+	InteractionTriggerForkHandoff = "fork_handoff"
 )
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
@@ -276,12 +320,6 @@ type RAGSettings struct {
 	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
 	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
-
-	Typesense struct {
-		URL        string `json:"url" yaml:"url"`
-		APIKey     string `json:"api_key" yaml:"api_key"`
-		Collection string `json:"collection" yaml:"collection"`
-	} `json:"typesense" yaml:"typesense"`
 }
 
 func (r RAGSettings) Value() (driver.Value, error) {
@@ -382,6 +420,19 @@ type SessionMetadata struct {
 	AgentType               string              `json:"agent_type,omitempty"`     // Agent type: "helix" or "zed_external"
 	SystemSession           bool                `json:"system_session,omitempty"` // True for internal system sessions (e.g., summary generation) - skip summary generation to avoid loops
 
+	// Autonomous crash recovery. Set true at session creation for surfaces with
+	// no human present to click the in-chat Restart button (spec tasks, org
+	// workers). When the external agent crashes mid-turn, the websocket crash
+	// handler auto-invokes the canonical restart primitive instead of leaving
+	// the session errored+idle. Human desktop sessions leave this false and keep
+	// the explicit button. AutoRestartCount bounds consecutive auto-restarts
+	// without an intervening successful turn (anti-storm guard); it is reset to 0
+	// on the next successful completion and lives on the SESSION (not the prompt)
+	// so ResetCrashedPromptsForSession can't zero the restart budget.
+	AutoRestartOnCrash bool      `json:"auto_restart_on_crash,omitempty"`
+	AutoRestartCount   int       `json:"auto_restart_count,omitempty"`
+	LastAutoRestartAt  time.Time `json:"last_auto_restart_at,omitempty"`
+
 	// Title history - tracks evolution of session topics (newest first)
 	// Shown on hover in the SpecTask tab view to see what topics were covered
 	TitleHistory []*TitleHistoryEntry `json:"title_history,omitempty"`
@@ -398,7 +449,7 @@ type SessionMetadata struct {
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
 	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
-Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	DevContainerID          string               `json:"dev_container_id,omitempty"`          // Dev container ID for streaming
 	SwayVersion             string               `json:"sway_version,omitempty"`              // helix-sway image version (commit hash) running in this session
 	GPUVendor               string               `json:"gpu_vendor,omitempty"`                // GPU vendor of sandbox running this session (nvidia, amd, intel, none)
@@ -439,7 +490,28 @@ Phase                   string               `json:"phase,omitempty"`           
 
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
-	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
+	AppQueryParams map[string]string `json:"app_query_params"`       // Passing through user defined app params
+	CallbackURL    string            `json:"callback_url,omitempty"` // Webhook URL to POST on session completion
+
+	// Fork lineage — set on a session created by forking from a parent.
+	// See design/tasks/002081_kickoff-mid-session/design.md.
+	ParentSessionID       string    `json:"parent_session_id,omitempty"`
+	ForkedAt              time.Time `json:"forked_at,omitempty"`
+	ForkedAtInteractionID string    `json:"forked_at_interaction_id,omitempty"`
+
+	// AgentSwitchedAt is set when the agent framework is switched IN PLACE on
+	// this same session (no fork / new container) — see
+	// design/tasks/002111_so-we-recently-added-a/design.md. It marks that a
+	// fork_seed interaction carrying the prior thread's transcript exists on
+	// THIS session, so maybePrependTranscript seeds the new Zed thread even
+	// though ParentSessionID is empty (the session continues from itself).
+	AgentSwitchedAt time.Time `json:"agent_switched_at,omitempty"`
+
+	// Pause state — sessions cannot accept new messages while paused.
+	// PausedReason is the only producer in v1: "forked_to:<child_id>".
+	Paused       bool      `json:"paused,omitempty"`
+	PausedReason string    `json:"paused_reason,omitempty"`
+	PausedAt     time.Time `json:"paused_at,omitempty"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -462,14 +534,17 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
-	ProjectID           string               `json:"project_id"`      // The project this session belongs to, if any
-	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
-	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
-	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
-	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
-	Stream              bool                 `json:"stream"`          // If true, we will stream the response
-	Type                SessionType          `json:"type"`            // e.g. text, image
+	AppID               string               `json:"app_id"`                          // Assign the session settings from the specified app
+	ProjectID           string               `json:"project_id"`                      // The project this session belongs to, if any
+	OrganizationID      string               `json:"organization_id"`                 // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`                    // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`                      // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`                  // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`                          // If true, we will stream the response
+	SessionRole         string               `json:"session_role,omitempty"`          // e.g. "job" — categorizes sessions for filtering
+	CallbackURL         string               `json:"callback_url,omitempty"`          // Webhook URL to POST on session completion
+	AutoRestartOnCrash  bool                 `json:"auto_restart_on_crash,omitempty"` // Autonomous surfaces: auto-recover the agent on crash (no human to click Restart)
+	Type                SessionType          `json:"type"`                            // e.g. text, image
 	LoraDir             string               `json:"lora_dir"`
 	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
 	Messages            []*Message           `json:"messages"`                        // Initial messages
@@ -858,10 +933,11 @@ type StripeUser struct {
 
 // this is given to the frontend as user context
 type UserStatus struct {
-	Admin  bool       `json:"admin"`
-	User   string     `json:"user"`
-	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
-	Config UserConfig `json:"config"`
+	Admin   bool                 `json:"admin"`
+	User    string               `json:"user"`
+	Slug    string               `json:"slug"` // User slug for GitHub-style URLs
+	Config  UserConfig           `json:"config"`
+	License *FrontendLicenseInfo `json:"license,omitempty"`
 }
 
 // a single envelope that is broadcast to users
@@ -1028,29 +1104,44 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	RegistrationEnabled                    bool                 `json:"registration_enabled"`
-	AuthProvider                           AuthProvider         `json:"auth_provider"`
-	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`              // Stripe top-ups enabled
-	BillingEnabled                         bool                 `json:"billing_enabled"`             // Charging for usage
-	RequireActiveSubscription              bool                 `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
-	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
-	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
-	EvalUserID                             string               `json:"eval_user_id"`
-	ToolsEnabled                           bool                 `json:"tools_enabled"`
-	AppsEnabled                            bool                 `json:"apps_enabled"`
-	RudderStackWriteKey                    string               `json:"rudderstack_write_key"`
-	RudderStackDataPlaneURL                string               `json:"rudderstack_data_plane_url"`
-	DisableLLMCallLogging                  bool                 `json:"disable_llm_call_logging"`
-	Version                                string               `json:"version"`
-	LatestVersion                          string               `json:"latest_version"`
-	DeploymentID                           string               `json:"deployment_id"`
-	License                                *FrontendLicenseInfo `json:"license,omitempty"`
-	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
-	MaxConcurrentDesktops                  int                  `json:"max_concurrent_desktops"`
-	ActiveConcurrentDesktops               int                  `json:"active_concurrent_desktops"`
-	Edition                                string               `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	RegistrationEnabled                    bool         `json:"registration_enabled"`
+	AuthProvider                           AuthProvider `json:"auth_provider"`
+	FilestorePrefix                        string       `json:"filestore_prefix"`
+	StripeEnabled                          bool         `json:"stripe_enabled"`              // Stripe top-ups enabled
+	BillingEnabled                         bool         `json:"billing_enabled"`             // Charging for usage
+	RequireActiveSubscription              bool         `json:"require_active_subscription"` // Require an active subscription before allowing to use the product
+	SentryDSNFrontend                      string       `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend                string       `json:"google_analytics_frontend"`
+	ToolsEnabled                           bool         `json:"tools_enabled"`
+	AppsEnabled                            bool         `json:"apps_enabled"`
+	RudderStackWriteKey                    string       `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL                string       `json:"rudderstack_data_plane_url"`
+	DisableLLMCallLogging                  bool         `json:"disable_llm_call_logging"`
+	Version                                string       `json:"version"`
+	LatestVersion                          string       `json:"latest_version"`
+	DeploymentID                           string       `json:"deployment_id"`
+	OrganizationsCreateEnabledForNonAdmins bool         `json:"organizations_create_enabled_for_non_admins"`
+	ProvidersManagementEnabled             bool         `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	HasProviders                           bool         `json:"has_providers"`                // Whether any global AI provider with enabled chat models exists
+	// MaxConcurrentDesktops: cap on concurrent desktop sessions. Enforced per
+	// organisation when the session has an org, per user otherwise.
+	// -1 = unlimited. Note: /config is unauthenticated, so this is the
+	// Free-tier floor; real enforcement uses the resolved per-user/per-org cap.
+	MaxConcurrentDesktops int    `json:"max_concurrent_desktops"`
+	Edition               string `json:"edition,omitempty"` // "mac-desktop", "server", "cloud", etc.
+	// DefaultChatSystemPrompt is the system prompt the platform applies to
+	// direct model chats when the user has not customised one. Surfaced to
+	// the frontend so the chat-settings page can prefill the textbox.
+	DefaultChatSystemPrompt string `json:"default_chat_system_prompt"`
+	// ServerURL is the operator-configured public origin for this helix
+	// instance (env SERVER_URL → WebServer.URL). Empty when not
+	// configured; the frontend then falls back to
+	// `window.location.origin`. The github-stream New Stream dialog
+	// uses this to surface a webhook URL that's actually reachable by
+	// GitHub — `window.location.origin` is wrong whenever the user is
+	// hitting the app via localhost / a dev port that GitHub can't
+	// reach.
+	ServerURL string `json:"server_url,omitempty"`
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1078,188 +1169,20 @@ type SessionSummary struct {
 	Metadata SessionMetadata `json:"metadata,omitempty"`
 }
 
-type WorkloadSummary struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created"`
-	UpdatedAt time.Time `json:"updated"`
-	ModelName string    `json:"model_name"`
-	Mode      string    `json:"mode"`
-	Runtime   string    `json:"runtime"`
-	LoraDir   string    `json:"lora_dir"`
-	Summary   string    `json:"summary"`
-}
+// Sandbox-absorbs-runner pivot: WorkloadSummary + DashboardData gone.
+// Dashboard view is now built from SandboxInstance + RunnerProfile, not a
+// separate "DashboardData" wrapper around scheduler state.
 
-type DashboardData struct {
-	Runners                   []*DashboardRunner          `json:"runners"`
-	Queue                     []*WorkloadSummary          `json:"queue"`
-	SchedulingDecisions       []*SchedulingDecision       `json:"scheduling_decisions"`
-	GlobalAllocationDecisions []*GlobalAllocationDecision `json:"global_allocation_decisions"`
-}
+// Sandbox-absorbs-runner pivot: GPUMemoryDataPoint, SchedulingEvent,
+// GPUMemoryReading, GPUMemoryStabilizationEvent — all gone (scheduler-era
+// memory-stabilisation telemetry).
 
-// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
-type GPUMemoryDataPoint struct {
-	Timestamp     time.Time `json:"timestamp"`
-	GPUIndex      int       `json:"gpu_index"`
-	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
-	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
-	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
-	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
-}
-
-// SchedulingEvent represents a scheduling event for correlation with memory usage
-type SchedulingEvent struct {
-	Timestamp   time.Time `json:"timestamp"`
-	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
-	SlotID      string    `json:"slot_id,omitempty"`
-	ModelName   string    `json:"model_name,omitempty"`
-	Runtime     string    `json:"runtime,omitempty"`
-	GPUIndices  []int     `json:"gpu_indices,omitempty"`
-	MemoryMB    uint64    `json:"memory_mb,omitempty"`
-	Description string    `json:"description,omitempty"`
-}
-
-// GPUMemoryReading represents a single memory reading during stabilization
-type GPUMemoryReading struct {
-	PollNumber  int    `json:"poll_number"`
-	MemoryMB    uint64 `json:"memory_mb"`
-	DeltaMB     int64  `json:"delta_mb"`
-	StableCount int    `json:"stable_count"`
-	IsStable    bool   `json:"is_stable"`
-}
-
-// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
-type GPUMemoryStabilizationEvent struct {
-	Timestamp              time.Time          `json:"timestamp"`
-	Context                string             `json:"context"` // "startup" or "deletion"
-	SlotID                 string             `json:"slot_id,omitempty"`
-	Runtime                string             `json:"runtime,omitempty"`
-	TimeoutSeconds         int                `json:"timeout_seconds"`
-	PollIntervalMs         int                `json:"poll_interval_ms"`
-	RequiredStablePolls    int                `json:"required_stable_polls"`
-	MemoryDeltaThresholdMB uint64             `json:"memory_delta_threshold_mb"`
-	Success                bool               `json:"success"`
-	PollsTaken             int                `json:"polls_taken"`
-	TotalWaitSeconds       int                `json:"total_wait_seconds"`
-	StabilizedMemoryMB     uint64             `json:"stabilized_memory_mb,omitempty"`
-	ErrorMessage           string             `json:"error_message,omitempty"`
-	MemoryReadings         []GPUMemoryReading `json:"memory_readings,omitempty"`
-}
-
-// GPUMemoryStats tracks GPU memory stabilization statistics
-type GPUMemoryStats struct {
-	TotalStabilizations      int                           `json:"total_stabilizations"`
-	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
-	FailedStabilizations     int                           `json:"failed_stabilizations"`
-	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
-	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
-	AverageWaitTimeSeconds   float64                       `json:"average_wait_time_seconds"`
-	MaxWaitTimeSeconds       int                           `json:"max_wait_time_seconds"`
-	MinWaitTimeSeconds       int                           `json:"min_wait_time_seconds"`
-	MemoryTimeSeries         []GPUMemoryDataPoint          `json:"memory_time_series"` // Last 10 minutes of memory data
-	SchedulingEvents         []SchedulingEvent             `json:"scheduling_events"`  // Last 10 minutes of scheduling events
-}
-
-type DashboardRunner struct {
-	ID              string               `json:"id"`
-	Created         time.Time            `json:"created"`
-	Updated         time.Time            `json:"updated"`
-	Version         string               `json:"version"`
-	TotalMemory     uint64               `json:"total_memory"`
-	FreeMemory      uint64               `json:"free_memory"`
-	UsedMemory      uint64               `json:"used_memory"`
-	AllocatedMemory uint64               `json:"allocated_memory"`
-	GPUCount        int                  `json:"gpu_count"` // Number of GPUs detected
-	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
-	Labels          map[string]string    `json:"labels"`
-	Slots           []*RunnerSlot        `json:"slots"`
-	MemoryString    string               `json:"memory_string"`
-	Models          []*RunnerModelStatus `json:"models"`
-	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
-	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
-}
-
-type GlobalSchedulingDecision struct {
-	Created       time.Time     `json:"created"`
-	RunnerID      string        `json:"runner_id"`
-	SessionID     string        `json:"session_id"`
-	InteractionID string        `json:"interaction_id"`
-	ModelName     string        `json:"model_name"`
-	Mode          SessionMode   `json:"mode"`
-	Filter        SessionFilter `json:"filter"`
-}
-
-// AllocationPlanView represents a plan option for visualization
-type AllocationPlanView struct {
-	ID                  string         `json:"id"`
-	RunnerID            string         `json:"runner_id"`
-	GPUs                []int          `json:"gpus"`
-	GPUCount            int            `json:"gpu_count"`
-	IsMultiGPU          bool           `json:"is_multi_gpu"`
-	TotalMemoryRequired uint64         `json:"total_memory_required"`
-	MemoryPerGPU        uint64         `json:"memory_per_gpu"`
-	Cost                int            `json:"cost"`
-	RequiresEviction    bool           `json:"requires_eviction"`
-	EvictionsNeeded     []string       `json:"evictions_needed"` // Slot IDs
-	TensorParallelSize  int            `json:"tensor_parallel_size"`
-	Runtime             Runtime        `json:"runtime"`
-	IsValid             bool           `json:"is_valid"`
-	ValidationError     string         `json:"validation_error,omitempty"`
-	RunnerMemoryState   map[int]uint64 `json:"runner_memory_state"` // GPU index -> allocated memory
-	RunnerCapacity      map[int]uint64 `json:"runner_capacity"`     // GPU index -> total memory
-}
-
-// GlobalAllocationDecision represents a complete global allocation decision for visualization
-type GlobalAllocationDecision struct {
-	ID         string    `json:"id"`
-	Created    time.Time `json:"created"`
-	WorkloadID string    `json:"workload_id"`
-	SessionID  string    `json:"session_id"`
-	ModelName  string    `json:"model_name"`
-	Runtime    Runtime   `json:"runtime"`
-
-	// All plans considered
-	ConsideredPlans []*AllocationPlanView `json:"considered_plans"`
-	SelectedPlan    *AllocationPlanView   `json:"selected_plan"`
-
-	// Timing information
-	PlanningTimeMs  int64 `json:"planning_time_ms"`
-	ExecutionTimeMs int64 `json:"execution_time_ms"`
-	TotalTimeMs     int64 `json:"total_time_ms"`
-
-	// Decision outcome
-	Success      bool   `json:"success"`
-	Reason       string `json:"reason"`
-	ErrorMessage string `json:"error_message,omitempty"`
-
-	// Global state snapshots
-	BeforeState map[string]*RunnerStateView `json:"before_state"`
-	AfterState  map[string]*RunnerStateView `json:"after_state"`
-
-	// Decision metadata
-	TotalRunnersEvaluated int     `json:"total_runners_evaluated"`
-	TotalPlansGenerated   int     `json:"total_plans_generated"`
-	OptimizationScore     float64 `json:"optimization_score"` // How optimal the final decision was
-}
-
-// RunnerStateView represents a runner's state for visualization
-type RunnerStateView struct {
-	RunnerID    string            `json:"runner_id"`
-	GPUStates   map[int]*GPUState `json:"gpu_states"` // GPU index -> state
-	TotalSlots  int               `json:"total_slots"`
-	ActiveSlots int               `json:"active_slots"`
-	WarmSlots   int               `json:"warm_slots"`
-	IsConnected bool              `json:"is_connected"`
-}
-
-// GPUState represents a single GPU's state
-type GPUState struct {
-	Index           int      `json:"index"`
-	TotalMemory     uint64   `json:"total_memory"`
-	AllocatedMemory uint64   `json:"allocated_memory"`
-	FreeMemory      uint64   `json:"free_memory"`
-	ActiveSlots     []string `json:"active_slots"` // Slot IDs using this GPU
-	Utilization     float64  `json:"utilization"`  // 0.0 - 1.0
-}
+// Sandbox-absorbs-runner pivot: GPUMemoryStats, DashboardRunner,
+// GlobalSchedulingDecision, AllocationPlanView, GlobalAllocationDecision,
+// RunnerStateView, GPUState — all gone. They visualised the deleted
+// scheduler's bin-packing decisions; the new world has no equivalent
+// (operators express layout in compose YAML; admin dashboard shows
+// per-runner profile + service health, no allocation planning).
 
 // keep track of the state of the data prep
 // no error means "success"
@@ -1640,6 +1563,16 @@ type AssistantConfig struct {
 	// "subscription": uses OAuth credentials directly (e.g., Claude subscription).
 	CodeAgentCredentialType CodeAgentCredentialType `json:"code_agent_credential_type,omitempty" yaml:"code_agent_credential_type,omitempty"`
 
+	// GooseRecipeRepoURL is the external git URL of the attached repository
+	// that holds the project's Goose recipes (e.g. https://github.com/foo/bar).
+	// Resolved against attached GitRepositories at sandbox-start time.
+	// Empty means recipes are looked up under the primary repository.
+	GooseRecipeRepoURL string `json:"goose_recipe_repo_url,omitempty" yaml:"goose_recipe_repo_url,omitempty"`
+
+	// GooseRecipes are the project-declared Goose recipes (slash-command name
+	// + repo-relative path to the recipe YAML).
+	GooseRecipes []AssistantGooseRecipe `json:"goose_recipes,omitempty" yaml:"goose_recipes,omitempty"`
+
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
@@ -1711,6 +1644,14 @@ type AssistantConfig struct {
 type AssistantProjectManager struct {
 	Enabled   bool   `json:"enabled" yaml:"enabled"`
 	ProjectID string `json:"project_id" yaml:"project_id"`
+}
+
+// AssistantGooseRecipe is a project-declared Goose recipe persisted on the
+// agent app config. Path is repo-relative inside GooseRecipeRepoURL (or the
+// primary repo when GooseRecipeRepoURL is empty).
+type AssistantGooseRecipe struct {
+	Name string `json:"name" yaml:"name"`
+	Path string `json:"path" yaml:"path"`
 }
 
 type AssistantBrowser struct {
@@ -1842,12 +1783,15 @@ type CrispTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled   bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Schedule  string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
-	Input     string   `json:"input,omitempty" yaml:"input,omitempty"`
-	Emails    []string `json:"emails,omitempty" yaml:"emails,omitempty"`
-	Action    string   `json:"action,omitempty" yaml:"action,omitempty"`         // "session" (default) or "spec_task"
-	ProjectID string   `json:"project_id,omitempty" yaml:"project_id,omitempty"` // Target project for spec_task action
+	Enabled     bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule    string   `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input       string   `json:"input,omitempty" yaml:"input,omitempty"`
+	InputFile   string   `json:"input_file,omitempty" yaml:"input_file,omitempty"` // File path in helix-specs worktree to use as prompt (overrides Input)
+	AgentType   string   `json:"agent_type,omitempty" yaml:"agent_type,omitempty"` // "helix" (default) or "zed_external"
+	Emails      []string `json:"emails,omitempty" yaml:"emails,omitempty"`
+	CallbackURL string   `json:"callback_url,omitempty" yaml:"callback_url,omitempty"` // Webhook URL to POST on completion
+	Action      string   `json:"action,omitempty" yaml:"action,omitempty"`             // "session" (default) or "spec_task"
+	ProjectID   string   `json:"project_id,omitempty" yaml:"project_id,omitempty"`     // Target project for spec_task action
 }
 
 // AzureDevOpsTrigger - once enabled, a trigger in the database will be created
@@ -1992,6 +1936,12 @@ type DesktopAgent struct {
 
 	// Golden build mode: session builds a golden Docker cache snapshot
 	GoldenBuild bool `json:"golden_build,omitempty"`
+
+	// OnBeforeCreate is called inside the session lock, after the "already running"
+	// check passes, right before creating the container. Used to refresh API keys
+	// that may have been revoked by a concurrent StopDesktop.
+	// If nil, no callback is executed.
+	OnBeforeCreate func(ctx context.Context, agent *DesktopAgent) error `json:"-"`
 }
 
 // GetEffectiveResolution returns the display dimensions based on Resolution preset
@@ -2023,6 +1973,31 @@ func (z *DesktopAgent) GetEffectiveResolution() (width, height, refreshRate int)
 	}
 
 	return width, height, refreshRate
+}
+
+// SetRepoContext populates RepositoryIDs and PrimaryRepositoryID from the
+// given project repos. defaultRepoID is the project's preferred repo
+// (typically Project.DefaultRepoID); when empty the first repo wins.
+// No-op when repos is empty — caller-set values are preserved.
+func (z *DesktopAgent) SetRepoContext(repos []*GitRepository, defaultRepoID string) {
+	if len(repos) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		if repo != nil && repo.ID != "" {
+			ids = append(ids, repo.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	z.RepositoryIDs = ids
+	if defaultRepoID != "" {
+		z.PrimaryRepositoryID = defaultRepoID
+	} else {
+		z.PrimaryRepositoryID = ids[0]
+	}
 }
 
 // DesktopAgentAPIEnvVars returns the standard API-related environment variables
@@ -2327,6 +2302,7 @@ type ZedConfigResponse struct {
 	ExternalSync                map[string]interface{} `json:"external_sync,omitempty"`
 	Agent                       map[string]interface{} `json:"agent,omitempty"`
 	Theme                       string                 `json:"theme,omitempty"`
+	ColorScheme                 string                 `json:"color_scheme,omitempty"`                  // Session owner's UI color scheme: "light", "dark", or "" (follow OS). Daemon applies via gsettings to GNOME.
 	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
@@ -2353,6 +2329,37 @@ type CodeAgentConfig struct {
 	// MaxOutputTokens is the model's max completion tokens
 	// Looked up from model_info.json, 0 if not found
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+
+	// GooseRecipes lists project-declared Goose recipes with absolute paths
+	// resolved inside the desktop container. Only set when Runtime is
+	// goose_code; consumed by settings-sync-daemon to write the goose
+	// slash_commands config.
+	GooseRecipes []CodeAgentGooseRecipe `json:"goose_recipes,omitempty"`
+	// GooseRecipeRootDir is the absolute container path to the root of the
+	// recipes git repo (used as GOOSE_RECIPE_PATH so subrecipes/fragments
+	// resolve relative paths correctly).
+	GooseRecipeRootDir string `json:"goose_recipe_root_dir,omitempty"`
+	// GooseBakedRecipe, when set, holds a single recipe with parameters
+	// pre-substituted, used by Phase 2b spec-task automation. The daemon
+	// writes it to disk and registers a single slash_command so an initial
+	// "/<slug>" prompt fires the recipe.
+	GooseBakedRecipe *CodeAgentBakedRecipe `json:"goose_baked_recipe,omitempty"`
+}
+
+// CodeAgentGooseRecipe is the daemon-facing view of a project-declared
+// Goose recipe — Path has been resolved to an absolute container path.
+type CodeAgentGooseRecipe struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// CodeAgentBakedRecipe is a single Goose recipe with parameters
+// pre-substituted, ready for the daemon to write to disk.
+type CodeAgentBakedRecipe struct {
+	// Name is the slash-command slug (no leading slash).
+	Name string `json:"name"`
+	// Content is the substituted recipe YAML (full file content).
+	Content string `json:"content"`
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -2432,9 +2439,13 @@ type LLMCall struct {
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
+	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
+	CacheWriteTokens int64          `json:"cache_write_tokens"` // prompt tokens written to provider cache (Anthropic only; subset of PromptTokens)
 	PromptCost       float64        `json:"prompt_cost"`
 	CompletionCost   float64        `json:"completion_cost"`
-	TotalCost        float64        `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost    float64        `json:"cache_read_cost"`
+	CacheWriteCost   float64        `json:"cache_write_cost"`
+	TotalCost        float64        `json:"total_cost"` // Prompt + completion + cache read + cache write
 	Stream           bool           `json:"stream"`
 	Error            string         `json:"error"`
 }
@@ -2466,48 +2477,10 @@ type LicenseKey struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-type GetDesiredRunnerSlotsResponse struct {
-	Data []DesiredRunnerSlot `json:"data"`
-}
-
-type DesiredSlots struct {
-	ID   string              `json:"id"`
-	Data []DesiredRunnerSlot `json:"data"`
-}
-
-type DesiredRunnerSlot struct {
-	ID         uuid.UUID                   `json:"id"`
-	Attributes DesiredRunnerSlotAttributes `json:"attributes"`
-}
-
-type WorkloadType string
-
-const (
-	WorkloadTypeLLMInferenceRequest WorkloadType = "llm"
-	WorkloadTypeSession             WorkloadType = "session"
-)
-
-type DesiredRunnerSlotAttributes struct {
-	Workload *RunnerWorkload `json:"workload,omitempty"`
-	Model    string          `json:"model"`
-	Mode     string          `json:"mode"`
-}
-
-type RunnerWorkload struct {
-	LLMInferenceRequest *RunnerLLMInferenceRequest
-	Session             *Session
-}
-
-type RunnerActualSlot struct {
-	ID         uuid.UUID                  `json:"id"`
-	Attributes RunnerActualSlotAttributes `json:"attributes"`
-}
-
-type RunnerActualSlotAttributes struct {
-	OriginalWorkload *RunnerWorkload `json:"original_workload,omitempty"`
-	CurrentWorkload  *RunnerWorkload `json:"current_workload,omitempty"`
-	RunnerSlot       *RunnerSlot     `json:"runner_slot,omitempty"`
-}
+// Sandbox-absorbs-runner pivot: GetDesiredRunnerSlotsResponse, DesiredSlots,
+// DesiredRunnerSlot, WorkloadType, DesiredRunnerSlotAttributes,
+// RunnerWorkload, RunnerActualSlot, RunnerActualSlotAttributes — all gone.
+// The "desired vs actual slot" reconciliation lived in the scheduler.
 
 type RunAPIActionRequest struct {
 	Action     string                 `json:"action"`
@@ -2523,21 +2496,10 @@ type RunAPIActionResponse struct {
 	Error    string `json:"error"`
 }
 
-type RunnerAttributes struct {
-	TotalMemory uint64       `json:"total_memory"`
-	FreeMemory  uint64       `json:"free_memory"`
-	Version     string       `json:"version"`
-	Slots       []RunnerSlot `json:"slots"`
-}
-
-type Runner struct {
-	ID         string           `json:"id"`
-	Attributes RunnerAttributes `json:"attributes"`
-}
-
-type GetRunnersResponse struct {
-	Runners []Runner `json:"runners"`
-}
+// Sandbox-absorbs-runner pivot: RunnerAttributes / Runner / GetRunnersResponse
+// (the API representation of a connected runner) is replaced by
+// SandboxInstance which already serves the same role — no separate "Runner"
+// type needed.
 
 // Add this struct to represent the license info we want to send to the frontend
 type FrontendLicenseInfo struct {
@@ -2595,13 +2557,14 @@ type AdminResetPasswordRequest struct {
 }
 
 type UserResponse struct {
-	ID                  string `json:"id"`
-	Email               string `json:"email"`
-	Token               string `json:"token"`
-	Name                string `json:"name"`
-	Admin               bool   `json:"admin"`
-	OnboardingCompleted bool   `json:"onboarding_completed"`
-	Waitlisted          bool   `json:"waitlisted"`
+	ID                  string   `json:"id"`
+	Email               string   `json:"email"`
+	Token               string   `json:"token"`
+	Name                string   `json:"name"`
+	Admin               bool     `json:"admin"`
+	OnboardingCompleted bool     `json:"onboarding_completed"`
+	Waitlisted          bool     `json:"waitlisted"`
+	AlphaFeatures       []string `json:"alpha_features"`
 }
 
 type AuthenticatedResponse struct {
@@ -2627,22 +2590,26 @@ type ContextMenuAction struct {
 
 type UsageMetric struct {
 	ID                string    `json:"id" gorm:"primaryKey"`
-	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
+	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string    `json:"organization_id"`
-	InteractionID     string    `json:"interaction_id"`
+	OrganizationID    string    `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID     string    `json:"interaction_id" gorm:"index"`
 	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
 	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	UserID            string    `json:"user_id"`
+	UserID            string    `json:"user_id" gorm:"index"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
 	PromptTokens      int       `json:"prompt_tokens"`
 	CompletionTokens  int       `json:"completion_tokens"`
 	TotalTokens       int       `json:"total_tokens"`
+	CacheReadTokens   int       `json:"cache_read_tokens"`
+	CacheWriteTokens  int       `json:"cache_write_tokens"`
 	PromptCost        float64   `json:"prompt_cost"`
 	CompletionCost    float64   `json:"completion_cost"`
-	TotalCost         float64   `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64   `json:"cache_read_cost"`
+	CacheWriteCost    float64   `json:"cache_write_cost"`
+	TotalCost         float64   `json:"total_cost"` // Prompt + completion + cache read + cache write
 	DurationMs        int       `json:"duration_ms"`
 	RequestSizeBytes  int       `json:"request_size_bytes"`
 	ResponseSizeBytes int       `json:"response_size_bytes"`
@@ -2653,6 +2620,30 @@ type UsersAggregatedUsageMetric struct {
 	Metrics []AggregatedUsageMetric `json:"metrics"`
 }
 
+// UserModelUsage is a per-(provider, model) aggregate of a user's inference usage.
+type UserModelUsage struct {
+	Provider         string    `json:"provider"`
+	Model            string    `json:"model"`
+	TotalRequests    int64     `json:"total_requests"`
+	TotalTokens      int64     `json:"total_tokens"`
+	PromptTokens     int64     `json:"prompt_tokens"`
+	CompletionTokens int64     `json:"completion_tokens"`
+	CacheReadTokens  int64     `json:"cache_read_tokens"`
+	CacheWriteTokens int64     `json:"cache_write_tokens"`
+	TotalCost        float64   `json:"total_cost"`
+	FirstUsed        time.Time `json:"first_used"`
+	LastUsed         time.Time `json:"last_used"`
+}
+
+// UserStatsResponse is the admin-only overview payload for a user's activity.
+type UserStatsResponse struct {
+	User           *User            `json:"user"`
+	LastActiveAt   *time.Time       `json:"last_active_at,omitempty"`
+	ProjectsCount  int64            `json:"projects_count"`
+	SpecTasksCount int64            `json:"spec_tasks_count"`
+	Models         []UserModelUsage `json:"models"`
+}
+
 type AggregatedUsageMetric struct {
 	// ID    string    `json:"id" gorm:"primaryKey"`
 	Date time.Time `json:"date"` // The date of the metric (without time, just the date)
@@ -2660,13 +2651,98 @@ type AggregatedUsageMetric struct {
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`
 	TotalTokens       int     `json:"total_tokens"`
+	CacheReadTokens   int     `json:"cache_read_tokens"`
+	CacheWriteTokens  int     `json:"cache_write_tokens"`
 	PromptCost        float64 `json:"prompt_cost"`
 	CompletionCost    float64 `json:"completion_cost"`
-	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
+	CacheReadCost     float64 `json:"cache_read_cost"`
+	CacheWriteCost    float64 `json:"cache_write_cost"`
+	SandboxCost       float64 `json:"sandbox_cost"`
+	TotalCost         float64 `json:"total_cost"` // Prompt + completion + cache read + cache write
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
 	TotalRequests     int     `json:"total_requests"`
+}
+
+type UsageBreakdownRow struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Email             string     `json:"email,omitempty"`
+	Username          string     `json:"username,omitempty"`
+	Provider          string     `json:"provider,omitempty"`
+	Model             string     `json:"model,omitempty"`
+	SessionID         string     `json:"session_id,omitempty"`
+	InteractionID     string     `json:"interaction_id,omitempty"`
+	PromptTokens      int        `json:"prompt_tokens"`
+	CompletionTokens  int        `json:"completion_tokens"`
+	TotalTokens       int        `json:"total_tokens"`
+	CacheReadTokens   int        `json:"cache_read_tokens"`
+	CacheWriteTokens  int        `json:"cache_write_tokens"`
+	PromptCost        float64    `json:"prompt_cost"`
+	CompletionCost    float64    `json:"completion_cost"`
+	CacheReadCost     float64    `json:"cache_read_cost"`
+	CacheWriteCost    float64    `json:"cache_write_cost"`
+	TotalCost         float64    `json:"total_cost"`
+	LatencyMs         float64    `json:"latency_ms"`
+	RequestSizeBytes  int        `json:"request_size_bytes"`
+	ResponseSizeBytes int        `json:"response_size_bytes"`
+	TotalRequests     int        `json:"total_requests"`
+	SessionCount      int        `json:"session_count"`
+	UniqueUsers       int        `json:"unique_users"`
+	UniqueSessions    int        `json:"unique_sessions"`
+	UniqueProjects    int        `json:"unique_projects"`
+	UniqueApps        int        `json:"unique_apps"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	LastActivityAt    *time.Time `json:"last_activity_at,omitempty"`
+}
+
+type UsageModelTimeSeries struct {
+	ID       string                  `json:"id"`
+	Name     string                  `json:"name"`
+	Provider string                  `json:"provider"`
+	Model    string                  `json:"model"`
+	Metrics  []AggregatedUsageMetric `json:"metrics"`
+}
+
+type UsageFilterOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email,omitempty"`
+	Username string `json:"username,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+type OrgUsageSummaryResponse struct {
+	Metrics         []*AggregatedUsageMetric `json:"metrics"`
+	Projects        []UsageBreakdownRow      `json:"projects"`
+	ProjectModels   []UsageBreakdownRow      `json:"project_models"`
+	Apps            []UsageBreakdownRow      `json:"apps"`
+	Tasks           []UsageBreakdownRow      `json:"tasks"`
+	Sessions        []UsageBreakdownRow      `json:"sessions"`
+	Models          []UsageBreakdownRow      `json:"models"`
+	ModelTimeSeries []UsageModelTimeSeries   `json:"model_time_series"`
+	Users           []UsageBreakdownRow      `json:"users"`
+	UsersTotal      int64                    `json:"users_total"`
+	ProjectsTotal   int64                    `json:"projects_total"`
+	TasksTotal      int64                    `json:"tasks_total"`
+	SessionsTotal   int64                    `json:"sessions_total"`
+	ActiveUsers     int                      `json:"active_users"`
+	ActiveSessions  int                      `json:"active_sessions"`
+	ActiveProjects  int                      `json:"active_projects"`
+	ActiveApps      int                      `json:"active_apps"`
+	FilterUsers     []UsageFilterOption      `json:"filter_users"`
+	FilterProjects  []UsageFilterOption      `json:"filter_projects"`
+	FilterApps      []UsageFilterOption      `json:"filter_apps"`
+	FilterModels    []UsageFilterOption      `json:"filter_models"`
+	ExportProjects  []UsageBreakdownRow      `json:"export_projects"`
+	ExportApps      []UsageBreakdownRow      `json:"export_apps"`
+	ExportTasks     []UsageBreakdownRow      `json:"export_tasks"`
+	ExportSessions  []UsageBreakdownRow      `json:"export_sessions"`
+	ExportModels    []UsageBreakdownRow      `json:"export_models"`
+	ExportUsers     []UsageBreakdownRow      `json:"export_users"`
 }
 
 // Response for the user access endpoint
@@ -2719,40 +2795,8 @@ type FlexibleEmbeddingResponse struct {
 	} `json:"usage"`
 }
 
-type SchedulingDecisionType string
-
-const (
-	SchedulingDecisionTypeQueued         SchedulingDecisionType = "queued"           // Added to queue
-	SchedulingDecisionTypeReuseWarmSlot  SchedulingDecisionType = "reuse_warm_slot"  // Reused existing warm model instance
-	SchedulingDecisionTypeCreateNewSlot  SchedulingDecisionType = "create_new_slot"  // Started new model instance
-	SchedulingDecisionTypeEvictStaleSlot SchedulingDecisionType = "evict_stale_slot" // Evicted stale slot to free memory
-	SchedulingDecisionTypeRejected       SchedulingDecisionType = "rejected"         // Rejected (insufficient resources, etc.)
-	SchedulingDecisionTypeError          SchedulingDecisionType = "error"            // Error during scheduling
-	SchedulingDecisionTypeUnschedulable  SchedulingDecisionType = "unschedulable"    // Cannot be scheduled (no warm slots available)
-)
-
-// SchedulingDecision represents a decision made by the central scheduler
-type SchedulingDecision struct {
-	ID               string                 `json:"id"`
-	Created          time.Time              `json:"created"`
-	WorkloadID       string                 `json:"workload_id"`
-	SessionID        string                 `json:"session_id"`
-	ModelName        string                 `json:"model_name"`
-	Mode             SessionMode            `json:"mode"`
-	DecisionType     SchedulingDecisionType `json:"decision_type"`
-	RunnerID         string                 `json:"runner_id,omitempty"`
-	SlotID           string                 `json:"slot_id,omitempty"`
-	Reason           string                 `json:"reason"`
-	Success          bool                   `json:"success"`
-	ProcessingTimeMs int64                  `json:"processing_time_ms"`
-	QueuePosition    int                    `json:"queue_position,omitempty"`
-	AvailableRunners []string               `json:"available_runners,omitempty"`
-	MemoryRequired   uint64                 `json:"memory_required,omitempty"`
-	MemoryAvailable  uint64                 `json:"memory_available,omitempty"`
-	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
-	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
-	RepeatCount      int                    `json:"repeat_count,omitempty"`
-}
+// Sandbox-absorbs-runner pivot: SchedulingDecisionType + SchedulingDecision
+// gone with the scheduler.
 
 // SlackThread used to track the state of slack threads where Helix agent is invoked
 type SlackThread struct {
@@ -2943,6 +2987,8 @@ const (
 	EventCronTriggerFailed    Event = 2
 	EventPasswordResetRequest Event = 3
 	EventWaitlistApproved     Event = 4
+	EventTrialActivated       Event = 5
+	EventOrgInvitation        Event = 6
 )
 
 func (e Event) String() string {
@@ -2955,6 +3001,10 @@ func (e Event) String() string {
 		return "password_reset_request"
 	case EventWaitlistApproved:
 		return "waitlist_approved"
+	case EventTrialActivated:
+		return "trial_activated"
+	case EventOrgInvitation:
+		return "org_invitation"
 	default:
 		return "unknown_event"
 	}
@@ -2971,8 +3021,42 @@ type Notification struct {
 	Email     string
 	FirstName string
 
+	// TrialDays, when non-zero, signals to the email template that the
+	// approval also activates a free trial of this length.
+	TrialDays int
+
+	// TrialPending is true when a trial has been granted but the user has not
+	// yet created their first org — so the trial is parked on the user and
+	// will be applied at org-create time.
+	TrialPending bool
+
+	// OrgInvitation - populated for EventOrgInvitation emails.
+	OrgInvitation *OrgInvitationNotification `json:"org_invitation,omitempty"`
+
 	// If set, send to these emails instead of the session owner
 	Emails []string
+
+	// If set, POST notification payload to this URL
+	CallbackURL string
+}
+
+// OrgInvitationNotification carries the data the invitation email template
+// renders. Kept on the Notification rather than the template-data struct so
+// callers don't need to know about template internals.
+type OrgInvitationNotification struct {
+	OrganizationName        string
+	OrganizationDisplayName string
+	InviterName             string
+	Role                    string
+	AcceptURL               string
+}
+
+// SessionOutputResponse is returned by GET /sessions/{id}/output
+type SessionOutputResponse struct {
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"` // "waiting", "complete", "error"
+	Output     string `json:"output"` // Last interaction's response text
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session
@@ -3120,10 +3204,85 @@ type SandboxInstance struct {
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
 	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
 
-	// Sandbox capacity
+	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
+	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
+	// (default 20); the gorm default below only applies to rows inserted
+	// via paths that don't set the field. Kept aligned with the env-var
+	// default to avoid surprises.
 	ActiveSandboxes int  `json:"active_sandboxes" gorm:"default:0"` // Number of active desktop containers
-	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:10"`   // Maximum allowed containers
+	MaxSandboxes    int  `json:"max_sandboxes" gorm:"default:20"`   // Maximum allowed containers
 	PrivilegedMode  bool `json:"privileged_mode" gorm:"default:false"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty" gorm:"type:varchar(255)"`
+
+	// --- Sandbox-absorbs-runner pivot fields (Decision 13 in design.md) ---
+	// Populated by the sandbox's compose-manager process (where present).
+	// Drive the API server's inference router and the admin UI's
+	// per-sandbox profile / service display.
+
+	// GPUs is the per-GPU inventory the sandbox reports for inference
+	// scheduling. Vendor / Architecture / ComputeCapability on each
+	// entry are the load-bearing fields for profile compatibility.
+	// Explicit column tag because GORM's default snake_case derivation
+	// turns `GPUs` into `gp_us`.
+	GPUs datatypes.JSON `json:"gpus,omitempty" gorm:"column:gpus;type:jsonb" swaggertype:"array,object"`
+
+	// ActiveProfileID is the ID of the runner profile this sandbox is
+	// currently running (or attempting to run). Empty for pure-agent
+	// sandboxes with no profile assigned.
+	ActiveProfileID string `json:"active_profile_id,omitempty" gorm:"type:varchar(255);index"`
+
+	// ProfileStatus tracks the compose stack lifecycle:
+	// "" | "assigning" | "pulling" | "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty" gorm:"type:varchar(50)"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty" gorm:"type:text"`
+
+	// ServiceHealth maps compose service name -> health string
+	// ("healthy" | "starting" | "failed" | "unknown"). Reported by
+	// compose-manager polling each container's /v1/models endpoint
+	// (or vendor-specific health endpoint).
+	ServiceHealth datatypes.JSON `json:"service_health,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ProfileProgress is per-service download progress for model weights,
+	// surfaced when ProfileStatus="starting" and a vLLM container is
+	// pulling weights from Hugging Face Hub. Empty once all services are
+	// healthy. Map key is compose service name.
+	ProfileProgress datatypes.JSON `json:"profile_progress,omitempty" gorm:"type:jsonb" swaggertype:"object,object"`
+
+	// --- Provider provenance fields ---
+	// Populated when this sandbox host was brought into existence by a
+	// compute provider (see api/pkg/sandbox/compute). Hosts that
+	// self-registered via the legacy WebSocket / operator-driven path
+	// leave these empty.
+
+	// Provider is the Name() of the compute.Provider that owns this host.
+	// E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+	Provider string `json:"provider,omitempty" gorm:"type:varchar(50);index:idx_sandbox_provider_id,priority:1"`
+
+	// ProviderID is the upstream system's opaque identifier for this
+	// host (e.g. a YellowDog work-requirement YDID). Forms a composite
+	// index with Provider so the reconciler can look hosts up cheaply.
+	ProviderID string `json:"provider_id,omitempty" gorm:"type:varchar(255);index:idx_sandbox_provider_id,priority:2"`
+
+	// ProviderMetadata is provider-specific opaque data for
+	// reconciliation, debugging, and admin display. Examples for YD:
+	// worker-pool ID, compute requirement ID, region, public IP.
+	ProviderMetadata datatypes.JSON `json:"provider_metadata,omitempty" gorm:"type:jsonb" swaggertype:"object,string"`
+
+	// ComputeState tracks the provider's view of the host's provisioning
+	// lifecycle. Distinct from Status (which is the heartbeat-derived
+	// online/offline/degraded view). Values: "provisioning" | "ready" |
+	// "terminating" | "terminated" | "failed". See compute.State for
+	// the canonical enum. Empty for self-registered hosts.
+	ComputeState string `json:"compute_state,omitempty" gorm:"type:varchar(50);index"`
+
+	// ProvisionedAt is when Helix asked the provider to bring this host
+	// up. Earlier than Created (which is the first heartbeat). Nil for
+	// self-registered hosts.
+	ProvisionedAt *time.Time `json:"provisioned_at,omitempty"`
 }
 
 // TableName returns the table name for GORM
@@ -3150,6 +3309,53 @@ type SandboxHeartbeatRequest struct {
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`
+
+	// Helix version running on this sandbox (git commit hash or release version)
+	HelixVersion string `json:"helix_version,omitempty"`
+
+	// --- Sandbox-absorbs-runner pivot fields ---
+	// Reported by the compose-manager process inside the sandbox.
+
+	// GPUs is the per-GPU inventory used by the API server's profile
+	// compatibility check. Empty for sandboxes that don't host inference.
+	GPUs []GPUStatus `json:"gpus,omitempty"`
+
+	// ProfileStatus reports the compose stack lifecycle. Empty when no
+	// profile is assigned. Allowed values: "assigning" | "pulling" |
+	// "starting" | "running" | "failed".
+	ProfileStatus string `json:"profile_status,omitempty"`
+
+	// ProfileError carries the failure detail when ProfileStatus="failed".
+	ProfileError string `json:"profile_error,omitempty"`
+
+	// ServiceHealth maps compose service name -> health string.
+	// "healthy" | "starting" | "failed" | "unknown".
+	ServiceHealth map[string]string `json:"service_health,omitempty"`
+
+	// ProfileProgress is per-service model-weights download progress,
+	// surfaced when ProfileStatus="starting". Empty once all services
+	// finish downloading.
+	ProfileProgress map[string]ServiceDownloadProgress `json:"profile_progress,omitempty"`
+}
+
+// ServiceDownloadProgress is what compose-manager extracts from a vLLM
+// container's stdout while it pulls model weights from Hugging Face Hub.
+// Populated on a best-effort basis — we parse tqdm-style progress lines
+// (e.g. "Downloading shards: 12/47 [09:22<27:18]"). When the regex
+// doesn't match anything for a given container the entry is omitted.
+type ServiceDownloadProgress struct {
+	// Percent is 0-100. Zero means "no progress line parsed yet".
+	Percent int `json:"percent,omitempty"`
+	// Current and Total are the raw N/M from the progress line (e.g.
+	// shards 12 of 47). Useful when Percent is computed.
+	Current int `json:"current,omitempty"`
+	Total   int `json:"total,omitempty"`
+	// ETA is the rendered remaining-time string from the source line
+	// (e.g. "27:18"). Verbatim — not parsed into a duration.
+	ETA string `json:"eta,omitempty"`
+	// Stage is a short tag for what's downloading: "shards", "files",
+	// "weights" or "" if unknown. Drives UI labelling.
+	Stage string `json:"stage,omitempty"`
 }
 
 // DiskUsageMetric represents disk usage for a single mount point

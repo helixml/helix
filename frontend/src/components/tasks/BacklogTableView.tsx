@@ -26,6 +26,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import { TypesSpecTaskPriority } from "../../api/api";
 import { SpecTask, useUpdateSpecTask } from "../../services/specTaskService";
 import BacklogFilterBar from "./BacklogFilterBar";
+import { matchesAllTokens } from "../../utils/searchUtils";
 
 // Priority order for sorting (critical at top)
 const PRIORITY_ORDER: Record<string, number> = {
@@ -85,9 +86,8 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
 
     // Apply search filter
     if (search) {
-      const searchLower = search.toLowerCase();
       result = result.filter((task) =>
-        (task.original_prompt || "").toLowerCase().includes(searchLower),
+        matchesAllTokens(search, task.original_prompt),
       );
     }
 
@@ -137,7 +137,7 @@ const BacklogTableView: React.FC<BacklogTableViewProps> = ({
   // Handle prompt edit start
   const handlePromptClick = (task: SpecTask) => {
     setEditingTaskId(task.id || null);
-    setEditingPrompt(task.original_prompt || "");
+    setEditingPrompt(task.description || task.original_prompt || "");
   };
 
   // Handle prompt save

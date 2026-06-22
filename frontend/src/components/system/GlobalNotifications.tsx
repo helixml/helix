@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -21,15 +21,20 @@ interface GlobalNotificationsProps {
   onOpenChange?: (open: boolean) => void
 }
 
-function eventEmoji(eventType: AttentionEventType): string {
+function eventIcon(eventType: AttentionEventType, color: string): React.ReactElement {
+  const props = { size: 14, color }
   switch (eventType) {
-    case 'specs_pushed': return '📋'
-    case 'agent_interaction_completed': return '🛑'
+    case 'specs_pushed': return <Sparkles {...props} />
+    case 'agent_interaction_completed': return <Hand {...props} />
     case 'spec_failed':
-    case 'implementation_failed': return '❌'
-    case 'pr_ready': return '🔀'
-    default: return '🔔'
+    case 'implementation_failed': return <AlertCircle {...props} />
+    case 'pr_ready': return <GitMerge {...props} />
+    default: return <Bell {...props} />
   }
+}
+
+function timeAgoMs(ms: number): string {
+  return timeAgo(new Date(ms).toISOString())
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
@@ -41,6 +46,13 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'pr_ready': return '#8b5cf6'
     default: return '#6b7280'
   }
+}
+
+// extractExternalPRURL returns the PR URL from event metadata if present.
+// pr_ready events emitted from the workflow handler / orchestrator carry pr_url.
+function extractExternalPRURL(event: AttentionEvent): string {
+  const url = event.metadata?.pr_url
+  return typeof url === 'string' ? url : ''
 }
 
 function timeAgo(dateStr: string): string {
@@ -98,9 +110,13 @@ function groupEvents(events: AttentionEvent[]): EventGroup[] {
   return groups
 }
 
+function isGroupUnread(group: EventGroup): boolean {
+  if (group.kind === 'single') return !group.event.acknowledged_at
+  return !group.primary.acknowledged_at || !group.secondary.acknowledged_at
+}
+
 // After grouping, keep only the most recent group per spec_task_id.
-// Events are already sorted newest-first from the API, so the first group
-// for each task is the most recent one.
+// Groups are later sorted by timestamp, so deduplication order doesn't matter here.
 function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
   const seen = new Set<string>()
   return groups.filter(group => {
@@ -112,83 +128,107 @@ function deduplicateGroupsByTask(groups: EventGroup[]): EventGroup[] {
   })
 }
 
+function groupTimestamp(group: EventGroup): number {
+  if (group.kind === 'grouped') {
+    return Math.max(
+      new Date(group.primary.created_at).getTime(),
+      new Date(group.secondary.created_at).getTime(),
+    )
+  }
+  return new Date(group.event.created_at).getTime()
+}
+
 const RecentPageItem: React.FC<{
   entry: NavHistoryEntry
-}> = ({ entry }) => (
-  <Box
-    onClick={() => router.navigate(entry.routeName, entry.params)}
-    sx={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 1,
-      px: 1.5,
-      py: 0.75,
-      cursor: 'pointer',
-      transition: 'background-color 0.15s ease',
-      '&:hover': {
-        backgroundColor: 'rgba(255,255,255,0.06)',
-      },
-    }}
-  >
-    <Box sx={{ fontSize: '0.75rem', flexShrink: 0, color: 'rgba(255,255,255,0.3)' }}>🕒</Box>
-    <Typography
-      variant="body2"
+}> = ({ entry }) => {
+  const lightTheme = useLightTheme()
+  return (
+    <Box
+      onClick={() => router.navigate(entry.routeName, entry.params)}
       sx={{
-        color: 'rgba(255,255,255,0.6)',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        fontSize: '0.78rem',
-        lineHeight: 1.4,
-        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1.5,
+        py: 0.75,
+        cursor: 'pointer',
+        transition: 'background-color 0.15s ease',
+        '&:hover': {
+          backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
+        },
       }}
     >
-      {entry.title}
-    </Typography>
-  </Box>
-)
+      <Box sx={{ display: 'flex', flexShrink: 0, color: lightTheme.textColorFaded }}>
+        <Bell size={12} />
+      </Box>
+      <Typography
+        variant="body2"
+        sx={{
+          color: lightTheme.textColor,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: '0.78rem',
+          lineHeight: 1.4,
+          flex: 1,
+          fontWeight: lightTheme.isLight ? 500 : 400,
+        }}
+      >
+        {entry.title}
+      </Typography>
+      <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {timeAgoMs(entry.timestamp)}
+      </Typography>
+    </Box>
+  )
+}
 
 const BrowserNotificationBanner: React.FC<{
   onEnable: () => void
   onDismiss: () => void
-}> = ({ onEnable, onDismiss }) => (
-  <Box
-    sx={{
-      mx: 1.5,
-      mt: 1.5,
-      mb: 0.5,
-      p: 1.5,
-      borderRadius: 1,
-      backgroundColor: 'rgba(59, 130, 246, 0.06)',
-      border: '1px solid rgba(59, 130, 246, 0.15)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 1,
-    }}
-  >
-    <BellRing size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
-    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', flex: 1, fontSize: '0.7rem' }}>
-      Enable desktop alerts?
-    </Typography>
-    <Button
-      size="small"
-      onClick={onEnable}
+}> = ({ onEnable, onDismiss }) => {
+  const lightTheme = useLightTheme()
+  const isLight = lightTheme.isLight
+  return (
+    <Box
       sx={{
-        minWidth: 0,
-        fontSize: '0.65rem',
-        textTransform: 'none',
-        px: 1,
-        py: 0.25,
-        color: '#3b82f6',
+        mx: 1.5,
+        mt: 1.5,
+        mb: 0.5,
+        p: 1.5,
+        borderRadius: 1,
+        backgroundColor: 'rgba(59, 130, 246, 0.06)',
+        border: '1px solid rgba(59, 130, 246, 0.15)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
       }}
     >
-      Enable
-    </Button>
-    <IconButton size="small" onClick={onDismiss} sx={{ p: 0.25, color: 'rgba(255,255,255,0.3)' }}>
-      <X size={10} />
-    </IconButton>
-  </Box>
-)
+      <BellRing size={14} style={{ color: '#3b82f6', flexShrink: 0 }} />
+      <Typography variant="caption" sx={{ color: lightTheme.textColor, flex: 1, fontSize: '0.72rem', fontWeight: isLight ? 600 : 500 }}>
+        Enable desktop alerts?
+      </Typography>
+      <Button
+        size="small"
+        onClick={onEnable}
+        sx={{
+          minWidth: 0,
+          fontSize: '0.65rem',
+          textTransform: 'none',
+          px: 1,
+          py: 0.25,
+          color: '#3b82f6',
+          fontWeight: isLight ? 700 : 600,
+        }}
+      >
+        Enable
+      </Button>
+      <IconButton size="small" onClick={onDismiss} sx={{ p: 0.25, color: lightTheme.textColorFaded }}>
+        <X size={10} />
+      </IconButton>
+    </Box>
+  )
+}
 
 const AttentionEventItem: React.FC<{
   event: AttentionEvent
@@ -198,6 +238,8 @@ const AttentionEventItem: React.FC<{
 }> = ({ event, groupedWith, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
+  const lightTheme = useLightTheme()
+  const isLight = lightTheme.isLight
 
   return (
     <Box
@@ -212,53 +254,84 @@ const AttentionEventItem: React.FC<{
         transition: 'background-color 0.15s ease',
         borderLeft: `3px solid ${accentColor}`,
         '&:hover': {
-          backgroundColor: 'rgba(255,255,255,0.06)',
+          backgroundColor: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
         },
         ...(isAcknowledged ? { opacity: 0.65 } : {}),
       }}
     >
-      <Box sx={{ fontSize: '0.9rem', flexShrink: 0 }}>
-        {groupedWith ? '📋' : eventEmoji(event.event_type)}
+      <Box sx={{ display: 'flex', flexShrink: 0, mt: 0.25 }}>
+        {groupedWith
+          ? <Sparkles size={14} color={eventAccentColor('specs_pushed')} />
+          : eventIcon(event.event_type, accentColor)
+        }
       </Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography
-          variant="body2"
-          sx={{
-            fontWeight: isAcknowledged ? 400 : 600,
-            color: '#fff',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: '0.8rem',
-            lineHeight: 1.4,
-          }}
-        >
-          {groupedWith ? 'Spec ready & agent finished' : event.title}
-        </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            color: 'rgba(255,255,255,0.65)',
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontSize: '0.72rem',
-            lineHeight: 1.3,
-            mt: 0.25,
-          }}
-        >
-          {event.spec_task_name || event.spec_task_id} · {event.project_name || event.project_id}
-        </Typography>
-      </Box>
-      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+      <Tooltip
+        title={
+          <span style={{ whiteSpace: 'pre-wrap' }}>
+            {event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}
+            {'\n'}
+            {groupedWith ? 'Spec ready & agent finished' : event.title}
+          </span>
+        }
+        placement="left"
+        enterDelay={500}
+        arrow
+      >
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: isAcknowledged ? (isLight ? 500 : 400) : (isLight ? 700 : 600),
+              color: lightTheme.textColor,
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              fontSize: '0.8rem',
+              lineHeight: 1.4,
+            }}
+          >
+            {event.spec_task_name || event.spec_task_id}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              color: lightTheme.textColorFaded,
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '0.72rem',
+              lineHeight: 1.3,
+              mt: 0.25,
+            }}
+          >
+            {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
+          </Typography>
+        </Box>
+      </Tooltip>
+      <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {timeAgo(event.created_at)}
       </Typography>
+      {event.event_type === 'pr_ready' && extractExternalPRURL(event) && (
+        <Tooltip title="Open pull request">
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.open(extractExternalPRURL(event), '_blank', 'noopener,noreferrer')
+            }}
+            sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded, '&:hover': { color: lightTheme.textColor } }}
+          >
+            <ExternalLink size={12} />
+          </IconButton>
+        </Tooltip>
+      )}
       <Tooltip title="Dismiss">
         <IconButton
           size="small"
           onClick={(e) => { e.stopPropagation(); onDismiss(event.id) }}
-          sx={{ p: 0.25, flexShrink: 0, color: 'rgba(255,255,255,0.35)', '&:hover': { color: 'rgba(255,255,255,0.8)' } }}
+          sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded, '&:hover': { color: lightTheme.textColor } }}
         >
           <X size={12} />
         </IconButton>
@@ -269,11 +342,16 @@ const AttentionEventItem: React.FC<{
 
 const PANEL_WIDTH = 360
 
+const FILTER_STORAGE_KEY = 'attention-filter-mode'
+
 const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange }) => {
   const account = useAccount()
   const api = useApi()
   const lightTheme = useLightTheme()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [filterMine, setFilterMine] = useState<boolean>(() => {
+    return localStorage.getItem(FILTER_STORAGE_KEY) === 'mine'
+  })
   const styleRef = useRef<HTMLStyleElement | null>(null)
 
   // Inject a global <style> that pushes <main> content when panel is open.
@@ -299,14 +377,11 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const {
     events,
     newEvents,
-    totalCount,
-    unreadCount,
-    hasNew,
     acknowledge,
     dismiss,
     snooze,
     dismissAll,
-  } = useAttentionEvents()
+  } = useAttentionEvents(true, filterMine)
 
   const {
     shouldPrompt,
@@ -317,23 +392,46 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     fireNotification,
   } = useBrowserNotifications()
 
-  // Fire browser notifications for genuinely new events
+  // Fire browser notifications for genuinely new events, grouped the same way
+  // the panel UI groups them — so specs_pushed + agent_interaction_completed
+  // for the same task produce a single notification, not two.
   useEffect(() => {
     if (!browserNotifEnabled || newEvents.length === 0) return
-    for (const event of newEvents) {
-      fireNotification(
-        event.id,
-        `Helix: ${event.title}`,
-        `${event.spec_task_name || ''} · ${event.project_name || ''}`,
-        () => {
-          account.orgNavigate('project-task-detail', {
-            id: event.project_id,
-            taskId: event.spec_task_id,
-          })
-        },
-      )
+    const groups = deduplicateGroupsByTask(groupEvents(newEvents))
+      .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
+    for (const group of groups) {
+      if (group.kind === 'grouped') {
+        const { primary, secondary } = group
+        fireNotification(
+          primary.id,
+          'Helix: Spec ready & agent finished',
+          `${primary.spec_task_name || ''} · ${primary.project_name || ''}`,
+          () => {
+            acknowledge(primary.id)
+            acknowledge(secondary.id)
+            account.orgNavigate('project-task-detail', {
+              id: primary.project_id,
+              taskId: primary.spec_task_id,
+            })
+          },
+        )
+      } else {
+        const { event } = group
+        fireNotification(
+          event.id,
+          `Helix: ${event.title}`,
+          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          () => {
+            acknowledge(event.id)
+            account.orgNavigate('project-task-detail', {
+              id: event.project_id,
+              taskId: event.spec_task_id,
+            })
+          },
+        )
+      }
     }
-  }, [newEvents, browserNotifEnabled, fireNotification, account])
+  }, [newEvents, browserNotifEnabled, fireNotification, account, acknowledge])
 
   const handleDrawerOpen = useCallback(() => {
     setDrawerOpen(true)
@@ -391,16 +489,35 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     setOptOut(true)
   }, [setOptOut])
 
+  const handleToggleFilter = useCallback(() => {
+    setFilterMine(prev => {
+      const next = !prev
+      localStorage.setItem(FILTER_STORAGE_KEY, next ? 'mine' : 'all')
+      return next
+    })
+  }, [])
+
   const groups = deduplicateGroupsByTask(groupEvents(events))
+    .sort((a, b) => groupTimestamp(b) - groupTimestamp(a))
+
+  // Badge counts are derived from the de-duplicated groups the user actually
+  // sees in the panel, not the raw event list (which can contain duplicates).
+  const deduplicatedTotalCount = groups.length
+  const deduplicatedUnreadCount = groups.filter(isGroupUnread).length
+  const deduplicatedHasNew = deduplicatedUnreadCount > 0
 
   // Build recently visited list: task/review pages not already shown as active alerts
   const navHistory = useNavigationHistory()
   const alertTaskIds = new Set(events.map(e => e.spec_task_id).filter(Boolean))
+  const seenTaskIds = new Set<string>()
   const recentPages = navHistory.filter(entry => {
     if (entry.routeName !== 'org_project-task-detail' && entry.routeName !== 'org_project-task-review') {
       return false
     }
-    return !alertTaskIds.has(entry.params.taskId)
+    if (alertTaskIds.has(entry.params.taskId)) return false
+    if (entry.params.taskId && seenTaskIds.has(entry.params.taskId)) return false
+    if (entry.params.taskId) seenTaskIds.add(entry.params.taskId)
+    return true
   }).slice(0, 10)
 
   return (
@@ -410,24 +527,24 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         onClick={(e) => { e.stopPropagation(); drawerOpen ? handleDrawerClose() : handleDrawerOpen() }}
         sx={{
           ml: 0.5,
-          color: 'rgba(255,255,255,0.6)',
+          color: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)',
           '&:hover': {
-            color: 'rgba(255,255,255,0.9)',
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            color: lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)',
+            backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
           },
         }}
       >
         <Badge
-          badgeContent={hasNew ? unreadCount : totalCount}
-          color={hasNew ? 'error' : 'default'}
+          badgeContent={deduplicatedHasNew ? deduplicatedUnreadCount : deduplicatedTotalCount}
+          color={deduplicatedHasNew ? 'error' : 'default'}
           sx={{
             '& .MuiBadge-badge': {
               fontSize: '0.6rem',
               height: 15,
               minWidth: 15,
-              ...(!hasNew && totalCount > 0 && {
-                backgroundColor: 'rgba(255,255,255,0.25)',
-                color: 'rgba(0,0,0,0.7)',
+              ...(!deduplicatedHasNew && deduplicatedTotalCount > 0 && {
+                backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
+                color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
               }),
             },
           }}
@@ -446,10 +563,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           width: PANEL_WIDTH,
           maxWidth: '100vw',
           textAlign: 'left',
-          backgroundColor: lightTheme.backgroundColor,
-          borderLeft: '1px solid rgba(255,255,255,0.06)',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          boxShadow: '-8px 0 24px rgba(0,0,0,0.25)',
+          backgroundColor: lightTheme.panelColor,
+          borderLeft: lightTheme.border,
+          borderTop: lightTheme.border,
+          boxShadow: lightTheme.isLight ? '-8px 0 24px rgba(0,0,0,0.08)' : '-8px 0 24px rgba(0,0,0,0.25)',
           zIndex: 1200,
           display: 'flex',
           flexDirection: 'column',
@@ -463,7 +580,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           sx={{
             px: 1.5,
             py: 1.25,
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: lightTheme.border,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -473,42 +590,81 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             <Typography
               variant="subtitle2"
               sx={{
-                fontWeight: 600,
-                color: 'rgba(255,255,255,0.85)',
+                fontWeight: lightTheme.isLight ? 700 : 600,
+                color: lightTheme.textColor,
                 fontSize: '0.8rem',
               }}
             >
               Needs Attention
             </Typography>
-            {totalCount > 0 && (
+            {deduplicatedTotalCount > 0 && (
               <Box
                 sx={{
                   fontSize: '0.6rem',
-                  fontWeight: 600,
-                  color: hasNew ? '#fff' : 'rgba(255,255,255,0.5)',
-                  backgroundColor: hasNew ? '#ef4444' : 'rgba(255,255,255,0.06)',
+                  fontWeight: 700,
+                  color: deduplicatedHasNew ? '#fff' : lightTheme.textColor,
+                  backgroundColor: deduplicatedHasNew ? '#ef4444' : (lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'),
                   borderRadius: '4px',
                   px: 0.5,
                   py: 0.125,
                   lineHeight: 1.3,
                 }}
               >
-                {totalCount}
+                {deduplicatedTotalCount}
               </Box>
             )}
+            {/* Mine / All toggle */}
+            <Box
+              onClick={handleToggleFilter}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '10px',
+                border: lightTheme.isLight ? '1px solid rgba(0,0,0,0.18)' : '1px solid rgba(255,255,255,0.1)',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                fontSize: '0.62rem',
+                userSelect: 'none',
+              }}
+            >
+              {(['mine', 'all'] as const).map(mode => {
+                const active = filterMine ? mode === 'mine' : mode === 'all'
+                return (
+                  <Box
+                    key={mode}
+                    sx={{
+                      px: 0.75,
+                      py: 0.25,
+                      fontWeight: 700,
+                      textTransform: 'capitalize',
+                      color: active
+                        ? lightTheme.textColor
+                        : lightTheme.textColorFaded,
+                      backgroundColor: active
+                        ? (lightTheme.isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.12)')
+                        : 'transparent',
+                      transition: 'background-color 0.15s ease, color 0.15s ease',
+                    }}
+                  >
+                    {mode}
+                  </Box>
+                )
+              })}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-            {totalCount > 0 && (
+            {deduplicatedTotalCount > 0 && (
               <Button
                 size="small"
                 onClick={handleDismissAll}
                 sx={{
                   fontSize: '0.65rem',
                   textTransform: 'none',
-                  color: 'rgba(255,255,255,0.4)',
+                  color: lightTheme.textColorFaded,
                   minWidth: 0,
                   px: 0.75,
-                  '&:hover': { color: 'rgba(255,255,255,0.7)' },
+                  fontWeight: lightTheme.isLight ? 700 : 500,
+                  '&:hover': { color: lightTheme.textColor },
                 }}
               >
                 Dismiss all
@@ -519,7 +675,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 <IconButton
                   size="small"
                   onClick={() => setOptOut(true)}
-                  sx={{ color: 'rgba(255,255,255,0.3)', p: 0.5 }}
+                  sx={{ color: lightTheme.textColorFaded, p: 0.5 }}
                 >
                   <BellOff size={13} />
                 </IconButton>
@@ -530,13 +686,13 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                 <IconButton
                   size="small"
                   onClick={() => { setOptOut(false); requestPermission() }}
-                  sx={{ color: 'rgba(255,255,255,0.3)', p: 0.5 }}
+                  sx={{ color: lightTheme.textColorFaded, p: 0.5 }}
                 >
                   <BellRing size={13} />
                 </IconButton>
               </Tooltip>
             )}
-            <IconButton size="small" onClick={handleDrawerClose} sx={{ color: 'rgba(255,255,255,0.4)', p: 0.5 }}>
+            <IconButton size="small" onClick={handleDrawerClose} sx={{ color: lightTheme.textColorFaded, p: 0.5 }}>
               <X size={15} />
             </IconButton>
           </Box>
@@ -552,17 +708,17 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
 
         {/* Event list — grouped where applicable, sorted newest-first */}
         <Box sx={{ overflowY: 'auto', flex: 1 }}>
-          {totalCount === 0 ? (
+          {deduplicatedTotalCount === 0 ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
               <Typography
                 variant="body2"
-                sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.8rem' }}
+                sx={{ color: lightTheme.textColor, fontSize: '0.85rem', fontWeight: lightTheme.isLight ? 700 : 600 }}
               >
                 All clear
               </Typography>
               <Typography
                 variant="caption"
-                sx={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.7rem' }}
+                sx={{ color: lightTheme.textColorFaded, fontSize: '0.72rem' }}
               >
                 Nothing needs your attention
               </Typography>
@@ -601,16 +757,16 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
 
           {/* Recently visited — pages the user has been to that aren't active alerts */}
           {recentPages.length > 0 && (
-            <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.06)', mt: 0.5, pt: 0.5 }}>
+            <Box sx={{ borderTop: lightTheme.border, mt: 0.5, pt: 0.5 }}>
               <Typography
                 variant="caption"
                 sx={{
                   display: 'block',
                   px: 1.5,
                   py: 0.75,
-                  color: 'rgba(255,255,255,0.3)',
+                  color: lightTheme.textColorFaded,
                   fontSize: '0.65rem',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em',
                 }}

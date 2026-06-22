@@ -289,6 +289,44 @@ func (c *Controller) FilestoreAppDelete(appID, path string) error {
 	return c.Options.Filestore.Delete(c.Ctx, filePath)
 }
 
+// ensureFilestoreSpecTaskAttachmentsPath ensures the spec-task attachments folder exists
+// and returns the absolute filestore path for {filename}.
+func (c *Controller) ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename string) (string, error) {
+	prefix := filestore.GetSpecTaskAttachmentsPrefix(c.Options.Config.Controller.FilePrefixGlobal, specTaskID)
+	if _, err := c.Options.Filestore.CreateFolder(c.Ctx, prefix); err != nil {
+		return "", err
+	}
+	return filepath.Join(prefix, filename), nil
+}
+
+// FilestoreSpecTaskAttachmentUpload writes a SpecTask attachment to the filestore.
+// Returns the resulting filestore item.
+func (c *Controller) FilestoreSpecTaskAttachmentUpload(specTaskID, filename string, r io.Reader) (filestore.Item, error) {
+	fullPath, err := c.ensureFilestoreSpecTaskAttachmentsPath(specTaskID, filename)
+	if err != nil {
+		return filestore.Item{}, err
+	}
+	return c.Options.Filestore.WriteFile(c.Ctx, fullPath, r)
+}
+
+// FilestoreSpecTaskAttachmentDownload returns a reader for a SpecTask attachment by its
+// absolute filestore path (the path stored in SpecTaskAttachment.FilestorePath).
+func (c *Controller) FilestoreSpecTaskAttachmentDownload(absolutePath string) (io.ReadCloser, error) {
+	return c.Options.Filestore.OpenFile(c.Ctx, absolutePath)
+}
+
+// FilestoreSpecTaskAttachmentDelete deletes a SpecTask attachment by its absolute path.
+func (c *Controller) FilestoreSpecTaskAttachmentDelete(absolutePath string) error {
+	return c.Options.Filestore.Delete(c.Ctx, absolutePath)
+}
+
+// FilestoreSpecTaskAttachmentsDeleteAll removes the whole attachments folder for a task.
+// Safe to call when the task is being deleted.
+func (c *Controller) FilestoreSpecTaskAttachmentsDeleteAll(specTaskID string) error {
+	prefix := filestore.GetSpecTaskAttachmentsPrefix(c.Options.Config.Controller.FilePrefixGlobal, specTaskID)
+	return c.Options.Filestore.Delete(c.Ctx, prefix)
+}
+
 // IsAppPath checks if a path is within an app's filestore
 func IsAppPath(path string) bool {
 	return strings.HasPrefix(path, "apps/")

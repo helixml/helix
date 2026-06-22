@@ -1,0 +1,25 @@
+# Compose overlay that exposes :443 (and :80) for the embedded TLS
+# listener that Helix starts when HELIX_VHOST_TLS_MODE=auto.
+#
+# Use alongside the main compose file:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.tls.yaml up -d
+#
+# or, for dev:
+#
+#   docker compose -f docker-compose.dev.yaml -f docker-compose.tls.yaml up -d
+#
+# Host ports default to 443/80; override in .env if those are taken:
+#
+#   VHOST_HTTPS_PORT=8443
+#   VHOST_HTTP_PORT=8080-acme  # any free port works for HTTP-01
+#
+# :80 is only used by the HTTP-01 ACME challenge and the HTTP→HTTPS
+# redirect. With DNS-01 (HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare) the
+# API server does not bind :80 — comment the :80 mapping out below.
+
+services:
+  api:
+    ports:
+      - ${VHOST_HTTPS_PORT:-443}:443
+      - ${VHOST_HTTP_PORT:-80}:80

@@ -1,81 +1,83 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 
-/**
- * Hook to track the height of the UserOrgSelector floating menu
- * This is used to dynamically adjust sidebar content height so it doesn't 
- * get covered by the variable-height floating user menu
- */
+// Hook to track the height of the UserOrgSelector floating menu, so the
+// sidebar's content area can leave room for it (Sidebar.tsx uses
+// `calc(100% - ${userMenuHeight}px)`).
+//
+// Earlier this hook ran a MutationObserver on document.body filtered by
+// childList/subtree/attributes(style,class) plus a 1s setInterval, and on every
+// fire walked parentElement chains calling getComputedStyle + offsetHeight.
+// During streaming (e.g. a spec task chat receiving Zed entry_patches at
+// ~60 Hz), every React render flips MUI inline styles somewhere on the page,
+// firing the observer constantly and producing forced synchronous layouts on
+// the main thread. On Safari this is enough to freeze the tab.
+//
+// Now: find the bottom-pinned overlay parent once, then ResizeObserver it
+// directly. ResizeObserver only fires when that element actually changes size,
+// and Chrome schedules its callbacks at a layout-safe point in the frame.
 export const useUserMenuHeight = () => {
   const [userMenuHeight, setUserMenuHeight] = useState(0)
 
-  const updateHeight = useCallback(() => {
-    // Find the floating menu - look for the fixed positioned container that contains user menu
-    // This is more specific to the UserOrgSelector implementation
-    const floatingMenus = document.querySelectorAll('[data-compact-user-menu]')
-    let totalHeight = 0
-    
-    // Find the parent container that's position: fixed
-    for (const menu of floatingMenus) {
-      if (menu instanceof HTMLElement) {
-        let parent = menu.parentElement
-        while (parent) {
-          const computedStyle = window.getComputedStyle(parent)
-          if (computedStyle.position === 'fixed' && 
-              computedStyle.bottom === '0px' && 
-              computedStyle.left === '0px') {
-            // Check if this floating menu is visible
-            const menuComputedStyle = window.getComputedStyle(parent)
-            const isVisible = menuComputedStyle.opacity === '1' && menuComputedStyle.pointerEvents === 'auto'
-            
-                         if (isVisible) {
-               totalHeight = Math.max(totalHeight, parent.offsetHeight)
-             }
-            break
-          }
-          parent = parent.parentElement
-        }
-      }
-    }
-    
-    setUserMenuHeight(totalHeight)
-  }, [])
-
   useEffect(() => {
-    // Initial height calculation
-    updateHeight()
+    let cancelled = false
+    let ro: ResizeObserver | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
 
-    // Set up a ResizeObserver to watch for changes in the floating menu size
-    const observer = new ResizeObserver(() => {
-      updateHeight()
-    })
-
-    // Set up a MutationObserver to watch for DOM changes (menu expanding/collapsing)
-    const mutationObserver = new MutationObserver(() => {
-      updateHeight()
-    })
-
-    // Observe changes to the body (where the floating menu is attached)
-    const targetNode = document.body
-    if (targetNode) {
-      mutationObserver.observe(targetNode, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-      })
+    const findOverlayFor = (menu: HTMLElement): HTMLElement | null => {
+      let parent: HTMLElement | null = menu.parentElement
+      while (parent) {
+        const cs = window.getComputedStyle(parent)
+        if (
+          (cs.position === 'absolute' || cs.position === 'fixed') &&
+          cs.bottom === '0px'
+        ) {
+          return parent
+        }
+        parent = parent.parentElement
+      }
+      return null
     }
 
-    // Also set up a periodic check as a fallback
-    const intervalId = setInterval(updateHeight, 1000)
+    const tryAttach = () => {
+      if (cancelled) return
+
+      const menu = document.querySelector('[data-compact-user-menu]')
+      if (!(menu instanceof HTMLElement)) {
+        // Component hasn't mounted yet (or has unmounted). Retry slowly.
+        // 1s is fine for a layout-sizing decision; no-one notices a 1s wait
+        // for the sidebar bottom padding to settle.
+        retryTimer = setTimeout(tryAttach, 1000)
+        return
+      }
+
+      const overlay = findOverlayFor(menu)
+      if (!overlay) {
+        setUserMenuHeight(0)
+        return
+      }
+
+      const measure = () => {
+        const cs = window.getComputedStyle(overlay)
+        const visible =
+          cs.opacity === '1' && cs.pointerEvents === 'auto'
+        setUserMenuHeight(visible ? overlay.offsetHeight : 0)
+      }
+
+      measure()
+      ro = new ResizeObserver(measure)
+      ro.observe(overlay)
+    }
+
+    tryAttach()
 
     return () => {
-      observer.disconnect()
-      mutationObserver.disconnect()
-      clearInterval(intervalId)
+      cancelled = true
+      ro?.disconnect()
+      if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [updateHeight])
+  }, [])
 
   return userMenuHeight
 }
 
-export default useUserMenuHeight 
+export default useUserMenuHeight

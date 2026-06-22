@@ -678,11 +678,18 @@ This is IMPERATIVE - if you don't record and push the color, it cannot be cloned
 					},
 				},
 				{
-					Name:          "GitHub",
-					Description:   "Interact with GitHub repositories, issues, pull requests, and more",
-					Transport:     "stdio",
-					Command:       "npx",
-					Args:          []string{"-y", "@modelcontextprotocol/server-github"},
+					Name:        "GitHub",
+					Description: "Interact with GitHub repositories, issues, pull requests, and more",
+					Transport:   "stdio",
+					// Globally installed in the desktop image (see Dockerfile.ubuntu-helix —
+					// `npm install -g @modelcontextprotocol/server-github`). Going through
+					// `npx -y @modelcontextprotocol/server-github` instead causes npm's
+					// _npx cache "reify mark retired" rename dance to race against the
+					// parallel chrome-devtools spawn from Zed/Claude Code, and the
+					// JSON-RPC `initialize` call hangs until the 180s context_server
+					// timeout fires.
+					Command:       "mcp-server-github",
+					Args:          []string{},
 					OAuthProvider: "github", // Reuse the GitHub OAuth connection from this sample project
 				},
 			},

@@ -34,13 +34,20 @@ export interface PromptHistoryEntry {
   content: string
   timestamp: number
   sessionId?: string
-  status: 'sent' | 'pending' | 'failed'
+  // 'pending'  → in queue, not yet dispatched to Zed
+  // 'sending'  → backend has dispatched to Zed but Zed hasn't started streaming yet
+  //              (the queue UI keeps these visible — that's the user-visible "in flight" state)
+  // 'sent'     → Zed has actually started processing (first message_added received)
+  // 'failed'   → dispatch failed or Zed bounced — eligible for retry
+  status: 'sent' | 'sending' | 'pending' | 'failed'
   interrupt?: boolean       // If true, this message interrupts current conversation
   queuePosition?: number    // Position in queue for ordering
   syncedToBackend?: boolean // If true, this entry has been synced to the backend
+  deleted?: boolean          // Tombstone: locally deleted, prevents re-import from backend
   // Retry tracking
   retryCount?: number       // Number of retry attempts
   nextRetryAt?: number      // Timestamp when retry will happen
+  errorMessage?: string     // Last failure reason from server (shown under "Failed - retrying")
   // Library features
   pinned?: boolean          // User pinned this prompt for quick access
   usageCount?: number       // How many times this prompt was reused
@@ -51,7 +58,6 @@ export interface PromptHistoryEntry {
 interface PromptDraft {
   content: string
   sessionId: string
-  timestamp: number
 }
 
 interface UsePromptHistoryOptions {
@@ -140,10 +146,7 @@ function loadDraft(sessionId: string): string {
     const stored = localStorage.getItem(`${DRAFT_STORAGE_KEY}_${sessionId}`)
     if (stored) {
       const draft: PromptDraft = JSON.parse(stored)
-      // Only restore drafts less than 24 hours old
-      if (Date.now() - draft.timestamp < 24 * 60 * 60 * 1000) {
-        return draft.content
-      }
+      return draft.content
     }
   } catch (e) {
     console.warn('Failed to load draft:', e)
@@ -156,7 +159,6 @@ function saveDraft(sessionId: string, content: string): void {
     const draft: PromptDraft = {
       content,
       sessionId,
-      timestamp: Date.now(),
     }
     localStorage.setItem(`${DRAFT_STORAGE_KEY}_${sessionId}`, JSON.stringify(draft))
   } catch (e) {
@@ -169,6 +171,37 @@ function clearDraftStorage(sessionId: string): void {
     localStorage.removeItem(`${DRAFT_STORAGE_KEY}_${sessionId}`)
   } catch (e) {
     console.warn('Failed to clear draft:', e)
+  }
+}
+
+// reconcileEntry is the SINGLE source of truth for merging a backend view of a
+// prompt into its local copy. It encodes one invariant that, when scattered
+// across the merge/poll/push sites, broke twice and queued interrupts that the
+// UI showed as live:
+//
+//   - Backend-owned fields (status, retry, error) always reflect the backend —
+//     it is authoritative for them.
+//   - The dirty flag (syncedToBackend) is cleared (true) ONLY by a successful
+//     push of THIS entry (pushed=true). A pull (pushed=false) must PRESERVE a
+//     pending local edit: if the entry is dirty (syncedToBackend === false) it
+//     stays dirty, so the next push actually sends it. Clearing it on a pull —
+//     based on mere backend presence — silently drops the user's un-pushed change
+//     (e.g. promoting a queued prompt to interrupt).
+//
+// All reconciliation sites route through here so the invariant cannot diverge.
+// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+export function reconcileEntry(
+  local: PromptHistoryEntry,
+  backend: PromptHistoryEntry,
+  pushed: boolean,
+): PromptHistoryEntry {
+  return {
+    ...local,
+    status: backend.status,
+    retryCount: backend.retryCount,
+    nextRetryAt: backend.nextRetryAt,
+    errorMessage: backend.errorMessage,
+    syncedToBackend: pushed ? true : local.syncedToBackend === false ? false : true,
   }
 }
 
@@ -191,9 +224,11 @@ export function usePromptHistory({
   const hasSyncedRef = useRef(false)
   const pendingSyncRef = useRef(false)
 
-  // Filter history for current session (for display purposes)
-  const sessionHistory = history.filter(h => h.sessionId === sessionId)
-  const pendingPrompts = sessionHistory.filter(h => h.status === 'pending')
+  // Filter history for current session (for display purposes), excluding tombstoned entries
+  const sessionHistory = history.filter(h => h.sessionId === sessionId && !h.deleted)
+  // 'sending' is grouped with 'pending' so dispatched-but-not-yet-acknowledged
+  // prompts stay visible in the queue UI until Zed actually starts streaming.
+  const pendingPrompts = sessionHistory.filter(h => h.status === 'pending' || h.status === 'sending')
   const failedPrompts = sessionHistory.filter(h => h.status === 'failed')
 
   // Perform union merge with backend entries (entries from backend are marked as synced)
@@ -202,25 +237,38 @@ export function usePromptHistory({
       // Create a map of existing entries by ID
       const existingIds = new Set(prev.map(e => e.id))
       const backendIds = new Set(backendEntries.map(e => e.id))
+      // IDs that are locally tombstoned — never re-import these from backend
+      const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
 
-      // Mark existing entries that are in backend as synced
-      const updatedPrev = prev.map(e =>
-        backendIds.has(e.id) ? { ...e, syncedToBackend: true } : e
-      )
+      // Reconcile existing local entries against the backend view. This is a
+      // pull (pushed=false), so reconcileEntry preserves any un-pushed local edit.
+      const backendMap = new Map(backendEntries.map(e => [e.id, e]))
+      const updatedPrev = prev.map(e => {
+        if (e.deleted) return e
+        const backendEntry = backendMap.get(e.id)
+        return backendEntry ? reconcileEntry(e, backendEntry, false) : e
+      })
 
       // Add any backend entries that don't exist locally (mark as synced)
+      // Also skip entries whose ID is locally tombstoned
       const newEntries = backendEntries
-        .filter(e => !existingIds.has(e.id))
+        .filter(e => !existingIds.has(e.id) && !deletedIds.has(e.id))
         .map(e => ({ ...e, syncedToBackend: true }))
 
+      // Clean up tombstones: if a deleted entry is no longer in the backend,
+      // the backend has confirmed the deletion — we can remove the tombstone.
+      const cleanedPrev = updatedPrev.filter(e =>
+        !e.deleted || backendIds.has(e.id)
+      )
+
       if (newEntries.length === 0) {
-        // Still save if we updated sync status
-        saveHistory(updatedPrev, specTaskId)
-        return updatedPrev
+        // Still save if we updated sync status or cleaned tombstones
+        saveHistory(cleanedPrev, specTaskId)
+        return cleanedPrev
       }
 
       // Merge and sort by timestamp
-      const merged = [...updatedPrev, ...newEntries].sort((a, b) => a.timestamp - b.timestamp)
+      const merged = [...cleanedPrev, ...newEntries].sort((a, b) => a.timestamp - b.timestamp)
 
       // Keep only recent entries
       const trimmed = merged.slice(-MAX_HISTORY_SIZE)
@@ -263,8 +311,8 @@ export function usePromptHistory({
     if (!navigator.onLine) return
 
     try {
-      // Get entries to sync (all non-synced entries with sent/pending/failed status)
-      const toSync = history.filter(h => !h.syncedToBackend)
+      // Get entries to sync (all non-synced, non-deleted entries)
+      const toSync = history.filter(h => !h.syncedToBackend && !h.deleted)
       if (toSync.length === 0) {
         pendingSyncRef.current = false
         return
@@ -284,25 +332,20 @@ export function usePromptHistory({
 
         // Merge backend entry status into local entries (especially important for 'sent' status)
         setHistory(prev => {
+          const deletedIds = new Set(prev.filter(e => e.deleted).map(e => e.id))
+          // The entries in `toSync` are the ones we just pushed — they are now
+          // acknowledged, so reconcileEntry clears their dirty flag. Any other
+          // entries in the response are a pull and keep their pending local edit.
+          const pushedIds = new Set(toSync.map(e => e.id))
           const updated = prev.map(h => {
+            if (h.deleted) return h // Don't update tombstoned entries
             const backendEntry = backendEntriesMap.get(h.id)
-            if (backendEntry) {
-              // Merge status and retry info from backend - this is critical for queue items
-              // to disappear when the backend marks them as 'sent' after processing
-              return {
-                ...h,
-                status: backendEntry.status,
-                retryCount: backendEntry.retryCount,
-                nextRetryAt: backendEntry.nextRetryAt,
-                syncedToBackend: true
-              }
-            }
-            return h
+            return backendEntry ? reconcileEntry(h, backendEntry, pushedIds.has(h.id)) : h
           })
 
-          // Also merge any new entries from backend
+          // Also merge any new entries from backend (skip tombstoned IDs)
           const existingIds = new Set(updated.map(e => e.id))
-          const newEntries = backendEntries.filter(e => !existingIds.has(e.id))
+          const newEntries = backendEntries.filter(e => !existingIds.has(e.id) && !deletedIds.has(e.id))
 
           if (newEntries.length > 0) {
             const merged = [...updated, ...newEntries.map(e => ({ ...e, syncedToBackend: true }))]
@@ -410,20 +453,43 @@ export function usePromptHistory({
           setHistory(prev => {
             let updated = false
             const newHistory = prev.map(h => {
+              if (h.deleted) return h // Don't update tombstoned entries
               const backendEntry = backendEntriesMap.get(h.id)
-              // Check if status or retry info changed
+              // Check if status or retry info changed (covers "errored on backend":
+              // the backend marks it failed/crashed and we reflect that here).
+              // This poll is a pull: reflect backend-owned status but preserve any
+              // un-pushed local edit (reconcileEntry, pushed=false). Keep the
+              // changed-check so we don't churn state when nothing moved.
               if (backendEntry && (
                 h.status !== backendEntry.status ||
                 h.retryCount !== backendEntry.retryCount ||
-                h.nextRetryAt !== backendEntry.nextRetryAt
+                h.nextRetryAt !== backendEntry.nextRetryAt ||
+                h.errorMessage !== backendEntry.errorMessage
               )) {
+                updated = true
+                return reconcileEntry(h, backendEntry, false)
+              }
+              // Reconcile against the source of truth: a queue entry we previously
+              // synced to the backend that is no longer in the authoritative list has
+              // been removed server-side (deleted/expired) and will never send.
+              // Surface it as failed instead of letting it sit as a perpetual
+              // "waiting to send", so the user can delete it. Guards:
+              //  - syncedToBackend: a freshly-created local entry not yet pushed is
+              //    legitimately absent — don't misclassify it.
+              //  - pending/sending only: don't touch 'sent'/'failed' rows.
+              //  - the `response.entries.length > 0` check above means we never act
+              //    on a transient empty response, and the poll passes no limit so the
+              //    backend returns the full set (no pagination false-positives).
+              if (
+                !backendEntry &&
+                h.syncedToBackend &&
+                (h.status === 'pending' || h.status === 'sending')
+              ) {
                 updated = true
                 return {
                   ...h,
-                  status: backendEntry.status,
-                  retryCount: backendEntry.retryCount,
-                  nextRetryAt: backendEntry.nextRetryAt,
-                  syncedToBackend: true
+                  status: 'failed' as const,
+                  errorMessage: 'This queued message is no longer on the server (it was removed). Delete it to clear.',
                 }
               }
               return h
@@ -543,7 +609,7 @@ export function usePromptHistory({
     let queuePosition: number
     setHistory(prev => {
       // Find max queue position of pending/failed messages
-      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'failed')
+      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'sending' || h.status === 'failed')
       const maxPos = pendingMessages.reduce((max, h) => Math.max(max, h.queuePosition ?? 0), 0)
       queuePosition = maxPos + 1
       return prev // Just reading, actual update happens below
@@ -561,7 +627,7 @@ export function usePromptHistory({
 
     setHistory(prev => {
       // Recalculate position in case of race
-      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'failed')
+      const pendingMessages = prev.filter(h => h.status === 'pending' || h.status === 'sending' || h.status === 'failed')
       const maxPos = pendingMessages.reduce((max, h) => Math.max(max, h.queuePosition ?? 0), 0)
       entry.queuePosition = maxPos + 1
 
@@ -637,10 +703,13 @@ export function usePromptHistory({
     })
   }, [specTaskId])
 
-  // Remove a message from queue entirely
+  // Remove a message from queue by marking it as deleted (tombstone).
+  // The entry stays in localStorage to prevent re-import from backend on sync.
   const removeFromQueue = useCallback((id: string) => {
     setHistory(prev => {
-      const updated = prev.filter(h => h.id !== id)
+      const updated = prev.map(h =>
+        h.id === id ? { ...h, deleted: true, syncedToBackend: true } : h
+      )
       saveHistory(updated, specTaskId)
       return updated
     })

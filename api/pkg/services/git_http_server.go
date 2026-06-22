@@ -31,7 +31,11 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 
 // SpecTaskMessageSender is a function type for sending messages to spec task agents.
 // Returns (requestID, interactionID, error).
-type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, docPath string) (string, string, error)
+//
+// The fourth string is a notifyUserID (empty = no extra notification). interrupt=true
+// tells the agent to cancel its current turn before processing — use it for reactive
+// feedback like design-review comments; use false for system-driven instructions.
+type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
@@ -84,12 +88,24 @@ type GitHTTPServer struct {
 	authorizeFn      AuthorizationToRepositoryFunc
 	triggerManager   TriggerManager
 	attentionService *AttentionService
-	wg               sync.WaitGroup
+	// onDefaultBranchPush, when set, is invoked asynchronously after a
+	// successful receive-pack on the repository's default branch. The
+	// project-web-service auto-deploy hook uses this to trigger
+	// webservice.Controller.Redeploy on the user pushing to main.
+	onDefaultBranchPush func(ctx context.Context, repoID, branch, userID string)
+	wg                  sync.WaitGroup
 }
 
 // SetAttentionService sets the attention service for emitting human-needed events.
 func (s *GitHTTPServer) SetAttentionService(svc *AttentionService) {
 	s.attentionService = svc
+}
+
+// SetOnDefaultBranchPush installs the post-receive hook that fires
+// (in a goroutine) after every successful push to a repo's default
+// branch. Used by the api server to wire up the web-service auto-deploy.
+func (s *GitHTTPServer) SetOnDefaultBranchPush(fn func(ctx context.Context, repoID, branch, userID string)) {
+	s.onDefaultBranchPush = fn
 }
 
 // GitHTTPServerConfig holds configuration for the git HTTP server
@@ -599,6 +615,19 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().Str("repo_id", repoID).Strs("pushed_branches", pushedBranches).Msg("Receive-pack completed")
 
+	// Fire the project-web-service auto-deploy hook (if installed) for
+	// every push that touched the repo's default branch. Detached so a
+	// slow deploy never blocks the git client's response.
+	if s.onDefaultBranchPush != nil && repo != nil && repo.DefaultBranch != "" {
+		if _, hit := pushedBranchesMap[repo.DefaultBranch]; hit {
+			var deployUserID string
+			if pushUser := s.getUser(r); pushUser != nil {
+				deployUserID = pushUser.ID
+			}
+			go s.onDefaultBranchPush(context.Background(), repoID, repo.DefaultBranch, deployUserID)
+		}
+	}
+
 	// Note: Branch restrictions for agent API keys are now enforced by the pre-receive hook
 	// via the HELIX_ALLOWED_BRANCHES environment variable set above. No post-receive
 	// rollback is needed - unauthorized pushes are rejected before refs are updated.
@@ -612,13 +641,39 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 	if len(pushedBranchesMap) > 0 && repo != nil && repo.ExternalURL != "" {
 		log.Debug().Str("repo_id", repoID).Int("branch_count", len(pushedBranchesMap)).Msg("Starting external push with detached context")
 
+		// Resolve the acting user for push credentials: use the actor's OAuth
+		// token so the push is attributed correctly on GitHub.
+		//
+		// Walk the phase chain from most to least recent:
+		//   ImplementationApprovedBy — user clicked "Open PR"
+		//   SpecApprovedBy           — user approved specs and moved task to implementation
+		//   PlanningStartedBy        — user kicked off planning (first phase that can push to helix-specs)
+		//
+		// Using the latest actor available means agent-initiated pushes at
+		// any phase carry a real user identity rather than anonymous creds.
+		var pushUserID string
+		if restriction != nil && restriction.IsAgentKey {
+			rawKey := s.extractRawAPIKey(apiKey)
+			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
+				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
+					pushUserID = pushTask.ImplementationApprovedBy
+					if pushUserID == "" {
+						pushUserID = pushTask.SpecApprovedBy
+					}
+					if pushUserID == "" {
+						pushUserID = pushTask.PlanningStartedBy
+					}
+				}
+			}
+		}
+
 		upstreamPushFailed := false
 		for branch, isForce := range pushedBranchesMap {
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
 
 			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Pushing branch to upstream")
-			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce)
+			err := s.gitRepoService.PushBranchToRemote(branchCtx, repoID, branch, isForce, pushUserID)
 			branchCancel()
 
 			if err != nil {
@@ -955,6 +1010,41 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
 				continue
 			}
+		case types.TaskStatusImplementationReview:
+			// A push arrived while a PR is open. Always re-sync the PR
+			// title/description from helix-specs so edits to
+			// pull_request_<repo>.md propagate. (Previously only
+			// TaskStatusPullRequest did this, which meant tasks that stayed
+			// in implementation_review never got description updates.)
+			s.wg.Add(1)
+			go func(t *types.SpecTask, r *types.GitRepository) {
+				defer s.wg.Done()
+				if err := s.ensurePullRequest(context.Background(), r, t, t.BranchName); err != nil {
+					log.Error().Err(err).Str("spec_task_id", t.ID).Msg("Failed to re-sync PR description in implementation_review")
+				}
+			}(task, repo)
+
+			// If the user previously approved (RebaseRequestedAt set), also try
+			// the FF merge again automatically — without this, the user would
+			// have to click Accept a second time and would have no signal that
+			// the rebase landed.
+			if task.RebaseRequestedAt == nil {
+				log.Trace().Str("task_id", task.ID).Str("branch", branchName).Msg("Push to implementation_review task without prior rebase request — leaving for explicit Accept")
+				continue
+			}
+			now := time.Now()
+			task.LastPushCommitHash = commitHash
+			task.LastPushAt = &now
+			task.UpdatedAt = now
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task last_push_at")
+				continue
+			}
+			s.wg.Add(1)
+			go func(taskID string) {
+				defer s.wg.Done()
+				s.tryAutoMergeAfterRebase(context.Background(), taskID)
+			}(task.ID)
 		case types.TaskStatusPullRequest:
 			s.wg.Add(1)
 			go func(t *types.SpecTask, r *types.GitRepository, commit string) {
@@ -977,6 +1067,108 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			continue
 		}
 	}
+}
+
+// tryAutoMergeAfterRebase re-attempts the server-side fast-forward merge after the
+// agent has pushed a (presumably rebased) feature branch. Mirrors the merge half
+// of approveImplementation in spec_task_workflow_handlers.go. If the FF still
+// fails the task is left in implementation_review; we do not re-prompt the agent
+// here because the same flow that calls this also recorded the push, so the next
+// user-driven Accept will see LastPushAt > RebaseRequestedAt and re-issue the
+// rebase request only if needed.
+//
+// Re-fetches the task by ID rather than operating on a pointer passed from the
+// caller — between the push hook firing and this goroutine running, the row may
+// have been mutated by the orchestrator or by a user action (move-to-backlog,
+// archive, etc). Operating on a stale pointer would silently overwrite those
+// changes.
+func (s *GitHTTPServer) tryAutoMergeAfterRebase(ctx context.Context, taskID string) {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("auto-merge: get task failed")
+		return
+	}
+	// Status guard: if the user moved the task elsewhere (backlog, archived) or
+	// it already reached `done` via another path, do nothing. Without this guard
+	// the goroutine would resurrect the task as `done` and overwrite the user's
+	// deliberate intervention.
+	if task.Status != types.TaskStatusImplementationReview {
+		log.Debug().
+			Str("task_id", taskID).
+			Str("status", string(task.Status)).
+			Msg("auto-merge: task no longer in implementation_review, skipping")
+		return
+	}
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get project failed")
+		return
+	}
+	if project.DefaultRepoID == "" {
+		return
+	}
+	repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: get repo failed")
+		return
+	}
+	if repo.DefaultBranch == "" {
+		return
+	}
+
+	var oldDefaultBranchRef string
+	if repo.IsExternal && repo.ExternalURL != "" {
+		lock := s.gitRepoService.GetRepoLock(repo.ID)
+		lock.Lock()
+		defer lock.Unlock()
+
+		if err := s.gitRepoService.SyncAllBranches(ctx, repo.ID, true); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID).Str("repo_id", repo.ID).Msg("auto-merge: sync failed, continuing with local state")
+		}
+		oldDefaultBranchRef, _ = GetBranchCommitID(ctx, repo.LocalPath, repo.DefaultBranch)
+	}
+
+	if _, mergeErr := MergeBranchFastForward(ctx, repo.LocalPath, task.BranchName, repo.DefaultBranch); mergeErr != nil {
+		log.Info().
+			Err(mergeErr).
+			Str("task_id", task.ID).
+			Str("source_branch", task.BranchName).
+			Str("target_branch", repo.DefaultBranch).
+			Msg("auto-merge: FF still not possible after agent push — leaving task in implementation_review")
+		return
+	}
+
+	if repo.IsExternal && repo.ExternalURL != "" {
+		if pushErr := s.gitRepoService.PushBranchToRemote(ctx, repo.ID, repo.DefaultBranch, false); pushErr != nil {
+			log.Error().Err(pushErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: push to upstream failed - rolling back")
+			if oldDefaultBranchRef != "" {
+				if rollbackErr := UpdateBranchRef(ctx, repo.LocalPath, repo.DefaultBranch, oldDefaultBranchRef); rollbackErr != nil {
+					log.Error().Err(rollbackErr).Str("task_id", task.ID).Str("branch", repo.DefaultBranch).Msg("auto-merge: rollback failed")
+				}
+			}
+			return
+		}
+	}
+
+	now := time.Now()
+	task.MergedToMain = true
+	task.MergedAt = &now
+	task.Status = types.TaskStatusDone
+	task.StatusUpdatedAt = &now
+	task.CompletedAt = &now
+	task.ImplementationApprovedAt = &now
+	task.UpdatedAt = now
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("auto-merge: failed to mark task done after successful auto-merge")
+		return
+	}
+	DismissTaskAttentionEvents(ctx, s.store, task.ID)
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("source_branch", task.BranchName).
+		Str("target_branch", repo.DefaultBranch).
+		Msg("auto-merge: server-side merge completed after agent rebase push")
 }
 
 // handleMainBranchPush transitions task from implementation_review → done
@@ -1019,7 +1211,9 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.Gi
 			task.UpdatedAt = now
 			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
 				log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task")
+				continue
 			}
+			DismissTaskAttentionEvents(ctx, s.store, task.ID)
 		}
 	}
 }
@@ -1095,6 +1289,80 @@ func (s *GitHTTPServer) getPullRequestContent(repoPath string, task *types.SpecT
 	return parsePullRequestMarkdown(string(output))
 }
 
+// pullRequestFileChangedForTask returns true if the given changed-file list
+// includes a pull_request*.md inside the task's design doc directory.
+// Used to decide whether a helix-specs push should trigger a PR description
+// re-sync for this task.
+func pullRequestFileChangedForTask(files []string, designDocPath string) bool {
+	if designDocPath == "" {
+		return false
+	}
+	prefix := "design/tasks/" + designDocPath + "/"
+	for _, f := range files {
+		if !strings.HasPrefix(f, prefix) {
+			continue
+		}
+		rest := f[len(prefix):]
+		if strings.Contains(rest, "/") {
+			// Only files directly in the task dir, not in subdirectories
+			// (e.g. screenshots/). pull_request_*.md always lives at the top.
+			continue
+		}
+		if strings.HasPrefix(rest, "pull_request") && strings.HasSuffix(rest, ".md") {
+			return true
+		}
+	}
+	return false
+}
+
+// syncOpenPRDescriptions re-reads pull_request_<repo-name>.md (or generic
+// pull_request.md) from this repo's helix-specs branch and PATCHes the GitHub
+// PR title/body for any currently-open PR belonging to this same repo.
+//
+// Only updates PRs that live in the repo that received the helix-specs push —
+// multi-repo projects need pushes to each repo's helix-specs to update PRs in
+// that repo (the agent normally keeps them in sync).
+func (s *GitHTTPServer) syncOpenPRDescriptions(ctx context.Context, task *types.SpecTask, repo *types.GitRepository, repoPath string) {
+	if repo.ExternalURL == "" {
+		// Internal repos have no upstream PR to update.
+		return
+	}
+	pr := task.GetPRForRepo(repo.ID)
+	if pr == nil || pr.PRState != "open" || pr.PRNumber == 0 {
+		return
+	}
+
+	title, description, found := s.getPullRequestContent(repoPath, task, repo.Name)
+	if !found {
+		// File missing or unparseable. Leave the PR alone rather than
+		// overwriting with the task-name fallback — the user may have
+		// authored the current body manually.
+		return
+	}
+
+	orgName := ""
+	if task.OrganizationID != "" {
+		if org, err := s.store.GetOrganization(ctx, &store.GetOrganizationQuery{ID: task.OrganizationID}); err == nil && org != nil {
+			orgName = org.Name
+		}
+	}
+	description = description + "\n\n" + buildPRFooter(repo, task, orgName, s.serverBaseURL)
+
+	if err := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.PRNumber, title, description); err != nil {
+		log.Error().Err(err).
+			Str("task_id", task.ID).
+			Str("repo_id", repo.ID).
+			Int("pr_number", pr.PRNumber).
+			Msg("Failed to update PR description from helix-specs")
+		return
+	}
+	log.Info().
+		Str("task_id", task.ID).
+		Str("repo_id", repo.ID).
+		Int("pr_number", pr.PRNumber).
+		Msg("Updated PR title/body from helix-specs pull_request_*.md")
+}
+
 // getSpecDocsBaseURL builds a URL to view spec docs in the external repo's web UI.
 // Returns empty string if URL cannot be constructed (unknown provider or internal repo).
 func getSpecDocsBaseURL(repo *types.GitRepository, designDocPath string) string {
@@ -1162,9 +1430,29 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 
 	log.Info().Str("repo_id", repo.ID).Str("branch", branch).Msg("Ensuring pull request")
 
+	// If we already track a PR for this repo, return without pushing or
+	// re-creating. Pushing would recreate a branch that GitHub auto-deleted
+	// after merge, or re-open a branch the user closed intentionally.
+	// ListPullRequests (open-only) can't see merged/closed PRs, so without
+	// this guard we'd fall through to CreatePullRequest and duplicate.
+	// Mirrors the guard added to ensurePullRequestForRepo in PR #2225.
+	for i := range task.RepoPullRequests {
+		existing := &task.RepoPullRequests[i]
+		if existing.RepositoryID == repo.ID && existing.PRID != "" {
+			log.Info().
+				Str("pr_id", existing.PRID).
+				Str("pr_state", existing.PRState).
+				Str("repo_id", repo.ID).
+				Str("branch", branch).
+				Msg("Task already tracks a PR for this repo, skipping ensurePullRequest")
+			return nil
+		}
+	}
+
 	// Acquire repo lock for push operation to prevent race conditions.
+	// Use the approver's OAuth token when available.
 	if err := s.gitRepoService.WithRepoLock(repo.ID, func() error {
-		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false)
+		return s.gitRepoService.PushBranchToRemote(ctx, repo.ID, branch, false, task.ImplementationApprovedBy)
 	}); err != nil {
 		return fmt.Errorf("failed to push branch: %w", err)
 	}
@@ -1210,25 +1498,33 @@ func (s *GitHTTPServer) ensurePullRequest(ctx context.Context, repo *types.GitRe
 	for _, pr := range prs {
 		branchMatches := pr.SourceBranch == sourceBranchRef || pr.SourceBranch == branch
 		if branchMatches && pr.State == types.PullRequestStateOpen {
-			// Update the PR title/description in case helix-specs changed
-			if pr.Number > 0 {
-				if updateErr := s.gitRepoService.UpdatePullRequest(ctx, repo.ID, pr.Number, title, description); updateErr != nil {
-					log.Warn().Err(updateErr).Str("pr_id", pr.ID).Msg("Failed to update existing PR content")
-				}
-			}
+			// Do not update the PR title/description here — the user may have renamed the PR
+			// and overwriting their title would conflict with their explicit change.
 			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
 			task.UpdatedAt = time.Now()
 			s.store.UpdateSpecTask(ctx, task)
 			log.Info().
 				Str("pr_id", pr.ID).
 				Str("repo_id", repo.ID).
-				Msg("Found and updated existing pull request")
+				Msg("Found existing pull request")
+			return nil
+		}
+		// If a PR was closed (not merged) on this branch, don't recreate it.
+		// The user closed it intentionally.
+		if branchMatches && pr.State == types.PullRequestStateClosed {
+			s.updateRepoPullRequests(task, repo, pr.ID, pr.Number, pr.URL, string(pr.State))
+			task.UpdatedAt = time.Now()
+			s.store.UpdateSpecTask(ctx, task)
+			log.Info().
+				Str("pr_id", pr.ID).
+				Str("repo_id", repo.ID).
+				Msg("PR was closed on this branch, not recreating")
 			return nil
 		}
 	}
 
 	// No existing PR — create one
-	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch)
+	prID, err := s.gitRepoService.CreatePullRequest(ctx, repo.ID, title, description, branch, repo.DefaultBranch, task.ImplementationApprovedBy)
 	if err != nil {
 		// If PR already exists (422), try to find it and use it
 		if strings.Contains(err.Error(), "already exists") {
@@ -1302,6 +1598,14 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
 		return
+	}
+
+	// Fetch the commit's changed files once so we can decide per-task whether
+	// to re-sync the corresponding GitHub PR body from pull_request_*.md.
+	// Cheap (single git diff-tree); only used for the PR sync path below.
+	var changedFiles []string
+	if pushedBranch == SpecsBranchName {
+		changedFiles, _ = gitRepo.GetChangedFilesInCommit(commitHash)
 	}
 
 	// Look up tasks by DesignDocPath for new-format directories
@@ -1387,6 +1691,19 @@ func (s *GitHTTPServer) processDesignDocsForBranch(ctx context.Context, repo *ty
 			}(task)
 		}
 
+		// If this push was to helix-specs and touched the task's
+		// pull_request_*.md, re-sync the open GitHub PR's title and body so
+		// edits to the description after the PR was first opened propagate
+		// (previously the PR was templated once at creation time and never
+		// updated, so any pull_request_*.md added later was ignored).
+		if pushedBranch == SpecsBranchName && pullRequestFileChangedForTask(changedFiles, task.DesignDocPath) {
+			s.wg.Add(1)
+			go func(t *types.SpecTask) {
+				defer s.wg.Done()
+				s.syncOpenPRDescriptions(context.Background(), t, repo, repoPath)
+			}(task)
+		}
+
 		// Emit specs_pushed attention event for every design doc commit
 		if s.attentionService != nil {
 			s.wg.Add(1)
@@ -1458,6 +1775,19 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 	if err != nil {
 		log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to read design docs")
 		return
+	}
+
+	// Update task name from requirements.md title (on every push)
+	if reqContent, ok := docs["requirements.md"]; ok {
+		if specTitle := SpecTitleFromRequirements(reqContent); specTitle != "" && specTitle != task.Name {
+			task.Name = specTitle
+			task.UpdatedAt = time.Now()
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().Err(err).Str("spec_task_id", specTaskID).Msg("Failed to update task name from spec title")
+			} else {
+				log.Info().Str("spec_task_id", specTaskID).Str("new_name", specTitle).Msg("Updated task name from spec title")
+			}
+		}
 	}
 
 	existingReviews, _ := s.store.ListSpecTaskDesignReviews(ctx, specTaskID)

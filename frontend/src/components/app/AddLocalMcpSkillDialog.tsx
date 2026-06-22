@@ -305,14 +305,19 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
                 }}
                 onClick={() => {
                   setName('Drone CI');
-                  setCommandLine('npx -y drone-ci-mcp');
+                  // drone-ci-mcp is globally installed in the desktop image
+                  // (Dockerfile.ubuntu-helix) — invoke the binary directly
+                  // rather than via `npx -y`. npx hits the shared _npx cache
+                  // and races against parallel chrome-devtools spawns, causing
+                  // 180s context_server initialize timeouts.
+                  setCommandLine('drone-ci-mcp');
                   setEnv({
                     'DRONE_SERVER_URL': 'https://drone.example.com',
                     'DRONE_ACCESS_TOKEN': 'your-drone-api-token',
                   });
                 }}
               >
-                npx -y drone-ci-mcp
+                drone-ci-mcp
               </Box>
               <Box
                 sx={{
@@ -370,7 +375,7 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
               onChange={(e) => setCommandLine(e.target.value)}
               margin="normal"
               required
-              placeholder="npx -y drone-ci-mcp"
+              placeholder="drone-ci-mcp"
             />
 
             {/* Preview how command is parsed */}
@@ -463,8 +468,8 @@ const AddLocalMcpSkillDialog: React.FC<AddLocalMcpSkillDialogProps> = ({
       </DialogContent>
       <DialogActions
         sx={{
-          background: '#181A20',
-          borderTop: '1px solid #23262F',
+          background: lightTheme.panelColor,
+          borderTop: lightTheme.border,
           flexDirection: 'column',
           alignItems: 'stretch',
         }}

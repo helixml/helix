@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
   Box,
   Typography,
@@ -41,6 +42,7 @@ import {
   getStandardVideoFormats,
 } from "../../lib/helix-stream/stream/video";
 import useApi from "../../hooks/useApi";
+import useLightTheme from "../../hooks/useLightTheme";
 import { useAccount } from "../../contexts/account";
 import { useVideoStream } from "../../contexts/VideoStreamContext";
 import { TypesClipboardData } from "../../api/api";
@@ -57,6 +59,7 @@ import RemoteCursorsOverlay from "./RemoteCursorsOverlay";
 import AgentCursorOverlay from "./AgentCursorOverlay";
 import CursorRenderer from "./CursorRenderer";
 import InsecureContextWarning from "./InsecureContextWarning";
+import { isMobileOrTablet } from "../../utils/isMobileOrTablet";
 
 /**
  * Clipboard helpers: WKWebView (macOS Wails app) blocks navigator.clipboard
@@ -64,20 +67,69 @@ import InsecureContextWarning from "./InsecureContextWarning";
  * postMessage to the parent frame which has access to the Wails runtime
  * clipboard (backed by NSPasteboard). Falls back to navigator.clipboard
  * for regular browser usage.
+ *
+ * The postMessage protocol carries a `mime` discriminator so we can
+ * round-trip both text and image clipboard data through the macOS app:
+ *   { type: 'helix-clipboard-write', mime: 'text/plain', text: string }
+ *   { type: 'helix-clipboard-write', mime: 'image/png',  base64: string }
+ *   { type: 'helix-clipboard-read',  id: string }
+ *   { type: 'helix-clipboard-response', id, mime, text? | base64? }
+ *
+ * Old text-only iframe message shape is still accepted by the Wails parent
+ * (no `mime` field → treated as text/plain) for back-compat during deploys.
  */
 const isInIframe = typeof window !== "undefined" && window.parent !== window;
 
-async function clipboardWriteText(text: string): Promise<void> {
+export type ClipboardReadResult =
+  | { mime: "text/plain"; text: string }
+  | { mime: "image/png"; base64: string }
+  | { mime: "empty" };
+
+export type ClipboardWritePayload =
+  | { mime: "text/plain"; text: string }
+  | { mime: "image/png"; base64: string };
+
+async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
   if (isInIframe) {
-    window.parent.postMessage({ type: "helix-clipboard-write", text }, "*");
+    if (payload.mime === "image/png") {
+      window.parent.postMessage(
+        {
+          type: "helix-clipboard-write",
+          mime: "image/png",
+          base64: payload.base64,
+        },
+        "*",
+      );
+    } else {
+      // Include `mime` for new parents and `text` for old ones.
+      window.parent.postMessage(
+        {
+          type: "helix-clipboard-write",
+          mime: "text/plain",
+          text: payload.text,
+        },
+        "*",
+      );
+    }
     return;
   }
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
+  if (!navigator.clipboard) return;
+  if (payload.mime === "image/png") {
+    if (!navigator.clipboard.write || typeof ClipboardItem === "undefined") {
+      throw new Error("Browser does not support image clipboard write");
+    }
+    const blob = new Blob([base64ToBytes(payload.base64)], {
+      type: "image/png",
+    });
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blob }),
+    ]);
+  } else {
+    await navigator.clipboard.writeText(payload.text);
   }
 }
 
-function clipboardReadText(): Promise<string> {
+function clipboardReadAny(): Promise<ClipboardReadResult> {
   if (isInIframe) {
     return new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
@@ -87,7 +139,15 @@ function clipboardReadText(): Promise<string> {
           event.data.id === id
         ) {
           window.removeEventListener("message", handler);
-          resolve(event.data.text || "");
+          const mime = event.data.mime as string | undefined;
+          if (mime === "image/png" && typeof event.data.base64 === "string") {
+            resolve({ mime: "image/png", base64: event.data.base64 });
+          } else if (typeof event.data.text === "string" && event.data.text) {
+            // Includes old-parent responses that lacked `mime` entirely.
+            resolve({ mime: "text/plain", text: event.data.text });
+          } else {
+            resolve({ mime: "empty" });
+          }
         }
       };
       window.addEventListener("message", handler);
@@ -95,14 +155,64 @@ function clipboardReadText(): Promise<string> {
       // Timeout after 2s to avoid hanging
       setTimeout(() => {
         window.removeEventListener("message", handler);
-        resolve("");
+        resolve({ mime: "empty" });
       }, 2000);
     });
   }
-  if (navigator.clipboard) {
-    return navigator.clipboard.readText();
+  if (!navigator.clipboard?.read) {
+    // No read() — try text fallback.
+    if (navigator.clipboard?.readText) {
+      return navigator.clipboard
+        .readText()
+        .then(
+          (text): ClipboardReadResult =>
+            text ? { mime: "text/plain", text } : { mime: "empty" },
+        )
+        .catch((): ClipboardReadResult => ({ mime: "empty" }));
+    }
+    return Promise.resolve({ mime: "empty" });
   }
-  return Promise.resolve("");
+  return navigator.clipboard
+    .read()
+    .then(async (items): Promise<ClipboardReadResult> => {
+      if (items.length === 0) return { mime: "empty" };
+      const item = items[0];
+      if (item.types.includes("image/png")) {
+        const blob = await item.getType("image/png");
+        const buf = await blob.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        return { mime: "image/png", base64 };
+      }
+      if (item.types.includes("text/plain")) {
+        const blob = await item.getType("text/plain");
+        const text = await blob.text();
+        return { mime: "text/plain", text };
+      }
+      return { mime: "empty" };
+    })
+    .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
+}
+
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(base64);
+  // Allocate the ArrayBuffer explicitly so the resulting Uint8Array is
+  // typed as Uint8Array<ArrayBuffer>, which the Blob constructor accepts.
+  // (The default `new Uint8Array(length)` overload also returns this type,
+  // but pinning the return annotation prevents it from widening to the
+  // generic Uint8Array<ArrayBufferLike>, which Blob rejects in TS 5.7+.)
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function hashClipboardData(d: TypesClipboardData | null | undefined): string {
+  if (!d || !d.type || !d.data) return "";
+  // type + length + first 64 chars is unique enough for "did the clipboard
+  // change since I last polled it" purposes without copying megabytes.
+  return `${d.type}:${d.data.length}:${d.data.substring(0, 64)}`;
 }
 
 // Returns a stable UUID for a given sessionId in this browser tab.
@@ -111,7 +221,7 @@ function getOrCreateStreamUUID(sessionId: string): string {
   const storageKey = `helix-stream-uuid-${sessionId}`;
   let id = sessionStorage.getItem(storageKey);
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     sessionStorage.setItem(storageKey, id);
   }
   return id;
@@ -142,6 +252,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   className = "",
   suppressOverlay = false,
 }) => {
+  const lightTheme = useLightTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
   const containerRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null); // Hidden input for iOS/iPad virtual keyboard
@@ -243,7 +354,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const addConnectionLog = useCallback((msg: string) => {
     const time = new Date().toLocaleTimeString();
     console.log(`[DesktopStreamViewer] ${msg}`);
-    setConnectionLog((prev) => [...prev.slice(-9), { time, msg }]); // Keep last 10 entries
+    // Keep last 49 entries so the user can grab Stats-for-Nerds → Log and have
+    // ~5+ reconnect cycles of context for debugging. Display caps height + scrolls.
+    setConnectionLog((prev) => [...prev.slice(-49), { time, msg }]);
   }, []);
 
   // Shared retry logic for AlreadyStreaming errors.
@@ -306,6 +419,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const lastTapTimeRef = useRef<number>(0);
   const touchStartTimeRef = useRef<number>(0); // Track when touch started (for tap vs drag detection)
   const touchMovedRef = useRef<boolean>(false); // Track if finger moved significantly during touch
+  const lastTouchEndTimeRef = useRef<number>(0); // Track when last touch ended (to suppress synthetic mouse events)
   const [isDragging, setIsDragging] = useState(false); // True when in double-tap-drag mode (mouse button held)
   const pendingClickTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Pending single-tap click (for double-tap detection)
   // Trackpad mode constants
@@ -394,8 +508,6 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const [screenshotFps, setScreenshotFps] = useState(0); // Current FPS for display
   const screenshotQualityRef = useRef(70); // Ref for use in async callback
 
-  // Clipboard sync state
-  const lastRemoteClipboardHash = useRef<string>(""); // Track changes to avoid unnecessary writes
   const [stats, setStats] = useState<StreamStats | null>(null);
 
   // Chart history for visualizing adaptive bitrate behavior (60 seconds of data)
@@ -592,6 +704,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // but this ensures we never have two streams active at once even if connect() is
     // called directly or there's a race condition
     if (streamRef.current) {
+      addConnectionLog("connect() called while stream still alive — closing it first");
       console.log(
         "[DesktopStreamViewer] Closing existing stream before creating new one",
       );
@@ -903,6 +1016,17 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setIsConnected(false);
           onConnectionChange?.(false);
 
+          // Server-initiated supersede: a newer connection from this same tab is
+          // already taking over. Don't flash "Reconnecting…" — the new stream
+          // will drive isConnected back to true momentarily.
+          if (data.superseded) {
+            addConnectionLog("Disconnected (superseded by server)");
+            console.log(
+              "[DesktopStreamViewer] Disconnected because superseded by server",
+            );
+            return;
+          }
+
           // If explicitly closed (unmount, HMR, user-initiated disconnect), show Disconnected overlay
           // Otherwise, WebSocketStream will auto-reconnect, so show "Reconnecting..." state
           if (isExplicitlyClosingRef.current) {
@@ -914,7 +1038,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             setStatus("Disconnected");
           } else {
             addConnectionLog(
-              `Disconnected unexpectedly (code: ${data.code || "unknown"})`,
+              `Disconnected unexpectedly (code: ${data.code || "unknown"}${data.reason ? `, ${data.reason}` : ""})`,
             );
             console.log(
               "[DesktopStreamViewer] Unexpected disconnect - will auto-reconnect",
@@ -929,6 +1053,18 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           );
           setIsConnecting(true);
           setStatus(`Reconnecting (attempt ${data.attempt})...`);
+        } else if (data.type === "reconnectScheduled") {
+          addConnectionLog(
+            `WS backoff reconnect in ${data.delayMs}ms (attempt ${data.attempt}/${data.maxAttempts})`,
+          );
+        } else if (data.type === "heartbeatStale") {
+          addConnectionLog(
+            `WS heartbeat stale (${data.elapsedMs}ms since last msg)`,
+          );
+        } else if (data.type === "connectionTimeout") {
+          addConnectionLog(`WS open timed out after ${data.timeoutMs}ms`);
+        } else if (data.type === "visibility") {
+          addConnectionLog(`Page ${data.visible ? "visible" : "hidden"}`);
         } else if (data.type === "reconnectAborted") {
           // WebSocketStream refused to reconnect (this.closed was true unexpectedly)
           // IMPORTANT: Only handle if this event is from the CURRENT stream.
@@ -945,6 +1081,19 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             "[DesktopStreamViewer] Reconnect aborted by stream:",
             data.reason,
           );
+
+          // Server-initiated supersede: a newer connection from this same tab has
+          // already taken over. Do NOT manually reconnect — that just supersedes
+          // the new stream and triggers the storm again. The new connection's
+          // events will drive the UI from here.
+          // See design/2026-05-21-stream-reconnect-storm-root-cause.md.
+          if (data.superseded) {
+            addConnectionLog("Superseded by server (no reconnect)");
+            console.log(
+              "[DesktopStreamViewer] Superseded by server — letting newer connection take over, suppressing reconnect",
+            );
+            return;
+          }
 
           // If we weren't explicitly closing, this is unexpected - try to reconnect ourselves
           // But limit to 3 attempts to prevent infinite loops
@@ -1255,9 +1404,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   // Default 1 second delay for fast reconnects - infrastructure is reliable now
   const reconnect = useCallback(
     (delayMs = 1000, reason?: string) => {
+      addConnectionLog(
+        `Component reconnect requested in ${delayMs}ms${reason ? ` (${reason})` : ""}`,
+      );
       // CRITICAL: Cancel any pending reconnect to prevent duplicate streams
       // This happens when user rapidly changes bitrate or mode
       if (pendingReconnectTimeoutRef.current) {
+        addConnectionLog("Cancelling previous pending reconnect");
         console.log("[DesktopStreamViewer] Cancelling pending reconnect");
         clearTimeout(pendingReconnectTimeoutRef.current);
         pendingReconnectTimeoutRef.current = null;
@@ -1279,7 +1432,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         connectRef.current();
       }, delayMs);
     },
-    [disconnect],
+    [disconnect, addConnectionLog],
   );
 
   // Ref to reconnect function for use in closures (avoids stale closure issues)
@@ -1299,6 +1452,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Check current fullscreen state (including iOS custom fullscreen)
     const currentlyFullscreen = isFullscreen || isIOSFullscreen;
 
+    // When this component is rendered inside a cross-origin iframe (e.g.
+    // the Gatewaze admin embedding /embed/task/:id), the fullscreen API
+    // behaves differently than in a standalone tab. Calling
+    // requestFullscreen() on a deeply-nested `position: relative` div
+    // makes Chrome on macOS try to enter window-level fullscreen and
+    // immediately bounce back — leaving the iframe's content thinking
+    // it's fullscreen but the iframe element still constrained to its
+    // original rect. The reliable pattern (used by YouTube, Vimeo) is
+    // to call requestFullscreen on the iframe document's ROOT element
+    // (the iframe's <html>): the browser then fullscreens the iframe
+    // element itself, the iframe expands to viewport size, and the
+    // root element fills the iframe. The :fullscreen pseudo-class on
+    // the body (added below) makes our content fill the new viewport.
+    const inIframe = window.self !== window.top;
+    const fullscreenTarget = inIframe ? document.documentElement : elem;
+
     if (!currentlyFullscreen) {
       // On iOS, use custom CSS-based fullscreen that maintains full interactivity
       // Native video fullscreen (webkitEnterFullscreen) doesn't allow touch/keyboard input
@@ -1315,8 +1484,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       // Try all fullscreen APIs in order of preference
       // Standard API (Chrome, Firefox, Edge, Safari 16.4+)
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen().catch(() => {
+      if (fullscreenTarget.requestFullscreen) {
+        fullscreenTarget.requestFullscreen().catch(() => {
           // Fallback to iOS-style CSS fullscreen if native fails
           console.log(
             "[Fullscreen] Native fullscreen failed, using CSS fallback",
@@ -1326,20 +1495,20 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         });
       }
       // Webkit (Safari, iOS Safari, iOS Chrome - all use WebKit)
-      else if (elem.webkitRequestFullscreen) {
-        elem.webkitRequestFullscreen();
+      else if ((fullscreenTarget as any).webkitRequestFullscreen) {
+        (fullscreenTarget as any).webkitRequestFullscreen();
       }
       // Webkit with capital S (older Android Chrome)
-      else if (elem.webkitRequestFullScreen) {
-        elem.webkitRequestFullScreen();
+      else if ((fullscreenTarget as any).webkitRequestFullScreen) {
+        (fullscreenTarget as any).webkitRequestFullScreen();
       }
       // Mozilla (older Firefox)
-      else if (elem.mozRequestFullScreen) {
-        elem.mozRequestFullScreen();
+      else if ((fullscreenTarget as any).mozRequestFullScreen) {
+        (fullscreenTarget as any).mozRequestFullScreen();
       }
       // MS (old IE/Edge)
-      else if (elem.msRequestFullscreen) {
-        elem.msRequestFullscreen();
+      else if ((fullscreenTarget as any).msRequestFullscreen) {
+        (fullscreenTarget as any).msRequestFullscreen();
       }
       // Last resort: CSS fullscreen
       else {
@@ -1874,16 +2043,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     );
     setUserBitrate(defaultBitrate);
     setRequestedBitrate(defaultBitrate);
+    addConnectionLog(
+      `Auto-connecting at ${defaultBitrate} Mbps for ${width}x${height}`,
+    );
     connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sandboxId, sessionId, isVisible, width, height, account.initialized]); // Only trigger on props and visibility, not on function identity changes
 
   // Cleanup on unmount
   useEffect(() => {
+    addConnectionLog("Component mounted");
     console.log(
       "[DesktopStreamViewer] Component mounted, setting up cleanup handler",
     );
     return () => {
+      // No addConnectionLog here — the component is unmounting so the log
+      // state will be discarded immediately. Console only.
       console.log(
         "[DesktopStreamViewer] Component unmounting, calling disconnect()",
       );
@@ -1897,34 +2072,22 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
   // iOS Safari fix: Force reconnect when page becomes visible
   // iOS Safari can suspend WebSockets without properly closing them, leaving the stream black
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isConnected) {
-        console.log(
-          "[DesktopStreamViewer] Page became visible, checking stream health...",
-        );
-        // Check if the stream is still healthy by looking at the WebSocket state
-        const stream = streamRef.current;
-        if (stream) {
-          const ws = (stream as any).ws as WebSocket | undefined;
-          if (
-            ws &&
-            (ws.readyState === WebSocket.CLOSED ||
-              ws.readyState === WebSocket.CLOSING)
-          ) {
-            console.log(
-              "[DesktopStreamViewer] WebSocket was closed while page was hidden, forcing reconnect",
-            );
-            reconnect(500, "Reconnecting after page visibility change...");
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isConnected, reconnect]);
+  // NOTE: Uses reconnectRef to avoid re-registering this listener every time the reconnect
+  // function changes (which happens on bitrate/connect changes). Without this, each
+  // reconnect function change would remove+add the listener, and on iPad the rapid
+  // re-registration caused reconnect storms.
+  // NOTE: We previously had a visibility change handler here that checked
+  // ws.readyState === CLOSED when the page became visible and forced a reconnect.
+  // This was REMOVED because it caused reconnect loops:
+  //
+  // WebSocketStream already handles page visibility changes internally:
+  //   1. Its heartbeat resets lastMessageTime on visibility change (line 2119)
+  //   2. Its onClose handler auto-reconnects with exponential backoff
+  //   3. iOS Safari JS suspension is handled by skipping stale detection when hidden
+  //
+  // The component-level visibility check would see a CLOSED WebSocket during
+  // WebSocketStream's internal reconnect backoff, create a brand new stream,
+  // and cancel the pending backoff — causing a reconnect loop.
 
   // iOS Safari frame stall detection
   // iOS Safari can silently break the VideoDecoder without triggering error callbacks,
@@ -1934,6 +2097,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const FRAME_STALL_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
   const DECODER_CRASH_RECONNECT_COOLDOWN_MS = 10000; // Don't reconnect more than once per 10 seconds
   const lastDecoderCrashReconnectRef = useRef<number>(0);
+  // Frame health check: monitors WebSocket data flow and decoder state.
+  // Uses reconnectRef to avoid restarting the interval every time the reconnect
+  // function changes. Without this, bitrate changes would clear+restart the interval,
+  // creating parallel health check timers that all trigger reconnects independently.
   useEffect(() => {
     // Only run health check in video mode when connected
     if (!isConnected || qualityMode === "screenshot" || isConnecting) {
@@ -1944,19 +2111,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const stream = streamRef.current;
       if (!stream || !(stream instanceof WebSocketStream)) return;
 
-      // Check WebSocket state first (belt and suspenders with visibility handler)
-      const ws = (stream as any).ws as WebSocket | undefined;
-      if (
-        ws &&
-        (ws.readyState === WebSocket.CLOSED ||
-          ws.readyState === WebSocket.CLOSING)
-      ) {
-        console.log(
-          "[DesktopStreamViewer] Frame health check: WebSocket closed, forcing reconnect",
-        );
-        reconnect(500, "Reconnecting (connection lost)...");
-        return;
-      }
+      // NOTE: We intentionally do NOT check ws.readyState === CLOSED here.
+      // WebSocketStream has its own onClose handler with exponential backoff
+      // reconnection (1s, 2s, 4s, 8s... up to 30s, max 10 attempts).
+      // If we detect CLOSED here and call reconnect(), we create a BRAND NEW
+      // WebSocketStream, which:
+      //   1. Kills the pending internal reconnect (stream.close() cancels it)
+      //   2. Resets the backoff counter to 0
+      //   3. Creates a new pipeline on the backend
+      // This causes the reconnect loop: health check fires every 3s, sees CLOSED
+      // during backoff wait, creates new stream, repeat. Each cycle leaks GPU memory.
+      //
+      // Instead, this health check ONLY detects:
+      //   - Decoder crash (state=closed) — needs full reconnect
+      //   - Stale connection (WS appears OPEN but no data) — WebSocketStream's
+      //     10s heartbeat might be too slow, so we catch it at 5s
 
       // Check decoder health
       const stats = stream.getStats();
@@ -1980,7 +2149,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${crashMsg}, forcing reconnect`);
         addConnectionLog(crashMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (decoder crashed)...");
+        reconnectRef.current(500, "Reconnecting (decoder crashed)...");
         return;
       }
 
@@ -2008,7 +2177,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         console.log(`[DesktopStreamViewer] ${stallMsg}, forcing reconnect`);
         addConnectionLog(stallMsg);
         lastDecoderCrashReconnectRef.current = now;
-        reconnect(500, "Reconnecting (connection stalled)...");
+        reconnectRef.current(500, "Reconnecting (connection stalled)...");
         return;
       }
     };
@@ -2018,7 +2187,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       FRAME_STALL_CHECK_INTERVAL_MS,
     );
     return () => clearInterval(intervalId);
-  }, [isConnected, qualityMode, isConnecting, reconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, qualityMode, isConnecting]);
 
   // NOTE: We intentionally do NOT auto-focus the container when stream connects.
   // Auto-focusing steals focus from wherever the user was (e.g., typing in a text field)
@@ -2644,94 +2814,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     return () => clearInterval(interval);
   }, [containerSize, isConnected]);
 
-  // Auto-sync clipboard from remote → local every 2 seconds
-  useEffect(() => {
-    if (!isConnected || !sessionId) return;
-
-    const syncClipboard = async () => {
-      // Skip if tab is hidden (save bandwidth and CPU)
-      if (document.visibilityState === "hidden") {
-        return;
-      }
-
-      // Skip if clipboard API is not available (e.g., Safari without HTTPS) and not in iframe
-      if (!navigator.clipboard && !isInIframe) {
-        return;
-      }
-
-      try {
-        const apiClient = helixApi.getApiClient();
-        const response =
-          await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
-        const clipboardData: TypesClipboardData = response.data;
-
-        // Skip if clipboard is empty or malformed
-        if (!clipboardData || !clipboardData.type || !clipboardData.data) {
-          return;
-        }
-
-        // Hash the clipboard data to detect changes
-        const hash = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
-        if (hash === lastRemoteClipboardHash.current) {
-          return; // No change, skip update
-        }
-
-        if (clipboardData.type === "image" && navigator.clipboard) {
-          // Image clipboard requires navigator.clipboard.write (no postMessage bridge for images)
-          const base64Data = clipboardData.data;
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: "image/png" });
-
-          await navigator.clipboard.write([
-            new ClipboardItem({ "image/png": blob }),
-          ]);
-
-          console.log(
-            `[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`,
-          );
-        } else if (clipboardData.type === "text") {
-          // Write text to browser/system clipboard
-          await clipboardWriteText(clipboardData.data);
-          console.log(
-            `[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`,
-          );
-        }
-
-        lastRemoteClipboardHash.current = hash;
-      } catch (err) {
-        // Silent failure - don't spam console with clipboard sync errors
-        // Only log if not a 404 (container might not be ready yet)
-        if (err && !String(err).includes("404")) {
-          console.warn("[Clipboard] Auto-sync failed:", err);
-        }
-      }
-    };
-
-    // Initial sync
-    syncClipboard();
-
-    // Poll every 2.7 seconds (prime to avoid sync with other polling)
-    const syncInterval = setInterval(syncClipboard, 2700);
-
-    return () => clearInterval(syncInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, sessionId]); // Don't include helixApi - it's not reactive
-
-  // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
+  // Forward wheel events to remote desktop via WebSocketStream.
+  // No preventDefault needed — the container has overflow:hidden so there's nothing
+  // for the browser to scroll, and leaving the event unhandled lets Chrome's native
+  // swipe-to-navigate gesture (two-finger horizontal swipe for back/forward) work.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const wheelHandler = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Send scroll via WebSocketStream
       const input =
         streamRef.current && "getInput" in streamRef.current
           ? (streamRef.current as WebSocketStream).getInput()
@@ -2739,9 +2830,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       input?.onMouseWheel(event);
     };
 
-    // CRITICAL: Use { passive: false } to allow preventDefault() on wheel events
-    // Chrome makes wheel events passive by default, which prevents preventDefault()
-    container.addEventListener("wheel", wheelHandler, { passive: false });
+    container.addEventListener("wheel", wheelHandler);
 
     return () => {
       container.removeEventListener("wheel", wheelHandler);
@@ -2798,6 +2887,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           framesDropped: isScreenshotMode ? 0 : wsStats.framesDropped,
           rttMs: wsStats.rttMs,
           encoderLatencyMs: wsStats.encoderLatencyMs,
+          schedulerJitterP50Ms: wsStats.schedulerJitterP50Ms,
+          schedulerJitterP99Ms: wsStats.schedulerJitterP99Ms,
+          schedulerJitterMaxMs: wsStats.schedulerJitterMaxMs,
           isHighLatency: wsStats.isHighLatency,
           batchingRatio: 0,
           avgBatchSize: 0,
@@ -2814,6 +2906,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           renderJitterMs: wsStats.renderJitterMs,
           avgReceiveIntervalMs: wsStats.avgReceiveIntervalMs,
           avgRenderIntervalMs: wsStats.avgRenderIntervalMs,
+          receiveIntervalSamples: wsStats.receiveIntervalSamples,
+          renderIntervalSamples: wsStats.renderIntervalSamples,
+          playoutBufferMs: wsStats.playoutBufferMs,
+          playoutState: wsStats.playoutState,
           // Debug flags
           usingSoftwareDecoder: wsStats.usingSoftwareDecoder,
           // Decoder health
@@ -2950,22 +3046,36 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+      // In trackpad mode, ignore synthetic mouse events generated by the browser
+      // from touch input. Without this, a tap fires both the trackpad tap handler
+      // (which sends a click at the virtual cursor) AND a synthetic mousedown/up
+      // pair (which sends a second click), resulting in a double-click.
+      // See handleMouseMove for the same guard.
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
       getInputHandler()?.onMouseDown(event.nativeEvent, getStreamRect());
     },
-    [getStreamRect, getInputHandler],
+    [getStreamRect, getInputHandler, touchMode],
   );
 
   const handleMouseUp = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
       getInputHandler()?.onMouseUp(event.nativeEvent);
     },
-    [getInputHandler],
+    [getInputHandler, touchMode],
   );
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+
+      // In trackpad mode, ignore synthetic mouse events generated by the browser
+      // from touch input. Touch taps fire a mousemove at the tap coordinates,
+      // which would jump the virtual cursor to the physical tap position.
+      // Only suppress events arriving shortly after a touch ended — real mouse
+      // events from an external trackpad (e.g. Magic Keyboard) must still work.
+      if (touchMode === "trackpad" && Date.now() - lastTouchEndTimeRef.current < 500) return;
 
       // Update custom cursor position - must match input coordinate space
       // Input uses getStreamRect() which accounts for letterboxing, so custom cursor
@@ -2996,7 +3106,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
 
       getInputHandler()?.onMouseMove(event.nativeEvent, getStreamRect());
     },
-    [getStreamRect, hasMouseMoved, getInputHandler],
+    [getStreamRect, hasMouseMoved, getInputHandler, touchMode],
   );
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -3031,10 +3141,15 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // Initialize cursor at center of stream if this is first touch
           if (!hasMouseMoved && containerRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect();
-            setCursorPosition({
-              x: rect.x - containerRect.x + rect.width / 2,
-              y: rect.y - containerRect.y + rect.height / 2,
-            });
+            const centerX = rect.x - containerRect.x + rect.width / 2;
+            const centerY = rect.y - containerRect.y + rect.height / 2;
+            setCursorPosition({ x: centerX, y: centerY });
+            // Also sync the ref so sendCursorPositionToRemote() uses the correct
+            // position on first tap (before any drag has updated the ref)
+            cursorPositionRef.current = { x: centerX, y: centerY };
+            if (trackpadCursorRef.current) {
+              trackpadCursorRef.current.style.transform = `translate(${centerX}px, ${centerY}px)`;
+            }
             setHasMouseMoved(true);
           }
 
@@ -3097,8 +3212,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         }
       }
 
-      // Delegate to StreamInput for actual input handling
-      handler.onTouchStart(event.nativeEvent, rect);
+      // Delegate to StreamInput for actual input handling.
+      // In trackpad mode we handle gestures locally and never call handler.onTouchEnd,
+      // so we must skip onTouchStart too — otherwise StreamInput accumulates stale
+      // primaryTouch and touchTracker entries that are never cleared.
+      if (touchMode !== "trackpad") {
+        handler.onTouchStart(event.nativeEvent, rect);
+      }
     },
     [
       getStreamRect,
@@ -3455,6 +3575,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const rect = getStreamRect();
       if (!handler) return;
 
+      // Record when touch ended so handleMouseMove can suppress synthetic
+      // mouse events that the browser fires after touch interactions
+      lastTouchEndTimeRef.current = Date.now();
+
       const now = Date.now();
       const touchDuration = now - touchStartTimeRef.current;
       const wasTap =
@@ -3620,6 +3744,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       const rect = getStreamRect();
       if (!handler) return;
 
+      lastTouchEndTimeRef.current = Date.now();
+
       // Cancel any pending click
       if (pendingClickTimeoutRef.current) {
         clearTimeout(pendingClickTimeoutRef.current);
@@ -3708,6 +3834,99 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     // Track last Escape press for double-Escape reset
     let lastEscapeTime = 0;
 
+    // Track when a native paste event was handled so we can suppress the subsequent
+    // bare 'v' keydown that macOS WKWebView fires after consuming the Cmd modifier.
+    let pasteJustHandled = false;
+
+    // Sync clipboard content to remote and forward Ctrl+V keystroke.
+    // Defined at useEffect scope so both handleKeyDown and handlePaste can use it.
+    const syncAndPaste = (payload: TypesClipboardData, useShift: boolean) => {
+      const sessionId = sessionIdRef.current;
+      console.log(
+        `[Paste DEBUG] syncAndPaste start: sessionId="${sessionId}" payload.type="${payload.type}" payload.data="${(payload.data || "").substring(0, 60)}"`,
+      );
+      const apiClient = helixApi.getApiClient();
+      apiClient
+        .v1ExternalAgentsClipboardCreate(sessionId, payload)
+        .then(() => {
+          console.log(
+            `[Paste DEBUG] syncAndPaste API success — sending Ctrl+${useShift ? "Shift+" : ""}V to remote`,
+          );
+          showClipboardToast("Pasted", "success");
+
+          // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
+          // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
+          // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
+          //
+          // Send the full key sequence: LeftCtrl down → V down → V up → LeftCtrl up.
+          // Sending only a synthetic event with ctrlKey:true is not sufficient — the
+          // remote backend requires the modifier key to be pressed as a real key event.
+          const input = getInput();
+          if (input) {
+            const ctrlDown = new KeyboardEvent("keydown", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(ctrlDown);
+
+            const pasteKeyDown = new KeyboardEvent("keydown", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyDown(pasteKeyDown);
+
+            const pasteKeyUp = new KeyboardEvent("keyup", {
+              code: "KeyV",
+              key: useShift ? "V" : "v",
+              ctrlKey: true,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(pasteKeyUp);
+
+            const ctrlUp = new KeyboardEvent("keyup", {
+              code: "ControlLeft",
+              key: "Control",
+              ctrlKey: false,
+              shiftKey: useShift,
+              altKey: false,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            });
+            input.onKeyUp(ctrlUp);
+
+            console.log(
+              `[Paste DEBUG] Ctrl+${useShift ? "Shift+" : ""}V key sequence sent to remote desktop`,
+            );
+          } else {
+            console.warn(
+              "[Clipboard] Paste keystroke detected but no input handler available",
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("[Clipboard] Failed to sync clipboard:", err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showClipboardToast(`Paste failed: ${errMsg}`, "error");
+        });
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Debug: Update visual debug indicator for iPad troubleshooting
       setDebugKeyEvent(
@@ -3728,6 +3947,21 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       // We must NOT forward these to the remote - the remote handles repeat via its own mechanisms.
       // Forwarding browser repeats causes key flooding and stuck key issues.
       if (event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      // On macOS, after a native paste event is handled, WKWebView fires a bare 'v' keydown
+      // without metaKey (the Cmd modifier was consumed by the native responder chain).
+      // Suppress it so we don't send a stray 'v' to the remote.
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV keydown: metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey} altKey=${event.altKey} pasteJustHandled=${pasteJustHandled} key="${event.key}"`,
+        );
+      }
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        console.log("[Paste DEBUG] Suppressing bare 'v' keydown after native paste");
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -3773,13 +4007,39 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       if (isCopyKeystroke && sessionIdRef.current) {
-        // Send the copy keystroke to remote first (translate Cmd to Ctrl for Linux)
+        event.preventDefault();
+        event.stopPropagation();
+        const sessionId = sessionIdRef.current;
+        const apiClient = helixApi.getApiClient();
+
+        // Snapshot the pre-copy clipboard hash in parallel with forwarding
+        // the keystroke. Used by the poll loop below to detect "the
+        // clipboard just changed". If the snapshot fetch itself fails we
+        // fall back to "first non-empty response wins".
+        const beforeHashPromise: Promise<string> = apiClient
+          .v1ExternalAgentsClipboardDetail(sessionId)
+          .then((r) => hashClipboardData(r.data))
+          .catch(() => "");
+
+        // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd).
+        // Send the full sequence: LeftCtrl down → C down → C up → LeftCtrl up.
         const input = getInput();
         if (input) {
           console.log(
             "[Clipboard] Copy keystroke detected, forwarding Ctrl+C to remote",
           );
-          // Forward Ctrl+C to remote (Linux uses Ctrl, not Cmd)
+          const ctrlDownForCopy = new KeyboardEvent("keydown", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: true,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyDown(ctrlDownForCopy);
+
           const ctrlCDown = new KeyboardEvent("keydown", {
             code: "KeyC",
             key: "c",
@@ -3803,70 +4063,151 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
             cancelable: true,
           });
           input.onKeyUp(ctrlCUp);
-          console.log("[Clipboard] Ctrl+C sent to remote desktop");
+
+          const ctrlUpForCopy = new KeyboardEvent("keyup", {
+            code: "ControlLeft",
+            key: "Control",
+            ctrlKey: false,
+            shiftKey: event.shiftKey,
+            altKey: false,
+            metaKey: false,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.onKeyUp(ctrlUpForCopy);
+          console.log("[Clipboard] Ctrl+C key sequence sent to remote desktop");
         } else {
           console.warn(
             "[Clipboard] Copy keystroke detected but no input handler available",
           );
         }
 
-        // Wait briefly for remote clipboard to update, then sync back to local
-        setTimeout(async () => {
-          try {
-            const apiClient = helixApi.getApiClient();
-            const response =
-              await apiClient.v1ExternalAgentsClipboardDetail(sessionIdRef.current);
-            const clipboardData: TypesClipboardData = response.data;
-
-            if (!clipboardData || !clipboardData.type || !clipboardData.data) {
-              console.log("[Clipboard] Remote clipboard empty after copy");
-              showClipboardToast("Copied", "success");
-              return;
-            }
-
-            // Skip local clipboard sync if API not available and not in iframe
-            if (!navigator.clipboard && !isInIframe) {
-              showClipboardToast("Copied", "success");
-              return;
-            }
-
-            if (clipboardData.type === "image" && navigator.clipboard) {
-              const base64Data = clipboardData.data;
-              const byteCharacters = atob(base64Data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
+        // Bounded poll: ask the API every ~30ms for up to ~500ms, resolve
+        // as soon as the clipboard hash differs from the pre-copy snapshot.
+        // Replaces the previous unconditional setTimeout(300ms). The result
+        // is consumed by the deferred-resolution ClipboardItem promises
+        // below, which keeps the local write anchored to the user gesture
+        // (required by Safari's stricter Async Clipboard API enforcement —
+        // see https://webkit.org/blog/10855/async-clipboard-api/).
+        const POLL_INTERVAL_MS = 30;
+        const POLL_DEADLINE_MS = 500;
+        const fetchPromise: Promise<TypesClipboardData> = (async () => {
+          const beforeHash = await beforeHashPromise;
+          const pollStart = performance.now();
+          const deadline = pollStart + POLL_DEADLINE_MS;
+          let lastData: TypesClipboardData = { type: "text", data: "" };
+          while (performance.now() < deadline) {
+            try {
+              const r =
+                await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+              lastData = r.data;
+              if (hashClipboardData(lastData) !== beforeHash) {
+                console.log(
+                  `[Clipboard] poll resolved in ${Math.round(performance.now() - pollStart)}ms (type=${lastData?.type})`,
+                );
+                return lastData;
               }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: "image/png" });
-
-              await navigator.clipboard.write([
-                new ClipboardItem({ "image/png": blob }),
-              ]);
-              console.log(
-                `[Clipboard] Synced image from remote (${byteArray.length} bytes)`,
-              );
-            } else if (clipboardData.type === "text") {
-              await clipboardWriteText(clipboardData.data);
-              console.log(
-                `[Clipboard] Synced text from remote (${clipboardData.data.length} chars)`,
-              );
+            } catch {
+              // Transient — keep polling until deadline.
             }
-
-            lastRemoteClipboardHash.current = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
-            showClipboardToast("Copied", "success");
-          } catch (err) {
-            console.error(
-              "[Clipboard] Failed to sync clipboard after copy:",
-              err,
-            );
-            // Still show success - the remote copy likely worked even if sync failed
-            showClipboardToast("Copied", "success");
+            await new Promise((res) => setTimeout(res, POLL_INTERVAL_MS));
           }
-        }, 300); // Wait 300ms for remote clipboard to update
+          console.log(
+            `[Clipboard] poll hit ${POLL_DEADLINE_MS}ms deadline without change (type=${lastData?.type})`,
+          );
+          return lastData;
+        })();
 
-        event.preventDefault();
-        event.stopPropagation();
+        // Build per-MIME Blob promises. Each resolves with the real Blob
+        // if the fetched type matches, or an empty Blob of that type if
+        // not — paste destinations naturally read whichever MIME they
+        // prefer (text/plain for editors, image/png for image apps).
+        const textBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+          if (d?.type === "text" && d.data) {
+            return new Blob([d.data], { type: "text/plain" });
+          }
+          return new Blob([], { type: "text/plain" });
+        });
+        const imageBlobPromise: Promise<Blob> = fetchPromise.then((d) => {
+          if (d?.type === "image" && d.data) {
+            return new Blob([base64ToBytes(d.data)], { type: "image/png" });
+          }
+          return new Blob([], { type: "image/png" });
+        });
+
+        // Plain browser (not iframe) with modern ClipboardItem support:
+        // synchronously start the gesture-anchored write. Both Safari and
+        // Chrome accept this — the promise is resolved later but the call
+        // itself happens inside the user gesture task, satisfying WebKit's
+        // strict "must be triggered during a user gesture" rule.
+        if (
+          !isInIframe &&
+          typeof ClipboardItem !== "undefined" &&
+          navigator.clipboard?.write
+        ) {
+          const supportsImage =
+            typeof (
+              ClipboardItem as unknown as {
+                supports?: (mime: string) => boolean;
+              }
+            ).supports === "function"
+              ? (
+                  ClipboardItem as unknown as {
+                    supports: (mime: string) => boolean;
+                  }
+                ).supports("image/png")
+              : true;
+
+          const clipboardItem = supportsImage
+            ? new ClipboardItem({
+                "text/plain": textBlobPromise,
+                "image/png": imageBlobPromise,
+              })
+            : new ClipboardItem({ "text/plain": textBlobPromise });
+
+          navigator.clipboard
+            .write([clipboardItem])
+            .then(() =>
+              fetchPromise.then((d) => {
+                const kind = d?.type === "image" ? "image" : "text";
+                showClipboardToast(`Copied ${kind}`, "success");
+              }),
+            )
+            .catch((err) => {
+              console.warn("[Clipboard] local write blocked:", err);
+              showClipboardToast(
+                "Copied on remote — local clipboard blocked",
+                "error",
+              );
+            });
+        } else {
+          // Fallback: iframe (postMessage bridge) or browsers without
+          // ClipboardItem. Resolve the fetch first, then dispatch on type.
+          // The iframe path routes through the parent's NSPasteboard
+          // bridge for both text and image (App.tsx handles the mime
+          // discriminator).
+          fetchPromise
+            .then(async (d) => {
+              if (d?.type === "text" && d.data) {
+                await clipboardWrite({ mime: "text/plain", text: d.data });
+                showClipboardToast("Copied text", "success");
+              } else if (d?.type === "image" && d.data) {
+                await clipboardWrite({ mime: "image/png", base64: d.data });
+                showClipboardToast("Copied image", "success");
+              } else {
+                showClipboardToast("Clipboard empty", "error");
+              }
+            })
+            .catch((err) => {
+              console.error("[Clipboard] local write failed:", err);
+              const msg = err instanceof Error ? err.message : String(err);
+              showClipboardToast(
+                `Copied on remote — local sync failed: ${msg}`,
+                "error",
+              );
+            });
+        }
+
         return;
       }
 
@@ -3886,161 +4227,63 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         // Remember which keystroke the user pressed so we can forward the same one
         const userPressedShift = event.shiftKey;
         console.log(
-          `[Clipboard] Paste keystroke detected (shift=${userPressedShift}), syncing local → remote`,
+          `[Paste DEBUG] Paste keystroke detected: shift=${userPressedShift} isInIframe=${isInIframe}`,
         );
 
-        // Skip if clipboard API is not available and not in iframe
+        // Skip if clipboard API is not available and not in iframe.
+        // (Iframe path routes through the parent's NSPasteboard bridge,
+        // which works even when navigator.clipboard is blocked.)
         if (!navigator.clipboard && !isInIframe) {
           console.warn("[Clipboard] Clipboard API not available");
           showClipboardToast("Clipboard not available", "error");
           return;
         }
 
-        // When in iframe (macOS app), use postMessage bridge for text.
-        // navigator.clipboard.read() is blocked in WKWebView iframes.
-        if (isInIframe) {
-          clipboardReadText().then((text) => {
-            if (!text) {
-              console.warn(
-                "[Clipboard] Empty clipboard from parent, ignoring paste",
-              );
+        clipboardReadAny()
+          .then((result) => {
+            console.log(
+              `[Paste DEBUG] clipboardReadAny returned mime=${result.mime}`,
+            );
+            if (result.mime === "empty") {
+              console.warn("[Clipboard] Empty clipboard, ignoring paste");
               showClipboardToast("Clipboard is empty", "error");
               return;
             }
-            syncAndPaste({ type: "text", data: text });
-          });
-        } else {
-          // Handle clipboard sync asynchronously (don't block keystroke processing)
-          navigator.clipboard
-            .read()
-            .then((clipboardItems) => {
-              if (clipboardItems.length === 0) {
-                console.warn("[Clipboard] Empty clipboard, ignoring paste");
-                showClipboardToast("Clipboard is empty", "error");
-                return;
-              }
-
-              const item = clipboardItems[0];
-              let clipboardPayload: TypesClipboardData;
-
-              // Read clipboard data
-              // Note: Browser Clipboard API only supports PNG for images (per W3C spec)
+            if (result.mime === "image/png") {
               console.log(
-                `[Clipboard] Available types: ${item.types.join(", ")}`,
+                `[Clipboard] Pasting image (${result.base64.length} base64 chars)`,
               );
-              if (item.types.includes("image/png")) {
-                console.log(`[Clipboard] Reading image/png from clipboard`);
-                item
-                  .getType("image/png")
-                  .then((blob) => {
-                    console.log(
-                      `[Clipboard] Got PNG blob, size: ${blob.size} bytes`,
-                    );
-                    blob.arrayBuffer().then((arrayBuffer) => {
-                      const base64 = btoa(
-                        String.fromCharCode(...new Uint8Array(arrayBuffer)),
-                      );
-                      console.log(
-                        `[Clipboard] Encoded to base64, length: ${base64.length}`,
-                      );
-                      clipboardPayload = { type: "image", data: base64 };
-                      syncAndPaste(clipboardPayload);
-                    });
-                  })
-                  .catch((err) => {
-                    console.error("[Clipboard] Failed to get image/png:", err);
-                    showClipboardToast(
-                      "Failed to read image from clipboard",
-                      "error",
-                    );
-                  });
-              } else if (item.types.includes("text/plain")) {
-                item.getType("text/plain").then((blob) => {
-                  blob.text().then((text) => {
-                    clipboardPayload = { type: "text", data: text };
-                    syncAndPaste(clipboardPayload);
-                  });
-                });
-              } else {
-                console.warn(
-                  "[Clipboard] Unsupported clipboard type:",
-                  item.types,
-                );
-                showClipboardToast(
-                  `Unsupported clipboard type: ${item.types.join(", ")}`,
-                  "error",
-                );
-              }
-            })
-            .catch((err) => {
-              console.error("[Clipboard] Failed to read clipboard:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              showClipboardToast(`Paste failed: ${errMsg}`, "error");
-            });
-        }
-
-        // Helper function to sync clipboard and forward keystroke
-        const syncAndPaste = (payload: TypesClipboardData) => {
-          const apiClient = helixApi.getApiClient();
-          apiClient
-            .v1ExternalAgentsClipboardCreate(sessionIdRef.current, payload)
-            .then(() => {
-              console.log(`[Clipboard] Synced ${payload.type} to remote`);
-              showClipboardToast("Pasted", "success");
-
-              // Forward Ctrl+V to remote (translate Cmd to Ctrl for Linux)
-              // - User pressed Ctrl/Cmd+V → send Ctrl+V (for Zed, most GUI apps)
-              // - User pressed Ctrl/Cmd+Shift+V → send Ctrl+Shift+V (for terminals)
-              const input = getInput();
-              if (input) {
-                const pasteKeyDown = new KeyboardEvent("keydown", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyDown(pasteKeyDown);
-
-                const pasteKeyUp = new KeyboardEvent("keyup", {
-                  code: "KeyV",
-                  key: userPressedShift ? "V" : "v",
-                  ctrlKey: true,
-                  shiftKey: userPressedShift,
-                  altKey: false,
-                  metaKey: false,
-                  bubbles: true,
-                  cancelable: true,
-                });
-                input.onKeyUp(pasteKeyUp);
-
-                console.log(
-                  `[Clipboard] Ctrl+${userPressedShift ? "Shift+" : ""}V sent to remote desktop`,
-                );
-              } else {
-                console.warn(
-                  "[Clipboard] Paste keystroke detected but no input handler available",
-                );
-              }
-            })
-            .catch((err) => {
-              console.error("[Clipboard] Failed to sync clipboard:", err);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              showClipboardToast(`Paste failed: ${errMsg}`, "error");
-            });
-        };
+              syncAndPaste(
+                { type: "image", data: result.base64 },
+                userPressedShift,
+              );
+              return;
+            }
+            console.log(
+              `[Paste DEBUG] text "${result.text?.substring(0, 60)}" (length=${result.text?.length})`,
+            );
+            syncAndPaste(
+              { type: "text", data: result.text },
+              userPressedShift,
+            );
+          })
+          .catch((err) => {
+            console.error("[Clipboard] Failed to read clipboard:", err);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            showClipboardToast(`Paste failed: ${errMsg}`, "error");
+          });
 
         return; // Don't fall through to default handler
       }
 
       console.log(
-        "[DesktopStreamViewer] KeyDown captured:",
-        event.key,
-        event.code,
+        `[DesktopStreamViewer] KeyDown captured: key="${event.key}" code="${event.code}" metaKey=${event.metaKey} ctrlKey=${event.ctrlKey} shiftKey=${event.shiftKey}`,
       );
+      if (event.code === "KeyV") {
+        console.log(
+          `[Paste DEBUG] KeyV FALLING THROUGH TO REMOTE — pasteJustHandled=${pasteJustHandled} metaKey=${event.metaKey} ctrlKey=${event.ctrlKey}`,
+        );
+      }
       getInput()?.onKeyDown(event);
       // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
       // This ensures all keys are passed through to the remote desktop
@@ -4090,6 +4333,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         return;
       }
 
+      // Also suppress the bare 'v' keyup that follows a native paste on macOS
+      if (pasteJustHandled && event.code === "KeyV" && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       console.log(
         "[DesktopStreamViewer] KeyUp captured:",
         event.key,
@@ -4111,11 +4361,86 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       }
 
       const inputEvent = event as InputEvent;
+      console.log(
+        `[Paste DEBUG] beforeinput on container: inputType="${inputEvent.inputType}" data="${inputEvent.data}" isComposing=${inputEvent.isComposing}`,
+      );
+
       const input = getInput();
       if (input && input.onBeforeInput(inputEvent)) {
         // Handler consumed the event - prevent default to avoid duplicate input
         event.preventDefault();
       }
+    };
+
+    // Handle native paste events (macOS Edit Menu → Cmd+V fires a 'paste' DOM event,
+    // not a keydown with metaKey=true). This is the primary cause of the "first paste
+    // sends bare 'v'" bug: the OS consumes the Cmd modifier, fires a paste event, then
+    // fires a keydown for 'v' without metaKey. We intercept the paste event here and
+    // set pasteJustHandled so the subsequent bare 'v' keydown/keyup are suppressed.
+    const handlePaste = (event: ClipboardEvent) => {
+      const activeEl = document.activeElement;
+      console.log(
+        `[Paste DEBUG] paste event fired. activeElement=${activeEl?.tagName}#${activeEl?.id}.${activeEl?.className} isContainer=${activeEl === container} hasSession=${!!sessionIdRef.current} clipboardDataTypes=${event.clipboardData ? Array.from(event.clipboardData.types).join(",") : "null"}`,
+      );
+
+      // Only handle when our container is focused
+      if (document.activeElement !== container) {
+        console.log("[Paste DEBUG] Ignoring paste — container not focused");
+        return;
+      }
+      if (!sessionIdRef.current) {
+        console.log("[Paste DEBUG] Ignoring paste — no sessionId");
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Mark that we handled a paste so the subsequent bare 'v' keydown can be suppressed
+      pasteJustHandled = true;
+      setTimeout(() => {
+        pasteJustHandled = false;
+      }, 200);
+
+      console.log(
+        "[Clipboard] Native paste event intercepted, syncing local → remote",
+      );
+
+      // event.clipboardData is available synchronously for trusted paste events.
+      // Prefer image when present (matches paste behaviour in image-aware apps);
+      // fall back to text; final fallback is an async read through our bridge.
+      const imageFile = Array.from(event.clipboardData?.files || []).find(
+        (f) => f.type === "image/png" || f.type === "image/jpeg",
+      );
+      if (imageFile) {
+        imageFile.arrayBuffer().then((buf) => {
+          const base64 = btoa(
+            String.fromCharCode(...new Uint8Array(buf)),
+          );
+          syncAndPaste({ type: "image", data: base64 }, false);
+        });
+        return;
+      }
+
+      const text = event.clipboardData?.getData("text/plain");
+      if (text) {
+        syncAndPaste({ type: "text", data: text }, false);
+        return;
+      }
+
+      // No data in clipboardData — fall back to async read (handles iframe
+      // case where the parent's NSPasteboard has data we can pull over).
+      clipboardReadAny().then((result) => {
+        if (result.mime === "empty") {
+          showClipboardToast("Clipboard is empty", "error");
+          return;
+        }
+        if (result.mime === "image/png") {
+          syncAndPaste({ type: "image", data: result.base64 }, false);
+          return;
+        }
+        syncAndPaste({ type: "text", data: result.text }, false);
+      });
     };
 
     // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
@@ -4131,12 +4456,16 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
     container.addEventListener("keyup", handleKeyUp);
     container.addEventListener("beforeinput", handleBeforeInput);
     window.addEventListener("focus", handleWindowFocus);
+    // Listen on document to catch native paste events (macOS Edit Menu Cmd+V fires
+    // a 'paste' DOM event rather than a keydown with metaKey=true)
+    document.addEventListener("paste", handlePaste);
 
     return () => {
       container.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keyup", handleKeyUp);
       container.removeEventListener("beforeinput", handleBeforeInput);
       window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("paste", handlePaste);
     };
   }, [isConnected, resetInputState]);
 
@@ -4239,7 +4568,10 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         minHeight: isIOSFullscreen ? undefined : keyboardHeight > 0 ? 150 : 400,
         // High z-index for iOS fullscreen to cover everything, or keyboard open
         zIndex: isIOSFullscreen ? 9999 : keyboardHeight > 0 ? 1000 : undefined,
-        backgroundColor: "#000",
+        // Letterbox/pillarbox bars around the streamed video. Match the page
+        // background so a light-mode desktop reads as fully light, not "light
+        // desktop in a black frame".
+        backgroundColor: lightTheme.isLight ? "#f4f4f4" : "#000",
         display: "flex",
         flexDirection: "column",
         outline: "none",
@@ -4250,6 +4582,9 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
         userSelect: "none",
         // Clip zoomed content that extends beyond container bounds
         overflow: "hidden",
+        // Prevent Safari bounce/rubber-band scrolling on this container only
+        // This allows Chrome swipe navigation to work on other pages
+        overscrollBehavior: "none",
         // Cursor is hidden only on the canvas element, not the container
         // This ensures the cursor is visible in the black letterbox/pillarbox bars
         // Fallback height for iOS when dvh isn't supported
@@ -4909,7 +5244,13 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           // In screenshot mode: transparent but handles input (screenshot overlays on top)
           display: "block",
           // Transparent in screenshot mode so overlays are visible, but still captures input
-          opacity: qualityMode === "video" ? 1 : 0,
+          // On mobile, use visibility instead of opacity:0 to avoid allocating
+          // a GPU compositing layer for a fully transparent canvas
+          ...(qualityMode === "video"
+            ? { opacity: 1, visibility: "visible" as const }
+            : isMobileOrTablet()
+              ? { visibility: "hidden" as const }
+              : { opacity: 0 }),
           zIndex: 20,
           // Prevent browser from handling touch gestures (no scroll, pan, zoom)
           // This ensures all touch events go to our handlers
@@ -4981,7 +5322,8 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
               left: 0,
               top: 0,
               transform: `translate(${cursorPosition.x}px, ${cursorPosition.y}px)`,
-              willChange: "transform",
+              // willChange creates a GPU compositing layer — skip on mobile to reduce memory
+              ...(isMobileOrTablet() ? {} : { willChange: "transform" as const }),
               pointerEvents: "none",
               zIndex: 1000,
             }}

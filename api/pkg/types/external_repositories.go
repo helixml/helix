@@ -10,6 +10,10 @@ type RepositoryInfo struct {
 	Description string `json:"description"`
 	Private     bool   `json:"private"`
 	DefaultBranch string `json:"default_branch,omitempty"`
+	// CanWrite is true when the authenticated user has push or admin access to the repo.
+	// Helix needs write access to push branches and open pull requests, so read-only
+	// repos can be listed but cannot be linked as a project repo.
+	CanWrite bool `json:"can_write"`
 }
 
 // ListOAuthRepositoriesResponse is the response for listing repositories from an OAuth connection

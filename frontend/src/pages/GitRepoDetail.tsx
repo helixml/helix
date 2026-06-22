@@ -134,7 +134,6 @@ const GitRepoDetail: FC = () => {
 
   const currentOrg = account.organizationTools.organization
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
-  const ownerId = currentOrg?.id || account.user?.id || ''
 
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
@@ -153,8 +152,15 @@ const GitRepoDetail: FC = () => {
   const { data: allProjects = [] } = useListProjects(currentOrg?.id)
   const projectsUsingThisRepo = allProjects.filter(p => p.default_repo_id === repoId)
 
-  // Fetch all repositories for the create project dialog
-  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories({ ownerId })
+  // Fetch all repositories for the create project dialog.
+  // Org repos are keyed by organization_id (not owner_id), so we must query by
+  // organizationId when in an org — mirroring the Projects page. Querying by
+  // owner_id with the org id returns nothing and leaves the dialog empty.
+  const { data: allRepositories = [], isLoading: allReposLoading } = useGitRepositories(
+    currentOrg?.id
+      ? { organizationId: currentOrg.id }
+      : { ownerId: account.user?.id }
+  )
   const createRepoMutation = useCreateGitRepository()
 
   // Query parameters
@@ -500,8 +506,8 @@ const GitRepoDetail: FC = () => {
         return result
       }
       return null
-    } catch (err) {
-      snackbar.error('Failed to create access grant')
+    } catch (err: any) {
+      snackbar.error(err?.message || 'Failed to create access grant')
       return null
     }
   }
@@ -708,6 +714,16 @@ const GitRepoDetail: FC = () => {
 
               {/* Chips and Sync Button */}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                {!isExternal && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<Copy size={14} />}
+                    onClick={() => setCloneDialogOpen(true)}
+                  >
+                    Clone
+                  </Button>
+                )}
                 {isExternal && (
                   <Chip
                     icon={<Link size={12} />}
@@ -882,7 +898,7 @@ const GitRepoDetail: FC = () => {
 
           {/* Search Tab */}
           {currentTab === 'search' && repository.kodit_indexing && (
-            <SearchSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} />
+            <SearchSubTab repoId={repoId || ''} enabled={!!repoId && repository.kodit_indexing} repository={repository} />
           )}
 
           {/* Changelog Tab */}
@@ -1045,70 +1061,60 @@ const GitRepoDetail: FC = () => {
           <DialogTitle>Clone Repository</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
-              {isExternal && repository.metadata?.external_url ? (
-                <>
-                  <Typography variant="body2" color="text.secondary">
-                    This is an external repository. Use the URL below to clone it:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <TextField
-                      fullWidth
-                      value={repository.metadata?.external_url || ''}
-                      InputProps={{
-                        readOnly: true,
-                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                      }}
-                    />
-                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
-                      <IconButton
-                        onClick={() => handleCopyCloneCommand(repository.metadata?.external_url || '')}
-                        color={copiedClone ? 'success' : 'default'}
-                      >
-                        <Copy size={18} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    startIcon={<ExternalLink size={16} />}
-                    onClick={() => window.open(repository.metadata?.external_url || '', '_blank')}
+              <Typography variant="body2" color="text.secondary">
+                Run this command on your machine to clone the repository:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <TextField
+                  fullWidth
+                  value={`git clone ${cloneUrl}`}
+                  InputProps={{
+                    readOnly: true,
+                    sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                  }}
+                />
+                <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
+                  <IconButton
+                    onClick={() => handleCopyCloneCommand(`git clone ${cloneUrl}`)}
+                    color={copiedClone ? 'success' : 'default'}
                   >
-                    Open in {repository.metadata?.external_type || 'Browser'}
-                  </Button>
-                </>
-              ) : isExternal ? (
-                <Alert severity="warning">
-                  This external repository does not have a clone URL configured.
-                </Alert>
-              ) : (
-                <>
-                  <Alert severity="info">
-                    This is a Helix-hosted repository. It is automatically cloned by agents when working on spec tasks.
-                  </Alert>
-                  <Typography variant="body2" color="text.secondary">
-                    Clone command (for reference):
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <TextField
-                      fullWidth
-                      value={cloneUrl}
-                      InputProps={{
-                        readOnly: true,
-                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                      }}
-                    />
-                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
-                      <IconButton
-                        onClick={() => handleCopyCloneCommand(cloneUrl)}
-                        color={copiedClone ? 'success' : 'default'}
-                      >
-                        <Copy size={18} />
-                      </IconButton>
-                    </Tooltip>
+                    <Copy size={18} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  When prompted, authenticate with:
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 2, rowGap: 0.5, alignItems: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">Username</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>helix</Typography>
+                    <Typography variant="body2" color="text.secondary">Password</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>your API key</Typography>
                   </Box>
-                </>
-              )}
+                </Paper>
+              </Box>
+
+              <Alert
+                severity="info"
+                action={
+                  account.organizationTools.organization?.id ? (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setCloneDialogOpen(false)
+                        account.orgNavigate('org_api_keys')
+                      }}
+                    >
+                      Manage keys
+                    </Button>
+                  ) : undefined
+                }
+              >
+                Need an API key? Create one under Organization Settings → API Keys.
+              </Alert>
             </Stack>
           </DialogContent>
           <DialogActions>

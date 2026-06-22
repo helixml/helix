@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/model"
@@ -102,9 +103,12 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	// and HuggingFace-style IDs (e.g., "Qwen/Qwen3-Coder") that might be incorrectly
 	// parsed as provider prefixes.
 	var validatedProvider string
-	foundProvider := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID)
+	foundProvider, bareModel := s.findProviderWithModel(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID)
 	if foundProvider != "" {
 		validatedProvider = foundProvider
+		// Strip the provider/ prefix before forwarding — upstream APIs don't
+		// know our naming scheme. bareModel is the upstream id.
+		chatCompletionRequest.Model = bareModel
 		log.Debug().
 			Str("model", chatCompletionRequest.Model).
 			Str("provider", foundProvider).
@@ -121,6 +125,20 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 				chatCompletionRequest.Model = modelWithoutPrefix
 			}
 			// If not a known provider, treat the whole string as the model name (e.g., "meta-llama/Model")
+		}
+	}
+
+	// Last-resort: resolve the owning provider with a live model-list fetch.
+	// findProviderWithModel above only reads the model cache, which is warmed
+	// lazily by /v1/models and the picker. On a cold cache an unprefixed model
+	// id (e.g. one a downstream Helix forwarded after stripping its provider
+	// prefix) has nothing to match and would fall through to the default
+	// provider and 500. This only runs when both cache lookup and prefix
+	// parsing failed, so prefixed / cache-warm requests are unaffected.
+	if validatedProvider == "" {
+		if foundProvider, bareModel := s.resolveModelProviderLive(r.Context(), chatCompletionRequest.Model, ownerID, user.OrganizationID); foundProvider != "" {
+			validatedProvider = foundProvider
+			chatCompletionRequest.Model = bareModel
 		}
 	}
 
@@ -356,24 +374,36 @@ func (s *HelixAPIServer) isKnownProvider(ctx context.Context, providerName, owne
 // incorrectly parsed as provider prefixes when there's also a provider named "Qwen".
 //
 // Returns the provider name if found, empty string otherwise.
-func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID, orgID string) string {
+// findProviderWithModel returns the provider that owns `modelName` plus the
+// bare upstream model id (with any provider/ prefix stripped). Returns
+// ("", "") when no match. Caller must use the returned bare id when
+// forwarding the request — upstream APIs (api.openai.com etc.) don't know
+// our prefix scheme.
+func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, ownerID, orgID string) (string, string) {
 	// First check global providers from env vars (these are not in the database)
 	// Their cache key uses "system" as owner
 	globalProviders, err := s.providerManager.ListProviders(ctx, "")
 	if err == nil {
 		for _, globalProvider := range globalProviders {
+			residue := modelName
+			if strings.HasPrefix(modelName, string(globalProvider)+"/") {
+				residue = modelName[len(globalProvider)+1:]
+			}
 			cacheKey := fmt.Sprintf("%s:%s", globalProvider, types.OwnerTypeSystem)
-			if cached, found := s.cache.Get(cacheKey); found {
-				var cachedModels []types.OpenAIModel
-				if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
-					for _, m := range cachedModels {
-						if m.ID == modelName {
-							log.Debug().
-								Str("model", modelName).
-								Str("provider", string(globalProvider)).
-								Msg("found full model name in global provider's cached model list")
-							return string(globalProvider)
-						}
+			// Read via loadCachedModels: the cache stores the wrapped
+			// cachedModels{Models,FetchedAt} payload (the only writer is
+			// refreshProviderModels). Unmarshalling raw into []OpenAIModel
+			// here silently failed for every dynamically-fetched provider,
+			// so this lookup only ever matched static model lists.
+			if cm, found := s.loadCachedModels(cacheKey); found {
+				for _, m := range cm.Models {
+					if m.ID == modelName || m.ID == residue {
+						log.Debug().
+							Str("model", modelName).
+							Str("provider", string(globalProvider)).
+							Str("bare_model", residue).
+							Msg("found full model name in global provider's cached model list")
+						return string(globalProvider), residue
 					}
 				}
 			}
@@ -387,7 +417,7 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to list provider endpoints for model lookup")
-		return ""
+		return "", ""
 	}
 
 	// Also check org-scoped endpoints if the user belongs to an org
@@ -403,37 +433,53 @@ func (s *HelixAPIServer) findProviderWithModel(ctx context.Context, modelName, o
 		}
 	}
 
-	// Check each provider's model list for the full model name
+	// Check each provider's model list for the full model name.
+	//
+	// We accept two shapes:
+	//
+	//   1. Bare upstream id (`gpt-5.2`) — direct match against cached/static.
+	//   2. Helix-prefixed id (`<provider>/gpt-5.2`) — Zed's settings.json
+	//      stores the prefixed form (mapHelixToZedProvider emits it) and
+	//      sends it back on /v1/chat/completions. Provider names with a
+	//      slash (e.g. `user/openai`) make first-slash splitting in
+	//      ParseProviderFromModel useless, so we bypass that here by
+	//      stripping the provider's literal `Name + "/"` prefix and
+	//      matching the residue against cached/static ids.
 	for _, provider := range providers {
+		residue := modelName
+		if strings.HasPrefix(modelName, provider.Name+"/") {
+			residue = modelName[len(provider.Name)+1:]
+		}
+
 		// First check the cached model list (dynamically fetched from provider's /v1/models)
-		// This is where the UI gets its model list from
+		// This is where the UI gets its model list from. Read via loadCachedModels
+		// to match the wrapped cachedModels{} payload format the writer uses.
 		cacheKey := fmt.Sprintf("%s:%s", provider.Name, provider.Owner)
-		if cached, found := s.cache.Get(cacheKey); found {
-			var cachedModels []types.OpenAIModel
-			if err := json.Unmarshal([]byte(cached), &cachedModels); err == nil {
-				for _, m := range cachedModels {
-					if m.ID == modelName {
-						log.Debug().
-							Str("model", modelName).
-							Str("provider", provider.Name).
-							Msg("found full model name in provider's cached model list")
-						return provider.Name
-					}
+		if cm, found := s.loadCachedModels(cacheKey); found {
+			for _, m := range cm.Models {
+				if m.ID == modelName || m.ID == residue {
+					log.Debug().
+						Str("model", modelName).
+						Str("provider", provider.Name).
+						Str("bare_model", residue).
+						Msg("found full model name in provider's cached model list")
+					return provider.Name, residue
 				}
 			}
 		}
 
 		// Fall back to checking the static Models field stored in database
 		for _, m := range provider.Models {
-			if m == modelName {
+			if m == modelName || m == residue {
 				log.Debug().
 					Str("model", modelName).
 					Str("provider", provider.Name).
+					Str("bare_model", residue).
 					Msg("found full model name in provider's static model list")
-				return provider.Name
+				return provider.Name, residue
 			}
 		}
 	}
 
-	return ""
+	return "", ""
 }

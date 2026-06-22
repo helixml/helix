@@ -17,9 +17,39 @@
 # Signal files:
 #   $HOME/.helix-setup-complete  - Touched when setup is done
 #   $HOME/.helix-zed-folders     - List of folders for Zed to open
+#   $HOME/.helix-setup-failed    - JSON written on failure: { exit_code, log_tail }
+#                                  The API reads this from outside the container
+#                                  to surface the real error in the UI instead of
+#                                  the generic "agent never connected" banner.
 
 # Exit on error - but trap will catch it and keep terminal open
 set -e
+
+# Auto-accept the default merge commit message for any `git pull` or `git merge`
+# in this script. Without this, a non-fast-forward pull (e.g., when the local
+# base branch has diverged from origin) launches $EDITOR for the merge commit
+# message, blocking session startup on the user typing :wq in vim.
+# Real merge conflicts still fail loudly — only the editor prompt is suppressed.
+export GIT_MERGE_AUTOEDIT=no
+
+# Capture all stdout/stderr to a log file in addition to the terminal so the
+# failure sentinel can include a tail of what went wrong. tee writes the same
+# bytes to both, so the user still sees live output in the ghostty window.
+SETUP_LOG="$HOME/.helix-setup.log"
+: > "$SETUP_LOG" || true
+exec > >(tee -a "$SETUP_LOG") 2>&1
+
+# How long the cleanup_and_prompt menu waits for a human at the terminal before
+# giving up and exiting with the original failure code. Without this timeout an
+# unattended spec-task agent's setup failure parks the script on `read` forever:
+# Zed never sees ~/.helix-setup-complete, no WebSocket ever connects, and the
+# API eventually times out with the generic
+#   "Agent never connected after auto-wake cold-start retries"
+# banner — burying the real error in the framebuffer scrollback.
+#
+# 60s gives a watching human plenty of time to react while still freeing the
+# session for the API to report the real failure when no one is there.
+HELIX_SETUP_PROMPT_TIMEOUT="${HELIX_SETUP_PROMPT_TIMEOUT:-60}"
 
 # Trap any exit (success or failure) to show interactive menu
 # This ensures users can see errors and debug
@@ -32,6 +62,28 @@ cleanup_and_prompt() {
         echo "========================================="
         echo ""
         echo "Check the errors above."
+
+        # Persist the failure so the API can read it from outside the
+        # container and surface the real error to the UI. We escape just
+        # enough for valid JSON; jq is not guaranteed to exist in every
+        # desktop image.
+        if [ -f "$SETUP_LOG" ]; then
+            local log_tail
+            log_tail=$(tail -n 80 "$SETUP_LOG" \
+                | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' \
+                2>/dev/null \
+                || tail -n 80 "$SETUP_LOG" \
+                    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/$/\\n/' \
+                    | tr -d '\n' \
+                    | awk '{print "\""$0"\""}')
+            cat > "$HOME/.helix-setup-failed" <<JSON
+{"exit_code": $exit_code, "log_tail": $log_tail}
+JSON
+        else
+            cat > "$HOME/.helix-setup-failed" <<JSON
+{"exit_code": $exit_code, "log_tail": ""}
+JSON
+        fi
     fi
 
     echo ""
@@ -39,15 +91,20 @@ cleanup_and_prompt() {
     echo "  1) Close this window"
     echo "  2) Start an interactive shell for debugging"
     echo ""
-    read -p "Enter choice [1-2]: " choice
+    # Time out the prompt so unattended containers don't block forever on
+    # read. Default to "1) Close" so the container exits with the real
+    # exit code, which lets the API observe and report the failure.
+    local choice=""
+    if read -t "$HELIX_SETUP_PROMPT_TIMEOUT" -p "Enter choice [1-2] (auto-close in ${HELIX_SETUP_PROMPT_TIMEOUT}s): " choice; then
+        : # got input
+    else
+        echo ""
+        echo "(no input within ${HELIX_SETUP_PROMPT_TIMEOUT}s — closing)"
+        choice=1
+    fi
 
     case "$choice" in
-        1)
-            # Disable trap before exiting to avoid infinite loop
-            trap - EXIT
-            exit $exit_code
-            ;;
-        2|*)
+        2)
             echo ""
             echo "Starting interactive shell..."
             echo "Type 'exit' to close this window."
@@ -59,9 +116,19 @@ cleanup_and_prompt() {
             fi
             exec bash
             ;;
+        *)
+            # Default (1 or timeout): disable trap to avoid recursion and
+            # exit with the original code so the parent observes the failure.
+            trap - EXIT
+            exit $exit_code
+            ;;
     esac
 }
 trap cleanup_and_prompt EXIT
+
+# Clear any failure sentinel from a previous run so a successful setup
+# doesn't appear failed.
+rm -f "$HOME/.helix-setup-failed" 2>/dev/null || true
 
 echo "========================================="
 echo "Helix Workspace Setup - $(date)"
@@ -443,7 +510,15 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 
             if [ ! -d "$WORKTREE_PATH" ]; then
                 echo "  Creating design docs worktree at $WORKTREE_PATH..."
-                if git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-specs 2>&1; then
+                # Capture stderr separately so the actual git error survives into
+                # the failure path. Without this the message ("helix-specs is
+                # already checked out at ...", "fatal: invalid reference", etc.)
+                # was lost when the worktree add failed, and the agent had no
+                # way to know why setup broke.
+                WORKTREE_OUTPUT=$(git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-specs 2>&1)
+                WORKTREE_RC=$?
+                echo "$WORKTREE_OUTPUT"
+                if [ $WORKTREE_RC -eq 0 ]; then
                     echo "  Design docs worktree ready at ~/work/helix-specs"
                     CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current)
                     echo "  Current branch: $CURRENT_BRANCH"
@@ -455,7 +530,27 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                         echo "  Created task directory: design/tasks/$HELIX_SPEC_DIR_NAME"
                     fi
                 else
-                    echo "  Warning: Failed to create worktree"
+                    # Hard fail. The previous behaviour swallowed this with a
+                    # "Warning" and let the script exit zero, leaving the agent
+                    # with no helix-specs/ directory. The agent then improvised
+                    # by running `git init` somewhere, committing design docs
+                    # to a remoteless repo, and confabulating reasons it could
+                    # not push. Exiting non-zero lets the May 2026 cold-start
+                    # surfacing path (writes ~/.helix-setup-failed, read by the
+                    # API via hydra ReadSandboxFile) show the real error in the
+                    # UI instead of the generic "agent never connected" banner.
+                    echo ""
+                    echo "  ========================================="
+                    echo "  FATAL: Failed to create helix-specs worktree"
+                    echo "  ========================================="
+                    echo ""
+                    echo "  Common cause: helix-specs is the default branch on the upstream"
+                    echo "  repository, so it is already checked out in the primary repo at"
+                    echo "  $PRIMARY_REPO_PATH and git worktree refuses to check the same"
+                    echo "  branch out twice. Configure a non-helix-specs default branch"
+                    echo "  (main/master) on the upstream repo and restart this spec task."
+                    echo ""
+                    exit 1
                 fi
             else
                 echo "  Design docs worktree already exists"
@@ -560,6 +655,45 @@ fi
 echo "  Claude: ~/.claude -> $CLAUDE_STATE_DIR (settings written)"
 echo "  Claude: ~/.claude.json -> $CLAUDE_STATE_DIR/.claude.json"
 
+# Browser profile (Chrome / Chromium): symlink ~/.config/google-chrome and
+# ~/.config/chromium to persistent storage so tabs, history, bookmarks and
+# extensions survive container restarts. Same pattern as ~/.claude above.
+# Only $WORK_DIR is bind-mounted persistent — see api/pkg/sandbox/controller_provision.go.
+#
+# Note: arm64 uses Chromium (apt) and amd64 uses Google Chrome (deb). Both write
+# to a profile directory under ~/.config/, but the directory name differs. We
+# symlink both unconditionally — the one for the other arch is just an unused
+# pointer into the same state dir, which is harmless and keeps the script
+# arch-agnostic.
+CHROME_STATE_DIR=$WORK_DIR/.chrome-state
+mkdir -p $CHROME_STATE_DIR
+
+# Seed first-run sentinels so Chrome's welcome dialog stays suppressed on first
+# launch with a fresh persistent profile (mirrors /etc/skel setup in the
+# Dockerfile, which the symlink bypasses).
+if [ ! -f $CHROME_STATE_DIR/"First Run" ]; then
+    touch $CHROME_STATE_DIR/"First Run"
+    mkdir -p $CHROME_STATE_DIR/Default
+    if [ ! -f $CHROME_STATE_DIR/Default/Preferences ]; then
+        echo '{"browser":{"has_seen_welcome_page":true},"distribution":{"skip_first_run_ui":true}}' > $CHROME_STATE_DIR/Default/Preferences
+    fi
+fi
+
+# Preserve any ephemeral profile data written before this script ran
+# (rare, but matches the careful pattern from the Claude block above).
+for ephemeral_dir in ~/.config/google-chrome ~/.config/chromium; do
+    if [ -d "$ephemeral_dir" ] && [ ! -L "$ephemeral_dir" ]; then
+        cp -a "$ephemeral_dir/." $CHROME_STATE_DIR/ 2>/dev/null || true
+    fi
+done
+
+mkdir -p ~/.config
+rm -rf ~/.config/google-chrome ~/.config/chromium
+ln -sfn $CHROME_STATE_DIR ~/.config/google-chrome
+ln -sfn $CHROME_STATE_DIR ~/.config/chromium
+echo "  Chrome: ~/.config/google-chrome -> $CHROME_STATE_DIR"
+echo "  Chromium: ~/.config/chromium -> $CHROME_STATE_DIR"
+
 # Initialize workspace with README if empty
 if [ ! -f "$WORK_DIR/README.md" ] && [ -z "$(ls -A "$WORK_DIR" 2>/dev/null | grep -v '^\.')" ]; then
     cat > "$WORK_DIR/README.md" << 'HEREDOC'
@@ -656,7 +790,19 @@ if [ -n "$HELIX_REPOSITORIES" ]; then
     done
 fi
 
-# FAIL if no folders found - don't start Zed with empty workspace
+# FAIL if no folders found — don't start Zed with an empty workspace.
+#
+# Helix-org's per-Worker agent apps used to land here with empty
+# HELIX_REPOSITORIES; the previous incarnation of this script had a
+# fallback that opened $WORK_DIR as a "chat-only" workspace, but that
+# was papering over a real bug — the helix-org application service
+# was silently letting projects come up without an attached repo
+# because CreateGitRepo / AttachRepoToProject failures were warn-and-
+# continue rather than fatal. That contract is now enforced at
+# api/pkg/org/infrastructure/runtime/helix/project.go (see
+# TestEnsureRequiresRepoToBeAttached) so HELIX_REPOSITORIES is always
+# populated when the desktop boots. If we land here it means a real
+# upstream bug — fail loudly so we see it instead of papering over.
 if [ ${#ZED_FOLDERS[@]} -eq 0 ]; then
     echo ""
     echo "❌ ERROR: No repositories were cloned successfully"
@@ -829,6 +975,73 @@ if [ -f "$STARTUP_SCRIPT" ]; then
         echo "You can debug this in the terminal."
     fi
     echo ""
+elif [ -n "$HELIX_STARTUP_SCRIPT" ]; then
+    # Fallback: run startup script from database (set via project YAML)
+    # This is used when no .helix/startup.sh exists in the helix-specs branch
+    echo ""
+    echo "========================================="
+    echo "Running startup script from project YAML (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    # Write script to temp file and execute it
+    TEMP_SCRIPT=$(mktemp /tmp/helix-startup-XXXXXX.sh)
+    echo "$HELIX_STARTUP_SCRIPT" > "$TEMP_SCRIPT"
+    chmod +x "$TEMP_SCRIPT"
+
+    # Run the script
+    if bash -i "$TEMP_SCRIPT" 2>&1 | tee /tmp/helix-startup.log; then
+        echo ""
+        echo "✅ Startup script completed successfully"
+    else
+        STARTUP_EXIT="${PIPESTATUS[0]}"
+        echo ""
+        echo "❌ Startup script failed with exit code $STARTUP_EXIT"
+        echo ""
+        echo "You can debug this in the terminal."
+    fi
+    rm -f "$TEMP_SCRIPT"
+    echo ""
+elif [ -n "$HELIX_STARTUP_INSTALL" ] || [ -n "$HELIX_STARTUP_START" ]; then
+    # Legacy fallback: run declarative startup commands from project YAML
+    # (deprecated - use startup.script instead)
+    echo ""
+    echo "========================================="
+    echo "Running declarative startup commands (Zed starting in parallel)..."
+    echo "========================================="
+
+    # Change to primary repo directory
+    if [ -n "$HELIX_PRIMARY_REPO_NAME" ] && [ -d "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME" ]; then
+        cd "$WORK_DIR/$HELIX_PRIMARY_REPO_NAME"
+        echo "Working directory: $HELIX_PRIMARY_REPO_NAME"
+    fi
+    echo ""
+
+    if [ -n "$HELIX_STARTUP_INSTALL" ]; then
+        echo "▶ Install: $HELIX_STARTUP_INSTALL"
+        if bash -i -c "$HELIX_STARTUP_INSTALL"; then
+            echo "✅ Install completed"
+        else
+            echo "❌ Install failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
+
+    if [ -n "$HELIX_STARTUP_START" ]; then
+        echo "▶ Start: $HELIX_STARTUP_START"
+        if bash -i -c "$HELIX_STARTUP_START"; then
+            echo "✅ Start completed"
+        else
+            echo "❌ Start failed (exit $?). You can debug this in the terminal."
+        fi
+        echo ""
+    fi
 fi
 
 echo "========================================="

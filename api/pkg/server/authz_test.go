@@ -803,3 +803,143 @@ func (s *AuthzProjectViaTeamSuite) TestTeamMembership_NoGrant_Denied() {
 	err := s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet)
 	s.Error(err)
 }
+
+// AuthzSessionSuite pins authorizeUserToSession, which startChatSessionHandler
+// uses to gate POST /sessions/chat on an existing session. The regression this
+// guards: the chat handler used a strict `session.Owner != user.ID` check, so an
+// org owner (or project grantee) who was NOT the literal session owner got a 401
+// when chatting into an org-shared session — e.g. a helix-org Worker's "Human
+// Desktop" session, which is owned by whoever bootstrapped the org, not the
+// operator driving the worker. The read path always used this RBAC; the write
+// path now matches it (with ActionUpdate so read-only members can't drive the
+// agent).
+type AuthzSessionSuite struct {
+	suite.Suite
+	ctrl      *gomock.Controller
+	mockStore *store.MockStore
+	server    *HelixAPIServer
+
+	orgID  string
+	userID string
+}
+
+func TestAuthzSessionSuite(t *testing.T) {
+	suite.Run(t, new(AuthzSessionSuite))
+}
+
+func (s *AuthzSessionSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.mockStore = store.NewMockStore(s.ctrl)
+	s.orgID = "org1"
+	s.userID = "user1"
+
+	s.server = &HelixAPIServer{
+		Cfg:   &config.ServerConfig{},
+		Store: s.mockStore,
+	}
+}
+
+func (s *AuthzSessionSuite) expectOrgMember(role types.OrganizationRole) {
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           role,
+	}, nil).AnyTimes()
+}
+
+func (s *AuthzSessionSuite) expectProjectGrant(projectID string, action types.Action) {
+	s.mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{}, nil)
+	s.mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     projectID,
+	}).Return([]*types.AccessGrant{
+		{
+			Roles: []types.Role{{
+				Config: types.Config{Rules: []types.Rule{{
+					Resources: []types.Resource{types.ResourceProject},
+					Actions:   []types.Action{action},
+					Effect:    types.EffectAllow,
+				}}},
+			}},
+		},
+	}, nil)
+}
+
+func (s *AuthzSessionSuite) expectNoProjectGrant(projectID string) {
+	s.mockStore.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return([]*types.Team{}, nil)
+	s.mockStore.EXPECT().ListAccessGrants(gomock.Any(), &store.ListAccessGrantsQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		ResourceID:     projectID,
+	}).Return([]*types.AccessGrant{}, nil)
+}
+
+// The literal session owner can always write to their session.
+func (s *AuthzSessionSuite) TestSessionOwnerAllowed() {
+	session := &types.Session{ID: "ses1", Owner: s.userID, OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+
+	s.expectOrgMember(types.OrganizationRoleMember)
+
+	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
+	s.NoError(err)
+}
+
+// THE regression: org owner chatting into a session owned by another member
+// (e.g. a helix-org Worker "Human Desktop") must be allowed for ActionUpdate.
+func (s *AuthzSessionSuite) TestOrgOwnerCanUpdateOthersSession() {
+	session := &types.Session{ID: "ses1", Owner: "someone_else", OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+
+	s.expectOrgMember(types.OrganizationRoleOwner)
+
+	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
+	s.NoError(err)
+}
+
+// A plain member with a project update grant can drive the session.
+func (s *AuthzSessionSuite) TestMemberWithProjectGrantAllowed() {
+	session := &types.Session{ID: "ses1", Owner: "someone_else", OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+
+	s.expectOrgMember(types.OrganizationRoleMember)
+	s.expectProjectGrant("prj1", types.ActionUpdate)
+
+	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
+	s.NoError(err)
+}
+
+// A member without a grant on the session's project is denied — ActionUpdate
+// keeps read-only members from driving someone else's agent.
+func (s *AuthzSessionSuite) TestMemberWithoutGrantDenied() {
+	session := &types.Session{ID: "ses1", Owner: "someone_else", OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+
+	s.expectOrgMember(types.OrganizationRoleMember)
+	s.expectNoProjectGrant("prj1")
+
+	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
+	s.Error(err)
+}
+
+// A non-member of the org is denied outright.
+func (s *AuthzSessionSuite) TestNonMemberDenied() {
+	session := &types.Session{ID: "ses1", Owner: "someone_else", OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+
+	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
+	s.Error(err)
+}

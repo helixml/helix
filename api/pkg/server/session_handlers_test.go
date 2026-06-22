@@ -452,6 +452,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerNoOrg() {
 	}
 
 	s.store.EXPECT().GetSession(gomock.Any(), session.ID).Return(session, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -482,6 +483,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OwnerInOrg() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -512,6 +514,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgOwnerNotSessionOwner() {
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleOwner,
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -610,6 +613,7 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
 			},
 		},
 	}, nil)
+	s.store.EXPECT().DeleteVHostRoutesByTarget(gomock.Any(), types.VHostTargetSandboxPreview, session.ID).Return(nil)
 	s.store.EXPECT().DeleteSession(gomock.Any(), session.ID).Return(session, nil)
 
 	req := httptest.NewRequest("DELETE", "/api/v1/sessions/ses_123", http.NoBody)
@@ -788,4 +792,117 @@ func (s *SessionAuthzSuite) TestListSessions_NotOrgMemberDenied() {
 
 	s.Nil(result)
 	assertHTTPError(s, err, http.StatusForbidden)
+}
+
+// -----------------------------------------------------------------------------
+// validateSessionProviderRef tests — the fence that stops a previously-selected
+// pe_… ID from leaking across an org switch on session create/update.
+// -----------------------------------------------------------------------------
+
+type SessionProviderRefValidationSuite struct {
+	suite.Suite
+
+	ctrl   *gomock.Controller
+	store  *store.MockStore
+	server *HelixAPIServer
+
+	userID string
+	orgID  string
+}
+
+func TestSessionProviderRefValidationSuite(t *testing.T) {
+	suite.Run(t, new(SessionProviderRefValidationSuite))
+}
+
+func (s *SessionProviderRefValidationSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.store = store.NewMockStore(s.ctrl)
+	s.server = &HelixAPIServer{
+		Cfg:   &config.ServerConfig{},
+		Store: s.store,
+	}
+	s.userID = "user_123"
+	s.orgID = "org_session"
+}
+
+func (s *SessionProviderRefValidationSuite) TestEmptyRef_NoLookup() {
+	// No DB call should happen for the empty-string case.
+	err := s.server.validateSessionProviderRef(context.Background(), "", s.orgID, s.userID)
+	s.NoError(err)
+}
+
+func (s *SessionProviderRefValidationSuite) TestNonPeRef_NoLookup() {
+	// Env-baked global names (e.g. "openai") are accepted without a DB roundtrip;
+	// runtime resolves them on the inference path.
+	err := s.server.validateSessionProviderRef(context.Background(), "openai", s.orgID, s.userID)
+	s.NoError(err)
+}
+
+func (s *SessionProviderRefValidationSuite) TestPeRef_GlobalEndpoint_OK() {
+	peID := system.ProviderEndpointPrefix + "01abc"
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: peID}).
+		Return(&types.ProviderEndpoint{
+			ID:           peID,
+			Owner:        "someone_else",
+			EndpointType: types.ProviderEndpointTypeGlobal,
+		}, nil)
+
+	err := s.server.validateSessionProviderRef(context.Background(), peID, s.orgID, s.userID)
+	s.NoError(err)
+}
+
+func (s *SessionProviderRefValidationSuite) TestPeRef_OwnedByOrg_OK() {
+	peID := system.ProviderEndpointPrefix + "01abc"
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: peID}).
+		Return(&types.ProviderEndpoint{
+			ID:           peID,
+			Owner:        s.orgID,
+			EndpointType: types.ProviderEndpointTypeUser,
+		}, nil)
+
+	err := s.server.validateSessionProviderRef(context.Background(), peID, s.orgID, s.userID)
+	s.NoError(err)
+}
+
+func (s *SessionProviderRefValidationSuite) TestPeRef_OwnedByUser_OK() {
+	peID := system.ProviderEndpointPrefix + "01abc"
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: peID}).
+		Return(&types.ProviderEndpoint{
+			ID:           peID,
+			Owner:        s.userID,
+			EndpointType: types.ProviderEndpointTypeUser,
+		}, nil)
+
+	// Org-less personal session — userID match is enough.
+	err := s.server.validateSessionProviderRef(context.Background(), peID, "", s.userID)
+	s.NoError(err)
+}
+
+func (s *SessionProviderRefValidationSuite) TestPeRef_CrossOrg_Rejected() {
+	// Reproduces the prime bug: a pe_… ID from a previously-active org leaks
+	// into a session being created in a different org. We must reject before
+	// the row is persisted, not let inference fail later with a cryptic
+	// "no client found" error.
+	peID := system.ProviderEndpointPrefix + "01ola"
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: peID}).
+		Return(&types.ProviderEndpoint{
+			ID:           peID,
+			Owner:        "org_ola",
+			EndpointType: types.ProviderEndpointTypeUser,
+		}, nil)
+
+	err := s.server.validateSessionProviderRef(context.Background(), peID, "org_mola", s.userID)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "not visible")
+	s.Contains(err.Error(), peID)
+}
+
+func (s *SessionProviderRefValidationSuite) TestPeRef_NotFound_Rejected() {
+	peID := system.ProviderEndpointPrefix + "01missing"
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{ID: peID}).
+		Return(nil, store.ErrNotFound)
+
+	err := s.server.validateSessionProviderRef(context.Background(), peID, s.orgID, s.userID)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "not found")
 }

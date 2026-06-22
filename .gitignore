@@ -1,3 +1,4 @@
+.playwright-mcp/
 api/pkg/skills/test_results/
 .hydra-resolved*.yaml
 .env
@@ -13,16 +14,35 @@ dist
 api/runs
 kubeconfig
 .vscode
+.claude
 integration-test/frontend/screenshots
 instructions.txt
 build-errors.log
 .DS_Store
+*.tsbuildinfo
+
+# Built Go binaries that may land in repo root from local builds
+/compose-manager
+/inference-proxy
+/helix-runner
+/hydra
+/sandbox-heartbeat
+
 vendor
 */**/out.md
 charts/helix-controlplane/charts/*.tgz
-helix-runner
+# Chart.yaml is rendered from Chart.yaml.tmpl by scripts/render-charts.sh.
+# Source-of-truth is the .tmpl file; the rendered Chart.yaml is build output.
+charts/*/Chart.yaml
+# Anchor helix-runner to repo root so it does not shadow charts/helix-runner/.
+# `helix` and friends are anchored to specific build-artifact paths because a
+# bare `helix` pattern matches any directory named `helix` at any depth — which
+# accidentally swallowed helix-org/helix/ and helix-org/agent/helix/ entirely.
+/helix-runner
 zed-build
-helix
+/helix
+/api/helix
+/api/cmd/helix/helix
 tmp
 zed-config/development_credentials
 
@@ -117,3 +137,16 @@ api/settings-sync-daemon
 /scanout-stream-test
 core.*
 nohup.out
+
+# Browser screenshots (Playwright runs, ad-hoc debug captures). The
+# tracked PNGs under design/cloud-smoke-screenshots/ and for-mac/ are
+# already in git; *.png only excludes new untracked ones.
+*.png
+
+# Playwright MCP trace dir (per-session screenshots, console logs,
+# accessibility snapshots). Local only — never check in.
+.playwright-mcp/
+
+# Database dumps under design/ — never check in (can contain live secrets;
+# a committed org-graph.sql dump leaked real credentials and tripped CI).
+design/**/*.sql

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,6 +31,14 @@ const (
 	// zvolDefaultSize is the volsize for new golden zvols. Thin-provisioned,
 	// so only used space is allocated. 500G is generous ceiling.
 	zvolDefaultSize = "500G"
+
+	// zvolBlockSize is the volblocksize for new zvols. The inner XFS uses
+	// 4K blocks; the ZFS default of 16K means each XFS metadata write
+	// triggers a 4K → 16K read-modify-write at the zvol layer (4× write
+	// amplification). 8K halves that amplification while keeping lz4
+	// compression effective. Immutable after zvol creation, so this only
+	// affects newly-created zvols.
+	zvolBlockSize = "8K"
 
 	// zvolMountBase is where cloned zvols are mounted.
 	zvolMountBase = "/container-docker/zvol-mounts"
@@ -240,6 +249,14 @@ func sessionZvolMountPath(sessionID string) string {
 	return filepath.Join(zvolMountBase, sessionID)
 }
 
+// touchExternalMarker creates/refreshes the .last-active marker for a session
+// on the external filesystem so GC knows it's in use.
+func touchExternalMarker(sessionID string) {
+	externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+	_ = os.MkdirAll(externalDir, 0755)
+	TouchSessionLastActive(externalDir)
+}
+
 // zvolDevPath returns the /dev/zvol/ path for a zvol.
 func zvolDevPath(zvolName string) string {
 	return fmt.Sprintf("/dev/zvol/%s", zvolName)
@@ -255,24 +272,10 @@ func zfsSnapshotExists(name string) bool {
 	return execCmdRun("zfs", "list", "-H", "-t", "snapshot", "-o", "name", name) == nil
 }
 
-// ZFSTreeNode represents a node in the ZFS snapshot/clone tree.
-type ZFSTreeNode struct {
-	Name      string         `json:"name"`
-	Type      string         `json:"type"` // "golden", "snapshot", "clone"
-	Used      string         `json:"used"`
-	Refer     string         `json:"refer"`
-	Mounted   bool           `json:"mounted,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
-	Children  []*ZFSTreeNode `json:"children,omitempty"`
-}
-
-// ZFSTree is the full tree for a project's golden cache.
-type ZFSTree struct {
-	Available bool           `json:"available"`
-	PoolRoot  string         `json:"pool_root,omitempty"`
-	Golden    *ZFSTreeNode   `json:"golden,omitempty"`
-	Orphans   []*ZFSTreeNode `json:"orphans,omitempty"` // session zvols not cloned from this golden
-}
+// ZFSTree and ZFSTreeNode are defined in types package.
+// Aliases for backward compatibility within hydra package.
+type ZFSTree = types.ZFSTree
+type ZFSTreeNode = types.ZFSTreeNode
 
 // GetZFSTree returns the ZFS snapshot and clone tree for a project's golden cache.
 func GetZFSTree(projectID string) (*ZFSTree, error) {
@@ -432,16 +435,19 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 				Str("clone", cloneName).
 				Str("mount", mountPath).
 				Msg("Reusing existing ZFS clone (session restart)")
+			touchExternalMarker(sessionID)
 			return mountPath, nil
 		}
-		// Clone exists but not mounted — mount it
-		if err := mountZvol(cloneName, mountPath); err != nil {
+		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
+		// because the clone shares the golden's XFS UUID.
+		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
 			return "", fmt.Errorf("failed to mount existing clone %s: %w", cloneName, err)
 		}
 		log.Info().
 			Str("clone", cloneName).
 			Str("mount", mountPath).
 			Msg("Mounted existing ZFS clone")
+		touchExternalMarker(sessionID)
 		return mountPath, nil
 	}
 
@@ -485,10 +491,21 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 		Dur("clone_duration", elapsed).
 		Msg("Created ZFS clone for session (instant golden cache)")
 
+	touchExternalMarker(sessionID)
 	return mountPath, nil
 }
 
 // CleanupSessionZvol unmounts and destroys a session's cloned zvol.
+//
+// Uses `zfs destroy -r` so any descendant snapshots (e.g. ones an operator
+// created out-of-band like `@pre-repo-cleanup-...`) are torn down with the
+// zvol. Without `-r`, ZFS refuses to destroy a dataset that has children and
+// the orphan accumulates forever, polluting GC logs.
+//
+// Note: `-r` (lowercase) does NOT cascade into clones of those snapshots —
+// if someone has manually cloned a child snapshot into another dataset, the
+// destroy still fails with "dataset is busy", which is the right answer (we
+// don't silently nuke unrelated work). The caller's GC loop logs and moves on.
 func CleanupSessionZvol(sessionID string) error {
 	cloneName := sessionZvolName(sessionID)
 	mountPath := sessionZvolMountPath(sessionID)
@@ -507,8 +524,8 @@ func CleanupSessionZvol(sessionID string) error {
 		}
 	}
 
-	// Destroy the clone
-	if err := runCmd("zfs", "destroy", cloneName); err != nil {
+	// Destroy the clone (recursive: takes any descendant snapshots with it)
+	if err := runCmd("zfs", "destroy", "-r", cloneName); err != nil {
 		return fmt.Errorf("failed to destroy clone %s: %w", cloneName, err)
 	}
 
@@ -658,6 +675,7 @@ func CreateGoldenZvol(projectID string) (string, error) {
 	// Create thin-provisioned zvol with dedup=off. Block sharing comes from
 	// ZFS clones (free, no DDT involvement), so dedup adds only overhead here.
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -712,6 +730,7 @@ func CreateSessionZvol(sessionID string) (string, error) {
 
 	// Create thin-provisioned zvol with dedup=off (same rationale as golden zvols).
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		zvolName); err != nil {
 		return "", fmt.Errorf("zfs create %s failed: %w", zvolName, err)
@@ -766,21 +785,26 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 		}
 		sessionID := strings.TrimPrefix(name, prefix)
 		if activeSessions[sessionID] {
+			// Refresh the external marker so that if Hydra crashes or the
+			// session runs for weeks, the marker stays fresh and GC won't
+			// destroy the zvol after the next restart.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
 			continue
 		}
 
-		// Check .last-active marker on the mounted filesystem
-		mountPath := sessionZvolMountPath(sessionID)
-		if isMounted(mountPath) {
-			marker := filepath.Join(mountPath, ".last-active")
-			data, err := os.ReadFile(marker)
-			if err == nil {
-				t, err := time.Parse(time.RFC3339, string(data))
-				if err == nil && time.Since(t) < 7*24*time.Hour {
-					continue // still recent, keep it
-				}
-			}
+		// Check .last-active marker on the external filesystem.
+		// The marker lives at /container-docker/sessions/docker-data-{sessionID}/
+		// which is on the parent ZFS dataset, readable without mounting the XFS zvol.
+		externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+		age := sessionLastActiveAge(externalDir)
+		if age > 0 && age < 7*24*time.Hour {
+			continue // recently active, keep it
 		}
+		// age == 0 means no marker — pre-marker session, safe to GC since
+		// all sessions now get markers on creation and periodic refresh.
+		// age >= 7 days — stale session, GC it.
 
 		if err := CleanupSessionZvol(sessionID); err != nil {
 			log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to GC orphaned zvol")
@@ -790,6 +814,96 @@ func GCOrphanedZvols(activeSessions map[string]bool) (int, error) {
 	}
 
 	return cleaned, nil
+}
+
+// zvolCreationAge returns how long ago a zvol was created, using the ZFS
+// `creation` property (unix seconds, via -p). Returns 0 if the property can't
+// be read or parsed — callers treat 0 as "unknown age" and apply their own
+// safe default.
+func zvolCreationAge(zvolName string) time.Duration {
+	out, err := execCmdOutput("zfs", "get", "-Hp", "-o", "value", "creation", zvolName)
+	if err != nil {
+		return 0
+	}
+	var created int64
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &created); err != nil || created <= 0 {
+		return 0
+	}
+	return time.Since(time.Unix(created, 0))
+}
+
+// ReconcileOrphanZvols reaps session zvols (prefix "<parent>/ses-") that are NOT
+// in the DB-derived liveSet, have aged past the grace period, and can be safely
+// destroyed.
+//
+// Safety contract (do not weaken):
+//   - Only ses- zvols are ever enumerated; golden-* zvols are never touched
+//     (the prefix guard filters them out, mirroring GCOrphanedZvols).
+//   - Destroys go through CleanupSessionZvol, which uses `zfs destroy -r`
+//     (lowercase). A clone-root or busy zvol fails with "has dependent clones"
+//     / "dataset is busy"; we record it as skipped and move on. We NEVER force
+//     (no `-R`, no `-f`) — refusing to destroy a busy/parent dataset is the
+//     desired behaviour.
+//   - Live sessions get their external marker refreshed so the legacy on-disk
+//     GC keeps treating them as fresh.
+func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
+	if !ZFSAvailable() {
+		return nil, nil
+	}
+
+	prefix := zfsParentDataset + "/ses-"
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("ReconcileOrphanZvols: failed to list zvols")
+		return nil, nil
+	}
+
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, prefix) {
+			continue // never touch golden- or anything else
+		}
+		sessionID := strings.TrimPrefix(name, prefix)
+
+		if liveSet[sessionID] {
+			// Live per the DB — keep, and refresh the on-disk marker so the
+			// legacy 7-day GC also keeps treating it as fresh.
+			externalDir := filepath.Join(sessionsBaseDir, "docker-data-"+sessionID)
+			_ = os.MkdirAll(externalDir, 0755)
+			TouchSessionLastActive(externalDir)
+			skipped = append(skipped, GCSkip{Name: name, Reason: "live"})
+			continue
+		}
+
+		// Not live. Apply the grace period using zvol creation time. age == 0
+		// means we couldn't read the creation property — be conservative and
+		// skip (treat as within grace).
+		age := zvolCreationAge(name)
+		if age < grace {
+			skipped = append(skipped, GCSkip{Name: name, Reason: "grace"})
+			continue
+		}
+
+		if dryRun {
+			reaped = append(reaped, name)
+			continue
+		}
+
+		if err := CleanupSessionZvol(sessionID); err != nil {
+			msg := err.Error()
+			// "has dependent clones" / "dataset is busy" → a golden clone-root
+			// or a manually-cloned descendant depends on this zvol. NEVER force.
+			if strings.Contains(msg, "dependent clones") || strings.Contains(msg, "busy") {
+				skipped = append(skipped, GCSkip{Name: name, Reason: "dependent: " + msg})
+				continue
+			}
+			log.Warn().Err(err).Str("zvol", name).Msg("ReconcileOrphanZvols: failed to destroy zvol")
+			skipped = append(skipped, GCSkip{Name: name, Reason: "error: " + msg})
+			continue
+		}
+		reaped = append(reaped, name)
+	}
+
+	return reaped, skipped
 }
 
 // GCStaleSnapshots destroys golden snapshots older than 7 days that have no
@@ -905,6 +1019,7 @@ func MigrateGoldenToZvol(projectID string) error {
 	}
 
 	if err := runCmd("zfs", "create", "-V", zvolDefaultSize, "-s",
+		"-o", "volblocksize="+zvolBlockSize,
 		"-o", "dedup=off", "-o", "compression=lz4",
 		goldenName); err != nil {
 		return fmt.Errorf("zfs create %s failed: %w", goldenName, err)
@@ -1006,6 +1121,9 @@ func purgeContainerDirs(dockerDir string) {
 		os.RemoveAll(filepath.Join(dockerDir, dir))
 	}
 	os.Remove(filepath.Join(dockerDir, ".golden-build-result"))
+
+	// Prune unreferenced overlay2 layers left behind by previous image builds.
+	pruneUnreferencedOverlay2Layers(dockerDir)
 }
 
 const seedCompleteMarker = ".zvol-seed-complete"

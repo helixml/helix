@@ -33,56 +33,114 @@ import (
 // @Tags    sessions
 // @Success 200 {object} types.Session
 // @Param id path string true "Session ID"
+// @Param skipInteractions query string false "Set to '1' to omit interactions from the response"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Request) {
 	id := mux.Vars(req)["id"]
 	if id == "" {
-		return nil, system.NewHTTPError400("cannot load session without id")
+		http.Error(rw, "cannot load session without id", http.StatusBadRequest)
+		return
 	}
 	ctx := req.Context()
 	user := getRequestUser(req)
 
 	session, err := apiServer.Store.GetSession(ctx, id)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	err = apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet)
 	if err != nil {
-		return nil, system.NewHTTPError403(err.Error())
+		http.Error(rw, err.Error(), http.StatusForbidden)
+		return
 	}
 
-	// Load interactions
-	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    id,
-		GenerationID: session.GenerationID,
-		PerPage:      1000,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-	session.Interactions = interactions
-
-	// Check if the external agent (sandbox container) is actually running
-	// If not running, update status to "stopped"
+	// Determine external agent status (cheap RPC, no DB).
+	//
+	// The runtime check is authoritative ONLY for sessions that already
+	// have a container_name set on the session metadata. During the
+	// auto-start window, Hydra sets ExternalAgentStatus="starting" on
+	// the session record BEFORE the container is created (so the
+	// frontend can render the "Starting Desktop..." spinner) — but at
+	// that point ContainerName is still empty, so the runtime check
+	// would compute "" and clobber the "starting" value below at line
+	// `session.Metadata.ExternalAgentStatus = agentStatus`. Result:
+	// frontend never sees the "starting" state, useSandboxState
+	// reports isPaused=true throughout the ~30-90s boot, and the user
+	// stares at a "Desktop Paused / Start Desktop" UI for the whole
+	// boot window.
+	//
+	// Fix: when there's no container yet, respect the DB-stored value
+	// (which Hydra has flipped to "starting" if a boot is in flight).
+	// Only overwrite with runtime status when we have an actual
+	// container to check. The earlier behaviour "no container → assume
+	// stopped/empty" was wrong specifically for the boot window.
+	agentStatus := session.Metadata.ExternalAgentStatus
 	if session.Metadata.ContainerName != "" {
 		if apiServer.externalAgentExecutor != nil {
-			_, err := apiServer.externalAgentExecutor.GetSession(session.ID)
-			if err != nil {
-				// External agent not running - mark as stopped
-				session.Metadata.ExternalAgentStatus = "stopped"
+			_, execErr := apiServer.externalAgentExecutor.GetSession(session.ID)
+			if execErr != nil {
+				agentStatus = "stopped"
 			} else {
-				// External agent is running
-				session.Metadata.ExternalAgentStatus = "running"
+				agentStatus = "running"
 			}
 		} else {
-			// No external agent executor available - assume stopped
-			session.Metadata.ExternalAgentStatus = "stopped"
+			agentStatus = "stopped"
 		}
 	}
 
-	return session, nil
+	// Compute a lightweight ETag from cheap metadata — avoids loading full interactions
+	// on cache hits (the expensive part). Components: session row updated_at, interaction
+	// count + max updated_at (single aggregate query), and runtime agent status.
+	interactionCount, maxInteractionUpdated, err := apiServer.Store.GetInteractionsSummary(ctx, id, session.GenerationID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	etag := fmt.Sprintf(`"%x-%x-%d-%x-%s"`,
+		session.Updated.UnixNano(),
+		maxInteractionUpdated.UnixNano(),
+		interactionCount,
+		session.GenerationID,
+		agentStatus,
+	)
+
+	rw.Header().Set("ETag", etag)
+	// must-revalidate: cache the response but always revalidate with the server.
+	// private: only the browser cache (not shared proxies like Caddy) may cache it.
+	// must-revalidate is required (not just no-cache) because responses to requests
+	// with Authorization headers are not cacheable otherwise per RFC 7234 §3.2.
+	rw.Header().Set("Cache-Control", "private, no-cache, must-revalidate")
+
+	if match := req.Header.Get("If-None-Match"); match == etag {
+		rw.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Cache miss — load interactions unless caller opts out.
+	// EmbeddedSessionView passes skipInteractions=1 and fetches interactions
+	// separately via the paginated interactions endpoint.
+	if req.URL.Query().Get("skipInteractions") != "1" {
+		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    id,
+			GenerationID: session.GenerationID,
+			PerPage:      1000,
+		})
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		session.Interactions = interactions
+	}
+	session.Metadata.ExternalAgentStatus = agentStatus
+
+	rw.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(rw).Encode(session); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to encode session response")
+	}
 }
 
 // listSessions godoc
@@ -97,6 +155,7 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Param   app_id          query    string  false  "App ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
+// @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -110,6 +169,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		QuestionSetExecutionID: req.URL.Query().Get("question_set_execution_id"),
 		AppID:                  req.URL.Query().Get("app_id"),
 		ProjectID:              req.URL.Query().Get("project_id"),
+		SessionRole:            req.URL.Query().Get("session_role"),
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -202,6 +262,13 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	// Revoke any preview-token vhost routes pointing at this session
+	// before the session row disappears; otherwise the share-* URLs
+	// would 502 with no path to clean them up.
+	if err := apiServer.Store.DeleteVHostRoutesByTarget(ctx, types.VHostTargetSandboxPreview, session.ID); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to revoke preview tokens before session delete")
+	}
+
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
@@ -240,6 +307,9 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	session.Name = update.Name
+	if err := apiServer.validateSessionProviderRef(ctx, update.Provider, session.OrganizationID, session.Owner); err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
 	session.Provider = update.Provider
 	session.ModelName = update.ModelName
 
@@ -428,14 +498,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	// If there's no app and no system prompt, set the default system prompt
+	// If there's no app and no system prompt, prefer the user's stored chat default,
+	// then fall back to the platform default.
 	if startReq.AppID == "" && startReq.SystemPrompt == "" {
-		startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
+		if meta, err := s.Store.GetUserMeta(ctx, user.ID); err == nil && meta.ChatSettings.SystemPrompt != "" {
+			startReq.SystemPrompt = meta.ChatSettings.SystemPrompt
+		} else {
+			startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
 
 EXAMPLE:
 If the query includes "prepare a pitch for [a specific topic]", ask "What topic would you like to prepare a pitch for?" instead of "please specify the [specific topic]"
 
-If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://helix.ml or the docs at https://docs.helixml.tech, using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
+If the user asks for information about Helix or installing Helix, refer them to the Helix website at https://helix.ml or the docs at https://helix.ml/docs using markdown links. Only offer the links if the user asks for information about Helix or installing Helix.`
+		}
 	}
 
 	message, ok := startReq.Message()
@@ -456,8 +531,21 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
-		if session.Owner != user.ID {
-			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		// Authorize via the unified session RBAC (org owner / project owner /
+		// project grant), NOT a strict owner-equality check. The read path
+		// (getSessionHandler) already uses authorizeUserToSession for ActionGet,
+		// so an org member who can VIEW a session could not chat into it — the
+		// inconsistency that left org-shared sessions (helix-org Worker "Human
+		// Desktop", team desktops) un-chattable by anyone but the literal owner,
+		// surfacing as a repeated 401 on POST /sessions/chat. ActionUpdate keeps
+		// read-only members from driving the agent.
+		if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+			http.Error(rw, err.Error(), http.StatusForbidden)
+			return
+		}
+
+		if pauseErr := requireUnpaused(session); pauseErr != nil {
+			http.Error(rw, pauseErr.Message, pauseErr.StatusCode)
 			return
 		}
 
@@ -492,7 +580,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if startReq.Provider == "" {
 			startReq.Provider = types.Provider(session.Provider)
 		} else {
-			// Update provider for the session
+			// Update provider for the session — validate that a pe_… reference
+			// is visible in this session's scope before persisting.
+			if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), session.OrganizationID, session.Owner); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
 			session.Provider = string(startReq.Provider)
 		}
 
@@ -506,6 +599,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Set default agent type if not specified
 		if startReq.AgentType == "" {
 			startReq.AgentType = "helix"
+		}
+
+		if err := s.validateSessionProviderRef(ctx, string(startReq.Provider), startReq.OrganizationID, user.ID); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		session = &types.Session{
@@ -530,6 +628,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				AgentType:           agentType,
 				ExternalAgentConfig: startReq.ExternalAgentConfig,
 				SpecTaskID:          user.SpecTaskID,
+				ProjectID:           startReq.ProjectID,
+				SessionRole:         startReq.SessionRole,
+				CallbackURL:         startReq.CallbackURL,
 			},
 		}
 
@@ -646,10 +747,34 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			// Create a ZedAgent struct with session info for registration
 			zedAgent := &types.DesktopAgent{
 				OrganizationID: session.OrganizationID,
+				ProjectID:      session.ProjectID,
 				SessionID:      session.ID,
 				UserID:         user.ID,
 				Input:          "Initialize Zed development environment",
 				ProjectPath:    "workspace", // Use relative path
+			}
+
+			// Load project repositories so the container clones them on startup
+			if session.ProjectID != "" {
+				projectRepos, repoErr := s.Controller.Options.Store.ListGitRepositories(req.Context(), &types.ListGitRepositoriesRequest{
+					ProjectID: session.ProjectID,
+				})
+				if repoErr == nil && len(projectRepos) > 0 {
+					zedAgent.RepositoryIDs = make([]string, 0, len(projectRepos))
+					for _, repo := range projectRepos {
+						if repo.ID != "" {
+							zedAgent.RepositoryIDs = append(zedAgent.RepositoryIDs, repo.ID)
+						}
+					}
+					project, projErr := s.Controller.Options.Store.GetProject(req.Context(), session.ProjectID)
+					if projErr == nil && project != nil {
+						primaryRepoID := project.DefaultRepoID
+						if primaryRepoID == "" {
+							primaryRepoID = projectRepos[0].ID
+						}
+						zedAgent.PrimaryRepositoryID = primaryRepoID
+					}
+				}
 			}
 
 			// Apply display settings from external agent configuration
@@ -676,12 +801,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
-			// Add user's API token for LLM and git operations (merges with any custom env vars)
+			// Add user's API token inside session lock via OnBeforeCreate hook
 			// This is REQUIRED - without it, Zed's agent won't be able to make LLM calls
-			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
-				log.Error().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token")
-				http.Error(rw, fmt.Sprintf("failed to get user API keys: %s", addErr.Error()), http.StatusInternalServerError)
-				return
+			sessionOwner := session.Owner
+			zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+				return s.addUserAPITokenToAgent(hookCtx, a, sessionOwner)
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -692,21 +816,26 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				return
 			}
 
-			// Store container ID and sandbox ID in session
+			// Store container ID and sandbox ID in session.
+			// Re-fetch from DB first because StartDesktop already wrote ContainerName
+			// and ExternalAgentStatus — using the stale local session would overwrite those.
 			if agentResp.DevContainerID != "" || agentResp.SandboxID != "" {
-				session.Metadata.DevContainerID = agentResp.DevContainerID
-				// CRITICAL: Store SandboxID on session record - required for sandbox state endpoint
-				// Without this, the frontend gets stuck at "Starting Desktop" forever
-				session.SandboxID = agentResp.SandboxID
-				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
-				if err != nil {
-					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+				freshSession, fetchErr := s.Controller.Options.Store.GetSession(req.Context(), session.ID)
+				if fetchErr != nil {
+					log.Error().Err(fetchErr).Str("session_id", session.ID).Msg("Failed to re-fetch session after StartDesktop")
 				} else {
-					log.Info().
-						Str("session_id", session.ID).
-						Str("container_id", agentResp.DevContainerID).
-						Str("sandbox_id", agentResp.SandboxID).
-						Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
+					freshSession.Metadata.DevContainerID = agentResp.DevContainerID
+					freshSession.SandboxID = agentResp.SandboxID
+					_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *freshSession)
+					if err != nil {
+						log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store container data in session")
+					} else {
+						log.Info().
+							Str("session_id", session.ID).
+							Str("container_id", agentResp.DevContainerID).
+							Str("sandbox_id", agentResp.SandboxID).
+							Msg("✅ Stored container ID and sandbox ID in session (chat endpoint)")
+					}
 				}
 			}
 
@@ -1532,13 +1661,15 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		case <-ticker.C:
 			attemptCount++
 
-			// Check if any external Zed agent WebSocket connections exist
-			connections := s.externalAgentWSManager.listConnections()
-			log.Info().
-				Int("connection_count", len(connections)).
-				Interface("connections", connections).
-				Msg("🔍 [HELIX] Checking external agent connections")
-			if len(connections) > 0 {
+			// Check if THIS session's agent WebSocket has actually
+			// connected. The previous check looked at the global
+			// connection list (>0), which falsely returned ready as
+			// soon as any other session's agent was connected — so a
+			// brand-new session that hadn't yet dialed home got a
+			// premature "ready", and the immediately-following
+			// dispatch failed with "no external agent WebSocket
+			// connection". Per-session check fixes the race.
+			if _, ok := s.externalAgentWSManager.getConnection(sessionID); ok {
 				elapsed := time.Since(startTime)
 				log.Info().
 					Str("session_id", sessionID).
@@ -1779,7 +1910,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("user_id", user.ID).
 		Msg("Resume session request")
 
-	// Get the session to check if it's an external agent session
 	session, err := s.Controller.Options.Store.GetSession(ctx, id)
 	if err != nil {
 		log.Error().
@@ -1790,13 +1920,11 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
-	if err != nil {
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
 		http.Error(rw, err.Error(), http.StatusForbidden)
 		return
 	}
 
-	// Check if this is an external agent session
 	if session.Metadata.AgentType != "zed_external" {
 		log.Warn().
 			Str("session_id", id).
@@ -1811,22 +1939,40 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Create a new ZedAgent request to restart the agent
-	// We need to get the spec task ID if this was a spec task session
+	result, err := s.resumeSessionInternal(ctx, user, session)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(result)
+}
+
+// resumeSessionInternal starts or restarts the external Zed agent container for an
+// existing session, preserving session.Metadata.ZedThreadID so the new container
+// reattaches to the existing thread on reconnect. Zed reloads the thread from the
+// persistent threads.db in the session's workspace volume, and the underlying agent
+// (claude-code, qwen, gemini, codex, etc.) reloads its own session state from the
+// same volume — so prior conversation context is preserved across restart.
+//
+// Callers must validate the session (auth, AgentType == "zed_external", executor
+// available) before invoking. Used by /sessions/{id}/resume (user clicks Resume
+// on a stopped session) and /sessions/{id}/restart-agent (user clicks Restart
+// after the in-container agent process crashed).
+func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.User, session *types.Session) (*types.SessionResumeResponse, error) {
+	id := session.ID
 	specTaskID := session.Metadata.SpecTaskID
 
-	// Build the ZedAgent config for resume
 	agent := &types.DesktopAgent{
 		SessionID:   id,
 		UserID:      user.ID,
 		Input:       "Resume session",
 		ProjectPath: "workspace",
 		SpecTaskID:  specTaskID,
-		// WorkDir left empty - sandbox uses its own storage
 	}
 
 	if specTaskID != "" {
-		// SpecTask session - get project from task
 		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
 			log.Warn().
@@ -1838,43 +1984,28 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			agent.OrganizationID = specTask.OrganizationID
 		}
 	} else if session.Metadata.ProjectID != "" {
-		// Exploratory session - get project from session metadata
 		agent.ProjectID = session.Metadata.ProjectID
 		agent.OrganizationID = session.OrganizationID
 		log.Info().
 			Str("session_id", id).
 			Str("project_id", agent.ProjectID).
 			Msg("Loading project context for exploratory session resume")
+	} else if session.ProjectID != "" {
+		agent.ProjectID = session.ProjectID
+		agent.OrganizationID = session.OrganizationID
 	}
 
-	project, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID)
-	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to get project '%s': %s", agent.ProjectID, err.Error()), http.StatusInternalServerError)
-		return
-	}
-	// If we have a project, load repositories and startup script
-
-	projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
-		ProjectID: agent.ProjectID,
-	})
-	if err == nil && len(projectRepos) > 0 {
-		agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-			}
-		}
-
-		// Set primary repository: prefer project's configured default, fall back to first repo
-		primaryRepoID := project.DefaultRepoID
-		if primaryRepoID == "" {
-			primaryRepoID = projectRepos[0].ID
-		}
-		agent.PrimaryRepositoryID = primaryRepoID
+	// Resume path: project must exist (return 500 if it doesn't). The repo
+	// loading below tolerates a missing project, but this code path is the
+	// one that owns the "project must be present" contract for the session.
+	if _, err := s.Controller.Options.Store.GetProject(ctx, agent.ProjectID); err != nil {
+		return nil, fmt.Errorf("failed to get project '%s': %w", agent.ProjectID, err)
 	}
 
-	// Get display settings from app's ExternalAgentConfig (or use defaults)
-	// The app ID comes from session.ParentApp (the agent assigned to the session)
+	if err := s.attachProjectContext(ctx, agent, agent.ProjectID); err != nil {
+		return nil, fmt.Errorf("attach project context: %w", err)
+	}
+
 	if session.ParentApp != "" {
 		app, err := s.Controller.Options.Store.GetApp(ctx, session.ParentApp)
 		if err == nil && app != nil && app.Config.Helix.ExternalAgentConfig != nil {
@@ -1884,7 +2015,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 			if app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate > 0 {
 				agent.DisplayRefreshRate = app.Config.Helix.ExternalAgentConfig.DisplayRefreshRate
 			}
-			// CRITICAL: Also get resolution preset, zoom level, and desktop type for proper HiDPI scaling
 			agent.Resolution = app.Config.Helix.ExternalAgentConfig.Resolution
 			agent.ZoomLevel = app.Config.Helix.ExternalAgentConfig.GetEffectiveZoomLevel()
 			agent.DesktopType = app.Config.Helix.ExternalAgentConfig.GetEffectiveDesktopType()
@@ -1901,11 +2031,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
-	// Add user's API token to agent environment for git operations
-	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
-		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
-		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
-		return
+	// Add user's API token inside the session lock (via OnBeforeCreate hook)
+	// to prevent a race where StopDesktop revokes the key between token creation
+	// and container creation.
+	ownerID := session.Owner
+	agent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, ownerID)
 	}
 
 	log.Info().
@@ -1913,42 +2044,35 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("spec_task_id", specTaskID).
 		Msg("Resuming external agent session")
 
-	// Start the external agent (this will create a new sandbox container)
 	response, err := s.externalAgentExecutor.StartDesktop(ctx, agent)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("session_id", id).
 			Msg("Failed to resume external agent")
-		http.Error(rw, fmt.Sprintf("failed to resume agent: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("failed to resume agent: %w", err)
 	}
 
 	// Re-fetch the session after StartDesktop to get updated metadata (SwayVersion, GPUVendor, etc.)
-	// StartDesktop updates the session in DB - using the stale session would overwrite those changes
-	session, err = s.Controller.Options.Store.GetSession(ctx, id)
-	if err != nil {
+	// StartDesktop updates the session in DB - using the stale session would overwrite those changes.
+	if refetched, refetchErr := s.Controller.Options.Store.GetSession(ctx, id); refetchErr != nil {
 		log.Error().
-			Err(err).
+			Err(refetchErr).
 			Str("session_id", id).
 			Msg("Failed to re-fetch session after StartDesktop")
-		// Continue with response - container is running, just metadata might be stale
 	} else {
-		// Update session metadata with new container info (only if non-empty)
-		// Don't overwrite existing metadata with empty values from lobby reuse
+		session = refetched
 		if response.DevContainerID != "" {
 			session.Metadata.DevContainerID = response.DevContainerID
 		}
 		// CRITICAL: Clear PausedScreenshotPath when resuming
 		// Otherwise the screenshot API returns the old saved screenshot instead of live RevDial fetch
 		session.Metadata.PausedScreenshotPath = ""
-		_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
+		if _, updateErr := s.Controller.Options.Store.UpdateSession(ctx, *session); updateErr != nil {
 			log.Error().
-				Err(err).
+				Err(updateErr).
 				Str("session_id", id).
 				Msg("Failed to update session metadata with new lobby info")
-			// Don't fail the request - the agent is running
 		}
 	}
 
@@ -1960,12 +2084,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	// If session has a ZedThreadID, send open_thread command to Zed
 	// This tells Zed to open the last thread in the AgentPanel UI
 	if session.Metadata.ZedThreadID != "" {
-		// Get the agent name from the session's code agent runtime
 		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
 
 		go func() {
-			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
-			// Retry mechanism: try multiple times with delays
 			maxRetries := 5
 			retryDelay := 2 * time.Second
 
@@ -1974,7 +2095,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
 				if err == nil {
-					// Success - command sent
 					log.Info().
 						Str("session_id", id).
 						Str("thread_id", session.Metadata.ZedThreadID).
@@ -1984,7 +2104,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 					return
 				}
 
-				// Log retry attempt
 				log.Warn().
 					Err(err).
 					Str("session_id", id).
@@ -1994,7 +2113,6 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 					Msg("Retrying open_thread command (WebSocket not connected yet)")
 			}
 
-			// All retries exhausted - log final failure
 			log.Error().
 				Str("session_id", id).
 				Str("thread_id", session.Metadata.ZedThreadID).
@@ -2003,16 +2121,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		}()
 	}
 
-	// Return success response
-	result := types.SessionResumeResponse{
+	return &types.SessionResumeResponse{
 		SessionID:      id,
 		Status:         "resumed",
 		DevContainerID: response.DevContainerID,
 		ScreenshotURL:  response.ScreenshotURL,
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(result)
+	}, nil
 }
 
 // sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
@@ -2035,6 +2149,41 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 
 	// Use the unified sendCommandToExternalAgent which handles connection lookup and routing
 	return s.sendCommandToExternalAgent(sessionID, command)
+}
+
+// cancelSessionTurn godoc
+// @Summary Cancel the current agent turn
+// @Description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+// @Description interaction state update (interrupted) flows to the frontend via WebSocket.
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 202 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/cancel [post]
+func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionUpdate)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Fire cancel in background — don't block the HTTP response
+	go s.cancelCurrentTurnIfActive(context.Background(), sessionID)
+
+	return map[string]string{"status": "accepted"}, nil
 }
 
 // stopExternalAgentSession godoc
@@ -2091,6 +2240,586 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		"message":    "external Zed agent stopped",
 		"session_id": sessionID,
 	}, nil
+}
+
+// SessionMessageRequest is the request body for POST /sessions/{id}/messages.
+type SessionMessageRequest struct {
+	Content      string `json:"content"`
+	Interrupt    bool   `json:"interrupt,omitempty"`
+	NotifyUserID string `json:"notify_user_id,omitempty"`
+}
+
+// SessionMessageResponse is returned from POST /sessions/{id}/messages.
+// interaction_id can be used to correlate streamed responses on /api/v1/ws/user.
+type SessionMessageResponse struct {
+	RequestID     string `json:"request_id"`
+	InteractionID string `json:"interaction_id"`
+}
+
+// sendSessionMessage godoc
+// @Summary Queue a message to a session's external agent
+// @Description Persists a Waiting interaction and dispatches it via the external-agent
+// @Description WebSocket. If no agent is connected the interaction is held until the
+// @Description agent reconnects, at which point pickupWaitingInteraction delivers it —
+// @Description callers do not need to manage WebSocket readiness or retries.
+// @Description Distinct from POST /sessions/chat (synchronous SSE chat); use this
+// @Description endpoint for fire-and-forget delivery to an external (e.g. desktop) agent.
+// @Tags    Sessions
+// @Accept  json
+// @Produce json
+// @Param   id path string true "Session ID"
+// @Param   request body SessionMessageRequest true "Message payload"
+// @Success 200 {object} SessionMessageResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/messages [post]
+func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Request) (*SessionMessageResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+
+	sessionID := mux.Vars(r)["id"]
+	if sessionID == "" {
+		return nil, system.NewHTTPError400("session id is required")
+	}
+
+	var body SessionMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, system.NewHTTPError400("invalid request body")
+	}
+	if strings.TrimSpace(body.Content) == "" {
+		return nil, system.NewHTTPError400("content is required")
+	}
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if session == nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	if err := requireUnpaused(session); err != nil {
+		return nil, err
+	}
+
+	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to queue session message: %v", err))
+	}
+
+	return &SessionMessageResponse{
+		RequestID:     requestID,
+		InteractionID: interactionID,
+	}, nil
+}
+
+// restartCrashedAgentThread godoc
+// @Summary Restart the external agent after an in-container crash
+// @Description Tears down the half-dead desktop container and brings up a fresh one
+// @Description via the same resume path used by /sessions/{id}/resume. The session's
+// @Description ZedThreadID is preserved, so Zed reloads the existing thread from the
+// @Description persistent threads.db in the workspace volume and the underlying agent
+// @Description (claude-code, qwen, etc.) reloads its session from disk — prior
+// @Description conversation context is restored. Crashed prompts are reset to pending
+// @Description and the queue is kicked so they re-dispatch on the new container.
+// @Description Requires the session to be an external Zed agent. Returns the count of
+// @Description prompts that were reset.
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]any
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/restart-agent [post]
+func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *http.Request) (map[string]any, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("user not found")
+	}
+	sessionID := mux.Vars(r)["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for restart")
+		return nil, system.NewHTTPError404("session not found")
+	}
+	if err := s.authorizeUserToSession(ctx, user, session, types.ActionUpdate); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	resetCount, herr := s.restartSessionContainer(ctx, user, session)
+	if herr != nil {
+		return nil, herr
+	}
+
+	return map[string]any{
+		"session_id":    sessionID,
+		"prompts_reset": resetCount,
+	}, nil
+}
+
+// restartSessionContainer is the single canonical "restart the agent" backend
+// operation. It tears down the existing desktop container and recreates it
+// from scratch, so a stuck or crashed worker is genuinely recovered (as
+// opposed to a SendMessage continuation, which reuses the same container).
+//
+// Every restart entrypoint funnels through here — the in-chat
+// /sessions/{id}/restart-agent button, the worker-page "Restart agent session"
+// button (via the helix-org runtime), and the spec-task detail page — so the
+// meaning of "restart" cannot diverge across surfaces again.
+//
+// Steps: validate it's an external Zed agent → StopDesktop (best-effort) →
+// resumeSessionInternal (StartDesktop, preserving ZedThreadID so conversation
+// context is restored) → reset crashed prompts → kick the queue. Returns the
+// count of prompts that were reset. Callers must have already authorized the
+// user against the session.
+func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *types.User, session *types.Session) (int, *system.HTTPError) {
+	sessionID := session.ID
+
+	if session.Metadata.AgentType != "zed_external" {
+		return 0, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+	if s.externalAgentExecutor == nil {
+		return 0, system.NewHTTPError500("external agent executor not available")
+	}
+
+	previousThreadID := session.Metadata.ZedThreadID
+
+	// Tear down the half-dead container so the resume path below brings up a clean
+	// one — the in-container agent process has crashed but the surrounding Zed
+	// wrapper / container may still be running with stale state. StopDesktop is
+	// best-effort: if the container is already gone, that's fine; the workspace
+	// volume (which holds threads.db and the agent's session state) is preserved
+	// either way and will be remounted into the new container.
+	if err := s.externalAgentExecutor.StopDesktop(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed (continuing — container may already be gone)")
+	}
+
+	// Recreate the container via the shared resume path. ZedThreadID is preserved,
+	// so on reconnect Zed reloads the existing thread from threads.db and the
+	// agent (claude-code, qwen, gemini, codex, etc.) reloads its own session from
+	// the persistent workspace volume — full conversation context is restored.
+	if _, err := s.resumeSessionInternal(ctx, user, session); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resume session during crash-restart")
+		return 0, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
+	}
+
+	resetCount, err := s.Store.ResetCrashedPromptsForSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to reset crashed prompts for restart")
+		return 0, system.NewHTTPError500(fmt.Sprintf("failed to reset crashed prompts: %s", err.Error()))
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Str("zed_thread_id", previousThreadID).
+		Int("prompts_reset", resetCount).
+		Msg("🔄 [HELIX] Restart agent session — recreated container, preserved ZedThreadID, reset crashed prompts")
+
+	// Kick the queue so the reset prompts get dispatched on the new container.
+	go s.processAnyPendingPrompt(context.Background(), sessionID)
+
+	return resetCount, nil
+}
+
+// autoRestartMaxAttempts bounds how many times Helix will automatically
+// recreate a crashed autonomous-surface (spec-task / org-worker) container
+// without an intervening successful turn. Past this we stop and leave the
+// prompt crash-marked (terminal) for a human to investigate, so a
+// boot-crash-looping agent can't trigger an endless container-rebuild storm.
+const autoRestartMaxAttempts = 3
+
+// autoRestartMinBackoff is the base gap before an automatic restart. The actual
+// wait grows exponentially per consecutive attempt (autoRestartMinBackoff <<
+// count → 15s, 30s, 60s), so a fast crash loop is throttled. It is a var (not a
+// const) only so tests can drop it to zero; production never reassigns it.
+var autoRestartMinBackoff = 15 * time.Second
+
+// maybeAutoRestartCrashedAgent automatically recovers a crashed external agent
+// for AUTONOMOUS surfaces — spec tasks and org workers — where no human is
+// present to click the in-chat Restart button. It is called from the websocket
+// crash handlers right after a prompt is crash-marked.
+//
+// Human desktop sessions (Metadata.AutoRestartOnCrash == false) are left
+// untouched: they keep the explicit button. The recovery itself reuses the
+// canonical restartSessionContainer primitive (StopDesktop → recreate → reset
+// crashed prompts → kick queue), so "restart" cannot diverge across surfaces.
+//
+// Guard rails against a boot-crash loop: a sync.Map dedupes concurrent triggers
+// (a single crash can surface as both thread_load_error and chat_response_error);
+// Metadata.AutoRestartCount bounds consecutive restarts without an intervening
+// success (reset to 0 on the next successful completion); and an exponential
+// backoff throttles the cadence.
+func (s *HelixAPIServer) maybeAutoRestartCrashedAgent(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	// Dedupe concurrent triggers for the same session — a crash can arrive via
+	// both thread_load_error and chat_response_error. First caller wins; the
+	// rest no-op until this one finishes.
+	if _, inflight := s.autoRestartInflight.LoadOrStore(sessionID, struct{}{}); inflight {
+		return
+	}
+	defer s.autoRestartInflight.Delete(sessionID)
+
+	ctx := context.Background()
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || session == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Auto-restart: session lookup failed — skipping")
+		return
+	}
+
+	// Only autonomous surfaces opt in; human desktop sessions keep the button.
+	if !session.Metadata.AutoRestartOnCrash {
+		return
+	}
+	if session.Metadata.AgentType != "zed_external" {
+		return
+	}
+
+	// Anti-storm: stop after the budget is spent. The crash stays terminal
+	// (prompt crash-marked) so the failure is visible rather than silently
+	// churning containers forever.
+	if session.Metadata.AutoRestartCount >= autoRestartMaxAttempts {
+		log.Error().
+			Str("session_id", sessionID).
+			Int("attempts", session.Metadata.AutoRestartCount).
+			Msg("🛑 [HELIX] Auto-restart budget exhausted — leaving crashed agent terminal (avoids container-rebuild storm)")
+		return
+	}
+
+	attempt := session.Metadata.AutoRestartCount
+	backoff := autoRestartMinBackoff * time.Duration(int64(1)<<uint(attempt))
+
+	// The autonomous surface's session owner (spec-task creator / worker
+	// service user) is already authorized for this session — drive the restart
+	// as them.
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: session.Owner})
+	if err != nil || user == nil {
+		log.Error().Err(err).Str("session_id", sessionID).Str("owner", session.Owner).
+			Msg("Auto-restart: owner lookup failed — skipping")
+		return
+	}
+
+	log.Warn().
+		Str("session_id", sessionID).
+		Int("attempt", attempt+1).
+		Int("max", autoRestartMaxAttempts).
+		Dur("backoff", backoff).
+		Msg("♻️ [HELIX] Auto-restarting crashed autonomous agent (no human present to click Restart)")
+
+	time.Sleep(backoff)
+
+	// Persist the incremented budget BEFORE restarting, on a fresh read, so a
+	// restart that itself boot-crashes still counts toward the cap and a
+	// concurrent metadata write isn't clobbered. The counter lives on the
+	// session, so ResetCrashedPromptsForSession (inside restartSessionContainer)
+	// won't zero it — only a successful completion resets it.
+	fresh, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil || fresh == nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Auto-restart: re-read failed — skipping")
+		return
+	}
+	fresh.Metadata.AutoRestartCount = attempt + 1
+	fresh.Metadata.LastAutoRestartAt = time.Now()
+	if _, err := s.Store.UpdateSession(ctx, *fresh); err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Auto-restart: failed to persist restart budget — skipping")
+		return
+	}
+
+	if _, herr := s.restartSessionContainer(ctx, user, fresh); herr != nil {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("error", herr.Error()).
+			Int("attempt", attempt+1).
+			Msg("Auto-restart of crashed agent failed")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("attempt", attempt+1).
+		Msg("✅ [HELIX] Auto-restarted crashed autonomous agent — container recreated, prompts re-queued")
+}
+
+// attachProjectContext sets agent.ProjectID and loads the project's
+// repositories, populating agent.RepositoryIDs and agent.PrimaryRepositoryID
+// via DesktopAgent.SetRepoContext. No-op when projectID is empty.
+//
+// All desktop-launch sites in this package must call this before handing the
+// agent to externalAgentExecutor.StartDesktop, otherwise HELIX_REPOSITORIES
+// will be empty in the container and helix-workspace-setup.sh will abort.
+func (s *HelixAPIServer) attachProjectContext(ctx context.Context, agent *types.DesktopAgent, projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+	agent.ProjectID = projectID
+
+	repos, err := s.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{ProjectID: projectID})
+	if err != nil {
+		return fmt.Errorf("list git repositories for project %s: %w", projectID, err)
+	}
+	if len(repos) == 0 {
+		return nil
+	}
+
+	var defaultRepoID string
+	if project, err := s.Store.GetProject(ctx, projectID); err == nil && project != nil {
+		defaultRepoID = project.DefaultRepoID
+	}
+	agent.SetRepoContext(repos, defaultRepoID)
+	return nil
+}
+
+// getSessionOutput godoc
+// StartExternalAgentSession creates a new external agent session programmatically.
+// This implements cron.ExternalAgentStarter for use by the cron trigger system.
+func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *types.SessionChatRequest, userID string) (*types.Session, error) {
+	if s.externalAgentExecutor == nil {
+		return nil, fmt.Errorf("external agent executor not configured")
+	}
+
+	message, ok := req.Message()
+	if !ok {
+		return nil, fmt.Errorf("invalid message in session chat request")
+	}
+
+	if req.AgentType == "" {
+		req.AgentType = "zed_external"
+	}
+
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, req.Model, types.SessionTypeText)
+	if err != nil {
+		return nil, fmt.Errorf("invalid model name: %w", err)
+	}
+
+	user, err := s.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if req.OrganizationID == "" && user.OrganizationID != "" {
+		req.OrganizationID = user.OrganizationID
+	}
+
+	if err := s.validateSessionProviderRef(ctx, string(req.Provider), req.OrganizationID, userID); err != nil {
+		return nil, err
+	}
+
+	// Exploratory sessions are project-scoped singletons — at most one
+	// row per (project_id, session_role="exploratory") so the UI's
+	// GetProjectExploratorySession LIMIT 1 lookup can't disagree with
+	// whichever id StartDesktop registered against the hydra session
+	// map. Reuse the existing row instead of minting a parallel one;
+	// minting a parallel one was the bug operators saw as "Resume
+	// Human Desktop succeeds but the project still shows stopped"
+	// (helix-specs:002090_ffs-looks-like-the-human).
+	var session *types.Session
+	if req.SessionRole == "exploratory" && req.ProjectID != "" {
+		existing, lookupErr := s.Store.GetProjectExploratorySession(ctx, req.ProjectID)
+		if lookupErr == nil && existing != nil {
+			session = existing
+		}
+	}
+	if session == nil {
+		session = &types.Session{
+			ID:             system.GenerateSessionID(),
+			Name:           s.getTemporarySessionName(message),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			ProjectID:      req.ProjectID,
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			Provider:       string(req.Provider),
+			ModelName:      modelName,
+			ParentApp:      req.AppID,
+			OrganizationID: req.OrganizationID,
+			Owner:          userID,
+			OwnerType:      user.Type,
+			Metadata: types.SessionMetadata{
+				Stream:       true,
+				SystemPrompt: req.SystemPrompt,
+				HelixVersion: data.GetHelixVersion(),
+				AgentType:    req.AgentType,
+				ProjectID:    req.ProjectID,
+				SessionRole:  req.SessionRole,
+				CallbackURL:  req.CallbackURL,
+			},
+		}
+	}
+
+	// Autonomous surfaces (org workers) ask for crash auto-recovery. Set it on
+	// the metadata after the build/reuse branch so it sticks on the reused
+	// exploratory singleton too, not only on a freshly minted row.
+	if req.AutoRestartOnCrash {
+		session.Metadata.AutoRestartOnCrash = true
+	}
+
+	session, err = appendOrOverwrite(session, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process session messages: %w", err)
+	}
+
+	if err := s.Controller.WriteSession(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to write session: %w", err)
+	}
+
+	if err := s.Controller.WriteInteractions(ctx, session.Interactions...); err != nil {
+		return nil, fmt.Errorf("failed to write interactions: %w", err)
+	}
+
+	zedAgent := &types.DesktopAgent{
+		OrganizationID: session.OrganizationID,
+		SessionID:      session.ID,
+		UserID:         userID,
+		Input:          "Initialize Zed development environment",
+		ProjectPath:    "workspace",
+	}
+
+	// Load the project's repos so HELIX_REPOSITORIES is populated in the
+	// container. Without this, helix-workspace-setup.sh aborts and
+	// start-zed-helix.sh loops on the setup-failed marker forever.
+	if err := s.attachProjectContext(ctx, zedAgent, session.ProjectID); err != nil {
+		return nil, fmt.Errorf("attach project context: %w", err)
+	}
+
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return s.addUserAPITokenToAgent(hookCtx, a, userID)
+	}
+
+	if _, err := s.externalAgentExecutor.StartDesktop(ctx, zedAgent); err != nil {
+		return nil, fmt.Errorf("failed to start external agent: %w", err)
+	}
+
+	// StartDesktop has already persisted the container metadata onto the
+	// session row (container_name, external_agent_status="running",
+	// container_id, dev_container_id, sandbox_id). Re-fetch the fresh row
+	// instead of re-saving our stale in-memory copy: the in-memory struct was
+	// last written before StartDesktop ran, so persisting it back wipes
+	// container_name/external_agent_status and makes the desktop viewer render
+	// "paused" while the container is actually running.
+	if fresh, err := s.Store.GetSession(ctx, session.ID); err == nil {
+		session = fresh
+	} else {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("Failed to reload session after starting desktop; returning pre-start copy")
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("user_id", userID).
+		Msg("External agent session started via programmatic API")
+
+	return session, nil
+}
+
+// @Summary Get session output
+// @Description Returns the last interaction's response for a session
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} types.SessionOutputResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/output [get]
+func (s *HelixAPIServer) getSessionOutput(_ http.ResponseWriter, r *http.Request) (*types.SessionOutputResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	err = s.authorizeUserToSession(ctx, user, session, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID: sessionID,
+		PerPage:   1000,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to list interactions")
+	}
+
+	resp := &types.SessionOutputResponse{
+		SessionID:  sessionID,
+		Status:     "complete",
+		DurationMs: session.Updated.Sub(session.Created).Milliseconds(),
+	}
+
+	if len(interactions) > 0 {
+		last := interactions[len(interactions)-1]
+		resp.Status = string(last.State)
+		resp.Output = types.TextFromInteraction(last)
+		resp.DurationMs = last.Updated.Sub(last.Created).Milliseconds()
+	}
+
+	return resp, nil
+}
+
+// validateSessionProviderRef rejects a session being persisted with a provider
+// reference (a pe_… DB ID) that isn't visible to the session's owner. Without
+// this fence, the frontend can leak a previously-selected pe_… across an org
+// switch — the row is written, then inference fails downstream with a cryptic
+// "no client found for provider: pe_… , available providers: [...]" because
+// MultiClientManager.GetClient correctly only sees the new org's providers.
+//
+// Empty refs and non-pe_ refs (env-baked global names like "openai") are
+// accepted: those are resolved at request time. Only ID-shaped refs need this
+// pre-flight check.
+//
+// A provider is visible if:
+//   - it is a global endpoint (ProviderEndpointTypeGlobal), or
+//   - its owner is the session's organization, or
+//   - its owner is the session's user (personal providers).
+//
+// Anything else returns an explicit "not visible" error so the UI can surface
+// the mismatch instead of inference 500-ing.
+func (s *HelixAPIServer) validateSessionProviderRef(ctx context.Context, providerRef, organizationID, userID string) error {
+	if providerRef == "" || !strings.HasPrefix(providerRef, system.ProviderEndpointPrefix) {
+		return nil
+	}
+	endpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: providerRef})
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("provider %q not found", providerRef)
+		}
+		return fmt.Errorf("looking up provider %q: %w", providerRef, err)
+	}
+	if endpoint.EndpointType == types.ProviderEndpointTypeGlobal {
+		return nil
+	}
+	if organizationID != "" && endpoint.Owner == organizationID {
+		return nil
+	}
+	if userID != "" && endpoint.Owner == userID {
+		return nil
+	}
+	return fmt.Errorf("provider %q is not visible to this session", providerRef)
 }
 
 // triggerSummaryGeneration triggers async summary generation for an interaction

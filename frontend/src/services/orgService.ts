@@ -9,10 +9,48 @@ export const orgQueryNameKey = (name: string) => [
   name
 ];
 
-export const orgUsageQueryKey = (id: string) => [
+export const orgUsageQueryKey = (
+  id: string,
+  from?: string,
+  to?: string,
+  filters?: {
+    userId?: string
+    projectId?: string
+    appId?: string
+    sessionId?: string
+    provider?: string
+    model?: string
+  },
+  userSearch?: string,
+  userLimit?: number,
+  userOffset?: number,
+  projectLimit?: number,
+  projectOffset?: number,
+  taskLimit?: number,
+  taskOffset?: number,
+  sessionLimit?: number,
+  sessionOffset?: number,
+) => [
   "org",
   id,
-  "usage"
+  "usage",
+  from,
+  to,
+  filters?.userId,
+  filters?.projectId,
+  filters?.appId,
+  filters?.sessionId,
+  filters?.provider,
+  filters?.model,
+  userSearch,
+  userLimit,
+  userOffset,
+  projectLimit,
+  projectOffset,
+  taskLimit,
+  taskOffset,
+  sessionLimit,
+  sessionOffset,
 ];
 
 export function getOrgByIdQueryKey(id: string) {
@@ -88,15 +126,79 @@ export function useDeleteOrg() {
   })
 }
 
-export function useGetOrgUsage(id: string, enabled?: boolean) {
+export function useGetOrgUsage(
+  id: string,
+  options?: {
+    from?: string
+    to?: string
+    userId?: string
+    projectId?: string
+    appId?: string
+    sessionId?: string
+    provider?: string
+    model?: string
+    userSearch?: string
+    userLimit?: number
+    userOffset?: number
+    projectLimit?: number
+    projectOffset?: number
+    taskLimit?: number
+    taskOffset?: number
+    sessionLimit?: number
+    sessionOffset?: number
+    enabled?: boolean
+  },
+) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: orgUsageQueryKey(id),
+    queryKey: orgUsageQueryKey(
+      id,
+      options?.from,
+      options?.to,
+      {
+        userId: options?.userId,
+        projectId: options?.projectId,
+        appId: options?.appId,
+        sessionId: options?.sessionId,
+        provider: options?.provider,
+        model: options?.model,
+      },
+      options?.userSearch,
+      options?.userLimit,
+      options?.userOffset,
+      options?.projectLimit,
+      options?.projectOffset,
+      options?.taskLimit,
+      options?.taskOffset,
+      options?.sessionLimit,
+      options?.sessionOffset,
+    ),
     queryFn: async () => {
-      const response = await apiClient.v1UsageList({ org_id: id })
+      const response = await apiClient.v1UsageOrgSummaryList({
+        org_id: id,
+        from: options?.from,
+        to: options?.to,
+        user_id: options?.userId,
+        project_id: options?.projectId,
+        app_id: options?.appId,
+        session_id: options?.sessionId,
+        provider: options?.provider,
+        model: options?.model,
+        user_search: options?.userSearch,
+        user_limit: options?.userLimit,
+        user_offset: options?.userOffset,
+        project_limit: options?.projectLimit,
+        project_offset: options?.projectOffset,
+        task_limit: options?.taskLimit,
+        task_offset: options?.taskOffset,
+        session_limit: options?.sessionLimit,
+        session_offset: options?.sessionOffset,
+      })
       return response.data
     },
+    placeholderData: (previousData) => previousData,
+    enabled: options?.enabled ?? true,
   })
 }

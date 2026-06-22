@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,15 +70,27 @@ type DevContainerManager struct {
 	// and polled by the API server via the /golden-copy-progress endpoint.
 	goldenCopyProgress   map[string]*GoldenCopyProgress
 	goldenCopyProgressMu sync.RWMutex
+
+	// Optional ring buffer that receives a copy of every inner-container log
+	// line streamed via streamContainerLogs. nil means no buffering.
+	logBuffer *LogBuffer
 }
 
 // NewDevContainerManager creates a new dev container manager
 func NewDevContainerManager(manager *Manager) *DevContainerManager {
+	return NewDevContainerManagerWithLogBuffer(manager, nil)
+}
+
+// NewDevContainerManagerWithLogBuffer creates a dev container manager that
+// also fans inner-container logs into the supplied LogBuffer. Pass nil to
+// disable buffering (equivalent to NewDevContainerManager).
+func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer) *DevContainerManager {
 	dm := &DevContainerManager{
 		manager:            manager,
 		containers:         make(map[string]*DevContainer),
 		goldenBuildResults: make(map[string]*GoldenBuildResult),
 		goldenCopyProgress: make(map[string]*GoldenCopyProgress),
+		logBuffer:          logBuffer,
 	}
 
 	// GC orphaned session dirs on startup and periodically
@@ -91,6 +105,12 @@ func NewDevContainerManager(manager *Manager) *DevContainerManager {
 			dm.GCOrphanedSessions()
 		}
 	}()
+
+	// Disk-pressure emergency-brake monitor: polls the ZFS pool's free percent
+	// on a faster interval and gracefully stops (not deletes) all running dev
+	// containers if free space drops to or below the stop threshold, protecting
+	// the pool from ENOSPC corruption.
+	go dm.runDiskPressureMonitor()
 
 	return dm
 }
@@ -188,10 +208,97 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is available for container creation.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Msg("Image missing from Docker — attempting recovery")
+
+	// Extract image name without tag for looking up registry sources
+	imageName := originalImage
+	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
+		imageName = originalImage[:idx]
+	}
+
+	// Build list of registry sources to try, in priority order:
+	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
+	// 2. Local shared registry (registry:5000/IMAGE:TAG)
+	var pullSources []string
+
+	// Check for production registry ref
+	refFile := filepath.Join("/opt/images", imageName+".ref")
+	if refData, err := os.ReadFile(refFile); err == nil {
+		ref := strings.TrimSpace(string(refData))
+		if ref != "" {
+			// Replace the tag with the requested version
+			tag := imageTag(originalImage)
+			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
+				ref = ref[:baseRef] + ":" + tag
+			}
+			pullSources = append(pullSources, ref)
+		}
+	}
+
+	// Try the local shared registry
+	registryHost := GetRegistryHost()
+	if registryHost != "" {
+		pullSources = append(pullSources, registryHost+"/"+originalImage)
+	}
+	// Also try the DNS name (works when registry is on the same Docker network)
+	pullSources = append(pullSources, "registry:5000/"+originalImage)
+
+	for _, source := range pullSources {
+		log.Info().Str("source", source).Msg("Trying recovery pull")
+		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
+		if pullErr != nil {
+			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			continue
+		}
+		// Drain the pull output to completion
+		_, _ = io.Copy(io.Discard, pullOut)
+		pullOut.Close()
+
+		// Tag as the expected local name so the container creation succeeds
+		if source != resolvedImage {
+			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+		}
+		if source != originalImage {
+			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		}
+		log.Info().
+			Str("image", resolvedImage).
+			Str("source", source).
+			Msg("Image recovered successfully")
+		return true
+	}
+
+	log.Error().
+		Str("image", resolvedImage).
+		Strs("sources_tried", pullSources).
+		Msg("Failed to recover image from any registry source")
+	return false
+}
+
 // CreateDevContainer creates and starts a dev container
 func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *CreateDevContainerRequest) (*DevContainerResponse, error) {
-	// Validate that image has a specific version tag - never accept :latest
-	if err := validateImageVersion(req.Image); err != nil {
+	// Validate that image has a specific version tag - never accept :latest.
+	// SkipImageValidation lets callers (Sandboxes API headless runtime) use
+	// plain Docker images like "ubuntu:22.04".
+	if !req.SkipImageValidation {
+		if err := validateImageVersion(req.Image); err != nil {
+			return nil, err
+		}
+	}
+
+	// Disk-pressure admission control: refuse to start new dev containers when
+	// the ZFS pool's free space is critically low (≤ refuse threshold). This
+	// protects the pool from hitting 0% free, which would cause ENOSPC → XFS
+	// corruption → Postgres/git faults. Fail-open: an unknowable measurement
+	// returns nil and allows the start.
+	if err := checkDiskPressureForStart(); err != nil {
 		return nil, err
 	}
 
@@ -235,6 +342,12 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
 	}
+	if len(req.Entrypoint) > 0 {
+		containerConfig.Entrypoint = req.Entrypoint
+	}
+	if len(req.Cmd) > 0 {
+		containerConfig.Cmd = req.Cmd
+	}
 
 	// Build host configuration (includes ZFS clone/mount for Docker data dir)
 	hostConfig, err := dm.buildHostConfig(req)
@@ -243,7 +356,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 
 	// Configure GPU passthrough
-	dm.configureGPU(hostConfig, req.GPUVendor)
+	dm.configureGPU(hostConfig, req.GPUVendor, req.GPUIndex)
 
 	// Network configuration is nil for host network mode
 	// (host network mode shares the sandbox's network namespace, so no separate network config needed)
@@ -393,8 +506,49 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 	}
 	// Container doesn't exist (or was removed above) - create new one
 
+	// For Sandboxes-API runtimes (SkipImageValidation==true), the image is
+	// usually a public image like ubuntu:22.04 or node:22-bookworm-slim that
+	// the sandbox host hasn't seen before. Pull it proactively from Docker
+	// Hub so ContainerCreate doesn't fail with "No such image". For desktop
+	// runtimes the image is preloaded by the install pipeline so we skip
+	// this path.
+	if req.SkipImageValidation {
+		if _, _, inspectErr := dockerClient.ImageInspectWithRaw(dockerCtx, resolvedImage); inspectErr != nil {
+			log.Info().Str("image", resolvedImage).Msg("Pulling sandbox runtime image")
+			pullOut, pullErr := dockerClient.ImagePull(dockerCtx, resolvedImage, dockertypes.ImagePullOptions{})
+			if pullErr != nil {
+				return nil, fmt.Errorf("pull image %s: %w", resolvedImage, pullErr)
+			}
+			if _, copyErr := io.Copy(io.Discard, pullOut); copyErr != nil {
+				pullOut.Close()
+				return nil, fmt.Errorf("drain image pull output for %s: %w", resolvedImage, copyErr)
+			}
+			pullOut.Close()
+		}
+		// Build (or reuse cached) overlay that adds tmux + ca-certificates so
+		// the user-facing terminal can persist sessions without an in-container
+		// apt-get install. The overlay runs in the sandbox host's network
+		// namespace, which has working outbound connectivity to apt mirrors —
+		// this is the key reason it succeeds where the in-container install
+		// has been failing for some users. Cached locally per base image so
+		// subsequent sandboxes start instantly. containerConfig.Image needs
+		// to track resolvedImage since it was built earlier from the original
+		// value.
+		resolvedImage = EnsureSandboxRuntimeImage(dockerCtx, dockerClient, resolvedImage)
+		containerConfig.Image = resolvedImage
+	}
+
 	// Create container
 	resp, err := dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+	if err != nil && strings.Contains(err.Error(), "No such image") {
+		// Image disappeared from Docker (possible containerd GC or Docker daemon issue).
+		// Try to recover by pulling from whatever registry source is available.
+		recovered := dm.tryRecoverImage(dockerCtx, dockerClient, resolvedImage, req.Image)
+		if recovered {
+			// Retry container creation with the recovered image
+			resp, err = dockerClient.ContainerCreate(dockerCtx, containerConfig, hostConfig, networkConfig, nil, req.ContainerName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
@@ -528,6 +682,7 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
@@ -543,11 +698,48 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 			}
 		}
 		if !hasVisibleDevices {
-			env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			// Decision 15: per-session GPU pinning on multi-GPU hosts.
+			// If the request specifies GPUIndex, expose only that GPU.
+			// Otherwise default to "all" (legacy behaviour).
+			//
+			// IMPORTANT: in nested-DinD setups (sandbox -> inner dockerd
+			// -> desktop container) the cgroup-level device restriction
+			// from NVIDIA_VISIBLE_DEVICES does NOT actually take effect
+			// because the outer sandbox container was launched with
+			// `--gpus all` so all /dev/nvidia* nodes are inherited.
+			// Verified live on a 2x Blackwell box: nvidia-smi inside
+			// pin-0 still saw GPU 1. The DRM device pinning (PCI walk)
+			// IS effective (Mutter+GStreamer get the right card), but
+			// CUDA visibility leaks. We set both NVIDIA_VISIBLE_DEVICES
+			// AND CUDA_VISIBLE_DEVICES to the index so CUDA workloads
+			// inside the desktop respect the pin even if /dev/nvidia*
+			// nodes leak. Real cgroup-level restriction in nested DinD
+			// is a separate problem documented in Decision 15 follow-ups.
+			if req.GPUIndex != nil {
+				env = append(env, fmt.Sprintf("NVIDIA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+				env = append(env, fmt.Sprintf("CUDA_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			} else {
+				env = append(env, "NVIDIA_VISIBLE_DEVICES=all")
+			}
 		}
 		if !hasDriverCaps {
 			// Use explicit capabilities instead of "all" for GKE/cloud compatibility
 			env = append(env, "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics,display")
+		}
+	}
+
+	// Decision 15: tell detect-render-node.sh which GPU to pick. This drives
+	// Mutter via udev tags + the GStreamer encoder via HELIX_RENDER_NODE.
+	// Set for all vendors so AMD/Intel paths also pin via the script's
+	// PCI walk fast-path. Live-tested on 2x Blackwell box: each desktop
+	// correctly picked its assigned card via PCI BDF (not by index suffix).
+	if req.GPUIndex != nil {
+		env = append(env, fmt.Sprintf("HELIX_GPU_INDEX=%d", *req.GPUIndex))
+		// AMD equivalent of CUDA_VISIBLE_DEVICES — ROCm honours this for
+		// HIP workloads even when /dev/dri leaks (same nested-DinD caveat).
+		if req.GPUVendor == "amd" {
+			env = append(env, fmt.Sprintf("HIP_VISIBLE_DEVICES=%d", *req.GPUIndex))
+			env = append(env, fmt.Sprintf("ROCR_VISIBLE_DEVICES=%d", *req.GPUIndex))
 		}
 	}
 
@@ -651,17 +843,26 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		networkMode = "bridge"
 	}
 
+	resources := container.Resources{
+		DeviceCgroupRules: dm.getDeviceCgroupRules(),
+		Ulimits: []*units.Ulimit{
+			{Name: "nofile", Soft: 65536, Hard: 65536},
+		},
+	}
+	// Apply CPU and memory limits when requested. NanoCPUs uses 10^9 units per CPU.
+	if req.VCPUs > 0 {
+		resources.NanoCPUs = int64(req.VCPUs) * 1_000_000_000
+	}
+	if req.MemoryMB > 0 {
+		resources.Memory = int64(req.MemoryMB) * 1024 * 1024
+	}
+
 	hostConfig := &container.HostConfig{
 		NetworkMode: networkMode,
 		IpcMode:     "host",
 		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
-		Resources: container.Resources{
-			DeviceCgroupRules: dm.getDeviceCgroupRules(),
-			Ulimits: []*units.Ulimit{
-				{Name: "nofile", Soft: 65536, Hard: 65536},
-			},
-		},
+		Resources:   resources,
 	}
 
 	// Only add explicit capabilities when not in privileged mode
@@ -926,22 +1127,326 @@ func (dm *DevContainerManager) buildExtraHosts() []string {
 	return extraHosts
 }
 
-// configureGPU adds GPU-specific Docker configuration
-func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string) {
+// drmDevice describes one GPU's host DRM nodes. Pairing render nodes
+// with card devices by PCI BDF (rather than by index suffix) is what
+// lets us pin correctly on hosts where the device numbering doesn't
+// line up — e.g. Azure spawns instances with virtio-gpu at card0/
+// renderD128 and the real NVIDIA at card1/renderD129, but other hosts
+// can have card0=NVIDIA + virtio-gpu at card2 with NO render node.
+type drmDevice struct {
+	renderNode string // e.g. /dev/dri/renderD129
+	cardDevice string // e.g. /dev/dri/card1 (may not be index-aligned with renderNode)
+	pciAddr    string // e.g. 0000:01:00.0
+	driver     string // kernel driver: "nvidia", "amdgpu", "i915", "virtio_gpu", etc.
+}
+
+// enumerateDRMDevices returns all GPU DRM devices on the host, sorted
+// by PCI BDF for stable ordering across reboots. If targetDriver is
+// non-empty, only devices owned by that kernel driver are returned.
+//
+// Stable PCI-BDF ordering is the contract for `gpu_index` on
+// multi-GPU hosts: index 0 is the first matching device by BDF
+// (smallest), index 1 the second, etc. — so "the operator's idea of
+// GPU 1" stays the same across container restarts and host reboots.
+func enumerateDRMDevices(targetDriver string) []drmDevice {
+	return enumerateDRMDevicesIn("/dev", "/sys", targetDriver)
+}
+
+// enumerateDRMDevicesIn is the test-injectable form of
+// enumerateDRMDevices — it parameterises the dev and sysfs roots so
+// tests can stand up a synthetic /sys/class/drm tree.
+//
+// This is the function with the actual PCI walk:
+//   1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
+//   2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
+//      to get the PCI BDF and driver name.
+//   3. Filter to targetDriver if set.
+//   4. For each matching render node, find the sibling card device by
+//      walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
+//   5. Sort the resulting list by PCI BDF.
+//
+// A render node with no sibling card device is still returned (cards
+// are display-only nodes; some headless compute GPUs have no card device).
+func enumerateDRMDevicesIn(devRoot, sysfsRoot, targetDriver string) []drmDevice {
+	var devs []drmDevice
+
+	renderNodes, _ := filepath.Glob(filepath.Join(devRoot, "dri", "renderD*"))
+	for _, rn := range renderNodes {
+		base := filepath.Base(rn)
+		pciAddr, driver, ok := readDRMSysfs(sysfsRoot, base)
+		if !ok {
+			continue
+		}
+		if targetDriver != "" && driver != targetDriver {
+			continue
+		}
+		card := findCardForPCI(devRoot, sysfsRoot, pciAddr)
+		devs = append(devs, drmDevice{
+			renderNode: rn,
+			cardDevice: card,
+			pciAddr:    pciAddr,
+			driver:     driver,
+		})
+	}
+
+	sort.Slice(devs, func(i, j int) bool {
+		return devs[i].pciAddr < devs[j].pciAddr
+	})
+	return devs
+}
+
+// readDRMSysfs reads /sys/class/drm/<name>/device — returns the PCI BDF
+// (basename of the resolved device symlink, e.g. "0000:01:00.0") and
+// the driver name (basename of the device/driver symlink). ok is false
+// if either symlink is missing.
+func readDRMSysfs(sysfsRoot, name string) (pciAddr, driver string, ok bool) {
+	devLink := filepath.Join(sysfsRoot, "class", "drm", name, "device")
+	pciTarget, err := filepath.EvalSymlinks(devLink)
+	if err != nil {
+		return "", "", false
+	}
+	pciAddr = filepath.Base(pciTarget)
+	drvLink := filepath.Join(devLink, "driver")
+	drvTarget, err := filepath.EvalSymlinks(drvLink)
+	if err != nil {
+		// device with no driver bound — still count it but driver is unknown
+		return pciAddr, "", true
+	}
+	driver = filepath.Base(drvTarget)
+	return pciAddr, driver, true
+}
+
+// findCardForPCI walks card* devices in sysfs and returns the dev path
+// of the one whose PCI BDF matches. Returns "" if no card device for
+// that PCI device (e.g. compute-only headless cards with no display).
+func findCardForPCI(devRoot, sysfsRoot, targetPCI string) string {
+	cards, _ := filepath.Glob(filepath.Join(devRoot, "dri", "card*"))
+	for _, c := range cards {
+		base := filepath.Base(c)
+		pci, _, ok := readDRMSysfs(sysfsRoot, base)
+		if ok && pci == targetPCI {
+			return c
+		}
+	}
+	return ""
+}
+
+// gpuDevicePaths returns the host device paths to expose to a
+// container for a given vendor. If gpuIndex is nil, all matching GPUs
+// are returned (legacy behaviour). Otherwise only the Nth-by-PCI-BDF
+// device's render and card paths are returned.
+//
+// `vendor` must be one of "amd", "intel", or "" (any). NVIDIA goes
+// through the nvidia-container-runtime DeviceRequests path, not raw
+// device mounts, so it's not handled here.
+func gpuDevicePaths(vendor string, gpuIndex *int) []string {
+	var driver string
+	switch vendor {
+	case "amd":
+		driver = "amdgpu"
+	case "intel":
+		driver = "i915"
+	}
+	devs := enumerateDRMDevices(driver)
+	if gpuIndex != nil {
+		idx := *gpuIndex
+		if idx < 0 || idx >= len(devs) {
+			return nil
+		}
+		devs = devs[idx : idx+1]
+	}
+	var out []string
+	for _, d := range devs {
+		out = append(out, d.renderNode)
+		if d.cardDevice != "" {
+			out = append(out, d.cardDevice)
+		}
+	}
+	return out
+}
+
+// configureGPU adds GPU-specific Docker configuration. If gpuIndex is
+// non-nil, the dev container is pinned to that specific GPU (Decision 15
+// in the sandbox-absorbs-runner design): NVIDIA uses
+// `--gpus device=<n>`, AMD/Intel mount only the matching renderD<128+n>
+// + cardN. nil means "expose all GPUs" (legacy behaviour).
+func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, vendor string, gpuIndex *int) {
 	switch vendor {
 	case "nvidia":
 		// NVIDIA: use nvidia-container-runtime
 		hostConfig.Runtime = "nvidia"
+		deviceIDs := []string{"all"}
+		if gpuIndex != nil {
+			deviceIDs = []string{strconv.Itoa(*gpuIndex)}
+		}
 		hostConfig.DeviceRequests = []container.DeviceRequest{
 			{
-				DeviceIDs:    []string{"all"},
+				DeviceIDs:    deviceIDs,
 				Capabilities: [][]string{{"gpu"}},
 			},
 		}
-		log.Debug().Msg("Configured NVIDIA GPU passthrough")
+
+		// Belt-and-braces against nvidia-container-runtime silently
+		// no-op'ing in nested-DinD. Hydra always spawns desktop
+		// containers via the sandbox's nested dockerd (outer dockerd →
+		// helix-sandbox → nested dockerd → desktop container), so the
+		// runtime path is invoked from inside a container that was
+		// itself launched with --gpus all. In that topology the runtime
+		// can return success without actually injecting /dev/nvidia*
+		// into the inner container; render-node detection then falls
+		// back to SOFTWARE and nvh264enc fails to enter PLAYING.
+		//
+		// Mounting the device nodes explicitly via hostConfig.Devices
+		// rescues that case. When the runtime DOES inject the same
+		// nodes (it varies by host/driver combo), the explicit mounts
+		// and the runtime-injected nodes target the same source — Linux
+		// tolerates the duplicate identical bind-mount, both writes
+		// succeed silently (Docker itself does NOT dedupe
+		// HostConfig.Devices against runtime-injected nodes; this works
+		// because the kernel does). Driver libraries are inherited via
+		// the standard ld.so paths after `ldconfig` runs in
+		// sandbox/04-start-dockerd.sh.
+		//
+		// No depth gate: hydra always spawns into nested-DinD so there
+		// is no single-level path to special-case. The cost of always
+		// running this is a handful of extra cgroup-device entries —
+		// harmless when the runtime would have done the same.
+		//
+		// Only runs on NVIDIA; AMD / Intel / default paths below are
+		// unchanged.
+		for _, dev := range []string{
+			"/dev/nvidiactl",
+			"/dev/nvidia-uvm",
+			"/dev/nvidia-uvm-tools",
+			"/dev/nvidia-modeset",
+		} {
+			if _, err := os.Stat(dev); err == nil {
+				hostConfig.Devices = append(hostConfig.Devices,
+					container.DeviceMapping{
+						PathOnHost:        dev,
+						PathInContainer:   dev,
+						CgroupPermissions: "rwm",
+					},
+				)
+			}
+		}
+		// Per-GPU device nodes: /dev/nvidia0, /dev/nvidia1, ...
+		// Glob then post-filter to digits-only because
+		// /dev/nvidia[0-9]* on its own would match e.g.
+		// /dev/nvidia0-foo if it existed (devtmpfs is root-only so
+		// not exploitable, just defensive). When gpuIndex is set,
+		// mount only that one.
+		//
+		// CAVEAT (Decision-15 follow-up): the per-GPU node name is
+		// kernel-enumeration order, while DeviceRequests indexing
+		// (`strconv.Itoa(*gpuIndex)`) uses the CUDA-style ordering
+		// that can be reordered by NVIDIA_VISIBLE_DEVICES, MIG, or
+		// PCI_BUS_ID. On single-GPU instances the two indexes
+		// coincide. On multi-GPU instances they may not — verification
+		// still TODO before relying on gpuIndex pinning here.
+		nvidiaDigitGlob, _ := filepath.Glob("/dev/nvidia[0-9]*")
+		perGPURE := regexp.MustCompile(`^/dev/nvidia[0-9]+$`)
+		nvidiaGPUNodes := make([]string, 0, len(nvidiaDigitGlob))
+		for _, dev := range nvidiaDigitGlob {
+			if perGPURE.MatchString(dev) {
+				nvidiaGPUNodes = append(nvidiaGPUNodes, dev)
+			}
+		}
+		if len(nvidiaGPUNodes) == 0 {
+			log.Warn().Msg("nvidia GPU passthrough: no /dev/nvidia[0-9]+ nodes found in outer container; inner desktop will not have per-GPU access")
+		}
+		for _, dev := range nvidiaGPUNodes {
+			if gpuIndex != nil {
+				want := fmt.Sprintf("/dev/nvidia%d", *gpuIndex)
+				if dev != want {
+					continue
+				}
+			}
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		// DRM render node pass-through. nvidia-container-toolkit normally
+		// handles this, but on hosts where /dev/dri/renderD* for the NVIDIA
+		// driver was missing at the time nvidia-container-toolkit ran
+		// (notably the AWS Deep Learning AMI, which builds the driver with
+		// NV_EXCLUDE_BUILD_MODULES='nvidia-drm' so nvidia_drm has to be
+		// modprobed at boot via userdata) the toolkit doesn't pass anything
+		// and the inner desktop falls back to software rendering.
+		// enumerateDRMDevices walks sysfs and only returns devices whose
+		// kernel driver is "nvidia", so it's a no-op on hosts without
+		// nvidia_drm loaded.
+		nvDRM := enumerateDRMDevices("nvidia")
+		for _, d := range nvDRM {
+			if gpuIndex != nil {
+				if *gpuIndex < 0 || *gpuIndex >= len(nvDRM) {
+					break
+				}
+				if d != nvDRM[*gpuIndex] {
+					continue
+				}
+			}
+			for _, dev := range []string{d.renderNode, d.cardDevice} {
+				if dev == "" {
+					continue
+				}
+				hostConfig.Devices = append(hostConfig.Devices,
+					container.DeviceMapping{
+						PathOnHost:        dev,
+						PathInContainer:   dev,
+						CgroupPermissions: "rwm",
+					},
+				)
+			}
+		}
+		log.Debug().
+			Strs("device_ids", deviceIDs).
+			Int("nv_drm_devs", len(nvDRM)).
+			Int("explicit_dev_mounts", len(hostConfig.Devices)).
+			Msg("Configured NVIDIA GPU passthrough")
+
+	case "neuron":
+		// AWS Neuron (Inferentia2 / Trainium): mount the /dev/neuron*
+		// device nodes into the nested Docker. All neuronx silicon
+		// presents the same device-node family — one node per Neuron core
+		// (/dev/neuron0, /dev/neuron1, ...). The count varies by instance
+		// type (2 on inf2.xlarge, 16 on inf2.48xlarge, 16 on trn1.32xlarge,
+		// ...), so glob rather than hardcode and the same arm covers every
+		// inf2 SKU and Trainium. The Neuron driver lives on the host (AWS
+		// Neuron DLC AMI); we only pass the device nodes through. No
+		// container runtime, no /dev/kfd, no DRM render node — Neuron has
+		// no display path.
+		//
+		// ponytail: glob covers every inf2/trn SKU; per-core pinning
+		// (gpuIndex) is not wired — add when multi-tenant Neuron packing
+		// on one host is needed (one model per pool in v1, so unused).
+		neuronDevs, _ := filepath.Glob("/dev/neuron*")
+		if len(neuronDevs) == 0 {
+			log.Warn().Msg("neuron passthrough: no /dev/neuron* nodes found in outer container; inner serving stack will not see the accelerator")
+		}
+		for _, dev := range neuronDevs {
+			hostConfig.Devices = append(hostConfig.Devices,
+				container.DeviceMapping{
+					PathOnHost:        dev,
+					PathInContainer:   dev,
+					CgroupPermissions: "rwm",
+				},
+			)
+		}
+		log.Debug().Strs("neuron_devs", neuronDevs).Msg("Configured Neuron device passthrough")
 
 	case "amd":
-		// AMD: mount /dev/kfd and /dev/dri/* for VA-API encoding
+		// AMD: mount /dev/kfd (shared across all AMD GPUs — always
+		// mounted regardless of pinning) plus the matching render+card
+		// pair for the requested GPU. gpuDevicePaths walks PCI sysfs to
+		// find the right render+card pair: critical on hosts where
+		// device numbering doesn't line up (Azure spawns instances with
+		// virtio-gpu at card0/renderD128 and the real GPU at card1/
+		// renderD129; a naive cardN-by-index would pin to virtio).
 		hostConfig.Devices = append(hostConfig.Devices,
 			container.DeviceMapping{
 				PathOnHost:        "/dev/kfd",
@@ -949,9 +1454,8 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				CgroupPermissions: "rwm",
 			},
 		)
-		// Also mount all DRI render nodes for VA-API
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
-		for _, dev := range driDevices {
+		paths := gpuDevicePaths("amd", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -960,23 +1464,13 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		// Also mount card devices for display
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured AMD GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured AMD GPU passthrough")
 
 	case "intel":
-		// Intel: mount /dev/dri/* for VA-API encoding (same as AMD, minus /dev/kfd)
-		driDevices, _ := filepath.Glob("/dev/dri/renderD*")
-		for _, dev := range driDevices {
+		// Intel: same approach as AMD (PCI walk picks the right card),
+		// minus /dev/kfd which is AMD-specific.
+		paths := gpuDevicePaths("intel", gpuIndex)
+		for _, dev := range paths {
 			hostConfig.Devices = append(hostConfig.Devices,
 				container.DeviceMapping{
 					PathOnHost:        dev,
@@ -985,17 +1479,7 @@ func (dm *DevContainerManager) configureGPU(hostConfig *container.HostConfig, ve
 				},
 			)
 		}
-		cardDevices, _ := filepath.Glob("/dev/dri/card*")
-		for _, dev := range cardDevices {
-			hostConfig.Devices = append(hostConfig.Devices,
-				container.DeviceMapping{
-					PathOnHost:        dev,
-					PathInContainer:   dev,
-					CgroupPermissions: "rwm",
-				},
-			)
-		}
-		log.Debug().Int("render_devices", len(driDevices)).Int("card_devices", len(cardDevices)).Msg("Configured Intel GPU passthrough")
+		log.Debug().Strs("paths", paths).Interface("gpu_index", gpuIndex).Msg("Configured Intel GPU passthrough")
 
 	default:
 		// Unknown/virtio GPU: mount /dev/dri/* if available (e.g., virtio-gpu on macOS/UTM)
@@ -1112,6 +1596,9 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 	}
 	defer dockerClient.Close()
 
+	// Auto-commit helix-specs changes before destroying the container
+	dm.autoCommitHelixSpecs(ctx, dockerClient, dc)
+
 	// Stop container with short timeout - these are disposable dev containers
 	// that can be killed immediately; no need to wait for graceful shutdown
 	timeout := 2
@@ -1161,6 +1648,7 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 				}
 			}
 			sessionDir := filepath.Join("/container-docker/sessions", dockerDataVolume)
+			_ = os.MkdirAll(sessionDir, 0755)
 			TouchSessionLastActive(sessionDir)
 			log.Info().
 				Str("session_id", sessionID).
@@ -1187,6 +1675,56 @@ func (dm *DevContainerManager) DeleteDevContainer(ctx context.Context, sessionID
 		Status:        DevContainerStatusStopped,
 		ContainerType: dc.ContainerType,
 	}, nil
+}
+
+// autoCommitHelixSpecs execs into the container and commits+pushes any changes
+// in the helix-specs worktree. This preserves job state files between runs.
+// Best-effort — failures are logged but don't prevent container shutdown.
+func (dm *DevContainerManager) autoCommitHelixSpecs(ctx context.Context, dockerClient *client.Client, dc *DevContainer) {
+	commitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	script := `cd ~/work/helix-specs 2>/dev/null && git add -A && git diff --cached --quiet || (git commit -m "Auto-commit job state" && git push origin helix-specs)`
+
+	execConfig := dockertypes.ExecConfig{
+		Cmd:          []string{"bash", "-c", script},
+		AttachStdout: true,
+		AttachStderr: true,
+		User:         "user",
+	}
+
+	execID, err := dockerClient.ContainerExecCreate(commitCtx, dc.ContainerID, execConfig)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to create exec for helix-specs auto-commit")
+		return
+	}
+
+	resp, err := dockerClient.ContainerExecAttach(commitCtx, execID.ID, dockertypes.ExecStartCheck{})
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to attach exec for helix-specs auto-commit")
+		return
+	}
+	defer resp.Close()
+
+	// Read output to completion
+	output, _ := io.ReadAll(resp.Reader)
+
+	// Check exec exit code
+	inspect, err := dockerClient.ContainerExecInspect(commitCtx, execID.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("session_id", dc.SessionID).Msg("Failed to inspect exec for helix-specs auto-commit")
+		return
+	}
+
+	if inspect.ExitCode == 0 {
+		log.Info().Str("session_id", dc.SessionID).Msg("Auto-committed helix-specs changes")
+	} else {
+		log.Debug().
+			Str("session_id", dc.SessionID).
+			Int("exit_code", inspect.ExitCode).
+			Str("output", string(output)).
+			Msg("helix-specs auto-commit returned non-zero (may have no changes)")
+	}
 }
 
 // GCOrphanedSessions removes session Docker data directories that don't have
@@ -1242,6 +1780,78 @@ func (dm *DevContainerManager) GCOrphanedSessions() {
 			log.Info().Int("removed", snapsCleaned).Msg("Stale snapshot GC completed")
 		}
 	}
+}
+
+// ReconcileGC reconciles on-disk ephemeral resources (session zvols and
+// per-task/session workspace dirs) against the DB-derived live-set supplied by
+// the API, reaping anything orphaned and past the grace period.
+//
+// The DB live-set is the durable source of truth (it survives reboots). As
+// extra protection we UNION in the session IDs of currently-running containers
+// from hydra's in-memory map, so an in-flight session whose row hasn't been
+// observed by the API yet is never reaped.
+func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileResponse {
+	liveSessions := make(map[string]bool, len(req.LiveSessionIDs))
+	for _, id := range req.LiveSessionIDs {
+		liveSessions[id] = true
+	}
+	liveSpecTasks := make(map[string]bool, len(req.LiveSpecTaskIDs))
+	for _, id := range req.LiveSpecTaskIDs {
+		liveSpecTasks[id] = true
+	}
+
+	// Union in currently-running container session IDs (belt-and-braces).
+	dm.mu.RLock()
+	for sessionID := range dm.containers {
+		liveSessions[sessionID] = true
+	}
+	dm.mu.RUnlock()
+
+	grace := time.Duration(req.GracePeriodSeconds) * time.Second
+
+	var resp GCReconcileResponse
+
+	// Measure reclaimed space cheaply as the pool-free delta around the reaping
+	// calls (captures both zvol + workspace reclamation in O(1)) — never a
+	// per-directory `du` sweep, which serialises into a 10+ minute backlog that
+	// blocks the reaper ticker. Dry-run frees nothing, so skip the measurement
+	// entirely and keep it fast.
+	var before int64
+	if !req.DryRun {
+		before, _ = poolFreeBytes()
+	}
+
+	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
+	resp.ZvolsReaped = zReaped
+	resp.ZvolsSkipped = zSkipped
+
+	wReaped, wSkipped := ReconcileOrphanWorkspaces(liveSessions, liveSpecTasks, grace, req.DryRun)
+	resp.WorkspacesReaped = wReaped
+	resp.WorkspacesSkipped = wSkipped
+
+	if !req.DryRun {
+		// Ignore measurement errors → 0. Pool free can also move for unrelated
+		// reasons; clamp to a non-negative delta.
+		if after, err := poolFreeBytes(); err == nil {
+			if delta := after - before; delta > 0 {
+				resp.BytesFreed = delta
+			}
+		}
+	}
+
+	log.Info().
+		Bool("dry_run", req.DryRun).
+		Dur("grace", grace).
+		Int("live_sessions", len(liveSessions)).
+		Int("live_spec_tasks", len(liveSpecTasks)).
+		Int("zvols_reaped", len(resp.ZvolsReaped)).
+		Int("zvols_skipped", len(resp.ZvolsSkipped)).
+		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
+		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int64("bytes_freed", resp.BytesFreed).
+		Msg("GC_RECONCILE completed")
+
+	return resp
 }
 
 // GetDevContainer returns the status of a dev container
@@ -1470,12 +2080,19 @@ func (dm *DevContainerManager) streamContainerLogs(ctx context.Context, containe
 		stdcopy.StdCopy(pw, pw, logReader)
 	}()
 
-	// Read lines and print with prefix
+	// Read lines and print with prefix. Also feed the in-memory ring buffer
+	// (if configured) so the admin /logs WS endpoint can replay history and
+	// live-tail.
 	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line != "" {
-			fmt.Printf("%s%s\n", prefix, line)
+		if line == "" {
+			continue
+		}
+		formatted := fmt.Sprintf("%s%s", prefix, line)
+		fmt.Println(formatted)
+		if dm.logBuffer != nil {
+			dm.logBuffer.Write(formatted)
 		}
 	}
 

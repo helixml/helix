@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -33,6 +34,81 @@ type ServerConfig struct {
 	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
+	Sandboxes          Sandboxes
+	Compute            Compute
+
+	// DesktopIdleTimeout is how long a desktop can be inactive before it is automatically shut down.
+	// Inactivity is measured as the time since the last interaction was created or updated
+	// across all sessions belonging to the desktop.
+	DesktopIdleTimeout time.Duration `envconfig:"HELIX_DESKTOP_IDLE_TIMEOUT" default:"1h"`
+
+	// DesktopIdleCheckInterval controls how often the idle checker scans for desktops to shut down.
+	DesktopIdleCheckInterval time.Duration `envconfig:"HELIX_DESKTOP_IDLE_CHECK_INTERVAL" default:"5m"`
+
+	// OrphanReaperEnabled toggles the durable, DB-driven orphan-resource reaper
+	// that garbage-collects leaked session zvols and per-task/session workspace
+	// dirs after host reboots / API restarts / failed destroys.
+	OrphanReaperEnabled bool `envconfig:"HELIX_ORPHAN_REAPER_ENABLED" default:"true"`
+
+	// OrphanReaperInterval is how often the orphan-resource reaper computes the
+	// DB live-set and fans it out to connected sandboxes.
+	OrphanReaperInterval time.Duration `envconfig:"HELIX_ORPHAN_REAPER_INTERVAL" default:"30m"`
+
+	// OrphanReaperGracePeriod is the minimum age a resource must reach before
+	// the reaper will destroy it. Guards against racing newly-created resources
+	// the DB live-set hasn't caught up with yet.
+	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
+
+	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
+	// without destroying anything. Defaults to true so the safety-critical zvol
+	// destroys are opt-in until an operator has reviewed the dry-run logs.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"true"`
+
+	// SandboxReaperInterval is how often the sandbox-instance reaper scans
+	// the sandbox_instances table for stale rows and flips their status to
+	// offline. Used in conjunction with SandboxStaleThreshold and
+	// SandboxDispatchStaleThreshold.
+	SandboxReaperInterval time.Duration `envconfig:"HELIX_SANDBOX_REAPER_INTERVAL" default:"1m"`
+
+	// SandboxStaleThreshold is the inactivity threshold after which a
+	// sandbox row is flipped to status="offline" by the reaper. Should
+	// comfortably exceed the heartbeat cadence so transient lag doesn't
+	// reap a healthy Runner.
+	SandboxStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_STALE_THRESHOLD" default:"5m"`
+
+	// SandboxDispatchStaleThreshold is the tighter freshness filter
+	// applied by FindAvailableSandboxInstance when selecting a Runner
+	// for new work. Set lower than SandboxStaleThreshold so freshly-dead
+	// Runners are excluded from dispatch well before the reaper flips
+	// their DB row.
+	SandboxDispatchStaleThreshold time.Duration `envconfig:"HELIX_SANDBOX_DISPATCH_STALE_THRESHOLD" default:"90s"`
+
+	// SandboxMaxDevContainers is the per-Runner ceiling on isolated dev
+	// containers (current vocab "sandboxes") that hydra will spawn
+	// inside one helix-sandbox host. Written to SandboxInstance.MaxSandboxes
+	// when a Runner is registered (both legacy auto-register and
+	// Manager-provisioned paths). The ComputeManager's autoscaler treats
+	// `headroom = sum(max_sandboxes) - sum(active_sandboxes) < ScaleUpHeadroomMin`
+	// as demand pressure, so this value is what determines when scale-up
+	// fires under load.
+	//
+	// NOTE: this value only affects the autoscaler signal today; the
+	// dispatcher (FindAvailableSandboxInstance) does NOT enforce a hard
+	// rejection at the ceiling - new dev containers can still be placed
+	// on a "full" Runner (sorted ASC by active_sandboxes). Hard
+	// dispatcher rejection is tracked separately as a follow-up.
+	//
+	// Default 20. Raise for hosts with more headroom, lower to make
+	// the autoscaler trigger sooner on smaller hosts. Range is not
+	// enforced - sane values are typically 1-50, beyond which the host
+	// kernel will OOM before the limit binds.
+	//
+	// Changing this env var only affects newly-registered Runners and
+	// Manager-provisioned rows on the next boot; existing rows keep
+	// their persisted MaxSandboxes value. A boot-time backfill rewrites
+	// rows that disagree with the current config so the new value takes
+	// effect across the fleet on next API restart.
+	SandboxMaxDevContainers int `envconfig:"HELIX_SANDBOX_MAX_DEV_CONTAINERS" default:"20"`
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -46,6 +122,303 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
+
+	// HelixOrgEnabled is the deployment-wide kill switch for the
+	// embedded helix-org alpha. When false (the default), none of
+	// the helix-org init runs and none of its HTTP surfaces
+	// (/api/v1/orgs/{org}/, /api/v1/mcp/helix-org/) are mounted —
+	// the per-user alpha feature flag in the DB has no effect. Set
+	// HELIX_ORG_ENABLED=true to opt in.
+	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
+}
+
+// Sandboxes configures the user-facing Sandboxes API.
+//
+// Each entry in Runtimes maps a runtime name (the value users put in
+// `runtime` on POST /sandboxes) to a container image and the command that
+// keeps the container alive. Operators can add new runtimes (e.g. node22,
+// python3.13) by extending HELIX_SANDBOX_RUNTIMES without changing code.
+//
+// AllowCustomImage controls whether end users may pass an arbitrary `image`
+// in CreateSandboxRequest, which bypasses the curated runtime list. Off by
+// default — turn on for trusted single-tenant deployments.
+type Sandboxes struct {
+	// Runtimes is a comma-separated list of runtime specs, each of the form
+	//   <name>=<image>[|<entrypoint and cmd shell expression>]
+	// Examples:
+	//   headless-ubuntu=ubuntu:22.04|sleep infinity
+	//   node22=node:22-bookworm-slim|tail -f /dev/null
+	//   python313=python:3.13-slim|tail -f /dev/null
+	// If the trailing `|...` is omitted the default keep-alive command
+	// (`tail -f /dev/null`) is used.
+	Runtimes string `envconfig:"HELIX_SANDBOX_RUNTIMES" default:"headless-ubuntu=ubuntu:22.04|sleep infinity,node22=node:22-bookworm-slim|tail -f /dev/null,python313=python:3.13-slim|tail -f /dev/null"`
+
+	// AllowCustomImage lets API callers pass an arbitrary image name in the
+	// create request. False blocks anything outside the configured runtimes.
+	AllowCustomImage bool `envconfig:"HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE" default:"false"`
+
+	// DefaultRuntime is the runtime applied when the create request omits
+	// both `runtime` and `image`. Must match one of the names in Runtimes.
+	DefaultRuntime string `envconfig:"HELIX_SANDBOX_DEFAULT_RUNTIME" default:"headless-ubuntu"`
+}
+
+// Compute configures the cloud-provisioning side of Helix's sandbox
+// host management. When Provider is empty (the default) the entire
+// subsystem is disabled - no Provider is constructed, no reconcile
+// loop runs, no SandboxInstance rows are auto-created. Self-registered
+// hosts (the legacy path) continue to work unchanged.
+//
+// When Provider is set, Helix constructs the named compute.Provider
+// from the rest of this section + the provider-specific config block
+// (e.g. Yellowdog) and starts a compute.Manager reconcile loop.
+type Compute struct {
+	// Provider selects which compute.Provider implementation Helix
+	// uses to bring sandbox hosts into existence. Empty (default)
+	// disables the whole subsystem. Currently the only supported
+	// value is "yellowdog".
+	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
+
+	// GPUVendor is the accelerator family of the hosts this Manager
+	// provisions ("nvidia", "amd", "neuron", or "" for the provider's
+	// default). It flows onto every provisioned host's task environment as
+	// GPU_VENDOR, which the runner launch script uses to pick the right
+	// docker device flags (e.g. neuron -> mount /dev/neuron* instead of
+	// --gpus all). A pool is single-vendor; set this to match the compute
+	// requirement's instance type (e.g. "neuron" for an inf2 pool).
+	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
+
+	// DeploymentTag distinguishes work requirements created by this
+	// Helix install from WRs created by other tooling (e.g. someone
+	// running yd-submit directly against the same YD account) or by
+	// another Helix install that happens to share the YD namespace.
+	// It is the primary filter applied to YD's List endpoint.
+	//
+	// Auto-derived from the provider-specific namespace at boot when
+	// unset (e.g. "helix-<namespace>"). For the common deployment
+	// (one Helix install per YD namespace) the default is sufficient.
+	// Operators running multiple Helix installs in the same YD
+	// namespace MUST set this explicitly per install or the two
+	// Managers will see each other's WRs as their own.
+	//
+	// Also forms the suffix of the value written to
+	// SandboxInstance.Provider (e.g. "yellowdog-prod"). The two
+	// purposes share one knob.
+	DeploymentTag string `envconfig:"HELIX_COMPUTE_DEPLOYMENT_TAG" default:""`
+
+	// Floor is the minimum number of provisioned hosts the Manager
+	// keeps available at all times. The reconcile loop kicks off
+	// Provision calls until (Ready + Provisioning) reaches this count.
+	// Zero (the default) disables pre-warming - the Manager exists
+	// but does no work in floor-only mode. On-demand scaling lands
+	// in a follow-up; for now, Floor=0 means "Manager is a no-op".
+	Floor int `envconfig:"HELIX_COMPUTE_FLOOR" default:"0"`
+
+	// ReconcileInterval is how often the Manager's reconcile loop
+	// runs. Lower values respond faster to drift; higher values
+	// reduce pressure on Helix and the upstream Provider API. 30s
+	// is a reasonable default matching the existing sandbox
+	// heartbeat cadence.
+	ReconcileInterval time.Duration `envconfig:"HELIX_COMPUTE_RECONCILE_INTERVAL" default:"30s"`
+
+	// HealthCheckTimeout caps how long one Provider.HealthCheck call
+	// can take per provisioning row before the loop moves on.
+	HealthCheckTimeout time.Duration `envconfig:"HELIX_COMPUTE_HEALTHCHECK_TIMEOUT" default:"10s"`
+
+	// MaxConcurrentProvisions caps how many Provision calls the
+	// Manager fires per reconcile cycle when below Floor. Default 1.
+	// Raise this when bringing up a large Floor on cold boot;
+	// MaxConcurrentProvisions=5 with ReconcileInterval=30s reaches
+	// Floor=5 in one cycle instead of five.
+	MaxConcurrentProvisions int `envconfig:"HELIX_COMPUTE_MAX_CONCURRENT_PROVISIONS" default:"1"`
+
+	// MaxProvisioningAge bounds how long a row may sit in
+	// ComputeState=provisioning before the Manager rolls it back.
+	// Default 30m - covers the YD g5.xlarge happy path (~10m) plus
+	// headroom for cross-region fallback and slow NVIDIA image pulls.
+	MaxProvisioningAge time.Duration `envconfig:"HELIX_COMPUTE_MAX_PROVISIONING_AGE" default:"30m"`
+
+	// Max is the hard ceiling on Manager-owned hosts (Ready +
+	// Provisioning combined). Zero (the default) disables on-demand
+	// scale-up - the Manager only maintains Floor and ignores demand
+	// pressure. Set Max > Floor to allow the Manager to provision
+	// extra hosts when sandbox-session demand exhausts the headroom
+	// on existing hosts. Must be >= Floor when non-zero.
+	Max int `envconfig:"HELIX_COMPUTE_MAX" default:"0"`
+
+	// ScaleUpHeadroomMin is the minimum number of free sandbox slots
+	// the Manager tries to keep available across all Ready hosts.
+	// When (sum(MaxSandboxes) - sum(ActiveSandboxes)) drops below this
+	// value AND total owned is below Max, the Manager provisions
+	// an additional host. Default 1 (provision when 0 slots remain)
+	// when Max > Floor; ignored when Max = 0 (D3 disabled).
+	//
+	// Operators serving bursty workloads can raise this (e.g. to 2-3)
+	// to provision the next host before the last slot is claimed,
+	// hiding the ~90s cold-start latency from the user.
+	ScaleUpHeadroomMin int `envconfig:"HELIX_COMPUTE_SCALEUP_HEADROOM_MIN" default:"0"`
+
+	// IdleTimeout is the duration a Ready host must have zero active
+	// sandbox sessions before the Manager will deprovision it (D4).
+	// Default 10m. Hosts are never dropped below Floor.
+	//
+	// The idle timer is tracked in-memory: Manager restart resets it,
+	// so a fleet mid-scale-down sees one extra IdleTimeout window of
+	// grace before convergence resumes.
+	IdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_IDLE_TIMEOUT" default:"10m"`
+
+	// HardIdleTimeout is the safety override for D4's fleet-pressure
+	// inhibition (see manager.go tryDeprovisionIdle). When ANY Ready
+	// Runner is at-or-over its MaxSandboxes cap, D4 normally won't shed
+	// idle peers - because shedding them would just re-fire D3 next
+	// cycle (the oscillation bug fixed by the inhibition). But if a
+	// stuck session pins a Runner at-cap forever, the inhibition would
+	// hold idle peers alive indefinitely. HardIdleTimeout is the
+	// upper-bound: once an idle Runner crosses this threshold, D4
+	// sheds it regardless of the inhibition. Default 4h covers normal
+	// long-running sessions; set 0 to disable the override entirely.
+	HardIdleTimeout time.Duration `envconfig:"HELIX_COMPUTE_HARD_IDLE_TIMEOUT" default:"4h"`
+
+	// Yellowdog is the provider-specific config block. Only consulted
+	// when Provider="yellowdog".
+	Yellowdog Yellowdog
+
+	// SandboxRegistry overrides the container registry HOSTNAME that
+	// workers pull the helix-sandbox image from. Default empty means
+	// workers pull from `ghcr.io/helixml/helix-sandbox:<version>`
+	// (current behaviour, cross-cloud pull from GHCR over GitHub's CDN).
+	//
+	// Setting this to an operator-controlled registry lets workers
+	// pull from a same-region mirror — typically ECR in the same AWS
+	// account as the YD worker pool. Cross-cloud (~120s for ~10GB on
+	// inf2.xlarge / g5.xlarge) becomes intra-region (~15-30s), which
+	// is the difference between "auto-scaling works" and "auto-scaling
+	// is broken" for the D3 on-demand path where the user is waiting
+	// during scale-up.
+	//
+	// Value is the registry HOSTNAME ONLY. The "helixml/helix-sandbox"
+	// org+image path is always appended. Examples:
+	//   "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	//     -> "123456789012.dkr.ecr.us-east-1.amazonaws.com/helixml/helix-sandbox:2.11.17"
+	//   "internal-registry.corp.example.com"
+	//     -> "internal-registry.corp.example.com/helixml/helix-sandbox:2.11.17"
+	//
+	// IMPORTANT: this env var is ALSO read by sandbox/04-start-dockerd.sh
+	// (the in-container hydra dockerd loader, which sed-swaps the
+	// leading hostname segment of the desktop image ref). That consumer
+	// expects the same HOSTNAME ONLY semantic. Passing a host+org
+	// prefix here is REJECTED at boot to prevent cross-consumer
+	// divergence on the same env var.
+	//
+	// composemgr's rewriteRegistry (Runner Profile compose-stack image
+	// rewriting) does NOT read this var - it reads the parallel
+	// HELIX_RUNNER_REGISTRY. To mirror Runner Profile pulls as well as
+	// sandbox host pulls, operators set both vars (and ideally to the
+	// same hostname).
+	//
+	// Several malformed shapes are rejected loudly at boot rather
+	// than passed through to fail opaquely at docker pull on the
+	// worker:
+	//
+	//   - Embedded path segments: "mirror.corp/helixml"
+	//     - would produce a DOUBLE-ORG path on the YD side
+	//       ("mirror.corp/helixml/helixml/helix-sandbox:tag") and
+	//       different garbage on the shell side. The exact footgun
+	//       the hostname-only contract exists to prevent.
+	//
+	//   - Leading slash: "/mirror.corp", "/${REGISTRY}" (templating
+	//     leak) - Go side could strip it but the shell consumer
+	//     (sandbox/04-start-dockerd.sh sed) does not, so a leading
+	//     slash on the env var means the two consumers diverge.
+	//
+	//   - URL form: "https://mirror.corp" - shell consumer would
+	//     produce "https://mirror.corp/..." which docker rejects.
+	//
+	//   - Internal whitespace: "mirror.corp\nhelixml", "foo bar" -
+	//     usually a line-wrapped paste or a multi-line ConfigMap value.
+	//
+	//   - Empty after trim: "/", "  /  ", "   " - silent fallback to
+	//     ghcr.io is the wrong default for air-gapped deployments
+	//     that meant to set a value.
+	//
+	// Edge whitespace and a single trailing slash ARE tolerated and
+	// stripped ("  ghcr.io/" -> "ghcr.io"); they're common in
+	// copy-pasted values.
+	//
+	// The version tag is still auto-derived from data.GetHelixVersion()
+	// — operators override the registry hostname, never the version.
+	// That preserves the "release-tag-is-the-truth" property the YD
+	// provisioning loop relies on.
+	//
+	// Operator workflow: before bumping the Helix release on a
+	// deployment that uses an override, manually push the matching
+	// helix-sandbox tag to the override registry. Forgetting leaves
+	// workers in a docker-pull-retry loop; loud failure, easy
+	// diagnostic (and the resolved image is logged at boot).
+	SandboxRegistry string `envconfig:"HELIX_SANDBOX_REGISTRY" default:""`
+
+	// SandboxImage pins the FULL helix-sandbox image reference the YD
+	// provider dispatches (e.g.
+	// "ghcr.io/helixml/helix-sandbox:abc1234-linux-amd64"). When set it is
+	// used verbatim and BYPASSES version derivation + SandboxRegistry — so
+	// it is the escape hatch for builds where data.Version is a placeholder
+	// (dev/source builds like a local Air stack) or for pinning a specific
+	// SHA when testing an in-flight sandbox PR. This mirrors the
+	// yellowdog-poc config.toml `helix_image` override.
+	//
+	// Leave empty for normal releases: the version-derived tag is the
+	// "release-tag-is-the-truth" default the provisioning loop relies on.
+	// The operator is responsible for the pinned image actually existing
+	// in a registry the workers can pull from.
+	SandboxImage string `envconfig:"HELIX_COMPUTE_SANDBOX_IMAGE" default:""`
+}
+
+// Yellowdog is the YellowDog-provider-specific configuration block.
+// All fields are required when Compute.Provider="yellowdog"; an empty
+// value at boot causes Helix to fail fast rather than start with a
+// half-configured Manager.
+type Yellowdog struct {
+	// APIKeyID and APISecret are the YD account credentials. Generate
+	// them in the YD portal under Applications. Treat as secrets.
+	APIKeyID  string `envconfig:"HELIX_YD_KEY"`
+	APISecret string `envconfig:"HELIX_YD_SECRET"`
+
+	// BaseURL overrides the production API endpoint. Leave unset for
+	// the public portal at https://portal.yellowdog.co/api.
+	BaseURL string `envconfig:"HELIX_YD_BASE_URL" default:""`
+
+	// Namespace is the YD namespace work requirements live in. Match
+	// the namespace your YD account administrator allocated for this
+	// Helix install.
+	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
+
+	// WorkerTag is the tag the operator-provisioned YD worker pool
+	// advertises. Tasks include this in their RunSpecification so
+	// the YD scheduler only assigns them to matching workers.
+	//
+	// Auto-derived from Namespace when unset:
+	//   WorkerTag = "worker-" + Namespace
+	//
+	// Matches the yd-provision POC convention (`worker_tag =
+	// "worker-{{tag}}"`), so an operator who set up their pool
+	// per the POC docs gets working defaults. Override via
+	// HELIX_YD_WORKER_TAG when the pool was created with a
+	// different naming scheme.
+	//
+	// Mismatch between this value and the pool's advertised tag
+	// produces silent "tasks starved" failures rather than a
+	// clear error - the YD scheduler simply finds no eligible
+	// workers and leaves the task pending. Boot logs the resolved
+	// tag so the operator can spot a mismatch quickly.
+	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+
+	// TaskTimeout bounds individual task runtime upstream-side. The
+	// platform aborts the task and records TaskError type=TIMED_OUT
+	// when exceeded. 4h matches the POC's safety circuit-breaker.
+	TaskTimeout time.Duration `envconfig:"HELIX_YD_TASK_TIMEOUT" default:"4h"`
+
+	// MaxRetries caps retry attempts for idempotent YD API requests
+	// (GET, PUT, DELETE). POST is never retried.
+	MaxRetries int `envconfig:"HELIX_YD_MAX_RETRIES" default:"3"`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -53,6 +426,9 @@ func LoadServerConfig() (ServerConfig, error) {
 	err := envconfig.Process("", &cfg)
 	if err != nil {
 		return ServerConfig{}, err
+	}
+	if cfg.Notifications.AppURL == "" {
+		cfg.Notifications.AppURL = cfg.WebServer.URL
 	}
 	return cfg, nil
 }
@@ -76,6 +452,18 @@ type Kodit struct {
 	LLMBaseURL   string `envconfig:"KODIT_LLM_BASE_URL" default:""`              // OpenAI-compatible endpoint for enrichments
 	LLMAPIKey    string `envconfig:"KODIT_LLM_API_KEY" default:""`               // API key for LLM endpoint
 	LLMChatModel string `envconfig:"KODIT_LLM_CHAT_MODEL" default:"kodit-model"` // LLM model name
+	// Text embedding (proxied through Helix via the "kodit-text-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external OpenAI-compatible
+	// embedding provider instead of the local ONNX model.
+	TextEmbeddingBaseURL string `envconfig:"KODIT_TEXT_EMBEDDING_BASE_URL" default:""`                  // Defaults to LLMBaseURL
+	TextEmbeddingAPIKey  string `envconfig:"KODIT_TEXT_EMBEDDING_API_KEY" default:""`                   // Defaults to LLMAPIKey
+	TextEmbeddingModel   string `envconfig:"KODIT_TEXT_EMBEDDING_MODEL" default:"kodit-text-embedding"` // Placeholder model name sent to Helix
+	// Vision embedding (proxied through Helix via the "kodit-vision-embedding" special model name).
+	// When BaseURL is set (or falls back to LLMBaseURL), kodit uses an external vision embedding
+	// provider (e.g. Qwen3-VL-Embedding) instead of the local SigLIP2 model.
+	VisionEmbeddingBaseURL string `envconfig:"KODIT_VISION_EMBEDDING_BASE_URL" default:""`                    // Defaults to LLMBaseURL
+	VisionEmbeddingAPIKey  string `envconfig:"KODIT_VISION_EMBEDDING_API_KEY" default:""`                     // Defaults to LLMAPIKey
+	VisionEmbeddingModel   string `envconfig:"KODIT_VISION_EMBEDDING_MODEL" default:"kodit-vision-embedding"` // Placeholder model name sent to Helix
 	// GitURL is the URL Kodit uses to access the git server (for cloning local repos)
 	// Defaults to http://api:8080 for Docker Compose, but may differ in Kubernetes or local dev
 	GitURL string `envconfig:"KODIT_GIT_URL" default:"http://api:8080"`
@@ -140,13 +528,8 @@ type Anthropic struct {
 }
 
 type Helix struct {
-	OwnerID            string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
-	OwnerType          string        `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
-	ModelTTL           time.Duration `envconfig:"HELIX_MODEL_TTL" default:"10s"`                          // How long to keep models warm before allowing other work to be scheduled
-	SlotTTL            time.Duration `envconfig:"HELIX_SLOT_TTL" default:"600s"`                          // How long to wait for work to complete before slots are considered dead
-	RunnerTTL          time.Duration `envconfig:"HELIX_RUNNER_TTL" default:"30s"`                         // How long before runners are considered dead
-	SchedulingStrategy string        `envconfig:"HELIX_SCHEDULING_STRATEGY" default:"max_spread" description:"The strategy to use for scheduling workloads."`
-	QueueSize          int           `envconfig:"HELIX_QUEUE_SIZE" default:"100" description:"The size of the queue when buffering workloads."`
+	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
 
 type Tools struct {
@@ -220,7 +603,9 @@ type OIDC struct {
 // Notifications is used for sending notifications to users when certain events happen
 // such as finetuning starting or completing.
 type Notifications struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
+	// AppURL is the public-facing base URL used in user-visible links (Slack/email/etc).
+	// When unset, falls back to WebServer.URL (SERVER_URL) — see LoadServerConfig.
+	AppURL string `envconfig:"APP_URL"`
 	Email  EmailConfig
 	// Agent progress notifications (Slack/Teams threads with screenshots)
 	AgentNotifications AgentNotificationsConfig
@@ -283,7 +668,7 @@ type Stripe struct {
 	RequireActiveSubscription bool `envconfig:"STRIPE_BILLING_REQUIRE_ACTIVE_SUBSCRIPTION" default:"false" description:"Whether require an active subscription before allowing to use the product"` //
 
 	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
-	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"0" description:"The initial balance seeded into a newly created wallet. Defaults to 0 so new signups arrive with an empty wallet; on-prem deployments that want to hand out free trial credits can set this to a positive value."`
 
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
@@ -300,46 +685,32 @@ type DataPrepText struct {
 }
 
 type TextExtractor struct {
-	Provider types.Extractor `envconfig:"TEXT_EXTRACTION_PROVIDER" default:"tika"`
-	// the URL we post documents to so we can get the text back from them
-	Unstructured struct {
-		URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
-	}
-
-	Tika struct {
-		URL string `envconfig:"TEXT_EXTRACTION_TIKA_URL" default:"http://tika:9998" description:"The URL to extract text from a document."`
-	}
+	URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
 }
 
-type RAGProvider string
+// RAGProviderName is the string stamped into KnowledgeVersion records to
+// identify which backend indexed them. Kodit is the only RAG backend.
+const RAGProviderName = "kodit"
 
-const (
-	RAGProviderTypesense  RAGProvider = "typesense"
-	RAGProviderLlamaindex RAGProvider = "llamaindex"
-	RAGProviderHaystack   RAGProvider = "haystack"
-	RAGProviderKodit      RAGProvider = "kodit"
+// Sandbox reaper defaults. Use when ServerConfig values are zero (e.g.
+// the field was never explicitly configured and envconfig left it
+// unparsed). Keep in sync with the `default:` tags above.
+var (
+	DefaultSandboxReaperInterval         = time.Minute
+	DefaultSandboxStaleThreshold         = 5 * time.Minute
+	DefaultSandboxDispatchStaleThreshold = 90 * time.Second
 )
 
 type RAG struct {
 	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
-	// DefaultRagProvider is the default RAG provider to use if not specified
-	DefaultRagProvider RAGProvider `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
-
 	MaxVersions int `envconfig:"RAG_MAX_VERSIONS" default:"3" description:"The maximum number of versions to keep for a knowledge."`
 
-	// Typesense is used to store RAG records in a Typesense index
-	Typesense struct {
-		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
-		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
-	}
-
-	PGVector struct {
-		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
-		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
-		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
-		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
-	}
+	// EmbeddingsProvider is the default provider used by the /v1/embeddings
+	// proxy when the caller sends a raw model name (not a placeholder like
+	// "kodit-text-embedding" or "kodit-vision-embedding"). Placeholder-model
+	// requests resolve the provider from SystemSettings instead.
+	EmbeddingsProvider string `envconfig:"RAG_EMBEDDINGS_PROVIDER" default:"openai" description:"Default provider for direct /v1/embeddings calls with raw model names. One of openai, togetherai, vllm, helix."`
 
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing
@@ -349,11 +720,6 @@ type RAG struct {
 		// the URL we can post a delete request to for RAG records,
 		// this is a prefix, full path is http://llamaindex:5000/api/v1/rag/<data_entity_id>
 		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag" description:"The URL to delete RAG records."`
-	}
-
-	Haystack struct {
-		Enabled bool   `envconfig:"RAG_HAYSTACK_ENABLED" default:"false" description:"Whether to enable Haystack RAG."`
-		URL     string `envconfig:"RAG_HAYSTACK_URL" default:"http://localhost:8000" description:"The URL to the Haystack service."`
 	}
 
 	Crawler struct {
@@ -487,6 +853,31 @@ type WebServer struct {
 	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
 	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
 	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
+
+	// VHostTLSMode controls embedded TLS termination for project web
+	// services and sandbox preview tokens. "off" (default) means Helix
+	// listens HTTP only and a reverse proxy in front terminates TLS.
+	// "auto" enables certmagic — Helix binds :443 + :80 and issues
+	// per-hostname Let's Encrypt certs on demand for any hostname
+	// registered in vhost_routes or matching SERVER_URL.
+	VHostTLSMode string `envconfig:"HELIX_VHOST_TLS_MODE" default:"off" description:"TLS termination mode for vhost-routed traffic: 'off' (rely on upstream) or 'auto' (embed certmagic + Let's Encrypt)."`
+
+	// VHostLetsEncryptEmail is the ACME registration email used by
+	// certmagic when VHostTLSMode=auto. Required in that mode.
+	VHostLetsEncryptEmail string `envconfig:"HELIX_VHOST_LETSENCRYPT_EMAIL" description:"ACME registration email used by certmagic when HELIX_VHOST_TLS_MODE=auto."`
+
+	// VHostACMEDNSProvider selects a DNS-01 challenge provider for
+	// certmagic when VHostTLSMode=auto. Empty (the default) uses the
+	// network challenges (HTTP-01 + TLS-ALPN-01). Set to "cloudflare"
+	// when running behind a Cloudflare proxy (orange-cloud DNS), where
+	// the network challenges cannot reach Helix.
+	VHostACMEDNSProvider string `envconfig:"HELIX_VHOST_ACME_DNS_PROVIDER" description:"DNS-01 challenge provider for certmagic when HELIX_VHOST_TLS_MODE=auto. Empty=use HTTP-01+TLS-ALPN-01. Supported: cloudflare."`
+
+	// VHostCloudflareAPIToken is the Cloudflare API token used when
+	// VHostACMEDNSProvider=cloudflare. Must be an API token (not a
+	// legacy global API key) with Zone:Zone:Read + Zone:DNS:Edit
+	// permissions on the zones Helix issues certs for.
+	VHostCloudflareAPIToken string `envconfig:"HELIX_VHOST_CLOUDFLARE_API_TOKEN" description:"Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit) used when HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
@@ -520,12 +911,18 @@ type SubscriptionQuotas struct {
 	Projects struct {
 		Enabled bool `envconfig:"PROJECTS_ENABLED" default:"true" description:"Enable project quotas"`
 		Free    struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// without an active Stripe subscription. Enforced per organisation
+			// when the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_FREE_MAX_CONCURRENT_DESKTOPS" default:"2"`
 			MaxProjects           int `envconfig:"PROJECTS_FREE_MAX_PROJECTS" default:"3"`
 			MaxRepositories       int `envconfig:"PROJECTS_FREE_MAX_REPOSITORIES" default:"3"`
 			MaxSpecTasks          int `envconfig:"PROJECTS_FREE_MAX_SPEC_TASKS" default:"500"` // Non-archived/done
 		}
 		Pro struct {
+			// MaxConcurrentDesktops: cap on concurrent desktop sessions for users
+			// with an active Stripe subscription. Enforced per organisation when
+			// the session has an org, per user otherwise. -1 = unlimited.
 			MaxConcurrentDesktops int `envconfig:"PROJECTS_PRO_MAX_CONCURRENT_DESKTOPS" default:"30"`
 			MaxProjects           int `envconfig:"PROJECTS_PRO_MAX_PROJECTS" default:"50"`
 			MaxRepositories       int `envconfig:"PROJECTS_PRO_MAX_REPOSITORIES" default:"100"`
@@ -540,6 +937,38 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+	// AppSlug is the public URL slug of this deployment's Helix GitHub App
+	// (e.g. "helix-agent" → https://github.com/apps/helix-agent). NOT a
+	// secret — just the public app handle used to build the install URL the
+	// New Stream "Install Helix" gate opens. The app's private key lives
+	// encrypted in a ServiceConnection, never here.
+	AppSlug string `envconfig:"GITHUB_APP_SLUG" description:"Public slug of the Helix GitHub App used to build the install URL."`
+	// URL is the base web URL of the GitHub instance: https://github.com
+	// (default) or a GitHub Enterprise Server origin (e.g.
+	// https://github.acme.com). It drives the app create/install/manage links
+	// and points the API client at the right host for GHES customers.
+	URL string `envconfig:"GITHUB_URL" default:"https://github.com" description:"Base web URL of the GitHub instance (https://github.com or a GitHub Enterprise Server origin)."`
+}
+
+// WebURL returns the GitHub web origin (no trailing slash), defaulting to
+// github.com. Used to build the app create / install / manage links.
+func (g GitHub) WebURL() string {
+	u := strings.TrimRight(strings.TrimSpace(g.URL), "/")
+	if u == "" {
+		return "https://github.com"
+	}
+	return u
+}
+
+// APIBaseURL returns the value to hand the github client/transport: empty for
+// public github.com (the client special-cases it to api.github.com), or the
+// GHES origin otherwise. This is also what gets stored on a github_app
+// ServiceConnection so later API calls target the right host.
+func (g GitHub) APIBaseURL() string {
+	if g.WebURL() == "https://github.com" {
+		return ""
+	}
+	return g.WebURL()
 }
 
 type FineTuning struct {

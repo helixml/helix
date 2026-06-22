@@ -18,6 +18,9 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli"
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 func New() *cobra.Command {
@@ -595,22 +598,53 @@ type AppsResponse struct {
 }
 
 func newListAgentsCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "list-agents",
-		Short:   "List available Helix agents/apps",
+	var (
+		orgFlag        string
+		zedExternalOnly bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list-agents",
+		Short: "List agents (apps) in an organization",
+		Long: `List agents in an organization.
+
+Agents are organization-scoped. If --org is omitted and you belong to a
+single org, that org is used; if you belong to multiple, you will be
+prompted. The HELIX_ORG environment variable is also honoured.
+
+By default every agent the user has access to in the org is listed, with
+the assistant type shown so it is obvious which can be launched with
+"helix spectask start" (zed_external) vs other agent kinds. Pass
+--zed-external-only to restore the old behaviour and hide non-spec-task
+agents.`,
 		Aliases: []string{"agents"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			apiClient, err := client.NewClientFromEnv()
+			if err != nil {
+				return fmt.Errorf("failed to create API client: %w", err)
+			}
+
+			orgID, err := cli.ResolveOrganizationInteractive(ctx, apiClient, orgFlag)
+			if err != nil {
+				return err
+			}
+
 			apiURL := getAPIURL()
 			token := getToken()
 
-			req, err := http.NewRequest("GET", apiURL+"/api/v1/apps", nil)
+			q := url.Values{}
+			q.Set("organization_id", orgID)
+			endpoint := apiURL + "/api/v1/apps?" + q.Encode()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 			if err != nil {
 				return err
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
 
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			httpClient := &http.Client{}
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				return err
 			}
@@ -621,41 +655,75 @@ func newListAgentsCommand() *cobra.Command {
 				return fmt.Errorf("failed to parse apps: %w", err)
 			}
 
-			fmt.Println("Available Agents (Apps with zed_external assistants):")
+			fmt.Println("Available Agents:")
 			fmt.Println()
 
-			count := 0
+			shown := 0
 			for _, app := range apps {
-				// Find zed_external assistants
-				for _, assistant := range app.Config.Helix.Assistants {
+				// Surface the most relevant assistant per app: prefer zed_external
+				// (the only kind launchable via `spectask start` today), fall back
+				// to the first assistant otherwise so non-spec-task agents are
+				// still visible to the user.
+				var primary *Assistant
+				for i, assistant := range app.Config.Helix.Assistants {
 					if assistant.AgentType == "zed_external" {
-						count++
-						fmt.Printf("App: %s\n", app.Name)
-						fmt.Printf("  ID: %s\n", app.ID)
-						fmt.Printf("  Assistant: %s\n", assistant.Name)
-						if assistant.CodeAgentRuntime != "" {
-							fmt.Printf("  Runtime: %s\n", assistant.CodeAgentRuntime)
-						}
-						if assistant.Model != "" {
-							fmt.Printf("  Model: %s\n", assistant.Model)
-						}
-						fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
-						fmt.Println()
+						primary = &app.Config.Helix.Assistants[i]
 						break
 					}
 				}
+				if primary == nil && len(app.Config.Helix.Assistants) > 0 {
+					if zedExternalOnly {
+						continue
+					}
+					primary = &app.Config.Helix.Assistants[0]
+				}
+				if primary == nil {
+					// App with no assistants at all - skip.
+					continue
+				}
+
+				shown++
+				usable := primary.AgentType == "zed_external"
+				marker := " (not launchable via spectask start)"
+				if usable {
+					marker = ""
+				}
+
+				fmt.Printf("App: %s%s\n", app.Name, marker)
+				fmt.Printf("  ID: %s\n", app.ID)
+				fmt.Printf("  Assistant: %s\n", primary.Name)
+				if primary.AgentType != "" {
+					fmt.Printf("  Agent type: %s\n", primary.AgentType)
+				}
+				if primary.CodeAgentRuntime != "" {
+					fmt.Printf("  Runtime: %s\n", primary.CodeAgentRuntime)
+				}
+				if primary.Model != "" {
+					fmt.Printf("  Model: %s\n", primary.Model)
+				}
+				if usable {
+					fmt.Printf("  Usage: helix spectask start --project <prj_id> --agent %s -n \"Task name\"\n", app.ID)
+				}
+				fmt.Println()
 			}
 
-			if count == 0 {
-				fmt.Println("No agents with zed_external assistants found.")
-				fmt.Println("Create an agent with a zed_external assistant in the Helix UI first.")
-			} else {
-				fmt.Printf("Found %d agent(s) with external assistant support.\n", count)
+			switch {
+			case shown == 0 && zedExternalOnly:
+				fmt.Println("No agents with zed_external assistants found in this org.")
+				fmt.Println("Create one in the Helix UI, or drop --zed-external-only to see all agents.")
+			case shown == 0:
+				fmt.Println("No agents found in this org. Create one in the Helix UI first.")
+			default:
+				fmt.Printf("Found %d agent(s) in this org.\n", shown)
 			}
 
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&orgFlag, "org", "o", "", "Organization name or ID (defaults to $HELIX_ORG, then your only org, or prompts)")
+	cmd.Flags().BoolVar(&zedExternalOnly, "zed-external-only", false, "Hide agents whose assistant is not zed_external (the only kind launchable via spectask start today)")
+	return cmd
 }
 
 func formatBytes(b int64) string {
@@ -1486,307 +1554,6 @@ type videoStreamStats struct {
 	lastCursorHotspotY int // Last cursor hotspot Y
 }
 
-// runInteractiveStream runs a combined interactive session with VLC server, keyboard, and mouse support
-func runInteractiveStream(apiURL, token, sessionID string, wsConn *websocket.Conn, vlcAddr string, keyboardEnabled bool, timeout int) error {
-	fmt.Printf("\n🎮 Interactive stream mode\n")
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-
-	// Start VLC server if requested
-	var vlcClients sync.Map
-
-	if vlcAddr != "" {
-		fmt.Printf("📡 VLC server: http://localhost%s/stream\n", vlcAddr)
-
-		// Start VLC HTTP server
-		mux := http.NewServeMux()
-
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintf(w, "Helix Video Stream Server\n\nEndpoints:\n  /stream - Video stream (connect VLC here)\n  /stats - Connection stats\n")
-		})
-
-		mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
-			clientID := fmt.Sprintf("%s-%d", r.RemoteAddr, time.Now().UnixNano())
-			clientChan := make(chan []byte, 50)
-			vlcClients.Store(clientID, clientChan)
-			defer vlcClients.Delete(clientID)
-
-			fmt.Printf("📺 VLC client connected: %s\n", r.RemoteAddr)
-
-			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
-			w.Header().Set("Transfer-Encoding", "chunked")
-
-			flusher, ok := w.(http.Flusher)
-			if !ok {
-				http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-				return
-			}
-
-			for data := range clientChan {
-				_, err := w.Write(data)
-				if err != nil {
-					fmt.Printf("📴 VLC client disconnected: %s\n", r.RemoteAddr)
-					return
-				}
-				flusher.Flush()
-			}
-		})
-
-		mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-			count := 0
-			vlcClients.Range(func(_, _ interface{}) bool {
-				count++
-				return true
-			})
-			fmt.Fprintf(w, "Connected VLC clients: %d\n", count)
-		})
-
-		server := &http.Server{Addr: vlcAddr, Handler: mux}
-		go func() {
-			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				fmt.Printf("VLC server error: %v\n", err)
-			}
-		}()
-	}
-
-	if keyboardEnabled {
-		fmt.Printf("⌨️  Keyboard: Type to send keystrokes\n")
-	}
-	fmt.Printf("Press Ctrl+C to exit.\n")
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-
-	// Handle Ctrl+C gracefully
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	done := make(chan struct{})
-
-	// Read WebSocket messages and broadcast to VLC clients
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				msgType, data, err := wsConn.ReadMessage()
-				if err != nil {
-					return
-				}
-				// Broadcast binary messages to VLC clients
-				if msgType == websocket.BinaryMessage {
-					vlcClients.Range(func(key, value interface{}) bool {
-						ch := value.(chan []byte)
-						select {
-						case ch <- data:
-						default:
-							// Client too slow, drop frame
-						}
-						return true
-					})
-				}
-			}
-		}
-	}()
-
-	// Keep WebSocket alive with pings
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				if err := wsConn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					return
-				}
-			}
-		}
-	}()
-
-	// Keyboard input handling
-	var inputChan chan byte
-	if keyboardEnabled {
-		inputChan = make(chan byte, 100)
-		go func() {
-			defer close(inputChan)
-			buf := make([]byte, 1)
-			for {
-				select {
-				case <-done:
-					return
-				default:
-					n, err := os.Stdin.Read(buf)
-					if err != nil || n == 0 {
-						continue
-					}
-					inputChan <- buf[0]
-				}
-			}
-		}()
-	}
-
-	// Timeout handling
-	var timeoutChan <-chan time.Time
-	if timeout > 0 {
-		timeoutChan = time.After(time.Duration(timeout) * time.Second)
-	}
-
-	for {
-		select {
-		case <-sigChan:
-			close(done)
-			// Close all VLC client channels
-			vlcClients.Range(func(key, value interface{}) bool {
-				close(value.(chan []byte))
-				return true
-			})
-			wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			fmt.Println("\n🛑 Interactive stream ended.")
-			return nil
-
-		case <-timeoutChan:
-			close(done)
-			vlcClients.Range(func(key, value interface{}) bool {
-				close(value.(chan []byte))
-				return true
-			})
-			wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			fmt.Printf("\n⏰ Timeout reached (%ds)\n", timeout)
-			return nil
-
-		case b, ok := <-inputChan:
-			if !ok || !keyboardEnabled {
-				continue
-			}
-
-			// Convert byte to keycode and send
-			keycode := byteToKeycode(b)
-			if keycode > 0 {
-				// Send key press and release
-				if err := sendKeyEvent(apiURL, token, sessionID, keycode, true); err != nil {
-					fmt.Printf("\nKey error: %v\n", err)
-					continue
-				}
-				if err := sendKeyEvent(apiURL, token, sessionID, keycode, false); err != nil {
-					// Ignore release errors
-				}
-				// Echo the character locally for feedback
-				if b >= 32 && b < 127 {
-					fmt.Printf("%c", b)
-				} else if b == 13 || b == 10 {
-					fmt.Println()
-				}
-			}
-		}
-	}
-}
-
-// sendTextToSession sends a string as keyboard input
-func sendTextToSession(apiURL, token, sessionID, text string) error {
-	fmt.Printf("Sending text to session %s: %q\n", sessionID, text)
-
-	for _, c := range text {
-		keycode := charToKeycode(byte(c))
-		if keycode > 0 {
-			// Send key press
-			if err := sendKeyEvent(apiURL, token, sessionID, keycode, true); err != nil {
-				return fmt.Errorf("failed to send key press: %w", err)
-			}
-			// Send key release
-			if err := sendKeyEvent(apiURL, token, sessionID, keycode, false); err != nil {
-				return fmt.Errorf("failed to send key release: %w", err)
-			}
-			// Small delay between keys
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-
-	fmt.Println("Text sent successfully!")
-	return nil
-}
-
-// sendKeyEvent sends a single key event to the sandbox
-func sendKeyEvent(apiURL, token, sessionID string, keycode uint32, pressed bool) error {
-	inputURL := fmt.Sprintf("%s/api/v1/external-agents/%s/input", apiURL, sessionID)
-
-	event := map[string]interface{}{
-		"type":    "key",
-		"keycode": keycode,
-		"state":   pressed,
-	}
-
-	jsonData, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", inputURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("input API returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
-
-// byteToKeycode converts a terminal byte to Linux keycode
-func byteToKeycode(b byte) uint32 {
-	return charToKeycode(b)
-}
-
-// charToKeycode maps ASCII characters to Linux input keycodes
-// Based on linux/input-event-codes.h
-func charToKeycode(c byte) uint32 {
-	// Linux keycodes for common keys
-	keycodes := map[byte]uint32{
-		'1': 2, '2': 3, '3': 4, '4': 5, '5': 6, '6': 7, '7': 8, '8': 9, '9': 10, '0': 11,
-		'-': 12, '=': 13,
-		'q': 16, 'w': 17, 'e': 18, 'r': 19, 't': 20, 'y': 21, 'u': 22, 'i': 23, 'o': 24, 'p': 25,
-		'[': 26, ']': 27,
-		'a': 30, 's': 31, 'd': 32, 'f': 33, 'g': 34, 'h': 35, 'j': 36, 'k': 37, 'l': 38,
-		';': 39, '\'': 40, '`': 41, '\\': 43,
-		'z': 44, 'x': 45, 'c': 46, 'v': 47, 'b': 48, 'n': 49, 'm': 50,
-		',': 51, '.': 52, '/': 53,
-		' ': 57, // Space
-
-		// Upper case uses same keycodes (shift would need separate handling)
-		'Q': 16, 'W': 17, 'E': 18, 'R': 19, 'T': 20, 'Y': 21, 'U': 22, 'I': 23, 'O': 24, 'P': 25,
-		'A': 30, 'S': 31, 'D': 32, 'F': 33, 'G': 34, 'H': 35, 'J': 36, 'K': 37, 'L': 38,
-		'Z': 44, 'X': 45, 'C': 46, 'V': 47, 'B': 48, 'N': 49, 'M': 50,
-
-		// Control characters
-		13: 28, // Enter
-		10: 28, // Newline (also Enter)
-		9:  15, // Tab
-		8:  14, // Backspace
-		27: 1,  // Escape
-
-		// Shifted symbols (without shift for now - basic implementation)
-		'!': 2, '@': 3, '#': 4, '$': 5, '%': 6, '^': 7, '&': 8, '*': 9, '(': 10, ')': 11,
-		'_': 12, '+': 13, '{': 26, '}': 27, '|': 43, ':': 39, '"': 40, '~': 41,
-		'<': 51, '>': 52, '?': 53,
-	}
-
-	if kc, ok := keycodes[c]; ok {
-		return kc
-	}
-	return 0
-}
 
 // getContainerAppID fetches the placeholder app ID for a session
 // This is required for the AuthenticateAndInit message

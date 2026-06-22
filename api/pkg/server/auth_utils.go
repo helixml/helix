@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -21,6 +22,12 @@ Middlewares
 */
 func requireUser(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
+		// CORS preflight requests must reach the handler to receive
+		// Access-Control-* headers. Auth has nothing useful to add.
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
 		user := getRequestUser(r)
 		if !hasUser(user) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -41,6 +48,29 @@ func requireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	}
 	return http.HandlerFunc(f)
+}
+
+// requireFeature returns middleware that gates access on the given
+// alpha-feature flag. The flag must be present in the authenticated
+// user's AlphaFeatures slice; missing returns 403. This is the
+// server-side gate — frontend toggles are cosmetic only.
+func requireFeature(name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := getRequestUser(r)
+			if !hasUser(user) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			for _, f := range user.AlphaFeatures {
+				if f == name {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		})
+	}
 }
 
 func requireRunner(next http.Handler) http.Handler {
@@ -84,7 +114,7 @@ func getRequestToken(r *http.Request) string {
 	// in the x-api-key header (since that's what Anthropic's API expects)
 	token = r.Header.Get("x-api-key")
 	if token != "" {
-		log.Debug().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
+		log.Trace().Str("source", "x-api-key").Str("path", r.URL.Path).Msg("token from x-api-key header")
 		return token
 	}
 
@@ -115,6 +145,19 @@ func getRequestToken(r *http.Request) string {
 Request Context
 -
 */
+// detachContext creates a new context that is NOT tied to the HTTP request
+// lifecycle. Use this for mutating operations (DB writes, state changes) that
+// must complete even if the client disconnects or refreshes the page.
+// The returned context preserves the authenticated user but has its own timeout.
+func detachContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	newCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	// Preserve the authenticated user
+	if userIntf := ctx.Value(userKey); userIntf != nil {
+		newCtx = context.WithValue(newCtx, userKey, userIntf)
+	}
+	return newCtx, cancel
+}
+
 func setRequestUser(ctx context.Context, user types.User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }

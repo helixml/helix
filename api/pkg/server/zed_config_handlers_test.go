@@ -194,7 +194,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL)
+			got := apiServer.buildCodeAgentConfigFromAssistant(ctx, tt.assistant, helixURL, nil)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -294,7 +294,7 @@ func TestBuildCodeAgentConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := apiServer.buildCodeAgentConfig(ctx, tt.app, helixURL)
+			got := apiServer.buildCodeAgentConfig(ctx, tt.app, helixURL, "")
 			assert.Equal(t, tt.want, got)
 		})
 	}

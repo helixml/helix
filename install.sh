@@ -79,11 +79,11 @@
 #     Result: Auto-enable --cli and --controlplane (--code is a controlplane feature)
 #     Note: Simplest way to install controlplane with Code features
 #
-# 14. Ubuntu + NVIDIA GPU + --runner --code --haystack (without --runner-token)
-#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
-#     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
+# 14. Ubuntu + NVIDIA GPU + --runner --code (without --runner-token)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code
+#     Note: --code auto-enables controlplane, --runner (no token) adds local runner
 #
-# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack/--controlplane)
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--controlplane)
 #     Result: ERROR - must specify --runner-token OR --controlplane OR controlplane features
 #     Note: Prevents ambiguity - user must explicitly choose remote or local installation
 #
@@ -116,7 +116,6 @@ CONTROLPLANE=false
 RUNNER=false
 SANDBOX=false
 LARGE=false
-HAYSTACK=""
 CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
@@ -135,6 +134,11 @@ SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 PRIVILEGED_DOCKER=""  # Enable privileged Docker mode for Helix-in-Helix development
+UPGRADE_MODE=false   # --upgrade: skip GPU/Docker/Caddy work; just bump HELIX_VERSION + recreate
+DRY_RUN=false        # --dry-run: only meaningful with --upgrade today; print what would change and exit
+VHOST_TLS_MODE=""           # --vhost-tls-mode: off | auto (enables embedded LE termination)
+LETSENCRYPT_EMAIL=""        # --letsencrypt-email: ACME contact when --vhost-tls-mode=auto
+CLOUDFLARE_API_TOKEN=""     # --cloudflare-api-token: scoped CF token for DNS-01 challenge
 
 # Enhanced environment detection
 detect_environment() {
@@ -242,7 +246,6 @@ Options:
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --sandbox                Install sandbox node (RevDial client with direct WebSocket streaming for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
-  --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --code                   Enable Helix Code features (External Agents, PDEs with Zed, direct WebSocket streaming). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
@@ -252,6 +255,9 @@ Options:
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
+  --vhost-tls-mode <mode>  Embedded TLS termination for project web services + sandbox previews: 'off' (default, rely on upstream proxy) or 'auto' (certmagic + Let's Encrypt on :443)
+  --letsencrypt-email <email>  ACME registration email; required when --vhost-tls-mode=auto
+  --cloudflare-api-token <token>  Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit). Selects the DNS-01 ACME challenge via Cloudflare — required when Helix is behind a Cloudflare proxy (orange-cloud), since HTTP-01/TLS-ALPN-01 cannot reach the origin in that setup. Implies --vhost-tls-mode=auto if not already set.
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
@@ -261,6 +267,11 @@ Options:
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
   --cli-install-path <path> Specify custom installation path for the CLI binary (default: /usr/local/bin/helix)
+  --upgrade                Upgrade an existing controlplane install: pin HELIX_VERSION in
+                           $INSTALL_DIR/.env to --helix-version (or the latest stable if omitted),
+                           pull new images and recreate containers. Skips GPU/Docker/Caddy work.
+  --dry-run                With --upgrade, print the planned changes and exit without writing
+                           anything or recreating containers.
 
 Examples:
 
@@ -297,8 +308,8 @@ Examples:
 11. Install with Helix Code (auto-enables --cli --controlplane):
     ./install.sh --code --api-host https://helix.mycompany.com
 
-12. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
-    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+12. Install everything locally on a GPU machine (controlplane + runner + code):
+    ./install.sh --runner --code --api-host https://helix.mycompany.com
 
 13. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
@@ -308,6 +319,13 @@ Examples:
 
 15. Install sandbox node (RevDial client with direct WebSocket streaming):
     ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+
+16. Upgrade an existing controlplane to a specific version (skips GPU/Docker/Caddy checks):
+    ./install.sh --upgrade --helix-version 2.11.14
+
+17. Upgrade to the latest stable release; preview first without changing anything:
+    ./install.sh --upgrade --dry-run
+    ./install.sh --upgrade -y
 
 EOF
 }
@@ -373,10 +391,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --large)
             LARGE=true
-            shift
-            ;;
-        --haystack)
-            HAYSTACK=true
             shift
             ;;
         --code)
@@ -451,6 +465,30 @@ while [[ $# -gt 0 ]]; do
             HF_TOKEN="$2"
             shift 2
             ;;
+        --vhost-tls-mode=*)
+            VHOST_TLS_MODE="${1#*=}"
+            shift
+            ;;
+        --vhost-tls-mode)
+            VHOST_TLS_MODE="$2"
+            shift 2
+            ;;
+        --letsencrypt-email=*)
+            LETSENCRYPT_EMAIL="${1#*=}"
+            shift
+            ;;
+        --letsencrypt-email)
+            LETSENCRYPT_EMAIL="$2"
+            shift 2
+            ;;
+        --cloudflare-api-token=*)
+            CLOUDFLARE_API_TOKEN="${1#*=}"
+            shift
+            ;;
+        --cloudflare-api-token)
+            CLOUDFLARE_API_TOKEN="$2"
+            shift 2
+            ;;
         --providers-management-enabled=*)
             PROVIDERS_MANAGEMENT_ENABLED="${1#*=}"
             shift
@@ -474,6 +512,20 @@ while [[ $# -gt 0 ]]; do
         --helix-version)
             HELIX_VERSION="$2"
             shift 2
+            ;;
+        --upgrade=*)
+            # Shorthand: --upgrade=2.11.14 is equivalent to --upgrade --helix-version 2.11.14
+            UPGRADE_MODE=true
+            HELIX_VERSION="${1#*=}"
+            shift
+            ;;
+        --upgrade)
+            UPGRADE_MODE=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
             ;;
         --cli-install-path=*)
             CLI_INSTALL_PATH="${1#*=}"
@@ -791,6 +843,150 @@ else
     echo
 fi
 
+# Return docker compose -f flags as an array. Always includes the main
+# compose file; appends docker-compose.tls.yaml when
+# HELIX_VHOST_TLS_MODE=auto is set in $INSTALL_DIR/.env (or the shell
+# environment). Result is assigned to HELIX_COMPOSE_ARGS by the caller.
+helix_compose_args() {
+    HELIX_COMPOSE_ARGS=(-f docker-compose.yaml)
+    local mode=""
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        mode=$(grep -E '^[[:space:]]*HELIX_VHOST_TLS_MODE[[:space:]]*=' "$INSTALL_DIR/.env" 2>/dev/null \
+            | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)
+    fi
+    mode="${HELIX_VHOST_TLS_MODE:-$mode}"
+    if [ "$mode" = "auto" ] && [ -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        HELIX_COMPOSE_ARGS+=(-f docker-compose.tls.yaml)
+        echo "🔒 HELIX_VHOST_TLS_MODE=auto detected — including docker-compose.tls.yaml"
+    fi
+}
+
+# --------------------------------------------------------------------------
+# do_upgrade: lightweight controlplane upgrade path.
+#
+# Why this exists: a full re-run of install.sh re-checks the GPU, re-installs
+# Docker if missing, and re-writes the Caddy config. None of that is needed
+# when the only thing changing is the controlplane image tag. This function
+# does the minimum: pin HELIX_VERSION in $INSTALL_DIR/.env, pull the new
+# images, recreate the containers.
+#
+# Scope: controlplane only. --runner and --sandbox have their own start
+# scripts and image-pinning conventions; we refuse cleanly if combined.
+# --------------------------------------------------------------------------
+do_upgrade() {
+    # Refuse combinations we do not handle in this PR. The runner ships as a
+    # generated runner.sh; the sandbox image is pinned in a separate compose
+    # stack. Each needs its own minimal upgrade path - tracked separately.
+    if [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
+        echo "Error: --upgrade currently only supports the controlplane." >&2
+        echo "       For runner upgrades, re-run install.sh with --runner --helix-version <ver>." >&2
+        echo "       For sandbox upgrades, re-run install.sh with --sandbox --helix-version <ver>." >&2
+        exit 1
+    fi
+
+    if [ ! -f "$INSTALL_DIR/.env" ] || [ ! -f "$INSTALL_DIR/docker-compose.yaml" ]; then
+        echo "Error: no controlplane install detected at $INSTALL_DIR." >&2
+        echo "       Expected $INSTALL_DIR/.env and $INSTALL_DIR/docker-compose.yaml." >&2
+        echo "       Run a full install first: ./install.sh --controlplane" >&2
+        exit 1
+    fi
+
+    local current_version
+    current_version=$(grep -E '^HELIX_VERSION=' "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+    if [ -z "$current_version" ]; then
+        current_version="(unset, docker-compose default)"
+    fi
+
+    local target_version="$LATEST_RELEASE"
+
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ Helix controlplane upgrade"
+    echo "├───────────────────────────────────────────────────────────────────────────"
+    echo "│ Install dir:      $INSTALL_DIR"
+    echo "│ Current version:  $current_version"
+    echo "│ Target version:   $target_version"
+    echo "└───────────────────────────────────────────────────────────────────────────"
+    echo
+
+    if [ "$current_version" = "$target_version" ]; then
+        echo "Already at $target_version. Nothing to do."
+        # Still useful to recreate-if-drifted on the same tag, but that is
+        # an explicit ask: re-run docker compose up -d manually if needed.
+        exit 0
+    fi
+
+    echo "Planned actions:"
+    echo "  1. Back up $INSTALL_DIR/.env to $INSTALL_DIR/.env.bak.<timestamp>"
+    echo "  2. Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
+    echo "  3. Fetch docker-compose.tls.yaml from release $target_version if missing"
+    echo "  4. cd $INSTALL_DIR && $DOCKER_CMD compose pull"
+    echo "  5. cd $INSTALL_DIR && $DOCKER_CMD compose up -d --remove-orphans"
+    echo
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "--dry-run set. Exiting without making changes."
+        exit 0
+    fi
+
+    if [ "$AUTO_APPROVE" != true ]; then
+        printf "Proceed with upgrade? [y/N]: "
+        read -r answer
+        case "$answer" in
+            y|Y|yes|YES) ;;
+            *) echo "Aborted."; exit 1 ;;
+        esac
+    fi
+
+    local backup="$INSTALL_DIR/.env.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$INSTALL_DIR/.env" "$backup"
+    echo "Backed up .env to $backup"
+
+    # Rewrite HELIX_VERSION in place. If the line is absent, append it.
+    if grep -qE '^HELIX_VERSION=' "$INSTALL_DIR/.env"; then
+        sed -i.tmp "s|^HELIX_VERSION=.*|HELIX_VERSION=${target_version}|" "$INSTALL_DIR/.env"
+        rm -f "$INSTALL_DIR/.env.tmp"
+    else
+        printf '\nHELIX_VERSION=%s\n' "$target_version" >> "$INSTALL_DIR/.env"
+    fi
+    echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
+
+    cd "$INSTALL_DIR" || exit 1
+
+    # If upgrading from a release that predates docker-compose.tls.yaml,
+    # fetch it so embedded-TLS upgrades work end-to-end. Only fetched
+    # when missing — never overwrites an existing file (operator may
+    # have local edits, however unlikely on a 4-line overlay).
+    if [ ! -f "$INSTALL_DIR/docker-compose.tls.yaml" ]; then
+        echo "Fetching docker-compose.tls.yaml from release $target_version..."
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        else
+            sudo curl -fLs "${PROXY}/helixml/helix/releases/download/${target_version}/docker-compose.tls.yaml" \
+                -o "$INSTALL_DIR/docker-compose.tls.yaml" \
+                || echo "Note: docker-compose.tls.yaml not present in release $target_version (pre-overlay release? skipping)."
+        fi
+    fi
+
+    helix_compose_args
+    echo
+    echo "Pulling new images..."
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" pull
+    echo
+    echo "Recreating containers..."
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
+
+    echo
+    echo "Upgrade complete. Running containers:"
+    $DOCKER_CMD compose "${HELIX_COMPOSE_ARGS[@]}" ps
+    exit 0
+}
+
+if [ "$UPGRADE_MODE" = true ]; then
+    do_upgrade
+fi
+
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # Method 1: nvidia-smi actually queries the GPU (not just driver presence)
@@ -846,6 +1042,22 @@ check_intel_amd_gpu() {
     else
         return 1
     fi
+}
+
+# Function to check for AWS Neuron device (Inferentia2 / Trainium)
+# Detects neuronx hosts (inf2.*, trn1/trn2) by the /dev/neuron* device nodes
+# the Neuron driver creates, or the neuron-ls CLI from the Neuron DLC AMI.
+# Provider-agnostic: true on any inf2/trn host regardless of how it was
+# provisioned (YD, manual EC2, etc.). inf1 (older neuron-cc runtime) is
+# unsupported.
+check_neuron_device() {
+    if ls /dev/neuron0 &> /dev/null; then
+        return 0
+    fi
+    if command -v neuron-ls &> /dev/null; then
+        return 0
+    fi
+    return 1
 }
 
 # Function to check if NVIDIA Docker runtime needs installation
@@ -1053,9 +1265,9 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
-if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
-    echo "Note: --code or --haystack specified (controlplane features)."
+# Auto-enable controlplane if --code specified (controlplane feature)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" ]]; then
+    echo "Note: --code specified (controlplane feature)."
     echo "      Auto-enabling: --cli --controlplane"
     CONTROLPLANE=true
     CLI=true
@@ -1102,7 +1314,7 @@ fi
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Three cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
-    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 2. --runner WITHOUT token but controlplane already enabled by --code = local installation
     # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
 
     if [ -n "$RUNNER_TOKEN" ]; then
@@ -1120,7 +1332,7 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
         # Case 2: --runner without token = ERROR (need either token or controlplane)
         echo "Error: --runner requires either:"
         echo "  1. --runner-token (for remote runner connecting to external controlplane)"
-        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo "  2. --controlplane or controlplane features like --code (for local installation)"
         echo
         echo "Examples:"
         echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
@@ -1412,13 +1624,13 @@ fi
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
     mkdir -p "$INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore,pgvector}
+    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore}
     mkdir -p "$INSTALL_DIR/scripts/postgres/"
 else
     sudo mkdir -p $INSTALL_DIR
     # Change the owner of the installation directory to the current user
     sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
-    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
+    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore}
     mkdir -p $INSTALL_DIR/scripts/postgres/
 fi
 
@@ -1547,6 +1759,19 @@ if [ "$CONTROLPLANE" = true ]; then
     fi
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
+    # docker-compose.tls.yaml is an opt-in overlay that exposes :443 (and
+    # :80) on the api container. It's only applied when
+    # HELIX_VHOST_TLS_MODE=auto is set in .env (see helix_compose_args
+    # below). Download it unconditionally so it's available if the
+    # operator turns TLS on later.
+    echo -e "\nDownloading docker-compose.tls.yaml..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.tls.yaml" -o $INSTALL_DIR/docker-compose.tls.yaml
+    fi
+    echo "docker-compose.tls.yaml has been downloaded to $INSTALL_DIR/docker-compose.tls.yaml"
+
     # Create database creation script
     cat << EOF > "$INSTALL_DIR/scripts/postgres/postgres-db.sh"
 #!/bin/bash
@@ -1644,6 +1869,24 @@ EOF
         API_HOST="http://localhost:8080"
     fi
 
+    # Embedded TLS / ACME validation. A Cloudflare token implies DNS-01
+    # via Cloudflare, which only makes sense when TLS termination is on
+    # — so we auto-flip the mode rather than making the operator pass
+    # two flags. A missing email is a hard error in auto mode because
+    # certmagic rejects empty ACME registration contacts.
+    if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$VHOST_TLS_MODE" ]; then
+        VHOST_TLS_MODE="auto"
+        echo "Note: --cloudflare-api-token implies --vhost-tls-mode=auto"
+    fi
+    if [ "$VHOST_TLS_MODE" = "auto" ] && [ -z "$LETSENCRYPT_EMAIL" ]; then
+        echo "Error: --vhost-tls-mode=auto requires --letsencrypt-email <email>." >&2
+        exit 1
+    fi
+    if [ -n "$VHOST_TLS_MODE" ] && [ "$VHOST_TLS_MODE" != "auto" ] && [ "$VHOST_TLS_MODE" != "off" ]; then
+        echo "Error: --vhost-tls-mode must be 'off' or 'auto' (got '$VHOST_TLS_MODE')." >&2
+        exit 1
+    fi
+
     if [ -f "$ENV_FILE" ]; then
         echo ".env file already exists. Reusing existing secrets."
 
@@ -1689,15 +1932,6 @@ EOF
     # Note: Sandbox profiles (code-nvidia, code-amd-intel) are NOT set here because
     # production sandboxes are managed by sandbox.sh, not docker-compose
     COMPOSE_PROFILES=""
-    if [[ -n "$HAYSTACK" ]]; then
-        COMPOSE_PROFILES="haystack"
-    fi
-
-    # Set RAG provider
-    RAG_DEFAULT_PROVIDER=""
-    if [[ -n "$HAYSTACK" ]]; then
-        RAG_DEFAULT_PROVIDER="haystack"
-    fi
 
     # Generate .env content
     cat << EOF > "$ENV_TARGET"
@@ -1724,10 +1958,6 @@ COMPOSE_PROFILES=$COMPOSE_PROFILES
 # GPU vendor (nvidia, amd, intel, or empty)
 GPU_VENDOR=${GPU_VENDOR:-}
 
-# Haystack features
-RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
-RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
-
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
 # direct to disk rather than a docker volume. You may need to set up the
@@ -1735,7 +1965,6 @@ RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 # file.
 #POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
 #FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
-#PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
 
 # Optional integrations:
 
@@ -1822,9 +2051,31 @@ EOF
 HF_TOKEN=$HF_TOKEN
 EOF
     fi
-    # Add embeddings provider configuration
+
+    # Embedded TLS / ACME settings (vhost_tls.go in the api server).
+    # The .tls.yaml compose overlay is auto-included when
+    # HELIX_VHOST_TLS_MODE=auto (see helix_compose_args above).
+    if [ -n "$VHOST_TLS_MODE" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_TLS_MODE=$VHOST_TLS_MODE
+EOF
+    fi
+    if [ -n "$LETSENCRYPT_EMAIL" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
+EOF
+    fi
+    if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+        cat << EOF >> "$ENV_TARGET"
+HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare
+HELIX_VHOST_CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN
+EOF
+    fi
+    # Add embeddings provider configuration (default provider for direct
+    # /v1/embeddings calls with raw model names — placeholder-model requests
+    # resolve the provider from SystemSettings).
     cat << EOF >> "$ENV_TARGET"
-RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
+RAG_EMBEDDINGS_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
     # Add providers management configuration
@@ -2026,10 +2277,11 @@ CADDYEOF"
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"
@@ -2379,6 +2631,10 @@ if [ "$SANDBOX" = true ]; then
         GPU_TYPE="amd"
         GPU_VENDOR="amd"
         echo "AMD GPU detected with ROCm support"
+    elif check_neuron_device; then
+        GPU_TYPE="neuron"
+        GPU_VENDOR="neuron"
+        echo "AWS Neuron device detected (Inferentia2 / Trainium)"
     elif check_intel_amd_gpu; then
         GPU_TYPE="intel"
         GPU_VENDOR="intel"
@@ -2489,6 +2745,16 @@ elif [ "$GPU_VENDOR" = "amd" ]; then
 elif [ "$GPU_VENDOR" = "intel" ]; then
     GPU_FLAGS="--device /dev/dri"
     GPU_ENV_FLAGS="-e GPU_VENDOR=intel"
+elif [ "$GPU_VENDOR" = "neuron" ]; then
+    # AWS Neuron (Inferentia2 / Trainium): pass every /dev/neuron* node into
+    # the outer helix-sandbox container so hydra can forward them to the
+    # nested Docker. No --gpus / --runtime / DRI (Neuron has no display path).
+    # Glob runs here on the host, so this covers any inf2/trn core count.
+    GPU_FLAGS=""
+    for neuron_dev in /dev/neuron*; do
+        [ -e "$neuron_dev" ] && GPU_FLAGS="$GPU_FLAGS --device $neuron_dev"
+    done
+    GPU_ENV_FLAGS="-e GPU_VENDOR=neuron"
 elif [ "$GPU_VENDOR" = "virtio" ]; then
     # macOS ARM with virtio-gpu (QEMU VideoToolbox H.264 via scanout)
     GPU_FLAGS="--device /dev/dri"
@@ -2670,10 +2936,11 @@ EOF
             fi
         fi
 
+        helix_compose_args
         if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose up -d --remove-orphans
+            sudo docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         else
-            docker compose up -d --remove-orphans
+            docker compose "${HELIX_COMPOSE_ARGS[@]}" up -d --remove-orphans
         fi
         # Clean up old controlplane Docker images to free disk space
         cleanup_old_helix_images "ghcr.io/helixml/" "$LATEST_RELEASE"

@@ -96,8 +96,12 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "error"; message: string }
   | { type: "connecting" }
   | { type: "connected" }
-  | { type: "disconnected" }
+  | { type: "disconnected"; code?: number; reason?: string; superseded?: boolean }
   | { type: "reconnecting"; attempt: number }
+  | { type: "reconnectScheduled"; attempt: number; maxAttempts: number; delayMs: number }
+  | { type: "heartbeatStale"; elapsedMs: number }
+  | { type: "connectionTimeout"; timeoutMs: number }
+  | { type: "visibility"; visible: boolean }
   | { type: "streamInit"; width: number; height: number; fps: number }
   | { type: "connectionComplete"; capabilities: StreamCapabilities }
   | { type: "addDebugLine"; line: string }
@@ -112,7 +116,7 @@ export type WsStreamInfoEvent = CustomEvent<
   | { type: "agentCursor"; agent: AgentCursorInfo }
   | { type: "remoteTouch"; touch: RemoteTouchInfo }
   | { type: "selfId"; clientId: number }
-  | { type: "reconnectAborted"; reason: string }
+  | { type: "reconnectAborted"; reason: string; superseded?: boolean }
   | { type: "videoStarted" }
 >
 export type WsStreamInfoEventListener = (event: WsStreamInfoEvent) => void

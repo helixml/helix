@@ -17,9 +17,10 @@ import (
 
 // listSecrets godoc
 // @Summary List secrets
-// @Description List secrets for the user.
+// @Description List secrets for the user, or for an organization when organization_id is set.
 // @Tags    secrets
 // @Success 200 {array} types.Secret
+// @Param organization_id query string false "Organization ID or name. When set, lists org-owned secrets instead of personal secrets."
 // @Router /api/v1/secrets [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]*types.Secret, *system.HTTPError) {
@@ -29,9 +30,27 @@ func (s *HelixAPIServer) listSecrets(_ http.ResponseWriter, r *http.Request) ([]
 		return nil, system.NewHTTPError401("user not found")
 	}
 
+	orgID := r.URL.Query().Get("organization_id")
 	query := &store.ListSecretsQuery{
-		Owner:     user.ID,
-		OwnerType: types.OwnerTypeUser,
+		UserLevelOnly: true,
+	}
+
+	if orgID != "" {
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, system.NewHTTPError404("organization not found")
+			}
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
+		}
+		if _, err := s.authorizeOrgMember(ctx, user, org.ID); err != nil {
+			return nil, system.NewHTTPError403("not authorized to view this organization")
+		}
+		query.OwnerType = types.OwnerTypeOrg
+		query.Owner = org.ID
+	} else {
+		query.OwnerType = types.OwnerTypeUser
+		query.Owner = user.ID
 	}
 
 	secrets, err := s.Store.ListSecrets(ctx, query)

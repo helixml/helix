@@ -4,6 +4,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -56,9 +57,10 @@ type ResilientProxy struct {
 	bufferSize   int
 
 	// Connections
-	clientConn net.Conn // Browser connection (stable)
-	serverConn net.Conn // Server connection (may reconnect)
-	serverMu   sync.Mutex
+	clientConn    net.Conn // Browser connection (stable)
+	clientWriteMu sync.Mutex // Serializes writes to clientConn (copier + close-frame senders)
+	serverConn    net.Conn // Server connection (may reconnect)
+	serverMu      sync.Mutex
 
 	// Input buffering (client → server direction)
 	inputBuffer    []byte
@@ -310,8 +312,10 @@ func (p *ResilientProxy) copyServerToClient(ctx context.Context) error {
 			continue
 		}
 
-		// Write to client
+		// Write to client (serialized with close-frame senders via clientWriteMu)
+		p.clientWriteMu.Lock()
 		_, err = p.clientConn.Write(buf[:n])
+		p.clientWriteMu.Unlock()
 		if err != nil {
 			return err // Client error - fatal
 		}
@@ -438,7 +442,9 @@ func (p *ResilientProxy) flushOutputBuffer() error {
 		Int("buffered_bytes", p.outputBufferPos).
 		Msg("Flushing output buffer after reconnection")
 
+	p.clientWriteMu.Lock()
 	_, err := p.clientConn.Write(p.outputBuffer[:p.outputBufferPos])
+	p.clientWriteMu.Unlock()
 	if err != nil {
 		return fmt.Errorf("failed to flush output buffer: %w", err)
 	}
@@ -546,6 +552,52 @@ func (p *ResilientProxy) isClientError(err error) bool {
 	return strings.Contains(errStr, "use of closed network connection") ||
 		strings.Contains(errStr, "connection reset by peer") ||
 		errors.Is(err, io.EOF)
+}
+
+// CloseClientWithCode sends a WebSocket Close frame to the client with the given
+// status code and reason, before any TCP-level close happens. This lets the caller
+// signal an application-level handover (e.g. "this connection has been superseded
+// by a newer one from the same tab") so the browser can distinguish an intentional
+// server close from a network failure and skip its own reconnect logic.
+//
+// The frame is serialized with the proxy's normal writes via clientWriteMu, so
+// callers don't need to coordinate with copyServerToClient / flushOutputBuffer.
+//
+// Callers should still cancel the proxy's context (or call Close()) afterwards
+// to fully tear down the connection. CloseClientWithCode does NOT close the TCP
+// connection itself — it only writes the close frame.
+//
+// RFC 6455 §5.5.1: server-side close frames are unmasked, payload = 2-byte
+// big-endian status code + optional UTF-8 reason. We use short-form payload
+// length so total reason+code must fit in 125 bytes.
+func (p *ResilientProxy) CloseClientWithCode(code uint16, reason string) error {
+	if p.closed.Load() {
+		return nil
+	}
+	if p.clientConn == nil {
+		return nil
+	}
+
+	payload := make([]byte, 2+len(reason))
+	binary.BigEndian.PutUint16(payload[0:2], code)
+	copy(payload[2:], reason)
+	if len(payload) > 125 {
+		return fmt.Errorf("close payload too long: %d bytes (max 125)", len(payload))
+	}
+
+	frame := make([]byte, 2+len(payload))
+	frame[0] = 0x88 // FIN | opcode 8 (close)
+	frame[1] = byte(len(payload))
+	copy(frame[2:], payload)
+
+	p.clientWriteMu.Lock()
+	defer p.clientWriteMu.Unlock()
+
+	// Tight deadline so a wedged client can't block teardown.
+	_ = p.clientConn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_, err := p.clientConn.Write(frame)
+	_ = p.clientConn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 // Close stops the proxy and closes all connections

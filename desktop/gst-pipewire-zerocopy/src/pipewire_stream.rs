@@ -15,7 +15,7 @@ use pipewire::spa::param::ParamType;
 use pipewire::spa::pod::serialize::PodSerializer;
 use pipewire::spa::pod::Pod;
 use pipewire::spa::pod::{ChoiceValue, Object, Property, PropertyFlags, Value};
-use pipewire::spa::sys::{spa_buffer, spa_meta, spa_meta_header, SPA_META_Header};
+use pipewire::spa::sys::{spa_buffer, spa_data, spa_meta, spa_meta_header, SPA_META_Header};
 use pipewire::spa::utils::{Choice, ChoiceEnum, ChoiceFlags, Fraction, Id, SpaTypes};
 use pipewire::{
     context::Context,
@@ -154,6 +154,8 @@ pub struct CudaResources {
     pub cuda_context: Arc<std::sync::Mutex<CUDAContext>>,
     /// Buffer pool state - wrapped in Mutex for interior mutability
     pub buffer_pool_state: Arc<Mutex<BufferPoolState>>,
+    /// DRM render node, for allocating the GL-blit persistent output buffer.
+    pub render_node: smithay::backend::drm::DrmNode,
 }
 
 /// Buffer pool state for CUDA buffer allocation
@@ -369,6 +371,91 @@ unsafe fn extract_pts_from_buffer(buffer: *mut spa_buffer) -> i64 {
     0
 }
 
+/// One-shot diagnostic: dump the buffer's meta types and data types so we can
+/// confirm at runtime whether Mutter's screencast delivers explicit sync.
+/// SPA meta types: Header=1, VideoCrop=2, VideoDamage=3, Bitmap=4, Cursor=5,
+/// Control=6, Busy=7, VideoTransform=8, SyncTimeline=9.
+/// SPA data types: MemPtr=1, MemFd=2, DmaBuf=3, MemId=4, SyncObj=5.
+/// If we see meta=9 (SyncTimeline) and/or data=5 (SyncObj), explicit sync is
+/// available and the GPU-wait fix is viable.
+///
+/// # Safety
+/// `buffer` must be a valid spa_buffer pointer.
+unsafe fn dump_buffer_layout_once(buffer: *mut spa_buffer) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    if SEEN.fetch_add(1, Ordering::Relaxed) >= 3 {
+        return;
+    }
+    if buffer.is_null() {
+        return;
+    }
+    let n_metas = (*buffer).n_metas;
+    let mut meta_types = Vec::new();
+    let mut m = (*buffer).metas;
+    let end = (*buffer).metas.wrapping_add(n_metas as usize);
+    while m != end {
+        meta_types.push(((*m).type_, (*m).size));
+        m = m.wrapping_add(1);
+    }
+    let n_datas = (*buffer).n_datas;
+    let mut data_types = Vec::new();
+    let datas = (*buffer).datas;
+    for i in 0..n_datas as usize {
+        let d = datas.wrapping_add(i);
+        data_types.push(((*d).type_, (*d).fd));
+    }
+    eprintln!(
+        "[SYNC_DIAG] buffer metas(type,size)={:?} datas(type,fd)={:?}  (SyncTimeline meta=9, SyncObj data=5)",
+        meta_types, data_types
+    );
+}
+
+/// Extract Mutter's explicit-sync timeline meta (acquire/release points), if the
+/// buffer carries one (only when SPA_META_SyncTimeline was negotiated).
+///
+/// # Safety
+/// `buffer` must be a valid spa_buffer pointer.
+unsafe fn extract_sync_timeline_meta(
+    buffer: *mut spa_buffer,
+) -> Option<crate::sync_timeline::SpaMetaSyncTimeline> {
+    if buffer.is_null() {
+        return None;
+    }
+    let n = (*buffer).n_metas;
+    let mut m = (*buffer).metas;
+    let end = (*buffer).metas.wrapping_add(n as usize);
+    while m != end {
+        if (*m).type_ == crate::sync_timeline::SPA_META_SYNC_TIMELINE {
+            let p = (*m).data as *const crate::sync_timeline::SpaMetaSyncTimeline;
+            return Some(*p);
+        }
+        m = m.wrapping_add(1);
+    }
+    None
+}
+
+/// Collect the syncobj fds (SPA_DATA_SyncObj) from the buffer datas, in order.
+/// With explicit sync there are two: [acquire, release].
+///
+/// # Safety
+/// `buffer` must be a valid spa_buffer pointer.
+unsafe fn extract_syncobj_fds(buffer: *mut spa_buffer) -> Vec<i32> {
+    let mut fds = Vec::new();
+    if buffer.is_null() {
+        return fds;
+    }
+    let n = (*buffer).n_datas;
+    let datas = (*buffer).datas as *const spa_data;
+    for i in 0..n as usize {
+        let d = datas.wrapping_add(i);
+        if (*d).type_ == crate::sync_timeline::SPA_DATA_SYNC_OBJ {
+            fds.push((*d).fd as i32);
+        }
+    }
+    fds
+}
+
 /// SPA_META_Cursor type constant (from spa/buffer/meta.h)
 const SPA_META_CURSOR: u32 = 5;
 
@@ -576,7 +663,56 @@ fn run_pipewire_loop(
     // Wrap cuda_resources in Arc for sharing with process callback
     // The process callback will do EGL import + CUDA copy BEFORE returning buffer to PipeWire
     let cuda_resources = cuda_resources.map(Arc::new);
-    let cuda_resources_process = cuda_resources.clone();
+
+    // GL-blit path (OBS + wolf synthesis): a thread-confined GlesRenderer plus a
+    // persistent output buffer we own and register to CUDA once. Each frame we
+    // GL-import Mutter's dma-buf (cheap) and blit it in, instead of per-frame
+    // cuGraphicsEGLRegisterImage of the external buffer. Created here so it lives
+    // on the PipeWire loop thread (GlesRenderer is GL-context-bound, !Send).
+    let gl_blitter: std::cell::RefCell<Option<crate::gl_blit::GlBlitter>> =
+        std::cell::RefCell::new(cuda_resources.as_ref().and_then(|cr| {
+            match crate::gl_blit::GlBlitter::new(
+                &cr.egl_display,
+                cr.cuda_context.clone(),
+                cr.render_node,
+            ) {
+                Ok(b) => {
+                    eprintln!("[GL_BLIT] blitter initialised on PipeWire thread");
+                    Some(b)
+                }
+                Err(e) => {
+                    eprintln!("[GL_BLIT] init failed, CUDA path will drop frames: {}", e);
+                    None
+                }
+            }
+        }));
+
+    // Explicit-sync (SPA_META_SyncTimeline) DRM fd, opened once per stream when
+    // HELIX_EXPLICIT_SYNC=1. Used in process() to wait on Mutter's acquire fence
+    // and signal the release point. None = explicit sync disabled (current behaviour).
+    let explicit_sync_drm_fd: Option<i32> = if crate::sync_timeline::enabled() {
+        let fd = crate::sync_timeline::open_drm_render_fd();
+        eprintln!("[EXPLICIT_SYNC] enabled (HELIX_EXPLICIT_SYNC=1); drm_render_fd={:?}", fd);
+        fd
+    } else {
+        None
+    };
+
+    // 1-frame latch (default ON; disable with HELIX_FRAME_LATCH=0): instead of
+    // sampling the buffer Mutter just handed us (whose GPU write may still be in
+    // flight — NVIDIA has no implicit dma-buf sync and Mutter's screencast does
+    // NOT export an explicit fence), we sample the PREVIOUS buffer, which Mutter
+    // finished a frame ago. This sidesteps the missing fence without blocking the
+    // capture loop (verified: 60fps, no reorder under load), at the cost of ~1
+    // frame (~16ms) of latency. We hold one extra PipeWire buffer.
+    let frame_latch_enabled: bool = std::env::var("HELIX_FRAME_LATCH")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+        .unwrap_or(true);
+    if frame_latch_enabled {
+        eprintln!("[FRAME_LATCH] enabled (HELIX_FRAME_LATCH=1): sampling previous buffer");
+    }
+    // Holds the buffer dequeued last call, processed this call (type inferred from use).
+    let held_buffer = std::cell::Cell::new(std::ptr::null_mut());
 
     // Per-stream tracking for format negotiation.
     // CRITICAL: This must be per-stream (Arc), not static, because Wolf runs
@@ -831,37 +967,30 @@ fn run_pipewire_loop(
             }
         })
         .process(move |stream, _| {
-            // Use a static counter for frame stats logging
-            use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-            static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
-            static LAST_LOG: AtomicU64 = AtomicU64::new(0);
-            static LOGGED_START: AtomicBool = AtomicBool::new(false);
-            static PROCESS_COUNT: AtomicU64 = AtomicU64::new(0);
-
-            let pcount = PROCESS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-            if pcount == 1 {
-                eprintln!("[PIPEWIRE_DEBUG] PROCESS callback called for first time!");
-            }
-            if pcount <= 5 || pcount % 100 == 0 {
-                eprintln!("[PIPEWIRE_DEBUG] process callback #{}", pcount);
-            }
-
             // Use raw buffer access to extract PTS from spa_meta_header
             // The PTS is set by the compositor when the frame was captured
-            let pw_buffer = unsafe { stream.dequeue_raw_buffer() };
-            if pw_buffer.is_null() {
-                // dequeue_buffer returned None - stream might not be in Streaming state yet
-                static DEQUEUE_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let fail_count = DEQUEUE_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if fail_count <= 5 || fail_count % 100 == 0 {
-                    eprintln!("[PIPEWIRE_DEBUG] process #{}: dequeue_buffer returned None (no buffer available)", pcount);
-                }
+            let current = unsafe { stream.dequeue_raw_buffer() };
+            // Start hold-time clock: how long we keep Mutter's buffer checked out
+            // (includes the synchronous CUDA copy below) before queue_raw_buffer.
+            let t_dequeue = std::time::Instant::now();
+            if current.is_null() {
+                // No buffer available yet (e.g. stream not in Streaming state).
                 return;
             }
+            // 1-frame latch: process the PREVIOUS buffer (settled), hold the current
+            // one for next time. First frame has nothing held yet → just hold + wait.
+            let pw_buffer = if frame_latch_enabled {
+                let prev = held_buffer.replace(current);
+                if prev.is_null() {
+                    return;
+                }
+                prev
+            } else {
+                current
+            };
 
             let spa_buffer = unsafe { (*pw_buffer).buffer };
             if spa_buffer.is_null() {
-                eprintln!("[PIPEWIRE_DEBUG] process #{}: pw_buffer.buffer is null!", pcount);
                 unsafe { stream.queue_raw_buffer(pw_buffer) };
                 return;
             }
@@ -869,14 +998,43 @@ fn run_pipewire_loop(
             // Extract PTS from buffer metadata (compositor timestamp in nanoseconds)
             let pts_ns = unsafe { extract_pts_from_buffer(spa_buffer) };
 
-            // Detect out-of-order frames from compositor (PTS should be monotonically increasing)
-            static LAST_PTS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-            static OOO_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let prev_pts = LAST_PTS.swap(pts_ns, Ordering::SeqCst);
-            if pts_ns > 0 && prev_pts > 0 && pts_ns < prev_pts {
-                let ooo = OOO_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                eprintln!("[PIPEWIRE_OOO] OUT OF ORDER FRAME! #{} prev_pts={} curr_pts={} delta={}ns",
-                    ooo, prev_pts, pts_ns, prev_pts - pts_ns);
+            // One-shot: confirm whether Mutter delivers explicit sync (SyncTimeline
+            // meta / SyncObj data). Decides whether the GPU-wait stale-frame fix is
+            // viable. Logged for the first few frames only.
+            unsafe { dump_buffer_layout_once(spa_buffer) };
+
+            // Explicit sync (NVIDIA import-race fix): if Mutter delivered a
+            // SyncTimeline meta + two SyncObj fds, export the acquire fence (to be
+            // waited on GPU-side before sampling) and remember the release point to
+            // signal after we've copied the buffer out. No-op unless enabled and
+            // the compositor provides the metadata.
+            let mut acquire_fence: Option<std::os::fd::OwnedFd> = None;
+            let mut release_info: Option<(i32, u64)> = None;
+            if let Some(drm_fd) = explicit_sync_drm_fd {
+                if let Some(stl) = unsafe { extract_sync_timeline_meta(spa_buffer) } {
+                    let syncobjs = unsafe { extract_syncobj_fds(spa_buffer) };
+                    if syncobjs.len() >= 2 {
+                        acquire_fence = unsafe {
+                            crate::sync_timeline::export_acquire_sync_file(
+                                drm_fd,
+                                syncobjs[0],
+                                stl.acquire_point,
+                            )
+                        };
+                        release_info = Some((syncobjs[1], stl.release_point));
+                    }
+                    static SYNC_LOG: std::sync::atomic::AtomicU32 =
+                        std::sync::atomic::AtomicU32::new(0);
+                    if SYNC_LOG.fetch_add(1, Ordering::Relaxed) < 5 {
+                        eprintln!(
+                            "[EXPLICIT_SYNC] acq_pt={} rel_pt={} syncobj_fds={:?} acquire_fence={}",
+                            stl.acquire_point,
+                            stl.release_point,
+                            syncobjs,
+                            acquire_fence.is_some()
+                        );
+                    }
+                }
             }
 
             // Note: Cursor metadata is handled by Go PipeWire client via separate session
@@ -897,44 +1055,42 @@ fn run_pipewire_loop(
                 )
             };
 
+            // Stable per-slot DMA-BUF fd (PipeWire reuses a fixed buffer pool).
+            // Used as the key for the persistent-Dmabuf cache in the GL blitter.
+            let slot_fd = datas.first().map(|d| d.as_raw().fd as i32).unwrap_or(-1);
+
             let params = video_info.lock().clone();
             if let Some(frame) = extract_frame(datas, &params, pts_ns) {
-                let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-
-                // Log first frame with PTS
-                if !LOGGED_START.swap(true, Ordering::Relaxed) {
-                    tracing::warn!("[PIPEWIRE_FRAME] First frame received from PipeWire ({}x{}) pts_ns={}",
-                        params.width, params.height, pts_ns);
-                }
-
-                // Log every 100th frame or every 5 seconds
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let last = LAST_LOG.load(Ordering::Relaxed);
-                if count % 100 == 0 || (now > last + 5) {
-                    LAST_LOG.store(now, Ordering::Relaxed);
-                    tracing::warn!("[PIPEWIRE_FRAME] Frame #{} received from PipeWire pts_ns={}", count, pts_ns);
-                }
-
-                // CRITICAL FIX: Process DmaBuf through CUDA BEFORE returning buffer to PipeWire.
-                // This prevents the race condition where Mutter reuses the GPU buffer
-                // while we're still reading from it in a different thread.
-                let frame_to_send = match (&frame, cuda_resources_process.as_ref()) {
-                    (FrameData::DmaBuf { dmabuf, pts_ns }, Some(cuda_res)) => {
-                        // Do CUDA processing in PipeWire thread, synchronously
-                        match process_dmabuf_to_cuda(dmabuf, cuda_res, *pts_ns, &params) {
-                            Ok(cuda_frame) => Some(cuda_frame),
+                // Point A: inter-arrival of frames from Mutter/PipeWire (measure-only).
+                crate::metrics::PRODUCER.lock().record_arrival();
+                // GL-blit path: import Mutter's dma-buf as a GL texture (cheap)
+                // and blit into our persistent CUDA-registered buffer, instead of
+                // per-frame cuGraphicsEGLRegisterImage of the external buffer.
+                // We copy out before requeueing, so the buffer-reuse race is safe.
+                let have_blitter = gl_blitter.borrow().is_some();
+                let frame_to_send = match &frame {
+                    FrameData::DmaBuf { dmabuf, pts_ns } if have_blitter => {
+                        let t = std::time::Instant::now();
+                        let result = gl_blitter
+                            .borrow_mut()
+                            .as_mut()
+                            .unwrap()
+                            .process(dmabuf, *pts_ns, slot_fd, acquire_fence.take());
+                        match result {
+                            Ok(cuda_frame) => {
+                                // Stage timing recorded inside blitter.process
+                                // (cuda.egl=import, cuda.reg=render, cuda.copy=copy).
+                                let _ = t;
+                                Some(cuda_frame)
+                            }
                             Err(e) => {
-                                // Log error and drop frame - no fallback, corruption is worse
-                                static CUDA_ERROR_COUNT: std::sync::atomic::AtomicU32 =
+                                static GL_BLIT_ERR: std::sync::atomic::AtomicU32 =
                                     std::sync::atomic::AtomicU32::new(0);
-                                let err_count = CUDA_ERROR_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                                if err_count <= 10 || err_count % 100 == 0 {
-                                    eprintln!("[PIPEWIRE_CUDA] ERROR: CUDA processing failed ({}): {}", err_count, e);
+                                let n = GL_BLIT_ERR.fetch_add(1, Ordering::Relaxed) + 1;
+                                if n <= 10 || n % 100 == 0 {
+                                    eprintln!("[GL_BLIT] ERROR ({}): {}", n, e);
                                 }
-                                None  // Drop frame
+                                None // Drop frame
                             }
                         }
                     }
@@ -942,24 +1098,32 @@ fn run_pipewire_loop(
                 };
 
                 if let Some(f) = frame_to_send {
-                    let _ = frame_tx_process.try_send(f);
+                    // Record bounded(8) channel depth + whether this frame is
+                    // dropped because the GStreamer side fell behind (measure-only).
+                    let depth = frame_tx_process.len();
+                    let dropped = frame_tx_process.try_send(f).is_err();
+                    crate::metrics::PRODUCER.lock().record_chan(depth, dropped);
                 }
-            } else {
-                // extract_frame returned None - log why (first 5 times only to avoid spam)
-                static EXTRACT_FAIL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let fail_count = EXTRACT_FAIL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if fail_count <= 5 {
-                    let first = datas.first();
-                    let data_type = first.map(|d| d.type_());
-                    let chunk_size = first.map(|d| d.chunk().size());
-                    eprintln!("[PIPEWIRE_DEBUG] process #{}: extract_frame returned None! params={}x{} fmt=0x{:x} data_type={:?} chunk_size={:?}",
-                        pcount, params.width, params.height, params.format, data_type, chunk_size);
-                }
+            }
+
+            // Explicit sync: now that we've copied the buffer out (synchronous GL
+            // blit + CUDA copy above), signal Mutter's release point so it may reuse
+            // the slot. MUST happen whenever we negotiated SyncTimeline, or Mutter
+            // blocks forever waiting for the release.
+            if let (Some(drm_fd), Some((rel_fd, rel_pt))) = (explicit_sync_drm_fd, release_info) {
+                unsafe { crate::sync_timeline::signal_release(drm_fd, rel_fd, rel_pt) };
             }
 
             // Re-queue the buffer AFTER CUDA copy is complete.
             // This is safe now because the GPU data has been copied to a CUDA buffer.
             unsafe { stream.queue_raw_buffer(pw_buffer) };
+
+            // Record buffer hold time (dequeue → re-queue) and flush metrics if due.
+            {
+                let mut m = crate::metrics::PRODUCER.lock();
+                m.record_hold(t_dequeue.elapsed().as_micros() as u32);
+                m.maybe_log();
+            }
         })
         .register()
         .map_err(|e| format!("Listener: {}", e))?;
@@ -1059,7 +1223,7 @@ fn run_pipewire_loop(
 
 /// Convert DRM fourcc (smithay Fourcc enum) to GStreamer VideoFormat.
 /// This is needed for CUDA buffer creation in the PipeWire thread.
-fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
+pub fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
     // Use the smithay Fourcc enum variants directly
     match fourcc {
         Fourcc::Argb8888 => VideoFormat::Bgra,
@@ -1079,91 +1243,6 @@ fn drm_fourcc_to_video_format(fourcc: Fourcc) -> VideoFormat {
     }
 }
 
-/// Process DmaBuf through CUDA in the PipeWire thread.
-/// This does EGL import + CUDA copy synchronously BEFORE returning the buffer to PipeWire,
-/// preventing the race condition where Mutter reuses the GPU buffer while we're reading.
-fn process_dmabuf_to_cuda(
-    dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf,
-    cuda_res: &CudaResources,
-    pts_ns: i64,
-    params: &VideoParams,
-) -> Result<FrameData, String> {
-    use smithay::backend::allocator::Buffer;
-
-    let w = dmabuf.width() as u32;
-    let h = dmabuf.height() as u32;
-
-    // Get raw EGL display handle
-    let raw_display: RawEGLDisplay = cuda_res.egl_display.get_display_handle().handle;
-
-    // Step 1: Import DmaBuf as EGLImage
-    let egl_image = EGLImage::from(dmabuf, &raw_display)
-        .map_err(|e| format!("EGLImage::from failed: {}", e))?;
-
-    // Step 2: Lock CUDA context and create CUDAImage
-    let cuda_ctx = cuda_res.cuda_context.lock()
-        .map_err(|e| format!("Failed to lock CUDA context: {}", e))?;
-
-    let cuda_image = CUDAImage::from(egl_image, &cuda_ctx)
-        .map_err(|e| format!("CUDAImage::from failed: {}", e))?;
-
-    // Step 3: Build video info for buffer allocation
-    let drm_format = dmabuf.format();
-    let video_format = drm_fourcc_to_video_format(drm_format.code);
-    let base_info = VideoInfo::builder(video_format, w, h)
-        .build()
-        .map_err(|e| format!("VideoInfo build failed: {:?}", e))?;
-    // VideoInfoDmaDrm expects u32 fourcc code
-    let dma_video_info = VideoInfoDmaDrm::new(
-        base_info,
-        drm_format.code as u32,
-        drm_format.modifier.into(),
-    );
-
-    // Step 4: Configure buffer pool on first use
-    {
-        let mut pool_state = cuda_res.buffer_pool_state.lock();
-        if !pool_state.configured {
-            if let Some(ref pool) = pool_state.pool {
-                let pool_caps = VideoCapsBuilder::new()
-                    .features([CAPS_FEATURE_MEMORY_CUDA_MEMORY])
-                    .format(video_format)
-                    .width(w as i32)
-                    .height(h as i32)
-                    .framerate(gst::Fraction::new(60, 1))
-                    .build();
-                let buffer_size = w * h * 4;
-                if pool.configure_basic(&pool_caps, buffer_size, 8, 16).is_ok() {
-                    if pool.activate().is_ok() {
-                        pool_state.configured = true;
-                        eprintln!("[PIPEWIRE_CUDA] Buffer pool configured: {}x{} {:?}", w, h, video_format);
-                    }
-                }
-            }
-        }
-    }
-
-    // Step 5: Do the actual CUDA copy (this is synchronous - waits for GPU)
-    let pool_state = cuda_res.buffer_pool_state.lock();
-    let buffer = cuda_image
-        .to_gst_buffer(dma_video_info, &cuda_ctx, pool_state.pool.as_ref())
-        .map_err(|e| format!("to_gst_buffer failed: {}", e))?;
-    drop(pool_state);
-
-    // Step 6: CUDAImage drops here, which calls cuGraphicsUnregisterResource
-    // This is safe because the CUDA copy is complete (synchronous)
-    drop(cuda_image);
-    drop(cuda_ctx);
-
-    // Return the CUDA buffer
-    Ok(FrameData::CudaBuffer {
-        buffer,
-        width: w,
-        height: h,
-        format: video_format,
-        pts_ns,
-    })
-}
 
 /// Extract DRM fourcc code from SPA video format - exposed for testing
 pub fn spa_format_to_drm_fourcc(format: spa::param::video::VideoFormat) -> u32 {
@@ -1276,6 +1355,39 @@ fn build_negotiation_params(
         buffer_types, buffer_type_name, use_dmabuf
     );
 
+    // EXPLICIT-SYNC Buffers param (offered FIRST so PipeWire prefers it). The
+    // trigger is NOT putting SyncObj in dataType — it's a MANDATORY
+    // SPA_PARAM_BUFFERS_metaType = SPA_META_SyncTimeline property, which makes
+    // Mutter select its 3-block explicit-sync buffer variant (video + acquire_fd +
+    // release_fd) and attach the SyncTimeline meta. Mirrors OBS's consumer
+    // (obsproject/obs-studio#11708). If Mutter doesn't support it, this param's
+    // mandatory prop won't match and PipeWire falls back to the plain param below.
+    if crate::sync_timeline::enabled() {
+        const SPA_PARAM_BUFFERS_METATYPE: u32 = 7; // enum spa_param_buffers
+        let es_buffer_obj = Object {
+            type_: SpaTypes::ObjectParamBuffers.as_raw(),
+            id: ParamType::Buffers.as_raw(),
+            properties: vec![
+                Property {
+                    key: SPA_PARAM_BUFFERS_DATATYPE,
+                    flags: PropertyFlags::empty(),
+                    value: Value::Int(1 << 3), // DmaBuf only (plain Int, like OBS)
+                },
+                Property {
+                    key: SPA_PARAM_BUFFERS_METATYPE,
+                    flags: PropertyFlags::MANDATORY,
+                    value: Value::Int(1 << crate::sync_timeline::SPA_META_SYNC_TIMELINE),
+                },
+            ],
+        };
+        if let Ok((cursor, _)) =
+            PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(es_buffer_obj))
+        {
+            params.push(cursor.into_inner());
+            eprintln!("[EXPLICIT_SYNC] Added explicit-sync Buffers param (mandatory metaType=SyncTimeline)");
+        }
+    }
+
     // Use FLAGS choice for dataType (like gnome-remote-desktop's SPA_POD_CHOICE_FLAGS_Int)
     // FLAGS choice tells PipeWire which buffer types we accept as a bitmask
     let buffer_types_choice = Choice(
@@ -1366,6 +1478,36 @@ fn build_negotiation_params(
         params.push(cursor.into_inner());
         eprintln!("[PIPEWIRE_DEBUG] Added cursor meta param (RANGE size: default={}, min={}, max={})",
             CURSOR_META_SIZE_64, CURSOR_META_SIZE_1, CURSOR_META_SIZE_256);
+    }
+
+    // 6. SyncTimeline meta (explicit sync) — only when HELIX_EXPLICIT_SYNC=1.
+    // Advertises that we support PipeWire explicit sync; Mutter then attaches a
+    // SyncTimeline meta + two SyncObj data fds per buffer (acquire/release), which
+    // process() waits on / signals. Gated because once negotiated we MUST signal
+    // the release point every frame or Mutter stalls.
+    if crate::sync_timeline::enabled() {
+        let sync_meta_obj = Object {
+            type_: SpaTypes::ObjectParamMeta.as_raw(),
+            id: ParamType::Meta.as_raw(),
+            properties: vec![
+                Property {
+                    key: SPA_PARAM_META_TYPE,
+                    flags: PropertyFlags::empty(),
+                    value: Value::Id(Id(crate::sync_timeline::SPA_META_SYNC_TIMELINE)),
+                },
+                Property {
+                    key: SPA_PARAM_META_SIZE,
+                    flags: PropertyFlags::empty(),
+                    value: Value::Int(crate::sync_timeline::SPA_META_SYNC_TIMELINE_SIZE),
+                },
+            ],
+        };
+        if let Ok((cursor, _)) =
+            PodSerializer::serialize(Cursor::new(Vec::new()), &Value::Object(sync_meta_obj))
+        {
+            params.push(cursor.into_inner());
+            eprintln!("[EXPLICIT_SYNC] Added SyncTimeline meta negotiation param");
+        }
     }
 
     eprintln!("[PIPEWIRE_DEBUG] Built {} negotiation params (VideoCrop + Buffers[dataType=0x{:x}] + Header + Cursor) - NO Format",

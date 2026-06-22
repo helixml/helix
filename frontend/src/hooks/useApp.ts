@@ -113,7 +113,7 @@ export const useApp = (appId: string) => {
       system_prompt: '',
       type: 'text',
       agent_mode: false,
-      agent_type: 'helix_basic',
+      agent_type: 'helix_agent',
       knowledge: [],
       apis: [],
       zapier: [],
@@ -254,7 +254,7 @@ export const useApp = (appId: string) => {
    * @param updates - The updates to apply
    * @returns The updated app
    */
-  const mergeFlatStateIntoApp = useCallback((existing: IApp, updates: IAppFlatState): IApp => {
+  const mergeFlatStateIntoApp = useCallback((existing: IApp, updates: Partial<IAppFlatState>): IApp => {
     // Create new app object with updated config
     // we do this with JSON.parse because then it copes with deep values not having the same reference
     const updatedApp = JSON.parse(JSON.stringify(existing)) as IApp
@@ -390,6 +390,14 @@ export const useApp = (appId: string) => {
 
     if (updates.code_agent_credential_type !== undefined) {
       assistants[0].code_agent_credential_type = updates.code_agent_credential_type
+    }
+
+    if (updates.goose_recipe_repo_url !== undefined) {
+      assistants[0].goose_recipe_repo_url = updates.goose_recipe_repo_url
+    }
+
+    if (updates.goose_recipes !== undefined) {
+      assistants[0].goose_recipes = updates.goose_recipes
     }
 
     if (updates.context_limit !== undefined) {
@@ -552,7 +560,7 @@ export const useApp = (appId: string) => {
    * @param updates - The updates to apply
    * @param opts - Options for the save operation
    */
-  const saveFlatApp = useCallback(async (updates: IAppFlatState, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
+  const saveFlatApp = useCallback(async (updates: Partial<IAppFlatState>, opts: { quiet?: boolean, forceSave?: boolean } = {}) => {
     if (!app) return
     
     // If forceSave isn't explicitly set and it's not safe to save, log warning and return
@@ -816,15 +824,15 @@ export const useApp = (appId: string) => {
       await loadAccessGrants()
       
       return newGrant
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create access grant:', error)
-      snackbar.error('Failed to create access grant')
+      snackbar.error(error?.message || 'Failed to create access grant')
       return null
     } finally {
       setIsAppSaving(false)
     }
   }
-  
+
   /**
    * Deletes an access grant for the current app
    * @param grantId - The ID of the access grant to delete

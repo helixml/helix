@@ -36,6 +36,13 @@ export interface VideoStats {
   framesDropped?: number;
   rttMs?: number;
   encoderLatencyMs?: number;
+  // Producer-side kernel-scheduler jitter (synthetic 60Hz canary in desktop-bridge).
+  // High values indicate CPU contention inside the desktop container — useful for
+  // diagnosing whether judder is caused by the container being preempted vs other
+  // causes (encoder, network, client decoder).
+  schedulerJitterP50Ms?: number;
+  schedulerJitterP99Ms?: number;
+  schedulerJitterMaxMs?: number;
   isHighLatency?: boolean;
   batchingRatio?: number;
   avgBatchSize?: number;
@@ -52,6 +59,10 @@ export interface VideoStats {
   renderJitterMs?: string;           // "min-max" interval between frames rendering
   avgReceiveIntervalMs?: number;     // Average receive interval (16.7ms = 60fps)
   avgRenderIntervalMs?: number;      // Average render interval
+  receiveIntervalSamples?: number[]; // Rolling window of inter-arrival intervals (sparkline/burst)
+  renderIntervalSamples?: number[];  // Rolling window of inter-render intervals (sparkline/burst)
+  playoutBufferMs?: number;          // Adaptive playout buffer depth (0 while interacting / no jitter)
+  playoutState?: 'smoothing' | 'interactive' | 'idle'; // why the buffer is at its current depth
   // Debug flags
   usingSoftwareDecoder?: boolean;    // True if software decoding was forced (?softdecode=1)
   // Decoder health

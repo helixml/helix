@@ -1,10 +1,14 @@
-import React, { ReactNode, useState, useEffect, useCallback } from 'react'
+import React, { ReactNode, useState, useEffect, useCallback, useContext } from 'react'
 import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
 import Link from '@mui/material/Link'
+import Tooltip from '@mui/material/Tooltip'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import { SxProps } from '@mui/system'
 import SearchIcon from '@mui/icons-material/Search'
+import LightModeIcon from '@mui/icons-material/LightMode'
+import DarkModeIcon from '@mui/icons-material/DarkMode'
 
 import AppBar from './AppBar'
 import GlobalSearchDialog from './GlobalSearchDialog'
@@ -14,6 +18,8 @@ import { TypesResource } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
+import useDocumentTitle from '../../hooks/useDocumentTitle'
+import { ThemeContext } from '../../contexts/theme'
 
 import {
   IPageBreadcrumb,
@@ -21,6 +27,7 @@ import {
 
 const Page: React.FC<{
   topbarContent?: ReactNode,
+  topbarLeftContent?: ReactNode,
   // in case there is no title or topbar content, but we still want to show the topbar
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
@@ -47,6 +54,7 @@ const Page: React.FC<{
   children?: ReactNode,
 }> = ({
   topbarContent = null,
+  topbarLeftContent = null,
   showTopbar = false,
   breadcrumbTitle,
   breadcrumbShowHome = true,
@@ -68,6 +76,7 @@ const Page: React.FC<{
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
+  const { mode, toggleMode } = useContext(ThemeContext)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false)
 
 
@@ -105,7 +114,10 @@ const Page: React.FC<{
       useBreadcrumbTitles.unshift(breadcrumbParent)
     }
   }
-  
+
+  // Update browser tab title to match breadcrumbs
+  useDocumentTitle(useBreadcrumbTitles.map(b => b.title))
+
   let useTopbarTitle = useBreadcrumbTitles.length > 0 ? (
     <Box
       component="span"
@@ -124,8 +136,53 @@ const Page: React.FC<{
           // On narrow screens, truncate earlier breadcrumbs more aggressively
           // Last item gets more space, middle items less
           const maxWidth = isLast
-            ? { xs: '120px', sm: '200px', md: 'none' }
+            ? { xs: '120px', sm: '360px', md: 'none' }
             : { xs: '60px', sm: '100px', md: '150px', lg: 'none' }
+          const inner = breadcrumb.routeName ? (
+            <Link
+              component="a"
+              sx={{
+                cursor: 'pointer',
+                color: 'inherit',
+                textDecoration: 'none',
+                transition: 'color 0.2s ease',
+                '&:hover': {
+                  color: lightTheme.textColor,
+                },
+                maxWidth,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+              onClick={ () => {
+                // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
+                const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
+                  ? breadcrumb.useOrgRouter
+                  : orgBreadcrumbs
+                if(shouldUseOrgRouter) {
+                  account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
+                } else {
+                  router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
+                }
+              }}
+            >
+              { breadcrumb.title }
+            </Link>
+          ) : (
+            <Box
+              component="span"
+              sx={{
+                maxWidth,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+            >
+              { breadcrumb.title }
+            </Box>
+          )
           return (
             <Box
               component="span"
@@ -141,51 +198,16 @@ const Page: React.FC<{
               }}
             >
               {
-                breadcrumb.routeName ? (
-                  <Link
-                    component="a"
-                    sx={{
-                      cursor: 'pointer',
-                      color: 'inherit',
-                      textDecoration: 'none',
-                      transition: 'color 0.2s ease',
-                      '&:hover': {
-                        color: lightTheme.textColor,
-                      },
-                      maxWidth,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      display: 'block',
-                    }}
-                    onClick={ () => {
-                      // Check if this specific breadcrumb overrides the page's orgBreadcrumbs setting
-                      const shouldUseOrgRouter = breadcrumb.useOrgRouter !== undefined
-                        ? breadcrumb.useOrgRouter
-                        : orgBreadcrumbs
-                      if(shouldUseOrgRouter) {
-                        account.orgNavigate(breadcrumb.routeName || '', breadcrumb.params || {})
-                      } else {
-                        router.navigate(breadcrumb.routeName || '', breadcrumb.params || {})
-                      }
-                    }}
+                breadcrumb.tooltip ? (
+                  <Tooltip
+                    title={<span style={{ whiteSpace: 'pre-wrap' }}>{breadcrumb.tooltip}</span>}
+                    placement="bottom-start"
+                    enterDelay={500}
+                    arrow
                   >
-                    { breadcrumb.title }
-                  </Link>
-                ) : (
-                  <Box
-                    component="span"
-                    sx={{
-                      maxWidth,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      display: 'block',
-                    }}
-                  >
-                    { breadcrumb.title }
-                  </Box>
-                )
+                    { inner }
+                  </Tooltip>
+                ) : inner
               }
               { index < useBreadcrumbTitles.length - 1 ? (
                 <Box
@@ -225,6 +247,7 @@ const Page: React.FC<{
           >
             <AppBar
               title={ useTopbarTitle }
+              leftContent={ topbarLeftContent }
               px={ px }
               onOpenDrawer={ showDrawerButton ? () => account.setMobileMenuOpen(true) : undefined }
             >
@@ -239,7 +262,7 @@ const Page: React.FC<{
                     readOnly: true,
                     startAdornment: (
                       <InputAdornment position="start">
-                        <SearchIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)' }} />
+                        <SearchIcon sx={{ fontSize: 18, color: lightTheme.textColorFaded }} />
                       </InputAdornment>
                     ),
                     endAdornment: (
@@ -252,8 +275,8 @@ const Page: React.FC<{
                             px: 0.5,
                             py: 0.25,
                             borderRadius: 0.5,
-                            bgcolor: 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.1)',
+                            bgcolor: lightTheme.isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)',
+                            border: lightTheme.isLight ? '1px solid rgba(0,0,0,0.1)' : '1px solid rgba(255,255,255,0.1)',
                           }}
                         >
                           <Box
@@ -261,7 +284,7 @@ const Page: React.FC<{
                             sx={{
                               fontSize: '0.65rem',
                               fontWeight: 500,
-                              color: 'rgba(255,255,255,0.5)',
+                              color: lightTheme.textColorFaded,
                               lineHeight: 1,
                             }}
                           >
@@ -272,7 +295,7 @@ const Page: React.FC<{
                             sx={{
                               fontSize: '0.65rem',
                               fontWeight: 500,
-                              color: 'rgba(255,255,255,0.5)',
+                              color: lightTheme.textColorFaded,
                               lineHeight: 1,
                             }}
                           >
@@ -289,23 +312,24 @@ const Page: React.FC<{
                     cursor: 'pointer',
                     '& .MuiOutlinedInput-root': {
                       cursor: 'pointer',
-                      background: 'rgba(255,255,255,0.03)',
+                      background: lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.03)',
                       '& fieldset': {
-                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.08)',
                       },
                       '&:hover fieldset': {
-                        borderColor: 'rgba(255,255,255,0.15)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.15)',
                       },
                       '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255,255,255,0.15)',
+                        borderColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.15)',
                         borderWidth: 1,
                       },
                     },
                     '& .MuiInputBase-input': {
                       cursor: 'pointer',
-                      color: 'rgba(255,255,255,0.9)',
+                      color: lightTheme.textColor,
+                      fontWeight: lightTheme.isLight ? 500 : 400,
                       '&::placeholder': {
-                        color: 'rgba(255,255,255,0.4)',
+                        color: lightTheme.isLight ? 'rgba(0,0,0,0.6)' : lightTheme.textColorFaded,
                         opacity: 1,
                       },
                     },
@@ -314,6 +338,11 @@ const Page: React.FC<{
               )}
               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                 { topbarContent }
+                <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+                  <IconButton onClick={toggleMode} size="small" sx={{ color: lightTheme.textColorFaded }}>
+                    {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
                 <GlobalNotifications organizationId={organizationId} />
               </Box>
             </AppBar>

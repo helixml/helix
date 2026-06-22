@@ -17,8 +17,35 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	golden "gotest.tools/v3/golden"
 )
+
+// installLLMMock swaps the suite's apiClient with a mock that returns each
+// of the provided responses in order. Pass one string per LLM call the
+// production code path makes -- param extraction is one call; response
+// interpretation adds a second. gomock.InOrder pins the sequence so a
+// future reordering in production surfaces as a test failure instead of
+// silently swapping the responses.
+func installLLMMock(suite *ActionTestSuite, responses ...string) {
+	suite.T().Helper()
+	mock := openai.NewMockClient(suite.ctrl)
+	suite.strategy.apiClient = mock
+	var prev *gomock.Call
+	for _, content := range responses {
+		call := mock.EXPECT().
+			CreateChatCompletion(gomock.Any(), gomock.Any()).
+			Return(oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{
+					{Message: oai.ChatCompletionMessage{Content: content}},
+				},
+			}, nil)
+		if prev != nil {
+			call.After(prev)
+		}
+		prev = call
+	}
+}
 
 // TestAction_CallAPI tests query formation for a single API call to
 // fetch a single record from the database
@@ -167,13 +194,8 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		},
 	}
 
-	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-	// 		suite.Equal("session-123", call.SessionID)
-	// 		suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
-	// 		return call, nil
-	// 	})
+	// One LLM call -- parameter extraction from the user message.
+	installLLMMock(suite, `{"petId": "55443"}`)
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
@@ -211,6 +233,9 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem
 			Content: "Can you please give me the details for pet 55443?",
 		},
 	}
+
+	// One LLM call -- parameter extraction from the user message.
+	installLLMMock(suite, `{"petId": "55443"}`)
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, suite.strategy.apiClient, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
@@ -405,8 +430,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleP
 }
 
 func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
-	defer suite.ctrl.Finish()
-
 	apiClient := openai.NewMockClient(suite.ctrl)
 	suite.strategy.apiClient = apiClient
 

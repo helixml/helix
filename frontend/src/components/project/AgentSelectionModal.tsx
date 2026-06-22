@@ -77,27 +77,14 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
     }
   }, [open, loadApps])
 
-  // Sort apps: zed_external first, then others
+  // Only show external agents — helix_agent types don't support project workflows
   const sortedApps = useMemo(() => {
     if (!apps) return []
-
-    const zedExternalApps: IApp[] = []
-    const otherApps: IApp[] = []
-
-    apps.forEach((app) => {
-      // Check if app has zed_external assistant type
-      const hasZedExternal = app.config?.helix?.assistants?.some(
+    return apps.filter((app) =>
+      app.config?.helix?.assistants?.some(
         (assistant) => assistant.agent_type === AGENT_TYPE_ZED_EXTERNAL
       ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
-
-      if (hasZedExternal) {
-        zedExternalApps.push(app)
-      } else {
-        otherApps.push(app)
-      }
-    })
-
-    return [...zedExternalApps, ...otherApps]
+    )
   }, [apps])
 
   // Auto-select first zed_external agent if available
@@ -188,7 +175,7 @@ const AgentSelectionModal: FC<AgentSelectionModalProps> = ({
                               size="small"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                account.orgNavigate('app', { app_id: app.id })
+                                account.orgNavigate('agent', { app_id: app.id })
                               }}
                             >
                               <EditIcon fontSize="small" />

@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -64,13 +65,9 @@ type AppCreateResponse struct {
 func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) ([]ModelSubstitution, error) {
 	var substitutions []ModelSubstitution
 
-	owner := user.ID
-	if app.OrganizationID != "" {
-		owner = app.OrganizationID
-	}
-
-	// Get available providers for the user
-	availableProviders, err := s.providerManager.ListProviders(ctx, owner)
+	// Use the org-aware endpoint list so an org agent referencing the user's
+	// personal provider still finds it (mirrors validateProvidersAndModels).
+	availableEndpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -79,15 +76,29 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		return substitutions, err
 	}
 
-	// Create a set of available providers for fast lookup
-	providerSet := make(map[types.Provider]bool)
-	for _, provider := range availableProviders {
-		providerSet[provider] = true
+	// One predicate, case-insensitive on names: substitution catalogs are
+	// name-keyed (alt.Provider is always a canonical name) but the
+	// agent-stored value may be an ID, a canonical global name, or a
+	// legacy mixed-case name. Single helper avoids the case-sensitive Go
+	// map gotcha that the previous double-keyed providerSet papered over.
+	providerKnown := func(ref string) bool {
+		if ref == "" {
+			return false
+		}
+		for _, ep := range availableEndpoints {
+			if ep.ID != "" && ep.ID == ref {
+				return true
+			}
+			if strings.EqualFold(ep.Name, ref) {
+				return true
+			}
+		}
+		return false
 	}
 
 	log.Info().
 		Str("user_id", user.ID).
-		Interface("available_providers", availableProviders).
+		Int("available_endpoints", len(availableEndpoints)).
 		Msg("Available providers for model substitution")
 
 	// Apply substitutions to each assistant
@@ -115,7 +126,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 				return
 			}
 
-			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerSet)
+			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerKnown)
 			if substitute != nil {
 				// Only record a substitution if the provider or model actually changed
 				if substitute.Provider != originalProvider || substitute.Model != originalModel {
@@ -162,15 +173,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			}
 		}
 
-		// Apply substitutions for all model fields
-
-		// Main provider/model
-		applySubstitution("provider/model", assistant.Provider, assistant.Model,
-			func(p string) { assistant.Provider = p },
-			func(m string) { assistant.Model = m })
-
-		// Agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Reasoning model
 			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
 				func(p string) { assistant.ReasoningModelProvider = p },
@@ -190,22 +193,40 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			applySubstitution("small_generation_model", assistant.SmallGenerationModelProvider, assistant.SmallGenerationModel,
 				func(p string) { assistant.SmallGenerationModelProvider = p },
 				func(m string) { assistant.SmallGenerationModel = m })
+		} else {
+			// Main provider/model for non-agent assistants.
+			applySubstitution("provider/model", assistant.Provider, assistant.Model,
+				func(p string) { assistant.Provider = p },
+				func(m string) { assistant.Model = m })
 		}
 	}
 
 	return substitutions, nil
 }
 
-// findModelSubstitution finds the first available model from the alternatives list
-func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerSet map[types.Provider]bool) *AlternativeModelOption {
-	// First check if the original provider is available
-	if providerSet[types.Provider(originalProvider)] {
+func normalizeHelixAgentAssistantSpecs(app *types.App) {
+	if app == nil {
+		return
+	}
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+		if assistant.AgentType != types.AgentTypeHelixAgent {
+			continue
+		}
+		assistant.Provider = ""
+		assistant.Model = ""
+	}
+}
+
+// findModelSubstitution finds the first available model from the alternatives list.
+// providerKnown is a case-insensitive predicate over the actor-visible
+// providers (env globals + DB-backed user/org).
+func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerKnown func(string) bool) *AlternativeModelOption {
+	if providerKnown(originalProvider) {
 		return nil
 	}
 
-	// Original provider is not available, look for substitutions
 	for _, class := range modelClasses {
-		// Check if the original provider/model combination exists in this class
 		found := false
 		for _, alt := range class.Alternatives {
 			if alt.Provider == originalProvider && alt.Model == originalModel {
@@ -213,17 +234,15 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 				break
 			}
 		}
-
-		if found {
-			// Found the original model in this class, now look for available alternatives
-			for _, alt := range class.Alternatives {
-				if providerSet[types.Provider(alt.Provider)] {
-					return &alt
-				}
-			}
-
-			return nil
+		if !found {
+			continue
 		}
+		for _, alt := range class.Alternatives {
+			if providerKnown(alt.Provider) {
+				return &alt
+			}
+		}
+		return nil
 	}
 
 	return nil
@@ -459,6 +478,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 			Msg("No model classes provided, skipping substitution")
 	}
 
+	normalizeHelixAgentAssistantSpecs(app)
+
 	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
@@ -576,13 +597,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.App) error {
-
-	owner := user.ID
-	if app.OrganizationID != "" {
-		owner = app.OrganizationID
-	}
-
-	providers, err := s.providerManager.ListProviders(ctx, owner)
+	endpoints, err := s.listEndpointsForApp(ctx, user.ID, app)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -591,47 +606,60 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		return fmt.Errorf("failed to get available providers: %w", err)
 	}
 
-	// When creating org apps, also include the user's personal providers
-	if app.OrganizationID != "" {
-		userProviders, err := s.providerManager.ListProviders(ctx, user.ID)
-		if err == nil {
-			for _, p := range userProviders {
-				if !slices.Contains(providers, p) {
-					providers = append(providers, p)
-				}
+	// Provider references are IDs for DB-backed providers, canonical names
+	// for env-baked globals. Match incoming agent values against either —
+	// case-insensitive on names so a legacy agent that stored "OpenAI" still
+	// matches the canonical "openai" record.
+	providerKnown := func(ref string) bool {
+		for _, ep := range endpoints {
+			if ep.ID != "" && ep.ID == ref {
+				return true
+			}
+			if strings.EqualFold(ep.Name, ref) {
+				return true
 			}
 		}
+		return false
 	}
 
 	log.Info().
 		Str("user_id", user.ID).
-		Interface("available_providers", providers).
+		Int("available_endpoints", len(endpoints)).
 		Msg("Available providers during validation")
 
 	// Helper function to validate a provider/model pair
-	validateProviderModel := func(fieldName, provider, model string, assistantName string, isAgentMode bool) error {
+	validateProviderModel := func(fieldName, provider, model string, assistantName string, allowEmptyProvider bool) error {
 		if provider == "" && model == "" {
 			return nil // Both empty is ok
 		}
 
-		if model == "" && !isAgentMode {
+		if provider == "" && !allowEmptyProvider {
 			log.Error().
 				Str("user_id", user.ID).
 				Str("assistant_name", assistantName).
 				Str("field_name", fieldName).
-				Msg("Validation failed: assistant has no model and is not in agent mode")
+				Msg("Validation failed: assistant has no provider")
+			return fmt.Errorf("assistant '%s' must have a provider for %s", assistantName, fieldName)
+		}
+
+		if model == "" {
+			log.Error().
+				Str("user_id", user.ID).
+				Str("assistant_name", assistantName).
+				Str("field_name", fieldName).
+				Msg("Validation failed: assistant has no model")
 			return fmt.Errorf("assistant '%s' must have a model for %s", assistantName, fieldName)
 		}
 
-		// If provider set, check if we have it
-		if provider != "" && !isAgentMode {
-			if !slices.Contains(providers, types.Provider(provider)) {
+		// If provider set, check if we have it.
+		if provider != "" {
+			if !providerKnown(provider) {
 				log.Error().
 					Str("user_id", user.ID).
 					Str("assistant_name", assistantName).
 					Str("field_name", fieldName).
 					Str("provider", provider).
-					Interface("available_providers", providers).
+					Int("available_endpoints", len(endpoints)).
 					Msg("Validation failed: provider not available")
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}
@@ -652,6 +680,10 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("agent_type", string(assistant.GetAgentType())).
 			Msg("Validating individual assistant")
 
+		if assistant.AgentType == types.AgentTypeHelixAgent && (assistant.Provider != "" || assistant.Model != "") {
+			return fmt.Errorf("helix_agent assistant '%s' must not set top-level provider/model; use reasoning_model_provider, generation_model_provider, small_reasoning_model_provider, and small_generation_model_provider", assistant.Name)
+		}
+
 		if assistant.CodeAgentRuntime != "" && assistant.CodeAgentCredentialType == types.CodeAgentCredentialTypeAPIKey {
 			// Provider and model are only required in explicit API key mode,
 			// where the agent routes through the Helix proxy.
@@ -666,13 +698,13 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 		}
 
 		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, true)
 		if err != nil {
 			return err
 		}
 
 		// If in agent mode, validate all agent mode model fields
-		if assistant.IsAgentMode() {
+		if assistant.AgentType == types.AgentTypeHelixAgent {
 			// Validate reasoning model
 			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
 			if err != nil {
@@ -1027,6 +1059,8 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	normalizeHelixAgentAssistantSpecs(&update)
+
 	err = s.validateProvidersAndModels(r.Context(), user, &update)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
@@ -1046,7 +1080,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Validate and default tools
 	for idx := range updatedWithTools.Config.Helix.Assistants {
-		assistant := &update.Config.Helix.Assistants[idx]
+		assistant := &updatedWithTools.Config.Helix.Assistants[idx]
 
 		// Ensure we don't have tools with duplicate names
 		toolNames := make(map[string]bool)
@@ -1836,10 +1870,13 @@ func (s *HelixAPIServer) downloadAndExtractZipToKnowledge(ctx context.Context, z
 		Str("destination_path", knowledgeStorePath).
 		Msg("Starting zip file download and extraction")
 
-	// Download the zip file with a timeout
-	client := &http.Client{
-		Timeout: 10 * time.Minute, // Allow up to 10 minutes for large zip files
+	if err := validateSeedZipURL(zipURL); err != nil {
+		return fmt.Errorf("rejected seed zip URL: %w", err)
 	}
+
+	// Use the SSRF-safe client so any DNS rebind or redirect to a blocked
+	// address is rejected at dial time, not just at the URL string level.
+	client := newSafeFetchClient(10 * time.Minute)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
 	if err != nil {
@@ -2004,6 +2041,7 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	app.Updated = time.Now()
 
 	app.Config.Helix.Name = r.URL.Query().Get("name")
+	normalizeHelixAgentAssistantSpecs(app)
 
 	app, err = s.Store.CreateApp(r.Context(), app)
 	if err != nil {
@@ -2107,4 +2145,91 @@ func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request)
 	return &types.Memory{
 		ID: memoryID,
 	}, nil
+}
+
+// validateSeedZipURL does the cheap up-front URL checks: parseable, scheme is
+// http(s), host is present. The real SSRF defence is at dial time - see
+// newSafeFetchClient. Doing only the cheap checks here keeps the error path
+// fast for obviously-bad input (file://, empty host) without duplicating the
+// IP block list that the dialer enforces anyway.
+func validateSeedZipURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme %q not allowed (only http/https)", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
+// newSafeFetchClient returns an http.Client that refuses to dial loopback,
+// link-local, or cloud-instance-metadata addresses. Knowledge seed URLs come
+// from caller-supplied app config; without this guard, a tenant could point
+// the API process at `127.0.0.1` (probe internal services) or
+// `169.254.169.254` (exfiltrate IAM credentials on cloud-hosted Helix).
+//
+// We deliberately allow other RFC1918 ranges - downloadAndExtractZipToKnowledge
+// is documented as supporting air-gapped deployments seeding from internal
+// mirrors. If an operator needs stricter egress control, that belongs at the
+// network layer.
+//
+// Enforcement is at dial time, not URL parse time, so it survives:
+//   - DNS rebinding (each Dial does its own resolution)
+//   - HTTP redirects to blocked addresses (each followed redirect dials)
+//   - Obscure IPv4 literals like 2130706433 or 0x7f.0.0.1 (the resolved IP is
+//     checked, not the literal string in the URL)
+func newSafeFetchClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			// Reject if ANY resolved address is unsafe - a multi-A-record
+			// hostname that includes a blocked IP gets rejected outright
+			// rather than trying to pick a "safe" one (which would still
+			// leak DNS to the attacker).
+			for _, ip := range ips {
+				if !isSafeFetchIP(ip.IP) {
+					return nil, fmt.Errorf("blocked dial: host %s resolves to %s", host, ip.IP)
+				}
+			}
+			// Pin to the first resolved IP we already checked - prevents the
+			// http stack from doing its own second lookup that could return
+			// a different (unsafe) IP between our check and the actual dial.
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+// isSafeFetchIP returns false for any address the seed-zip fetcher must not
+// reach. Centralised so the deny set is one list, not scattered.
+func isSafeFetchIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	// Cloud instance metadata endpoints. 169.254.169.254 is already covered
+	// by IsLinkLocalUnicast on most stacks but we match explicitly so the
+	// intent is greppable, and to cover the IPv4-mapped IPv6 form.
+	if ip.Equal(net.ParseIP("169.254.169.254")) {
+		return false
+	}
+	if ip.Equal(net.ParseIP("fd00:ec2::254")) {
+		return false
+	}
+	return true
 }

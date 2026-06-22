@@ -56,12 +56,39 @@ wait_for_zed_config() {
     local WAIT_COUNT=0
     local MAX_WAIT=30
 
+    # We used to gate on the literal "default_model" string in settings.json
+    # under the assumption that every Helix session routes inference through
+    # a Helix-managed provider+model. That breaks two legitimate session
+    # shapes:
+    #
+    #   1. Claude Code + subscription (helix-org workers and any zed_external
+    #      app with runtime=claude_code, credentials=subscription). The Zed
+    #      config writer deliberately leaves agent.default_model UNSET in this
+    #      mode — the Claude CLI authenticates via OAuth and Helix doesn't
+    #      route inference. See `useAgentModel = false` in zed_config.go.
+    #
+    #   2. Misconfigured / not-yet-configured agents. The Zed config writer
+    #      also leaves default_model unset and emits a "misconfigured" flag
+    #      so the chat UI can surface the actionable error. Blocking desktop
+    #      bringup here just turns a recoverable agent-config issue into an
+    #      opaque "Zed never connected" infra fault.
+    #
+    # The right gate is "settings.json has been written at least once" — that
+    # signals the settings-sync-daemon has done one full pass. If a model
+    # really is missing for inference, the error surfaces when the agent
+    # tries to call out, which is where it belongs (visible to the end-user
+    # in the chat) rather than hidden in desktop boot logs.
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if [ -f "$HOME/.config/zed/settings.json" ]; then
+        if [ -f "$HOME/.config/zed/settings.json" ] && [ -s "$HOME/.config/zed/settings.json" ]; then
+            # File exists and is non-empty. The daemon writes atomically
+            # (tempfile + rename in writeSettings()), so a non-empty file
+            # means at least one full sync pass has happened.
             if grep -q '"default_model"' "$HOME/.config/zed/settings.json" 2>/dev/null; then
-                echo "Zed configuration ready"
-                return 0
+                echo "Zed configuration ready (default_model set — Helix-routed inference)"
+            else
+                echo "Zed configuration ready (no default_model — Claude subscription / non-routed inference)"
             fi
+            return 0
         fi
         sleep 1
         WAIT_COUNT=$((WAIT_COUNT + 1))

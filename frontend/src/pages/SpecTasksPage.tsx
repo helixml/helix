@@ -9,6 +9,7 @@ import {
   MenuItem,
   Menu,
   IconButton,
+  CircularProgress,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -24,6 +25,8 @@ import {
   Archive as ArchiveIcon,
   BarChart as MetricsIcon,
   Visibility as ViewIcon,
+  PushPin as PushPinIcon,
+  PushPinOutlined as PushPinOutlinedIcon,
 } from "@mui/icons-material";
 import {
   Plus,
@@ -65,6 +68,12 @@ import {
   useResumeProjectExploratorySession,
   useGetStartupScriptHistory,
 } from "../services";
+import {
+  usePinnedProjectIds,
+  usePinProject,
+  useUnpinProject,
+  isProjectAccessDeniedError,
+} from "../services/projectService";
 import { useListSessions, useGetSession } from "../services/sessionService";
 import { useClaudeSubscriptions } from "../components/account/ClaudeSubscriptionConnect";
 import ClaudeSubscriptionConnect from "../components/account/ClaudeSubscriptionConnect";
@@ -75,6 +84,7 @@ import {
   useDeleteProjectAccessGrant,
 } from "../services/projectAccessGrantService";
 import ProjectMembersBar from "../components/project/ProjectMembersBar";
+import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -91,18 +101,25 @@ const SpecTasksPage: FC = () => {
   const projectId = router.params.id as string | undefined;
 
   // Fetch project data for breadcrumbs and title
-  const { data: project } = useGetProject(projectId || "", !!projectId);
+  const {
+    data: project,
+    isLoading: projectLoading,
+    error: projectError,
+  } = useGetProject(projectId || "", !!projectId);
+  const projectAccessDenied = isProjectAccessDeniedError(projectError);
+  const projectDependentQueriesEnabled =
+    !!projectId && !!project && !projectAccessDenied;
 
   // Fetch project repositories for display in topbar (filters out internal repos)
   const { data: projectRepositories = [] } = useGetProjectRepositories(
     projectId || "",
-    !!projectId,
+    projectDependentQueriesEnabled,
   );
 
   // Exploratory session hooks
   const { data: exploratorySessionData } = useGetProjectExploratorySession(
     projectId || "",
-    !!projectId,
+    projectDependentQueriesEnabled,
   );
   const startExploratorySessionMutation = useStartProjectExploratorySession(
     projectId || "",
@@ -126,13 +143,22 @@ const SpecTasksPage: FC = () => {
     projectId || "",
   );
 
+  // Pin/unpin project
+  const { data: pinnedProjectIds = [] } = usePinnedProjectIds(!!account.user);
+  const pinProjectMutation = usePinProject();
+  const unpinProjectMutation = useUnpinProject();
+  const isPinned = pinnedProjectIds.includes(projectId || "");
+
   // Startup script history - used to detect if user has modified the default script
   // Only fetch when we have a project with a default repo
   const hasDefaultRepo = !!project?.default_repo_id;
   const {
     data: startupScriptHistory,
     isSuccess: isStartupScriptHistoryLoaded,
-  } = useGetStartupScriptHistory(projectId || "", hasDefaultRepo);
+  } = useGetStartupScriptHistory(
+    projectId || "",
+    projectDependentQueriesEnabled && hasDefaultRepo,
+  );
   // Script is considered "not configured" if there's only 1 commit (the initial auto-generated script)
   const startupScriptNotConfigured =
     hasDefaultRepo && (startupScriptHistory?.length ?? 0) <= 1;
@@ -276,7 +302,7 @@ const SpecTasksPage: FC = () => {
       });
       return response.data || [];
     },
-    enabled: !!projectId && viewMode === "workspace",
+    enabled: projectDependentQueriesEnabled && viewMode === "workspace",
     refetchInterval: 3700, // 3.7s - prime to avoid sync with other polling
   });
 
@@ -284,14 +310,16 @@ const SpecTasksPage: FC = () => {
   const defaultRepoId = project?.default_repo_id;
 
   // Check if the default repo is an external repo (e.g., GitHub, Azure DevOps)
-  const hasExternalRepo = useMemo(() => {
-    const defaultRepo = projectRepositories.find((r) => r.id === defaultRepoId);
-    return !!(
-      defaultRepo?.is_external ||
-      defaultRepo?.azure_devops ||
-      defaultRepo?.external_type
-    );
-  }, [projectRepositories, defaultRepoId]);
+  const defaultRepo = useMemo(
+    () => projectRepositories.find((r) => r.id === defaultRepoId),
+    [projectRepositories, defaultRepoId],
+  );
+  const hasExternalRepo = !!(
+    defaultRepo?.is_external ||
+    defaultRepo?.azure_devops ||
+    defaultRepo?.external_type
+  );
+  const externalRepoType = defaultRepo?.external_type;
 
   const boardWipLimits = useMemo(() => {
     const limits = project?.metadata?.board_settings?.wip_limits;
@@ -498,7 +526,7 @@ const SpecTasksPage: FC = () => {
     projectId,
     0,
     5,
-    { enabled: !!projectId && !!projectManagerAppId },
+    { enabled: projectDependentQueriesEnabled && !!projectManagerAppId },
     projectManagerAppId,
   );
 
@@ -506,7 +534,8 @@ const SpecTasksPage: FC = () => {
 
   // Load the selected session details
   const { data: loadedSessionData } = useGetSession(selectedSessionId || "", {
-    enabled: !!selectedSessionId && chatPanelOpen,
+    enabled:
+      projectDependentQueriesEnabled && !!selectedSessionId && chatPanelOpen,
   });
 
   // When session data loads, set it as the chat session
@@ -630,8 +659,8 @@ const SpecTasksPage: FC = () => {
         return result;
       }
       return null;
-    } catch (err) {
-      snackbar.error("Failed to create access grant");
+    } catch (err: any) {
+      snackbar.error(err?.message || "Failed to create access grant");
       return null;
     }
   };
@@ -646,6 +675,60 @@ const SpecTasksPage: FC = () => {
       return false;
     }
   };
+
+  if (projectId && projectLoading) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "60vh",
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      </Page>
+    );
+  }
+
+  if (projectId && projectAccessDenied) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <ProjectAccessDenied
+          projectId={projectId}
+          onBackToProjects={() => account.orgNavigate("projects")}
+        />
+      </Page>
+    );
+  }
+
+  if (projectId && projectError) {
+    return (
+      <Page
+        breadcrumbTitle="Project"
+        orgBreadcrumbs={true}
+        showDrawerButton={true}
+      >
+        <Box sx={{ p: 3 }}>
+          <Alert severity="error">
+            {projectError instanceof Error
+              ? projectError.message
+              : "Failed to load project"}
+          </Alert>
+        </Box>
+      </Page>
+    );
+  }
 
   return (
     <Page
@@ -666,36 +749,9 @@ const SpecTasksPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={true}
       disableContentScroll={true}
-      topbarContent={
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{
-            justifyContent: "flex-end",
-            minWidth: 0,
-            alignItems: "center",
-          }}
-        >
-          {/* Invite / Share button */}
-          <Box
-            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
-          >
-            <ProjectMembersBar
-              currentUser={account.user}
-              projectOwnerId={project?.user_id}
-              projectId={projectId || ""}
-              organizationId={project?.organization_id}
-              accessGrants={accessGrants}
-              inviteOpen={inviteOpen}
-              onOpenInvite={handleOpenInvite}
-              onCloseInvite={handleCloseInvite}
-              onCreateGrant={handleCreateAccessGrant}
-              onDeleteGrant={handleDeleteAccessGrant}
-            />
-          </Box>
-
-          {/* View mode toggle: Board vs Workspace vs Audit Trail */}
-          <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1, p: 0.5 }}>
+      topbarLeftContent={
+        /* View mode toggle: Board vs Workspace vs Audit Trail */
+        <Stack direction="row" spacing={0.5} sx={{ borderRadius: 1.5, pl: 1.5, pr: 0.5, py: 0.5, bgcolor: 'rgba(255,255,255,0.06)' }}>
             <Tooltip
               title={
                 <Box sx={{ p: 0.5 }}>
@@ -833,6 +889,53 @@ const SpecTasksPage: FC = () => {
               </IconButton>
             </Tooltip>
           </Stack>
+      }
+      topbarContent={
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ justifyContent: "flex-end", minWidth: 0, alignItems: "center" }}
+        >
+          {/* Invite / Share button */}
+          <Box
+            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
+          >
+            <ProjectMembersBar
+              currentUser={account.user}
+              projectOwnerId={project?.user_id}
+              projectOwner={project?.user}
+              projectId={projectId || ""}
+              organizationId={project?.organization_id}
+              accessGrants={accessGrants}
+              inviteOpen={inviteOpen}
+              onOpenInvite={handleOpenInvite}
+              onCloseInvite={handleCloseInvite}
+              onCreateGrant={handleCreateAccessGrant}
+              onDeleteGrant={handleDeleteAccessGrant}
+            />
+          </Box>
+
+          {/* Pin/unpin project */}
+          <Tooltip title={isPinned ? "Unpin project" : "Pin project"}>
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (!projectId) return;
+                if (isPinned) {
+                  unpinProjectMutation.mutate(projectId);
+                } else {
+                  pinProjectMutation.mutate(projectId);
+                }
+              }}
+              sx={{
+                display: { xs: "none", md: "flex" },
+                flexShrink: 0,
+                color: isPinned ? "#a78bfa" : "text.secondary",
+              }}
+            >
+              {isPinned ? <PushPinIcon /> : <PushPinOutlinedIcon />}
+            </IconButton>
+          </Tooltip>
 
           {/* Hide these buttons on mobile - they'll be in the floating menu */}
           <Box
@@ -930,13 +1033,33 @@ const SpecTasksPage: FC = () => {
             </Tooltip>
           </Box>
           {/* Hide menu button on mobile - it will be in the bottom nav */}
-          <Box sx={{ display: { xs: "none", md: "block" } }}>
-            <IconButton
-              size="small"
-              onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
-            >
-              <MoreHorizontal size={18} />
-            </IconButton>
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              alignItems: "center",
+              gap: 0.5,
+            }}
+          >
+            {projectId && (
+              <Tooltip title="Project settings">
+                <IconButton
+                  size="small"
+                  onClick={() => openDialog("project-settings", { projectId })}
+                  aria-label="Project settings"
+                >
+                  <Settings size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="More options">
+              <IconButton
+                size="small"
+                onClick={(e) => setViewMenuAnchorEl(e.currentTarget)}
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </IconButton>
+            </Tooltip>
           </Box>
           <Menu
             anchorEl={viewMenuAnchorEl}
@@ -966,17 +1089,6 @@ const SpecTasksPage: FC = () => {
                   style={{ marginRight: 12, width: 20, height: 20 }}
                 />
                 Files
-              </MenuItem>
-            )}
-            {projectId && (
-              <MenuItem
-                onClick={() => {
-                  openDialog('project-settings', { projectId });
-                  setViewMenuAnchorEl(null);
-                }}
-              >
-                <Settings style={{ marginRight: 12, width: 20, height: 20 }} />
-                Settings
               </MenuItem>
             )}
             <MenuItem
@@ -1147,6 +1259,7 @@ const SpecTasksPage: FC = () => {
                 refreshTrigger={refreshTrigger}
                 focusTaskId={focusTaskId}
                 hasExternalRepo={hasExternalRepo}
+                externalRepoType={externalRepoType}
                 showArchived={showArchived}
                 showMetrics={showMetrics}
                 showMerged={showMerged}

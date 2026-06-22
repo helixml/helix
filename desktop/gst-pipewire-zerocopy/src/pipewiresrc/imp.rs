@@ -684,9 +684,14 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                 state.egl_display = Some(egl_display_arc.clone());
                 state.output_mode = OutputMode::Cuda;
 
-                // Create CudaResources for PipeWire thread
-                // CRITICAL: This allows CUDA processing to happen in PipeWire thread
-                // BEFORE returning the buffer to the compositor, preventing race conditions.
+                // DRM render node for allocating the GL-blit persistent buffer.
+                let drm_render_node = DrmNode::from_path(node_path).map_err(|e| {
+                    gst::error_msg!(gst::LibraryError::Init, ("DrmNode from {}: {:?}", node_path, e))
+                })?;
+
+                // Create CudaResources for PipeWire thread. The GL blitter (built
+                // on that thread) uses egl_display + cuda_context + render_node to
+                // import captures cheaply and feed a persistent CUDA-registered buffer.
                 let cuda_resources = CudaResources {
                     egl_display: egl_display_arc,
                     cuda_context: cuda_context.clone(),
@@ -694,6 +699,7 @@ impl BaseSrcImpl for PipeWireZeroCopySrc {
                         pool: Some(pool),
                         configured: false,
                     })),
+                    render_node: drm_render_node,
                 };
 
                 // Connect to PipeWire with NVIDIA DmaBuf modifiers AND CUDA resources
@@ -853,22 +859,14 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
         // Wait for frame from PipeWire with timeout
         let frame = match stream.recv_frame_timeout(timeout) {
             Ok(f) => {
-                // Log periodically
-                static FRAME_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = FRAME_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[FRAME] Real frame #{}", count);
-                }
+                // Point B: inter-arrival at the GStreamer pull, i.e. after the
+                // bounded(8) channel (measure-only). Compare with Point A.
+                crate::metrics::CREATE.lock().tick();
                 Some(f)
             }
             Err(RecvError::Disconnected) => return Err(gst::FlowError::Eos),
             Err(RecvError::Timeout) if keepalive_time_ms > 0 => {
                 // Timeout with keepalive enabled - resend last buffer
-                static KEEPALIVE_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = KEEPALIVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count < 5 || count % 60 == 0 {
-                    eprintln!("[KEEPALIVE] Resending last buffer #{}", count);
-                }
                 None // Signal to use last_buffer
             }
             Err(_) => return Err(gst::FlowError::Error),
@@ -907,12 +905,6 @@ impl PushSrcImpl for PipeWireZeroCopySrc {
                 pts_ns,
             } => {
                 // Buffer is ready to use - CUDA copy already completed before PipeWire buffer was returned
-                static CUDA_BUFFER_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                let count = CUDA_BUFFER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if count == 1 || count % 1000 == 0 {
-                    eprintln!("[PIPEWIRESRC] CudaBuffer #{}: {}x{} {:?}", count, width, height, format);
-                }
-
                 let actual_fmt = buffer
                     .meta::<gst_video::VideoMeta>()
                     .map(|m| m.format())

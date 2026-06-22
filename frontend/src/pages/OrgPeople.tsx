@@ -62,12 +62,14 @@ const OrgPeople: FC = () => {
 
   // Handler for initiating delete of a member
   const handleDelete = (member: TypesOrganizationMembership) => {
-    // Check if this is the last owner and prevent deletion
-    if (member.role === 'owner' && isLastOwner(member)) {
+    const isInvitation = !!member.user_id && member.user_id.startsWith('oin_')
+    // Last-owner protection only applies to real members; invitations are
+    // pending and never count as owners.
+    if (!isInvitation && member.role === 'owner' && isLastOwner(member)) {
       snackbar.error('Cannot delete the last owner of the organization')
       return
     }
-    
+
     setDeleteMember(member)
     setDeleteDialogOpen(true)
   }
@@ -162,7 +164,9 @@ const OrgPeople: FC = () => {
 
       <DeleteConfirmWindow
         open={deleteDialogOpen}
-        title={`member from organization "${deleteUserAny?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
+        title={deleteMember?.user_id?.startsWith('oin_')
+          ? `invitation for "${deleteMember?.user?.email || deleteMember?.user_id}"`
+          : `member from organization "${deleteUserAny?.full_name || deleteMember?.user?.email || deleteMember?.user_id}"`}
         onCancel={() => setDeleteDialogOpen(false)}
         onSubmit={handleConfirmDelete}
       />

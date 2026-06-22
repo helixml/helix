@@ -6,7 +6,7 @@ import useSnackbar from './useSnackbar'
 /**
  * Hook that provides a function to create a blank agent and navigate to its settings page.
  * Used by both Home.tsx and Apps.tsx to avoid code duplication.
- * The caller must provide the provider and model (from the model picker dialog).
+ * Creates the agent with no model pre-selected — the user configures it on the settings page.
  */
 export const useCreateBlankAgent = () => {
   const apps = useApps()
@@ -14,7 +14,7 @@ export const useCreateBlankAgent = () => {
   const snackbar = useSnackbar()
   const creatingRef = useRef(false)
 
-  const createBlankAgent = useCallback(async (provider: string, model: string) => {
+  const createBlankAgent = useCallback(async () => {
     if (creatingRef.current) return
     if (!account.user) {
       account.setShowLoginWindow(true)
@@ -26,13 +26,13 @@ export const useCreateBlankAgent = () => {
       const newAgent = await apps.createAgent({
         name: 'New Agent',
         systemPrompt: '',
-        model,
-        provider,
+        model: '',
+        provider: '',
         reasoningModelProvider: '',
         reasoningModel: '',
         reasoningModelEffort: '',
-        generationModelProvider: provider,
-        generationModel: model,
+        generationModelProvider: '',
+        generationModel: '',
         smallReasoningModelProvider: '',
         smallReasoningModel: '',
         smallReasoningModelEffort: '',
@@ -44,7 +44,7 @@ export const useCreateBlankAgent = () => {
         throw new Error('Failed to create agent')
       }
 
-      account.orgNavigate('app', { app_id: newAgent.id })
+      account.orgNavigate('agent', { app_id: newAgent.id })
       snackbar.success('Agent created - configure it below')
     } catch (error) {
       console.error('Error creating agent:', error)

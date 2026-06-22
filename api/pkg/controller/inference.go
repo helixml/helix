@@ -83,6 +83,32 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
+	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
+		if err := c.preflightHelixAgentModels(ctx, user, opts, assistant); err != nil {
+			return nil, nil, err
+		}
+
+		if err := c.evalAndAddOAuthTokens(ctx, nil, opts, user); err != nil {
+			return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+		}
+
+		log.Info().
+			Str("app_id", opts.AppID).
+			Msg("running in agent mode")
+
+		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
+	}
+
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
 	}
@@ -92,7 +118,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -110,24 +136,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
-		log.Info().
-			Str("app_id", opts.AppID).
-			Msg("running in agent mode")
-
-		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
-			OrganizationID: opts.OrganizationID,
-			Assistant:      assistant,
-			User:           user,
-			Request:        req,
-			Options:        opts,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
-		}
-		return resp, &req, nil
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -270,6 +278,32 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
+	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
+		if err := c.preflightHelixAgentModels(ctx, user, opts, assistant); err != nil {
+			return nil, nil, err
+		}
+
+		if err := c.evalAndAddOAuthTokens(ctx, nil, opts, user); err != nil {
+			return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+		}
+
+		log.Info().
+			Str("app_id", opts.AppID).
+			Msg("running in agent mode")
+
+		resp, err := c.runAgentStream(ctx, &runAgentRequest{
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
+	}
+
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
 	}
@@ -279,7 +313,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -297,24 +331,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
-	}
-
-	if opts.AppID != "" && assistant.AgentType == types.AgentTypeHelixAgent {
-		log.Info().
-			Str("app_id", opts.AppID).
-			Msg("running in agent mode")
-
-		resp, err := c.runAgentStream(ctx, &runAgentRequest{
-			OrganizationID: opts.OrganizationID,
-			Assistant:      assistant,
-			User:           user,
-			Request:        req,
-			Options:        opts,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
-		}
-		return resp, &req, nil
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -404,16 +420,97 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	return stream, &req, nil
 }
 
-func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider string) (oai.Client, error) {
+type helixAgentModelRef struct {
+	field    string
+	provider string
+	model    string
+}
+
+func helixAgentModelRefs(assistant *types.AssistantConfig) []helixAgentModelRef {
+	if assistant == nil {
+		return nil
+	}
+	return []helixAgentModelRef{
+		{field: "reasoning_model", provider: assistant.ReasoningModelProvider, model: assistant.ReasoningModel},
+		{field: "generation_model", provider: assistant.GenerationModelProvider, model: assistant.GenerationModel},
+		{field: "small_reasoning_model", provider: assistant.SmallReasoningModelProvider, model: assistant.SmallReasoningModel},
+		{field: "small_generation_model", provider: assistant.SmallGenerationModelProvider, model: assistant.SmallGenerationModel},
+	}
+}
+
+func (c *Controller) preflightHelixAgentModels(ctx context.Context, user *types.User, opts *ChatCompletionOptions, assistant *types.AssistantConfig) error {
+	billingEnabled := false
+	checkedProviders := make(map[string]bool)
+
+	for _, ref := range helixAgentModelRefs(assistant) {
+		if ref.model == "" {
+			return fmt.Errorf("helix_agent assistant %q must configure %s", assistant.Name, ref.field)
+		}
+
+		provider := withFallbackProvider(ref.provider, assistant)
+		if provider == "" {
+			return fmt.Errorf("helix_agent assistant %q must configure %s_provider", assistant.Name, ref.field)
+		}
+
+		if checkedProviders[provider] {
+			continue
+		}
+		checkedProviders[provider] = true
+
+		if err := c.checkInferenceTokenQuota(ctx, user.ID, provider); err != nil {
+			return err
+		}
+
+		client, err := c.getClient(ctx, opts.OrganizationID, user.ID, provider, "")
+		if err != nil {
+			return fmt.Errorf("failed to get client for helix_agent provider %q: %w", provider, err)
+		}
+
+		if client.BillingEnabled() {
+			billingEnabled = true
+		}
+	}
+
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, billingEnabled)
+	if err != nil {
+		return fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return fmt.Errorf("insufficient balance")
+	}
+
+	return nil
+}
+
+// getClient returns the OpenAI-compatible client for an inference request.
+//
+// When `provider` is empty (no caller — handler resolution, assistant config,
+// model prefix — could identify a target) we historically defaulted to
+// `INFERENCE_PROVIDER` (typically "helix"). That silent default is fine when
+// the request is genuinely targeting Helix-served runner models, but it
+// becomes a misrouting hazard when an OpenAI-shaped request for a model the
+// helix inferencerouter doesn't serve (e.g. `gpt-5.4`) lands here: the request
+// then 500s with the misleading "no runner has model X". To avoid masking the
+// routing failure as a runner-availability failure, when we fall back to the
+// default provider we now check that the provider actually serves `model` —
+// if not, we return an explicit error pointing the caller at the right fix
+// (prefix the model name, or set an app context).
+//
+// Pass model="" to skip the validation (used by paths where the model isn't
+// known yet, e.g. embeddings flexibility checks).
+func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider, model string) (oai.Client, error) {
+	defaultedProvider := false
 	if provider == "" {
-		// If not set, use the default provider
 		provider = c.Options.Config.Inference.Provider
+		defaultedProvider = true
 	}
 
 	log.Trace().
 		Str("provider", provider).
 		Str("user_id", userID).
 		Str("organization_id", organizationID).
+		Bool("defaulted_provider", defaultedProvider).
 		Msg("getting OpenAI API client")
 
 	owner := userID
@@ -429,8 +526,41 @@ func (c *Controller) getClient(ctx context.Context, organizationID, userID, prov
 		return nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	return client, nil
+	if defaultedProvider && model != "" {
+		if err := assertProviderServesModel(ctx, client, provider, model); err != nil {
+			return nil, err
+		}
+	}
 
+	return client, nil
+}
+
+// assertProviderServesModel returns an explicit error when `provider`'s model
+// list doesn't contain `model`. Used to fence the silent-default-to-helix
+// path in getClient: if the caller didn't tell us where to route and the
+// configured default doesn't actually own the model, fail loudly so the
+// resulting error names the routing problem instead of bubbling up as a
+// runner-availability failure 5 layers down.
+//
+// Errors from ListModels are tolerated (logged, not returned) — we don't want
+// a flaky upstream to block legitimate inference; the actual call will fail
+// with a more specific error if the model really is missing.
+func assertProviderServesModel(ctx context.Context, client oai.Client, provider, model string) error {
+	models, err := client.ListModels(ctx)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("provider", provider).
+			Str("model", model).
+			Msg("could not validate model availability against default provider; proceeding")
+		return nil
+	}
+	for _, m := range models {
+		if m.ID == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("model %q is not configured in the default provider %q; prefix the model with the target provider (e.g. \"openai/%s\") or supply an app_id", model, provider, model)
 }
 
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {
@@ -460,7 +590,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -534,7 +664,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -631,7 +761,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Str("provider", opts.Provider).
 		Msg("Getting API client for tool execution")
 
-	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider, req.Model)
 	if err != nil {
 		log.Warn().
 			Err(err).
@@ -828,7 +958,20 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 
 func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
 	if opts.AppID == "" {
-		return &types.AssistantConfig{}, nil
+		// No app — pull the user's stored chat defaults (system prompt, temperature, etc.)
+		// and present them as an implicit assistant config so the existing inference
+		// code path applies them uniformly. Pre-fill the system prompt with the
+		// platform default so users who have not customised their settings still
+		// get a sensible system prompt.
+		assistant := &types.AssistantConfig{
+			SystemPrompt: types.DefaultChatSystemPrompt,
+		}
+		if user != nil && user.ID != "" {
+			if meta, err := c.Options.Store.GetUserMeta(ctx, user.ID); err == nil {
+				meta.ChatSettings.ApplyToAssistantConfig(assistant)
+			}
+		}
+		return assistant, nil
 	}
 
 	app, err := c.Options.Store.GetAppWithTools(ctx, opts.AppID)
@@ -861,8 +1004,16 @@ func (c *Controller) evaluateSecrets(ctx context.Context, user *types.User, app 
 
 	var filteredSecrets []*types.Secret
 
-	// Filter out secrets that are not for the current app
+	// Keep only secrets relevant to this app's inference:
+	//   - user-level secrets (no project, no app scope)
+	//   - secrets explicitly scoped to this app
+	// Project-scoped secrets are injected via project sessions, not inference,
+	// and including them here would let same-named secrets from other projects
+	// collide on env-var name (the env map keys on secret.Name).
 	for _, secret := range secrets {
+		if secret.ProjectID != "" {
+			continue
+		}
 		if secret.AppID != "" && secret.AppID != app.ID {
 			continue
 		}

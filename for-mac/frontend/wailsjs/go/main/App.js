@@ -26,6 +26,10 @@ export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
 
+export function CollectDiagnostics() {
+  return window['go']['main']['App']['CollectDiagnostics']();
+}
+
 export function DownloadVMImages() {
   return window['go']['main']['App']['DownloadVMImages']();
 }
@@ -44,6 +48,10 @@ export function GetAppVersion() {
 
 export function GetAutoLoginURL() {
   return window['go']['main']['App']['GetAutoLoginURL']();
+}
+
+export function GetClipboardImagePNG() {
+  return window['go']['main']['App']['GetClipboardImagePNG']();
 }
 
 export function GetConsoleOutput() {
@@ -102,6 +110,10 @@ export function GetUpdateInfo() {
   return window['go']['main']['App']['GetUpdateInfo']();
 }
 
+export function GetUserIdentity() {
+  return window['go']['main']['App']['GetUserIdentity']();
+}
+
 export function GetVMConfig() {
   return window['go']['main']['App']['GetVMConfig']();
 }
@@ -152,6 +164,10 @@ export function SaveSettings(arg1) {
 
 export function SendConsoleInput(arg1) {
   return window['go']['main']['App']['SendConsoleInput'](arg1);
+}
+
+export function SetClipboardImagePNG(arg1) {
+  return window['go']['main']['App']['SetClipboardImagePNG'](arg1);
 }
 
 export function SetCursor(arg1) {

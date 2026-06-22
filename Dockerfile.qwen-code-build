@@ -9,7 +9,7 @@
 #
 # Usage: ./stack build-qwen-code
 # ====================================================================
-FROM node:20-slim AS builder
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS builder
 
 # Install git (required for simple-git dependency)
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
@@ -24,8 +24,17 @@ COPY packages/ ./packages/
 # Install dependencies — cached as a Docker layer when manifests unchanged.
 # --ignore-scripts skips husky prepare hooks.
 # Cache mount keeps npm download cache across builds even when layer is rebuilt.
+# Build only the workspace packages the bundle consumes as built modules
+# (web-templates + channel adapters), in dependency order. See the comment in
+# Dockerfile.qwen-build for why `npm run build --workspaces` can't be used.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --ignore-scripts
+    npm ci --ignore-scripts && \
+    npm run build \
+      --workspace=@qwen-code/web-templates \
+      --workspace=@qwen-code/channel-base \
+      --workspace=@qwen-code/channel-telegram \
+      --workspace=@qwen-code/channel-weixin \
+      --workspace=@qwen-code/channel-dingtalk
 
 # Copy remaining source and build the bundle.
 COPY . .

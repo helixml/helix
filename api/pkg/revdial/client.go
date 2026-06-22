@@ -108,9 +108,12 @@ func (c *Client) runConnection(ctx context.Context) error {
 		Bool("tls", useTLS).
 		Msg("Connecting to RevDial server via WebSocket")
 
-	// Create WebSocket dialer with TLS config
+	// Create WebSocket dialer with TLS config.
+	// HandshakeTimeout matches matchConnTimeout on the server side (30s): the data
+	// connection's WebSocket Upgrade can sit on the server's matchConn() until a
+	// Dial() picks it up, and we don't want the listener to give up before then.
 	wsDialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+		HandshakeTimeout: 30 * time.Second,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: c.config.InsecureSkipVerify,
 		},

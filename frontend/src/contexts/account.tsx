@@ -14,7 +14,7 @@ import {
   IUserConfig,
   IProviderEndpoint,
 } from '../types'
-import { TypesServerConfigForFrontend } from '../api/api'
+import { TypesFrontendLicenseInfo, TypesServerConfigForFrontend } from '../api/api'
 
 export interface IAccountContext {
   initialized: boolean,
@@ -27,6 +27,7 @@ export interface IAccountContext {
   userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
   loggingOut?: boolean,
   serverConfig: TypesServerConfigForFrontend,
+  license?: TypesFrontendLicenseInfo,
   userConfig: IUserConfig,
   appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
@@ -97,6 +98,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
+  const [ license, setLicense ] = useState<TypesFrontendLicenseInfo | undefined>(undefined)
 
   // Server config via React Query — single source of truth.
   // Default staleTime=0 means data refetches on mount (e.g. Login page after logout).
@@ -146,6 +148,7 @@ export const useAccountContext = (): IAccountContext => {
       setCredits(statusResult.credits)
       setAdmin(statusResult.admin)
       setUserConfig(statusResult.config)
+      setLicense(statusResult.license)
       if (statusResult.slug) {
         setUserMeta({ slug: statusResult.slug })
       }
@@ -363,7 +366,26 @@ export const useAccountContext = (): IAccountContext => {
       targetRouteName = `org_${routeName}`
     }
 
-    const useOrgID = params.org_id || organizationToolsRef.current.organization?.name
+    // Prefer explicit param → loaded org name → org slug already in the current URL
+    // → first org from the loaded list. Each fallback covers a race the previous one
+    // misses (e.g. clicking from /files where the URL has no org slug, before the
+    // current-org context resolves). Without all four, a missing org_id surfaces as
+    // a router5 "Cannot build path … requires missing parameters { org_id }" crash.
+    const currentUrlOrgId = window.location.pathname.match(/^\/orgs\/([^/]+)/)?.[1]
+    const firstOrgSlug = organizationToolsRef.current.organizations?.[0]?.name
+    const useOrgID = params.org_id
+      || organizationToolsRef.current.organization?.name
+      || currentUrlOrgId
+      || firstOrgSlug
+
+    if (!useOrgID) {
+      // No org context anywhere — send the user to the org picker rather than
+      // throwing a router5 "missing parameter" error that crashes the page.
+      console.warn('orgNavigate: no org_id resolvable, redirecting to /orgs', { routeName, params })
+      router.navigate('orgs', {})
+      return
+    }
+
     const targetParams = {
       ...params,
       org_id: useOrgID,
@@ -460,6 +482,7 @@ export const useAccountContext = (): IAccountContext => {
     admin,
     loggingOut,
     serverConfig,
+    license,
     userConfig,
     mobileMenuOpen,
     setMobileMenuOpen,

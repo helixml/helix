@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -42,7 +43,14 @@ func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Requ
 	user := getRequestUser(r)
 
 	if request.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
+		org, err := s.lookupOrg(r.Context(), request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		request.OrganizationID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
 			return
@@ -333,6 +341,13 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 	var orgMembership *types.OrganizationMembership
 	if orgID != "" {
 		var err error
+		org, err := s.lookupOrg(ctx, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		orgID = org.ID
+
 		orgMembership, err = s.authorizeOrgMember(ctx, user, orgID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
@@ -383,8 +398,7 @@ func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Requ
 		repositories = authorizedRepos
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(repositories)
+	writeResponseWithETag(w, r, repositories)
 }
 
 // createSampleRepository creates a sample/demo repository
@@ -422,7 +436,14 @@ func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.R
 	}
 
 	if request.OrganizationID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
+		org, err := s.lookupOrg(r.Context(), request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		request.OrganizationID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
 		if err != nil {
 			writeErrResponse(w, err, http.StatusForbidden)
 			return
@@ -469,6 +490,7 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 		return
 	}
 
+	user := getRequestUser(r)
 	targetDir := r.URL.Query().Get("target_dir")
 
 	// Verify repository exists
@@ -476,6 +498,11 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for clone command")
 		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -517,6 +544,21 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 	if request.OwnerID == "" {
 		http.Error(w, "Owner ID is required", http.StatusBadRequest)
 		return
+	}
+
+	if request.OrganizationID != "" {
+		org, err := apiServer.lookupOrg(r.Context(), request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusNotFound)
+			return
+		}
+		request.OrganizationID = org.ID
+
+		_, err = apiServer.authorizeOrgMember(r.Context(), user, request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
 	}
 
 	sampleTypes := []struct {
@@ -756,6 +798,7 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 		return
 	}
 
+	user := getRequestUser(r)
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		path = "."
@@ -766,6 +809,11 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
 		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -819,11 +867,17 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 		return
 	}
 
+	user := getRequestUser(r)
 	// Get repository to check if external
 	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
 		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -866,6 +920,7 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 		return
 	}
 
+	user := getRequestUser(r)
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "File path is required", http.StatusBadRequest)
@@ -877,6 +932,11 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository")
 		http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if err := apiServer.authorizeUserToRepository(r.Context(), user, repository, types.ActionGet); err != nil {
+		writeErrResponse(w, err, http.StatusForbidden)
 		return
 	}
 
@@ -1578,7 +1638,7 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 	// Both push and PR creation should happen atomically.
 	var prID string
 	err = s.gitRepositoryService.WithRepoLock(repoID, func() error {
-		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false); pushErr != nil {
+		if pushErr := s.gitRepositoryService.PushBranchToRemote(r.Context(), repoID, request.SourceBranch, false, user.ID); pushErr != nil {
 			log.Error().Err(pushErr).
 				Str("repo_id", repoID).
 				Str("branch", request.SourceBranch).
@@ -1587,10 +1647,19 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		}
 
 		var prErr error
-		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+		prID, prErr = s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch, user.ID)
 		return prErr
 	})
 	if err != nil {
+		var oauthErr *services.OAuthRequiredError
+		if errors.As(err, &oauthErr) {
+			writeResponse(w, map[string]interface{}{
+				"error":         "oauth_required",
+				"message":       oauthErr.Error(),
+				"provider_type": oauthErr.ProviderType,
+			}, http.StatusUnprocessableEntity)
+			return
+		}
 		log.Error().Err(err).
 			Str("repo_id", repoID).
 			Str("title", request.Title).
@@ -1710,6 +1779,17 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 			return
 		}
 
+		hasReadOrg := false
+		for _, s := range scopes {
+			if s == "read:org" {
+				hasReadOrg = true
+				break
+			}
+		}
+		if !hasReadOrg {
+			log.Warn().Strs("scopes", scopes).Msg("GitHub PAT missing 'read:org' scope — organization repo listing may be incomplete")
+		}
+
 		ghRepos, err := ghClient.ListRepositories(ctx)
 		if err != nil {
 			if isAuthenticationError(err) {
@@ -1730,6 +1810,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 				Description:   repo.GetDescription(),
 				Private:       repo.GetPrivate(),
 				DefaultBranch: repo.GetDefaultBranch(),
+				CanWrite:      github.HasWriteAccess(repo),
 			})
 		}
 
@@ -1765,6 +1846,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 				Description:   project.Description,
 				Private:       project.Visibility != "public",
 				DefaultBranch: project.DefaultBranch,
+				CanWrite:      true, // GitLab permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 
@@ -1818,6 +1900,7 @@ func (s *HelixAPIServer) browseRemoteRepositories(w http.ResponseWriter, r *http
 				Description:   "",   // ADO repos don't have description in the basic response
 				Private:       true, // ADO repos are private by default
 				DefaultBranch: defaultBranch,
+				CanWrite:      true, // ADO permission introspection not yet wired up; preserve prior behaviour
 			})
 		}
 

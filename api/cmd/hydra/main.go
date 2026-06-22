@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -60,20 +61,31 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// Use pretty logging for console output
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// Create the shared log buffer first so we can tee zerolog into it
+	// alongside stderr. The admin /logs WS endpoint reads from this buffer,
+	// so capturing hydra's own diagnostics (not just inner-container output)
+	// makes start-up failures and runtime warnings visible to admins.
+	logBuffer := hydra.NewLogBuffer(0)
+	logOutput := io.MultiWriter(
+		zerolog.ConsoleWriter{Out: os.Stderr},
+		zerolog.ConsoleWriter{Out: logBuffer.Writer(), NoColor: true},
+	)
+	log.Logger = log.Output(logOutput)
 
+	log.Info().Msg("========================================")
+	log.Info().Msg("  Hydra daemon starting")
 	log.Info().
 		Str("socket", socketPath).
 		Str("socket_dir", socketDir).
 		Str("data_dir", dataDir).
 		Str("log_level", logLevel).
 		Bool("privileged_mode", os.Getenv("HYDRA_PRIVILEGED_MODE_ENABLED") == "true").
-		Msg("Starting Hydra daemon")
+		Msg("========================================")
 
-	// Create manager and server
+	// Create manager and server. The server takes ownership of the log
+	// buffer and exposes it via the /api/v1/logs WS endpoint.
 	manager := hydra.NewManager(socketDir, dataDir)
-	server := hydra.NewServer(manager, socketPath)
+	server := hydra.NewServerWithLogBuffer(manager, socketPath, logBuffer)
 
 	// Create context that cancels on SIGINT/SIGTERM
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,6 +100,19 @@ func run(cmd *cobra.Command, args []string) {
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
 		cancel()
 	}()
+
+	// Tail per-service log files written by the cont-init.d wrappers
+	// (compose-manager, inference-proxy, sandbox-heartbeat, dockerd)
+	// into the same LogBuffer hydra's zerolog uses. Each tailed line
+	// gets a "[<svc>] " prefix derived from the filename, so the admin
+	// Runner Logs view shows everything in the sandbox container with
+	// no new endpoint or operator config. Done via tee-to-file from
+	// the wrappers rather than a hydra-served Unix socket because
+	// (a) it's a zero-IPC change, (b) the existing wrappers already
+	// pipe through sed, so adding `tee -a` is one line each, and
+	// (c) file-based decoupling means a hydra restart doesn't lose
+	// in-flight log lines from the other services.
+	hydra.StartServiceLogTailers(ctx, logBuffer, "/var/log/helix-services")
 
 	// Start server
 	if err := server.Start(ctx); err != nil {

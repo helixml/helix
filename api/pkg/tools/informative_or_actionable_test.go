@@ -51,7 +51,10 @@ func (suite *ActionTestSuite) SetupTest() {
 			cfg.Providers.TogetherAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
 		)
-		cfg.Tools.Model = "openai/gpt-oss-20b"
+		// gpt-oss-20b became unreliable on TogetherAI (sustained 503s in May 2026
+		// CI runs even after credit/account issues were resolved); 120b sibling
+		// is healthy. Bump again if this one starts 503ing.
+		cfg.Tools.Model = "openai/gpt-oss-120b"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
@@ -101,6 +104,9 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 		},
 	}
 
+	// One LLM call -- the actionability classifier.
+	installLLMMock(suite, `{"needs_tool": "yes", "api": "getWeather", "justification": "user is asking about weather"}`)
+
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
@@ -111,30 +117,12 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 }
 
 func (suite *ActionTestSuite) TestIsActionable_Retryable() {
-	defer suite.ctrl.Finish()
-
-	apiClient := openai.NewMockClient(suite.ctrl)
-	suite.strategy.apiClient = apiClient
-
-	apiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai_ext.ChatCompletionResponse{
-		Choices: []openai_ext.ChatCompletionChoice{
-			{
-				Message: openai_ext.ChatCompletionMessage{
-					Content: `incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
-				},
-			},
-		},
-	}, nil)
-
-	apiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai_ext.ChatCompletionResponse{
-		Choices: []openai_ext.ChatCompletionChoice{
-			{
-				Message: openai_ext.ChatCompletionMessage{
-					Content: `{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
-				},
-			},
-		},
-	}, nil)
+	// Two LLM calls: the first returns malformed JSON to drive the retry
+	// path in IsActionable, the second returns valid JSON.
+	installLLMMock(suite,
+		`incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
+		`{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
+	)
 
 	tools := []*types.Tool{
 		{
@@ -221,6 +209,9 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 			Content: "What's the reason why oceans have less fish??",
 		},
 	}
+
+	// One LLM call -- the actionability classifier.
+	installLLMMock(suite, `{"needs_tool": "no", "api": "", "justification": "general knowledge question"}`)
 
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.NoError(err)

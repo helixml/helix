@@ -32,6 +32,17 @@ type RepoPR struct {
 	PRNumber       int    `json:"pr_number"`
 	PRURL          string `json:"pr_url"`
 	PRState        string `json:"pr_state"` // "open", "closed", "merged"
+
+	// CI status, populated by the spec task orchestrator's PR poll loop.
+	// CIStatus is one of: "" (not yet evaluated), "running", "passed",
+	// "failed", "none" (CI not configured for the PR's head SHA).
+	// CIHeadSHA is the head commit we last evaluated; it lets the poller
+	// detect a new push and reset CIStatus so a stale "passed" doesn't
+	// suppress a fresh notification when the next commit fails.
+	CIStatus    string    `json:"ci_status,omitempty"`
+	CIURL       string    `json:"ci_url,omitempty"`
+	CIUpdatedAt time.Time `json:"ci_updated_at,omitempty"`
+	CIHeadSHA   string    `json:"ci_head_sha,omitempty"`
 }
 
 // GetFirstOpenPR returns the first open PR from RepoPullRequests, or nil if none.
@@ -79,13 +90,23 @@ type CreateTaskRequest struct {
 	UserEmail    string           `json:"user_email,omitempty"` // Optional: User email for audit trail
 	AppID        string           `json:"app_id"`               // Optional: Helix agent to use for spec generation
 	JustDoItMode bool             `json:"just_do_it_mode"`      // Optional: Skip spec planning, go straight to implementation
+	AutoStart    bool             `json:"auto_start"`           // Optional: Skip backlog and start immediately, regardless of project auto-start setting
 	DependsOn    []string         `json:"depends_on"`           // Optional: IDs of tasks this task depends on
+	AssigneeID   string           `json:"assignee_id,omitempty"` // Optional: team member assigned to the task
 
 	// Branch configuration
 	BranchMode    BranchMode `json:"branch_mode,omitempty"`    // "new" or "existing" - defaults to "new"
 	BaseBranch    string     `json:"base_branch,omitempty"`    // For new mode: branch to create from (defaults to repo default)
 	BranchPrefix  string     `json:"branch_prefix,omitempty"`  // For new mode: user-specified prefix (task# appended)
 	WorkingBranch string     `json:"working_branch,omitempty"` // For existing mode: branch to continue working on
+
+	// Goose recipe selection (only meaningful when the chosen agent's runtime
+	// is goose_code). GooseRecipeName must match one of the agent's declared
+	// recipes; GooseRecipeParams are substituted into the recipe at session
+	// start. Recipes declared on the agent but not selected here are still
+	// available as runtime slash-commands inside the desktop.
+	GooseRecipeName   string            `json:"goose_recipe_name,omitempty"`
+	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty"`
 
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }
@@ -168,6 +189,7 @@ type SpecTask struct {
 	// Implementation tracking
 	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
 	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+	RebaseRequestedAt        *time.Time `json:"rebase_requested_at,omitempty"` // Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.
 
 	// Git tracking
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`     // Last commit hash pushed to feature branch
@@ -179,6 +201,7 @@ type SpecTask struct {
 
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
+	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
 	PlanningStartedAt *time.Time `json:"planning_started_at,omitempty"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
@@ -193,6 +216,19 @@ type SpecTask struct {
 
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
+
+	// Keep alive — prevent auto-idle-shutdown of desktop container
+	KeepAlive bool `json:"keep_alive" gorm:"default:false"`
+
+	// Goose recipe binding (Phase 2b). When the parent project's agent uses
+	// the goose_code runtime and the user picked a recipe at task-creation
+	// time, GooseRecipeName names the AssistantGooseRecipe to invoke and
+	// GooseRecipeParams holds the parameter values to substitute. The Helix
+	// API bakes these into a CodeAgentBakedRecipe and pushes it to the
+	// settings-sync-daemon, which writes a single slash_command pointing at
+	// the substituted recipe YAML. Empty when no recipe was selected.
+	GooseRecipeName   string            `json:"goose_recipe_name,omitempty" gorm:"size:255"`
+	GooseRecipeParams map[string]string `json:"goose_recipe_params,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Clone tracking
 	ClonedFromID        string `json:"cloned_from_id,omitempty" gorm:"size:255;index"`         // Original task this was cloned from
@@ -272,6 +308,7 @@ type SpecTaskUpdateRequest struct {
 	HelixAppID       string           `json:"helix_app_id,omitempty"`       // Agent to use for this task
 	UserShortTitle   *string          `json:"user_short_title,omitempty"`   // User override for tab title (pointer to allow clearing with empty string)
 	PublicDesignDocs *bool            `json:"public_design_docs,omitempty"` // Pointer to allow explicit false
+	KeepAlive        *bool            `json:"keep_alive,omitempty"`         // Pointer to allow explicit false — prevent auto-idle-shutdown
 	DependsOn        []string         `json:"depends_on"`                   // IDs of tasks this task depends on
 	AssigneeID       *string          `json:"assignee_id,omitempty"`        // Pointer to allow clearing (set to empty string to unassign)
 }
@@ -333,6 +370,48 @@ type SpecApprovalResponse struct {
 	Changes    []string  `json:"changes,omitempty"` // Specific requested changes
 	ApprovedBy string    `json:"approved_by"`
 	ApprovedAt time.Time `json:"approved_at"`
+}
+
+// SpecTaskAttachment is a user-uploaded file (screenshot, document) attached to a SpecTask.
+// Files live in the user's filestore under spec-tasks/{task_id}/attachments/ and are
+// committed into the helix-specs branch under design/tasks/{design_doc_path}/attachments/
+// when spec generation starts so the agent can read them from its workspace.
+type SpecTaskAttachment struct {
+	ID            string    `json:"id" gorm:"primaryKey;size:255"` // att_01k...
+	SpecTaskID    string    `json:"spec_task_id" gorm:"size:255;index;not null"`
+	ProjectID     string    `json:"project_id" gorm:"size:255;index;not null"` // denormalised for fast authz
+	UserID        string    `json:"user_id" gorm:"size:255;index"`             // who uploaded
+	Filename      string    `json:"filename" gorm:"size:512;not null"`         // original filename, sanitised
+	MimeType      string    `json:"mime_type" gorm:"size:128;not null"`
+	SizeBytes     int64     `json:"size_bytes" gorm:"not null"`
+	Caption       string    `json:"caption,omitempty" gorm:"size:1024"`   // optional user note
+	FilestorePath string    `json:"-" gorm:"size:1024;not null"`          // absolute filestore path (server-internal)
+	CommittedSHA  string    `json:"committed_sha,omitempty" gorm:"size:64"` // helix-specs commit hash once staged
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (SpecTaskAttachment) TableName() string {
+	return "spec_task_attachments"
+}
+
+// SpecTask attachment limits
+const (
+	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
+	SpecTaskAttachmentMaxPerTask = 10               // 10 files per task
+)
+
+// SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.
+// Kept narrow on purpose: images the agent can visually read, plus common text formats.
+var SpecTaskAttachmentAllowedMimeTypes = map[string]bool{
+	"image/png":        true,
+	"image/jpeg":       true,
+	"image/gif":        true,
+	"image/webp":       true,
+	"image/svg+xml":    true,
+	"application/pdf":  true,
+	"text/plain":       true,
+	"text/markdown":    true,
+	"text/csv":         true,
 }
 
 // SpecTaskExternalAgent represents the external agent (desktop container) for a SpecTask

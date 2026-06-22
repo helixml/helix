@@ -14,6 +14,8 @@ export function CancelUpdate():Promise<void>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
+export function CollectDiagnostics():Promise<main.DiagnosticReport>;
+
 export function DownloadVMImages():Promise<void>;
 
 export function DownloadVMUpdate():Promise<void>;
@@ -23,6 +25,8 @@ export function FactoryReset(arg1:boolean):Promise<void>;
 export function GetAppVersion():Promise<string>;
 
 export function GetAutoLoginURL():Promise<string>;
+
+export function GetClipboardImagePNG():Promise<string>;
 
 export function GetConsoleOutput():Promise<string>;
 
@@ -52,6 +56,8 @@ export function GetSystemInfo():Promise<Record<string, any>>;
 
 export function GetUpdateInfo():Promise<main.UpdateInfo>;
 
+export function GetUserIdentity():Promise<main.UserIdentity>;
+
 export function GetVMConfig():Promise<main.VMConfig>;
 
 export function GetVMStatus():Promise<main.VMStatus>;
@@ -77,6 +83,8 @@ export function ResizeDataDisk(arg1:number):Promise<void>;
 export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 
 export function SendConsoleInput(arg1:string):Promise<void>;
+
+export function SetClipboardImagePNG(arg1:string):Promise<void>;
 
 export function SetCursor(arg1:string):Promise<void>;
 

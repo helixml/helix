@@ -50,9 +50,10 @@ import HubIcon from "@mui/icons-material/Hub";
 import EditIcon from "@mui/icons-material/Edit";
 
 import Skills from "../components/app/Skills";
-import { TypesAssistantSkills, TypesProject } from "../api/api";
+import { TypesAssistantSkills, TypesProject, TypesZFSTree, TypesZFSTreeNode } from "../api/api";
 import SavingToast from "../components/widgets/SavingToast";
 import StartupScriptEditor from "../components/project/StartupScriptEditor";
+import WebServiceTab from "../components/project/WebServiceTab";
 import CodingAgentForm from "../components/agent/CodingAgentForm";
 import {
   AppsContext,
@@ -64,6 +65,7 @@ import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 import type { CodingAgentFormHandle } from "../components/agent/CodingAgentForm";
 import ProjectRepositoriesList from "../components/project/ProjectRepositoriesList";
 import AgentDropdown from "../components/agent/AgentDropdown";
+import ProjectAccessDenied from "../components/project/ProjectAccessDenied";
 import { SparkLineChart } from "@mui/x-charts";
 import DesktopStreamViewer from "../components/external-agent/DesktopStreamViewer";
 import { useSandboxState } from "../components/external-agent/ExternalAgentDesktopViewer";
@@ -87,6 +89,7 @@ import {
   useGetProjectGuidelinesHistory,
 } from "../services";
 import { useGitRepositories } from "../services/gitRepositoryService";
+import { isProjectAccessDeniedError } from "../services/projectService";
 
 interface ProjectSettingsProps {
   projectId: string;
@@ -102,7 +105,13 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const { apps, loadApps } = useContext(AppsContext);
 
   const { data: project, isLoading, error } = useGetProject(projectId);
-  const { data: repositories = [] } = useGetProjectRepositories(projectId);
+  const projectAccessDenied = isProjectAccessDeniedError(error);
+  const projectDependentQueriesEnabled =
+    !!projectId && !!project && !projectAccessDenied;
+  const { data: repositories = [] } = useGetProjectRepositories(
+    projectId,
+    projectDependentQueriesEnabled,
+  );
 
   const updateProjectMutation = useUpdateProject(projectId);
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId);
@@ -120,7 +129,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
 
   // Exploratory session
   const { data: exploratorySessionData } =
-    useGetProjectExploratorySession(projectId);
+    useGetProjectExploratorySession(projectId, projectDependentQueriesEnabled);
   const startExploratorySessionMutation =
     useStartProjectExploratorySession(projectId);
   const stopExploratorySessionMutation =
@@ -133,6 +142,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       branch_mode?: string;
       base_branch?: string;
       working_branch?: string;
+      just_do_it_mode?: boolean;
     }) => {
       const response = await api.getApiClient().v1SpecTasksFromPromptCreate({
         project_id: projectId,
@@ -140,11 +150,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         branch_mode: request.branch_mode as any,
         base_branch: request.base_branch,
         working_branch: request.working_branch,
+        just_do_it_mode: request.just_do_it_mode,
       });
       return response.data;
     },
     onSuccess: (task) => {
-      snackbar.success("Created task to fix startup script");
+      snackbar.success("Started AI to fix startup script");
       account.orgNavigate("project-specs", {
         id: projectId,
         highlight: task.id,
@@ -166,6 +177,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const [autoWarmDockerCache, setAutoWarmDockerCache] = useState(false);
   const [showGoldenBuildViewer, setShowGoldenBuildViewer] = useState(false);
   const [selectedGoldenSandboxId, setSelectedGoldenSandboxId] = useState("");
+  const [waitingForBuildStart, setWaitingForBuildStart] = useState(false);
   const [showTestSession, setShowTestSession] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -180,7 +192,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   // Guidelines history
   const { data: guidelinesHistory = [] } = useGetProjectGuidelinesHistory(
     projectId,
-    guidelinesHistoryDialogOpen,
+    projectDependentQueriesEnabled && guidelinesHistoryDialogOpen,
   );
 
   // Per-sandbox golden cache state
@@ -200,21 +212,29 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       const response = await api.getApiClient().v1SessionsDetail(goldenBuildSessionId!);
       return response.data;
     },
-    enabled: !!goldenBuildSessionId && showGoldenBuildViewer,
+    enabled:
+      projectDependentQueriesEnabled &&
+      !!goldenBuildSessionId &&
+      showGoldenBuildViewer,
     refetchInterval: 5000,
   });
   const goldenBuildSandboxState = useSandboxState(
     goldenBuildSessionId || "",
-    !!goldenBuildSessionId && showGoldenBuildViewer,
+    projectDependentQueriesEnabled &&
+      !!goldenBuildSessionId &&
+      showGoldenBuildViewer,
   );
 
   // ZFS snapshot/clone tree
   const { data: zfsTree } = useQuery({
     queryKey: ["zfs-tree", projectId],
     queryFn: async () => {
-      return api.get(`/projects/${projectId}/docker-cache/zfs-tree`);
+      const response = await api.getApiClient().v1ProjectsDockerCacheZfsTreeDetail(projectId);
+      return response.data;
     },
-    enabled: !!projectId && (autoWarmDockerCache || sandboxEntries.length > 0),
+    enabled:
+      projectDependentQueriesEnabled &&
+      (autoWarmDockerCache || sandboxEntries.length > 0),
     refetchInterval: 30000,
   });
 
@@ -226,6 +246,26 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     }, 10000);
     return () => clearInterval(interval);
   }, [showGoldenBuildViewer, anyBuilding, projectId]);
+
+  // After Prime Cache is clicked, the dev container takes several seconds to
+  // provision before the sandbox flips to "building". Poll fast for up to 60s
+  // so the UI doesn't appear inert and so we can open the build viewer the
+  // moment the build actually starts.
+  useEffect(() => {
+    if (!waitingForBuildStart) return;
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 60_000;
+    const interval = setInterval(() => {
+      if (Date.now() - startedAt > TIMEOUT_MS) {
+        clearInterval(interval);
+        setWaitingForBuildStart(false);
+        snackbar.error("Build did not start within 60s — check sandbox status");
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [waitingForBuildStart, projectId, queryClient, snackbar]);
 
   // Auto-close golden build viewer when selected sandbox's build finishes
   const selectedSandboxStatus = selectedGoldenSandboxId
@@ -242,6 +282,16 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
   const buildingSandbox = sandboxEntries.find(([, s]) => s.status === "building");
   const buildingSandboxId = buildingSandbox?.[0];
   const buildingSessionId = buildingSandbox?.[1]?.build_session_id;
+
+  // Hand off from "waiting for build to start" to the build viewer the moment
+  // a sandbox flips to "building".
+  useEffect(() => {
+    if (!waitingForBuildStart || !buildingSandboxId) return;
+    setSelectedGoldenSandboxId(buildingSandboxId);
+    setShowGoldenBuildViewer(true);
+    setWaitingForBuildStart(false);
+  }, [waitingForBuildStart, buildingSandboxId]);
+
   const blkioSamplesRef = useRef<{ time: number; writeBytes: number }[]>([]);
   const lastBuildSessionRef = useRef<string | undefined>();
 
@@ -256,7 +306,11 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       const resp = await api.getApiClient().v1SandboxesContainersBlkioDetail(buildingSandboxId!, buildingSessionId!);
       return resp.data;
     },
-    enabled: !!buildingSandboxId && !!buildingSessionId && anyBuilding,
+    enabled:
+      projectDependentQueriesEnabled &&
+      !!buildingSandboxId &&
+      !!buildingSessionId &&
+      anyBuilding,
     refetchInterval: 5_000,
   });
 
@@ -313,7 +367,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         .v1ProjectsSecretsDetail(projectId);
       return response.data || [];
     },
-    enabled: !!projectId,
+    enabled: projectDependentQueriesEnabled,
   });
 
   // Create secret mutation
@@ -357,21 +411,12 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
         .getApiClient()
         .v1ProjectsDockerCacheBuildCreate(projectId);
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       snackbar.success("Golden build triggered on all sandboxes");
-      await new Promise((r) => setTimeout(r, 3000));
-      const freshProject = await queryClient.fetchQuery({
-        queryKey: ["project", projectId],
-        staleTime: 0,
-      });
-      const sandboxes = (freshProject as TypesProject)?.metadata?.docker_cache_status?.sandboxes;
-      if (sandboxes) {
-        const buildingSb = Object.entries(sandboxes).find(([, s]) => s.status === "building");
-        if (buildingSb) {
-          setSelectedGoldenSandboxId(buildingSb[0]);
-          setShowGoldenBuildViewer(true);
-        }
-      }
+      // The dev container takes several seconds to provision before the
+      // sandbox flips to "building". The polling effect handles the wait
+      // and opens the build viewer when the build actually starts.
+      setWaitingForBuildStart(true);
     },
     onError: (error: any) => {
       const data = error?.response?.data;
@@ -768,6 +813,15 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
     );
   }
 
+  if (projectAccessDenied) {
+    return (
+      <ProjectAccessDenied
+        projectId={projectId}
+        onBackToProjects={() => account.orgNavigate("projects")}
+      />
+    );
+  }
+
   if (error || !project) {
     return (
       <Box
@@ -970,6 +1024,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 : undefined
             }
             projectId={projectId}
+            readOnly={project?.startup_script_from_yaml || false}
           />
         </Box>
 
@@ -1034,6 +1089,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                       prompt: `Fix the project startup script at /home/retro/work/helix-specs/.helix/startup.sh (in the helix-specs worktree). The current script is:\n\n\`\`\`bash\n${startupScript}\n\`\`\`\n\nPlease review and fix any issues. You can run the script to test it and iterate on it until it works. It should be idempotent.\n\nIMPORTANT: The startup script lives in the helix-specs branch, NOT the main code branch. After fixing the script:\n1. Edit /home/retro/work/helix-specs/.helix/startup.sh directly\n2. Commit and push directly to helix-specs branch: cd /home/retro/work/helix-specs && git add -A && git commit -m "Fix startup script" && git push origin helix-specs\n3. The user can then test it in the project settings panel.\n\nNote: A feature branch has been created on the primary repo for any code changes (like fixing bugs in the workspace setup or build scripts), but you probably won't need to use it unless the user specifically asks you to fix something in the codebase itself.`,
                       branch_mode: "new",
                       base_branch: "main",
+                      just_do_it_mode: true,
                     })
                   }
                   disabled={createSpecTaskMutation.isPending}
@@ -1049,8 +1105,8 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       </Box>
 
       {/* Docker Cache */}
-      <Box sx={{ display: "flex", gap: 3, alignItems: "flex-start" }}>
-        <Box sx={{ flex: showGoldenBuildViewer ? undefined : 1, width: showGoldenBuildViewer ? 600 : undefined, flexShrink: 0 }}>
+      <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+        <Box sx={{ flex: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
             <Typography variant="h6">Docker Cache</Typography>
           </Box>
@@ -1112,7 +1168,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                         {sbState.status === "building" && "Building..."}
                         {sbState.status === "failed" && "Failed"}
                         {sbState.status === "none" && "No cache"}
-                        {(sbState.size_bytes ?? 0) > 0 && (
+                        {sbState.status === "building" && (sbState.size_bytes ?? 0) > 0 && (
                           <> &middot; {((sbState.size_bytes ?? 0) / 1e9).toFixed(1)} GB</>
                         )}
                         {sbState.last_ready_at && (
@@ -1159,10 +1215,19 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                 <Button
                   size="small"
                   variant="outlined"
-                  disabled={primeCacheMutation.isPending || anyBuilding}
+                  disabled={primeCacheMutation.isPending || waitingForBuildStart || anyBuilding}
                   onClick={() => primeCacheMutation.mutate()}
+                  startIcon={
+                    primeCacheMutation.isPending || waitingForBuildStart ? (
+                      <CircularProgress size={14} />
+                    ) : undefined
+                  }
                 >
-                  {primeCacheMutation.isPending ? "Triggering..." : "Prime Cache"}
+                  {primeCacheMutation.isPending
+                    ? "Triggering..."
+                    : waitingForBuildStart
+                      ? "Waiting for build to start..."
+                      : "Prime Cache"}
                 </Button>
                 {anyBuilding && (
                   <Button
@@ -1175,98 +1240,31 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
                     {cancelBuildMutation.isPending ? "Cancelling..." : "Cancel Build"}
                   </Button>
                 )}
-                {(anyReady || anyFailed) && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={clearCacheMutation.isPending}
-                    onClick={() => clearCacheMutation.mutate()}
-                  >
-                    {clearCacheMutation.isPending ? "Clearing..." : "Clear Cache"}
-                  </Button>
-                )}
+                {(anyReady || anyFailed) && (() => {
+                  const hasActiveClones = zfsTree?.golden?.children?.some(
+                    (snap: TypesZFSTreeNode) => snap.children && snap.children.length > 0
+                  );
+                  return (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      disabled={clearCacheMutation.isPending || !!hasActiveClones}
+                      onClick={() => clearCacheMutation.mutate()}
+                      title={hasActiveClones ? "Stop all sessions first" : ""}
+                    >
+                      {clearCacheMutation.isPending ? "Clearing..." : hasActiveClones ? "Clear Cache (sessions active)" : "Clear Cache"}
+                    </Button>
+                  );
+                })()}
               </Box>
             </Box>
           )}
         </Box>
 
-        {/* ZFS Snapshot/Clone Tree */}
-        {zfsTree?.available && zfsTree?.golden && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
-              <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
-              ZFS Clone Tree
-            </Typography>
-            <Box sx={{ fontFamily: "monospace", fontSize: "0.75rem", lineHeight: 1.8 }}>
-              {/* Golden zvol */}
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
-                <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
-                  {zfsTree.golden.name.split("/").pop()}
-                </Box>
-                <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
-              </Box>
-              {/* Snapshots */}
-              {zfsTree.golden.children?.map((snap: { name: string; used: string; refer: string; children?: { name: string; used: string; refer: string; mounted: boolean; session_id: string }[] }, si: number) => (
-                <Box key={snap.name} sx={{ ml: 2 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                    <Box sx={{ color: "info.main" }}>📸</Box>
-                    <Box sx={{ color: "info.main", fontWeight: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
-                      @{snap.name.split("@")[1]}
-                    </Box>
-                    <Chip
-                      label={`Δ ${snap.used}`}
-                      size="small"
-                      sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
-                    />
-                    {si === (zfsTree.golden.children?.length ?? 0) - 1 && (
-                      <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
-                    )}
-                  </Box>
-                  {/* Clones */}
-                  {snap.children?.map((clone: { name: string; used: string; refer: string; mounted: boolean; session_id: string }, ci: number) => (
-                    <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
-                      <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
-                        {clone.mounted ? "🟢" : "⚪"}
-                      </Box>
-                      <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
-                        {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name.split("/").pop()}
-                      </Box>
-                      <Chip
-                        label={clone.used}
-                        size="small"
-                        sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
-                      />
-                      {clone.mounted && (
-                        <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
-                      )}
-                    </Box>
-                  ))}
-                </Box>
-              ))}
-              {/* Orphans */}
-              {zfsTree.orphans?.length > 0 && (
-                <Box sx={{ mt: 1, opacity: 0.6 }}>
-                  <Typography variant="caption" color="text.secondary">orphaned zvols (no golden parent):</Typography>
-                  {zfsTree.orphans.map((o: { name: string; used: string; session_id: string; mounted: boolean }) => (
-                    <Box key={o.name} sx={{ ml: 2, display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Box>{o.mounted ? "🟢" : "⚪"}</Box>
-                      <Box sx={{ fontSize: "0.7rem" }}>{o.session_id ? `ses_${o.session_id.substring(4, 12)}…` : o.name.split("/").pop()}</Box>
-                      <Chip label={o.used} size="small" sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }} />
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          </Box>
-        )}
-
         {/* Golden build viewer */}
         {showGoldenBuildViewer && goldenBuildSessionId && (
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 2 }}>
             <Box>
               <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                 <Typography variant="h6" sx={{ flex: 1 }}>
@@ -1287,6 +1285,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               {goldenBuildSession && goldenBuildSandboxState.isRunning ? (
                 <Box
                   sx={{
+                    width: "100%",
                     aspectRatio: "16 / 9",
                     backgroundColor: "#000",
                   }}
@@ -1308,6 +1307,83 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
           </Box>
         )}
       </Box>
+
+      {/* ZFS Snapshot/Clone Tree — below the Docker Cache flex row */}
+      {/* Render whenever a golden exists, even with no snapshots or clones —
+          a freshly-built golden with zero clones is still useful information
+          (otherwise the panel silently disappears post-build until the first
+          session clones from it). */}
+      {zfsTree?.available && zfsTree?.golden && (
+        <Box sx={{ mt: 1, mb: 4, p: 2, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+          <Typography variant="subtitle2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
+            <HubIcon fontSize="small" sx={{ color: "primary.main" }} />
+            ZFS Clone Tree
+          </Typography>
+          <Box sx={{ fontFamily: "monospace", fontSize: "0.75rem", lineHeight: 1.8 }}>
+            {/* Golden zvol */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ color: "warning.main", fontWeight: "bold" }}>⬢</Box>
+              <Box sx={{ color: "text.primary", fontWeight: "bold" }}>
+                {zfsTree.golden.name?.split("/").pop()}
+              </Box>
+              <Chip label={zfsTree.golden.refer} size="small" sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace" }} />
+            </Box>
+            {/* Snapshots */}
+            {zfsTree.golden.children?.map((snap: TypesZFSTreeNode, si: number) => (
+              <Box key={snap.name} sx={{ ml: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Box sx={{ color: "text.secondary" }}>{si === (zfsTree.golden.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                  <Box sx={{ color: "info.main" }}>📸</Box>
+                  <Box sx={{ color: "info.main", fontWeight: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "bold" : "normal" }}>
+                    @{snap.name?.split("@")[1]}
+                  </Box>
+                  <Chip
+                    label={`Δ ${snap.used}`}
+                    size="small"
+                    sx={{ height: 18, fontSize: "0.65rem", fontFamily: "monospace", bgcolor: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.main" : "action.hover", color: si === (zfsTree.golden.children?.length ?? 0) - 1 ? "success.contrastText" : "text.secondary" }}
+                  />
+                  {si === (zfsTree.golden.children?.length ?? 0) - 1 && (
+                    <Chip label="latest" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: "0.6rem" }} />
+                  )}
+                </Box>
+                {/* Clones */}
+                {snap.children?.map((clone: TypesZFSTreeNode, ci: number) => (
+                  <Box key={clone.name} sx={{ ml: 3, display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box sx={{ color: "text.secondary" }}>{ci === (snap.children?.length ?? 0) - 1 ? "└─" : "├─"}</Box>
+                    <Box sx={{ color: clone.mounted ? "success.main" : "text.disabled" }}>
+                      {clone.mounted ? "🟢" : "⚪"}
+                    </Box>
+                    <Box sx={{ color: clone.mounted ? "text.primary" : "text.disabled", fontSize: "0.7rem" }}>
+                      {clone.session_id ? `ses_${clone.session_id.substring(4, 12)}…` : clone.name?.split("/").pop()}
+                    </Box>
+                    <Chip
+                      label={clone.used}
+                      size="small"
+                      sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }}
+                    />
+                    {clone.mounted && (
+                      <Chip label="active" size="small" color="success" variant="outlined" sx={{ height: 16, fontSize: "0.55rem" }} />
+                    )}
+                  </Box>
+                ))}
+              </Box>
+            ))}
+            {/* Orphans */}
+            {zfsTree.orphans && zfsTree.orphans.length > 0 && (
+              <Box sx={{ mt: 1, opacity: 0.6 }}>
+                <Typography variant="caption" color="text.secondary">orphaned zvols (no golden parent):</Typography>
+                {zfsTree.orphans.map((o: TypesZFSTreeNode) => (
+                  <Box key={o.name} sx={{ ml: 2, display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box>{o.mounted ? "🟢" : "⚪"}</Box>
+                    <Box sx={{ fontSize: "0.7rem" }}>{o.session_id ? `ses_${o.session_id.substring(4, 12)}…` : o.name?.split("/").pop()}</Box>
+                    <Chip label={o.used} size="small" sx={{ height: 16, fontSize: "0.6rem", fontFamily: "monospace" }} />
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 
@@ -1764,10 +1840,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <HubIcon sx={{ mr: 1, color: "#10B981" }} />
-          <Typography variant="h6">Skills</Typography>
+          <Typography variant="h6">MCPs & APIs</Typography>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Configure skills for this project. These overlay on top of agent-level skills.
+          Configure MCPs and APIs for this project. These overlay on top of agent-level MCPs and APIs.
         </Typography>
         <Divider sx={{ mb: 2 }} />
         <Skills
@@ -1882,6 +1958,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Container maxWidth="lg" sx={{ px: 2 }}>
         {tab ==="general" && renderGeneralTab()}
         {tab ==="sandbox" && renderSandboxTab()}
+        {tab ==="web-service" && <WebServiceTab projectId={projectId} />}
         {tab ==="agents" && renderAgentsTab()}
         {tab ==="board" && renderBoardTab()}
         {tab ==="secrets" && renderSecretsTab()}
@@ -1973,6 +2050,10 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
       <Dialog
         open={deleteDialogOpen}
         onClose={() => {
+          // Block dismissal (backdrop click / Escape) while the delete is
+          // in flight so the user can't navigate away mid-operation and
+          // land on a stale projects list.
+          if (deleteProjectMutation.isPending) return;
           setDeleteDialogOpen(false);
           setDeleteConfirmName("");
         }}
@@ -2016,6 +2097,7 @@ const ProjectSettings: FC<ProjectSettingsProps> = ({ projectId, tab = 'general' 
               setDeleteDialogOpen(false);
               setDeleteConfirmName("");
             }}
+            disabled={deleteProjectMutation.isPending}
           >
             Cancel
           </Button>

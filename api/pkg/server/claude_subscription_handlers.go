@@ -66,7 +66,19 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 
 	if createReq.SetupToken != "" {
 		// Setup token flow: token from `claude setup-token`
-		credJSON, err := json.Marshal(types.ClaudeSetupTokenCredentials{SetupToken: strings.TrimSpace(createReq.SetupToken)})
+		token := strings.TrimSpace(createReq.SetupToken)
+		if strings.HasPrefix(token, "sk-ant-api") {
+			return nil, system.NewHTTPError400(
+				"This is an Anthropic API key, not a Claude Code setup token. " +
+					"Run 'claude setup-token' in your terminal to generate the correct token.")
+		}
+		if !strings.HasPrefix(token, "sk-ant-oat") {
+			return nil, system.NewHTTPError400(
+				"Invalid setup token format. " +
+					"Run 'claude setup-token' to generate a valid token.")
+		}
+
+		credJSON, err := json.Marshal(types.ClaudeSetupTokenCredentials{SetupToken: token})
 		if err != nil {
 			return nil, system.NewHTTPError500("failed to marshal credentials")
 		}
@@ -539,10 +551,10 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		Env:            []string{"HELIX_SKIP_ZED=1"},
 	}
 
-	// Add user's API token
-	if addErr := apiServer.addUserAPITokenToAgent(req.Context(), zedAgent, user.ID); addErr != nil {
-		log.Error().Err(addErr).Str("user_id", user.ID).Msg("Failed to add user API token for Claude login session")
-		return nil, system.NewHTTPError500("failed to configure session")
+	// Add user's API token inside session lock via OnBeforeCreate hook
+	claudeUserID := user.ID
+	zedAgent.OnBeforeCreate = func(hookCtx context.Context, a *types.DesktopAgent) error {
+		return apiServer.addUserAPITokenToAgent(hookCtx, a, claudeUserID)
 	}
 
 	// Start the desktop container

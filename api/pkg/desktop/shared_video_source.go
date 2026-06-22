@@ -12,12 +12,13 @@ package desktop
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Client state machine constants
@@ -35,6 +36,19 @@ const (
 	DefaultGracePeriod = 60 * time.Second  // Wait before stopping pipeline when all clients disconnect
 	MinGracePeriod     = 5 * time.Second   // Minimum allowed grace period
 	MaxGracePeriod     = 300 * time.Second // Maximum allowed grace period (5 minutes)
+)
+
+// Circuit breaker constants for pipeline creation
+const (
+	// maxConsecutiveFailures is the number of consecutive pipeline start failures
+	// before the circuit breaker opens. After this, new pipeline creation is blocked
+	// until the cooldown expires.
+	maxConsecutiveFailures = 5
+
+	// circuitBreakerCooldown is how long to wait after the circuit breaker opens
+	// before allowing another pipeline creation attempt. This gives the GPU time
+	// to recover (e.g., other sessions may stop and free VRAM).
+	circuitBreakerCooldown = 30 * time.Second
 )
 
 // FrameSource is an abstraction over video frame producers.
@@ -157,6 +171,14 @@ type SharedVideoSourceRegistry struct {
 
 	gracePeriod time.Duration // how long to wait before stopping pipeline
 
+	// Circuit breaker: tracks consecutive pipeline start failures per node.
+	// When a pipeline fails to start (e.g., GPU OOM), rapid frontend reconnects
+	// would create hundreds of new pipelines, each leaking GPU memory during
+	// the failed initialization. The circuit breaker stops creating new pipelines
+	// after maxConsecutiveFailures and requires a cooldown before retrying.
+	failureCounts   map[uint32]int       // consecutive failures per node
+	failureCooldown map[uint32]time.Time // when to allow retry per node
+
 	// Metrics
 	cancelledStops atomic.Uint64 // stops cancelled by client reconnect
 	completedStops atomic.Uint64 // stops that completed after grace period
@@ -183,11 +205,13 @@ func GetSharedVideoRegistry() *SharedVideoSourceRegistry {
 			}
 		}
 		sharedVideoRegistry = &SharedVideoSourceRegistry{
-			sources:      make(map[uint32]*SharedVideoSource),
-			pendingStops: make(map[uint32]*pendingStop),
-			gracePeriod:  gracePeriod,
+			sources:         make(map[uint32]*SharedVideoSource),
+			pendingStops:    make(map[uint32]*pendingStop),
+			gracePeriod:     gracePeriod,
+			failureCounts:   make(map[uint32]int),
+			failureCooldown: make(map[uint32]time.Time),
 		}
-		fmt.Printf("[SHARED_VIDEO] Registry initialized with grace period %v\n", gracePeriod)
+		log.Info().Dur("grace_period", gracePeriod).Msg("[SHARED_VIDEO] Registry initialized")
 	})
 	return sharedVideoRegistry
 }
@@ -209,13 +233,15 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 			source.clientsMu.RLock()
 			clientCount := len(source.clients)
 			source.clientsMu.RUnlock()
-			fmt.Printf("[SHARED_VIDEO] Reusing existing source for node %d (clients: %d)\n",
-				nodeID, clientCount)
+			log.Info().
+				Uint32("node_id", nodeID).
+				Int("clients", clientCount).
+				Msg("[SHARED_VIDEO] Reusing existing source")
 			return source
 		}
 		// Dead source — evict
 		delete(r.sources, nodeID)
-		fmt.Printf("[SHARED_VIDEO] Evicted dead source for node %d in GetOrCreate\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead source in GetOrCreate")
 		go source.stop()
 	}
 
@@ -228,11 +254,11 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 		if pending.source.running.Load() {
 			r.sources[nodeID] = pending.source
 			r.cancelledStops.Add(1)
-			fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for node %d, reusing pipeline (grace period saved!)\n", nodeID)
+			log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Cancelled pending stop, reusing pipeline (grace period saved!)")
 			return pending.source
 		}
 		// Dead source — clean up
-		fmt.Printf("[SHARED_VIDEO] Evicted dead pending source for node %d in GetOrCreate\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead pending source in GetOrCreate")
 		go pending.source.stop()
 	}
 
@@ -248,7 +274,7 @@ func (r *SharedVideoSourceRegistry) GetOrCreate(nodeID uint32, pipelineStr strin
 	}
 
 	r.sources[nodeID] = source
-	fmt.Printf("[SHARED_VIDEO] Created new source for node %d\n", nodeID)
+	log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Created new source")
 	return source
 }
 
@@ -267,7 +293,7 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 		// Source is dead (broadcaster exited) — clean up and return nil
 		// so the caller creates a fresh ScanoutSource + SharedVideoSource.
 		delete(r.sources, nodeID)
-		fmt.Printf("[SHARED_VIDEO] Evicted dead source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead source")
 		go source.stop() // async cleanup (stop() calls wg.Wait which may block briefly)
 		return nil
 	}
@@ -279,14 +305,14 @@ func (r *SharedVideoSourceRegistry) GetExisting(nodeID uint32) *SharedVideoSourc
 			r.sources[nodeID] = pending.source
 			delete(r.pendingStops, nodeID)
 			r.cancelledStops.Add(1)
-			fmt.Printf("[SHARED_VIDEO] Reactivated pending-stop source for node %d (grace period cancelled)\n", nodeID)
+			log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Reactivated pending-stop source (grace period cancelled)")
 			return pending.source
 		}
 		// Source is dead — cancel timer and clean up
 		pending.timer.Stop()
 		close(pending.cancelCh)
 		delete(r.pendingStops, nodeID)
-		fmt.Printf("[SHARED_VIDEO] Evicted dead pending source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead pending source")
 		go pending.source.stop()
 		return nil
 	}
@@ -306,12 +332,14 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 			existing.clientsMu.RLock()
 			clientCount := len(existing.clients)
 			existing.clientsMu.RUnlock()
-			fmt.Printf("[SHARED_VIDEO] Reusing existing external source for node %d (clients: %d)\n",
-				nodeID, clientCount)
+			log.Info().
+				Uint32("node_id", nodeID).
+				Int("clients", clientCount).
+				Msg("[SHARED_VIDEO] Reusing existing external source")
 			return existing
 		}
 		delete(r.sources, nodeID)
-		fmt.Printf("[SHARED_VIDEO] Evicted dead external source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead external source")
 		go existing.stop()
 	}
 
@@ -324,10 +352,10 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 		if pending.source.running.Load() {
 			r.sources[nodeID] = pending.source
 			r.cancelledStops.Add(1)
-			fmt.Printf("[SHARED_VIDEO] Cancelled pending stop for external source node %d\n", nodeID)
+			log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Cancelled pending stop for external source")
 			return pending.source
 		}
-		fmt.Printf("[SHARED_VIDEO] Evicted dead pending external source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Evicted dead pending external source")
 		go pending.source.stop()
 	}
 
@@ -342,7 +370,7 @@ func (r *SharedVideoSourceRegistry) GetOrCreateWithSource(nodeID uint32, source 
 	}
 
 	r.sources[nodeID] = svs
-	fmt.Printf("[SHARED_VIDEO] Created new external source for node %d\n", nodeID)
+	log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Created new external source")
 	return svs
 }
 
@@ -385,7 +413,10 @@ func (r *SharedVideoSourceRegistry) ScheduleStop(nodeID uint32) {
 	})
 
 	r.pendingStops[nodeID] = pending
-	fmt.Printf("[SHARED_VIDEO] Scheduled stop for node %d in %v (grace period started)\n", nodeID, r.gracePeriod)
+	log.Info().
+		Uint32("node_id", nodeID).
+		Dur("in", r.gracePeriod).
+		Msg("[SHARED_VIDEO] Scheduled stop (grace period started)")
 }
 
 // doStop performs the actual pipeline stop after grace period expires.
@@ -399,7 +430,7 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 	case <-pending.cancelCh:
 		// Cancelled - GetOrCreate closed this channel
 		r.mu.Unlock()
-		fmt.Printf("[SHARED_VIDEO] Stop cancelled for node %d (client reconnected during grace period)\n", pending.nodeID)
+		log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Stop cancelled (client reconnected during grace period)")
 		return
 	default:
 	}
@@ -409,7 +440,7 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 	currentPending, exists := r.pendingStops[pending.nodeID]
 	if !exists || currentPending != pending {
 		r.mu.Unlock()
-		fmt.Printf("[SHARED_VIDEO] Stop superseded for node %d\n", pending.nodeID)
+		log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Stop superseded")
 		return
 	}
 
@@ -418,10 +449,10 @@ func (r *SharedVideoSourceRegistry) doStop(pending *pendingStop) {
 	r.mu.Unlock()
 
 	// Stop the pipeline (outside lock - may take time for cleanup)
-	fmt.Printf("[SHARED_VIDEO] Grace period expired for node %d, stopping pipeline\n", pending.nodeID)
+	log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Grace period expired, stopping pipeline")
 	pending.source.stop()
 	r.completedStops.Add(1)
-	fmt.Printf("[SHARED_VIDEO] Pipeline stopped for node %d\n", pending.nodeID)
+	log.Info().Uint32("node_id", pending.nodeID).Msg("[SHARED_VIDEO] Pipeline stopped")
 }
 
 // Remove immediately removes and stops a SharedVideoSource from the registry.
@@ -435,7 +466,7 @@ func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {
 	if source, exists := r.sources[nodeID]; exists {
 		delete(r.sources, nodeID)
 		source.stop()
-		fmt.Printf("[SHARED_VIDEO] Immediately removed source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Immediately removed source")
 		return
 	}
 
@@ -445,8 +476,51 @@ func (r *SharedVideoSourceRegistry) Remove(nodeID uint32) {
 		close(pending.cancelCh)
 		delete(r.pendingStops, nodeID)
 		pending.source.stop()
-		fmt.Printf("[SHARED_VIDEO] Immediately removed pending source for node %d\n", nodeID)
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Immediately removed pending source")
 	}
+}
+
+// recordPipelineFailure records a pipeline start failure for the circuit breaker.
+// Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) recordPipelineFailure(nodeID uint32) {
+	r.failureCounts[nodeID]++
+	count := r.failureCounts[nodeID]
+	if count >= maxConsecutiveFailures {
+		cooldownUntil := time.Now().Add(circuitBreakerCooldown)
+		r.failureCooldown[nodeID] = cooldownUntil
+		log.Warn().
+			Uint32("node_id", nodeID).
+			Int("failures", count).
+			Time("cooldown_until", cooldownUntil).
+			Msg("[SHARED_VIDEO] Circuit breaker OPEN")
+	}
+}
+
+// recordPipelineSuccess resets the circuit breaker for a node after successful start.
+// Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) recordPipelineSuccess(nodeID uint32) {
+	if r.failureCounts[nodeID] > 0 {
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Circuit breaker RESET (pipeline started successfully)")
+	}
+	delete(r.failureCounts, nodeID)
+	delete(r.failureCooldown, nodeID)
+}
+
+// isCircuitBreakerOpen returns true if the circuit breaker is open (too many failures)
+// and the cooldown hasn't expired yet. Must be called with r.mu held.
+func (r *SharedVideoSourceRegistry) isCircuitBreakerOpen(nodeID uint32) bool {
+	cooldownUntil, exists := r.failureCooldown[nodeID]
+	if !exists {
+		return false
+	}
+	if time.Now().After(cooldownUntil) {
+		// Cooldown expired, allow one retry
+		delete(r.failureCooldown, nodeID)
+		r.failureCounts[nodeID] = maxConsecutiveFailures - 1 // allow one attempt
+		log.Info().Uint32("node_id", nodeID).Msg("[SHARED_VIDEO] Circuit breaker cooldown expired, allowing retry")
+		return false
+	}
+	return true
 }
 
 // SourceStats contains statistics for a single shared video source
@@ -540,8 +614,10 @@ func (r *SharedVideoSourceRegistry) Shutdown() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	fmt.Printf("[SHARED_VIDEO] Registry shutdown: %d active sources, %d pending stops\n",
-		len(r.sources), len(r.pendingStops))
+	log.Info().
+		Int("active_sources", len(r.sources)).
+		Int("pending_stops", len(r.pendingStops)).
+		Msg("[SHARED_VIDEO] Registry shutdown")
 
 	// Cancel all pending stop timers
 	for nodeID, pending := range r.pendingStops {
@@ -557,7 +633,7 @@ func (r *SharedVideoSourceRegistry) Shutdown() {
 		delete(r.sources, nodeID)
 	}
 
-	fmt.Printf("[SHARED_VIDEO] Registry shutdown complete\n")
+	log.Info().Msg("[SHARED_VIDEO] Registry shutdown complete")
 }
 
 // Subscribe registers a new client to receive video frames.
@@ -600,6 +676,19 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 
 	// Start pipeline on first client (only if not already running)
 	if existingClients == 0 && !pipelineAlreadyRunning {
+		// Check circuit breaker before attempting pipeline creation.
+		// This prevents rapid reconnect loops from creating hundreds of
+		// pipelines that each leak GPU memory when they fail to start.
+		registry := GetSharedVideoRegistry()
+		registry.mu.Lock()
+		if registry.isCircuitBreakerOpen(s.nodeID) {
+			registry.mu.Unlock()
+			close(client.frameCh)
+			close(client.errorCh)
+			return nil, nil, 0, fmt.Errorf("pipeline creation blocked: too many consecutive failures for node %d (cooldown active)", s.nodeID)
+		}
+		registry.mu.Unlock()
+
 		// First client - add to map, start pipeline, no catchup needed (no GOP yet)
 		// Set state to live directly since there's nothing to catch up on
 		client.state.Store(clientStateLive)
@@ -608,7 +697,10 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 		s.clients[clientID] = client
 		s.clientsMu.Unlock()
 
-		fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (first client, starting pipeline)\n", clientID, s.nodeID)
+		log.Info().
+			Uint64("client_id", clientID).
+			Uint32("node_id", s.nodeID).
+			Msg("[SHARED_VIDEO] Client subscribed (first client, starting pipeline)")
 
 		if err := s.start(); err != nil {
 			s.clientsMu.Lock()
@@ -616,8 +708,19 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 			s.clientsMu.Unlock()
 			close(client.frameCh)
 			close(client.errorCh)
+
+			// Record failure for circuit breaker
+			registry.mu.Lock()
+			registry.recordPipelineFailure(s.nodeID)
+			registry.mu.Unlock()
+
 			return nil, nil, 0, fmt.Errorf("start pipeline: %w", err)
 		}
+
+		// Pipeline started successfully — reset circuit breaker
+		registry.mu.Lock()
+		registry.recordPipelineSuccess(s.nodeID)
+		registry.mu.Unlock()
 	} else {
 		// Subsequent client - needs catchup
 		// Check if pipeline had a start error
@@ -638,11 +741,16 @@ func (s *SharedVideoSource) Subscribe() (<-chan VideoFrame, <-chan error, uint64
 		s.clientsMu.Unlock()
 
 		if existingClients == 0 && pipelineAlreadyRunning {
-			fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (grace period reconnection, starting catchup)\n",
-				clientID, s.nodeID)
+			log.Info().
+				Uint64("client_id", clientID).
+				Uint32("node_id", s.nodeID).
+				Msg("[SHARED_VIDEO] Client subscribed (grace period reconnection, starting catchup)")
 		} else {
-			fmt.Printf("[SHARED_VIDEO] Client %d subscribed to node %d (total: %d, starting catchup)\n",
-				clientID, s.nodeID, clientCount)
+			log.Info().
+				Uint64("client_id", clientID).
+				Uint32("node_id", s.nodeID).
+				Int("total", clientCount).
+				Msg("[SHARED_VIDEO] Client subscribed (starting catchup)")
 		}
 
 		// Start catchup goroutine in background
@@ -712,8 +820,11 @@ func (s *SharedVideoSource) Unsubscribe(clientID uint64) {
 	s.clientsMu.Unlock()
 
 	if exists {
-		fmt.Printf("[SHARED_VIDEO] Client %d unsubscribed from node %d (remaining: %d)\n",
-			clientID, s.nodeID, remaining)
+		log.Info().
+			Uint64("client_id", clientID).
+			Uint32("node_id", s.nodeID).
+			Int("remaining", remaining).
+			Msg("[SHARED_VIDEO] Client unsubscribed")
 	}
 
 	// If no more clients, schedule stop (with grace period for reconnection)
@@ -740,14 +851,16 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 	copy(gopCopy, s.gopBuffer)
 	s.gopBufferMu.RUnlock()
 
-	fmt.Printf("[SHARED_VIDEO] Client %d catchup started: %d GOP frames to replay\n",
-		client.id, len(gopCopy))
+	log.Info().
+		Uint64("client_id", client.id).
+		Int("gop_frames", len(gopCopy)).
+		Msg("[SHARED_VIDEO] Client catchup started")
 
 	// Phase 2: Send GOP frames to client channel (marked as replay for decoder warmup)
 	for i, frame := range gopCopy {
 		// Check if client was closed externally
 		if client.state.Load() == clientStateClosed {
-			fmt.Printf("[SHARED_VIDEO] Client %d catchup aborted: client closed\n", client.id)
+			log.Info().Uint64("client_id", client.id).Msg("[SHARED_VIDEO] Client catchup aborted: client closed")
 			return
 		}
 
@@ -759,8 +872,11 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 		case client.frameCh <- replayFrame:
 			// Frame sent successfully
 		case <-timeout:
-			fmt.Printf("[SHARED_VIDEO] Client %d catchup timeout at GOP frame %d/%d\n",
-				client.id, i, len(gopCopy))
+			log.Warn().
+				Uint64("client_id", client.id).
+				Int("at", i).
+				Int("total", len(gopCopy)).
+				Msg("[SHARED_VIDEO] Client catchup timeout at GOP frame")
 			s.disconnectClient(client.id)
 			return
 		}
@@ -773,7 +889,7 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 	for {
 		// Check if client was closed externally
 		if client.state.Load() == clientStateClosed {
-			fmt.Printf("[SHARED_VIDEO] Client %d catchup aborted: client closed during drain\n", client.id)
+			log.Info().Uint64("client_id", client.id).Msg("[SHARED_VIDEO] Client catchup aborted: client closed during drain")
 			return
 		}
 
@@ -786,13 +902,17 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 				client.pending = nil // Release pending buffer memory
 				client.pendingMu.Unlock()
 				elapsed := time.Since(startTime)
-				fmt.Printf("[SHARED_VIDEO] Client %d catchup complete: %d GOP + %d pending frames in %v\n",
-					client.id, len(gopCopy), drainedCount, elapsed)
+				log.Info().
+					Uint64("client_id", client.id).
+					Int("gop_frames", len(gopCopy)).
+					Int("pending_frames", drainedCount).
+					Dur("elapsed", elapsed).
+					Msg("[SHARED_VIDEO] Client catchup complete")
 				return
 			}
 			// CAS failed - client was closed by someone else
 			client.pendingMu.Unlock()
-			fmt.Printf("[SHARED_VIDEO] Client %d catchup: CAS to live failed (closed externally)\n", client.id)
+			log.Warn().Uint64("client_id", client.id).Msg("[SHARED_VIDEO] Client catchup: CAS to live failed (closed externally)")
 			return
 		}
 
@@ -808,8 +928,10 @@ func (s *SharedVideoSource) runCatchup(client *sharedVideoClient) {
 		case client.frameCh <- frame:
 			// Frame sent successfully
 		case <-timeout:
-			fmt.Printf("[SHARED_VIDEO] Client %d catchup timeout draining pending (drained %d)\n",
-				client.id, drainedCount)
+			log.Warn().
+				Uint64("client_id", client.id).
+				Int("drained", drainedCount).
+				Msg("[SHARED_VIDEO] Client catchup timeout draining pending")
 			s.disconnectClient(client.id)
 			return
 		}
@@ -825,14 +947,14 @@ func (s *SharedVideoSource) start() error {
 	s.startOnce.Do(func() {
 		if s.externalSource != nil {
 			// External source mode (e.g., ScanoutSource) — no GStreamer pipeline
-			fmt.Printf("[SHARED_VIDEO] Starting external source for node %d\n", s.nodeID)
+			log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Starting external source")
 			s.running.Store(true)
 			s.wg.Add(1)
 			go s.broadcastFrames()
 		} else {
 			// GStreamer pipeline mode
-			fmt.Printf("[SHARED_VIDEO] Starting pipeline for node %d\n", s.nodeID)
-			fmt.Printf("[SHARED_VIDEO] Pipeline: %s\n", s.pipelineStr)
+			log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Starting pipeline")
+			log.Info().Str("pipeline", s.pipelineStr).Msg("[SHARED_VIDEO] Pipeline string")
 
 			var err error
 			s.pipeline, err = NewGstPipelineWithOptions(s.pipelineStr, s.pipelineOpts)
@@ -842,6 +964,11 @@ func (s *SharedVideoSource) start() error {
 			}
 
 			if err = s.pipeline.Start(s.ctx); err != nil {
+				// Clean up the pipeline that was created but failed to start.
+				// Without this, the CUDA context and NVENC session allocated during
+				// NewGstPipelineWithOptions would leak GPU memory.
+				s.pipeline.Stop()
+				s.pipeline = nil
 				startErr = fmt.Errorf("start pipeline: %w", err)
 				return
 			}
@@ -902,6 +1029,8 @@ func (s *SharedVideoSource) restartPipeline() (*GstPipeline, error) {
 	}
 
 	if err = newPipeline.Start(s.ctx); err != nil {
+		// Clean up pipeline that was created but failed to start
+		newPipeline.Stop()
 		return nil, fmt.Errorf("start pipeline: %w", err)
 	}
 
@@ -943,7 +1072,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 	for {
 		select {
 		case <-s.ctx.Done():
-			fmt.Printf("[SHARED_VIDEO] Broadcast stopped (context cancelled) for node %d\n", s.nodeID)
+			log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Broadcast stopped (context cancelled)")
 			return
 
 		case <-keepaliveTimer.C:
@@ -983,19 +1112,24 @@ func (s *SharedVideoSource) broadcastFrames() {
 			}
 
 			if restartCount >= maxStallRestarts {
-				fmt.Printf("[SHARED_VIDEO] Max stall restarts (%d) reached for node %d, giving up\n",
-					maxStallRestarts, s.nodeID)
+				log.Error().
+					Int("max_restarts", maxStallRestarts).
+					Uint32("node_id", s.nodeID).
+					Msg("[SHARED_VIDEO] Max stall restarts reached, giving up")
 				stallTimer.Reset(stallRestartTimeout)
 				continue
 			}
 
 			restartCount++
-			fmt.Printf("[SHARED_VIDEO] Pipeline stall detected for node %d (no frames for %v, restart #%d)\n",
-				s.nodeID, stallRestartTimeout, restartCount)
+			log.Warn().
+				Uint32("node_id", s.nodeID).
+				Dur("no_frames_for", stallRestartTimeout).
+				Int("restart", restartCount).
+				Msg("[SHARED_VIDEO] Pipeline stall detected")
 
 			newPipeline, err := s.restartPipeline()
 			if err != nil {
-				fmt.Printf("[SHARED_VIDEO] Pipeline restart failed for node %d: %s\n", s.nodeID, err)
+				log.Error().Err(err).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline restart failed")
 				stallTimer.Reset(stallRestartTimeout)
 				continue
 			}
@@ -1006,13 +1140,15 @@ func (s *SharedVideoSource) broadcastFrames() {
 			stallTimer.Reset(stallRestartTimeout)
 
 			if restartCount <= 3 || restartCount%10 == 0 {
-				fmt.Printf("[SHARED_VIDEO] Pipeline restarted for node %d (restart #%d)\n",
-					s.nodeID, restartCount)
+				log.Info().
+					Uint32("node_id", s.nodeID).
+					Int("restart", restartCount).
+					Msg("[SHARED_VIDEO] Pipeline restarted")
 			}
 
 		case pipelineErr := <-errorCh:
 			// Pipeline error (e.g., GPU OOM) - broadcast to all clients
-			fmt.Printf("[SHARED_VIDEO] Pipeline error for node %d: %s\n", s.nodeID, pipelineErr.Error())
+			log.Error().Err(pipelineErr).Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline error")
 			s.broadcastError(pipelineErr)
 			return
 		case frame, ok := <-frameCh:
@@ -1024,18 +1160,22 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 				if s.externalSource != nil {
 					// External sources (scanout) close when disconnected — no restart
-					fmt.Printf("[SHARED_VIDEO] External source channel closed for node %d\n", s.nodeID)
+					log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] External source channel closed")
 					return
 				}
 
 				if hasClients && restartCount < maxStallRestarts {
 					restartCount++
-					fmt.Printf("[SHARED_VIDEO] Pipeline channel closed for node %d, attempting restart #%d\n",
-						s.nodeID, restartCount)
+					log.Warn().
+						Uint32("node_id", s.nodeID).
+						Int("restart", restartCount).
+						Msg("[SHARED_VIDEO] Pipeline channel closed, attempting restart")
 					newPipeline, err := s.restartPipeline()
 					if err != nil {
-						fmt.Printf("[SHARED_VIDEO] Pipeline restart after close failed for node %d: %s\n",
-							s.nodeID, err)
+						log.Error().
+							Err(err).
+							Uint32("node_id", s.nodeID).
+							Msg("[SHARED_VIDEO] Pipeline restart after close failed")
 						return
 					}
 					frameCh = newPipeline.Frames()
@@ -1044,7 +1184,7 @@ func (s *SharedVideoSource) broadcastFrames() {
 					continue
 				}
 
-				fmt.Printf("[SHARED_VIDEO] Pipeline channel closed for node %d\n", s.nodeID)
+				log.Warn().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Pipeline channel closed")
 				return
 			}
 
@@ -1079,8 +1219,12 @@ func (s *SharedVideoSource) broadcastFrames() {
 				s.gopBuffer = nil // Release old slice for GC
 				s.gopBuffer = []VideoFrame{frame}
 				if keyframeCount <= 3 || keyframeCount%100 == 0 {
-					fmt.Printf("[SHARED_VIDEO] New GOP started (keyframe #%d, %d bytes, freed %d frames) for node %d\n",
-						keyframeCount, len(frame.Data), oldLen, s.nodeID)
+					log.Info().
+						Uint64("keyframe", keyframeCount).
+						Int("bytes", len(frame.Data)).
+						Int("freed_frames", oldLen).
+						Uint32("node_id", s.nodeID).
+						Msg("[SHARED_VIDEO] New GOP started")
 				}
 			} else {
 				// Append P-frame to current GOP
@@ -1161,19 +1305,27 @@ func (s *SharedVideoSource) broadcastFrames() {
 
 			// Disconnect slow/overflow clients (outside of RLock to avoid deadlock)
 			for _, clientID := range slowClients {
-				slog.Warn("[SHARED_VIDEO] Disconnecting slow client", "client_id", clientID, "consecutive_frames_dropped", slowClientThreshold)
+				log.Warn().
+					Uint64("client_id", clientID).
+					Int("consecutive_frames_dropped", slowClientThreshold).
+					Msg("[SHARED_VIDEO] Disconnecting slow client")
 				s.disconnectClient(clientID)
 			}
 			for _, clientID := range pendingOverflow {
-				fmt.Printf("[SHARED_VIDEO] Disconnecting client %d (pending buffer overflow, max %d frames)\n",
-					clientID, maxPendingSize)
+				log.Warn().
+					Uint64("client_id", clientID).
+					Int("max_pending_frames", maxPendingSize).
+					Msg("[SHARED_VIDEO] Disconnecting client (pending buffer overflow)")
 				s.disconnectClient(clientID)
 			}
 
 			// Log periodically
 			if frameCount == 1 || frameCount%300 == 0 {
-				fmt.Printf("[SHARED_VIDEO] Broadcast frame %d to %d clients (node %d)\n",
-					frameCount, clientCount, s.nodeID)
+				log.Info().
+					Uint64("frame", frameCount).
+					Int("clients", clientCount).
+					Uint32("node_id", s.nodeID).
+					Msg("[SHARED_VIDEO] Broadcast frame")
 			}
 		}
 	}
@@ -1198,7 +1350,7 @@ func (s *SharedVideoSource) broadcastError(err error) {
 		// Non-blocking send to error channel (buffer size 1)
 		select {
 		case client.errorCh <- err:
-			fmt.Printf("[SHARED_VIDEO] Error sent to client %d: %s\n", client.id, err.Error())
+			log.Error().Err(err).Uint64("client_id", client.id).Msg("[SHARED_VIDEO] Error sent to client")
 		default:
 			// Channel full - error already queued
 		}
@@ -1217,7 +1369,7 @@ func (s *SharedVideoSource) GetLastError() error {
 // Uses CAS to ensure each channel is closed exactly once.
 func (s *SharedVideoSource) stop() {
 	s.stopOnce.Do(func() {
-		fmt.Printf("[SHARED_VIDEO] Stopping source for node %d\n", s.nodeID)
+		log.Info().Uint32("node_id", s.nodeID).Msg("[SHARED_VIDEO] Stopping source")
 		s.running.Store(false)
 		s.cancel()
 

@@ -550,6 +550,9 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                               >
                                 <Typography variant="body2" color="white">
                                   Source: {chunk.source}
+                                  {chunk.metadata?.page_number && (
+                                    <> (page {chunk.metadata.page_number})</>
+                                  )}
                                   <br />
                                   Content: {chunk.content.substring(0, 50)}...
                                 </Typography>

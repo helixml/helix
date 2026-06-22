@@ -210,7 +210,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 // middlewareMessageEvent - processes message events that are part of the thread. This ensures
 // agent can continue the conversation that the user has started
 func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketmode.Client) {
-	log.Debug().Str("app_id", s.app.ID).Msg("middlewareMessageEvent received")
+	log.Trace().Str("app_id", s.app.ID).Msg("middlewareMessageEvent received")
 
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
@@ -241,7 +241,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 
 	// Skip messages without text
 	if ev.Text == "" {
-		log.Debug().Str("app_id", s.app.ID).Msg("Skipping empty message")
+		log.Trace().Str("app_id", s.app.ID).Msg("Skipping empty message")
 		return
 	}
 

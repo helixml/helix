@@ -2,15 +2,18 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/bitbucket"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/agent/skill/gitlab"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	gh "github.com/google/go-github/v57/github"
@@ -18,9 +21,44 @@ import (
 	gl "github.com/xanzy/go-gitlab"
 )
 
+// rateLimitFallbackBackoff is used when GitHub returns a rate-limit / abuse error
+// without a usable reset time. We back off for this long before retrying.
+const rateLimitFallbackBackoff = 5 * time.Minute
+
+// OAuthRequiredError is returned when a user-initiated action requires
+// a GitHub OAuth connection that the acting user does not have.
+type OAuthRequiredError struct {
+	ProviderType string
+}
+
+func (e *OAuthRequiredError) Error() string {
+	return fmt.Sprintf("%s OAuth connection required to open a PR under your account", e.ProviderType)
+}
+
+// ValidateUserGitHubOAuth checks whether the acting user has a GitHub OAuth
+// connection. Returns OAuthRequiredError if the user needs to connect.
+// Returns nil for empty userID (agent path) or non-GitHub repos.
+func (s *GitRepositoryService) ValidateUserGitHubOAuth(ctx context.Context, repo *types.GitRepository, userID string) error {
+	if userID == "" || repo.ExternalType != types.ExternalRepositoryTypeGitHub {
+		return nil
+	}
+	connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+		UserID: userID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check OAuth connections: %w", err)
+	}
+	for _, conn := range connections {
+		if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+			return nil
+		}
+	}
+	return &OAuthRequiredError{ProviderType: "github"}
+}
+
 // CreatePullRequest opens a pull request in the external repository. Should be called after the changes are committed to the local repository and
 // it has been pushed to the external repository.
-func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string) (string, error) {
+func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID string, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("repository not found: %w", err)
@@ -30,11 +68,16 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 		return "", fmt.Errorf("repository is not external, cannot create pull request")
 	}
 
+	// Drop any cached PR list for this repo so the next read sees the new PR.
+	if s.prListCache != nil {
+		s.prListCache.invalidate(repoID)
+	}
+
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
 		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeGitHub:
-		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch)
+		return s.createGitHubPullRequest(ctx, repo, title, description, sourceBranch, targetBranch, userID)
 	case types.ExternalRepositoryTypeGitLab:
 		return s.createGitLabMergeRequest(ctx, repo, title, description, sourceBranch, targetBranch)
 	case types.ExternalRepositoryTypeBitbucket:
@@ -55,6 +98,11 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 		return fmt.Errorf("repository is not external")
 	}
 
+	// Drop any cached PR list for this repo so the next read reflects the update.
+	if s.prListCache != nil {
+		s.prListCache.invalidate(repoID)
+	}
+
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeGitHub:
 		return s.updateGitHubPullRequest(ctx, repo, prNumber, title, description)
@@ -70,7 +118,7 @@ func (s *GitRepositoryService) UpdatePullRequest(ctx context.Context, repoID str
 }
 
 func (s *GitRepositoryService) updateGitHubPullRequest(ctx context.Context, repo *types.GitRepository, prNumber int, title string, description string) error {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return err
 	}
@@ -181,6 +229,41 @@ func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context,
 }
 
 func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
+	if s.prListCache != nil {
+		if prs, cachedErr, ok := s.prListCache.get(repoID); ok {
+			return prs, cachedErr
+		}
+	}
+
+	prs, err := s.listPullRequestsUncached(ctx, repoID)
+	if s.prListCache == nil {
+		return prs, err
+	}
+
+	if err != nil {
+		// Cache rate-limit / abuse errors until their reset window so we don't
+		// re-hit the upstream from every concurrent caller while the limit is
+		// still in effect. Other errors are not cached so transient failures
+		// retry on the next call.
+		if backoffUntil, ok := rateLimitBackoffUntil(err); ok {
+			s.prListCache.setError(repoID, err, backoffUntil)
+			log.Warn().
+				Err(err).
+				Str("repo_id", repoID).
+				Dur("reset_in", time.Until(backoffUntil)).
+				Msg("GitHub rate limit hit; backing off ListPullRequests for this repo")
+		}
+		return nil, err
+	}
+
+	s.prListCache.set(repoID, prs)
+	return prs, nil
+}
+
+// listPullRequestsUncached performs the actual upstream PR list call, dispatched
+// by the repository's external provider type. ListPullRequests wraps this with
+// the prListCache.
+func (s *GitRepositoryService) listPullRequestsUncached(ctx context.Context, repoID string) ([]*types.PullRequest, error) {
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository not found: %w", err)
@@ -202,6 +285,28 @@ func (s *GitRepositoryService) ListPullRequests(ctx context.Context, repoID stri
 	default:
 		return nil, fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
+}
+
+// rateLimitBackoffUntil inspects err for a GitHub rate-limit / abuse error and,
+// if found, returns the time at which we should retry. Falls back to a fixed
+// 5-minute backoff if no reset time is available on the error.
+func rateLimitBackoffUntil(err error) (time.Time, bool) {
+	var rl *gh.RateLimitError
+	if errors.As(err, &rl) {
+		reset := rl.Rate.Reset.Time
+		if reset.IsZero() || reset.Before(time.Now()) {
+			reset = time.Now().Add(rateLimitFallbackBackoff)
+		}
+		return reset, true
+	}
+	var abuse *gh.AbuseRateLimitError
+	if errors.As(err, &abuse) {
+		if abuse.RetryAfter != nil && *abuse.RetryAfter > 0 {
+			return time.Now().Add(*abuse.RetryAfter), true
+		}
+		return time.Now().Add(rateLimitFallbackBackoff), true
+	}
+	return time.Time{}, false
 }
 
 func pullRequestStateFromAzureDevOps(state string) types.PullRequestState {
@@ -395,6 +500,10 @@ func (s *GitRepositoryService) getAzureDevOpsPullRequest(ctx context.Context, re
 		pr.URL = fmt.Sprintf("%s/pullrequest/%d", repo.ExternalURL, *adoPR.PullRequestId)
 	}
 
+	if adoPR.LastMergeSourceCommit != nil && adoPR.LastMergeSourceCommit.CommitId != nil {
+		pr.HeadSHA = *adoPR.LastMergeSourceCommit.CommitId
+	}
+
 	return pr, nil
 }
 
@@ -483,12 +592,30 @@ func (s *GitRepositoryService) getAzureDevOpsClient(ctx context.Context, repo *t
 
 // GitHub Pull Request Operations
 
-func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository) (*github.Client, error) {
+func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.GitRepository, userID string) (*github.Client, error) {
 	// Get GitHub Enterprise base URL if configured
 	var baseURL string
 	if repo.GitHub != nil {
 		baseURL = repo.GitHub.BaseURL
 	}
+
+	// If a specific user is acting, use their OAuth connection or fail
+	if userID != "" {
+		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
+			UserID: userID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+		}
+		for _, conn := range connections {
+			if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
+				return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
+			}
+		}
+		return nil, &OAuthRequiredError{ProviderType: "github"}
+	}
+
+	// Agent/automated path: repo-level credential fallback chain
 
 	// First check for GitHub App authentication (service-to-service)
 	// This takes priority as it's the recommended approach for automated systems
@@ -521,8 +648,8 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 	return nil, fmt.Errorf("no GitHub authentication configured - provide a Personal Access Token, GitHub App, or connect via OAuth")
 }
 
-func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string) (string, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
+	client, err := s.getGitHubClient(ctx, repo, userID)
 	if err != nil {
 		return "", err
 	}
@@ -548,7 +675,7 @@ func (s *GitRepositoryService) createGitHubPullRequest(ctx context.Context, repo
 }
 
 func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo *types.GitRepository) ([]*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +722,7 @@ func (s *GitRepositoryService) listGitHubPullRequests(ctx context.Context, repo 
 }
 
 func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *types.GitRepository, number int) (*types.PullRequest, error) {
-	client, err := s.getGitHubClient(ctx, repo)
+	client, err := s.getGitHubClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -619,6 +746,7 @@ func (s *GitRepositoryService) getGitHubPullRequest(ctx context.Context, repo *t
 		SourceBranch: ghPR.GetHead().GetRef(),
 		TargetBranch: ghPR.GetBase().GetRef(),
 		URL:          ghPR.GetHTMLURL(),
+		HeadSHA:      ghPR.GetHead().GetSHA(),
 	}
 
 	if ghPR.GetUser() != nil {
@@ -813,6 +941,7 @@ func (s *GitRepositoryService) getGitLabMergeRequest(ctx context.Context, repo *
 		SourceBranch: glMR.SourceBranch,
 		TargetBranch: glMR.TargetBranch,
 		URL:          glMR.WebURL,
+		HeadSHA:      glMR.SHA,
 	}
 
 	if glMR.Author != nil {

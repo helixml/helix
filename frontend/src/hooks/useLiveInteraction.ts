@@ -123,16 +123,23 @@ const useLiveInteraction = (
   const message =
     completedMessage || safeResponseMessage || lastKnownMessage || "";
 
-  // Response entries: prefer completed interaction's entries (from DB, fully corrected),
-  // then fall back to streaming entries from currentResponses (built from entry_patches)
+  // Response entries for completed interactions: prefer entries from currentResponses
+  // (set directly from the interaction_update WebSocket event) over initialInteraction
+  // (from the React Query cache / 3s poll). The 3s poll can overwrite the cache with
+  // stale pre-completion data, whereas currentResponses is always set from the authoritative
+  // interaction_update event which carries the fully corrected final entries.
+  const streamingEntries = interactionMatchesCurrent
+    ? (interaction as any)?.response_entries as ResponseEntry[] | undefined
+    : undefined;
   const completedEntries =
     isComplete && (initialInteraction as any)?.response_entries
       ? ((initialInteraction as any).response_entries as ResponseEntry[])
       : undefined;
-  const streamingEntries = interactionMatchesCurrent
-    ? (interaction as any)?.response_entries as ResponseEntry[] | undefined
-    : undefined;
-  const responseEntries = completedEntries || streamingEntries;
+  // For complete interactions, streamingEntries (from interaction_update) takes priority
+  // over completedEntries (from poll) to prevent stale poll data from winning.
+  const responseEntries = isComplete
+    ? (streamingEntries || completedEntries)
+    : (completedEntries || streamingEntries);
 
   const result = {
     // Use interaction message if available, otherwise fall back to preserved message

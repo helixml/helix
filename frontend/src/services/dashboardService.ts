@@ -1,41 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import useApi from "../hooks/useApi";
 
-export const dashboardQueryKey = () => ["dashboard"];
-
-export function useGetDashboardData() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-
-    return useQuery({
-        queryKey: dashboardQueryKey(),
-        queryFn: async () => {
-            const result = await apiClient.v1DashboardList();
-            return result.data;
-        },
-        enabled: true,
-        staleTime: 1000, // 1 second - matches backend update intervals
-        refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
-    });
-}
-
-export function useDeleteSlot() {
-    const api = useApi();
-    const apiClient = api.getApiClient();
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (slotId: string) => {
-            const response = await apiClient.v1SlotsDelete(slotId);
-            return response.data;
-        },
-        onSuccess: () => {
-            // Invalidate dashboard data to refresh the UI
-            queryClient.invalidateQueries({ queryKey: dashboardQueryKey() });
-        },
-    });
-}
-
 /**
  * User list query parameters interface
  * Supports pagination and filtering options
@@ -45,6 +10,8 @@ export interface UserListQuery {
     page?: number;
     /** Number of users per page (max: 200, default: 50) */
     per_page?: number;
+    /** Free-text search across email, username, and full_name (ILIKE). */
+    query?: string;
     /** Filter by email domain (e.g., 'hotmail.com') or exact email */
     email?: string;
     /** Filter by username (partial match) */
@@ -55,6 +22,10 @@ export interface UserListQuery {
     type?: string;
     /** Filter by token type */
     token_type?: string;
+    /** Filter by waitlist status (true = only waitlisted, false = only active) */
+    waitlisted?: boolean;
+    /** Comma-separated list of extras to include (e.g. "trial") */
+    include?: string;
 }
 
 /**
@@ -115,6 +86,23 @@ export function useListUsers(query?: UserListQuery) {
             return response.data;
         },
         placeholderData: (previousData) => previousData, // Keep previous data while fetching new page
+    });
+}
+
+/**
+ * Hook to load per-user admin stats (projects, spec tasks, model usage, last active)
+ */
+export function useUserStats(userId: string | null | undefined) {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: ["user-stats", userId],
+        queryFn: async () => {
+            const response = await apiClient.v1UsersStatsDetail(userId as string);
+            return response.data;
+        },
+        enabled: Boolean(userId),
     });
 }
 
@@ -244,6 +232,116 @@ export function useAdminDeleteUser() {
         },
         onSuccess: () => {
             // Invalidate users list to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+export interface ActivateTrialInput {
+    userId: string;
+    days?: number;
+    credits?: number;
+}
+
+export interface GrantCreditsInput {
+    userId: string;
+    credits: number;
+    // org_id is REQUIRED when the user owns one or more orgs; omitted only
+    // when the grant is stashed against a user who owns no orgs yet.
+    orgId?: string;
+}
+
+export interface OwnedOrgSummary {
+    id: string;
+    name: string;
+    display_name?: string;
+}
+
+/**
+ * Hook to fetch the organisations a target user owns (cloud edition, admin
+ * only). Used by the Grant Credits dialog to populate its org picker so the
+ * admin's choice is explicit rather than a silent "oldest owned" pick.
+ */
+export function useAdminUserOwnedOrgs(userId: string | undefined, enabled: boolean) {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+
+    return useQuery({
+        queryKey: ["admin-user-owned-orgs", userId],
+        enabled: !!userId && enabled,
+        queryFn: async () => {
+            const response = await apiClient.v1AdminUsersOwnedOrgsDetail(userId!);
+            return (response.data as OwnedOrgSummary[]) ?? [];
+        },
+    });
+}
+
+/**
+ * Hook to activate a trial on a user (cloud edition, admin only).
+ * If the user has no orgs yet, the intent is stashed and applied when they
+ * create their first org. Otherwise the Stripe trial subscription is created
+ * on the user's oldest owned org wallet immediately.
+ */
+export function useAdminActivateTrial() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: ActivateTrialInput) => {
+            const response = await apiClient.v1AdminUsersTrialActivateCreate(input.userId, {
+                days: input.days ?? 0,
+                credits: input.credits ?? 0,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
+ * Hook to grant credits to a user (cloud edition, admin only). Unlike
+ * useAdminActivateTrial, this works regardless of subscription state: the
+ * wallet on the user's oldest owned org is topped up directly, or the grant
+ * is stashed on the user if they have no orgs yet.
+ */
+export function useAdminGrantCredits() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: GrantCreditsInput) => {
+            const response = await apiClient.v1AdminUsersCreditsCreate(input.userId, {
+                credits: input.credits,
+                org_id: input.orgId,
+            });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
+ * Hook to revoke a trial on a user (cloud edition, admin only).
+ * Clears any stashed intent and cancels the Stripe subscription if currently
+ * trialing. Paid subscriptions are never cancelled.
+ */
+export function useAdminRevokeTrial() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (userId: string) => {
+            const response = await apiClient.v1AdminUsersTrialActivateDelete(userId);
+            return response.data;
+        },
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users"] });
         },
     });

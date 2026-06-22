@@ -28,13 +28,14 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
   'claude_code': 'Claude Code',
+  'goose_code': 'Goose',
 }
 
 // Generate a nice display name from a model ID
@@ -217,14 +218,14 @@ export const useAppsContext = (): IAppsContext => {
             description: params.description || '',
             avatar: params.avatar || '',
             image: params.image || '',
-            default_agent_type: params.agentType || 'helix_basic',
+            default_agent_type: params.agentType || 'helix_agent',
             assistants: [{
               name: params.name,
               description: '',
               agent_mode: false,
-              agent_type: params.agentType || 'helix_basic',
-              code_agent_runtime: params.codeAgentRuntime || 'zed_agent',
-              code_agent_credential_type: params.codeAgentCredentialType || 'api_key',
+              agent_type: params.agentType || 'helix_agent',
+              code_agent_runtime: params.agentType === 'zed_external' ? (params.codeAgentRuntime || 'zed_agent') : undefined,
+              code_agent_credential_type: params.agentType === 'zed_external' ? (params.codeAgentCredentialType || 'api_key') : undefined,
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,

@@ -51,16 +51,19 @@ import {
 import {
   ServerTaskProgressResponse,
   TypesSpecTaskStatus,
-  TypesAggregatedUsageMetric,
+  ServerBatchTaskUsageMetric,
 } from "../../api/api";
 import UsagePulseChart from "./UsagePulseChart";
+import CIStatusIcon from "./CIStatusIcon";
 import ExternalAgentDesktopViewer from "../external-agent/ExternalAgentDesktopViewer";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import SpecTaskActionButtons from "./SpecTaskActionButtons";
 import AssigneeSelector from "./AssigneeSelector";
 import useAccount from "../../hooks/useAccount";
+import useLightTheme from "../../hooks/useLightTheme";
 import { TypesOrganizationMembership, TypesUser } from "../../api/api";
+import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
 
 // Pulse animation for the active task spinner
 const pulseRing = keyframes`
@@ -87,60 +90,15 @@ const spin = keyframes`
   }
 `;
 
-// Pulse animation for active agent indicator
-const activePulse = keyframes`
+const pulseDot = keyframes`
   0%, 100% {
-    transform: scale(1);
     opacity: 1;
   }
   50% {
-    transform: scale(1.4);
-    opacity: 0.7;
+    opacity: 0.4;
   }
 `;
 
-// Agent work state from backend (replaces timestamp-based heuristics)
-type AgentWorkState = "idle" | "working" | "done";
-
-// Hook to manage agent activity status and attention state
-// Uses backend-tracked agent_work_state instead of timestamp heuristics
-const useAgentActivityCheck = (
-  agentWorkState?: AgentWorkState,
-  enabled: boolean = true,
-): { isActive: boolean; needsAttention: boolean; markAsSeen: () => void } => {
-  const [lastSeenState, setLastSeenState] = useState<AgentWorkState | null>(
-    null,
-  );
-
-  // Agent is active if backend reports it's working
-  const isActive = enabled && agentWorkState === "working";
-
-  // Agent needs attention if:
-  // 1. It's idle or done (not actively working)
-  // 2. User hasn't marked the current state as seen
-  // 3. There IS an agent work state (undefined means no session yet)
-  const needsAttention =
-    enabled &&
-    agentWorkState !== undefined &&
-    agentWorkState !== "working" &&
-    agentWorkState !== lastSeenState;
-
-  const markAsSeen = () => {
-    if (agentWorkState) {
-      setLastSeenState(agentWorkState);
-    }
-  };
-
-  // Reset seen state when agent becomes active again
-  // (so if it goes idle again later, attention dot reappears)
-  useEffect(() => {
-    if (isActive && lastSeenState) {
-      setLastSeenState(null);
-    }
-  }, [isActive, lastSeenState]);
-
-  return { isActive, needsAttention, markAsSeen };
-};
 
 type SpecTaskPhase =
   | "backlog"
@@ -178,6 +136,10 @@ export interface SpecTaskWithExtras {
     pr_number?: number;
     pr_url?: string;
     pr_state?: string;
+    ci_status?: string;
+    ci_url?: string;
+    ci_updated_at?: string;
+    ci_head_sha?: string;
   }>;
   implementation_approved_at?: string;
   // Branch tracking for direct-push detection
@@ -189,13 +151,19 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  // Status tracking
+  status_updated_at?: string;
   // Task number for display
   task_number?: number;
+  description?: string;
+  original_prompt?: string;
   depends_on?: TaskDependency[];
   // Assignee tracking
   assignee_id?: string;
   labels?: string[];
+  created_at?: string;
   updated_at?: string;
+  last_push_at?: string;
 }
 
 export interface TaskDependency {
@@ -209,6 +177,15 @@ export interface KanbanColumn {
   id: SpecTaskPhase;
   limit?: number;
   tasks: SpecTaskWithExtras[];
+}
+
+// Format an ISO timestamp for the title tooltip. Returns null when the input
+// is missing or unparseable so callers can omit the date line cleanly.
+function formatCreatedAt(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 interface TaskCardProps {
@@ -226,13 +203,14 @@ interface TaskCardProps {
   projectId?: string;
   isArchiving?: boolean;
   hasExternalRepo?: boolean;
+  externalRepoType?: string;
   showMetrics?: boolean;
   /** Hide the "Clone to other projects" menu option (used in clone batch progress view) */
   hideCloneOption?: boolean;
   /** Pre-fetched progress data from batch endpoint - required */
   progressData?: ServerTaskProgressResponse;
   /** Pre-fetched usage data from batch endpoint - required */
-  usageData?: TypesAggregatedUsageMetric[];
+  usageData?: ServerBatchTaskUsageMetric[];
   highlightedTaskIds?: string[] | null;
   onDependencyHoverStart?: (taskIds: string[]) => void;
   onDependencyHoverEnd?: () => void;
@@ -240,6 +218,8 @@ interface TaskCardProps {
   focusStartPlanning?: boolean;
   /** Whether the card is currently visible (for virtualization) */
   isVisible?: boolean;
+  /** Unread attention events for this task (agent_interaction_completed events without acknowledged_at) */
+  attentionEvents?: AttentionEvent[];
 }
 
 // Interface for checklist items from API
@@ -275,6 +255,20 @@ const formatDuration = (startedAt: string): string => {
   return `${minutes}m${seconds}s`;
 };
 
+// Status label for tasks in the "implementation" phase. We honour the agent's
+// real activity (working / idle) so the card doesn't keep claiming the agent
+// is busy while it's actually sitting waiting for review. If the sandbox is
+// down or starting, surface that instead.
+const getImplementationLabel = (task: SpecTaskWithExtras): string => {
+  if (task.sandbox_state === "absent") return "Sandbox stopped";
+  if (task.sandbox_state === "starting") {
+    return task.sandbox_status_message || "Starting…";
+  }
+  if (task.agent_work_state === "idle") return "Idle";
+  // "working", missing field, or any unexpected value → keep today's label.
+  return "In Progress";
+};
+
 const useRunningDuration = (
   startedAt: string | undefined,
   enabled: boolean,
@@ -304,6 +298,7 @@ const TaskProgressDisplay: React.FC<{
   checklist: ChecklistProgress;
   phaseColor: string;
 }> = React.memo(({ checklist, phaseColor }) => {
+  const lightTheme = useLightTheme();
   // Find the in-progress task index
   const inProgressIndex = checklist.in_progress_task?.index ?? -1;
 
@@ -345,12 +340,13 @@ const TaskProgressDisplay: React.FC<{
   return (
     <Box
       sx={{
-        mt: 1.5,
+        mt: 1,
         mb: 0.5,
-        background:
-          "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+        background: lightTheme.isLight
+          ? "linear-gradient(145deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.01) 100%)"
+          : "linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
         borderRadius: 2,
-        border: "1px solid rgba(255,255,255,0.06)",
+        border: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.06)'}`,
         overflow: "hidden",
       }}
     >
@@ -358,10 +354,10 @@ const TaskProgressDisplay: React.FC<{
       <Box
         sx={{
           px: 1.5,
-          py: 0.75,
+          py: 0.5,
           background:
             "linear-gradient(90deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.05) 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          borderBottom: `1px solid ${lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)'}`,
           display: "flex",
           alignItems: "center",
           gap: 1,
@@ -374,7 +370,7 @@ const TaskProgressDisplay: React.FC<{
             flex: 1,
             height: 4,
             borderRadius: 2,
-            backgroundColor: "rgba(255,255,255,0.08)",
+            backgroundColor: lightTheme.isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)",
             "& .MuiLinearProgress-bar": {
               background: `linear-gradient(90deg, ${phaseColor}99 0%, ${phaseColor} 100%)`,
               borderRadius: 2,
@@ -385,7 +381,7 @@ const TaskProgressDisplay: React.FC<{
           variant="caption"
           sx={{
             fontSize: "0.65rem",
-            color: "rgba(255,255,255,0.5)",
+            color: lightTheme.isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.5)",
             fontWeight: 600,
             letterSpacing: "0.02em",
             minWidth: 32,
@@ -397,7 +393,7 @@ const TaskProgressDisplay: React.FC<{
       </Box>
 
       {/* Task list with fade effect */}
-      <Box sx={{ py: 0.5 }}>
+      <Box sx={{ py: 0.25 }}>
         {visibleTasks.map((task, idx) => {
           const isActive = task.status === "in_progress";
           const isCompleted =
@@ -410,10 +406,10 @@ const TaskProgressDisplay: React.FC<{
               key={task.index}
               sx={{
                 px: 1.5,
-                py: 0.5,
+                py: 0.25,
                 display: "flex",
                 alignItems: "flex-start",
-                gap: 0.75,
+                gap: 0.5,
                 opacity,
                 transition: "opacity 0.3s ease",
               }}
@@ -421,8 +417,8 @@ const TaskProgressDisplay: React.FC<{
               {/* Status indicator */}
               <Box
                 sx={{
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -432,7 +428,7 @@ const TaskProgressDisplay: React.FC<{
               >
                 {isActive ? (
                   // Animated spinner for active task
-                  <Box sx={{ position: "relative", width: 14, height: 14 }}>
+                  <Box sx={{ position: "relative", width: 12, height: 12 }}>
                     <Box
                       sx={{
                         position: "absolute",
@@ -454,10 +450,10 @@ const TaskProgressDisplay: React.FC<{
                     />
                   </Box>
                 ) : isCompleted ? (
-                  <CheckCircleIcon sx={{ fontSize: 14, color: "#10b981" }} />
+                  <CheckCircleIcon sx={{ fontSize: 12, color: "#10b981" }} />
                 ) : (
                   <UncheckedIcon
-                    sx={{ fontSize: 14, color: "rgba(255,255,255,0.25)" }}
+                    sx={{ fontSize: 12, color: lightTheme.isLight ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.25)" }}
                   />
                 )}
               </Box>
@@ -469,8 +465,8 @@ const TaskProgressDisplay: React.FC<{
                   fontSize: "0.68rem",
                   lineHeight: 1.35,
                   color: isActive
-                    ? "rgba(255,255,255,0.9)"
-                    : "rgba(255,255,255,0.6)",
+                    ? (lightTheme.isLight ? "rgba(0,0,0,0.87)" : "rgba(255,255,255,0.9)")
+                    : (lightTheme.isLight ? "rgba(0,0,0,0.54)" : "rgba(255,255,255,0.6)"),
                   fontWeight: isActive ? 500 : 400,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -478,7 +474,7 @@ const TaskProgressDisplay: React.FC<{
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
                   textDecoration: isCompleted ? "line-through" : "none",
-                  textDecorationColor: "rgba(255,255,255,0.3)",
+                  textDecorationColor: lightTheme.isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)",
                 }}
               >
                 {task.description}
@@ -572,6 +568,7 @@ function TaskCardInner({
   projectId,
   isArchiving = false,
   hasExternalRepo = false,
+  externalRepoType,
   showMetrics = true,
   hideCloneOption = false,
   progressData,
@@ -580,6 +577,7 @@ function TaskCardInner({
   onDependencyHoverStart,
   onDependencyHoverEnd,
   focusStartPlanning = false,
+  attentionEvents = [],
 }: TaskCardProps) {
   const [isStartingPlanning, setIsStartingPlanning] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
@@ -640,17 +638,13 @@ function TaskCardInner({
   const showProgress =
     task.phase === "planning" || task.phase === "implementation";
 
-  // Check agent activity status using backend-tracked work state.
-  // Enabled for ANY phase with a running session, not just planning/implementation,
-  // because every phase can have an active agent container.
-  const { isActive, needsAttention, markAsSeen } = useAgentActivityCheck(
-    task.agent_work_state,
-    !!task.planning_session_id,
-  );
+  const { acknowledge } = useAttentionEvents();
+  const hasUnreadNotification = attentionEvents.length > 0;
+  const isAgentWorking = task.agent_work_state === "working";
 
   const runningDuration = useRunningDuration(
     task.started_at,
-    task.status === "implementation",
+    task.agent_work_state === "working",
   );
   const taskError = task.metadata?.error?.trim();
 
@@ -728,8 +722,7 @@ function TaskCardInner({
 
   // Handle card click - always open task detail view (session viewer)
   const handleCardClick = () => {
-    // Mark attention dot as seen when user clicks to view the task
-    markAsSeen();
+    attentionEvents.forEach((event) => acknowledge(event.id));
     if (onTaskClick) {
       onTaskClick(task);
     }
@@ -770,7 +763,43 @@ function TaskCardInner({
         },
       }}
     >
-      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+      {isAgentWorking ? (
+        <Tooltip title="Agent is running">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "success.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+              animation: `${pulseDot} 1.5s ease-in-out infinite`,
+            }}
+          />
+        </Tooltip>
+      ) : hasUnreadNotification ? (
+        <Tooltip title="Agent finished - click to dismiss">
+          <Box
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: "error.main",
+              zIndex: 1,
+              border: "2px solid",
+              borderColor: "background.paper",
+            }}
+          />
+        </Tooltip>
+      ) : null}
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 4 } }}>
         {/* Task name */}
         <Box
           sx={{
@@ -781,19 +810,34 @@ function TaskCardInner({
             minWidth: 0,
           }}
         >
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 500,
-              flex: 1,
-              minWidth: 0,
-              lineHeight: 1.4,
-              color: "text.primary",
-              wordBreak: "break-word",
-            }}
+          <Tooltip
+            title={
+              <span style={{ whiteSpace: "pre-wrap" }}>
+                {(() => {
+                  const created = formatCreatedAt(task.created_at);
+                  const body = task.original_prompt || task.description || task.name;
+                  return created ? `Created ${created}\n\n${body}` : body;
+                })()}
+              </span>
+            }
+            placement="top"
+            enterDelay={500}
+            arrow
           >
-            {task.name}
-          </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 500,
+                flex: 1,
+                minWidth: 0,
+                lineHeight: 1.4,
+                color: "text.primary",
+                wordBreak: "break-word",
+              }}
+            >
+              {task.name}
+            </Typography>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={(e) => {
@@ -970,50 +1014,23 @@ function TaskCardInner({
         {/* Status row */}
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            {isActive &&
-            task.planning_session_id ? (
-              <Tooltip title="Agent is working">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#22c55e",
-                    animation: `${activePulse} 1.5s ease-in-out infinite`,
-                  }}
-                />
-              </Tooltip>
-            ) : needsAttention &&
-              task.planning_session_id ? (
-              <Tooltip title="Agent finished - click card to dismiss">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    backgroundColor: "#f59e0b",
-                  }}
-                />
-              </Tooltip>
-            ) : (
-              <CircleIcon
-                sx={{
-                  fontSize: 8,
-                  color:
-                    task.phase === "planning"
-                      ? "#f59e0b"
-                      : task.phase === "review"
-                        ? "#3b82f6"
-                        : task.phase === "implementation"
-                          ? "#10b981"
-                          : task.phase === "pull_request"
-                            ? "#8b5cf6"
-                            : task.phase === "completed"
-                              ? "#6b7280"
-                              : "#9ca3af",
-                }}
-              />
-            )}
+            <CircleIcon
+              sx={{
+                fontSize: 8,
+                color:
+                  task.phase === "planning"
+                    ? "#f59e0b"
+                    : task.phase === "review"
+                      ? "#3b82f6"
+                      : task.phase === "implementation"
+                        ? "#10b981"
+                        : task.phase === "pull_request"
+                          ? "#8b5cf6"
+                          : task.phase === "completed"
+                            ? "#6b7280"
+                            : "#9ca3af",
+              }}
+            />
             <Typography
               variant="caption"
               sx={{
@@ -1029,7 +1046,7 @@ function TaskCardInner({
                   : task.phase === "review"
                     ? "Review"
                     : task.phase === "implementation"
-                      ? "In Progress"
+                      ? getImplementationLabel(task)
                       : task.phase === "pull_request"
                         ? "Pull Request"
                         : "Merged"}
@@ -1042,6 +1059,7 @@ function TaskCardInner({
                 • {runningDuration}
               </Typography>
             )}
+            <CIStatusIcon prs={task.repo_pull_requests} />
           </Box>
 
           {/* Assignee avatar */}
@@ -1079,6 +1097,7 @@ function TaskCardInner({
         <AssigneeSelector
           assigneeId={task.assignee_id}
           members={orgMembers}
+          currentUserId={account.user?.id}
           onAssigneeChange={handleAssigneeChange}
           isLoading={updateSpecTask.isPending}
           anchorEl={assigneeAnchorEl}
@@ -1087,7 +1106,7 @@ function TaskCardInner({
 
         {/* Label chips */}
         {task.labels && task.labels.length > 0 && (
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5 }}>
             {task.labels.map((label) => (
               <Chip key={label} label={label} size="small" variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
             ))}
@@ -1112,7 +1131,7 @@ function TaskCardInner({
         )}
 
         {/* Show task error prominently and avoid desktop viewer when errored */}
-        {taskError && (
+        {taskError && task.phase !== "completed" && (
           <Box
             sx={{
               mb: 1,
@@ -1132,12 +1151,38 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Live screenshot for active sessions - click opens desktop viewer */}
-        {/* Don't show for completed/merged tasks - the container is shut down */}
+        {/* Queued state: waiting for orchestrator to create session */}
+        {isQueued && !task.planning_session_id && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mt: 1,
+              px: 0.5,
+            }}
+          >
+            <CircularProgress size={10} thickness={5} />
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+            >
+              Starting desktop...
+            </Typography>
+          </Box>
+        )}
+
+        {/* Live screenshot for active sessions - click opens desktop viewer.
+            Only render when the sandbox is actually live ("running"/"starting").
+            Polling absent sandboxes burns API requests and dumps a fleet of
+            503s in the logs every time the page loads, since each card spins
+            up its own poll loop until it hits one. */}
         {task.planning_session_id &&
           task.phase !== "completed" &&
           !task.merged_to_main &&
-          !taskError && (
+          !taskError &&
+          (task.sandbox_state === "running" ||
+            task.sandbox_state === "starting") && (
             <LiveAgentScreenshot
               sessionId={task.planning_session_id}
               projectId={projectId}
@@ -1230,6 +1275,66 @@ function TaskCardInner({
           </Box>
         )}
 
+        {/* Planning phase - waiting for agent to push specs */}
+        {task.status === "spec_generation" && (
+          <Box sx={{ mt: 1.5 }}>
+            {(() => {
+              // Calculate seconds since spec generation started
+              const statusUpdatedAt = task.status_updated_at
+                ? new Date(task.status_updated_at).getTime()
+                : 0;
+              const secondsSinceStart = statusUpdatedAt
+                ? (Date.now() - statusUpdatedAt) / 1000
+                : 0;
+              const isWaitingTooLong = secondsSinceStart > 120; // 2 minutes
+
+              return isWaitingTooLong ? (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontSize: "0.7rem", display: "block" }}
+                  >
+                    Agent hasn't pushed specs yet. Please check if the agent is
+                    having trouble.
+                  </Typography>
+                </Alert>
+              ) : (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
+                  <CircularProgress size={20} />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: "0.7rem",
+                      color: "text.secondary",
+                      fontStyle: "italic",
+                      textAlign: "center",
+                    }}
+                  >
+                    Waiting for agent to push specs...
+                  </Typography>
+                </Box>
+              );
+            })()}
+            <Box sx={{ mt: 1 }}>
+              <SpecTaskActionButtons
+                task={{
+                  id: task.id,
+                  status: "spec_generation",
+                  archived: task.archived,
+                }}
+                variant="stacked"
+              />
+            </Box>
+          </Box>
+        )}
+
         {/* Review phase - only show button if design docs have been pushed */}
         {task.phase === "review" &&
           task.design_docs_pushed_at &&
@@ -1256,6 +1361,7 @@ function TaskCardInner({
               base_branch: task.base_branch,
               branch_name: task.branch_name,
               archived: task.archived,
+              last_push_at: task.last_push_at,
             }}
             variant="stacked"
             onReject={(shiftKey) => {
@@ -1264,6 +1370,7 @@ function TaskCardInner({
               }
             }}
             hasExternalRepo={hasExternalRepo}
+            externalRepoType={externalRepoType}
             isArchiving={isArchiving}
           />
         )}
@@ -1392,6 +1499,20 @@ function TaskCardInner({
               </>
             ) : (
               (() => {
+                // Show specific error from task metadata if available
+                if (taskError) {
+                  return (
+                    <Alert severity="error" sx={{ py: 0.5 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontSize: "0.7rem", display: "block" }}
+                      >
+                        {taskError}
+                      </Typography>
+                    </Alert>
+                  );
+                }
+
                 // Calculate seconds since approval
                 const approvedAt = task.implementation_approved_at
                   ? new Date(task.implementation_approved_at).getTime()
@@ -1531,6 +1652,15 @@ function TaskCardInner({
   );
 }
 
+// Compact signature of CI state across all PRs — picks up changes to any
+// ci_status / ci_url / ci_head_sha so the card re-renders when CI moves.
+function ciSignature(prs?: SpecTaskWithExtras["repo_pull_requests"]): string {
+  if (!prs || prs.length === 0) return "";
+  return prs
+    .map((p) => `${p.pr_id ?? ""}:${p.ci_status ?? ""}:${p.ci_head_sha ?? ""}`)
+    .join("|");
+}
+
 // Memoized TaskCard to prevent unnecessary re-renders
 const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
   // Only re-render when meaningful props change
@@ -1541,9 +1671,13 @@ const TaskCard = React.memo(TaskCardInner, (prevProps, nextProps) => {
     prevProps.task.agent_work_state === nextProps.task.agent_work_state &&
     prevProps.task.sandbox_state === nextProps.task.sandbox_state &&
     prevProps.task.sandbox_status_message === nextProps.task.sandbox_status_message &&
+    ciSignature(prevProps.task.repo_pull_requests) === ciSignature(nextProps.task.repo_pull_requests) &&
     prevProps.isArchiving === nextProps.isArchiving &&
     prevProps.isVisible === nextProps.isVisible &&
-    prevProps.focusStartPlanning === nextProps.focusStartPlanning
+    prevProps.focusStartPlanning === nextProps.focusStartPlanning &&
+    prevProps.usageData === nextProps.usageData &&
+    prevProps.progressData === nextProps.progressData &&
+    prevProps.attentionEvents?.length === nextProps.attentionEvents?.length
   );
 });
 

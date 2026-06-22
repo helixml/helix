@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 import { Paper, Box, TextField, Button, Typography, CircularProgress } from "@mui/material";
 
 interface InlineCommentFormProps {
@@ -11,6 +11,9 @@ interface InlineCommentFormProps {
   onCancel: () => void;
   isNarrowViewport?: boolean;
   isSubmitting?: boolean;
+  // Optional outer ref used by the parent to measure the rendered form
+  // height — needed so the bubble-stacking algorithm can include this form.
+  outerRef?: (el: HTMLDivElement | null) => void;
 }
 
 export default function InlineCommentForm({
@@ -23,8 +26,24 @@ export default function InlineCommentForm({
   onCancel,
   isNarrowViewport = false,
   isSubmitting = false,
+  outerRef,
 }: InlineCommentFormProps) {
   const paperRef = useRef<HTMLDivElement>(null);
+
+  // Stash the latest outerRef in a ref so setRefs can stay identity-stable
+  // ([] deps) regardless of how the parent declares its callback. If setRefs
+  // gets a new identity on every render, React invokes it with (null) then
+  // (node) each time; combined with outerRef bumping parent state (e.g. a
+  // measure tick), that produces an infinite update loop.
+  const outerRefRef = useRef(outerRef);
+  useEffect(() => {
+    outerRefRef.current = outerRef;
+  }, [outerRef]);
+
+  const setRefs = useCallback((el: HTMLDivElement | null) => {
+    (paperRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    outerRefRef.current?.(el);
+  }, []);
 
   // Auto-scroll to ensure the comment form is visible after it appears
   useEffect(() => {
@@ -55,7 +74,7 @@ export default function InlineCommentForm({
 
   const wideStyles = {
     position: "absolute" as const,
-    left: "670px",
+    left: "820px",
     top: `${yPos}px`,
     width: "300px",
     transform: "none",
@@ -64,7 +83,7 @@ export default function InlineCommentForm({
 
   return (
     <Paper
-      ref={paperRef}
+      ref={setRefs}
       sx={{
         ...(isNarrowViewport ? narrowStyles : wideStyles),
         p: 2,

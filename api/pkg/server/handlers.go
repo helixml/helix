@@ -29,6 +29,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// publicServerURL returns the operator-configured public origin to
+// surface to the frontend. Returns empty string when the config
+// value is missing or points at localhost — both cases signal "the
+// frontend can't trust this; use window.location.origin instead and
+// warn the user if that's also unreachable". Trims trailing slashes
+// so callers can concatenate without doubling up.
+func publicServerURL(raw string) string {
+	raw = strings.TrimSpace(strings.TrimRight(raw, "/"))
+	if raw == "" {
+		return ""
+	}
+	low := strings.ToLower(raw)
+	if strings.Contains(low, "://localhost") || strings.Contains(low, "://127.0.0.1") || strings.Contains(low, "://0.0.0.0") {
+		return ""
+	}
+	return raw
+}
+
 // getConfig godoc
 // @Summary Get config
 // @Description Get config
@@ -51,35 +69,13 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	if apiServer.pingService != nil {
 		latestVersion = apiServer.pingService.GetLatestVersion()
 		deploymentID = apiServer.pingService.GetDeploymentID()
-	}
-
-	// Add license information
-	var licenseInfo *types.FrontendLicenseInfo
-	if apiServer.pingService != nil {
-		decodedLicense, err := apiServer.pingService.GetLicenseInfo(ctx)
-		if err == nil && decodedLicense != nil {
-			licenseInfo = &types.FrontendLicenseInfo{
-				Valid:        decodedLicense.Valid && !decodedLicense.Expired(),
-				Organization: decodedLicense.Organization,
-				ValidUntil:   decodedLicense.ValidUntil,
-				Features: struct {
-					Users bool `json:"users"`
-				}{
-					Users: decodedLicense.Features.Users,
-				},
-				Limits: struct {
-					Users    int64 `json:"users"`
-					Machines int64 `json:"machines"`
-				}{
-					Users:    decodedLicense.Limits.Users,
-					Machines: decodedLicense.Limits.Machines,
-				},
-			}
-		} else {
-			// if license is not valid, allow user to upload a new one
+		// If we cannot decode the license, signal that to the frontend via
+		// deployment_id="unknown" (same wire contract as before). The full
+		// license payload now lives behind auth on /status.
+		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err != nil || decoded == nil {
 			log.Warn().
 				Err(err).
-				Bool("license_nil", decodedLicense == nil).
+				Bool("license_nil", decoded == nil).
 				Msg("license check failed - setting deployment_id to unknown")
 			deploymentID = "unknown"
 		}
@@ -94,7 +90,6 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
-		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
 		RudderStackWriteKey:                    apiServer.Cfg.Janitor.RudderStackWriteKey,
 		RudderStackDataPlaneURL:                apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		ToolsEnabled:                           apiServer.Cfg.Tools.Enabled,
@@ -103,27 +98,40 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		Version:                                currentVersion,
 		LatestVersion:                          latestVersion,
 		DeploymentID:                           deploymentID,
-		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		Edition:                                apiServer.Cfg.Edition,
+		DefaultChatSystemPrompt:                types.DefaultChatSystemPrompt,
+		// ServerURL: operator-configured public origin. Empty when
+		// only the default localhost listen-URL is set, which signals
+		// the frontend to surface its window.location.origin instead
+		// (and to warn the user if that ends up being a localhost
+		// URL that GitHub can't reach).
+		ServerURL: publicServerURL(apiServer.Cfg.WebServer.URL),
 	}
 
 	systemSettings, err := apiServer.Store.GetSystemSettings(ctx)
 	if err != nil {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500(err.Error())
 	}
-	// Override the config with the system settings
 	config.ProvidersManagementEnabled = systemSettings.ProvidersManagementEnabled || apiServer.Cfg.Providers.EnableCustomUserProviders
-	config.MaxConcurrentDesktops = systemSettings.MaxConcurrentDesktops
 
-	// If system settings doesn't have a max, fall back to the free tier config
-	if config.MaxConcurrentDesktops == 0 {
-		config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
-	}
+	// /config is unauthenticated (registered on insecureRouter), so we don't
+	// know which user is calling and can't ask the quota manager for their
+	// resolved cap. Return the Free-tier env value as the floor. Real
+	// enforcement still happens server-side in StartDesktop via the quota
+	// manager, which picks the correct Free or Pro tier per wallet. -1 in
+	// the env means unlimited.
+	config.MaxConcurrentDesktops = apiServer.Cfg.SubscriptionQuotas.Projects.Free.MaxConcurrentDesktops
 
-	// Active session count (from in-memory session tracker)
-	if apiServer.externalAgentExecutor != nil {
-		config.ActiveConcurrentDesktops = len(apiServer.externalAgentExecutor.ListSessions())
+	// Check if any global AI providers are configured on this deployment
+	globalProviders, err := apiServer.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
+		Owner:      string(types.OwnerTypeSystem),
+		WithGlobal: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to check for global providers")
+	} else {
+		config.HasProviders = len(globalProviders) > 0
 	}
 
 	return config, nil
@@ -134,11 +142,50 @@ func (apiServer *HelixAPIServer) config(_ http.ResponseWriter, req *http.Request
 }
 
 
+// status godoc
+// @Summary Get user status
+// @Description Per-user status: credits, admin flag, slug, user config, plus the
+// @Description licence payload (moved here from /api/v1/config so it is not
+// @Description disclosed unauthenticated).
+// @Tags    config
+// @Success 200 {object} types.UserStatus
+// @Router /api/v1/status [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
 
-	return apiServer.Controller.GetStatus(ctx, user)
+	status, err := apiServer.Controller.GetStatus(ctx, user)
+	if err != nil {
+		return status, err
+	}
+
+	// License info moved here from /config so it is not disclosed
+	// unauthenticated. Self-hosted deployments would otherwise leak the
+	// licence org / expiry / seat limits to anyone hitting /api/v1/config.
+	if apiServer.pingService != nil {
+		if decoded, err := apiServer.pingService.GetLicenseInfo(ctx); err == nil && decoded != nil {
+			status.License = &types.FrontendLicenseInfo{
+				Valid:        decoded.Valid && !decoded.Expired(),
+				Organization: decoded.Organization,
+				ValidUntil:   decoded.ValidUntil,
+				Features: struct {
+					Users bool `json:"users"`
+				}{
+					Users: decoded.Features.Users,
+				},
+				Limits: struct {
+					Users    int64 `json:"users"`
+					Machines int64 `json:"machines"`
+				}{
+					Users:    decoded.Limits.Users,
+					Machines: decoded.Limits.Machines,
+				},
+			}
+		}
+	}
+
+	return status, nil
 }
 
 // filestoreConfig godoc
@@ -681,31 +728,19 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	return apiServer.authMiddleware.isAdminWithContext(req.Context(), user.ID)
 }
 
-// dashboard godoc
-// @Summary Get dashboard data
-// @Description Get dashboard data
-// @Tags    dashboard
-
-// @Success 200 {object} types.DashboardData
-// @Router /api/v1/dashboard [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	data, err := apiServer.Controller.GetDashboardData(req.Context())
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
+// Sandbox-absorbs-runner pivot: the legacy /api/v1/dashboard endpoint is
+// gone. The admin UI now reads SandboxInstance + RunnerProfile + the
+// inference router's available-models list directly via their own routes.
 
 // usersList godoc
 // @Summary List users with pagination and filtering
-// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching. Pass `query` to match across email, username, and full_name in one go.
 // @Tags    users
 // @Accept  json
 // @Produce json
 // @Param page query int false "Page number (default: 1)"
 // @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param query query string false "Free-text search across email, username, and full_name (ILIKE)"
 // @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
 // @Param username query string false "Filter by username (partial match)"
 // @Param admin query bool false "Filter by admin status"
@@ -746,6 +781,9 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 
 	// Add filters
+	if q := req.URL.Query().Get("query"); q != "" {
+		query.Query = q
+	}
 	if email := req.URL.Query().Get("email"); email != "" {
 		query.Email = email
 	}
@@ -762,6 +800,11 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
 		query.TokenType = types.TokenType(tokenType)
+	}
+	if w := req.URL.Query().Get("waitlisted"); w != "" {
+		if b, err := strconv.ParseBool(w); err == nil {
+			query.Waitlisted = &b
+		}
 	}
 
 	// Get users from store
@@ -784,6 +827,12 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 				users[i].Admin = true
 				break
 			}
+		}
+	}
+
+	if includes := req.URL.Query().Get("include"); strings.Contains(includes, "trial") {
+		for _, u := range users {
+			apiServer.enrichUserTrialDisplay(ctx, u)
 		}
 	}
 
@@ -818,6 +867,13 @@ func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Req
 
 	if !user.Admin {
 		return nil, system.NewHTTPError403("only admins can create users")
+	}
+
+	if apiServer.Cfg.Auth.Provider == types.AuthProviderOIDC {
+		return nil, system.NewHTTPError400(
+			"User creation is managed by your OIDC provider. " +
+				"Create the user in the OIDC provider's admin console; " +
+				"they will be provisioned in Helix on first login.")
 	}
 
 	var request types.AdminCreateUserRequest
@@ -1034,12 +1090,18 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 		Str("approved_user_email", targetUser.Email).
 		Msg("admin approved user")
 
-	// Send approval notification email
+	// Send approval notification email. If the user had a trial pre-stashed
+	// by admin (via the trial-activate endpoint), surface it in the email.
 	firstName := strings.Split(targetUser.FullName, " ")[0]
+	trialDays := 0
+	if targetUser.TrialDaysOnFirstOrg != nil && *targetUser.TrialDaysOnFirstOrg > 0 {
+		trialDays = *targetUser.TrialDaysOnFirstOrg
+	}
 	notifyErr := apiServer.Controller.Options.Notifier.Notify(ctx, &types.Notification{
 		Event:     types.EventWaitlistApproved,
 		Email:     targetUser.Email,
 		FirstName: firstName,
+		TrialDays: trialDays,
 	})
 	if notifyErr != nil {
 		log.Error().
@@ -1052,49 +1114,8 @@ func (apiServer *HelixAPIServer) adminApproveUser(_ http.ResponseWriter, req *ht
 	return updatedUser, nil
 }
 
-// getSchedulerHeartbeats godoc
-// @Summary Get scheduler goroutine heartbeat status
-// @Description Get the health status of all scheduler goroutines
-// @Tags    dashboard
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/scheduler/heartbeats [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
-}
-
-// deleteSlot godoc
-// @Summary Delete a slot from scheduler state
-// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
-// @Tags    dashboard
-// @Param   slot_id path string true "Slot ID"
-// @Success 200 {object} map[string]interface{}
-// @Router /api/v1/slots/{slot_id} [delete]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
-	vars := mux.Vars(req)
-	slotID := vars["slot_id"]
-
-	if slotID == "" {
-		return nil, fmt.Errorf("slot_id is required")
-	}
-
-	// Parse slot ID as UUID
-	slotUUID, err := uuid.Parse(slotID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid slot_id format: %w", err)
-	}
-	// Delete the slot from scheduler's desired state
-	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete slot: %w", err)
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
-	}, nil
-}
+// Sandbox-absorbs-runner pivot: getSchedulerHeartbeats and deleteSlot
+// removed — there's no scheduler and no slots any more.
 
 // createAPIKey godoc
 // @Summary Create a new API key

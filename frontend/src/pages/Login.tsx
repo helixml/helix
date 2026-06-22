@@ -8,30 +8,33 @@ import Fade from '@mui/material/Fade'
 import CircularProgress from '@mui/material/CircularProgress'
 import type { SxProps, Theme } from '@mui/material'
 
+import { useTheme } from '@mui/material/styles'
+
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import { useGetConfig } from '../services/userService'
-import { TypesAuthProvider, TypesLoginRequest, TypesRegisterRequest } from '../api/api'
+import { TypesAuthProvider, TypesLoginRequest, TypesPublicInvitationInfo, TypesRegisterRequest } from '../api/api'
 
 const LOGIN_REDIRECT_KEY = 'login_redirect_url'
-const BG = '#0d0d1a'
 const ACCENT = '#00E5FF'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const textFieldSx: SxProps<Theme> = {
-  '& .MuiOutlinedInput-root': {
-    '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-    '&:hover fieldset': { borderColor: ACCENT },
-    '&.Mui-focused fieldset': { borderColor: ACCENT },
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: '10px',
-  },
-  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.4)' },
-  '& .MuiInputLabel-root.Mui-focused': { color: ACCENT },
-  '& .MuiOutlinedInput-input': { color: '#F1F1F1' },
+function getTextFieldSx(isLight: boolean): SxProps<Theme> {
+  return {
+    '& .MuiOutlinedInput-root': {
+      '& fieldset': { borderColor: isLight ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)' },
+      '&:hover fieldset': { borderColor: ACCENT },
+      '&.Mui-focused fieldset': { borderColor: ACCENT },
+      backgroundColor: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)',
+      borderRadius: '10px',
+    },
+    '& .MuiInputLabel-root': { color: isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.4)' },
+    '& .MuiInputLabel-root.Mui-focused': { color: ACCENT },
+    '& .MuiOutlinedInput-input': { color: isLight ? '#1A202C' : '#F1F1F1' },
+  }
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -66,6 +69,14 @@ export default function Login() {
   const api = useApi()
   const snackbar = useSnackbar()
   const router = useRouter()
+  const theme = useTheme()
+  const isLight = theme.palette.mode === 'light'
+  const BG = isLight ? '#f5f5f5' : '#0d0d1a'
+  const subtleText = isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)'
+  const mutedText = isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)'
+  const cardBg = isLight ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.03)'
+  const cardBorder = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)'
+  const textFieldSx = getTextFieldSx(isLight)
   const { data: config, isLoading: isLoadingConfig } = useGetConfig()
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
@@ -75,6 +86,15 @@ export default function Login() {
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // When the user arrives via an org invitation link the page switches to
+  // register mode, pre-fills (and locks) the email so they register the
+  // exact address the invitation was sent to, and shows "Join {orgName}"
+  // framing. The invitation ID is the URL param — the backend's public
+  // info endpoint resolves it to email + org name without auth (the ID is
+  // the secret, same as password-reset tokens).
+  const [invitation, setInvitation] = useState<TypesPublicInvitationInfo | null>(null)
+  const [invitationError, setInvitationError] = useState<string | null>(null)
+  const [invitationLoading, setInvitationLoading] = useState(false)
 
   const formRef = useRef<HTMLFormElement>(null)
   const apiClient = api.getApiClient()
@@ -89,6 +109,35 @@ export default function Login() {
     if (!account.user) return
     performPostLoginRedirect()
   }, [account.initialized, account.user])
+
+  // Pick up ?invitation=oin_… from the URL: switch to register mode,
+  // prefill+lock email, and surface the org name. Soft-fails if the
+  // invitation is missing/revoked — user can still register manually.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const invitationId = params.get('invitation')
+    if (!invitationId) return
+
+    setMode('register')
+    setInvitationLoading(true)
+    apiClient.v1InvitationsInfoDetail(invitationId)
+      .then((resp) => {
+        const info = resp.data
+        if (info?.email) {
+          setEmail(info.email)
+        }
+        setInvitation(info)
+        setInvitationError(null)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load invitation info:', err)
+        setInvitationError(extractErrorMessage(err, 'This invitation link is invalid or has expired.'))
+      })
+      .finally(() => setInvitationLoading(false))
+    // We deliberately read the URL once on mount; intentionally omit
+    // dependencies so we don't re-fetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleLogin = useCallback(async () => {
     if (loading) return
@@ -228,25 +277,27 @@ export default function Login() {
               sx={{
                 height: 48,
                 mb: 2,
-                filter: `drop-shadow(0 0 20px ${ACCENT}30)`,
+                filter: isLight ? 'none' : `drop-shadow(0 0 20px ${ACCENT}30)`,
               }}
             />
             <Typography
               sx={{
-                color: 'rgba(255,255,255,0.45)',
+                color: subtleText,
                 fontSize: '0.95rem',
                 letterSpacing: '0.02em',
               }}
             >
-              Sign in to continue
+              {invitation
+                ? `Create your account to join ${invitation.organization_display_name || invitation.organization_name || 'the organization'}`
+                : 'Sign in to continue'}
             </Typography>
           </Box>
 
           {/* Card */}
           <Box
             sx={{
-              bgcolor: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              bgcolor: cardBg,
+              border: `1px solid ${cardBorder}`,
               borderRadius: '16px',
               p: { xs: 3, md: 4 },
             }}
@@ -259,8 +310,26 @@ export default function Login() {
                   </Alert>
                 )}
 
+                {invitationLoading && (
+                  <Alert severity="info" sx={{ mb: 2 }} icon={<CircularProgress size={16} sx={{ color: ACCENT }} />}>
+                    Loading invitation…
+                  </Alert>
+                )}
+                {invitationError && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {invitationError}
+                  </Alert>
+                )}
+                {invitation && !invitationError && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    You've been invited to join{' '}
+                    <strong>{invitation.organization_display_name || invitation.organization_name}</strong>.
+                    Finish creating your account to accept.
+                  </Alert>
+                )}
+
                 <TextField
-                  autoFocus
+                  autoFocus={!invitation}
                   margin="dense"
                   label="Email"
                   type="text"
@@ -268,7 +337,8 @@ export default function Login() {
                   variant="outlined"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={isRegistrationDisabled}
+                  disabled={isRegistrationDisabled || !!invitation}
+                  helperText={invitation ? 'Email is locked to the address the invitation was sent to.' : undefined}
                   inputProps={{
                     id: 'login-email',
                     name: 'username',
@@ -281,6 +351,7 @@ export default function Login() {
 
                 {mode === 'register' && (
                   <TextField
+                    autoFocus={!!invitation}
                     margin="dense"
                     name="name"
                     label="Full Name"
@@ -320,7 +391,7 @@ export default function Login() {
                       size="small"
                       onClick={() => router.navigate('password-reset')}
                       sx={{
-                        color: 'rgba(255,255,255,0.35)',
+                        color: mutedText,
                         textTransform: 'none',
                         fontSize: '0.82rem',
                         minWidth: 'auto',
@@ -383,7 +454,7 @@ export default function Login() {
                 </Button>
 
                 <Box sx={{ textAlign: 'center', mt: 2.5 }}>
-                  <Typography component="span" sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.875rem' }}>
+                  <Typography component="span" sx={{ color: mutedText, fontSize: '0.875rem' }}>
                     {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
                     <Button
                       variant="text"
@@ -418,7 +489,7 @@ export default function Login() {
               <Box sx={{ textAlign: 'center', py: 2 }}>
                 <Typography
                   sx={{
-                    color: 'rgba(255,255,255,0.5)',
+                    color: subtleText,
                     fontSize: '0.95rem',
                     mb: 3,
                     lineHeight: 1.6,

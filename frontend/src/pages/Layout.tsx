@@ -20,6 +20,7 @@ import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
+import HelixOrgSidebar from "../components/orgs/HelixOrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
@@ -39,7 +40,6 @@ import IconButton from "@mui/material/IconButton";
 import CloseIcon from "@mui/icons-material/Close";
 import { LicenseKeyPrompt } from "../components/LicenseKeyPrompt";
 
-import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import FloatingModal from "../components/admin/FloatingModal";
 import { useFloatingModal } from "../contexts/floatingModal";
 import UserOrgSelector from "../components/orgs/UserOrgSelector";
@@ -116,7 +116,7 @@ const SettingsDialogs: FC = () => {
             <AdminPanelSidebar activeTab={adminTab} onTabChange={handleAdminTabChange} />
           </Box>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Dashboard tab={adminTab} />
+            <Dashboard tab={adminTab} initialSessionFilter={dialogOptions.sessionFilter} />
           </Box>
         </Box>
       </FullScreenDialog>
@@ -256,7 +256,6 @@ const Layout: FC<{
   const router = useRouter();
   const account = useAccount();
   const apps = useApps();
-  const floatingRunnerState = useFloatingRunnerState();
   const floatingModal = useFloatingModal();
   const [showVersionBanner, setShowVersionBanner] = useState(true);
   const [licenseGracePeriodExpired, setLicenseGracePeriodExpired] =
@@ -267,7 +266,7 @@ const Layout: FC<{
   const licenseRequired = useMemo(() => {
     return (
       account.serverConfig?.edition !== "mac-desktop" &&
-      ((account.serverConfig?.license && !account.serverConfig.license.valid) ||
+      ((account.license && !account.license.valid) ||
         account.serverConfig?.deployment_id === "unknown")
     );
   }, [account.serverConfig]);
@@ -430,15 +429,29 @@ const Layout: FC<{
       case "org_projects":
         return <ProjectsSidebar />;
 
-      case "org_app":
+      case "helix_org_root":
+      case "helix_org_chart":
+      case "helix_org_roles":
+      case "helix_org_role_detail":
+      case "helix_org_workers":
+      case "helix_org_worker_detail":
+      case "helix_org_settings":
+      case "helix_org_topics":
+      case "helix_org_topic_detail":
+        return <HelixOrgSidebar />;
+
+      case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />;
 
+      case "org_general":
       case "org_settings":
       case "org_people":
       case "org_teams":
       case "org_billing":
+      case "org_usage":
       case "org_api_keys":
+      case "org_providers":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;
@@ -452,10 +465,14 @@ const Layout: FC<{
     }
   }
 
-  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners)
+  // Fullscreen mode: render children without any chrome (sidebar, drawer, banners).
+  // Still include CssBaseline so MUI's typography + body styles apply — without it,
+  // embed pages get browser defaults (Times New Roman, undefined text color → black
+  // on whatever bg the page paints).
   if (router.meta.fullscreen) {
     return (
       <>
+        <CssBaseline />
         {children}
         <Snackbar />
         <GlobalLoading />
@@ -528,13 +545,13 @@ const Layout: FC<{
                 : 64,
               boxSizing: "border-box",
               overflowX: "hidden", // Prevent horizontal scrolling
-              // Mobile gets full height, desktop respects user menu
-              // Use dvh (dynamic viewport height) for iOS Safari compatibility
-              height: isBigScreen
-                ? userMenuHeight > 0
-                  ? `calc(100dvh - ${userMenuHeight}px)`
-                  : "100%"
-                : "100dvh",
+              // Drawer takes full viewport height. The floating user menu is
+              // rendered position: absolute INSIDE the Drawer (in the LEFT
+              // rail), so shrinking the Drawer here would just leave a
+              // visible gap below it. The shrink-by-userMenuHeight happens in
+              // Sidebar.tsx for the secondary nav's content column only.
+              // Use dvh (dynamic viewport height) for iOS Safari compatibility.
+              height: isBigScreen ? "100%" : "100dvh",
               overflowY: "auto", // Both columns scroll together
               display: "flex",
               flexDirection: "row",
@@ -568,11 +585,10 @@ const Layout: FC<{
                 py: 0,
                 ...(shouldShowSidebar
                   ? {
-                      // Only show border when sidebar is visible
                       borderRight: lightTheme.border,
+                      bgcolor: lightTheme.backgroundColor,
                     }
                   : {
-                      // When sidebar is hidden, no border and background
                       bgcolor: lightTheme.backgroundColor,
                     }),
               }}
@@ -614,10 +630,7 @@ const Layout: FC<{
             component="div"
             sx={{
               flexGrow: 1,
-              backgroundColor:
-                theme.palette.mode === "light"
-                  ? themeConfig.lightBackgroundColor
-                  : themeConfig.darkBackgroundColor,
+              backgroundColor: lightTheme.backgroundColor,
               height: "100%",
               minHeight: "100%",
               minWidth: 0,

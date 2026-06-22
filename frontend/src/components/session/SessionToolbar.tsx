@@ -36,7 +36,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import Computer from '@mui/icons-material/Computer'
 
 import { useTheme } from '@mui/material/styles'
-import useThemeConfig from '../../hooks/useThemeConfig'
+import useLightTheme from '../../hooks/useLightTheme'
 
 import {
   TypesSession,
@@ -75,7 +75,7 @@ export const SessionToolbar: FC<{
   const snackbar = useSnackbar()
   const loading = useLoading()
   const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
   const account = useAccount()
   const isBigScreen = useIsBigScreen()
   const { apps } = useApps()
@@ -278,7 +278,7 @@ export const SessionToolbar: FC<{
                     href="#"
                     onClick={(e) => {
                       e.preventDefault()
-                      account.orgNavigate('app', {
+                      account.orgNavigate('agent', {
                         app_id: app.id,
                       })
                     }}
@@ -309,9 +309,9 @@ export const SessionToolbar: FC<{
                     onClick={onCreateNewSession}
                     size="small"
                     sx={{
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      color: lightTheme.icon,
                       '&:hover': {
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        color: lightTheme.iconHover,
                       },
                     }}
                   >
@@ -325,9 +325,9 @@ export const SessionToolbar: FC<{
                     <IconButton
                       size="small"
                       sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        color: lightTheme.icon,
                         '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                          color: lightTheme.iconHover,
                         },
                       }}
                     >
@@ -345,9 +345,9 @@ export const SessionToolbar: FC<{
                     }}
                     size="small"
                     sx={{
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      color: lightTheme.icon,
                       '&:hover': {
-                        color: theme.palette.mode === 'light' ? '#FF0000' : '#FF0000',
+                        color: '#FF0000',
                       },
                     }}
                   >
@@ -397,7 +397,7 @@ export const SessionToolbar: FC<{
                 <ListItemIcon>
                   <Plus size={18} />
                 </ListItemIcon>
-                <ListItemText primary="New Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                <ListItemText primary="New Session" sx={{ color: lightTheme.textColor }} />
               </MenuItem>
               <MenuItem onClick={(e) => {
                 e.preventDefault()
@@ -409,14 +409,14 @@ export const SessionToolbar: FC<{
                 <ListItemIcon>
                   <Folder size={18} />
                 </ListItemIcon>
-                <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                <ListItemText primary="Files" sx={{ color: lightTheme.textColor }} />
               </MenuItem>
               {/* <JsonWindowLink data={session}>
                 <MenuItem>
                   <ListItemIcon>
                     <InfoIcon />
                   </ListItemIcon>
-                  <ListItemText primary="Show Info" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                  <ListItemText primary="Show Info" sx={{ color: lightTheme.textColor }} />
                 </MenuItem>
               </JsonWindowLink> */}
               <MenuItem onClick={(e) => {
@@ -427,7 +427,7 @@ export const SessionToolbar: FC<{
                 <ListItemIcon>
                   <Trash2 size={18} />
                 </ListItemIcon>
-                <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                <ListItemText primary="Delete Session" sx={{ color: lightTheme.textColor }} />
               </MenuItem>
               {isOwner && (
                 <MenuItem onClick={(e) => {
@@ -438,7 +438,7 @@ export const SessionToolbar: FC<{
                   <ListItemIcon>
                     <Share size={18} />
                   </ListItemIcon>
-                  <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                  <ListItemText primary="Share Session" sx={{ color: lightTheme.textColor }} />
                 </MenuItem>
               )}
             </Menu>

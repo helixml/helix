@@ -29,7 +29,9 @@ type Client interface {
 	GetAppAPIKeys(ctx context.Context, appID string) ([]*types.ApiKey, error)
 
 	// Sessions
-	ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error)
+	ListSessions(ctx context.Context, f *SessionFilter) (*types.PaginatedSessionsList, error)
+	GetSession(ctx context.Context, sessionID string) (*types.Session, error)
+	StopExternalAgent(ctx context.Context, sessionID string) error
 
 	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]interface{}) (*types.RunAPIActionResponse, error)
 
@@ -40,8 +42,9 @@ type Client interface {
 	CompleteKnowledgePreparation(ctx context.Context, id string) error
 	SearchKnowledge(ctx context.Context, f *KnowledgeSearchQuery) ([]*types.KnowledgeSearchResult, error)
 
-	ListSecrets(ctx context.Context) ([]*types.Secret, error)
+	ListSecrets(ctx context.Context, f *SecretFilter) ([]*types.Secret, error)
 	CreateSecret(ctx context.Context, secret *types.CreateSecretRequest) (*types.Secret, error)
+	CreateProjectSecret(ctx context.Context, projectID string, secret *types.CreateSecretRequest) (*types.Secret, error)
 	UpdateSecret(ctx context.Context, id string, secret *types.Secret) (*types.Secret, error)
 	DeleteSecret(ctx context.Context, id string) error
 
@@ -51,7 +54,7 @@ type Client interface {
 	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 	FilestoreDelete(ctx context.Context, path string) error
 
-	ListProviderEndpoints(ctx context.Context) ([]*types.ProviderEndpoint, error)
+	ListProviderEndpoints(ctx context.Context, f *ProviderEndpointFilter) ([]*types.ProviderEndpoint, error)
 	GetProviderEndpoint(ctx context.Context, id string) (*types.ProviderEndpoint, error)
 	CreateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
 	UpdateProviderEndpoint(ctx context.Context, endpoint *types.ProviderEndpoint) (*types.ProviderEndpoint, error)
@@ -65,7 +68,7 @@ type Client interface {
 
 	// Organization Members
 	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*types.OrganizationMembership, error)
-	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.OrganizationMembership, error)
+	AddOrganizationMember(ctx context.Context, organizationID string, req *types.AddOrganizationMemberRequest) (*types.AddOrganizationMemberResponse, error)
 	UpdateOrganizationMember(ctx context.Context, organizationID, userID string, req *types.UpdateOrganizationMemberRequest) (*types.OrganizationMembership, error)
 	RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error
 
@@ -83,9 +86,34 @@ type Client interface {
 	UpdateHelixModel(ctx context.Context, id string, model *types.Model) (*types.Model, error)
 	DeleteHelixModel(ctx context.Context, id string) error
 
+	// Git
+	WriteGitFile(ctx context.Context, repoID string, req *types.UpdateGitRepositoryFileContentsRequest) (*types.GitRepositoryFileResponse, error)
+	ReadGitFile(ctx context.Context, repoID, path, branch string) (*types.GitRepositoryFileResponse, error)
+
+	// Projects
+	ApplyProject(ctx context.Context, req *types.ProjectApplyRequest) (*types.ProjectApplyResponse, error)
+
 	// System Settings
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
+
+	// Sandboxes
+	ListSandboxRuntimes(ctx context.Context) ([]string, error)
+	ListSandboxes(ctx context.Context, orgID string, filter *SandboxListFilter) (*types.SandboxListResponse, error)
+	CreateSandbox(ctx context.Context, orgID string, req *types.CreateSandboxRequest) (*types.Sandbox, error)
+	GetSandbox(ctx context.Context, orgID, sandboxID string) (*types.Sandbox, error)
+	UpdateSandbox(ctx context.Context, orgID, sandboxID string, req *types.UpdateSandboxRequest) (*types.Sandbox, error)
+	DeleteSandbox(ctx context.Context, orgID, sandboxID string) error
+	RunSandboxCommand(ctx context.Context, orgID, sandboxID string, req *types.RunSandboxCommandRequest) (*types.SandboxCommand, error)
+	ListSandboxCommands(ctx context.Context, orgID, sandboxID string) ([]*types.SandboxCommand, error)
+	GetSandboxCommand(ctx context.Context, orgID, sandboxID, cmdID string) (*types.SandboxCommand, error)
+	KillSandboxCommand(ctx context.Context, orgID, sandboxID, cmdID, signal string) error
+	StreamSandboxCommandLogs(ctx context.Context, orgID, sandboxID, cmdID, stream string, follow bool) (io.ReadCloser, error)
+	ReadSandboxFile(ctx context.Context, orgID, sandboxID, path string) ([]byte, error)
+	WriteSandboxFile(ctx context.Context, orgID, sandboxID, path string, data []byte, mode int) error
+	DeleteSandboxFile(ctx context.Context, orgID, sandboxID, path string, recursive bool) error
+	ListSandboxFiles(ctx context.Context, orgID, sandboxID, path string) (*types.SandboxFileListResponse, error)
+	GetSandboxScreenshot(ctx context.Context, orgID, sandboxID string, quality int) ([]byte, error)
 
 	// Users
 	ListUsers(ctx context.Context, f *UserFilter) (*types.PaginatedUsersList, error)
@@ -97,8 +125,9 @@ type Client interface {
 
 type SessionFilter struct {
 	OrganizationID string
-	Offset         int
-	Limit          int
+	ProjectID      string
+	Page           int
+	PageSize       int
 }
 
 type UserFilter struct {

@@ -27,13 +27,14 @@ func TestNewKnowledgeSkill(t *testing.T) {
 	// Create a mock RAG client
 	var mockRAG rag.RAG
 
-	skill := NewKnowledgeSkill(mockRAG, knowledge, []string{})
+	skill := NewKnowledgeSkill(mockRAG, knowledge, []string{}, nil)
 	assert.NotNil(t, skill)
 
 	t.Run("BasicProperties", func(t *testing.T) {
 		assert.Equal(t, "Knowledge_Test_Knowledge", skill.Name)
-		assert.Equal(t, "Contains expert knowledge on topics: 'Test knowledge base for testing'", skill.Description)
-		assert.Equal(t, knowledgeBaseMainPrompt, skill.SystemPrompt)
+		assert.Equal(t, "Test knowledge base for testing", skill.Description)
+		assert.True(t, skill.Direct)
+		assert.Equal(t, knowledgeSkillParameters, skill.Parameters)
 	})
 
 	t.Run("ToolCount", func(t *testing.T) {
@@ -43,7 +44,7 @@ func TestNewKnowledgeSkill(t *testing.T) {
 	t.Run("ToolProperties", func(t *testing.T) {
 		tool := skill.Tools[0].(*KnowledgeQueryTool)
 		assert.Equal(t, "KnowledgeQuery", tool.Name())
-		assert.Equal(t, "Contains expert knowledge on topics: 'Test knowledge base for testing'", tool.Description())
+		assert.Equal(t, "Test knowledge base for testing", tool.Description())
 		assert.Equal(t, "SchoolIcon", tool.Icon())
 		assert.Equal(t, "Searching the knowledge base", tool.StatusMessage())
 	})
@@ -79,15 +80,7 @@ func TestNewKnowledgeSkill_Execute_WithFiltering(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 
-	mockRAG := rag.NewMockRAG(ctrl)
-	mockRAG.EXPECT().Query(context.Background(), &types.SessionRAGQuery{
-		Prompt:            "test",
-		DataEntityID:      knowledge.GetDataEntityID(),
-		DistanceThreshold: knowledge.RAGSettings.Threshold,
-		DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
-		MaxResults:        knowledge.RAGSettings.ResultsCount,
-		DocumentIDList:    []string{"doc1", "doc2"},
-	}).Return([]*types.SessionRAGResult{
+	ragResults := []*types.SessionRAGResult{
 		{
 			Content:         "test content",
 			Source:          "test.txt",
@@ -101,12 +94,75 @@ func TestNewKnowledgeSkill_Execute_WithFiltering(t *testing.T) {
 				"content_offset":    "0",
 			},
 		},
-	}, nil)
+	}
 
-	skill := NewKnowledgeSkill(mockRAG, knowledge, []string{"doc1", "doc2"})
+	mockRAG := rag.NewMockRAG(ctrl)
+	mockRAG.EXPECT().Query(context.Background(), &types.SessionRAGQuery{
+		Prompt:            "test",
+		DataEntityID:      knowledge.GetDataEntityID(),
+		DistanceThreshold: knowledge.RAGSettings.Threshold,
+		DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
+		MaxResults:        knowledge.RAGSettings.ResultsCount,
+		DocumentIDList:    []string{"doc1", "doc2"},
+	}).Return(ragResults, nil)
+
+	var collectedResults []*types.SessionRAGResult
+	collector := func(results []*types.SessionRAGResult) {
+		collectedResults = append(collectedResults, results...)
+	}
+
+	skill := NewKnowledgeSkill(mockRAG, knowledge, []string{"doc1", "doc2"}, collector)
 
 	response, err := skill.Tools[0].(*KnowledgeQueryTool).Execute(context.Background(), agent.Meta{}, map[string]interface{}{"query": "test"})
 	require.NoError(t, err)
-	assert.Equal(t, "Source: test.txt\nContent: test content\n\n", response)
+	assert.Contains(t, response, "<chunk>\n  <document_id>doc1</document_id>")
+	assert.Contains(t, response, "test content")
+	assert.Contains(t, response, "[DOC_ID:DocumentID]")
+	assert.Contains(t, response, "<excerpts>")
 
+	// Verify the collector received the RAG results
+	require.Len(t, collectedResults, 1)
+	assert.Equal(t, "doc1", collectedResults[0].DocumentID)
+	assert.Equal(t, "test.txt", collectedResults[0].Source)
+	assert.Equal(t, "test content", collectedResults[0].Content)
+}
+
+func TestNewKnowledgeSkill_Execute_NilCollector(t *testing.T) {
+	knowledge := &types.Knowledge{
+		Name:        "Test Knowledge",
+		Description: "Test knowledge base for testing",
+		RAGSettings: types.RAGSettings{
+			Threshold:        0.8,
+			DistanceFunction: "cosine",
+			ResultsCount:     5,
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+
+	mockRAG := rag.NewMockRAG(ctrl)
+	mockRAG.EXPECT().Query(context.Background(), &types.SessionRAGQuery{
+		Prompt:            "test",
+		DataEntityID:      knowledge.GetDataEntityID(),
+		DistanceThreshold: knowledge.RAGSettings.Threshold,
+		DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
+		MaxResults:        knowledge.RAGSettings.ResultsCount,
+		DocumentIDList:    []string{},
+	}).Return([]*types.SessionRAGResult{
+		{
+			Content:    "result content",
+			Source:     "file.txt",
+			DocumentID: "abc123",
+		},
+	}, nil)
+
+	// nil collector should not panic
+	skill := NewKnowledgeSkill(mockRAG, knowledge, []string{}, nil)
+
+	response, err := skill.Tools[0].(*KnowledgeQueryTool).Execute(context.Background(), agent.Meta{}, map[string]interface{}{"query": "test"})
+	require.NoError(t, err)
+	assert.Contains(t, response, "<chunk>\n  <document_id>abc123</document_id>")
+	assert.Contains(t, response, "result content")
+	assert.Contains(t, response, "[DOC_ID:DocumentID]")
+	assert.Contains(t, response, "<excerpts>")
 }

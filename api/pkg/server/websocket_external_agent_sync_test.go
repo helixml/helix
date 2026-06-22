@@ -11,10 +11,12 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/wsprotocol"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
+	"gorm.io/datatypes"
 )
 
 // WebSocketSyncSuite tests the individual sync handler methods on HelixAPIServer
@@ -33,6 +35,11 @@ func TestWebSocketSyncSuite(t *testing.T) {
 func (s *WebSocketSyncSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
+
+	// TouchSession is called as a fire-and-forget side effect in
+	// handleMessageCompleted and handleMessageAdded (user messages).
+	// Allow it anywhere without specific ordering.
+	s.store.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
@@ -54,8 +61,9 @@ func (s *WebSocketSyncSuite) SetupTest() {
 		externalAgentWSManager:      NewExternalAgentWSManager(),
 		externalAgentRunnerManager:  NewExternalAgentRunnerManager(),
 		contextMappings:             make(map[string]string),
-		sessionToWaitingInteraction: make(map[string][]string),
 		requestToSessionMapping:     make(map[string]string),
+		requestToInteractionMapping: make(map[string]string),
+		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),
 		sessionCommentTimeout:       make(map[string]*time.Timer),
@@ -188,9 +196,8 @@ func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_NewSession() {
 	err := s.server.handleThreadCreated("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify contextMappings and sessionToWaitingInteraction populated
+	// Verify contextMappings populated
 	s.Equal("ses_new", s.server.contextMappings["thread-new"])
-	s.Equal([]string{"int-new"}, s.server.sessionToWaitingInteraction["ses_new"])
 }
 
 func (s *WebSocketSyncSuite) TestThreadCreated_Priority3_SpectaskLink() {
@@ -299,7 +306,6 @@ func (s *WebSocketSyncSuite) TestThreadCreated_StoreError() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 	s.server.contextMappings["thread-1"] = "ses_1"
-	s.server.sessionToWaitingInteraction["ses_1"] = []string{"int-1"}
 
 	session := &types.Session{
 		ID:    "ses_1",
@@ -317,11 +323,11 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			s.Equal("Hello from AI", interaction.ResponseMessage)
-			s.Equal("msg-1", interaction.LastZedMessageID)
-			return interaction, nil
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
+			s.Equal("Hello from AI", responseMessage)
+			s.Equal("msg-1", lastZedMessageID)
+			return nil
 		},
 	)
 
@@ -347,7 +353,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUpdate() {
 	s.server.contextMappings["thread-2"] = "ses_2"
-	s.server.sessionToWaitingInteraction["ses_2"] = []string{"int-2"}
 
 	session := &types.Session{
 		ID:    "ses_2",
@@ -368,12 +373,12 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, lastZedMessageID string) error {
 			// Same message_id → content replaced from offset (streaming update)
-			s.Equal("Hello, world!", interaction.ResponseMessage)
-			s.Equal("msg-A", interaction.LastZedMessageID)
-			return interaction, nil
+			s.Equal("Hello, world!", responseMessage)
+			s.Equal("msg-A", lastZedMessageID)
+			return nil
 		},
 	)
 
@@ -398,7 +403,6 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUp
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry() {
 	s.server.contextMappings["thread-3"] = "ses_3"
-	s.server.sessionToWaitingInteraction["ses_3"] = []string{"int-3"}
 
 	session := &types.Session{
 		ID:    "ses_3",
@@ -406,7 +410,7 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_3").Return(session, nil)
 
-	// Interaction already has content from msg-A
+	// Interaction already has content from msg-A (with structured entries)
 	existingInteraction := &types.Interaction{
 		ID:                   "int-3",
 		SessionID:            "ses_3",
@@ -414,18 +418,19 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 		ResponseMessage:      "First message",
 		LastZedMessageID:     "msg-A",
 		LastZedMessageOffset: 0,
+		ResponseEntries:      []byte(`[{"type":"text","content":"First message","message_id":"msg-A"}]`),
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	)
 
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, lastZedMessageOffset int, lastZedMessageID string) error {
 			// New message_id → content appended with \n\n separator
-			s.Equal("First message\n\nSecond message", interaction.ResponseMessage)
-			s.Equal("msg-B", interaction.LastZedMessageID)
-			s.Equal(len("First message")+2, interaction.LastZedMessageOffset)
-			return interaction, nil
+			s.Equal("First message\n\nSecond message", responseMessage)
+			s.Equal("msg-B", lastZedMessageID)
+			s.Equal(len("First message")+2, lastZedMessageOffset)
+			return nil
 		},
 	)
 
@@ -446,6 +451,147 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
+}
+
+// TestMessageAdded_PriorInteractionMessageIDsAreFiltered reproduces the
+// cross-interaction response_entries leak surfaced by the e2e RESPONSE
+// ENTRIES ISOLATION VALIDATION step in Drone build #1024 (tag 2.11.0).
+//
+// Scenario: session has a completed prior interaction (int-prior, msg_id
+// "msg-A") and a fresh waiting interaction (int-current, no entries yet).
+// Zed's flush_streaming_throttle replays msg-A as a message_added event
+// targeted at the current thread. Without the prior-id filter the replay
+// landed in int-current's response_entries; the validator then rejected the
+// build for ISOLATION VIOLATION. The handler must drop the replay.
+func (s *WebSocketSyncSuite) TestMessageAdded_PriorInteractionMessageIDsAreFiltered() {
+	s.server.contextMappings["thread-leak"] = "ses_leak"
+
+	session := &types.Session{
+		ID:    "ses_leak",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_leak").Return(session, nil)
+
+	priorInteraction := &types.Interaction{
+		ID:              "int-prior",
+		SessionID:       "ses_leak",
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "Prior turn answer",
+		ResponseEntries: []byte(`[{"type":"text","content":"Prior turn answer","message_id":"msg-A"}]`),
+	}
+	currentInteraction := &types.Interaction{
+		ID:        "int-current",
+		SessionID: "ses_leak",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{priorInteraction, currentInteraction}, int64(2), nil,
+	)
+
+	// UpdateInteractionStreamingFields is the only place the leak would
+	// surface (streaming flushes own the response entries column). Capture
+	// every call so we can assert msg-A never appears in int-current's
+	// response_entries.
+	var lastEntries datatypes.JSON
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, _ string, responseEntries datatypes.JSON, _ int, _ string) error {
+			lastEntries = responseEntries
+			return nil
+		},
+	).AnyTimes()
+
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-current").
+		Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_leak").
+		Return(nil, nil).AnyTimes()
+
+	// Zed's flush_streaming_throttle replays the prior turn's msg-A while
+	// streaming the new turn. Helix routes it to int-current (the only
+	// Waiting interaction). Without the filter this would land in
+	// int-current.ResponseEntries.
+	replay := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-leak",
+			"message_id":    "msg-A",
+			"content":       "Prior turn answer",
+			"role":          "assistant",
+		},
+	}
+	s.NoError(s.server.handleMessageAdded("agent-1", replay))
+
+	if len(lastEntries) > 0 {
+		var entries []wsprotocol.ResponseEntry
+		s.NoError(json.Unmarshal(lastEntries, &entries))
+		for _, e := range entries {
+			s.NotEqual("msg-A", e.MessageID,
+				"msg-A belongs to int-prior and must never be persisted to int-current")
+		}
+	}
+}
+
+// TestMessageAdded_WrapperRestartRenumberedMessageIDsAreAccepted reproduces the
+// empty-response bounce on int_01kqjsrhndcpwb9zv068dn7mv9 (2026-05-01): Zed's
+// claude-agent-acp wrapper restarted, message_ids reset to 1 and were reused
+// for legitimately new content. The id-only dedup added in 714d6036a dropped
+// every new entry because their ids matched a prior interaction's ids; the
+// completion fired with empty response and the prompt bounced. Content-aware
+// dedup distinguishes a true replay (same id+content) from renumbered new
+// content (same id, different content).
+func (s *WebSocketSyncSuite) TestMessageAdded_WrapperRestartRenumberedMessageIDsAreAccepted() {
+	s.server.contextMappings["thread-restart"] = "ses_restart"
+
+	session := &types.Session{ID: "ses_restart", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_restart").Return(session, nil)
+
+	// Prior interaction has msg "348" with the OLD response content.
+	priorInteraction := &types.Interaction{
+		ID:              "int-prior",
+		SessionID:       "ses_restart",
+		State:           types.InteractionStateComplete,
+		ResponseEntries: []byte(`[{"type":"text","content":"old turn from before wrapper restart","message_id":"348"}]`),
+	}
+	currentInteraction := &types.Interaction{
+		ID:        "int-current",
+		SessionID: "ses_restart",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{priorInteraction, currentInteraction}, int64(2), nil,
+	)
+
+	var lastResponseMessage string
+	var updateCalled bool
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
+			lastResponseMessage = responseMessage
+			updateCalled = true
+			return nil
+		},
+	).AnyTimes()
+
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-current").
+		Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_restart").
+		Return(nil, nil).AnyTimes()
+
+	// Wrapper restarted; it sends NEW content under the reused id "348".
+	// The old (id-only) filter would have dropped this; content-aware accepts.
+	newContent := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-restart",
+			"message_id":    "348",
+			"content":       "<thinking>\n\n</thinking>",
+			"role":          "assistant",
+		},
+	}
+	s.NoError(s.server.handleMessageAdded("agent-1", newContent))
+
+	// The new content must have landed in int-current.
+	s.True(updateCalled, "interaction must have been updated")
+	s.Contains(lastResponseMessage, "<thinking>",
+		"renumbered new content must be accepted, not silently dropped")
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
@@ -484,12 +630,10 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage() {
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify sessionToWaitingInteraction was updated
-	s.Equal([]string{"int-user-new"}, s.server.sessionToWaitingInteraction["ses_user"])
 }
 
 // TestMessageAdded_UserMessage_PreCreatedInteractionReuse verifies Bug 1 fix:
-// When sendMessageToSpecTaskAgent pre-creates an interaction and sets sessionToWaitingInteraction,
+// When sendMessageToSpecTaskAgent pre-creates an interaction and sets requestToInteractionMapping,
 // the subsequent Zed echo of the user message must NOT create a duplicate interaction and must
 // NOT overwrite the mapping. This ensures the assistant response lands in the pre-created interaction.
 func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionReuse() {
@@ -497,7 +641,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 
 	// Simulate sendMessageToSpecTaskAgent having pre-created an interaction
 	preCreatedID := "int-pre-created"
-	s.server.sessionToWaitingInteraction["ses_spec"] = []string{preCreatedID}
+	requestID := preCreatedID // sendMessageToSpecTaskAgent uses interaction ID as request ID
+	s.server.requestToSessionMapping[requestID] = "ses_spec"
+	s.server.requestToInteractionMapping[requestID] = preCreatedID
 
 	// No store expectations: CreateInteraction must NOT be called, GetSession must NOT be called
 
@@ -514,11 +660,9 @@ func (s *WebSocketSyncSuite) TestMessageAdded_UserMessage_PreCreatedInteractionR
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Mapping must still point to the pre-created interaction (not overwritten)
-	s.Require().NotEmpty(s.server.sessionToWaitingInteraction["ses_spec"],
-		"sessionToWaitingInteraction must not be emptied by Zed user-message echo")
-	s.Equal(preCreatedID, s.server.sessionToWaitingInteraction["ses_spec"][0],
-		"sessionToWaitingInteraction must not be overwritten by Zed user-message echo")
+	// requestToInteractionMapping must still contain the pre-created interaction (not removed by echo)
+	s.Equal(preCreatedID, s.server.requestToInteractionMapping[requestID],
+		"requestToInteractionMapping must not be removed by Zed user-message echo")
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_ContextMappingMiss_DBFallback() {
@@ -662,6 +806,54 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_Normal() {
 	time.Sleep(50 * time.Millisecond)
 }
 
+// TestMessageCompleted_PreservesInterruptedStateOnEmptyResponse pins down the
+// race between handleTurnCancelled and handleMessageCompleted that Phase 13 of
+// the Zed WS E2E test exercises: a cancel lands before any token streamed, so
+// the interaction is marked Interrupted with an empty ResponseMessage. The
+// agent then emits message_completed for the same request_id as it tears the
+// turn down. Previously the empty-response branch in handleMessageCompleted
+// clobbered the Interrupted state with Error and re-queued the prompt, which
+// broke the E2E assertion "interaction in store with state=interrupted".
+// Verify the handler returns without touching the interaction.
+func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesInterruptedStateOnEmptyResponse() {
+	s.server.contextMappings["thread-int"] = "ses_int"
+	s.server.requestToInteractionMapping = map[string]string{
+		"req-int": "int-int",
+	}
+
+	session := &types.Session{
+		ID:    "ses_int",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_int").Return(session, nil).AnyTimes()
+
+	interruptedInteraction := &types.Interaction{
+		ID:              "int-int",
+		SessionID:       "ses_int",
+		State:           types.InteractionStateInterrupted,
+		ResponseMessage: "",
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-int").Return(interruptedInteraction, nil)
+
+	// Critical: no UpdateInteraction, no RequeueBouncedPrompt, no
+	// processPromptQueue follow-up. The handler must return as soon as it
+	// sees the Interrupted-with-empty-response pattern. gomock's default
+	// strict mode fails the test if any unexpected store call is made.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-int",
+			"request_id":    "req-int",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	time.Sleep(50 * time.Millisecond)
+}
+
 func (s *WebSocketSyncSuite) TestMessageCompleted_NoWaitingInteraction() {
 	s.server.contextMappings["thread-nw"] = "ses_nw"
 
@@ -715,9 +907,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_ContextMappingMiss_DBFallback(
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_mc_fb").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-mc-fb",
-		SessionID: "ses_mc_fb",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-mc-fb",
+		SessionID:       "ses_mc_fb",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "partial response flushed before restart",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
@@ -769,9 +962,10 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_cf").Return(session, nil).AnyTimes()
 
 	waitingInteraction := &types.Interaction{
-		ID:        "int-cf",
-		SessionID: "ses_cf",
-		State:     types.InteractionStateWaiting,
+		ID:              "int-cf",
+		SessionID:       "ses_cf",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "I've reviewed the design and it looks good.",
 	}
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{waitingInteraction}, int64(1), nil,
@@ -811,6 +1005,262 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_WithCommentFinalization() {
 	s.NoError(err)
 
 	time.Sleep(100 * time.Millisecond)
+}
+
+// TestMessageCompleted_SkipsAttentionWhenUserActive verifies that the
+// agent_interaction_completed attention event is suppressed when a newer
+// waiting interaction already exists in the session — i.e. the user has
+// either interrupted the agent or sent a quick follow-up. In both cases the
+// user is clearly looking at the UI and an "agent finished" notification
+// would just be noise.
+func (s *WebSocketSyncSuite) TestMessageCompleted_SkipsAttentionWhenUserActive() {
+	s.server.contextMappings["thread-skip"] = "ses_skip"
+	s.server.requestToInteractionMapping["req-skip"] = "int-target-skip"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_skip",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-skip",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_skip").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-skip",
+		SessionID:       "ses_skip",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+	newerWaiting := &types.Interaction{
+		ID:        "int-newer-skip",
+		SessionID: "ses_skip",
+		State:     types.InteractionStateWaiting,
+		Created:   baseTime.Add(30 * time.Second),
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-skip").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// ListInteractions is called for both the suppression check (PerPage=1)
+	// and the final session publish (PerPage=1000). Both return the same
+	// list — newerWaiting at the end is what triggers suppression.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction, newerWaiting}, int64(2), nil,
+	).AnyTimes()
+
+	// updateSpecTaskZedThreadActivity goroutine — not a tracked thread
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_skip").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-skip").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// CRITICAL: GetSpecTask MUST NOT be called when the notification is suppressed.
+	// gomock's default strict mode will fail the test if it is called without an EXPECT.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-skip",
+			"request_id":    "req-skip",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	// Give any goroutines (which we expect NOT to fire GetSpecTask) time to run
+	time.Sleep(150 * time.Millisecond)
+}
+
+// TestMessageCompleted_EmitsAttentionWhenNoFollowup verifies that the
+// agent_interaction_completed attention event IS emitted when there is no
+// newer waiting interaction — the normal completion case where the user is
+// not actively engaged.
+func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup() {
+	s.server.contextMappings["thread-emit"] = "ses_emit"
+	s.server.requestToInteractionMapping["req-emit"] = "int-target-emit"
+	s.server.attentionService = services.NewAttentionService(s.store, s.server.Cfg)
+
+	session := &types.Session{
+		ID:    "ses_emit",
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			SpecTaskID: "task-emit",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_emit").Return(session, nil).AnyTimes()
+
+	baseTime := time.Now().Add(-1 * time.Minute)
+	targetInteraction := &types.Interaction{
+		ID:              "int-target-emit",
+		SessionID:       "ses_emit",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "AI response",
+		Created:         baseTime,
+	}
+
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-target-emit").Return(targetInteraction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(targetInteraction, nil)
+
+	// Only the target interaction exists — no newer waiting one. Suppression
+	// check sees Created.After(targetInteraction.Created) == false → emit.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{targetInteraction}, int64(1), nil,
+	).AnyTimes()
+
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_emit").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-emit").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	// GetSpecTask MUST be called when the notification is not suppressed.
+	// We return an error to short-circuit before EmitEvent — the test only
+	// needs to verify the goroutine reached this point.
+	gotSpecTaskCall := make(chan struct{}, 1)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), "task-emit").DoAndReturn(
+		func(_ context.Context, _ string) (*types.SpecTask, error) {
+			select {
+			case gotSpecTaskCall <- struct{}{}:
+			default:
+			}
+			return nil, fmt.Errorf("test stub: spectask not loaded")
+		},
+	).MinTimes(1)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-emit",
+			"request_id":    "req-emit",
+		},
+	}
+
+	err := s.server.handleMessageCompleted("agent-1", syncMsg)
+	s.NoError(err)
+
+	select {
+	case <-gotSpecTaskCall:
+		// success — GetSpecTask was reached, meaning the goroutine fired
+	case <-time.After(500 * time.Millisecond):
+		s.Fail("GetSpecTask was not called within timeout — attention event goroutine did not fire")
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// handleChatResponseError tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestChatResponseError_PersistsAgentErrorToInteraction is the red-then-green
+// regression test for the "user sees nothing when the agent fails" bug.
+//
+// Repro: hire an AI worker, open chat, send "hello", agent fails internally
+// with e.g. "Authentication required" (Claude Code subscription missing). The
+// desktop emits chat_response_error AND then a downstream empty
+// message_completed. Before this fix, handleChatResponseError only pushed the
+// error to a legacy HTTP-streaming response channel that doesn't exist for
+// WebSocket-driven chat — the interaction was silently left in Waiting, then
+// handleMessageCompleted's empty-response branch overwrote it with the
+// generic "Agent returned empty response (message bounced or content lost).
+// The prompt will be retried." which buries the actual cause.
+//
+// This test pins the desired behaviour: when an active interaction exists for
+// the failing request_id, the agent's error message MUST land on the
+// interaction (state=error, error=<msg>), so the chat UI surfaces it
+// faithfully instead of inventing a generic excuse.
+func (s *WebSocketSyncSuite) TestChatResponseError_PersistsAgentErrorToInteraction() {
+	s.server.requestToInteractionMapping["req-auth"] = "int-auth"
+
+	interaction := &types.Interaction{
+		ID:        "int-auth",
+		SessionID: "ses_auth",
+		State:     types.InteractionStateWaiting,
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-auth").Return(interaction, nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateError, i.State,
+				"interaction must transition to error state")
+			s.Equal("Authentication required", i.Error,
+				"interaction.error must hold the agent's verbatim error, not a generic stand-in")
+			return i, nil
+		},
+	)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "chat_response_error",
+		Data: map[string]interface{}{
+			"request_id": "req-auth",
+			"error":      "Authentication required",
+		},
+	}
+
+	err := s.server.handleChatResponseError("agent-1", syncMsg)
+	s.NoError(err)
+}
+
+// TestChatResponseError_NoOpWhenNoMappingOrChannel covers the case where
+// neither a request-mapping nor a legacy response channel exists — must
+// degrade silently (return nil) rather than panic or surface noise.
+func (s *WebSocketSyncSuite) TestChatResponseError_NoOpWhenNoMappingOrChannel() {
+	syncMsg := &types.SyncMessage{
+		EventType: "chat_response_error",
+		Data: map[string]interface{}{
+			"request_id": "req-orphan",
+			"error":      "boom",
+		},
+	}
+	s.NoError(s.server.handleChatResponseError("agent-1", syncMsg))
+}
+
+// TestMessageCompleted_PreservesPriorAgentError pins the second half of the
+// surfacing contract: if a chat_response_error already moved the interaction
+// into Error state with a real cause, a subsequent empty message_completed
+// must NOT overwrite that with the generic "Agent returned empty response"
+// stand-in.
+func (s *WebSocketSyncSuite) TestMessageCompleted_PreservesPriorAgentError() {
+	s.server.contextMappings["thread-preserve"] = "ses_preserve"
+	s.server.requestToInteractionMapping["req-preserve"] = "int-preserve"
+
+	session := &types.Session{ID: "ses_preserve", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_preserve").Return(session, nil).AnyTimes()
+
+	// Interaction is already in Error state from a prior chat_response_error.
+	interaction := &types.Interaction{
+		ID:              "int-preserve",
+		SessionID:       "ses_preserve",
+		State:           types.InteractionStateError,
+		Error:           "Authentication required",
+		ResponseMessage: "",
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-preserve").Return(interaction, nil)
+
+	// UpdateInteraction must NOT be called — the prior error is sacrosanct.
+	// gomock strict mode fails if it's invoked without an EXPECT.
+
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{interaction}, int64(1), nil).AnyTimes()
+	s.store.EXPECT().GetSpecTaskZedThreadByZedThreadID(gomock.Any(), "thread-preserve").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_preserve").Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-preserve").
+		Return(nil, fmt.Errorf("not found")).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_completed",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-preserve",
+			"request_id":    "req-preserve",
+		},
+	}
+	s.NoError(s.server.handleMessageCompleted("agent-1", syncMsg))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -861,21 +1311,30 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 		Content:   "queued prompt",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_pending").Return(prompt, nil)
-	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-1").Return(true, nil)
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-1").Return(nil)
+	// Note: ClaimPromptForSending is NOT called — GetAnyPendingPrompt already atomically claimed it
+	// MarkPromptAsSent is NOT called here under the deferred-mark flow — the
+	// prompt stays 'sending' until Zed acknowledges via the first message_added.
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
 		ID:    "ses_pending",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pending").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 			return &types.Interaction{ID: "int-prompt", SessionID: "ses_pending"}, nil
 		},
 	)
-	// GetSpecTask for getAgentNameForSession
+	// No-WS dispatch path: the interaction is persisted and the
+	// interactionToPromptMapping is left intact so handleMessageAdded marks the
+	// prompt 'sent' once Zed acknowledges via pickupWaitingInteraction. We must
+	// NOT mark it failed here.
+	// GetSpecTask for getAgentNameForSession + autoStartDevContainerForSession
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
@@ -889,10 +1348,11 @@ func (s *WebSocketSyncSuite) TestAgentReady_WithPendingPrompt() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
-	// Simulate a reconnect scenario: session has an existing ZedThreadID,
-	// agent_ready arrives with thread_id=null (fresh reconnect).
-	// Helix should send open_thread to re-establish Zed's subscription.
+func (s *WebSocketSyncSuite) TestAgentReady_ReconnectDoesNotSendOpenThread() {
+	// open_thread is now sent on connect (handleExternalAgentConnection), BEFORE
+	// the agent_ready gate. handleAgentReady should NOT send open_thread — doing
+	// so would cause it to arrive after the queued chat_message, triggering
+	// history replay that corrupts the current interaction.
 	sessionID := "ses_reconnect"
 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
@@ -906,15 +1366,6 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 	}
 	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
 
-	// Session has an existing ZedThreadID from before the restart
-	session := &types.Session{
-		ID:    sessionID,
-		Owner: "user-1",
-		Metadata: types.SessionMetadata{
-			ZedThreadID: "thread-existing-abc",
-		},
-	}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
@@ -931,11 +1382,8 @@ func (s *WebSocketSyncSuite) TestAgentReady_ReconnectSendsOpenThread() {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify open_thread command was sent
-	s.Require().Greater(len(sendChan), 0, "expected open_thread command to be sent")
-	cmd := <-sendChan
-	s.Equal("open_thread", cmd.Type)
-	s.Equal("thread-existing-abc", cmd.Data["acp_thread_id"])
+	// Verify NO open_thread command was sent (it's now sent on connect, not on agent_ready)
+	s.Equal(0, len(sendChan), "handleAgentReady should NOT send open_thread — it's sent on connect now")
 }
 
 func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
@@ -974,6 +1422,80 @@ func (s *WebSocketSyncSuite) TestAgentReady_NoOpenThreadWhenThreadIDPresent() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// sendChatMessageToExternalAgent tests — interrupt flag plumbing
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptTrue() {
+	// Verifies the interrupt flag is forwarded into the chat_message command Data,
+	// matching the semantic spec-task design-review comments rely on.
+	sessionID := "ses_interrupt_true"
+
+	sendChan := make(chan types.ExternalAgentCommand, 4)
+	conn := &ExternalAgentWSConnection{SessionID: sessionID, SendChan: sendChan}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:   "zed_external",
+			ZedThreadID: "thread-int",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-1", SessionID: sessionID}, nil,
+	)
+
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "review feedback", "req-int-1", true)
+	s.NoError(err)
+
+	select {
+	case cmd := <-sendChan:
+		s.Equal("chat_message", cmd.Type)
+		s.Equal(true, cmd.Data["interrupt"], "interrupt=true must be forwarded into chat_message command")
+		s.Equal("review feedback", cmd.Data["message"])
+		s.Equal("req-int-1", cmd.Data["request_id"])
+	case <-time.After(time.Second):
+		s.Fail("expected chat_message command on send channel")
+	}
+}
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_InterruptFalse() {
+	// System-driven messages (approval kickoff, post-merge instructions) must NOT
+	// carry interrupt=true — they should respect the agent's queue.
+	sessionID := "ses_interrupt_false"
+
+	sendChan := make(chan types.ExternalAgentCommand, 4)
+	conn := &ExternalAgentWSConnection{SessionID: sessionID, SendChan: sendChan}
+	s.server.externalAgentWSManager.registerConnection(sessionID, conn)
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-2",
+		Metadata: types.SessionMetadata{
+			AgentType:   "zed_external",
+			ZedThreadID: "thread-noint",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
+		&types.Interaction{ID: "int-2", SessionID: sessionID}, nil,
+	)
+
+	_, err := s.server.sendChatMessageToExternalAgent(sessionID, "approval kickoff", "req-noint-1", false)
+	s.NoError(err)
+
+	select {
+	case cmd := <-sendChan:
+		s.Equal("chat_message", cmd.Type)
+		s.Equal(false, cmd.Data["interrupt"], "interrupt=false must be forwarded into chat_message command")
+	case <-time.After(time.Second):
+		s.Fail("expected chat_message command on send channel")
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // processPromptQueue tests
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -1003,24 +1525,44 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_HasPending() {
 		Status:    "pending",
 	}
 	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), "ses_pq").Return(prompt, nil)
-	// MarkPromptAsPending no longer called - prompt is atomically claimed by GetNextPendingPrompt
 
 	// sendQueuedPromptToSession calls
 	session := &types.Session{
 		ID:    "ses_pq",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil)
-	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
-		&types.Interaction{ID: "int-pq", SessionID: "ses_pq"}, nil,
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_pq").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
+	var capturedPromptID string
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			capturedPromptID = interaction.PromptID
+			return &types.Interaction{ID: "int-pq", SessionID: "ses_pq", PromptID: interaction.PromptID}, nil
+		},
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
 
-	// sendCommandToExternalAgent will fail (no WS connection), but interaction was created
-	// so MarkPromptAsSent is still called
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-pq").Return(nil)
+	// sendCommandToExternalAgent fails with ErrNoExternalAgentWS (no WS
+	// registered). The agent is sleeping, autoStartDevContainerForSession kicks
+	// off, and the persisted Waiting interaction will be delivered by
+	// pickupWaitingInteraction once the agent reconnects. The prompt MUST stay
+	// in 'sending' (handleMessageAdded marks it 'sent' via the persisted
+	// Interaction.PromptID column when Zed acknowledges) — marking it failed
+	// here used to surface a misleading "no WebSocket connection" error in the
+	// queue UI and trigger a retry that collided with the in-flight delivery.
+	// So: no MarkPromptAsFailed expectation.
 
 	s.server.processPromptQueue(context.Background(), "ses_pq")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
+
+	// The interaction must have been created with the prompt_id baked in so
+	// handleMessageAdded can mark the prompt 'sent' from the DB row when Zed
+	// eventually responds — this survives API restart, unlike the old
+	// in-memory interactionToPromptMapping.
+	s.Equal("prompt-pq", capturedPromptID, "Interaction must be created with PromptID linking back to the originating queue prompt")
 }
 
 func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() {
@@ -1042,7 +1584,7 @@ func (s *WebSocketSyncSuite) TestProcessPromptQueue_SendFails_GetSessionFails() 
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_fail").Return(nil, fmt.Errorf("db error"))
 
 	// Should mark as failed
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-fail").Return(nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-fail", gomock.Any()).Return(nil)
 
 	s.server.processPromptQueue(context.Background(), "ses_fail")
 }
@@ -1064,20 +1606,27 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_HasPending() {
 		Content:   "any prompt",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_any").Return(prompt, nil)
-	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-any").Return(true, nil)
-	s.store.EXPECT().MarkPromptAsSent(gomock.Any(), "prompt-any").Return(nil)
 
 	session := &types.Session{
 		ID:    "ses_any",
 		Owner: "user-1",
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_any").Return(session, nil).AnyTimes()
+	// Re-check idle state before creating interaction
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
 	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(
 		&types.Interaction{ID: "int-any", SessionID: "ses_any"}, nil,
 	)
 	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	// No WS connection → dispatch returns ErrNoExternalAgentWS → prompt stays
+	// in 'sending' (interaction persisted, pickupWaitingInteraction will deliver
+	// it on reconnect, handleMessageAdded marks it sent).
+	// No MarkPromptAsFailed expectation.
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_any")
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
 }
 
 func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed() {
@@ -1087,13 +1636,110 @@ func (s *WebSocketSyncSuite) TestProcessAnyPendingPrompt_SendFails_MarkedFailed(
 		Content:   "fail",
 	}
 	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), "ses_anyfail").Return(prompt, nil)
-	s.store.EXPECT().ClaimPromptForSending(gomock.Any(), "prompt-anyfail").Return(true, nil)
+	// Note: ClaimPromptForSending is NOT called — GetAnyPendingPrompt already atomically claimed it
 
 	// GetSession fails → sendQueuedPromptToSession fails
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_anyfail").Return(nil, fmt.Errorf("db error"))
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-anyfail").Return(nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-anyfail", gomock.Any()).Return(nil)
 
 	s.server.processAnyPendingPrompt(context.Background(), "ses_anyfail")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// sendQueuedPromptToSession — in-memory state cleanup on send failure
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_NoWS_PersistsPromptIDOnInteraction() {
+	// When sendCommandToExternalAgent returns ErrNoExternalAgentWS (agent is
+	// sleeping), the persisted Waiting interaction will be delivered by
+	// pickupWaitingInteraction once the agent reconnects. The link from the
+	// interaction back to the queue prompt now lives in the persisted
+	// Interaction.PromptID column (no in-memory map). The prompt is NOT marked
+	// failed in this case.
+
+	session := &types.Session{
+		ID:    "ses_nows",
+		Owner: "user-1",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_nows").Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{}, int64(0), nil,
+	)
+	var capturedPromptID string
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			capturedPromptID = interaction.PromptID
+			return &types.Interaction{ID: "int-nows", SessionID: "ses_nows", PromptID: interaction.PromptID}, nil
+		},
+	)
+	s.store.EXPECT().GetSpecTask(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-nows",
+		SessionID: "ses_nows",
+		Content:   "test prompt",
+	}
+
+	// No MarkPromptAsFailed expectation — the no-WS path must not surface as a
+	// queue failure.
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_nows", prompt)
+	s.NoError(err)
+	time.Sleep(50 * time.Millisecond) // let autoStartDevContainerForSession goroutine complete
+
+	// The persisted column carries the link past API restart — the old
+	// in-memory interactionToPromptMapping was the source of the 6-day stuck
+	// prompts in design/2026-04-30-queue-and-other-stuck-state-bugs.md.
+	s.Equal("prompt-nows", capturedPromptID, "Interaction.PromptID must be persisted on creation")
+}
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOwnInteraction_ReturnsSuccess() {
+	// Regression: after the no-WS path persists I1 with PromptID = P1 and the
+	// retry timer fires while pickupWaitingInteraction is still in flight, the
+	// busy re-check must recognise the in-flight interaction as our own and
+	// return success — NOT "session became busy" (which previously marked the
+	// prompt failed and made it look like delivery had failed twice).
+
+	session := &types.Session{ID: "ses_busy", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_busy").Return(session, nil)
+	// Latest interaction is the one we already dispatched, still Waiting, with
+	// PromptID linking back to this prompt.
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-inflight", State: types.InteractionStateWaiting, PromptID: "prompt-busy"}}, int64(1), nil,
+	)
+	// No CreateInteraction, no MarkPromptAsFailed — the function must return
+	// nil without doing any further work.
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-busy",
+		SessionID: "ses_busy",
+		Content:   "retry of in-flight prompt",
+	}
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_busy", prompt)
+	s.NoError(err, "in-flight delivery must not surface as a busy/failure error")
+}
+
+func (s *WebSocketSyncSuite) TestSendQueuedPrompt_BusyWithOtherInteraction_DefersAsBefore() {
+	// Counterpart to the test above: when the in-flight Waiting interaction is
+	// NOT our own (some other prompt or a Zed-initiated user message), the
+	// busy-check must still defer with an error so the queue retries later.
+
+	session := &types.Session{ID: "ses_busy2", Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_busy2").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-other", State: types.InteractionStateWaiting, PromptID: "prompt-other"}}, int64(1), nil,
+	)
+
+	prompt := &types.PromptHistoryEntry{
+		ID:        "prompt-mine",
+		SessionID: "ses_busy2",
+		Content:   "I should wait my turn",
+	}
+
+	err := s.server.sendQueuedPromptToSession(context.Background(), "ses_busy2", prompt)
+	s.Error(err)
+	s.Contains(err.Error(), "became busy")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1126,6 +1772,193 @@ func (s *WebSocketSyncSuite) TestFindSessionByZedThreadID_NotFound() {
 	s.Error(err)
 	s.Nil(found)
 	s.Contains(err.Error(), "no session found with ZedThreadID")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// getOrCreateStreamingContext — stale request_id rebind protection
+// (regression for design/2026-04-28-stale-request-id-rebind-loses-zed-updates.md)
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestStreamingContext_StaleRequestIDRebind_PreservesConsumedSentinel() {
+	// Scenario reproduced from the spt_01kq8cnjzfqc51nn0c6ddxkw8r incident:
+	// 1. handleMessageCompleted previously consumed the mapping for req_X by
+	//    setting requestToInteractionMapping[req_X] = "" (the dedup sentinel).
+	// 2. The wrapper inside Zed flushes a buffered message_added later, tagged
+	//    with the *stale* req_X.
+	// 3. getOrCreateStreamingContext is called with helixSessionID + req_X for
+	//    that flushed event, finds the most-recent Waiting interaction (a
+	//    different turn), and used to overwrite the consumed sentinel — which
+	//    later let a stale message_completed for req_X mark the new turn
+	//    complete prematurely.
+	//
+	// After the fix the rebind must be skipped when the existing mapping is the
+	// consumed sentinel; the sentinel must remain "" so the next stale
+	// message_completed is routed through the duplicate-detection branch.
+
+	s.server.requestToInteractionMapping["req_stale"] = "" // pre-consumed sentinel
+
+	helixSession := &types.Session{ID: "ses_stale", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_stale").Return(helixSession, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{
+			{ID: "int-old", State: types.InteractionStateComplete},
+			{ID: "int-new", State: types.InteractionStateWaiting},
+		},
+		int64(2), nil,
+	)
+
+	sctx := s.server.getOrCreateStreamingContext(context.Background(), "ses_stale", "req_stale")
+	s.NotNil(sctx)
+	// Streaming context must still find an interaction to attach content to —
+	// the most-recent Waiting one — because the wrapper's buffered tokens have
+	// to land somewhere visible to the user.
+	s.Equal("int-new", sctx.interactionID)
+
+	// The consumed sentinel must be intact so handleMessageCompleted's dedup
+	// drops the stale completion that follows.
+	s.server.contextMappingsMutex.Lock()
+	mapped, exists := s.server.requestToInteractionMapping["req_stale"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(exists, "mapping entry should still exist")
+	s.Equal("", mapped, "consumed sentinel must NOT be overwritten by stale rebind")
+}
+
+func (s *WebSocketSyncSuite) TestStreamingContext_FirstSightRequestID_RegistersMapping() {
+	// Counterpart to the test above: when the request_id has never been seen
+	// (genuine Zed-initiated message — user typed in Zed, no prior dispatch
+	// from Helix), the mapping MUST still be populated so handleMessageCompleted
+	// can route the eventual completion correctly.
+
+	helixSession := &types.Session{ID: "ses_fresh", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_fresh").Return(helixSession, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-fresh", State: types.InteractionStateWaiting}},
+		int64(1), nil,
+	)
+
+	sctx := s.server.getOrCreateStreamingContext(context.Background(), "ses_fresh", "req_fresh")
+	s.NotNil(sctx)
+	s.Equal("int-fresh", sctx.interactionID)
+
+	s.server.contextMappingsMutex.Lock()
+	mapped, exists := s.server.requestToInteractionMapping["req_fresh"]
+	s.server.contextMappingsMutex.Unlock()
+	s.True(exists)
+	s.Equal("int-fresh", mapped, "first-sight request_id must be registered for completion routing")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// handleThreadLoadError tests — Claude Agent crash detection
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_AgentCrash_MarksPromptCrashed() {
+	// Persist the interaction with PromptID set (the in-memory map is gone).
+	s.server.contextMappings["thread-crashed"] = "ses_crash"
+
+	session := &types.Session{ID: "ses_crash", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_crash").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-crashed", State: types.InteractionStateWaiting, PromptID: "prompt-crashed"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	// Crash detection: the error string includes "Claude Agent process exited"
+	// → MarkPromptAsCrashed (not MarkPromptAsFailed) so auto-retry stops.
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-crashed", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-crashed",
+			"request_id":    "int-crashed",
+			"error":         "Failed to send follow-up: Internal error: The Claude Agent process exited unexpectedly. Please start a new session.",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_crash", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_SessionNotFound_AlsoCrash() {
+	// "Session not found" is the steady-state error after the Claude Agent
+	// process is gone. Same crash path applies.
+	s.server.contextMappings["thread-snf"] = "ses_snf"
+
+	session := &types.Session{ID: "ses_snf", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_snf").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-snf", State: types.InteractionStateWaiting, PromptID: "prompt-snf"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-snf", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-snf",
+			"request_id":    "int-snf",
+			"error":         "Failed to send follow-up: Session not found",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_snf", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsFailed() {
+	// Non-crash thread_load_errors (e.g. socket closed mid-flight, transient
+	// failure) must still go through the normal MarkPromptAsFailed path so the
+	// queue's exponential backoff can recover automatically.
+	s.server.contextMappings["thread-transient"] = "ses_transient"
+
+	session := &types.Session{ID: "ses_transient", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_transient").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-transient", State: types.InteractionStateWaiting, PromptID: "prompt-transient"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	// First occurrence (retry_count below the recurrence threshold) → normal retry.
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-transient").
+		Return(&types.PromptHistoryEntry{ID: "prompt-transient", RetryCount: 0}, nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-transient", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-transient",
+			"request_id":    "int-transient",
+			"error":         "Failed to send follow-up: API Error: The socket connection was closed unexpectedly.",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_transient", syncMsg)
+	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_RecurringFailure_CrashesRegardlessOfWording() {
+	// A thread_load_error that keeps failing across retries is terminal even when
+	// the wording isn't a known hard-crash marker (e.g. the dead-connection
+	// "send failed because receiver is gone"). Once retry_count reaches the
+	// recurrence threshold we crash-mark so Restart surfaces instead of looping.
+	s.server.contextMappings["thread-recur"] = "ses_recur"
+
+	session := &types.Session{ID: "ses_recur", GenerationID: 1}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_recur").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-recur", State: types.InteractionStateWaiting, PromptID: "prompt-recur"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-recur").
+		Return(&types.PromptHistoryEntry{ID: "prompt-recur", RetryCount: acpWedgeCrashThreshold}, nil)
+	s.store.EXPECT().MarkPromptAsCrashed(gomock.Any(), "prompt-recur", gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-recur",
+			"request_id":    "int-recur",
+			"error":         "Failed to send follow-up: Internal error: \"send failed because receiver is gone\"",
+		},
+	}
+	err := s.server.handleThreadLoadError("ses_recur", syncMsg)
+	s.NoError(err)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1415,7 +2248,6 @@ func (s *WebSocketSyncSuite) TestProcessSyncMessage_SyncEventHookFires() {
 func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries() {
 	// Setup: context mapping and waiting interaction
 	s.server.contextMappings["thread-cache"] = "ses_cache"
-	s.server.sessionToWaitingInteraction["ses_cache"] = []string{"int-cache"}
 
 	session := &types.Session{
 		ID:    "ses_cache",
@@ -1435,11 +2267,11 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	).Times(1)
 
 	// Only FIRST token writes to DB (lastDBWrite is zero, so first always flushes).
-	// Second token within 200ms is throttled — no UpdateInteraction call.
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			s.Equal("Hello", interaction.ResponseMessage)
-			return interaction, nil
+	// Second token within 200ms is throttled — no streaming-fields call.
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
+			s.Equal("Hello", responseMessage)
+			return nil
 		},
 	).Times(1)
 
@@ -1478,16 +2310,19 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_SecondTokenSkipsDBQueries
 	err = s.server.handleMessageAdded("agent-1", syncMsg2)
 	s.NoError(err)
 
-	// Verify in-memory content is updated despite no DB write
+	// Verify accumulator has latest content despite no DB write.
+	// ResponseMessage is only updated on DB write (deferred), so check
+	// the accumulator which always has the latest content.
 	sctx.mu.Lock()
-	s.Equal("Hello, world!", sctx.interaction.ResponseMessage)
+	s.NotNil(sctx.accumulator, "accumulator should exist")
+	sctx.accumulator.Rebuild()
+	s.Equal("Hello, world!", sctx.accumulator.Content)
 	s.True(sctx.dirty, "interaction should be dirty (not yet flushed)")
 	sctx.mu.Unlock()
 }
 
 func (s *WebSocketSyncSuite) TestStreamingContextCache_ClearedOnMessageCompleted() {
 	s.server.contextMappings["thread-clear"] = "ses_clear"
-	s.server.sessionToWaitingInteraction["ses_clear"] = []string{"int-clear"}
 
 	session := &types.Session{
 		ID:    "ses_clear",
@@ -1583,7 +2418,6 @@ func (s *WebSocketSyncSuite) TestStreamingContextCache_UserMessageDoesNotUseCach
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	// Test that DB write happens after the throttle interval expires.
 	s.server.contextMappings["thread-throttle"] = "ses_throttle"
-	s.server.sessionToWaitingInteraction["ses_throttle"] = []string{"int-throttle"}
 
 	session := &types.Session{
 		ID:    "ses_throttle",
@@ -1602,11 +2436,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	).Times(1)
 
 	// First token writes immediately (lastDBWrite is zero)
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			return interaction, nil
-		},
-	).Times(1)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	// First token
 	syncMsg := &types.SyncMessage{
@@ -1626,22 +2456,24 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify dirty flag
+	// Verify dirty flag — ResponseMessage is deferred to DB write, so check accumulator
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_throttle"]
 	s.server.streamingContextsMu.RUnlock()
 	sctx.mu.Lock()
 	s.True(sctx.dirty, "should be dirty after throttled write")
-	s.Equal("Token 1 Token 2", sctx.interaction.ResponseMessage)
+	// ResponseMessage is deferred to DB write, so check accumulator instead.
+	sctx.accumulator.Rebuild()
+	s.Equal("Token 1 Token 2", sctx.accumulator.Content)
 	// Artificially expire the throttle interval
-	sctx.lastDBWrite = time.Now().Add(-300 * time.Millisecond)
+	sctx.lastDBWrite = time.Now().Add(-10 * time.Second)
 	sctx.mu.Unlock()
 
 	// Now expect another DB write since interval expired
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			s.Equal("Token 1 Token 2 Token 3", interaction.ResponseMessage)
-			return interaction, nil
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
+			s.Equal("Token 1 Token 2 Token 3", responseMessage)
+			return nil
 		},
 	).Times(1)
 
@@ -1657,7 +2489,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DBWriteAfterInterval() {
 func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted() {
 	// Test that dirty interaction is flushed to DB when message_completed arrives.
 	s.server.contextMappings["thread-flush"] = "ses_flush"
-	s.server.sessionToWaitingInteraction["ses_flush"] = []string{"int-flush"}
 
 	session := &types.Session{
 		ID:    "ses_flush",
@@ -1685,12 +2516,14 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	}
 	s.server.streamingContextsMu.Unlock()
 
-	// flushAndClearStreamingContext should flush the dirty interaction
-	flushUpdate := s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			s.Equal("dirty unflushed content", interaction.ResponseMessage)
-			s.Equal(types.InteractionStateWaiting, interaction.State) // Not yet complete
-			return interaction, nil
+	// flushAndClearStreamingContext should flush the dirty interaction.
+	// Column-scoped: only the content fields are written, never state, so
+	// the in-progress state stays Waiting until handleMessageCompleted's
+	// own UpdateInteraction transitions it.
+	flushUpdate := s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
+			s.Equal("dirty unflushed content", responseMessage)
+			return nil
 		},
 	)
 
@@ -1699,12 +2532,15 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{existingInteraction}, int64(1), nil,
 	).AnyTimes()
+	// GetInteraction is called once inside handleMessageCompleted to reload
+	// the latest response content from the DB. The flush no longer reloads
+	// state separately because column-scoped writes can't clobber it.
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-flush").Return(&types.Interaction{
 		ID:              "int-flush",
 		SessionID:       "ses_flush",
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "dirty unflushed content", // DB was just flushed
-	}, nil)
+	}, nil).Times(1)
 
 	// Final UpdateInteraction to mark complete (must come after flush)
 	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -1739,7 +2575,6 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_DirtyFlushOnMessageCompleted(
 func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	// Test content accumulation across different message_ids (text -> tool call -> text)
 	s.server.contextMappings["thread-multi"] = "ses_multi"
-	s.server.sessionToWaitingInteraction["ses_multi"] = []string{"int-multi"}
 
 	session := &types.Session{
 		ID:    "ses_multi",
@@ -1758,11 +2593,7 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	).Times(1)
 
 	// First message_id writes immediately
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
-			return interaction, nil
-		},
-	).Times(1)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	// First message_id: assistant text
 	syncMsg := &types.SyncMessage{
@@ -1784,13 +2615,15 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	err = s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
 
-	// Verify accumulated content in memory
+	// Verify accumulated content in memory — ResponseMessage is deferred to DB
+	// write, so check the accumulator which always has the latest content.
 	s.server.streamingContextsMu.RLock()
 	sctx := s.server.streamingContexts["ses_multi"]
 	s.server.streamingContextsMu.RUnlock()
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Running: ls -la]", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Running: ls -la]", sctx.accumulator.Content)
 	s.Equal("msg-tool", sctx.interaction.LastZedMessageID)
 
 	// Third update: tool call status changes (same message_id, content replaces from offset)
@@ -1801,7 +2634,8 @@ func (s *WebSocketSyncSuite) TestStreamingThrottle_MultiMessageAccumulation() {
 	s.NoError(err)
 
 	sctx.mu.Lock()
-	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.interaction.ResponseMessage)
+	sctx.accumulator.Rebuild()
+	s.Equal("Let me help\n\n[Finished: ls -la]\nfile1.txt\nfile2.txt", sctx.accumulator.Content)
 	s.True(sctx.dirty)
 	sctx.mu.Unlock()
 }
@@ -1933,7 +2767,7 @@ func (s *WebSocketSyncSuite) TestStreamingPatch_PreviousEntriesTracked() {
 	// First token: expect DB queries (cache miss) + DB write + publish
 	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).Times(1)
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil).Times(1)
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(interaction, nil).AnyTimes()
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	syncMsg := &types.SyncMessage{
 		EventType: "message_added",
@@ -2117,8 +2951,8 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_FallbackCreatesMapping
 	s.Equal(sessionID, s.server.requestToSessionMapping[interactionID],
 		"fallback should map interaction ID → session ID")
 
-	// Verify sessionToWaitingInteraction populated
-	s.Contains(s.server.sessionToWaitingInteraction[sessionID], interactionID)
+	// Verify requestToInteractionMapping populated
+	s.Equal(interactionID, s.server.requestToInteractionMapping[interactionID])
 
 	// Verify command was queued in pending queue
 	s.server.externalAgentWSManager.readinessMu.Lock()
@@ -2196,7 +3030,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction()
 
 	// No mappings should be created
 	s.Empty(s.server.requestToSessionMapping)
-	s.Empty(s.server.sessionToWaitingInteraction)
+	s.Empty(s.server.requestToInteractionMapping)
 
 	// No command should be queued
 	s.server.externalAgentWSManager.readinessMu.Lock()
@@ -2292,6 +3126,11 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask
 
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
 
+	// Phantom-draft guard: returns empty list (no existing zed_threads to dedup
+	// against), so the guard falls through to the normal create path.
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_test").
+		Return([]*types.SpecTaskZedThread{}, nil)
+
 	// Expect new session to be created with all metadata copied
 	var capturedSession types.Session
 	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -2370,6 +3209,157 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_CreatesWorkSessionForSpectask
 	s.Equal(capturedSession.ID, mappedSession)
 }
 
+// TestUserCreatedThread_PhantomDraftGuard_RefusesWhenEmptyWorkSessionExists
+// is the regression test for the bug documented in
+// design/2026-05-13-mcp-cache-contention-and-duplicate-claude-spawn.md.
+//
+// Without the guard at handleUserCreatedThread, every container restart
+// of a long-running spec_task leaks an empty "New Chat" helix_session +
+// spec_task_zed_threads row. Cause: Zed's agent panel speculatively calls
+// new_session() to back its empty input editor (the "draft" thread), then
+// fires UserCreatedThread back to us — even though the user never typed
+// anything in it.
+//
+// The guard refuses to create a new session if the spec_task already has
+// an active work_session whose helix_session has zero interactions.
+//
+// To make this test fail when the guard is removed, comment out the
+// "PHANTOM-DRAFT GUARD" block in handleUserCreatedThread and re-run.
+func (s *WebSocketSyncSuite) TestUserCreatedThread_PhantomDraftGuard_RefusesWhenEmptyWorkSessionExists() {
+	// Existing helix_session that the dev container is bound to.
+	existingSession := &types.Session{
+		ID:             "ses_existing",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		ProjectID:      "prj-1",
+		ParentApp:      "app-1",
+		Metadata: types.SessionMetadata{
+			AgentType:        "zed_external",
+			SpecTaskID:       "spt_phantom_test",
+			CodeAgentRuntime: "claude_code",
+			ZedThreadID:      "thread-real",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
+
+	// The spec_task already has one active zed_thread (thread-real) tied to
+	// a helix_session with no interactions. This is the scenario the bug
+	// produces on every container restart.
+	existingZedThread := &types.SpecTaskZedThread{
+		ID:            "stzt_existing",
+		WorkSessionID: "stws_existing",
+		SpecTaskID:    "spt_phantom_test",
+		ZedThreadID:   "thread-real",
+		Status:        types.SpecTaskZedStatusActive,
+	}
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_phantom_test").
+		Return([]*types.SpecTaskZedThread{existingZedThread}, nil)
+
+	existingWorkSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_phantom_test",
+		HelixSessionID: "ses_existing",
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	s.store.EXPECT().GetSpecTaskWorkSession(gomock.Any(), "stws_existing").
+		Return(existingWorkSession, nil)
+
+	// helix_session has zero interactions — this is the signal that the
+	// existing work_session is itself a phantom draft (or just not yet
+	// touched by the user). The incoming UserCreatedThread is therefore a
+	// duplicate phantom from another panel-restore cycle. Refuse it.
+	s.store.EXPECT().ListInteractions(gomock.Any(), &types.ListInteractionsQuery{
+		SessionID: "ses_existing",
+	}).Return([]*types.Interaction{}, int64(0), nil)
+
+	// THE ASSERTION: the guard must short-circuit BEFORE any of these
+	// store mutations fire. If the guard is removed, gomock will fail
+	// with "missing call to CreateSession" / "missing call to
+	// CreateSpecTaskWorkSession" / "missing call to CreateSpecTaskZedThread"
+	// because the handler will fall through to the create path (which we
+	// have NOT mocked here). That test failure IS the regression signal.
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-phantom-from-zed-draft",
+			"title":         "New Chat",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_existing", syncMsg)
+	s.NoError(err, "guard should silently skip creation, not return an error")
+
+	// Belt-and-braces: also verify no context mapping was created for the
+	// phantom thread_id (it would only be set if we'd fallen through to
+	// the create path).
+	s.server.contextMappingsMutex.RLock()
+	_, mapped := s.server.contextMappings["thread-phantom-from-zed-draft"]
+	s.server.contextMappingsMutex.RUnlock()
+	s.False(mapped, "phantom thread should not be added to contextMappings")
+}
+
+// TestUserCreatedThread_PhantomDraftGuard_AllowsWhenExistingSessionHasInteractions
+// verifies the guard does NOT block when the existing work_session has
+// real activity in it. A user typing a follow-up that creates a genuinely
+// new thread on top of an active conversation MUST still work.
+func (s *WebSocketSyncSuite) TestUserCreatedThread_PhantomDraftGuard_AllowsWhenExistingSessionHasInteractions() {
+	existingSession := &types.Session{
+		ID:             "ses_existing",
+		Owner:          "user-1",
+		OrganizationID: "org-1",
+		Metadata: types.SessionMetadata{
+			AgentType:        "zed_external",
+			SpecTaskID:       "spt_active_test",
+			CodeAgentRuntime: "claude_code",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_existing").Return(existingSession, nil)
+
+	existingZedThread := &types.SpecTaskZedThread{
+		ID:            "stzt_existing",
+		WorkSessionID: "stws_existing",
+		SpecTaskID:    "spt_active_test",
+		ZedThreadID:   "thread-active",
+		Status:        types.SpecTaskZedStatusActive,
+	}
+	s.store.EXPECT().ListSpecTaskZedThreads(gomock.Any(), "spt_active_test").
+		Return([]*types.SpecTaskZedThread{existingZedThread}, nil)
+
+	existingWorkSession := &types.SpecTaskWorkSession{
+		ID:             "stws_existing",
+		SpecTaskID:     "spt_active_test",
+		HelixSessionID: "ses_existing",
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	s.store.EXPECT().GetSpecTaskWorkSession(gomock.Any(), "stws_existing").
+		Return(existingWorkSession, nil)
+
+	// Existing session HAS interactions → guard does not fire → fall through
+	// to the create path.
+	s.store.EXPECT().ListInteractions(gomock.Any(), &types.ListInteractionsQuery{
+		SessionID: "ses_existing",
+	}).Return([]*types.Interaction{{ID: "int_one"}}, int64(1), nil)
+
+	// Expect normal create path to execute.
+	s.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(&types.Session{ID: "ses_new_active"}, nil)
+	s.store.EXPECT().GetSpecTaskWorkSessionByHelixSession(gomock.Any(), "ses_existing").
+		Return(existingWorkSession, nil)
+	s.store.EXPECT().CreateSpecTaskWorkSession(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().CreateSpecTaskZedThread(gomock.Any(), gomock.Any()).Return(nil)
+
+	syncMsg := &types.SyncMessage{
+		EventType: "user_created_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-genuinely-new",
+			"title":         "Continuation",
+		},
+	}
+
+	err := s.server.handleUserCreatedThread("ses_existing", syncMsg)
+	s.NoError(err)
+}
+
 func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession() {
 	// Session without SpecTaskID — should create session but skip work session
 	existingSession := &types.Session{
@@ -2397,4 +3387,84 @@ func (s *WebSocketSyncSuite) TestUserCreatedThread_NonSpectaskSkipsWorkSession()
 
 	err := s.server.handleUserCreatedThread("ses_exploratory", syncMsg)
 	s.NoError(err)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// sendChatMessageToExternalAgent — request→session mapping for new threads
+//
+// Regression test for the live-clear orphaning bug: after ClearSession resets a
+// Zed session's ZedThreadID to "", the next message is sent with acp_thread_id=nil
+// so the agent creates a NEW thread and emits thread_created. Without a
+// request_id→session mapping, handleThreadCreated could not reattach that thread
+// to the originating session and spawned an orphan session, leaving the original
+// interaction stuck in "waiting". sendChatMessageToExternalAgent must therefore
+// register requestToSessionMapping whenever it sends with no existing thread.
+// ──────────────────────────────────────────────────────────────────────────────
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_NewThread_RegistersSessionMapping() {
+	sessionID := "ses_cleared"
+	requestID := "req_newthread"
+
+	// A live WS connection so sendCommandToExternalAgent succeeds (no auto-start path).
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan: make(chan types.ExternalAgentCommand, 10),
+	})
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:    "zed_external",
+			ZedThreadID:  "", // cleared — next message creates a NEW thread
+			ZedAgentName: "claude",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			i.ID = "int_new"
+			return i, nil
+		})
+
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+
+	s.server.contextMappingsMutex.RLock()
+	mapped, ok := s.server.requestToSessionMapping[requestID]
+	s.server.contextMappingsMutex.RUnlock()
+	s.True(ok, "new-thread send must register request_id → session so thread_created reattaches")
+	s.Equal(sessionID, mapped)
+}
+
+func (s *WebSocketSyncSuite) TestSendChatMessage_ExistingThread_NoSessionMapping() {
+	sessionID := "ses_with_thread"
+	requestID := "req_existing"
+
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan: make(chan types.ExternalAgentCommand, 10),
+	})
+
+	session := &types.Session{
+		ID:    sessionID,
+		Owner: "user-1",
+		Metadata: types.SessionMetadata{
+			AgentType:    "zed_external",
+			ZedThreadID:  "thr-existing", // continues the SAME thread; no thread_created
+			ZedAgentName: "claude",
+		},
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil)
+	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			i.ID = "int_existing"
+			return i, nil
+		})
+
+	_, _ = s.server.sendChatMessageToExternalAgent(sessionID, "hello", requestID, false)
+
+	s.server.contextMappingsMutex.RLock()
+	_, ok := s.server.requestToSessionMapping[requestID]
+	s.server.contextMappingsMutex.RUnlock()
+	s.False(ok, "same-thread continuation must NOT register a mapping (would leak — no thread_created consumes it)")
 }

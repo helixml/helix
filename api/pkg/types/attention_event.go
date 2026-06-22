@@ -27,8 +27,9 @@ type AttentionEvent struct {
 	Metadata       datatypes.JSON     `json:"metadata,omitempty" gorm:"type:jsonb"`
 
 	// Denormalized for display without joins
-	ProjectName  string `json:"project_name,omitempty" gorm:"size:255"`
-	SpecTaskName string `json:"spec_task_name,omitempty" gorm:"size:500"`
+	ProjectName         string `json:"project_name,omitempty" gorm:"size:255"`
+	SpecTaskName        string `json:"spec_task_name,omitempty" gorm:"size:500"`
+	SpecTaskDescription string `json:"spec_task_description,omitempty" gorm:"type:text"`
 }
 
 type AttentionEventType string
@@ -39,7 +40,17 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
+	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )
+
+// AttentionEventFilters controls optional filtering when listing attention events.
+type AttentionEventFilters struct {
+	// MineOnly restricts results to events whose associated spec task is owned by
+	// the requesting user. Ownership is determined by assignee_id first (when set),
+	// falling back to created_by.
+	MineOnly bool
+}
 
 // AttentionEventUpdateRequest is the request body for updating an attention event
 // (acknowledge, dismiss, or snooze).

@@ -5,6 +5,7 @@
 - If uncertain, investigate rather than confirming beliefs
 - **Current year: 2026** — include "2026" in web searches for current info
 - If you find yourself adding hacks or workarounds, **stop** — take a step back, root cause the issue, understand the wider context, and fix it properly. Don't always take the path of least resistance — we need maintainable code.
+- **Always give full URLs for PRs and issues** — never use the `owner/repo#123` shorthand format. Use `https://github.com/helixml/helix/pull/123` etc.
 - See also: `.cursor/rules/*.mdc`
 
 ## FORBIDDEN ACTIONS
@@ -13,6 +14,7 @@
 - **NEVER** `git checkout -- .`, `git reset --hard`, `git checkout -f` — destroys uncommitted work
 - **NEVER** `git stash drop/pop` — use `git stash apply` (keeps backup)
 - **NEVER** squash merge — always use regular merge commits (`gh pr merge --merge`)
+- **NEVER** `gh pr create` without `--repo helixml/zed` when in the Zed repo — the upstream `zed-industries/zed` remote causes `gh` to target the wrong repo by default
 - **NEVER** push to main, amend commits on main, delete source files, delete `.git/index.lock`
 - **NEVER** `rm -rf *` or `rm -rf .*` in a git repo
 - **NEVER** `git checkout --orphan` then clear files — use a separate temp directory instead
@@ -25,6 +27,12 @@
 - Use `mv` to temp location instead of `rm` when uncertain
 
 ### Commits & Debugging
+- **Use conventional commit format**: `type(scope): description`
+  - Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `style`, `perf`, `ci`, `build`, `revert`
+  - Scope is optional but encouraged (e.g., `api`, `frontend`, `specs`, `zed`)
+  - Subject ≤ 72 chars, imperative mood, no trailing period
+  - Examples: `feat(api): add PR content reading from helix-specs`, `fix(frontend): handle empty task list`, `chore(specs): update progress`
+  - The `commit-msg` hook enforces this — non-conforming commits are rejected
 - Commit and push frequently, keep commits atomic, update design docs
 - No unsubstantiated claims about code severity/importance without evidence
 - Ask user to verify UI changes; when stuck, use `git bisect`
@@ -41,7 +49,7 @@
 
 ### Hot Reloading
 - **API**: Air auto-rebuilds Go changes
-- **Frontend**: Vite HMR (dev mode) or `yarn build` + refresh (prod mode)
+- **Frontend**: Vite HMR (dev mode) or `yarn build` + refresh (prod mode). The `helix-frontend-1` container runs Vite dev server on **port 8081** — changes to `frontend/src/` are live immediately, no rebuild needed. The main app at port 8080 proxies to it.
 - **Settings-sync-daemon**: does NOT hot reload — requires `./stack build-ubuntu` + new session
 
 ### Production Frontend Mode
@@ -95,6 +103,35 @@ See `design/2026-02-04-macos-dev-environment-setup.md` for setup.
 
 Full rebuild order: `build-zed` → `build-ubuntu` → `build-sandbox` (if needed) → start new session.
 
+**Experimental desktop pulls.** The sandbox startup script
+(`sandbox/04-start-dockerd.sh`) only pulls the *production* desktop image
+(`helix-ubuntu`) on every container start. Experimental desktops
+(`helix-sway`, `helix-zorin`, `helix-xfce`, `helix-kde`) are gated behind
+the `HELIX_EXPERIMENTAL_DESKTOPS` env var (space-separated, default
+empty). Set e.g. `HELIX_EXPERIMENTAL_DESKTOPS="sway"` in your environment
+to pre-pull sway at sandbox startup; otherwise it's pulled lazily by
+Docker the first time someone launches a sway desktop session.
+
+### **CRITICAL: Bumping sandbox-versions.txt after Zed or Qwen changes**
+
+`sandbox-versions.txt` pins the exact commits CI uses to build the sandbox:
+```
+ZED_COMMIT=<full git sha>
+QWEN_COMMIT=<full git sha>
+```
+
+**If you modify Zed or Qwen, you MUST follow this order:**
+
+1. Commit your changes in the Zed/Qwen repo (do NOT push yet).
+2. Copy the local commit hash: `git rev-parse HEAD`
+3. Update `sandbox-versions.txt` in this repo with that hash.
+4. **Open the Helix PR** (with the bumped hash) *before* pushing the Zed/Qwen branch.
+5. Push the Zed/Qwen branch and open that PR.
+6. Merge the Zed/Qwen PR.
+7. Merge the Helix PR.
+
+**Why this order matters:** The spec task system marks a task done when all its PRs are merged. If the Zed PR is merged first, the system may close the task before `sandbox-versions.txt` is updated — leaving CI pointing at the wrong commit indefinitely. Getting the commit hash from a local commit (before pushing) solves the chicken-and-egg problem.
+
 ### Verify Build
 ```bash
 cat sandbox-images/helix-ubuntu.version
@@ -121,6 +158,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 41222 ubuntu@
 - GORM AutoMigrate only, gomock not testify/mock
 - **NO FALLBACKS** — one approach, fix properly, no dead code paths
 - **CLEAN UP DEAD CODE** immediately
+- **Org lookup in API handlers**: when a handler reads an `{org_id}` URL segment (or any `org_id` request field), ALWAYS resolve it via `s.lookupOrg(ctx, orgStr)` (in `wallet_handlers.go`) before using it as a key for store lookups, authorization, or persisting onto a row. `lookupOrg` accepts both an `org_…` id AND an org name/slug, so handlers transparently work whether the frontend sent the canonical id or the URL-facing slug. Never write the raw URL segment into a row's `OrganizationID` column — the slug doesn't match wallet/membership rows keyed by id (this caused sandbox delete to fail with `get org wallet: not found`).
 
 Test suite pattern:
 ```golang
@@ -144,11 +182,47 @@ func (s *MySuite) SetupTest() { /* init ctrl, store, server */ }
 - **Routing**: `useRouter()` with `router.navigate('name', { params })` — NOT `<Link>` or `<a href>` (react-router5)
 - Invalidate queries after mutations, don't use `setQueryData`
 - Use ContextSidebar pattern (see `ProjectsSidebar.tsx`)
+- **Search/filter**: use `matchesAllTokens()` from `utils/searchUtils.ts` — splits on whitespace, requires all tokens to match (AND logic). NEVER use raw `.includes(query)` for search boxes — it fails on multi-word queries
+
+### UI Styles
+
+These rules keep our list pages visually consistent. When in doubt, mirror `Sandboxes.tsx` / `Tasks.tsx`.
+
+#### Tables
+- **ALWAYS use `SimpleTable`** from `frontend/src/components/widgets/SimpleTable.tsx`. Don't reach for raw MUI `<Table>` / `<TableContainer>`. References: `TasksTable.tsx`, `SandboxesTable.tsx`, `AppsTable.tsx`.
+- Build rows via a `tableData` `useMemo` that maps each entity to `{ id, _data: <entity>, <field>: <ReactNode>, ... }`. Always include `_data` so action handlers can recover the typed entity.
+- Cells are `<Typography>` nodes, not raw strings. Use `variant="body2" color="text.secondary"` for non-primary cells. Make the name cell a bold link via an inline `<a>` (see `TasksTable.tsx`); call `e.preventDefault()` + `e.stopPropagation()` in its `onClick`.
+- **Row actions go in a single vertical-dot menu**, never a row of icon buttons. Implement `getActions` as one `<IconButton><MoreVertIcon/></IconButton>` that opens a `<Menu>` with `<MenuItem>` entries (each item has a leading icon: `<Icon sx={{ mr: 1, fontSize: 20 }} />`). Track the active row via `currentX` state set on menu open; clear it on close.
+- `e.stopPropagation()` in every menu/icon click handler so row clicks don't fire.
+- Status chips: build a small dedicated component (e.g. `SandboxStatusBadge`) rather than inlining `<Chip>` styling.
+
+#### Cards (cards view)
+- Render via the shared `CardGrid` (`components/widgets/CardGrid.tsx`) — never roll a new MUI `Grid container` (its negative margins break flush alignment with the page title).
+- Card chrome: `<Card>` with `border: '1px solid rgba(0, 0, 0, 0.08)'`, `borderRadius: 1`, `boxShadow: 'none'`, hover bumps `borderColor` to `rgba(0,0,0,0.12)` and tints `backgroundColor: 'rgba(0,0,0,0.01)'`. `height: '100%'` + `display: 'flex'; flexDirection: 'column'` so the grid rows align.
+- Inside, `<CardContent>` uses `p: 2`, `'&:last-child': { pb: 2 }`, `cursor: 'pointer'`, and an `onClick` that opens the detail view.
+- **Top-right corner gets the vertical-dot menu** (`<IconButton><MoreVertIcon sx={{ fontSize: 16 }}/></IconButton>` → `<Menu>`). Same menu items as the table actions — keep the two surfaces in sync. Don't put separate Open/Delete icons at the bottom of the card.
+- Status indicator goes inline next to the dot menu (e.g. status badge), or as the leading icon by the title (see `CronTaskCard.tsx` — green clock vs paused-circle, with tooltip).
+- Dense stat strip uses the gradient panel: `background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)'`, `border: '1px solid rgba(255,255,255,0.06)'`, `borderRadius: 2`, `p: 1.5`. Stats are label (caption, `0.65rem`, `text.secondary`) + value (body2, `0.8rem`, `monospace`, `fontWeight: 600`).
+
+#### Table ↔ cards toggle
+- Use `ViewModeToggle` (`components/widgets/ViewModeToggle.tsx`) + the `useViewMode(storageKey, defaultMode)` hook. State persists via URL `?view=` param + localStorage automatically.
+- Toggle sits **directly above the table/grid, right-aligned**, in its own row inside the page `Stack`. Don't park it in `topbarContent` — the topbar is reserved for the primary action button (e.g. "New Sandbox").
+- Page header (`<Typography variant="h5">Title</Typography>` + secondary description) sits above the toggle in the same `Stack`.
 
 ## Architecture
 - **ACP**: `LLM ←(OpenAI API)→ Qwen Code Agent ←(ACP)→ Zed IDE`
 - **RBAC**: `authorizeUserToResource()` — unified AccessGrants
 - **Enterprise**: Support internal DNS, proxies, air-gapped, private CAs
+
+## helix-org design philosophy
+
+Anything under `api/pkg/org/` is the org-graph runtime (Workers, Positions, Roles, Streams). Behaviour lives in the prompt/profile, not in Go code. The code is scaffolding.
+
+- **Prefer data and text over code.** If a feature can be expressed as a Role/Position prompt edit, a scope value, or a tool description, do that before adding Go logic.
+- **Keep the MCP surface small.** MCP tools are reserved for org-graph primitives (reads + mutations of Workers, Positions, Roles, Streams). Anything else a Worker needs goes through shell tools provisioned in their environment (`bash`, `curl`, `git`, `gh`, `python`). Don't add MCP wrappers like `publish_to_blog` or `fetch_url` — describe the shell usage in the Role text instead. **One recorded exception:** `mint_credential` is a generic credential-minting *primitive* (it is what makes the shell tools usable on long-running sessions whose boot-time tokens have expired). A *primitive* is different from a per-action wrapper; the per-action ban stands. See `design/tasks/002092_helix-org-mintcredential/design.md` §2 for the full rationale.
+- **No workflow in code.** Tools do exactly one thing. Code does not orchestrate multi-step sequences on behalf of an agent — it does not subscribe Workers, auto-create related records, or chain calls. Orchestration lives in the prompt. The one exception is structural derivation: `Role.Tools` is the live MCP surface for every Worker filling a Position bound to that Role — editing the Role changes its Workers' capabilities, because the Role *is* the capability. That isn't orchestration, it's the Role meaning what it says. `Role.Streams` stays prompt-driven (the hiring manager calls `create_stream` and `subscribe` explicitly). When reviewing a tool, ask: "is the code making a decision the agent should be making?" If yes, remove it.
+- **Social enforcement first.** A Worker reads scope from its prompt and complies. Reach for hard enforcement only when the cost of a violation is high.
+- **Keep the core generic.** Tool definitions and scope shapes live with the tool, not in the registry, server, or domain layer. New tools must be addable without editing the core.
 
 ## Dev Environment (Helix-in-Helix)
 
@@ -175,7 +249,8 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 ```
 
 ### Never Give Up on Testing
-- Always test changes end-to-end in the inner Helix browser (MCP Chrome DevTools available)
+- **PREFER end-to-end testing in the inner Helix over every other form of verification.** Setup is fast, not "substantial work" — register (`test@helix.ml` / `helixtest`), complete onboarding (testorg → testproj → claude-opus-4-6 auto-selects), create a spectask, navigate to its detail page. Do this *every time* a UI change is testable in the inner Helix. The inner Helix exists for exactly this — there is no point having it and not using it. Isolated DOM harnesses, JS-only algorithm replays, and unit tests are NOT substitutes; they verify the algorithm, not the wired-up production component.
+- Always test changes end-to-end in the inner Helix browser using the `mcp__chrome-devtools__*` MCP tools (they're under that prefix — easy to miss in the tool listing).
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
 
@@ -186,6 +261,31 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - **Frontend**: `cd frontend && yarn build` before committing
 - **Full tests**: Push and check CI (`gh pr checks` or Drone API)
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
+
+### Don't claim confidence you didn't earn
+- NEVER report quantified confidence ("95% tested", "last 5% works"). Either you ran
+  it end-to-end (say so, with the output) or you did not (say "NOT tested: <what/why>").
+- A unit test that checks a state change (field reset, row deleted) is NOT evidence the
+  feature works. Do not write "covered by unit tests" when the test only asserts the
+  mechanism, not the user-visible outcome.
+- Reasoning by analogy ("same as the fork/X path") is a hypothesis, not a result.
+  Verify the precondition state matches — a live/connected resource is a DIFFERENT
+  state from a fresh/offline one, and lifecycle bugs hide in that gap.
+
+### Test the next operation, not just the state change
+- For any reset/clear/delete/cancel/switch feature, always exercise the IMMEDIATELY
+  FOLLOWING normal operation: clear → send a message; delete → recreate; cancel →
+  resume; reset thread → next turn. Bugs live in that seam, not in the mutation itself.
+
+### Live external-agent (Zed) testing is mandatory for lifecycle changes
+- Features touching session/thread lifecycle (clear, fork, cancel, resume, switch-agent)
+  MUST be tested against a LIVE, connected Zed — not seeded DB rows. Seeded rows only
+  exercise the no-connection branch and miss thread_created routing entirely.
+- To get a live session fast: create a **spec task** (it provisions a git repo, so Zed's
+  workspace setup completes and it opens the sync WebSocket). A bare
+  `agent_type=zed_external` chat session does NOT work — no repo → workspace setup
+  FATALs after 300s → Zed never connects. Liveness check: `config->>'zed_thread_id'` is a
+  non-empty UUID.
 
 ### Quick Log Checks
 ```bash
@@ -205,6 +305,13 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 ```
 **Shell bug**: Use backticks, not `$()` (tool escapes `$` incorrectly).
 
+**Helix-in-Helix**: `.env.usercreds` is NOT available in the inner instance. Use the browser at `http://localhost:8080`. In dev mode, the first registered account is automatically admin. Use these fixed credentials so sessions are idempotent:
+- Email: `test@helix.ml`
+- Password: `helixtest`
+- Full Name: `Test User`
+
+If already registered, click "Sign in here" and use the same credentials.
+
 ## Quick Reference
 - Build CLI: `cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .`
 - Regenerate API client: `./stack update_openapi`
@@ -212,6 +319,8 @@ export HELIX_API_KEY=`grep HELIX_API_KEY .env.usercreds | cut -d= -f2-`
 - Design docs: `design/YYYY-MM-DD-name.md`
 
 ## CI (Drone)
+**ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
+
 **ALWAYS use the Drone MCP tools** (`drone_build_info`, `drone_fetch_logs`, `drone_search_logs`, `drone_tail_logs`, `drone_read_logs`) when they are available. Do NOT try to extract credentials from `.env` files or use raw `curl` — the MCP tools handle authentication automatically.
 
 Workflow for investigating CI failures:
@@ -364,3 +473,103 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 
 ## CLI Development
 Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+
+## Sandboxes API
+
+User-facing ephemeral containers for exec / files / terminal — different from spec-task sandboxes (those run the full Zed/agent stack). Source of truth: `design/2026-04-29-sandboxes-api.md`.
+
+### Architecture
+
+```
+helix CLI / UI ─REST/WS─▶ helix API (sandbox controller)
+                                  │ store.Sandbox row
+                                  ▼ Postgres
+                                  │
+                       picks hydra host (heartbeat-versioned for desktop, any online host for headless/custom)
+                                  │
+                                  ▼ RevDial
+                          hydra (in helix-sandbox-nvidia-1)
+                                  │ docker exec / cp / inspect
+                                  ▼
+                          /sbx-{id} container (configured runtime image)
+```
+
+- Org-scoped, optional `project_id`. Cross-org id-guessing is blocked by `loadAuthorizedSandbox`.
+- 1 vCPU / 2GB RAM, default TTL 1h, soft-delete on expiry by the reaper goroutine (`StartReaper`, polls 60s).
+- Headless containers use plain public images (`ubuntu:22.04`, `node:22-bookworm-slim`, …); `SkipImageValidation=true` triggers a proactive `docker pull` in hydra.
+- Desktop runtime is heartbeat-versioned (`helix-ubuntu:<sha>`) and runs the full GNOME shell. Currently broken in pure sandbox-API mode (gnome-shell exits) — prefer headless runtimes.
+
+### Runtime configuration
+
+Operators configure runtimes via env vars (parsed by `config.Sandboxes`):
+
+| Env | Default |
+|---|---|
+| `HELIX_SANDBOX_RUNTIMES` | `headless-ubuntu=ubuntu:22.04\|sleep infinity,node22=node:22-bookworm-slim\|tail -f /dev/null,python313=python:3.13-slim\|tail -f /dev/null` |
+| `HELIX_SANDBOX_DEFAULT_RUNTIME` | `headless-ubuntu` |
+| `HELIX_SANDBOX_ALLOW_CUSTOM_IMAGE` | `false` (set true to let API callers pass arbitrary `image`) |
+
+Format: `name=image[\|keep-alive-shell-cmd]`. Add new runtimes (go, rust, java, …) by extending the CSV — no code change.
+
+### CLI
+
+All commands honour `$HELIX_API_KEY` and `$HELIX_URL`. Org defaults to `$HELIX_ORG` or your first org.
+
+```bash
+helix sandbox runtimes                                    # discover what's available
+helix sandbox create --name x --runtime node22 --ttl 600  # create + wait for running
+helix sandbox create --image alpine:3.19                  # custom image (requires gate enabled)
+helix sandbox list [--project prj_…]                      # filter by project
+helix sandbox get <sbx_…>                                 # full row as JSON
+
+# exec
+helix sandbox exec <sbx_…> -- <cmd> [args...]             # synchronous, prints stdout/stderr
+helix sandbox exec <sbx_…> --detached -- <cmd>            # fire-and-forget, prints cmd id
+helix sandbox commands <sbx_…>                            # list commands tracked
+helix sandbox logs <sbx_…> <sbcmd_…> [--follow]           # SSE log stream
+helix sandbox kill <sbx_…> <sbcmd_…> [--signal TERM]
+
+# files
+helix sandbox ls <sbx_…> --path /tmp
+echo data | helix sandbox write <sbx_…> /tmp/x.txt --mode 644
+helix sandbox read <sbx_…> /tmp/x.txt
+
+# terminal
+helix sandbox terminal <sbx_…>                            # interactive PTY (xterm)
+
+# cleanup
+helix sandbox delete <sbx_…>                              # immediate teardown
+```
+
+### Workflow expectations
+
+- `create → wait` is fast (~1-2s for headless after the image is pulled). First create of a new image incurs a `docker pull`.
+- `exec` synchronous: 60s default per-command timeout. Use `--detached` for anything longer or interactive — then poll via `commands` / stream via `logs --follow`.
+- TTL is enforced server-side: row's `expires_at` is set on create, refreshed on `PATCH timeout_seconds`. Reaper deletes after expiry.
+- Container is ephemeral. Nothing survives `delete` — no snapshots in v1.
+
+### Where things live
+
+| File | Purpose |
+|---|---|
+| `api/pkg/types/sandbox.go` | `Sandbox`, `CreateSandboxRequest`, status enums |
+| `api/pkg/sandbox/runtimes.go` | `RuntimeRegistry` — config-driven runtime spec resolution |
+| `api/pkg/sandbox/controller.go` | Lifecycle: create, provision, delete, reaper |
+| `api/pkg/server/sandboxes_api_handlers.go` | REST handlers (auth, JSON, ws bridge for terminal) |
+| `api/pkg/hydra/sandbox_handlers.go` / `sandbox_ops.go` | hydra-side exec/file/terminal implementation |
+| `api/pkg/hydra/client_sandbox.go` | RevDial client used by API → hydra |
+| `api/pkg/client/sandbox.go` | Public Go client (used by CLI; available to external SDKs) |
+| `api/pkg/cli/sandbox/sandbox.go` | `helix sandbox …` cobra subcommands |
+| `frontend/src/pages/Sandboxes.tsx`, `SandboxDetail.tsx` | UI list + detail (Overview/Terminal/Commands/Files) |
+
+### Hot-rebuild loop
+
+- API code changes → Air rebuilds `helix-api-1` automatically.
+- **hydra code changes** (`api/pkg/hydra/`) require redeploying the binary into the sandbox container — Air does NOT rebuild it:
+  ```bash
+  cd api && CGO_ENABLED=0 GOOS=linux go build -o /tmp/hydra-linux ./cmd/hydra
+  docker cp /tmp/hydra-linux helix-sandbox-nvidia-1:/usr/local/bin/hydra
+  docker compose -f docker-compose.dev.yaml exec -T sandbox-nvidia pkill -TERM hydra
+  ```
+  hydra restarts automatically; tail `docker logs helix-sandbox-nvidia-1` and look for `RevDial control connection established` to confirm.
+- Frontend → Vite HMR (port 8081 mounted into `helix-frontend-1`).

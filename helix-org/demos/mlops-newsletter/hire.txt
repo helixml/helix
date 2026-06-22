@@ -1,0 +1,9 @@
+Set up an MLOps newsletter team from this directory.
+
+For each .md file under ./roles/, call create_role with id='r-' + the file's basename (e.g. roles/editor.md -> r-editor) and content equal to the file body.
+
+Create three positions p-editor, p-researcher, p-journalist under p-root, each pointing at the matching role.
+
+Hire three AI workers w-editor, w-researcher, w-journalist into them. For each hire set identityContent to a one-line stub like 'You are the <role>.'
+
+Read each role.md to find its 'Tools (MCP)' line and grant exactly those tool names. Confirm when done.

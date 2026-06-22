@@ -41,8 +41,8 @@ func WSURL(options ClientOptions, path string) string {
 }
 
 type HTTPError struct {
-	StatusCode int
-	Message    string
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
 }
 
 func (e *HTTPError) Error() string {
@@ -80,6 +80,20 @@ func NewHTTPError403(message string) *HTTPError {
 func NewHTTPError404(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusNotFound,
+		Message:    message,
+	}
+}
+
+func NewHTTPError409(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusConflict,
+		Message:    message,
+	}
+}
+
+func NewHTTPError422(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusUnprocessableEntity,
 		Message:    message,
 	}
 }

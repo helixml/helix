@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesSession } from '../api/api';
+import { ServerForkSessionRequest, ServerSwitchAgentRequest, TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const SESSION_STEPS_QUERY_KEY = (id: string) => [
@@ -24,6 +24,14 @@ export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?
   appId,
 ];
 
+export const LIST_INTERACTIONS_QUERY_KEY = (sessionId: string, page?: number, perPage?: number, order?: string) => [
+  "interactions",
+  sessionId,
+  page,
+  perPage,
+  order,
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListSessionSteps(sessionId: string, options?: { enabled?: boolean }) {
@@ -37,15 +45,32 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   })
 }
 
-export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
+export function useGetSession(sessionId: string, options?: { enabled?: boolean; refetchInterval?: number | false | ((query: any) => number | false); skipInteractions?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
+  const skipInteractions = options?.skipInteractions ?? false
 
   return useQuery({
-    queryKey: GET_SESSION_QUERY_KEY(sessionId),
-    queryFn: () => apiClient.v1SessionsDetail(sessionId),
+    queryKey: [...GET_SESSION_QUERY_KEY(sessionId), skipInteractions ? 'skip' : 'full'],
+    queryFn: () => apiClient.v1SessionsDetail(
+      sessionId,
+      skipInteractions ? { skipInteractions: '1' } : undefined,
+    ),
     enabled: options?.enabled ?? true,
+    // Don't hammer a session we can't read: a 4xx (403 forbidden / 404
+    // gone) is permanent, so retrying it is pointless noise. Other errors
+    // (5xx, network) keep the default retry.
+    retry: (failureCount: number, error: any) => {
+      const status = error?.response?.status
+      if (status >= 400 && status < 500) return false
+      return failureCount < 3
+    },
     refetchInterval: options?.refetchInterval,
+    // Prevent immediate refetches when multiple consumers share this query.
+    // E.g. useSandboxState (3s) and EmbeddedSessionView (5s) both poll the same
+    // session — without staleTime, mounting a new consumer would trigger an
+    // immediate redundant fetch even if data was fetched <1s ago.
+    staleTime: 2000,
   })
 }
 
@@ -87,6 +112,83 @@ export function useUpdateSession(sessionId: string, options?: { enabled?: boolea
 }
 
 
+// useForkSession forks the given session to a different agent.
+// On success, the parent session is paused and the child session id is
+// returned (via the resolved promise). Callers typically navigate the
+// chat panel to the new session id and/or invalidate parent's data.
+//
+// See design/tasks/002081_kickoff-mid-session/design.md.
+export function useForkSession(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerForkSessionRequest) =>
+      apiClient.v1SessionsForkCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // Parent transitioned to paused; refresh its session row.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      // Refresh any session lists so the new child appears.
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+// useSwitchAgent switches the agent framework on the given session IN PLACE —
+// same session, same desktop container. The backend rewrites Zed's config to
+// the new agent, restarts Zed, and repopulates a fresh thread with the prior
+// transcript. Unlike useForkSession, no new session id is created; the session
+// id is unchanged, so callers just refresh the existing session's data.
+//
+// See design/tasks/002111_so-we-recently-added-a/design.md.
+export function useSwitchAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: ServerSwitchAgentRequest) =>
+      apiClient.v1SessionsSwitchAgentCreate(sessionId, request).then((res) => res.data),
+    onSuccess: () => {
+      // The session's agent changed in place; refresh its row + any lists.
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+export const WORKSPACE_STATUS_QUERY_KEY = (sessionId: string) => [
+  "workspace-status",
+  sessionId,
+]
+
+// useWorkspaceStatus polls the parent session's desktop container for
+// uncommitted git changes and unpushed commits. The fork-confirm modal
+// uses this to either show a "N files will be committed and pushed
+// before the fork" panel or just proceed silently when clean.
+//
+// enabled defaults to false because this triggers a real exec into the
+// running desktop container — callers should only enable it when the
+// modal is actually open. We poll at a moderate interval while the
+// modal is open so a startup-race "container_reachable: false" gets
+// corrected once the desktop's RevDial connection registers (~1-2s
+// after a fresh container boot). Without this, the modal can show
+// stale "container isn't running" text even when the fork itself
+// works fine moments later.
+export function useWorkspaceStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: WORKSPACE_STATUS_QUERY_KEY(sessionId),
+    queryFn: () => apiClient.v1SessionsWorkspaceStatusDetail(sessionId),
+    enabled: options?.enabled ?? false,
+    // Recheck every 3s — picks up "container just became reachable"
+    // without spamming the desktop. Stops automatically when enabled
+    // flips back to false (modal closes).
+    refetchInterval: 3000,
+    staleTime: 0,
+  })
+}
+
 export function useDeleteSession(sessionId: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -127,4 +229,34 @@ export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?:
 
 export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
+}
+
+/**
+ * Hook to list interactions for a session with pagination
+ * @param sessionId The session ID
+ * @param page Page number (0-indexed)
+ * @param perPage Number of interactions per page (default 20)
+ * @param order Sort order: 'asc' (oldest first) or 'desc' (newest first)
+ * @param options Query options
+ */
+export function useListInteractions(
+  sessionId: string,
+  page?: number,
+  perPage?: number,
+  order?: 'asc' | 'desc',
+  options?: { enabled?: boolean; refetchInterval?: number | false }
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: LIST_INTERACTIONS_QUERY_KEY(sessionId, page, perPage, order),
+    queryFn: () => apiClient.v1SessionsInteractionsDetail(sessionId, {
+      page: page ?? 0,
+      per_page: perPage ?? 20,
+      order: order,
+    }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+  })
 }

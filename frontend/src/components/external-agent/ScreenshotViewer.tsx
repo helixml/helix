@@ -18,6 +18,7 @@ interface ScreenshotViewerProps {
   enableStreaming?: boolean; // Enable streaming mode toggle
   showToolbar?: boolean; // Show refresh/fullscreen buttons
   showTimestamp?: boolean; // Show last updated timestamp
+  quality?: number; // JPEG quality (1-100), lower = smaller. Default: server decides
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -33,6 +34,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   enableStreaming = true, // Enable streaming by default
   showToolbar = true, // Show toolbar by default
   showTimestamp = true, // Show timestamp by default
+  quality,
 }) => {
   // Dual-buffer system for smooth image transitions
   const [imageA, setImageA] = useState<string | null>(null);
@@ -49,6 +51,11 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mountTimeRef = React.useRef<Date>(new Date());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  // Count consecutive 503s before declaring the session dead. A single 503 is
+  // not enough — RevDial dial-backs occasionally i/o-timeout under load even
+  // for healthy desktops, and a transient blip should not require a page reload.
+  const consecutive503Ref = useRef(0);
+  const SESSION_UNAVAILABLE_THRESHOLD = 5;
 
   // Handle mode switch - clear error and loading state when switching modes
   const handleModeChange = useCallback((newMode: 'screenshot' | 'stream') => {
@@ -61,12 +68,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
-    if (isRunner) {
-      return `/api/v1/external-agents/runners/${sessionId}/screenshot`;
-    } else {
-      return `/api/v1/external-agents/${sessionId}/screenshot`;
+    const base = isRunner
+      ? `/api/v1/external-agents/runners/${sessionId}/screenshot`
+      : `/api/v1/external-agents/${sessionId}/screenshot`;
+    const params = new URLSearchParams();
+    if (quality !== undefined) {
+      params.set('quality', String(quality));
     }
-  }, [sessionId, isRunner]);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [sessionId, isRunner, quality]);
 
   // Fetch screenshot (useRef to prevent recreation on every render)
   const fetchScreenshotRef = useRef<() => Promise<void>>();
@@ -119,6 +130,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         setIsLoading(false);
         setIsInitialLoading(false);
         setError(null);
+        consecutive503Ref.current = 0;
 
         // Clean up bitmap (we used it just for off-thread decode)
         bitmap.close();
@@ -140,6 +152,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           setIsLoading(false);
           setIsInitialLoading(false);
           setError(null);
+          consecutive503Ref.current = 0;
         };
         img.onerror = () => URL.revokeObjectURL(newUrl);
         img.src = newUrl;
@@ -152,14 +165,26 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       // Container takes time to start and screenshot server to initialize
       if (isInitialLoading) {
         // Keep loading state, don't show error yet
-        setIsLoading(true);
-      } else {
-        // After grace period, show user-friendly errors based on status code
-        let displayError = errorMsg;
         if (statusCode === 503) {
-          displayError = 'Session ended - desktop is no longer available';
+          consecutive503Ref.current += 1;
+        }
+        setIsLoading(true);
+      } else if (statusCode === 503) {
+        // Tolerate transient 503s — RevDial dial-back can briefly i/o-timeout
+        // when the API is busy. Only surface "Session ended" after several
+        // consecutive failures (and keep polling in the meantime).
+        consecutive503Ref.current += 1;
+        if (consecutive503Ref.current >= SESSION_UNAVAILABLE_THRESHOLD) {
+          setError('Session ended - desktop is no longer available');
           setSessionUnavailable(true); // Stop polling
-        } else if (statusCode === 404) {
+          onError?.(errorMsg);
+          setIsLoading(false);
+        }
+        // Below threshold: stay quiet, keep showing the last frame, keep polling.
+      } else {
+        // Non-503 errors are treated as definitive.
+        let displayError = errorMsg;
+        if (statusCode === 404) {
           displayError = 'Session not found';
           setSessionUnavailable(true); // Stop polling
         }
@@ -178,7 +203,9 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   // Check if video streaming is active elsewhere (slow down polling to reduce main thread contention)
   const { isStreaming } = useVideoStream();
 
-  // Auto-refresh screenshot with RAF for higher priority
+  // Auto-refresh screenshot — waits for each fetch to complete before scheduling the next.
+  // This prevents request pile-up on slow connections (the old code fired every 1.7s
+  // regardless of whether the previous fetch had finished, causing unbounded queue growth).
   useEffect(() => {
     // Don't poll if auto-refresh disabled, not in screenshot mode, or session is unavailable
     if (!autoRefresh || streamingMode !== 'screenshot' || sessionUnavailable) return;
@@ -186,22 +213,27 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     // When video streaming is active elsewhere, slow down to 10s to reduce main thread contention
     const effectiveInterval = isStreaming ? 10000 : refreshInterval;
 
+    let cancelled = false;
     let timeoutId: NodeJS.Timeout;
-    let rafId: number;
 
-    const refresh = () => {
-      rafId = requestAnimationFrame(() => {
-        fetchScreenshotRef.current?.();
+    const refresh = async () => {
+      if (cancelled) return;
+      try {
+        await fetchScreenshotRef.current?.();
+      } catch {
+        // Errors handled inside fetchScreenshotRef
+      }
+      if (!cancelled) {
         timeoutId = setTimeout(refresh, effectiveInterval);
-      });
+      }
     };
 
     // Start the refresh cycle
     timeoutId = setTimeout(refresh, effectiveInterval);
 
     return () => {
+      cancelled = true;
       clearTimeout(timeoutId);
-      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [autoRefresh, refreshInterval, streamingMode, isStreaming, sessionUnavailable]);
 
