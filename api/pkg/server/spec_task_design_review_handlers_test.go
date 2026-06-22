@@ -73,41 +73,107 @@ func (s *CommentTimerSuite) TestHandleCommentTimeout_SkipsErrorWhenInteractionHa
 		SessionID:       "ses-streaming",
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "Sure — here is the plan. Step 1: ...",
+		// Updated recently => the agent is actively streaming a long answer.
+		// The timer must re-arm and re-check, not stamp an error or finalize.
+		Updated: time.Now(),
 	}
 
 	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-streaming").
 		Return(comment, nil)
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-streaming").
 		Return(streamingInteraction, nil)
-	// Critical: NO UpdateSpecTaskDesignReviewComment call is expected.
-	// gomock's strict mode fails the test if any unexpected call is made.
+	// Critical: NO UpdateSpecTaskDesignReviewComment call is expected — the timer
+	// re-arms (in-memory only) and defers. gomock's strict mode fails the test if
+	// any unexpected store call is made.
 
 	s.server.handleCommentTimeout(context.Background(), "ses-streaming", "comment-streaming")
+
+	// Re-arm scheduled a real 2-minute timer; stop it so it can't fire after the
+	// mock controller is torn down.
+	if t := s.server.sessionCommentTimeout["ses-streaming"]; t != nil {
+		t.Stop()
+	}
 }
 
-// TestHandleCommentTimeout_SkipsErrorWhenInteractionIsTerminal covers the
-// race where message_completed has already finalized the interaction
-// (state=complete) but the comment row hasn't been written yet — between
-// the interaction Save and the comment Save. The timer must not stamp the
-// error in that micro-window either.
-func (s *CommentTimerSuite) TestHandleCommentTimeout_SkipsErrorWhenInteractionIsTerminal() {
+// TestHandleCommentTimeout_FinalizesStalledStream covers an agent that started
+// streaming a response but then died mid-stream: the interaction has partial
+// content but is non-terminal AND has not been updated for a full timeout
+// window. Deferring forever would block the queue, so the timer finalizes the
+// partial response to unblock it.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_FinalizesStalledStream() {
+	comment := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-stalled",
+		ReviewID:      "review-stalled",
+		RequestID:     "req-stalled",
+		InteractionID: "int-stalled",
+	}
+	stalledInteraction := &types.Interaction{
+		ID:              "int-stalled",
+		SessionID:       "ses-stalled",
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "Partial answer that never finished...",
+		Updated:         time.Now().Add(-3 * commentResponseTimeout), // stale
+	}
+
+	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-stalled").
+		Return(comment, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-stalled").
+		Return(stalledInteraction, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-stalled").
+		Return(comment, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("Partial answer that never finished...", c.AgentResponse,
+				"stalled stream must be finalized with its partial content")
+			s.Empty(c.RequestID, "RequestID must be cleared so the queue is unblocked")
+			return nil
+		},
+	)
+	// Short-circuit the queue-continuation lookup.
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-stalled").
+		Return(nil, errNotFound{}).AnyTimes()
+
+	s.server.handleCommentTimeout(context.Background(), "ses-stalled", "comment-stalled")
+}
+
+// TestHandleCommentTimeout_FinalizesWhenInteractionIsTerminal covers the core
+// deadlock fix: the agent finished (interaction state=complete with content) but
+// finalizeCommentResponse never ran because the message_completed event never
+// mapped back to this comment (coalesced re-sends, missed/duplicate completion,
+// restart). The backstop timer MUST finalize the comment itself — copy the
+// response and clear request_id — otherwise the comment stays in-flight forever
+// and blocks every later comment for the session.
+func (s *CommentTimerSuite) TestHandleCommentTimeout_FinalizesWhenInteractionIsTerminal() {
 	comment := &types.SpecTaskDesignReviewComment{
 		ID:            "comment-terminal",
+		ReviewID:      "review-terminal",
 		RequestID:     "req-terminal",
 		InteractionID: "int-terminal",
 	}
 	terminalInteraction := &types.Interaction{
-		ID:        "int-terminal",
-		SessionID: "ses-terminal",
-		State:     types.InteractionStateComplete,
-		// Even with empty body: state=complete means the run is over,
-		// finalizeCommentResponse owns the comment from here.
+		ID:              "int-terminal",
+		SessionID:       "ses-terminal",
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "The agent's completed response.",
 	}
 
 	s.store.EXPECT().GetSpecTaskDesignReviewComment(gomock.Any(), "comment-terminal").
 		Return(comment, nil)
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-terminal").
-		Return(terminalInteraction, nil)
+		Return(terminalInteraction, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-terminal").
+		Return(comment, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("The agent's completed response.", c.AgentResponse,
+				"terminal interaction must be finalized onto the comment")
+			s.Empty(c.RequestID, "RequestID must be cleared so the queue is unblocked")
+			s.Nil(c.QueuedAt)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-terminal").
+		Return(nil, errNotFound{}).AnyTimes()
 
 	s.server.handleCommentTimeout(context.Background(), "ses-terminal", "comment-terminal")
 }
@@ -254,6 +320,66 @@ func (s *CommentTimerSuite) TestFinalizeCommentResponse_PopulatesEmptyComment() 
 
 	err := s.server.finalizeCommentResponse(context.Background(), "req-happy")
 	s.NoError(err)
+}
+
+// TestReconcileStuckInFlightComment_FinalizesTerminal verifies that a comment
+// stuck in-flight (request_id set, no response) whose interaction has already
+// completed is finalized — clearing the marker so the session's queue can drain.
+func (s *CommentTimerSuite) TestReconcileStuckInFlightComment_FinalizesTerminal() {
+	stuck := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-zombie",
+		ReviewID:      "review-zombie",
+		RequestID:     "req-zombie",
+		InteractionID: "int-zombie",
+	}
+	terminalInteraction := &types.Interaction{
+		ID:              "int-zombie",
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "Already answered long ago.",
+	}
+
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses-zombie").
+		Return(stuck, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-zombie").
+		Return(terminalInteraction, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), "req-zombie").
+		Return(stuck, nil)
+	s.store.EXPECT().UpdateSpecTaskDesignReviewComment(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *types.SpecTaskDesignReviewComment) error {
+			s.Equal("Already answered long ago.", c.AgentResponse)
+			s.Empty(c.RequestID)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetSpecTaskDesignReview(gomock.Any(), "review-zombie").
+		Return(nil, errNotFound{}).AnyTimes()
+
+	reconciled := s.server.reconcileStuckInFlightComment(context.Background(), "ses-zombie")
+	s.True(reconciled, "a terminal stuck comment must be reconciled")
+}
+
+// TestReconcileStuckInFlightComment_SkipsActive verifies that a comment whose
+// interaction is still waiting/streaming is left untouched — the agent is
+// genuinely working and we must not steal the in-flight slot.
+func (s *CommentTimerSuite) TestReconcileStuckInFlightComment_SkipsActive() {
+	active := &types.SpecTaskDesignReviewComment{
+		ID:            "comment-active",
+		RequestID:     "req-active",
+		InteractionID: "int-active",
+	}
+	activeInteraction := &types.Interaction{
+		ID:    "int-active",
+		State: types.InteractionStateWaiting,
+	}
+
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses-active").
+		Return(active, nil)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-active").
+		Return(activeInteraction, nil)
+	// NO finalize calls expected.
+
+	reconciled := s.server.reconcileStuckInFlightComment(context.Background(), "ses-active")
+	s.False(reconciled, "an actively-processing comment must not be reconciled")
 }
 
 // errNotFound is a trivial sentinel returned to short-circuit the

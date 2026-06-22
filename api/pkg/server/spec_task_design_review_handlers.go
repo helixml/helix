@@ -25,6 +25,12 @@ import (
 // real response.
 const CommentTimerNoResponseMessage = "[Agent did not respond - try sending your comment again]"
 
+// commentResponseTimeout is how long we wait for the agent to respond to a
+// queued review comment before the backstop timer fires. The timer is a
+// best-effort safety net behind finalizeCommentResponse (which fires on the
+// message_completed event); see handleCommentTimeout for the decision tree.
+const commentResponseTimeout = 2 * time.Minute
+
 // Design Review Handlers - Simple versions
 
 // ResumeCommentQueueProcessing resumes processing of any queued comments after server restart.
@@ -35,19 +41,30 @@ const CommentTimerNoResponseMessage = "[Agent did not respond - try sending your
 func (s *HelixAPIServer) ResumeCommentQueueProcessing(ctx context.Context) {
 	log.Info().Msg("🔄 Resuming comment queue processing after startup...")
 
-	// Step 1: Reset any comments that were mid-processing when server crashed
+	// Find all sessions with pending comments up front — used both for terminal
+	// reconciliation and for triggering processing.
+	sessionIDs, err := s.Store.GetSessionsWithPendingComments(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get sessions with pending comments")
+		return
+	}
+
+	// Step 1a: Reconcile comments whose agent interaction already COMPLETED but
+	// were never finalized (their message_completed never mapped back). These must
+	// be finalized — not blindly reset — otherwise the bulk reset below would clear
+	// their request_id and the queue would re-send an already-answered comment.
+	for _, sessionID := range sessionIDs {
+		s.reconcileStuckInFlightComment(ctx, sessionID)
+	}
+
+	// Step 1b: Reset any comments still stuck mid-processing (request_id set, no
+	// response, interaction NOT terminal — a genuine crash mid-flight). Clearing
+	// request_id lets them be re-sent on the next processing pass.
 	resetCount, err := s.Store.ResetStuckComments(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to reset stuck comments")
 	} else if resetCount > 0 {
 		log.Info().Int64("count", resetCount).Msg("✅ Reset stuck comments (were mid-processing during crash)")
-	}
-
-	// Step 2: Find all sessions with pending comments and trigger processing
-	sessionIDs, err := s.Store.GetSessionsWithPendingComments(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get sessions with pending comments")
-		return
 	}
 
 	if len(sessionIDs) == 0 {
@@ -745,6 +762,20 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 		return
 	}
 	if isProcessing {
+		// A comment is marked in-flight (request_id set). Normally we skip to avoid
+		// interleaving agent responses. But a comment can get stuck in-flight forever
+		// if its message_completed event never maps back to it — e.g. the agent
+		// coalesced several re-sends under a different request_id, the completion was
+		// missed/duplicated, or a restart lost the in-memory mapping. In that case the
+		// linked interaction is already terminal but finalizeCommentResponse never ran,
+		// so request_id stays set and blocks the whole session's comment queue.
+		//
+		// Reconcile before skipping: if the in-flight comment's interaction is terminal,
+		// finalize it now (copies the response, clears the marker, advances the queue).
+		if s.reconcileStuckInFlightComment(ctx, sessionID) {
+			// finalizeCommentResponse already triggered the next queue item.
+			return
+		}
 		log.Debug().
 			Str("session_id", sessionID).
 			Msg("Comment already being processed (database check), skipping")
@@ -814,26 +845,78 @@ func (s *HelixAPIServer) processNextCommentInQueue(ctx context.Context, sessionI
 	}
 
 	// Comment sent successfully - start timeout to handle agent not responding
-	// 2 minute timeout for agent to respond to the comment
-	const commentResponseTimeout = 2 * time.Minute
-	s.sessionCommentMutex.Lock()
-	// Cancel any existing timeout for this session
-	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
-		existingTimer.Stop()
-	}
-	commentID := comment.ID
-	// Use a fresh context for the timer body. The ctx passed into
-	// processNextCommentInQueue may be an HTTP request context that is
-	// already cancelled by the time the timer fires 2 minutes later.
-	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
-		s.handleCommentTimeout(context.Background(), sessionID, commentID)
-	})
-	s.sessionCommentMutex.Unlock()
+	s.armCommentTimer(sessionID, comment.ID)
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("comment_id", comment.ID).
 		Msg("Comment sent to agent, started 2-minute response timeout")
+}
+
+// armCommentTimer (re)arms the per-session backstop timer for a comment. It
+// cancels any existing timer for the session and schedules handleCommentTimeout
+// to run after commentResponseTimeout. A fresh context.Background() is used for
+// the timer body because the originating HTTP request context may already be
+// cancelled by the time the timer fires.
+func (s *HelixAPIServer) armCommentTimer(sessionID, commentID string) {
+	s.sessionCommentMutex.Lock()
+	defer s.sessionCommentMutex.Unlock()
+	if existingTimer := s.sessionCommentTimeout[sessionID]; existingTimer != nil {
+		existingTimer.Stop()
+	}
+	s.sessionCommentTimeout[sessionID] = time.AfterFunc(commentResponseTimeout, func() {
+		s.handleCommentTimeout(context.Background(), sessionID, commentID)
+	})
+}
+
+// reconcileStuckInFlightComment detects a comment that is marked in-flight
+// (request_id set) for a session but whose linked agent interaction has already
+// reached a terminal state without finalizeCommentResponse ever running. This
+// happens when the message_completed event for the turn never maps back to the
+// comment's request_id (the agent coalesced several re-sends under a different
+// request_id, the completion was missed/duplicated, or a restart lost the
+// in-memory mapping). Left alone, such a zombie blocks the session's comment
+// queue forever.
+//
+// If a stuck comment is found and reconciled it is finalized (response copied
+// from the interaction, request_id/queued_at cleared, next queued comment
+// processed) and true is returned. A genuinely in-flight comment whose
+// interaction is still waiting/streaming is left untouched and false is returned.
+func (s *HelixAPIServer) reconcileStuckInFlightComment(ctx context.Context, sessionID string) bool {
+	inFlight, err := s.Store.GetPendingCommentByPlanningSessionID(ctx, sessionID)
+	if err != nil || inFlight == nil {
+		return false
+	}
+	if inFlight.InteractionID == "" {
+		// No linked interaction — we can't prove the agent finished, so treat it as
+		// genuinely in flight and leave it for the backstop timer / re-send path.
+		return false
+	}
+	interaction, ierr := s.Store.GetInteraction(ctx, inFlight.InteractionID)
+	if ierr != nil || interaction == nil {
+		return false
+	}
+	terminal := interaction.State == types.InteractionStateComplete ||
+		interaction.State == types.InteractionStateInterrupted ||
+		interaction.State == types.InteractionStateError
+	if !terminal {
+		// Agent is still working on this comment — correct to wait.
+		return false
+	}
+	log.Warn().
+		Str("session_id", sessionID).
+		Str("comment_id", inFlight.ID).
+		Str("interaction_id", inFlight.InteractionID).
+		Str("interaction_state", string(interaction.State)).
+		Str("request_id", inFlight.RequestID).
+		Msg("🩹 [HELIX] Reconciling stuck in-flight comment: interaction is terminal but was never finalized — finalizing now to unblock the queue")
+	if err := s.finalizeCommentResponse(ctx, inFlight.RequestID); err != nil {
+		log.Error().Err(err).
+			Str("comment_id", inFlight.ID).
+			Msg("Failed to finalize stuck in-flight comment during reconciliation")
+		return false
+	}
+	return true
 }
 
 // handleCommentTimeout is the body of the per-comment 2-minute response timer.
@@ -883,14 +966,57 @@ func (s *HelixAPIServer) handleCommentTimeout(ctx context.Context, sessionID, co
 			terminal := interaction.State == types.InteractionStateComplete ||
 				interaction.State == types.InteractionStateInterrupted ||
 				interaction.State == types.InteractionStateError
-			if agentText != "" || terminal {
-				log.Info().
+			if terminal {
+				// The agent is DONE but finalizeCommentResponse never ran — its
+				// message_completed didn't map back to this comment (coalesced
+				// re-sends, missed/duplicate completion, restart). Don't just defer:
+				// finalize here so the comment gets its response and the queue is
+				// unblocked. Without this the comment stays in-flight forever and
+				// every later comment for this session is silently never delivered.
+				log.Warn().
 					Str("session_id", sessionID).
 					Str("comment_id", commentID).
 					Str("interaction_id", interaction.ID).
 					Str("interaction_state", string(interaction.State)).
 					Int("interaction_response_len", len(agentText)).
-					Msg("⏭️  Comment timer: skipping error stamp — agent is streaming / interaction is terminal; finalizeCommentResponse will copy content")
+					Msg("🩹 Comment timer: interaction is terminal but was never finalized — finalizing now to unblock the queue")
+				if err := s.finalizeCommentResponse(ctx, currentComment.RequestID); err != nil {
+					log.Error().Err(err).
+						Str("comment_id", commentID).
+						Str("request_id", currentComment.RequestID).
+						Msg("Comment timer: failed to finalize terminal interaction")
+				}
+				return
+			}
+			if agentText != "" {
+				// Non-terminal but has content. Distinguish a long answer that is
+				// still actively streaming (defer + re-check) from one that has
+				// stalled mid-stream because the agent died (finalize with what we
+				// have, otherwise the queue is blocked forever). The interaction's
+				// Updated timestamp tells them apart: a live stream keeps bumping it.
+				if time.Since(interaction.Updated) > commentResponseTimeout {
+					log.Warn().
+						Str("session_id", sessionID).
+						Str("comment_id", commentID).
+						Str("interaction_id", interaction.ID).
+						Time("interaction_updated", interaction.Updated).
+						Msg("🩹 Comment timer: interaction stalled mid-stream (no updates for a full window) — finalizing partial response to unblock the queue")
+					if err := s.finalizeCommentResponse(ctx, currentComment.RequestID); err != nil {
+						log.Error().Err(err).
+							Str("comment_id", commentID).
+							Msg("Comment timer: failed to finalize stalled interaction")
+					}
+					return
+				}
+				// Still streaming — re-arm the timer and re-check rather than
+				// deferring indefinitely to a finalize that may never arrive.
+				log.Info().
+					Str("session_id", sessionID).
+					Str("comment_id", commentID).
+					Str("interaction_id", interaction.ID).
+					Int("interaction_response_len", len(agentText)).
+					Msg("⏭️  Comment timer: agent still streaming — re-arming timer to re-check")
+				s.armCommentTimer(sessionID, commentID)
 				return
 			}
 		} else if ierr != nil {
