@@ -1393,11 +1393,18 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				})
 			}
 		} else {
+			// Reaching here means the chokepoint (getOrCreateStreamingContext) found
+			// neither a Waiting interaction nor a restart-interrupted one to recover
+			// for this thread's session — i.e. there is genuinely no interaction to
+			// route this assistant content to (no prompt was ever created for it).
+			// This is the only remaining unroutable case after the #2643 recovery;
+			// log loudly with the thread id so it's diagnosable rather than silent.
 			log.Warn().
 				Str("session_id", sessionID).
-				Str("context_id", contextID).
+				Str("acp_thread_id", contextID).
 				Str("helix_session_id", helixSessionID).
-				Msg("No interaction found to update with assistant response")
+				Str("request_id", messageRequestID).
+				Msg("⚠️ [HELIX] No interaction to route assistant message_added (no Waiting or recoverable interaction for this thread) — content dropped")
 		}
 	} else {
 		// For user messages, check whether a pre-created Waiting interaction already exists
@@ -1646,27 +1653,42 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			}
 		}
 	}
-	// After an API restart, the most recent interaction may have been marked as
-	// "error"/"Interrupted" by ResetRunningInteractions. If Zed reconnects and
-	// resumes sending messages, recover by reusing that interaction — reset its
-	// state back to Waiting so it can continue accumulating responses.
-	if targetInteraction == nil && len(interactions) > 0 {
-		last := interactions[len(interactions)-1]
-		if last.State == types.InteractionStateError && last.Error == "Interrupted" {
-			last.State = types.InteractionStateWaiting
-			last.Error = ""
-			last.Completed = time.Time{}
-			if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, last); err != nil {
-				log.Error().Err(err).
-					Str("interaction_id", last.ID).
-					Msg("Failed to recover interrupted interaction")
-			} else {
-				log.Info().
-					Str("interaction_id", last.ID).
-					Str("session_id", helixSessionID).
-					Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
+	// After an API restart, ResetRunningInteractions flips every Waiting interaction
+	// to error/"Interrupted" in one UPDATE. A reused thread emits no thread_created
+	// handshake to rebind, and message_added carries no request_id, so without
+	// recovery the resumed assistant response resolves to a nil interaction, is
+	// dropped, and the turn is later marked "empty response" (#2643). Recover by
+	// reusing the most recent restart-interrupted interaction — reset it to Waiting
+	// so it can resume accumulating the response.
+	//
+	// Scan backwards rather than only checking the very last row (the previous
+	// behaviour, which missed the bug whenever a non-recoverable row trailed the
+	// interrupted turn). Stop at the first Complete interaction: a completed turn
+	// means there is no in-flight turn to resume, so we must NOT resurrect an older
+	// interrupted one behind it.
+	if targetInteraction == nil {
+		for i := len(interactions) - 1; i >= 0; i-- {
+			it := interactions[i]
+			if it.State == types.InteractionStateComplete {
+				break
 			}
-			targetInteraction = last
+			if it.State == types.InteractionStateError && it.Error == "Interrupted" {
+				it.State = types.InteractionStateWaiting
+				it.Error = ""
+				it.Completed = time.Time{}
+				if _, err := apiServer.Controller.Options.Store.UpdateInteraction(ctx, it); err != nil {
+					log.Error().Err(err).
+						Str("interaction_id", it.ID).
+						Msg("Failed to recover interrupted interaction after API restart")
+				} else {
+					log.Info().
+						Str("interaction_id", it.ID).
+						Str("session_id", helixSessionID).
+						Msg("🔄 [HELIX] Recovered interrupted interaction after API restart")
+				}
+				targetInteraction = it
+				break
+			}
 		}
 	}
 
