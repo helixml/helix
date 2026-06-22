@@ -350,8 +350,16 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
                     if git push -u origin main 2>&1; then
                         echo "    ✅ Repository initialized with main branch"
                     else
-                        echo "    ❌ Failed to push initial commit"
-                        echo "    You may need to initialize this repository manually"
+                        # Hard fail: seeding main on the upstream is the
+                        # authoritative first step. If it fails we must not
+                        # continue - the branch-checkout step below FATALs on an
+                        # empty upstream, and helix-specs would otherwise be
+                        # pushed first and become the upstream default branch.
+                        echo "    ❌ FATAL: Failed to push initial commit to main"
+                        echo "    The upstream is still empty; refusing to continue so"
+                        echo "    helix-specs does not become the default branch."
+                        cd "$WORK_DIR"
+                        exit 1
                     fi
 
                     cd "$WORK_DIR"

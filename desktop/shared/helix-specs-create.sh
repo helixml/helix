@@ -137,6 +137,13 @@ create_helix_specs_branch() {
     # it up as the default before we push helix-specs.
     local RETURN_BRANCH="${CURRENT_BRANCH:-$REPO_DEFAULT_BRANCH}"
 
+    # Never seed an empty/branchless value. On a freshly cloned empty repo
+    # CURRENT_BRANCH can be blank and get_default_branch may fall through, so
+    # guarantee a sensible default ("main") rather than risk seeding "".
+    if [ -z "$RETURN_BRANCH" ]; then
+        RETURN_BRANCH="main"
+    fi
+
     # For empty upstream repos, push the default branch BEFORE creating
     # helix-specs. GitHub (and most providers) auto-promote the first pushed
     # branch to default. If we push helix-specs first the upstream ends up
@@ -146,6 +153,11 @@ create_helix_specs_branch() {
     # $RETURN_BRANCH first means the orphan we push next lands as a
     # secondary branch and the upstream default is something sensible like
     # main or master.
+    #
+    # The seed is AUTHORITATIVE: if we cannot get the default branch onto the
+    # empty upstream first, we must NOT push helix-specs (doing so would make
+    # helix-specs the upstream default). On seed failure we bail out below.
+    local SEED_OK=true
     if [ "$REPO_IS_EMPTY" = true ]; then
         echo "  Empty repo: seeding default branch $RETURN_BRANCH before helix-specs..."
         if ! git -C "$REPO_PATH" show-ref --verify "refs/heads/$RETURN_BRANCH" >/dev/null 2>&1; then
@@ -154,13 +166,27 @@ create_helix_specs_branch() {
             if git -C "$REPO_PATH" push -u origin "$RETURN_BRANCH" 2>&1; then
                 echo "  Seeded $RETURN_BRANCH on upstream as default"
             else
-                echo "  Warning: failed to seed $RETURN_BRANCH on upstream"
-                echo "  helix-specs may end up as the upstream default branch,"
-                echo "  which will block the design-docs worktree on subsequent runs."
+                echo "  ERROR: failed to seed $RETURN_BRANCH on upstream"
+                echo "  Refusing to push helix-specs first - that would make"
+                echo "  helix-specs the upstream default branch and block the"
+                echo "  design-docs worktree on subsequent runs."
+                SEED_OK=false
             fi
         else
             git -C "$REPO_PATH" checkout "$RETURN_BRANCH" >/dev/null 2>&1 || true
         fi
+    fi
+
+    # Bail out before touching helix-specs if the empty-repo seed failed, so
+    # helix-specs can never be the first/only branch on the upstream.
+    if [ "$REPO_IS_EMPTY" = true ] && [ "$SEED_OK" = false ]; then
+        HELIX_SPECS_BRANCH_EXISTS=false
+        # Restore any stashed changes before returning.
+        if [ "$STASHED" = true ]; then
+            echo "  Restoring stashed changes..."
+            git -C "$REPO_PATH" stash pop 2>&1 || true
+        fi
+        return 1
     fi
 
     # 1. Create orphan branch (no parent, no files)
@@ -183,6 +209,21 @@ create_helix_specs_branch() {
             echo "  helix-specs orphan branch created and pushed"
             CREATE_SUCCESS=true
             HELIX_SPECS_BRANCH_EXISTS=true
+
+            # For empty repos, double-check the upstream did not settle on
+            # helix-specs as its default branch. The seed above should have
+            # made the default branch first, but verify so a misconfigured
+            # upstream surfaces a clear warning instead of a silent breakage.
+            if [ "$REPO_IS_EMPTY" = true ]; then
+                local UPSTREAM_HEAD
+                UPSTREAM_HEAD=$(git -C "$REPO_PATH" ls-remote --symref origin HEAD 2>/dev/null \
+                    | sed -n 's@^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD@\1@p')
+                if [ "$UPSTREAM_HEAD" = "helix-specs" ]; then
+                    echo "  WARNING: upstream default branch is helix-specs"
+                    echo "  Expected $RETURN_BRANCH. The design-docs worktree may fail;"
+                    echo "  set the upstream default to $RETURN_BRANCH (main/master)."
+                fi
+            fi
         else
             echo "  Failed to push helix-specs (may not have push permission)"
         fi
