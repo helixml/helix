@@ -682,6 +682,11 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
+	// Stale-frame fix testing. TEMPORARY hardcode for verification (revert before
+	// merge). Explicit sync is walled (Mutter screencast doesn't export the fence),
+	// so test the 1-frame latch instead. The producer gates on these envs (default off).
+	env = append(env, "HELIX_FRAME_LATCH=1")
+
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":

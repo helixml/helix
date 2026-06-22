@@ -698,6 +698,21 @@ fn run_pipewire_loop(
         None
     };
 
+    // 1-frame latch (HELIX_FRAME_LATCH=1): instead of sampling the buffer Mutter
+    // just handed us (whose GPU write may still be in flight — NVIDIA has no
+    // implicit dma-buf sync and Mutter's screencast does NOT export an explicit
+    // fence), we sample the PREVIOUS buffer, which Mutter finished a frame ago.
+    // This sidesteps the missing fence without blocking the capture loop, at the
+    // cost of ~1 frame (16ms) of latency. We hold one extra PipeWire buffer.
+    let frame_latch_enabled: bool = std::env::var("HELIX_FRAME_LATCH")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if frame_latch_enabled {
+        eprintln!("[FRAME_LATCH] enabled (HELIX_FRAME_LATCH=1): sampling previous buffer");
+    }
+    // Holds the buffer dequeued last call, processed this call (type inferred from use).
+    let held_buffer = std::cell::Cell::new(std::ptr::null_mut());
+
     // Per-stream tracking for format negotiation.
     // CRITICAL: This must be per-stream (Arc), not static, because Wolf runs
     // multiple sessions in one process. A static would cause the first
@@ -953,14 +968,25 @@ fn run_pipewire_loop(
         .process(move |stream, _| {
             // Use raw buffer access to extract PTS from spa_meta_header
             // The PTS is set by the compositor when the frame was captured
-            let pw_buffer = unsafe { stream.dequeue_raw_buffer() };
+            let current = unsafe { stream.dequeue_raw_buffer() };
             // Start hold-time clock: how long we keep Mutter's buffer checked out
             // (includes the synchronous CUDA copy below) before queue_raw_buffer.
             let t_dequeue = std::time::Instant::now();
-            if pw_buffer.is_null() {
+            if current.is_null() {
                 // No buffer available yet (e.g. stream not in Streaming state).
                 return;
             }
+            // 1-frame latch: process the PREVIOUS buffer (settled), hold the current
+            // one for next time. First frame has nothing held yet → just hold + wait.
+            let pw_buffer = if frame_latch_enabled {
+                let prev = held_buffer.replace(current);
+                if prev.is_null() {
+                    return;
+                }
+                prev
+            } else {
+                current
+            };
 
             let spa_buffer = unsafe { (*pw_buffer).buffer };
             if spa_buffer.is_null() {
