@@ -37,7 +37,7 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 - [ ] Live test ACROSS an actual `api` restart on a reused long-lived thread: streamed content lands, interaction completes with real content, no orphan "New Conversation" session
 
 ### #2641 — stale `api` IP pinned in desktop `/etc/hosts`
-Root cause is the **frozen IP**, not the lack of a route: `/etc/hosts` pin shadows the live DNS the sandbox already provides. Resolve `api` dynamically instead of freezing it (NOT a static IP — that doubles down on the snapshot, per Phil's review).
+Root cause is the **frozen IP**, not the lack of a route: `/etc/hosts` pin shadows the live DNS the sandbox already provides. Resolve `api` dynamically instead of freezing it (NOT a static IP — that doubles down on the snapshot, per Luke's review).
 - [ ] Confirm whether desktop containers already point their resolver at the sandbox dns-proxy gateway (no `HostConfig.DNS` in `devcontainer.go`; `daemon.json` at `04-start-dockerd.sh:66-93` sets no default `dns`) — wire it if not (`HostConfig.DNS = <SANDBOX_GATEWAY>` or inner `daemon.json` `dns`)
 - [ ] Have the sandbox dns-proxy (`sandbox/dns-proxy/main.go`) answer `api`/`outer-api` by live-resolving the real outer `api`
 - [ ] Remove the frozen `api`/`outer-api` lines from `buildExtraHosts()` (`devcontainer.go:1100-1126`) / drop `ExtraHosts` (`:877`) so DNS wins

@@ -82,7 +82,7 @@ Clearing `ZedThreadID` makes Zed create a new thread; Helix's `handleThreadCreat
 
 `buildExtraHosts()` (`api/pkg/hydra/devcontainer.go:1100`) resolves `api` to a concrete IP at container-creation time and bakes `api:<ip>` / `outer-api:<ip>` into the desktop via `hostConfig.ExtraHosts` (`:877`). The entry is immutable for the container's lifetime. When `api` is recreated on a new IP, surviving desktops dial a dead address and Zed reconnects forever. Compounding: `./stack stop` doesn't stop `sandbox-nvidia` (gated behind the `code-nvidia` profile, `docker-compose.dev.yaml:216`), so desktops survive a full stop/start while `api` gets a new IP — guaranteeing a stale pin. The recovery path `autoStartDevContainerForSession` is a no-op when the container already exists, so nothing self-heals.
 
-### Why we pin an IP at all (Phil's question — answered from the code)
+### Why we pin an IP at all (Luke's question — answered from the code)
 
 The desktop runs inside the sandbox's **inner dockerd** on a `bridge` network (`devcontainer.go:842`); it has no route to the outer compose network where `api` lives. So `buildExtraHosts()` resolves `api` once (`net.LookupHost("api")`, `:1104`) and writes `api:<ip>` / `outer-api:<ip>` into the desktop's `/etc/hosts`. Two needs are bundled into that one line:
 
@@ -95,7 +95,7 @@ This is also why it never bites production: there `HELIX_API_URL` is a real FQDN
 
 ### Recommended fix (primary): resolve `api` dynamically, stop freezing the IP
 
-Phil is right that the static-IP idea is backwards — it doubles down on the snapshot. The sandbox already has the machinery to resolve `api` *live*: it runs a **dns-proxy** (`sandbox/dns-proxy/main.go`, `sandbox/05-start-dns-proxy.sh`) bound to the inner bridge gateway that forwards queries to the outer Docker embedded DNS, which always returns `api`'s current IP. The fix is to route the desktop's resolution of `api`/`outer-api` through that proxy and **remove the frozen `ExtraHosts` pin** (`devcontainer.go:877`, `1100-1126`):
+Luke is right that the static-IP idea is backwards — it doubles down on the snapshot. The sandbox already has the machinery to resolve `api` *live*: it runs a **dns-proxy** (`sandbox/dns-proxy/main.go`, `sandbox/05-start-dns-proxy.sh`) bound to the inner bridge gateway that forwards queries to the outer Docker embedded DNS, which always returns `api`'s current IP. The fix is to route the desktop's resolution of `api`/`outer-api` through that proxy and **remove the frozen `ExtraHosts` pin** (`devcontainer.go:877`, `1100-1126`):
 
 - Point the desktop container's resolver at the sandbox dns-proxy (per-container `--dns <SANDBOX_GATEWAY>` via `HostConfig.DNS`, or the inner dockerd's `daemon.json` `dns`), and have the proxy answer `api`/`outer-api` by live-resolving the real outer `api` (the proxy already forwards to the outer embedded DNS).
 - Then an `api` restart → new IP → the desktop re-resolves on its next reconnect attempt and recovers on its own. No stale pin, no static-IP compose change, no `/etc/hosts` rewrite.
