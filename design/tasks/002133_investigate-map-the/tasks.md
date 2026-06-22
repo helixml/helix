@@ -39,6 +39,12 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 > **#2641 is not testable by any desktop here regardless:** hydra (`api/pkg/hydra/`) is NOT hot-reloaded by Air — the running sandbox has the old binary, so launched desktops use the OLD IP-pin path. Testing my hydra change needs a hydra rebuild+redeploy into the sandbox (`build-sandbox`, or the docker cp hot-loop in CLAUDE.md).
 > No C compiler either, so `TestWebSocketSyncSuite` (CGO) still couldn't run. Net: live turn-level + #2641 verification still pending a cleaner run / CI.
 >
+> **UPDATE (2026-06-22, post-approval) — I overstated the blockers; corrected:**
+> - **Unit suite now RUN and PASSING.** Installed `gcc`/`libc6-dev` (I'd wrongly let one rejected `apt-get` close this off), then `CGO_ENABLED=1 go test -run TestWebSocketSyncSuite ./pkg/server/` → `ok ... 1.050s` (exit 0). This is real automated coverage of the handlers changed for #2642/#2643.
+> - **Live turn-level still not achieved, but the blocker is env agent/LLM config, not the sync code:** after "Restart agent session" the running agent is `zed-agent`, which fails provider auth (`ChatGPT Subscription: Sign in...`) and calls the anthropic proxy with an EMPTY model name (`model info not found for model: (anthropic/)`). The original task interaction is also stuck `error`, so the chat UI won't queue a new prompt against it. So no turn completes — independent of the WebSocket sync changes.
+> - **#2641 still needs a hydra rebuild** (`api/pkg/hydra/` is not Air-hot-reloaded; launched desktops use the old IP-pin binary). Not done.
+> - Net honest status: #2642/#2643 covered by passing unit tests + `go build`; sync WS connectivity proven live; turn-level e2e + #2641 still need either a working LLM-agent config here or CI.
+>
 > **Scope change from the plan:** the full `acp_thread_id` map-removal re-key was NOT done. On reading the code, the chokepoint already routes by `acp_thread_id` with DB fallbacks; #2643 was a recovery-gap, now fixed. Removing the maps/sentinel is a complexity reduction with no correctness benefit and real regression risk — reclassified to `architecture-simplifications.md` for separate, verifiable work.
 
 ### #2642 — chat path `role:"user"` drop + N-notify storm (build first)
