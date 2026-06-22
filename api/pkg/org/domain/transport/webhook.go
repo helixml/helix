@@ -6,26 +6,28 @@ import (
 	"net/url"
 )
 
-// KindWebhook is a bidirectional HTTP transport.
-//
-// Inbound: POSTs to /webhooks/<topicID> are turned into Events on the
-// Topic. No config required — the path uses the Topic's own ID as
-// the secret-by-obscurity, which is enough for low-stakes use;
-// production callers should add a signing secret on top.
+// KindWebhook is an OUTBOUND HTTP transport.
 //
 // Outbound: when Config sets `outbound_url`, every Event appended to
-// the Topic (regardless of who appended it — webhook handler,
-// publish tool, dm tool) is POSTed to that URL with the event body as
-// the request body. Failures are logged and dropped; the append itself
-// still succeeds.
+// the Topic (regardless of who appended it — the publish endpoint,
+// publish tool, dm tool, a processor result) is POSTed to that URL with
+// the event body as the request body. Failures are logged and dropped;
+// the append itself still succeeds.
 //
-// A Topic can be inbound-only (no config), outbound-only (config
-// with outbound_url), or both at once.
+// Inbound is NOT specific to this transport: data enters any Topic the
+// same way — the authenticated publish endpoint
+// (POST /api/v1/orgs/{org}/topics/{id}/publish) appends an Event, which
+// then notifies long-poll observers, dispatches to subscribed Workers,
+// and runs any Processors reading the Topic. (The one transport that
+// adds its own public, signature-verified inbound route is github.)
+//
+// An empty WebhookConfig is therefore inert (no outbound delivery); a
+// Topic only "does something" as a webhook when outbound_url is set.
 const KindWebhook Kind = "webhook"
 
 // WebhookConfig is the parsed shape of Transport.Config when
 // Kind == KindWebhook. All fields are optional; a webhook topic with
-// a zero WebhookConfig is inbound-only.
+// a zero WebhookConfig is inert (no outbound delivery configured).
 type WebhookConfig struct {
 	// OutboundURL, when set, makes the Topic emit each appended Event
 	// as an HTTP POST to this URL. Must be an absolute http(s) URL.
@@ -33,7 +35,8 @@ type WebhookConfig struct {
 }
 
 // Validate enforces that OutboundURL (if set) is an absolute http(s)
-// URL with a host. An empty WebhookConfig is valid (inbound-only).
+// URL with a host. An empty WebhookConfig is valid (inert — no
+// outbound delivery; the Topic still receives via the publish endpoint).
 func (w WebhookConfig) Validate() error {
 	if w.OutboundURL == "" {
 		return nil
