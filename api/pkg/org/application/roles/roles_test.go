@@ -39,7 +39,7 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 		ID:      "r-qa",
 		Content: "# QA Engineer",
 		Tools:   []tool.Name{"publish"},
-		Streams: []streaming.StreamID{"s-general"},
+		Topics: []streaming.TopicID{"s-general"},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -57,8 +57,8 @@ func TestRolesCreate_HappyPath(t *testing.T) {
 	if len(got.Tools) != 3 || got.Tools[0] != "publish" || got.Tools[1] != "managers" || got.Tools[2] != "reports" {
 		t.Fatalf("tools union wrong: %v", got.Tools)
 	}
-	if len(got.Streams) != 1 || got.Streams[0] != "s-general" {
-		t.Fatalf("streams = %v", got.Streams)
+	if len(got.Topics) != 1 || got.Topics[0] != "s-general" {
+		t.Fatalf("topics = %v", got.Topics)
 	}
 
 	stored, err := st.Roles.Get(ctx, "org-test", "r-qa")
@@ -109,18 +109,18 @@ func TestRolesCreate_EmptyContentRejected(t *testing.T) {
 	}
 }
 
-// TestRolesUpdate_ContentOnlyPreservesToolsStreams pins the bug the
+// TestRolesUpdate_ContentOnlyPreservesToolsTopics pins the bug the
 // shared service fixes: the old MCP update_role rebuilt the Role with
-// only Content, wiping Tools and Streams. A content-only update must
+// only Content, wiping Tools and Topics. A content-only update must
 // leave both intact.
-func TestRolesUpdate_ContentOnlyPreservesToolsStreams(t *testing.T) {
+func TestRolesUpdate_ContentOnlyPreservesToolsTopics(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
 	ctx := context.Background()
 
 	if _, err := svc.Create(ctx, "org-test", CreateParams{
-		ID: "r-1", Content: "# old", Tools: []tool.Name{"publish"}, Streams: []streaming.StreamID{"s-a"},
+		ID: "r-1", Content: "# old", Tools: []tool.Name{"publish"}, Topics: []streaming.TopicID{"s-a"},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRolesUpdate_ContentOnlyPreservesToolsStreams(t *testing.T) {
 	if got.Content != "# new" {
 		t.Fatalf("content = %q", got.Content)
 	}
-	// Tools (publish + baseline) and streams survive the content-only patch.
+	// Tools (publish + baseline) and topics survive the content-only patch.
 	if len(got.Tools) == 0 {
 		t.Fatalf("tools wiped: %v", got.Tools)
 	}
@@ -146,15 +146,15 @@ func TestRolesUpdate_ContentOnlyPreservesToolsStreams(t *testing.T) {
 	if !hasPublish {
 		t.Fatalf("publish tool lost on content update: %v", got.Tools)
 	}
-	if len(got.Streams) != 1 || got.Streams[0] != "s-a" {
-		t.Fatalf("streams lost: %v", got.Streams)
+	if len(got.Topics) != 1 || got.Topics[0] != "s-a" {
+		t.Fatalf("topics lost: %v", got.Topics)
 	}
 	if !got.UpdatedAt.Equal(fixedClock()) {
 		t.Fatalf("UpdatedAt not bumped: %v", got.UpdatedAt)
 	}
 }
 
-func TestRolesUpdate_PatchToolsAndStreams(t *testing.T) {
+func TestRolesUpdate_PatchToolsAndTopics(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
@@ -163,16 +163,16 @@ func TestRolesUpdate_PatchToolsAndStreams(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	newTools := []tool.Name{"subscribe"}
-	newStreams := []streaming.StreamID{"s-x", "s-y"}
-	got, err := svc.Update(ctx, "org-test", "r-1", UpdateParams{Tools: &newTools, Streams: &newStreams})
+	newTopics := []streaming.TopicID{"s-x", "s-y"}
+	got, err := svc.Update(ctx, "org-test", "r-1", UpdateParams{Tools: &newTools, Topics: &newTopics})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if len(got.Tools) != 1 || got.Tools[0] != "subscribe" {
 		t.Fatalf("tools = %v, want [subscribe]", got.Tools)
 	}
-	if len(got.Streams) != 2 {
-		t.Fatalf("streams = %v", got.Streams)
+	if len(got.Topics) != 2 {
+		t.Fatalf("topics = %v", got.Topics)
 	}
 	// Content untouched.
 	if got.Content != "# c" {

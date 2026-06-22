@@ -2151,20 +2151,19 @@ func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID str
 	return s.sendCommandToExternalAgent(sessionID, command)
 }
 
-// stopExternalAgentSession godoc
-// @Summary Stop external Zed agent session
-// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// cancelSessionTurn godoc
+// @Summary Cancel the current agent turn
+// @Description Sends cancel_current_turn to the active Zed agent. Returns 202 immediately; the
+// @Description interaction state update (interrupted) flows to the frontend via WebSocket.
 // @Tags Sessions
 // @Produce json
 // @Param id path string true "Session ID"
-// @Success 200 {object} map[string]string
+// @Success 202 {object} map[string]string
 // @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
-// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
-// cancelSessionTurn cancels the active turn for a session by sending cancel_current_turn to Zed.
-// Returns 202 Accepted immediately; the interaction state update flows to the frontend via WebSocket.
+// @Router /api/v1/sessions/{id}/cancel [post]
 func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -2187,6 +2186,18 @@ func (s *HelixAPIServer) cancelSessionTurn(_ http.ResponseWriter, r *http.Reques
 	return map[string]string{"status": "accepted"}, nil
 }
 
+// stopExternalAgentSession godoc
+// @Summary Stop external Zed agent session
+// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
 func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
 	ctx := r.Context()
 	user := getRequestUser(r)

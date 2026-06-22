@@ -7,31 +7,31 @@ import (
 )
 
 // KindEmail is a bidirectional email transport. Provider credentials
-// live at server level (see config.transport.postmark); per-stream
+// live at server level (see config.transport.postmark); per-topic
 // config carries only the routing identity (`alias`).
 //
 // Inbound: an external service (Postmark today) POSTs parsed inbound
 // mail to /email/<provider>; the transport reads the recipient
-// address, extracts the alias, and routes to the matching Stream. The
-// body becomes a Message envelope on that Stream — From=sender,
+// address, extracts the alias, and routes to the matching Topic. The
+// body becomes a Message envelope on that Topic — From=sender,
 // To=[recipient], Subject, Body, MessageID, InReplyTo, ThreadID
 // populated from the email's headers.
 //
-// Outbound: every Event appended to an email Stream is rendered to a
+// Outbound: every Event appended to an email Topic is rendered to a
 // provider API call (Postmark /email today). The Message envelope's
 // From/To/Subject/InReplyTo/ThreadID drive the outbound headers; the
 // global `from` from server config is the envelope sender unless the
-// Stream's Message specifies otherwise.
+// Topic's Message specifies otherwise.
 const KindEmail Kind = "email"
 
 // EmailConfig is the parsed shape of Transport.Config when
 // Kind == KindEmail. Provider credentials live in server-level config;
-// the only per-stream knob is the alias used for routing.
+// the only per-topic knob is the alias used for routing.
 type EmailConfig struct {
-	// Alias is the routing identifier for this Stream. Inbound mail
+	// Alias is the routing identifier for this Topic. Inbound mail
 	// addressed to <hash>+<alias>@inbound.postmarkapp.com (no-domain
 	// path) or <alias>@yourdomain.com (with-domain path) lands on
-	// this Stream. Required and unique within the installation.
+	// this Topic. Required and unique within the installation.
 	Alias string `json:"alias,omitempty"`
 }
 

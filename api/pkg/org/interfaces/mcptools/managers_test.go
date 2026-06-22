@@ -50,10 +50,10 @@ func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart
 	}
 }
 
-// TestManagers_ListsBothManagersWithDMStreams: w-li reports to jane and
+// TestManagers_ListsBothManagersWithDMTopics: w-li reports to jane and
 // bob; the managers tool returns both, each with the deterministic DM
-// stream id.
-func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
+// topic id.
+func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 	deps := seedReportingGraph(t)
 	caller, _ := orgchart.NewAIWorker("w-li", "r-x", "#", "org-test")
 	tl := &Managers{deps: deps.Build()}
@@ -77,8 +77,8 @@ func TestManagers_ListsBothManagersWithDMStreams(t *testing.T) {
 	if !ok {
 		t.Fatalf("w-jane missing from managers: %+v", got.Managers)
 	}
-	if jane.DMStreamID != channels.DMStreamID("w-li", "w-jane") {
-		t.Fatalf("jane dmStreamId = %q, want %q", jane.DMStreamID, channels.DMStreamID("w-li", "w-jane"))
+	if jane.DMTopicID != channels.DMTopicID("w-li", "w-jane") {
+		t.Fatalf("jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("w-li", "w-jane"))
 	}
 	if jane.Role != "r-x" {
 		t.Fatalf("jane role = %q, want r-x", jane.Role)

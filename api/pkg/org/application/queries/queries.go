@@ -3,7 +3,7 @@
 // read handlers and the per-Worker MCP server used to make directly
 // against the store repositories.
 //
-// Unlike the per-aggregate mutation services (streams/roles/workers/…),
+// Unlike the per-aggregate mutation services (topics/roles/workers/…),
 // this is intentionally ONE service spanning several repos: reads carry
 // no invariants to keep honest, so there is nothing to split on, and the
 // design (§5.3/§8) explicitly sanctions "a thin query service for
@@ -27,7 +27,7 @@ type Queries struct {
 	roles       store.Roles
 	workers     store.Workers
 	lines       store.ReportingLines
-	streams     store.Streams
+	topics     store.Topics
 	subs        store.Subscriptions
 	events      store.Events
 	activations activation.Repository
@@ -41,7 +41,7 @@ type Deps struct {
 	Roles          store.Roles
 	Workers        store.Workers
 	ReportingLines store.ReportingLines
-	Streams        store.Streams
+	Topics        store.Topics
 	Subscriptions  store.Subscriptions
 	Events         store.Events
 	Activations    activation.Repository
@@ -53,7 +53,7 @@ func New(deps Deps) *Queries {
 		roles:       deps.Roles,
 		workers:     deps.Workers,
 		lines:       deps.ReportingLines,
-		streams:     deps.Streams,
+		topics:     deps.Topics,
 		subs:        deps.Subscriptions,
 		events:      deps.Events,
 		activations: deps.Activations,
@@ -88,40 +88,40 @@ func (q *Queries) ListManagers(ctx context.Context, orgID string, reportID orgch
 	return q.lines.ListManagers(ctx, orgID, reportID)
 }
 
-func (q *Queries) ListStreams(ctx context.Context, orgID string) ([]streaming.Stream, error) {
-	return q.streams.List(ctx, orgID)
+func (q *Queries) ListTopics(ctx context.Context, orgID string) ([]streaming.Topic, error) {
+	return q.topics.List(ctx, orgID)
 }
 
-func (q *Queries) GetStream(ctx context.Context, orgID string, id streaming.StreamID) (streaming.Stream, error) {
-	return q.streams.Get(ctx, orgID, id)
+func (q *Queries) GetTopic(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
+	return q.topics.Get(ctx, orgID, id)
 }
 
-func (q *Queries) StreamSubscribers(ctx context.Context, orgID string, streamID streaming.StreamID) ([]streaming.Subscription, error) {
-	return q.subs.ListForStream(ctx, orgID, streamID)
+func (q *Queries) TopicSubscribers(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error) {
+	return q.subs.ListForTopic(ctx, orgID, topicID)
 }
 
 func (q *Queries) WorkerSubscriptions(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
 	return q.subs.ListForWorker(ctx, orgID, workerID)
 }
 
-func (q *Queries) StreamEvents(ctx context.Context, orgID string, streamID streaming.StreamID, limit int) ([]streaming.Event, error) {
-	return q.events.ListForStream(ctx, orgID, streamID, limit)
+func (q *Queries) TopicEvents(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
+	return q.events.ListForTopic(ctx, orgID, topicID, limit)
 }
 
 func (q *Queries) AllEvents(ctx context.Context, orgID string, limit int) ([]streaming.Event, error) {
 	return q.events.ListAll(ctx, orgID, limit)
 }
 
-// PageStreamEvents returns a page of events on a Stream, newest first,
+// PageTopicEvents returns a page of events on a Topic, newest first,
 // for the paginated REST messages endpoint.
-func (q *Queries) PageStreamEvents(ctx context.Context, orgID string, streamID streaming.StreamID, limit, offset int) ([]streaming.Event, error) {
-	return q.events.PageForStream(ctx, orgID, streamID, limit, offset)
+func (q *Queries) PageTopicEvents(ctx context.Context, orgID string, topicID streaming.TopicID, limit, offset int) ([]streaming.Event, error) {
+	return q.events.PageForTopic(ctx, orgID, topicID, limit, offset)
 }
 
-// CountStreamEvents returns the total number of events on a Stream —
+// CountTopicEvents returns the total number of events on a Topic —
 // the total-count meta the paginated messages endpoint surfaces.
-func (q *Queries) CountStreamEvents(ctx context.Context, orgID string, streamID streaming.StreamID) (int, error) {
-	return q.events.CountForStream(ctx, orgID, streamID)
+func (q *Queries) CountTopicEvents(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error) {
+	return q.events.CountForTopic(ctx, orgID, topicID)
 }
 
 func (q *Queries) WorkerEvents(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
@@ -133,10 +133,10 @@ func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgch
 	return q.lines.ListReports(ctx, orgID, managerID)
 }
 
-// FindSubscription returns the (worker, stream) subscription row, or
+// FindSubscription returns the (worker, topic) subscription row, or
 // store.ErrNotFound (wrapped) when the worker is not subscribed.
-func (q *Queries) FindSubscription(ctx context.Context, orgID string, workerID orgchart.WorkerID, streamID streaming.StreamID) (streaming.Subscription, error) {
-	return q.subs.Find(ctx, orgID, workerID, streamID)
+func (q *Queries) FindSubscription(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
+	return q.subs.Find(ctx, orgID, workerID, topicID)
 }
 
 // GetActivation returns one activation audit row by id.

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Event is a single entry on a Stream. Events are markdown; the system
+// Event is a single entry on a Topic. Events are markdown; the system
 // does not impose a schema on content. Source is the Worker that
 // emitted the event (empty means a system-emitted event such as a
 // time tick).
@@ -15,7 +15,7 @@ import (
 type Event struct {
 	ID             EventID
 	OrganizationID string
-	StreamID       StreamID
+	TopicID       TopicID
 	Source         string // orgchart.WorkerID
 	Body           string
 	CreatedAt      time.Time
@@ -23,12 +23,12 @@ type Event struct {
 
 // NewEvent validates and constructs an Event. orgID is required.
 // Pass source = "" for system-emitted events.
-func NewEvent(id EventID, streamID StreamID, source string, body string, createdAt time.Time, orgID string) (Event, error) {
+func NewEvent(id EventID, topicID TopicID, source string, body string, createdAt time.Time, orgID string) (Event, error) {
 	if id == "" {
 		return Event{}, errors.New("event id is empty")
 	}
-	if streamID == "" {
-		return Event{}, errors.New("event streamId is empty")
+	if topicID == "" {
+		return Event{}, errors.New("event topicId is empty")
 	}
 	if body == "" {
 		return Event{}, errors.New("event body is empty")
@@ -42,7 +42,7 @@ func NewEvent(id EventID, streamID StreamID, source string, body string, created
 	return Event{
 		ID:             id,
 		OrganizationID: orgID,
-		StreamID:       streamID,
+		TopicID:       topicID,
 		Source:         source,
 		Body:           body,
 		CreatedAt:      createdAt.UTC(),
@@ -72,10 +72,10 @@ func (e Event) Message() (Message, error) {
 // NewMessageEvent is the standard way to construct an Event whose
 // Body holds a Message. It encodes the Message and delegates field
 // validation to NewEvent.
-func NewMessageEvent(id EventID, streamID StreamID, source string, msg Message, createdAt time.Time, orgID string) (Event, error) {
+func NewMessageEvent(id EventID, topicID TopicID, source string, msg Message, createdAt time.Time, orgID string) (Event, error) {
 	body, err := msg.Encode()
 	if err != nil {
 		return Event{}, err
 	}
-	return NewEvent(id, streamID, source, body, createdAt, orgID)
+	return NewEvent(id, topicID, source, body, createdAt, orgID)
 }

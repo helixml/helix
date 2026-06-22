@@ -20,7 +20,7 @@ import (
 // @Tags HelixOrg
 // @Param payload body object true "Raw GitHub webhook delivery"
 // @Success 204 "Delivery accepted and fanned out"
-// @Success 200 "Delivery accepted but no matching streams"
+// @Success 200 "Delivery accepted but no matching topics"
 // @Failure 401 {object} api.ErrorResponse "Bad or missing X-Hub-Signature-256"
 // @Failure 503 {object} api.ErrorResponse "transport.github not configured"
 // @Router /api/v1/orgs/{org}/github/webhook [post]
@@ -30,7 +30,7 @@ func (a *apiHandler) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	// The github transport (reads matching streams + appends events) is
+	// The github transport (reads matching topics + appends events) is
 	// built at the composition root with the store; the adapter just
 	// serves the inbound handler so it never holds the store itself.
 	if a.deps.GitHubInbound == nil {
@@ -43,7 +43,7 @@ func (a *apiHandler) githubWebhook(w http.ResponseWriter, r *http.Request) {
 // ---- GitHub helper endpoints -------------------------------------------
 
 // GitHubRepoDTO is one entry in the searchable repo dropdown the
-// New Stream dialog shows when transport=github is picked. Kept
+// New Topic dialog shows when transport=github is picked. Kept
 // intentionally narrow: just the canonical `owner/name` and an
 // optional flag so the UI can dim non-admin repos (you can't
 // install a webhook without admin rights).
@@ -62,7 +62,7 @@ type GitHubInstallationStatus struct {
 	// Installed is true when the Helix GitHub App has an installation for
 	// this org (a github_app ServiceConnection with an installation id).
 	Installed bool `json:"installed"`
-	// InstallURL is where the New Stream gate sends the user to install the
+	// InstallURL is where the New Topic gate sends the user to install the
 	// app (https://github.com/apps/<slug>/installations/new). Populated from
 	// the created app's slug, or from GITHUB_APP_SLUG for a pre-existing app.
 	InstallURL string `json:"install_url,omitempty"`
@@ -82,7 +82,7 @@ type GitHubManifestStartResponse struct {
 	State    string `json:"state"`
 }
 
-// getGitHubAppInstallation backs the New Stream "Install Helix" gate: it
+// getGitHubAppInstallation backs the New Topic "Install Helix" gate: it
 // reports whether the org has the Helix App installed and, if not, the URL
 // to install it. The user's own GitHub identity is used only for that
 // install step; everything afterwards (repo listing, worker git/gh) runs as
@@ -244,7 +244,7 @@ func (a *apiHandler) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
 }
 
 // InstallGitHubWebhookResponse is the body of POST
-// /streams/{id}/github/install-webhook.
+// /topics/{id}/github/install-webhook.
 type InstallGitHubWebhookResponse struct {
 	WebhookID      int64  `json:"webhook_id"`
 	WebhookHTMLURL string `json:"webhook_html_url,omitempty"`
@@ -258,13 +258,13 @@ type InstallGitHubWebhookResponse struct {
 }
 
 // GitHubWebhookStatusResponse is the body of GET
-// /streams/{id}/github/webhook-status. It reports the LIVE state of the
-// stream's repo webhook as seen on GitHub (not the stored config), so the
+// /topics/{id}/github/webhook-status. It reports the LIVE state of the
+// topic's repo webhook as seen on GitHub (not the stored config), so the
 // detail page can show a link when the hook really exists and a re-install
 // button when it doesn't — and self-correct stale stored ids.
 type GitHubWebhookStatusResponse struct {
 	// State is one of:
-	//   "installed" — a webhook for this stream's payload URL exists on the repo
+	//   "installed" — a webhook for this topic's payload URL exists on the repo
 	//   "missing"   — GitHub was reachable and has no such webhook (needs install)
 	//   "unknown"   — couldn't determine (no repo / no public URL / no creds /
 	//                 GitHub error); see Detail. The UI falls back to stored state.
@@ -278,15 +278,15 @@ type GitHubWebhookStatusResponse struct {
 }
 
 // installGitHubWebhook calls the GitHub REST API on behalf of the
-// operator to register a webhook on the stream's repo pointing at
-// helix's per-stream payload URL. Idempotent: if a webhook with
+// operator to register a webhook on the topic's repo pointing at
+// helix's per-topic payload URL. Idempotent: if a webhook with
 // the same URL already exists on the repo, we adopt it (no
 // double-install). Persists the resulting webhook id + edit-page
-// URL on the stream's transport config so the detail page can
+// URL on the topic's transport config so the detail page can
 // deep-link out.
 //
 // Pre-conditions:
-//   - transport=github stream
+//   - transport=github topic
 //   - GitHubTokenResolver returns a non-empty token
 //   - transport.github.webhook_secret configured on the org; if
 //     missing, helix auto-generates one and persists it (the
@@ -294,19 +294,19 @@ type GitHubWebhookStatusResponse struct {
 //   - PublicServerURL set to a non-localhost origin (refused
 //     otherwise — GitHub's servers can't reach localhost).
 //
-// @Summary Helix-org: auto-install the webhook for a github stream
+// @Summary Helix-org: auto-install the webhook for a github topic
 // @Tags HelixOrg
-// @Param id path string true "Stream ID"
+// @Param id path string true "Topic ID"
 // @Produce json
 // @Success 200 {object} api.InstallGitHubWebhookResponse
 // @Failure 400 {object} api.ErrorResponse
 // @Failure 412 {object} api.ErrorResponse "pre-conditions not met"
 // @Failure 502 {object} api.ErrorResponse "GitHub API call failed"
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/streams/{id}/github/install-webhook [post]
+// @Router /api/v1/orgs/{org}/topics/{id}/github/install-webhook [post]
 func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.deps.Streams == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("streams service is not wired in this deployment"))
+	if a.deps.Topics == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("topics service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -314,14 +314,14 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	streamID := streaming.StreamID(r.PathValue("id"))
-	if streamID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+	topicID := streaming.TopicID(r.PathValue("id"))
+	if topicID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
 		return
 	}
-	// Generic seam: the streams service dispatches to the registered
-	// inbound provisioner for the stream's transport (github today).
-	res, err := a.deps.Streams.InstallInbound(r.Context(), orgID, streamID)
+	// Generic seam: the topics service dispatches to the registered
+	// inbound provisioner for the topic's transport (github today).
+	res, err := a.deps.Topics.InstallInbound(r.Context(), orgID, topicID)
 	if err != nil {
 		writeError(w, inboundFailStatus(err), err)
 		return
@@ -335,7 +335,7 @@ func (a *apiHandler) installGitHubWebhook(w http.ResponseWriter, r *http.Request
 
 // inboundFailStatus maps a streaming.Failure (from the inbound-provisioning
 // seam) to its HTTP code. Non-Failure errors fall through to errStatus
-// (404 for a missing stream, else 500).
+// (404 for a missing topic, else 500).
 func inboundFailStatus(err error) int {
 	var f *streaming.Failure
 	if errors.As(err, &f) {
@@ -355,24 +355,24 @@ func inboundFailStatus(err error) int {
 	return errStatus(err)
 }
 
-// getGitHubWebhookStatus reports the LIVE state of a github stream's repo
-// webhook by listing the repo's hooks (as the bot) and matching this stream's
+// getGitHubWebhookStatus reports the LIVE state of a github topic's repo
+// webhook by listing the repo's hooks (as the bot) and matching this topic's
 // payload URL. Read-only: it never creates, edits, or persists. Returns
 // state="unknown" (rather than an HTTP error) for every "can't tell" case so
 // the detail page can degrade to stored config instead of showing a scary
 // failure for an ordinarily-fine condition (e.g. no public URL configured yet).
 //
-// @Summary Helix-org: live webhook status for a github stream
+// @Summary Helix-org: live webhook status for a github topic
 // @Tags HelixOrg
-// @Param id path string true "Stream ID"
+// @Param id path string true "Topic ID"
 // @Produce json
 // @Success 200 {object} api.GitHubWebhookStatusResponse
 // @Failure 400 {object} api.ErrorResponse
 // @Security ApiKeyAuth
-// @Router /api/v1/orgs/{org}/streams/{id}/github/webhook-status [get]
+// @Router /api/v1/orgs/{org}/topics/{id}/github/webhook-status [get]
 func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Request) {
-	if a.deps.Streams == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("streams service is not wired in this deployment"))
+	if a.deps.Topics == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("topics service is not wired in this deployment"))
 		return
 	}
 	orgID, err := resolveOrgID(r)
@@ -380,12 +380,12 @@ func (a *apiHandler) getGitHubWebhookStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	streamID := streaming.StreamID(r.PathValue("id"))
-	if streamID == "" {
-		writeError(w, http.StatusBadRequest, errors.New("stream id is required"))
+	topicID := streaming.TopicID(r.PathValue("id"))
+	if topicID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
 		return
 	}
-	res, err := a.deps.Streams.InboundStatus(r.Context(), orgID, streamID)
+	res, err := a.deps.Topics.InboundStatus(r.Context(), orgID, topicID)
 	if err != nil {
 		writeError(w, inboundFailStatus(err), err)
 		return

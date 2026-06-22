@@ -13,7 +13,7 @@ import (
 // TestDispatchTranscriptEventSpawnsSubscribedWorker pins the auto-
 // spawn-on-transcript-event wiring: when a Message event lands
 // on an transcript (`s-transcript-<workerID>`) and a position
-// is subscribed to that stream, every AI Worker currently filling that
+// is subscribed to that topic, every AI Worker currently filling that
 // position must get an activation enqueued — which is what triggers
 // the helix Spawner to provision the per-Worker project and open a
 // fresh chat session (the "Human Desktop").
@@ -22,7 +22,7 @@ import (
 // subscriptions refactor (7f3bc73e2). The fan-out path is:
 //
 //	publish on s-transcript-<X>
-//	  → Dispatch lists Subscriptions.ListForStream
+//	  → Dispatch lists Subscriptions.ListForTopic
 //	  → resolves each (position, current AI workers in that position)
 //	  → Queue.Enqueue per worker
 //	  → Spawn callback fires
@@ -38,16 +38,16 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 	d, s, rec := newDispatcherWithSpawner(t)
 
 	// A fresh AI worker w-newhire at its own Position. The activation
-	// stream `s-transcript-w-newhire` is the per-Worker transcript
-	// stream that hire_worker creates in production.
+	// topic `s-transcript-w-newhire` is the per-Worker transcript
+	// topic that hire_worker creates in production.
 	seedAIWorker(t, s, "w-newhire")
-	streamID := activation.TranscriptID("w-newhire")
-	seedWebhookStream(t, s, streamID, transport.LocalTransport())
+	topicID := activation.TranscriptID("w-newhire")
+	seedWebhookTopic(t, s, topicID, transport.LocalTransport())
 	// The new worker's OWN position is subscribed to its OWN activation
-	// stream, so any event published to s-transcript-w-newhire fans
+	// topic, so any event published to s-transcript-w-newhire fans
 	// out to w-newhire and triggers a Spawn — the desktop auto-starts
 	// without the operator having to click "Open Human Desktop".
-	seedSubscription(t, s, "w-newhire", streamID)
+	seedSubscription(t, s, "w-newhire", topicID)
 
 	// A publisher in a different position (so the publisher-self-skip
 	// rule doesn't suppress the activation).
@@ -55,7 +55,7 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 
 	e, err := streaming.NewMessageEvent(
 		"e-activation-1",
-		streamID,
+		topicID,
 		"w-publisher",
 		streaming.Message{From: "w-publisher", Body: "first turn"},
 		time.Now().UTC(),
@@ -85,7 +85,7 @@ func TestDispatchTranscriptEventSpawnsSubscribedWorker(t *testing.T) {
 // drives the Spawner to provision the project + open the first
 // session.
 //
-// hire_worker calls Dispatcher.DispatchHire directly (not via a stream
+// hire_worker calls Dispatcher.DispatchHire directly (not via a topic
 // publish) so this is the only path that exercises the
 // `dispatch.DispatchHire → Queue.Enqueue → Spawn` chain at the unit
 // layer. Without it, a newly-hired AI worker would never get its

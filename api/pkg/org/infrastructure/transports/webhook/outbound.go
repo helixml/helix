@@ -1,5 +1,5 @@
 // Package webhook is the infrastructure side of the webhook transport:
-// the outbound emitter that POSTs an appended Event to a Stream's
+// the outbound emitter that POSTs an appended Event to a Topic's
 // configured OutboundURL. The dispatcher (application) dispatches to it
 // via the streaming.Outbound port — it owns the HTTP mechanics
 // (client, timeout, headers, status handling) so that delivery detail
@@ -22,7 +22,7 @@ import (
 // speak HTTP back fail fast.
 const outboundTimeout = 5 * time.Second
 
-// OutboundEmitter POSTs Events to a webhook Stream's OutboundURL. It
+// OutboundEmitter POSTs Events to a webhook Topic's OutboundURL. It
 // satisfies streaming.Outbound.
 type OutboundEmitter struct {
 	client *http.Client
@@ -40,17 +40,17 @@ func NewOutboundEmitter(logger *slog.Logger) *OutboundEmitter {
 // SetHTTPClient replaces the HTTP client. Intended for tests.
 func (e *OutboundEmitter) SetHTTPClient(c *http.Client) { e.client = c }
 
-// Emit POSTs the Event body to the Stream's configured OutboundURL. A
-// stream with no OutboundURL (or unparseable config) is a no-op. Uses a
+// Emit POSTs the Event body to the Topic's configured OutboundURL. A
+// topic with no OutboundURL (or unparseable config) is a no-op. Uses a
 // fresh background context bounded by the client timeout — the
 // originating request context is deliberately not propagated, since the
 // POST must outlive that request. Non-2xx responses and transport
 // errors are logged and swallowed: the Event append already succeeded,
 // so a failed outbound delivery must not surface as a publish error.
-func (e *OutboundEmitter) Emit(_ context.Context, stream streaming.Stream, event streaming.Event) error {
-	cfg, err := stream.Transport.WebhookConfig()
+func (e *OutboundEmitter) Emit(_ context.Context, topic streaming.Topic, event streaming.Event) error {
+	cfg, err := topic.Transport.WebhookConfig()
 	if err != nil {
-		e.logger.Warn("webhook.emit.config", "stream", event.StreamID, "err", err)
+		e.logger.Warn("webhook.emit.config", "topic", event.TopicID, "err", err)
 		return nil
 	}
 	if cfg.OutboundURL == "" {
@@ -58,23 +58,23 @@ func (e *OutboundEmitter) Emit(_ context.Context, stream streaming.Stream, event
 	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, cfg.OutboundURL, bytes.NewBufferString(event.Body))
 	if err != nil {
-		e.logger.Warn("webhook.emit.build", "stream", event.StreamID, "url", cfg.OutboundURL, "err", err)
+		e.logger.Warn("webhook.emit.build", "topic", event.TopicID, "url", cfg.OutboundURL, "err", err)
 		return nil
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("X-Helix-Stream", string(event.StreamID))
+	req.Header.Set("Content-Type", "application/octet-topic")
+	req.Header.Set("X-Helix-Topic", string(event.TopicID))
 	req.Header.Set("X-Helix-Event", string(event.ID))
 	resp, err := e.client.Do(req)
 	if err != nil {
-		e.logger.Warn("webhook.emit.do", "stream", event.StreamID, "url", cfg.OutboundURL, "err", err)
+		e.logger.Warn("webhook.emit.do", "topic", event.TopicID, "url", cfg.OutboundURL, "err", err)
 		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		e.logger.Warn("webhook.emit.status", "stream", event.StreamID, "url", cfg.OutboundURL, "status", resp.StatusCode)
+		e.logger.Warn("webhook.emit.status", "topic", event.TopicID, "url", cfg.OutboundURL, "status", resp.StatusCode)
 		return nil
 	}
-	e.logger.Info("webhook.emit.ok", "stream", event.StreamID, "url", cfg.OutboundURL, "status", resp.StatusCode)
+	e.logger.Info("webhook.emit.ok", "topic", event.TopicID, "url", cfg.OutboundURL, "status", resp.StatusCode)
 	return nil
 }
 

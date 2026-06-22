@@ -1,5 +1,5 @@
 // Package config holds the registry of runtime-mutable operational
-// keys for the org-graph subsystem (Streams, Spawner, transports).
+// keys for the org-graph subsystem (Topics, Spawner, transports).
 // Distinct from the parent api/pkg/config — that one is static,
 // envconfig-driven, loaded once at boot. This registry is dynamic,
 // JSON-typed, and stored in the configs table so operators can

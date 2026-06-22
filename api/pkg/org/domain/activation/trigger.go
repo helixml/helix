@@ -4,7 +4,7 @@
 //
 //   - Trigger / TriggerKind: why a Spawner was invoked (lifted from
 //     helix-org/agent in B3c).
-//   - StreamID(workerID): the canonical derivation of the per-Worker
+//   - TopicID(workerID): the canonical derivation of the per-Worker
 //     transcript ID (`s-transcript-<workerID>`), lifted from
 //     helix-org/agent in B5.1.
 //
@@ -29,7 +29,7 @@ const (
 	TriggerHire TriggerKind = "hire"
 
 	// TriggerEvent fires whenever a Worker receives an event on a
-	// Stream they subscribe to.
+	// Topic they subscribe to.
 	TriggerEvent TriggerKind = "event"
 
 	// TriggerManual fires when an operator manually wakes a Worker
@@ -38,7 +38,7 @@ const (
 	// pipeline — ensureProject + AttachHelixOrgMCP + ensureSession —
 	// just with a different label so the audit row + activation marker
 	// distinguish "operator clicked the button" from "Worker was just
-	// hired" or "Stream event arrived".
+	// hired" or "Topic event arrived".
 	TriggerManual TriggerKind = "manual"
 )
 
@@ -49,7 +49,7 @@ const (
 //
 // Fields are populated according to Kind:
 //   - TriggerHire: Kind only (plus optional ActivationID below).
-//   - TriggerEvent: Kind, EventID, StreamID, Source, SourceKind,
+//   - TriggerEvent: Kind, EventID, TopicID, Source, SourceKind,
 //     Message, CreatedAt all populated by the dispatcher at fan-out
 //     time.
 type Trigger struct {
@@ -65,7 +65,7 @@ type Trigger struct {
 
 	// Event fields, set when Kind == TriggerEvent.
 	EventID  streaming.EventID
-	StreamID streaming.StreamID
+	TopicID streaming.TopicID
 	Source   orgchart.WorkerID
 
 	// SourceKind is the orgchart.WorkerKind ("human" / "ai") of Source —

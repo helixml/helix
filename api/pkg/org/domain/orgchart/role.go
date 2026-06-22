@@ -22,25 +22,25 @@ import (
 // capabilities, call update_role; capability is not a per-Worker
 // attribute.
 //
-// Streams is a typed manifest the Role's prompt is expected to
+// Topics is a typed manifest the Role's prompt is expected to
 // subscribe its Workers to. The store does NOT auto-subscribe; the
-// hiring caller drives create_stream/subscribe explicitly because
-// stream lifecycle (creation, transport config, cross-Role sharing)
+// hiring caller drives create_topic/subscribe explicitly because
+// topic lifecycle (creation, transport config, cross-Role sharing)
 // can't be derived mechanically from the Role.
 type Role struct {
 	ID             RoleID
 	OrganizationID string
 	Content        string
 	Tools          []tool.Name
-	Streams        []streaming.StreamID
+	Topics        []streaming.TopicID
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 // NewRole validates and constructs a Role. Treat the returned value
-// as immutable. Tools and Streams may be empty; ID, Content, orgID,
+// as immutable. Tools and Topics may be empty; ID, Content, orgID,
 // and now must all be non-empty (now non-zero).
-func NewRole(id RoleID, content string, tools []tool.Name, streams []streaming.StreamID, now time.Time, orgID string) (Role, error) {
+func NewRole(id RoleID, content string, tools []tool.Name, topics []streaming.TopicID, now time.Time, orgID string) (Role, error) {
 	if id == "" {
 		return Role{}, errors.New("role id is empty")
 	}
@@ -58,7 +58,7 @@ func NewRole(id RoleID, content string, tools []tool.Name, streams []streaming.S
 		OrganizationID: orgID,
 		Content:        content,
 		Tools:          tools,
-		Streams:        streams,
+		Topics:        topics,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
@@ -80,9 +80,9 @@ func (r Role) WithTools(tools []tool.Name) Role {
 	return r
 }
 
-// WithStreams returns a copy of the Role with Streams replaced.
-func (r Role) WithStreams(streams []streaming.StreamID) Role {
-	r.Streams = streams
+// WithTopics returns a copy of the Role with Topics replaced.
+func (r Role) WithTopics(topics []streaming.TopicID) Role {
+	r.Topics = topics
 	return r
 }
 

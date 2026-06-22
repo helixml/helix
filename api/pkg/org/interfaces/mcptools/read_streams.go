@@ -13,8 +13,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-type streamView struct {
-	ID            streaming.StreamID `json:"id"`
+type topicView struct {
+	ID            streaming.TopicID `json:"id"`
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
 	CreatedBy     orgchart.WorkerID  `json:"createdBy"`
@@ -22,8 +22,8 @@ type streamView struct {
 	TransportKind string             `json:"transportKind"`
 }
 
-func streamViewOf(s streaming.Stream) streamView {
-	return streamView{
+func topicViewOf(s streaming.Topic) topicView {
+	return topicView{
 		ID:            s.ID,
 		Name:          s.Name,
 		Description:   s.Description,
@@ -33,60 +33,60 @@ func streamViewOf(s streaming.Stream) streamView {
 	}
 }
 
-// ListStreams returns every Stream.
-type ListStreams struct {
+// ListTopics returns every Topic.
+type ListTopics struct {
 	deps Deps
 }
 
-const ListStreamsName tool.Name = "list_streams"
+const ListTopicsName tool.Name = "list_topics"
 
-var listStreamsSchema = mustSchema[listStreamsArgs]()
+var listTopicsSchema = mustSchema[listTopicsArgs]()
 
-type listStreamsArgs struct{}
+type listTopicsArgs struct{}
 
-func (t *ListStreams) Name() tool.Name                 { return ListStreamsName }
-func (t *ListStreams) InputSchema() *jsonschema.Schema { return listStreamsSchema }
-func (t *ListStreams) Description() string {
-	return "List every Stream: id, name, description, creator, transport kind, and created-at."
+func (t *ListTopics) Name() tool.Name                 { return ListTopicsName }
+func (t *ListTopics) InputSchema() *jsonschema.Schema { return listTopicsSchema }
+func (t *ListTopics) Description() string {
+	return "List every Topic: id, name, description, creator, transport kind, and created-at."
 }
 
-func (t *ListStreams) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+func (t *ListTopics) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
-		return nil, fmt.Errorf("list_streams: caller has no OrgID")
+		return nil, fmt.Errorf("list_topics: caller has no OrgID")
 	}
-	streams, err := t.deps.Queries.ListStreams(ctx, orgID)
+	topics, err := t.deps.Queries.ListTopics(ctx, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("list streams: %w", err)
+		return nil, fmt.Errorf("list topics: %w", err)
 	}
-	out := make([]streamView, 0, len(streams))
-	for _, s := range streams {
-		out = append(out, streamViewOf(s))
+	out := make([]topicView, 0, len(topics))
+	for _, s := range topics {
+		out = append(out, topicViewOf(s))
 	}
-	return json.Marshal(map[string]any{"streams": out})
+	return json.Marshal(map[string]any{"topics": out})
 }
 
-// GetStream returns one Stream by ID.
-type GetStream struct {
+// GetTopic returns one Topic by ID.
+type GetTopic struct {
 	deps Deps
 }
 
-const GetStreamName tool.Name = "get_stream"
+const GetTopicName tool.Name = "get_topic"
 
-var getStreamSchema = mustSchema[getStreamArgs]()
+var getTopicSchema = mustSchema[getTopicArgs]()
 
-type getStreamArgs struct {
+type getTopicArgs struct {
 	ID string `json:"id"`
 }
 
-func (t *GetStream) Name() tool.Name                 { return GetStreamName }
-func (t *GetStream) InputSchema() *jsonschema.Schema { return getStreamSchema }
-func (t *GetStream) Description() string {
-	return "Fetch one Stream by id."
+func (t *GetTopic) Name() tool.Name                 { return GetTopicName }
+func (t *GetTopic) InputSchema() *jsonschema.Schema { return getTopicSchema }
+func (t *GetTopic) Description() string {
+	return "Fetch one Topic by id."
 }
 
-func (t *GetStream) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args getStreamArgs
+func (t *GetTopic) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args getTopicArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
@@ -95,39 +95,39 @@ func (t *GetStream) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
-		return nil, fmt.Errorf("get_stream: caller has no OrgID")
+		return nil, fmt.Errorf("get_topic: caller has no OrgID")
 	}
-	s, err := t.deps.Queries.GetStream(ctx, orgID, streaming.StreamID(args.ID))
+	s, err := t.deps.Queries.GetTopic(ctx, orgID, streaming.TopicID(args.ID))
 	if err != nil {
-		return nil, fmt.Errorf("get stream %q: %w", args.ID, err)
+		return nil, fmt.Errorf("get topic %q: %w", args.ID, err)
 	}
-	return json.Marshal(streamViewOf(s))
+	return json.Marshal(topicViewOf(s))
 }
 
-// ListStreamEvents returns recent Events on one Stream, newest first.
+// ListTopicEvents returns recent Events on one Topic, newest first.
 // Non-blocking — callers who want to wait for new events use read_events.
-type ListStreamEvents struct {
+type ListTopicEvents struct {
 	deps Deps
 }
 
-const ListStreamEventsName tool.Name = "list_stream_events"
+const ListTopicEventsName tool.Name = "list_topic_events"
 
-var listStreamEventsSchema = mustSchema[listStreamEventsArgs]()
+var listTopicEventsSchema = mustSchema[listTopicEventsArgs]()
 
 const (
-	listStreamEventsDefaultLimit = 50
-	listStreamEventsMaxLimit     = 200
+	listTopicEventsDefaultLimit = 50
+	listTopicEventsMaxLimit     = 200
 )
 
-type listStreamEventsArgs struct {
-	StreamID string `json:"streamId"`
+type listTopicEventsArgs struct {
+	TopicID string `json:"topicId"`
 	Limit    int    `json:"limit,omitempty"`
 }
 
 // UnmarshalJSON tolerates a string-encoded Limit — same LLM-quirk
 // fix as read_events. See decodeFlexInt comment.
-func (a *listStreamEventsArgs) UnmarshalJSON(data []byte) error {
-	type plain listStreamEventsArgs
+func (a *listTopicEventsArgs) UnmarshalJSON(data []byte) error {
+	type plain listTopicEventsArgs
 	type tolerant struct {
 		*plain
 		Limit json.RawMessage `json:"limit,omitempty"`
@@ -144,39 +144,39 @@ func (a *listStreamEventsArgs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (t *ListStreamEvents) Name() tool.Name                 { return ListStreamEventsName }
-func (t *ListStreamEvents) InputSchema() *jsonschema.Schema { return listStreamEventsSchema }
-func (t *ListStreamEvents) Description() string {
-	return "List recent Events on a Stream, newest first. Returns immediately. limit defaults " +
+func (t *ListTopicEvents) Name() tool.Name                 { return ListTopicEventsName }
+func (t *ListTopicEvents) InputSchema() *jsonschema.Schema { return listTopicEventsSchema }
+func (t *ListTopicEvents) Description() string {
+	return "List recent Events on a Topic, newest first. Returns immediately. limit defaults " +
 		"to 50, capped at 200."
 }
 
-func (t *ListStreamEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args listStreamEventsArgs
+func (t *ListTopicEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args listTopicEventsArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.StreamID == "" {
-		return nil, fmt.Errorf("streamId is required")
+	if args.TopicID == "" {
+		return nil, fmt.Errorf("topicId is required")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
-		return nil, fmt.Errorf("list_stream_events: caller has no OrgID")
+		return nil, fmt.Errorf("list_topic_events: caller has no OrgID")
 	}
 	limit := args.Limit
 	if limit <= 0 {
-		limit = listStreamEventsDefaultLimit
+		limit = listTopicEventsDefaultLimit
 	}
-	if limit > listStreamEventsMaxLimit {
-		limit = listStreamEventsMaxLimit
+	if limit > listTopicEventsMaxLimit {
+		limit = listTopicEventsMaxLimit
 	}
-	streamID := streaming.StreamID(args.StreamID)
-	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
-		return nil, fmt.Errorf("stream %q: %w", streamID, err)
+	topicID := streaming.TopicID(args.TopicID)
+	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
+		return nil, fmt.Errorf("topic %q: %w", topicID, err)
 	}
-	events, err := t.deps.Queries.StreamEvents(ctx, orgID, streamID, limit)
+	events, err := t.deps.Queries.TopicEvents(ctx, orgID, topicID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list events for %q: %w", streamID, err)
+		return nil, fmt.Errorf("list events for %q: %w", topicID, err)
 	}
 	out := make([]eventView, 0, len(events))
 	for _, e := range events {

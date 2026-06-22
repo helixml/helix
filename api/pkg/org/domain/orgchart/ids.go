@@ -1,6 +1,6 @@
 // Package orgchart owns the org-chart aggregate: Role, Worker
 // (interface plus HumanWorker / AIWorker), and ReportingLine. Role
-// lists Tool names and Stream IDs; Worker carries a RoleID (its
+// lists Tool names and Topic IDs; Worker carries a RoleID (its
 // capability binding); who reports to whom is a separate many-to-many
 // relation (ReportingLine), not a field on the Worker. Collapsing
 // these entities into one Go package resolves the cycle that
@@ -8,7 +8,7 @@
 //
 // The ID types are Go type aliases (`type WorkerID = string`) rather
 // than distinct named types. This is deliberate: orgchart's Role
-// references tool.Name and streaming.StreamID (so orgchart imports
+// references tool.Name and streaming.TopicID (so orgchart imports
 // those packages), and tool.Invocation.Caller needs Worker
 // (which would normally pull tool back to orgchart, closing the
 // cycle). Defining IDs as aliases lets tool's Invocation.Caller be

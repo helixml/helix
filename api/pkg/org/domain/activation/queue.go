@@ -32,7 +32,7 @@ type Spawn func(ctx context.Context, orgID string, workerID orgchart.WorkerID, t
 //     arrival (FIFO) order;
 //   - distinct Workers run independently.
 //
-// Triggers are NOT coalesced: a busy Stream (e.g. a GitHub Stream
+// Triggers are NOT coalesced: a busy Topic (e.g. a GitHub Topic
 // emitting an event per commit, CI run and issue) used to fold its
 // whole backlog into one follow-up activation, producing an oversized
 // prompt that exhausted the Worker's context window. Draining one
@@ -42,7 +42,7 @@ type Spawn func(ctx context.Context, orgID string, workerID orgchart.WorkerID, t
 // Lifted out of helix-org/dispatch.Dispatcher in B5.10 because the
 // queueing logic isn't specific to Event/transport fan-out — every
 // activation-emitter needs the same per-Worker serialisation, not
-// just the Stream-event dispatcher. Dispatcher now holds a *Queue
+// just the Topic-event dispatcher. Dispatcher now holds a *Queue
 // and delegates Enqueue.
 type Queue struct {
 	spawn  Spawn
