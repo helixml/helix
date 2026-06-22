@@ -1,12 +1,12 @@
 // Package channels is the pure domain rule that turns the org's
 // reporting graph into the communication channels it requires: the
 // per-Worker transcript (the append-only log of a Worker's activations), the
-// per-manager team Stream (the downward broadcast channel a manager
+// per-manager team Topic (the downward broadcast channel a manager
 // briefs their reports on), and the per-edge DM channel (the 1:1 a
 // manager and report message on).
 //
 // Everything here is a PURE function over the reporting graph — no I/O,
-// fully table-tested. It answers "what Streams and Subscriptions does
+// fully table-tested. It answers "what Topics and Subscriptions does
 // this graph require?" and nothing else. The application-layer
 // Reconciler (application/reconcile) loads the graph from the store,
 // calls Required, diffs the required set against what's persisted, and
@@ -19,24 +19,24 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
 
-// TeamStreamID returns the deterministic Stream ID for a manager's team
+// TeamTopicID returns the deterministic Topic ID for a manager's team
 // broadcast channel — the downward channel a manager publishes to so
 // every direct report receives the post in one shot. Mirrors the
 // `s-transcript-<id>` convention in domain/activation.
-func TeamStreamID(managerID orgchart.WorkerID) streaming.StreamID {
-	return streaming.StreamID("s-team-" + string(managerID))
+func TeamTopicID(managerID orgchart.WorkerID) streaming.TopicID {
+	return streaming.TopicID("s-team-" + string(managerID))
 }
 
-// DMStreamID returns the deterministic Stream ID for a 1:1 channel
+// DMTopicID returns the deterministic Topic ID for a 1:1 channel
 // between two Workers, ordered by string compare so A→B and B→A share
-// one Stream. DM channels follow the reporting graph — the reconciler
+// one Topic. DM channels follow the reporting graph — the reconciler
 // provisions one per reporting edge (manager ↔ report), so a Worker can
 // assume the channel to a manager or direct report already exists. The
 // managers / reports read paths hand this id back so a Worker can
 // escalate up / message a report 1:1 along an existing channel.
-func DMStreamID(a, b orgchart.WorkerID) streaming.StreamID {
+func DMTopicID(a, b orgchart.WorkerID) streaming.TopicID {
 	pair := sortedPair(a, b)
-	return streaming.StreamID("s-dm-" + pair[0] + "-" + pair[1])
+	return streaming.TopicID("s-dm-" + pair[0] + "-" + pair[1])
 }
 
 func sortedPair(a, b orgchart.WorkerID) [2]string {
@@ -48,11 +48,11 @@ func sortedPair(a, b orgchart.WorkerID) [2]string {
 }
 
 // Channel is a communication channel the reporting structure requires.
-// The reconciler builds a streaming.Stream from it when the row is
+// The reconciler builds a streaming.Topic from it when the row is
 // missing; the fields are immutable once created, so an existing row is
-// never rewritten. Its ID is the id of the Stream that realises it.
+// never rewritten. Its ID is the id of the Topic that realises it.
 type Channel struct {
-	ID          streaming.StreamID
+	ID          streaming.TopicID
 	Name        string
 	Description string
 	// CreatedBy owns the channel. Activation channels are owned by the
@@ -63,13 +63,13 @@ type Channel struct {
 // Membership identifies one required (Worker is a member of Channel) edge.
 type Membership struct {
 	WorkerID orgchart.WorkerID
-	StreamID streaming.StreamID
+	TopicID streaming.TopicID
 }
 
 // Set is the complete collection of channels and memberships a reporting
 // graph requires. It is the output of the pure Required function.
 type Set struct {
-	Channels map[streaming.StreamID]Channel
+	Channels map[streaming.TopicID]Channel
 	Members  map[Membership]struct{}
 }
 
@@ -82,26 +82,26 @@ type Set struct {
 //     an AI Worker OR W has no managers (a top-level root worker — so its
 //     own chat turns still have a home). Members are W's managers, so
 //     every manager observes the transcript of each Worker reporting to
-//     them. A manager-less worker gets a member-less stream — no worker
+//     them. A manager-less worker gets a member-less topic — no worker
 //     is ever self-subscribed (for an AI that would re-trigger it
 //     indefinitely, and a transcript is observe-only regardless).
 //
-//   - Team Stream `s-team-M` exists for Worker M iff M has ≥1 direct
+//   - Team Topic `s-team-M` exists for Worker M iff M has ≥1 direct
 //     report. Members are M plus all of M's direct reports. A Worker
-//     with two managers is therefore a member of two team Streams —
-//     correct: either manager can brief it. No reports → no team Stream
+//     with two managers is therefore a member of two team Topics —
+//     correct: either manager can brief it. No reports → no team Topic
 //     (lazy).
 //
-//   - DM Stream `s-dm-<pair>` exists for every reporting edge (M, R),
+//   - DM Topic `s-dm-<pair>` exists for every reporting edge (M, R),
 //     with members exactly {M, R}. This is the 1:1 channel a Worker
 //     escalates up / messages a report down on. DMs are deliberately
 //     tied to the reporting graph: a Worker can only DM the people it
 //     shares a reporting line with (its managers and its direct
 //     reports), not arbitrary peers. Peer-to-peer or skip-level reach
-//     is a deliberate, explicitly-created Stream, not an implicit DM.
+//     is a deliberate, explicitly-created Topic, not an implicit DM.
 func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 	set := Set{
-		Channels: map[streaming.StreamID]Channel{},
+		Channels: map[streaming.TopicID]Channel{},
 		Members:  map[Membership]struct{}{},
 	}
 
@@ -125,7 +125,7 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
 
 		// DM channel for this reporting edge: members exactly {M, R}.
-		dmID := DMStreamID(l.ManagerID, l.ReportID)
+		dmID := DMTopicID(l.ManagerID, l.ReportID)
 		pair := sortedPair(l.ManagerID, l.ReportID)
 		set.Channels[dmID] = Channel{
 			ID:          dmID,
@@ -133,8 +133,8 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 			Description: dmChannelDescription(pair[0], pair[1]),
 			CreatedBy:   orgchart.WorkerID(pair[0]),
 		}
-		set.Members[Membership{WorkerID: l.ManagerID, StreamID: dmID}] = struct{}{}
-		set.Members[Membership{WorkerID: l.ReportID, StreamID: dmID}] = struct{}{}
+		set.Members[Membership{WorkerID: l.ManagerID, TopicID: dmID}] = struct{}{}
+		set.Members[Membership{WorkerID: l.ReportID, TopicID: dmID}] = struct{}{}
 	}
 
 	for _, w := range workers {
@@ -155,23 +155,23 @@ func Required(workers []orgchart.Worker, lines []orgchart.ReportingLine) Set {
 				CreatedBy:   wid,
 			}
 			for _, m := range managers {
-				set.Members[Membership{WorkerID: m, StreamID: sid}] = struct{}{}
+				set.Members[Membership{WorkerID: m, TopicID: sid}] = struct{}{}
 			}
 		}
 
-		// Team Stream: only when the Worker has at least one report.
+		// Team Topic: only when the Worker has at least one report.
 		reports := reportsByManager[wid]
 		if len(reports) > 0 {
-			sid := TeamStreamID(wid)
+			sid := TeamTopicID(wid)
 			set.Channels[sid] = Channel{
 				ID:          sid,
 				Name:        "Team: " + string(wid),
 				Description: teamChannelDescription(wid),
 				CreatedBy:   wid,
 			}
-			set.Members[Membership{WorkerID: wid, StreamID: sid}] = struct{}{}
+			set.Members[Membership{WorkerID: wid, TopicID: sid}] = struct{}{}
 			for _, r := range reports {
-				set.Members[Membership{WorkerID: r, StreamID: sid}] = struct{}{}
+				set.Members[Membership{WorkerID: r, TopicID: sid}] = struct{}{}
 			}
 		}
 	}
@@ -203,5 +203,5 @@ func dmChannelDescription(a, b string) string {
 		"escalate up or direct a report down. Reporting pairs only: a " +
 		"Worker may DM its managers and direct reports, never an arbitrary " +
 		"peer. Peer or skip-level reach is a deliberately, explicitly " +
-		"created Stream, not an implicit DM."
+		"created Topic, not an implicit DM."
 }

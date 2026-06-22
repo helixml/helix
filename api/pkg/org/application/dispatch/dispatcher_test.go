@@ -168,13 +168,13 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 	}
 }
 
-// seedSubscription persists a Worker→Stream subscription.
-func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, streamID streaming.StreamID) {
+// seedSubscription persists a Worker→Topic subscription.
+func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, topicID streaming.TopicID) {
 	t.Helper()
 	if _, err := s.Workers.Get(context.Background(), "org-test", workerID); err != nil {
 		t.Fatalf("get worker %q for subscription: %v", workerID, err)
 	}
-	sub, err := streaming.NewSubscription(string(workerID), streamID, time.Now().UTC(), "org-test")
+	sub, err := streaming.NewSubscription(string(workerID), topicID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
@@ -183,16 +183,16 @@ func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, 
 	}
 }
 
-// seedWebhookStream creates a Stream of the given Transport and returns
+// seedWebhookTopic creates a Topic of the given Transport and returns
 // its ID.
-func seedWebhookStream(t *testing.T, s *store.Store, id streaming.StreamID, transport transport.Transport) {
+func seedWebhookTopic(t *testing.T, s *store.Store, id streaming.TopicID, transport transport.Transport) {
 	t.Helper()
-	stream, err := streaming.NewStream(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
+	topic, err := streaming.NewTopic(id, string(id), "", "w-owner", time.Now().UTC(), transport, "org-test")
 	if err != nil {
-		t.Fatalf("new stream: %v", err)
+		t.Fatalf("new topic: %v", err)
 	}
-	if err := s.Streams.Create(context.Background(), stream); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := s.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 }
 
@@ -205,25 +205,25 @@ var eventCounter atomic.Uint64
 // header-safe ID. Source is set to a non-empty sentinel so emit
 // runs (events with empty Source are treated as inbound and skipped
 // by the dispatcher to avoid echo loops).
-func makeEvent(t *testing.T, streamID streaming.StreamID, body string) streaming.Event {
+func makeEvent(t *testing.T, topicID streaming.TopicID, body string) streaming.Event {
 	t.Helper()
-	id := streaming.EventID(fmt.Sprintf("e-%s-%d", streamID, eventCounter.Add(1)))
-	e, err := streaming.NewEvent(id, streamID, "w-test", body, time.Now().UTC(), "org-test")
+	id := streaming.EventID(fmt.Sprintf("e-%s-%d", topicID, eventCounter.Add(1)))
+	e, err := streaming.NewEvent(id, topicID, "w-test", body, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new event: %v", err)
 	}
 	return e
 }
 
-// TestDispatchEmitsOutbound is the happy path: a webhook stream with
+// TestDispatchEmitsOutbound is the happy path: a webhook topic with
 // an outbound_url POSTs the event body to the catcher when Dispatch
-// runs. Headers identify the source stream and event.
+// runs. Headers identify the source topic and event.
 func TestDispatchEmitsOutbound(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-out", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-out", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	e := makeEvent(t, "s-out", "hello world")
 	d.Dispatch(context.Background(), e)
@@ -235,48 +235,48 @@ func TestDispatchEmitsOutbound(t *testing.T) {
 	if got.method != http.MethodPost {
 		t.Fatalf("method = %q, want POST", got.method)
 	}
-	if h := got.headers.Get("X-Helix-Stream"); h != "s-out" {
-		t.Fatalf("X-Helix-Stream = %q", h)
+	if h := got.headers.Get("X-Helix-Topic"); h != "s-out" {
+		t.Fatalf("X-Helix-Topic = %q", h)
 	}
 	if h := got.headers.Get("X-Helix-Event"); h == "" {
 		t.Fatalf("X-Helix-Event missing")
 	}
 }
 
-// TestDispatchSkipsLocalStream proves a TransportLocal stream emits
-// nothing — local streams stay local even when the catcher exists.
-func TestDispatchSkipsLocalStream(t *testing.T) {
+// TestDispatchSkipsLocalTopic proves a TransportLocal topic emits
+// nothing — local topics stay local even when the catcher exists.
+func TestDispatchSkipsLocalTopic(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-local", transport.LocalTransport())
+	seedWebhookTopic(t, s, "s-local", transport.LocalTransport())
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-local", "should not leave"))
 	c.expectNone(t, 200*time.Millisecond)
 }
 
 // TestDispatchSkipsWebhookWithoutURL proves an inbound-only webhook
-// stream — same Kind but no outbound_url — does not emit. This is the
+// topic — same Kind but no outbound_url — does not emit. This is the
 // existing inbound demo behaviour: still works after we added emit.
 func TestDispatchSkipsWebhookWithoutURL(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
-	seedWebhookStream(t, s, "s-inbox", transport.Transport{Kind: transport.KindWebhook})
+	seedWebhookTopic(t, s, "s-inbox", transport.Transport{Kind: transport.KindWebhook})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-inbox", "inbound only"))
 	c.expectNone(t, 200*time.Millisecond)
 }
 
-// TestDispatchHandlesMissingStream proves a publish on a stream that
+// TestDispatchHandlesMissingTopic proves a publish on a topic that
 // has been deleted (or never existed) doesn't panic — the dispatcher
 // silently no-ops.
-func TestDispatchHandlesMissingStream(t *testing.T) {
+func TestDispatchHandlesMissingTopic(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, _ := newDispatcher(t)
 
-	// No stream seeded. Just dispatch.
+	// No topic seeded. Just dispatch.
 	d.Dispatch(context.Background(), makeEvent(t, "s-ghost", "vanished"))
 	c.expectNone(t, 100*time.Millisecond)
 }
@@ -289,7 +289,7 @@ func TestDispatchTolerates5xx(t *testing.T) {
 	c.status.Store(http.StatusInternalServerError)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-flaky", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-flaky", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-flaky", "boom"))
 
@@ -317,7 +317,7 @@ func TestDispatchTolerates4xx(t *testing.T) {
 	c.status.Store(http.StatusBadRequest)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-rejecty", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-rejecty", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-rejecty", "nope"))
 	got := c.waitFor(t, 2*time.Second)
@@ -329,13 +329,13 @@ func TestDispatchTolerates4xx(t *testing.T) {
 // TestDispatchTolerates_UnreachableHost proves an unreachable target
 // (port closed) is logged-and-dropped with a bounded timeout — the
 // dispatcher returns immediately, and a follow-up dispatch on a
-// healthy stream still works.
+// healthy topic still works.
 func TestDispatchTolerates_UnreachableHost(t *testing.T) {
 	t.Parallel()
 	d, s := newDispatcher(t)
 	// 127.0.0.1:1 is reserved and reliably refuses connections.
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: "http://127.0.0.1:1/dead"})
-	seedWebhookStream(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-dead", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	// Use a tiny client timeout so the test runs fast.
 	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -362,7 +362,7 @@ func TestDispatchHonoursClientTimeout(t *testing.T) {
 	c.delay.Store(int64(2 * time.Second)) // longer than the client timeout
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-slow", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 	e := webhook.NewOutboundEmitter(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e.SetHTTPClient(&http.Client{Timeout: 100 * time.Millisecond})
 	d.RegisterOutbound(transport.KindWebhook, e)
@@ -384,7 +384,7 @@ func TestDispatchConcurrent(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-stress", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-stress", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	const n = 25
 	var wg sync.WaitGroup
@@ -417,7 +417,7 @@ func TestDispatchBinaryPayload(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-bin", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-bin", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	body := "líne 1 — α β γ\n\x00\nemoji: 🚀"
 	d.Dispatch(context.Background(), makeEvent(t, "s-bin", body))
@@ -429,22 +429,22 @@ func TestDispatchBinaryPayload(t *testing.T) {
 
 // TestDispatchInvalidStoredConfigDoesNotCrash exercises the defensive
 // path where transport.Config is malformed at runtime (impossible via
-// the normal NewStream path, since Validate rejects it — but a manual
+// the normal NewTopic path, since Validate rejects it — but a manual
 // DB edit could create it). The dispatcher logs and continues.
 func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
 	t.Parallel()
 	d, s := newDispatcher(t)
-	// Bypass NewStream's Validate by inserting the malformed Stream
+	// Bypass NewTopic's Validate by inserting the malformed Topic
 	// directly through the store.
-	bogus := streaming.Stream{
+	bogus := streaming.Topic{
 		ID:        "s-bogus",
 		Name:      "bogus",
 		CreatedBy: "w-owner",
 		CreatedAt: time.Now().UTC(),
 		Transport: transport.Transport{Kind: transport.KindWebhook, Config: []byte(`{not valid`)},
 	}
-	if err := s.Streams.Create(context.Background(), bogus); err != nil {
-		t.Fatalf("create stream: %v", err)
+	if err := s.Topics.Create(context.Background(), bogus); err != nil {
+		t.Fatalf("create topic: %v", err)
 	}
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-bogus", "ignored"))
@@ -452,7 +452,7 @@ func TestDispatchInvalidStoredConfigDoesNotCrash(t *testing.T) {
 }
 
 // TestDispatchRespectsStoreLookupErrors proves a store that errors on
-// Streams.Get (rather than returning ErrNotFound) is handled — the
+// Topics.Get (rather than returning ErrNotFound) is handled — the
 // dispatcher logs and returns; downstream subscriber fan-out still
 // works for the next event.
 func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
@@ -460,9 +460,9 @@ func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL()})
-	seedWebhookStream(t, s, "s-ok", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-ok", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
-	// Dispatch on a missing stream first — should noop without affecting
+	// Dispatch on a missing topic first — should noop without affecting
 	// the next dispatch.
 	d.Dispatch(context.Background(), makeEvent(t, "s-missing", "lost"))
 	c.expectNone(t, 100*time.Millisecond)
@@ -477,27 +477,27 @@ func TestDispatchRespectsStoreLookupErrors(t *testing.T) {
 
 // TestDispatchContentTypeAndPath proves the outbound POST hits the
 // configured path and uses a generic content-type — the body is opaque
-// so application/octet-stream is the safest default.
+// so application/octet-topic is the safest default.
 func TestDispatchContentTypeAndPath(t *testing.T) {
 	t.Parallel()
 	c := newCatcher(t)
 	d, s := newDispatcher(t)
 	// URL with a path so we can verify it's preserved.
 	cfg, _ := json.Marshal(transport.WebhookConfig{OutboundURL: c.URL() + "/some/where"})
-	seedWebhookStream(t, s, "s-path", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
+	seedWebhookTopic(t, s, "s-path", transport.Transport{Kind: transport.KindWebhook, Config: cfg})
 
 	d.Dispatch(context.Background(), makeEvent(t, "s-path", "x"))
 	got := c.waitFor(t, 2*time.Second)
 	if got.path != "/some/where" {
 		t.Fatalf("path = %q, want /some/where", got.path)
 	}
-	if ct := got.headers.Get("Content-Type"); ct != "application/octet-stream" {
+	if ct := got.headers.Get("Content-Type"); ct != "application/octet-topic" {
 		t.Fatalf("Content-Type = %q", ct)
 	}
 }
 
 // TestDispatchSkipsPublisher pins the rule that an AI Worker which
-// publishes to a Stream they themselves are subscribed to is NOT
+// publishes to a Topic they themselves are subscribed to is NOT
 // re-activated on their own event. This is the cheapest available
 // brake on broadcast cascades — without it, a single publish would
 // activate the publisher in a loop. Other subscribers are still
@@ -505,7 +505,7 @@ func TestDispatchContentTypeAndPath(t *testing.T) {
 func TestDispatchSkipsPublisher(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-publisher", "s-team")
@@ -542,7 +542,7 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 func TestDispatchAttachesSourceKind(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-publisher")
 	seedAIWorker(t, s, "w-other")
 	seedSubscription(t, s, "w-other", "s-team")
@@ -575,7 +575,7 @@ func TestDispatchAttachesSourceKind(t *testing.T) {
 
 // TestDispatchDeliversEventsOneAtATime pins the context-bounding rule
 // that drove this design: while one activation is in flight for a
-// Worker, any further events that arrive on Streams that Worker
+// Worker, any further events that arrive on Topics that Worker
 // subscribes to are appended to a per-Worker queue and delivered to
 // the Spawner one trigger per activation, in arrival order — never
 // folded into one oversized batch that would blow the Worker's context
@@ -612,7 +612,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	seedWebhookStream(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-eng")
 	seedSubscription(t, s, "w-eng", "s-team")
 
@@ -711,7 +711,7 @@ func eventIDs(ts []activation.Trigger) []streaming.EventID {
 func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookStream(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
+	seedWebhookTopic(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
 	seedAIWorker(t, s, "w-listener")
 	seedSubscription(t, s, "w-listener", "s-bad")
 

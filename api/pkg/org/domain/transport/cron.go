@@ -10,7 +10,7 @@ import (
 	cronv3 "github.com/robfig/cron/v3"
 )
 
-// KindCron is a self-driven schedule transport. The stream has no
+// KindCron is a self-driven schedule transport. The topic has no
 // external producer; an in-process scheduler publishes a canonical
 // "scheduled tick" event to it on the configured cadence. Every
 // subscribed Worker is activated via the normal dispatcher fan-out.
@@ -21,13 +21,13 @@ import (
 const KindCron Kind = "cron"
 
 // minCronInterval is the lower bound enforced on every cron-kind
-// stream's schedule. Matches the existing app-cron limit at
+// topic's schedule. Matches the existing app-cron limit at
 // api/pkg/trigger/cron/trigger_cron.go (the 90s gap check). Prevents a
-// single misconfigured stream from saturating the dispatcher / blowing
+// single misconfigured topic from saturating the dispatcher / blowing
 // up activation costs.
 const minCronInterval = 90 * time.Second
 
-// CronConfig carries the schedule for a KindCron stream. The UI
+// CronConfig carries the schedule for a KindCron topic. The UI
 // always submits a standard 5-field cron expression (optionally
 // prefixed by "CRON_TZ=<tz> " to pin the timezone, defaulting to UTC).
 // Preset buttons in the UI inject the literal cron form so users
@@ -70,7 +70,7 @@ func (c CronConfig) Validate() error {
 	return nil
 }
 
-// CronConfig is the typed accessor for KindCron streams. Returns the
+// CronConfig is the typed accessor for KindCron topics. Returns the
 // zero value with no error when Config is empty (which Validate then
 // rejects as "schedule is required"). Same accessor pattern as
 // Transport.WebhookConfig() — see webhook.go.

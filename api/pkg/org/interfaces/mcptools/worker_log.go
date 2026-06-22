@@ -17,7 +17,7 @@ import (
 // WorkerLog reads a single AI Worker's activation transcript — assistant
 // text, tool calls, tool results — newest first. It's a shortcut over
 // the underlying primitives: resolves the deterministic activation
-// Stream (s-transcript-<workerID>), auto-subscribes the caller (so
+// Topic (s-transcript-<workerID>), auto-subscribes the caller (so
 // the agent doesn't have to chain subscribe + read_events), then
 // returns the events scoped to that one Worker.
 //
@@ -102,8 +102,8 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 			target, wkr.Kind())
 	}
 
-	streamID := activation.TranscriptID(target)
-	if _, err := t.deps.Queries.GetStream(ctx, orgID, streamID); err != nil {
+	topicID := activation.TranscriptID(target)
+	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
 		return nil, fmt.Errorf("transcript for %q: %w", target, err)
 	}
 
@@ -134,11 +134,11 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	}
 
 	// Auto-subscribe the caller via the subscriptions service (validates
-	// the caller + stream exist, idempotent get-or-create). After this,
+	// the caller + topic exist, idempotent get-or-create). After this,
 	// plain read_events also includes this Worker's transcript.
 	caller := inv.Caller.ID()
-	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, caller, streamID); err != nil {
-		return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, streamID, err)
+	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, caller, topicID); err != nil {
+		return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, topicID, err)
 	}
 
 	limit := args.Limit
@@ -157,7 +157,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	}
 	since := streaming.EventID(args.Since)
 
-	fresh, err := t.fresh(ctx, orgID, streamID, limit, since)
+	fresh, err := t.fresh(ctx, orgID, topicID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +168,8 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return marshalEvents(fresh), nil
 	}
 
-	wake := t.deps.Hub.Subscribe(orgID, []streaming.StreamID{streamID})
-	defer t.deps.Hub.Unsubscribe([]streaming.StreamID{streamID}, wake)
+	wake := t.deps.Hub.Subscribe(orgID, []streaming.TopicID{topicID})
+	defer t.deps.Hub.Unsubscribe([]streaming.TopicID{topicID}, wake)
 
 	timer := time.NewTimer(time.Duration(wait) * time.Second)
 	defer timer.Stop()
@@ -181,7 +181,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 		return marshalEvents(nil), nil
 	}
 
-	fresh, err = t.fresh(ctx, orgID, streamID, limit, since)
+	fresh, err = t.fresh(ctx, orgID, topicID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -214,10 +214,10 @@ func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.
 // fresh returns events on the transcript newer than `since`
 // (exclusive), newest-first, up to `limit`. Empty `since` means
 // "return everything up to limit".
-func (t *WorkerLog) fresh(ctx context.Context, orgID string, streamID streaming.StreamID, limit int, since streaming.EventID) ([]streaming.Event, error) {
-	events, err := t.deps.Queries.StreamEvents(ctx, orgID, streamID, limit)
+func (t *WorkerLog) fresh(ctx context.Context, orgID string, topicID streaming.TopicID, limit int, since streaming.EventID) ([]streaming.Event, error) {
+	events, err := t.deps.Queries.TopicEvents(ctx, orgID, topicID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list events on %q: %w", streamID, err)
+		return nil, fmt.Errorf("list events on %q: %w", topicID, err)
 	}
 	if since == "" {
 		return events, nil

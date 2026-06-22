@@ -1,5 +1,5 @@
 // Package wakebus is a small wake-only facade over api/pkg/pubsub
-// that preserves the typed streaming.StreamID API the helix-org call sites used
+// that preserves the typed streaming.TopicID API the helix-org call sites used
 // when they spoke to api/pkg/org/broadcast.
 //
 // Helix already runs a NATS pubsub (real in production, in-memory in
@@ -11,8 +11,8 @@
 // Wake-only semantics, preserved verbatim from the deleted broadcast
 // package:
 //
-//   - Subscribers register interest in zero-or-more stream.IDs (or
-//     "all streams" via SubscribeAll) and receive an empty struct
+//   - Subscribers register interest in zero-or-more topic.IDs (or
+//     "all topics" via SubscribeAll) and receive an empty struct
 //     through their wake-up channel when any matching Notify fires.
 //   - The wake-up channel is buffered (size 1). A notification that
 //     arrives while the buffer is full is dropped — bursty notifies
@@ -33,30 +33,30 @@ import (
 )
 
 // topicPrefix is the NATS subject prefix every wake topic shares.
-// Concrete topics are "<prefix>.<orgID>.<streamID>". The org segment is
-// REQUIRED: stream IDs are unique only within an org (the store keys
-// streams by the composite (id, org_id)), so two orgs routinely share a
-// stream id — every org's owner transcript is
-// `s-transcript-w-owner`, and user-named streams like `s-general`
+// Concrete topics are "<prefix>.<orgID>.<topicID>". The org segment is
+// REQUIRED: topic IDs are unique only within an org (the store keys
+// topics by the composite (id, org_id)), so two orgs routinely share a
+// topic id — every org's owner transcript is
+// `s-transcript-w-owner`, and user-named topics like `s-general`
 // collide trivially. Without the org token, one org's Notify would wake
 // the other org's subscribers on a colliding id. The per-org wildcard
-// form "<prefix>.<orgID>.>" matches every per-stream topic in one org,
+// form "<prefix>.<orgID>.>" matches every per-topic topic in one org,
 // used by SubscribeAll.
 //
-// Org IDs (`org_…`) and stream IDs (`s-transcript-w-alice` etc.) are
+// Org IDs (`org_…`) and topic IDs (`s-transcript-w-alice` etc.) are
 // kebab/underscore tokens that never contain NATS-special characters
 // (`.`, `*`, `>`, whitespace), so passing each as a single subject
 // token is safe.
-const topicPrefix = "helix-org.stream-updates"
+const topicPrefix = "helix-org.topic-updates"
 
-// topicFor returns the NATS subject this org's stream publishes wake
+// topicFor returns the NATS subject this org's topic publishes wake
 // notifications to.
-func topicFor(orgID string, sid streaming.StreamID) string {
+func topicFor(orgID string, sid streaming.TopicID) string {
 	return topicPrefix + "." + orgID + "." + string(sid)
 }
 
 // wildcardTopicFor is the NATS-wildcard subscription that matches every
-// per-stream topic within one org — used by SubscribeAll.
+// per-topic topic within one org — used by SubscribeAll.
 func wildcardTopicFor(orgID string) string {
 	return topicPrefix + "." + orgID + ".>"
 }
@@ -97,7 +97,7 @@ func signal(ch chan struct{}) {
 	}
 }
 
-// Subscribe registers a wake-up channel for the given stream IDs and
+// Subscribe registers a wake-up channel for the given topic IDs and
 // returns it. The channel is buffered (size 1) so a notification never
 // blocks the underlying pubsub delivery; coalesced notifications are
 // deliberate.
@@ -106,9 +106,9 @@ func signal(ch chan struct{}) {
 // they are done, typically via defer. Subscribing with an empty list
 // returns a never-woken channel — equivalent to the broadcast
 // behaviour.
-func (h *Bus) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struct{} {
+func (h *Bus) Subscribe(orgID string, topicIDs []streaming.TopicID) chan struct{} {
 	ch := make(chan struct{}, 1)
-	if len(streamIDs) == 0 {
+	if len(topicIDs) == 0 {
 		// Track the channel so Unsubscribe is still a no-op (rather
 		// than panicking on a missing key).
 		h.mu.Lock()
@@ -120,8 +120,8 @@ func (h *Bus) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struc
 		signal(ch)
 		return nil
 	}
-	pubsubSubs := make([]pubsub.Subscription, 0, len(streamIDs))
-	for _, sid := range streamIDs {
+	pubsubSubs := make([]pubsub.Subscription, 0, len(topicIDs))
+	for _, sid := range topicIDs {
 		sub, err := h.ps.Subscribe(context.Background(), topicFor(orgID, sid), handler)
 		if err != nil {
 			// Tear down partial state to avoid leaking subscriptions.
@@ -149,18 +149,18 @@ func (h *Bus) Subscribe(orgID string, streamIDs []streaming.StreamID) chan struc
 //
 // Semantics-preserving notes vs the old broadcast.Bus.Unsubscribe:
 //
-//   - An empty or nil streamIDs list is a no-op (matches broadcast).
+//   - An empty or nil topicIDs list is a no-op (matches broadcast).
 //     This is the contract the /ui live-view callers and the worker_log
 //     defer-chain rely on.
-//   - With a non-empty streamIDs list, EVERY pubsub subscription
+//   - With a non-empty topicIDs list, EVERY pubsub subscription
 //     attached to the wake-channel is torn down — irrespective of the
-//     individual stream IDs passed in. Every in-tree caller passes
+//     individual topic IDs passed in. Every in-tree caller passes
 //     back the same slice it supplied to Subscribe, so the visible
-//     behaviour is unchanged. (Tracking per-stream pubsub subs would
+//     behaviour is unchanged. (Tracking per-topic pubsub subs would
 //     add bookkeeping with no observable benefit; revisit if a caller
 //     ever wants partial-unsubscribe.)
-func (h *Bus) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
-	if len(streamIDs) == 0 {
+func (h *Bus) Unsubscribe(topicIDs []streaming.TopicID, ch chan struct{}) {
+	if len(topicIDs) == 0 {
 		return
 	}
 	h.mu.Lock()
@@ -175,12 +175,12 @@ func (h *Bus) Unsubscribe(streamIDs []streaming.StreamID, ch chan struct{}) {
 }
 
 // SubscribeAll registers a wake-up channel that fires on every Notify
-// regardless of stream ID. Used by the unified streams live view (no
-// specific stream selected) to refresh whenever any worker writes
+// regardless of topic ID. Used by the unified topics live view (no
+// specific topic selected) to refresh whenever any worker writes
 // anywhere. Caller MUST defer UnsubscribeAll.
 //
 // Backed by a per-org NATS wildcard subscription
-// (`helix-org.stream-updates.<orgID>.>`) so it matches every per-stream
+// (`helix-org.topic-updates.<orgID>.>`) so it matches every per-topic
 // topic published via Notify within that org — and ONLY that org. Both
 // the real NATS provider and the in-memory test provider honour
 // wildcard subscriptions.
@@ -217,14 +217,14 @@ func (h *Bus) UnsubscribeAll(ch chan struct{}) {
 	}
 }
 
-// Notify wakes every subscriber that registered interest in streamID.
+// Notify wakes every subscriber that registered interest in topicID.
 // Non-blocking: the underlying pubsub Publish is fire-and-forget and
 // the wake handler uses select/default, so a subscriber whose channel
 // buffer is full simply drops the signal (coalesced — the subscriber
 // is expected to re-query after waking).
-func (h *Bus) Notify(orgID string, streamID streaming.StreamID) {
+func (h *Bus) Notify(orgID string, topicID streaming.TopicID) {
 	// Publish payload is nil — this is a pure wake signal. Ignoring
 	// publish errors matches broadcast's contract: Notify was a
 	// best-effort wake-only call with no return value.
-	_ = h.ps.Publish(context.Background(), topicFor(orgID, streamID), nil)
+	_ = h.ps.Publish(context.Background(), topicFor(orgID, topicID), nil)
 }

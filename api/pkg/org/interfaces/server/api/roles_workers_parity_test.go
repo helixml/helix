@@ -41,7 +41,7 @@ func ownerCaller(t *testing.T) tool.Worker {
 // TestCreateRoleParity_RESTvsMCP: the REST POST /roles handler and the
 // MCP create_role tool share application/roles, so both must produce
 // identical role rows — same content, same baseline-unioned tools, same
-// streams.
+// topics.
 func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
@@ -52,7 +52,7 @@ func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 		ID:      "r-qa",
 		Content: "# QA",
 		Tools:   []string{"publish", "subscribe"},
-		Streams: []string{"s-a"},
+		Topics: []string{"s-a"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST create role: %d body=%s", rec.Code, rec.Body)
@@ -65,7 +65,7 @@ func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 		"id":      "r-qa",
 		"content": "# QA",
 		"tools":   []string{"publish", "subscribe"},
-		"streams": []string{"s-a"},
+		"topics": []string{"s-a"},
 	})
 	if _, err := createRole.Invoke(context.Background(), tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP create_role: %v", err)
@@ -85,8 +85,8 @@ func TestCreateRoleParity_RESTvsMCP(t *testing.T) {
 	if !sameNames(restRole.Tools, mcpRole.Tools) {
 		t.Errorf("Tools differ: REST=%v MCP=%v", restRole.Tools, mcpRole.Tools)
 	}
-	if len(restRole.Streams) != len(mcpRole.Streams) || (len(restRole.Streams) > 0 && restRole.Streams[0] != mcpRole.Streams[0]) {
-		t.Errorf("Streams differ: REST=%v MCP=%v", restRole.Streams, mcpRole.Streams)
+	if len(restRole.Topics) != len(mcpRole.Topics) || (len(restRole.Topics) > 0 && restRole.Topics[0] != mcpRole.Topics[0]) {
+		t.Errorf("Topics differ: REST=%v MCP=%v", restRole.Topics, mcpRole.Topics)
 	}
 }
 
