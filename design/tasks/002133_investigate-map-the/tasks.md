@@ -30,7 +30,9 @@ See `design/2026-06-19-fix-restart-surfaced-websocket-bugs.md` for the full fix 
 - [x] Remove `"role": "user"` from `NotifyExternalAgentOfNewInteraction` command data (`websocket_external_agent_sync.go:1033-1041`)
 - [x] Confirm nothing on the Helix→Zed `chat_message` path requires `role` — Zed `IncomingChatMessage.role` is `Option<String>` ("can be ignored", `types.rs:355`), only read by the echo-drop check (`websocket_sync.rs:421`); unused after. No Zed change needed.
 - [x] Fix the history-storm: notify only the last (newly appended) interaction (`session_handlers.go:661-679`). Root cause confirmed: `appendOrOverwrite` always appends exactly one new interaction as the last element; the generation-boundary scan fails when all interactions share the current generation.
-- [ ] Live test: chat-path prompt runs an ACP turn; long-lived session fires exactly one `Notify`; queue path still works
+- [ ] Live test: chat-path prompt runs an ACP turn; long-lived session fires exactly one `Notify`; queue path still works — **BLOCKED:** inner dev env cannot provision a live Zed desktop (startup `build-sandbox`/`build-ubuntu` failed on an unrelated qwen-code `npm run bundle` error → no `helix-ubuntu` image in inner dockerd → desktop never launches → Zed never connects). Verified offline only (build + Zed-side code read). Needs a working env before merge.
+
+> **ENV NOTE (2026-06-22):** While bringing up the stack I also observed #2641 live: the sandbox's hydra failed to reach `api` at a stale IP (`10.214.1.10:8080`, connection refused) after the restart before recovering RevDial — exactly the stale-pin failure class. Recorded as supporting evidence for the #2641 fix.
 
 ### #2643 + full `acp_thread_id` re-key — the core change (build second)
 Make `acp_thread_id` the **primary routing key** behind one swappable chokepoint; demote `request_id` to an in-thread disambiguator + dedup. This fixes #2643 and removes the in-memory correlation that dies on restart.
