@@ -59,7 +59,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 	roleID := orgchart.RoleID(args.RoleID)
 
-	// Content-only patch: the service preserves Tools and Streams (the
+	// Content-only patch: the service preserves Tools and Topics (the
 	// old inline path here rebuilt the Role with only Content and
 	// silently wiped both — see application/roles).
 	if _, err := t.deps.Roles.Update(ctx, orgID, roleID, roles.UpdateParams{Content: &args.Content}); err != nil {

@@ -726,6 +726,135 @@ defect is real: it is the same id-collision class as #2570, one layer
 down in the git-repo service, which #2570 did not cover. Either scope the
 repo id by org or make it collision-proof (ULID, not second-granularity).
 
+> **Terminology note (Stream → Topic rename).** The wire is now a
+> **Topic** everywhere: table `org_topics` (was `org_streams`), REST
+> `/topics…`, MCP `create_topic`/`list_topics`/`get_topic`, frontend
+> `TopicNode`. The `s-` id prefix is unchanged. Older sections above that
+> still say "stream"/`org_streams` should be read as "topic"/`org_topics`.
+
+## §17. Processors (transform / filter / router)
+
+A **Processor** sits on the edge between Topics and reshapes or routes the
+Messages crossing it. It reads **one input Topic** and writes **one or
+more output Topics**; everything still flows through Topics (a branch's
+output Topic is a real, auto-provisioned `org_topics` row, just collapsed
+into the node visually). Kinds (`org_processors.kind`):
+
+- **template** — rewrites `Message.body` via a Go `text/template` against
+  the `{{ .Message.* }}` context. 1 input → 1 output, always passes.
+- **truncate** — caps the body to `max_bytes` (rune-safe). 1 → 1.
+- **filter / router** — N outputs, each a branch with a predicate; a
+  Message goes to every branch whose predicate renders truthy; an empty
+  predicate is the default/catch-all. **A router is just a filter with >1
+  output** — no separate kind.
+
+Execution is a late-bound fan-out arm of the dispatcher: publishing to a
+processor's input Topic runs `Process` and re-publishes each result onto
+the output Topic, which then dispatches to ITS subscribers (so chains
+recurse; a hop guard + create-time cycle check bound it).
+
+**Ports & the data-flow vs org-structure rule (the node design).** The
+node has an **IN** port (left, orange) and one labelled **OUT** port per
+branch (right, purple). Data-flow edges attach to the **SIDES** of nodes;
+the Worker's **top/bottom** handles are reserved for **org structure**
+(reporting lines). A processor-output → Worker edge therefore lands on the
+Worker's **right** data port (`id="topic"`, the same port used to
+subscribe to a Topic), never the top.
+
+Setup: seed `r-root` + an AI `w-root` (§1), and create two local Topics
+`s-in` and `s-feed` (Topics tab). Workers won't run a turn this session
+(no model budget), so verify the data path via DB + the REST publish
+endpoint, not a live activation. Publish:
+`POST /api/v1/orgs/<org>/topics/<id>/publish` with `{"body":…,"subject":…,"as":…}`.
+
+1. **Create a template processor (drawer).** Chart → **Processor** →
+   name `fmt`, kind `template`, input `s-in`, template
+   `From {{ .Message.from }}: {{ .Message.subject }}`. Create. A
+   `processor` node appears (header `fmt`, `IN` on the left, `OUT default`
+   on the right). DB: `org_processors` has one row, kind `template`,
+   `input_topic_id='s-in'`, `outputs` JSON has one `Owned:true` topic;
+   that output `org_topics` row exists.
+2. **Raw-JSON preview + syntax help.** Publish a message to `s-in`
+   (`{"body":"hi","subject":"Order #7","as":"a@vip.com"}`). Reopen `fmt`
+   (click its header). The **"Latest message … raw `{{ .Message }}` JSON"**
+   box shows the canonical envelope pretty-printed
+   (`{"from":"a@vip.com","subject":"Order #7","body":"hi"}`) — this is how
+   the operator discovers the available keys. Click **Show syntax help**:
+   it lists the `.Message.*` fields, the function set
+   (`upper/lower/trunc/default/contains/hasPrefix/hasSuffix`) with the
+   arg-order note (*test string first, field last* — `hasSuffix "@vip.com"
+   .Message.from`), and (filter) the truthy-match rules.
+3. **Execution (data path).** Publish to `s-in`; the output Topic
+   (`outputs[0].topic_id`) gains an event whose decoded body is the
+   rendered string. `org_events` for that topic shows
+   `body="From a@vip.com: Order #7"`. (With a live agent, a Worker
+   subscribed to the output Topic activates with that body.)
+4. **Wire Topic → IN (drag-to-wire input).** On the chart, drag from
+   `s-feed`'s right (amber) handle into `fmt`'s **IN** port. Snackbar
+   `fmt now reads s-feed`; `org_processors.input_topic_id='s-feed'`. The
+   IN edge re-routes from `s-feed`.
+5. **Wire OUT → Worker (drop on the worker's SIDE).** Drag from `fmt`'s
+   **OUT** port and drop **anywhere on `w-root`** (notably its right
+   side — NOT the top). A dashed data edge connects to the Worker's right
+   port; snackbar `w-root now consumes <out-topic>`;
+   `org_subscriptions` has `(w-root, <out-topic>)`. Confirm the edge
+   endpoint is on the Worker's **side**, not the top reporting handle.
+6. **Wire OUT → another processor (chain).** Create a second processor
+   `cap` (truncate, `max_bytes` 20, input `s-in`). Drag `fmt`'s OUT →
+   `cap`'s IN: `cap.input_topic_id` becomes `fmt`'s output topic; a chain
+   edge renders upstream-branch → IN.
+7. **Disconnect the input (delete the IN edge).** Hover the IN edge of
+   `cap`, click the **× / "Disconnect input"**. Snackbar `cap disconnected
+   from its input`; `org_processors.input_topic_id=''` (empty); the edge
+   is gone AND **stays gone after refresh** (it is NOT a no-op that
+   reappears). `cap` is now inert until re-wired.
+8. **Delete a subscription edge.** Delete the `fmt → w-root` data edge →
+   `w-root` drops from that output Topic's subscribers
+   (`org_subscriptions` row gone), persisted across refresh.
+9. **filter / router.** Create `route` (filter, input `s-in`) with two
+   branches: `vip` predicate `{{ hasSuffix "@vip.com" .Message.from }}`,
+   and `default` (empty predicate). Two `OUT` ports render. Publish a VIP
+   (`as:"x@vip.com"`) and a plain (`as:"x@y.com"`) message: the **vip**
+   output Topic gets only the VIP event; the **default** output Topic gets
+   both. Wire each branch port to a different Worker.
+10. **Delete a processor (cascade).** Delete `route` (node trash icon →
+   confirm). The processor row is gone and its **auto-provisioned output
+   Topics are cascaded** (and their subscriptions), but any *explicit*
+   shared output Topic survives.
+
+### §17 regression checks (UX teething bugs — keep these working)
+
+- **Duplicate name → 409, clean message** (not a raw `SQLSTATE 23505` /
+  doubled `create processor: create processor:` leak). Create two
+  processors with the same name in one org → second returns 409
+  `a processor named "X" in this org already exists`.
+- **A processor's owned output Topic is not independently deletable.**
+  Its delete on the Topic list / detail returns **409**
+  (`… is an output of processor …; delete the processor instead`) — never
+  leaving the processor with a dangling output. Deleting the processor is
+  the way to remove it (idempotent if the topic is already gone).
+- **The input edge deletes for real.** Deleting it **disconnects** the
+  input (clears `input_topic_id`) and stays gone — it must NOT be a no-op
+  that vanishes then reappears on refresh.
+- **OUT → Worker works dropping anywhere on the Worker.** Loose
+  connection mode + `connectionRadius` mean you don't have to hit the tiny
+  top target handle; dropping on the Worker's body/side connects.
+- **Data edges attach to node SIDES; top/bottom stay for reporting.** A
+  proc-output → Worker edge ends on the Worker's right data port (≈0px
+  off it), far from the top handle.
+- **Nodes are clickable, not occluded.** Processor nodes sit at their
+  input Topic's Y (clear of the page header); clicking the header opens
+  the edit drawer (it must not be covered by the header description or the
+  MiniMap — the MiniMap lives bottom-left, Controls top-left).
+- **Validation surfaces as 400 with a helpful message, drawer stays
+  open:** empty/malformed template, `max_bytes ≤ 0`, malformed/unknown-func
+  predicate, >1 output on a transform, unknown kind. A genuinely-unknown
+  template field (`{{ .Message.nope }}`) is accepted (renders empty at
+  runtime) — that's correct, not a bug.
+- **Cycle guard on wiring.** Re-pointing a processor's input (or a chain)
+  such that a branch's output leads back to its own input is rejected 409;
+  no edge persists.
+
 ## Pass criteria
 
 - §1 — a fresh org is **empty** (no workers/roles); seeding via New
@@ -799,6 +928,19 @@ repo id by org or make it collision-proof (ULID, not second-granularity).
   re-activates the worker with a data-loss warning.
 - §11 — fresh sandbox: Zed launches; per-Worker `gh`
   startupScript installs cleanly; `gh auth status` green.
+- §17 — a processor of each kind creates with an auto-provisioned output
+  Topic; the drawer's preview shows the raw `{{ .Message }}` JSON and the
+  syntax help lists fields/functions/match rules; publishing to the input
+  Topic transforms/routes the message onto the right output Topic(s).
+  Wiring works in all three directions — Topic → IN, OUT → Worker (drop
+  on the Worker's **side**, not top), OUT → processor (chain) — and data
+  edges land on node **sides** while top/bottom stay for reporting.
+  **Every edge deletes for real and persists:** the input edge
+  disconnects the input; subscription edges unsubscribe. Duplicate name →
+  409 clean (no raw driver error); an owned output Topic can't be deleted
+  independently (409); deleting the processor cascades its owned outputs.
+  Validation errors are 400 with a helpful message and the drawer stays
+  open.
 - No console errors beyond the three Vite WS errors at startup.
 
 ## Known limitations

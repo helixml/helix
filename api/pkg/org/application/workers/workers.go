@@ -11,7 +11,7 @@
 // The service depends on the narrow store.Workers repository plus the
 // roles application service (UpdateRole rewrites the held Role's content
 // through the same tested read-modify-write the roles service owns —
-// no duplicated RMW, tools/streams preserved). CLAUDE.md §5.0: small
+// no duplicated RMW, tools/topics preserved). CLAUDE.md §5.0: small
 // interfaces, ≤4 collaborators.
 package workers
 
@@ -51,7 +51,7 @@ type Deps struct {
 	Workers store.Workers
 	// Roles is the role-mutation service UpdateRole delegates to so the
 	// "a Worker's capability is its Role" content rewrite reuses the
-	// roles RMW (tools/streams preserved) instead of duplicating it.
+	// roles RMW (tools/topics preserved) instead of duplicating it.
 	Roles *roles.Roles
 	// Lines + Reconciler back AddParent/RemoveParent. Lines may be nil
 	// (AddParent/RemoveParent then return ErrReportingLinesUnavailable);
@@ -90,7 +90,7 @@ func (s *Workers) UpdateIdentity(ctx context.Context, orgID string, id orgchart.
 // UpdateRole rewrites the content of the Role the given Worker holds.
 // The Worker's MCP surface is derived from its Role, so "edit this
 // worker's role" maps to a content update on the held Role — delegated
-// to the roles service so Tools/Streams are preserved. Returns
+// to the roles service so Tools/Topics are preserved. Returns
 // store.ErrNotFound when the Worker (or its Role) is absent.
 func (s *Workers) UpdateRole(ctx context.Context, orgID string, id orgchart.WorkerID, content string) (orgchart.Role, error) {
 	wk, err := s.workers.Get(ctx, orgID, id)
@@ -106,7 +106,7 @@ func (s *Workers) UpdateRole(ctx context.Context, orgID string, id orgchart.Work
 
 // AddParent wires a reporting line (reportID reports to managerID),
 // guarding the DAG against cycles, then reconciles the activation/team
-// Streams the new edge implies. Both endpoints must exist. Idempotent:
+// Topics the new edge implies. Both endpoints must exist. Idempotent:
 // re-adding an existing line is a no-op (the repo's Add is idempotent).
 // Returns ErrReportingCycle (→409), ErrReportingLinesUnavailable (→501),
 // or store.ErrNotFound (→404) for the adapter to map.
@@ -130,7 +130,7 @@ func (s *Workers) AddParent(ctx context.Context, orgID string, reportID, manager
 	if err := s.lines.Add(ctx, line); err != nil {
 		return fmt.Errorf("add reporting line: %w", err)
 	}
-	// Pass both endpoints so the manager's team stream is in scope.
+	// Pass both endpoints so the manager's team topic is in scope.
 	if err := s.reconciler.Reconcile(ctx, orgID, reportID, managerID); err != nil {
 		return fmt.Errorf("reconcile topology: %w", err)
 	}
@@ -166,7 +166,7 @@ func (s *Workers) guardCycle(ctx context.Context, orgID string, reportID, manage
 }
 
 // RemoveParent drops the (reportID → managerID) reporting line, then
-// reconciles the Streams the dropped edge implies. Returns
+// reconciles the Topics the dropped edge implies. Returns
 // ErrReportingLinesUnavailable (→501) or store.ErrNotFound (→404).
 func (s *Workers) RemoveParent(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
 	if s.lines == nil {

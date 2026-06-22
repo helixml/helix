@@ -36,7 +36,7 @@ type SpawnerConfig struct {
 	Client         SpawnerClient
 	ProjectService ProjectService
 	Workspace      *Workspace
-	// PubSub + Snapshotter back SubscribeSessionUpdates, which streams
+	// PubSub + Snapshotter back SubscribeSessionUpdates, which topics
 	// per-session WebsocketEvent frames to in-process subscribers.
 	PubSub      pubsub.PubSub
 	Snapshotter SessionPreamble
@@ -187,7 +187,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		defer func() { <-sem }()
 
 		// Record the audit row for this activation. Failures here are
-		// best-effort during the B5 transition — the transcript stream
+		// best-effort during the B5 transition — the transcript topic
 		// (next block) is still the primary record until callers depend
 		// on the row. Once B5.7 lands worker_log's activation_id filter,
 		// a Create failure becomes a hard error.
@@ -211,12 +211,12 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			}()
 		}
 
-		streamID := activation.TranscriptID(workerID)
+		topicID := activation.TranscriptID(workerID)
 		publish := func(body string) {
 			if body == "" {
 				return
 			}
-			recordTranscript(ctx, cfg, orgID, workerID, streamID, body)
+			recordTranscript(ctx, cfg, orgID, workerID, topicID, body)
 		}
 		publish(fmt.Sprintf("=== activation: %s ===", briefing.DescribeTriggers(triggers)))
 
@@ -305,7 +305,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // newActivationRecord builds a fresh activation.Activation for one
 // Spawner invocation. Returns nil when the caller hasn't wired
 // NewID / Now / the Activations repo — the legacy code path still
-// runs (transcript stream only) so older tests and dev wirings
+// runs (transcript topic only) so older tests and dev wirings
 // keep working through the B5 transition. Once every caller wires
 // these, the nil branch becomes a hard error.
 //
@@ -550,23 +550,23 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 }
 
 // bridge consumes WebSocket frames and publishes one transcript
-// event per *settled* response entry. It owns a single `EntryStream`
-// for the lifetime of the activation; the EntryStream's dedup state
+// event per *settled* response entry. It owns a single `EntryTopic`
+// for the lifetime of the activation; the EntryTopic's dedup state
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
 	publish     func(body string)
-	stream      *EntryStream
+	topic      *EntryTopic
 	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 
 func newBridge(publish func(body string)) *bridge {
 	b := &bridge{publish: publish, seenPrompts: map[string]bool{}}
-	b.stream = NewEntryStream(b.onEvent)
+	b.topic = NewEntryTopic(b.onEvent)
 	return b
 }
 
 // apply renders one session frame: it emits the user's prompt (once per
-// interaction) then feeds the agent's entry patches through EntryStream,
+// interaction) then feeds the agent's entry patches through EntryTopic,
 // so the transcript is two-sided. Prompts come from the current
 // interaction only (not u.Session history), so a restart doesn't re-emit
 // past prompts.
@@ -577,10 +577,10 @@ func (b *bridge) apply(u types.WebsocketEvent) {
 			b.publish(activation.TranscriptSegment{Kind: activation.SegmentUser, Body: body}.Marker())
 		}
 	}
-	b.stream.Apply(u)
+	b.topic.Apply(u)
 }
 
-// onEvent renders one settled EntryStream event into the canonical
+// onEvent renders one settled EntryTopic event into the canonical
 // activation-transcript line shape. The owner-chat bridge in
 // server/chat uses the same TranscriptBody helper to publish
 // identical lines to s-transcript-w-owner.
@@ -607,7 +607,7 @@ func TranscriptBody(e Event) string {
 	return seg.Marker()
 }
 
-// transcriptSegmentFromEvent maps the EntryStream Event variants to
+// transcriptSegmentFromEvent maps the EntryTopic Event variants to
 // the canonical TranscriptSegment kinds. Kinds with no transcript
 // representation (any future Event added without a Segment kind)
 // return (_, false).
@@ -631,7 +631,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.StreamID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.TopicID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

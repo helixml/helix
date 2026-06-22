@@ -1,7 +1,7 @@
-// GitHub stream-config field building blocks. The Events and Branches
+// GitHub topic-config field building blocks. The Events and Branches
 // editors are headless (the parent owns values + change handlers) and
 // are composed alongside the shared GitHubRepoPicker by both the New
-// Stream dialog and the per-stream Edit form. Repository selection lives
+// Topic dialog and the per-topic Edit form. Repository selection lives
 // in GitHubRepoPicker; event-type selection only appears at creation
 // (afterwards events are managed on GitHub's own webhook UI).
 
@@ -18,7 +18,7 @@ import {
   GITHUB_EVENT_OPTIONS,
   eventValue,
   isValidGitHubEvent,
-} from './githubStreamConstants'
+} from './githubTopicConstants'
 
 // GitHubEventsField is the curated-but-free-text event whitelist editor.
 export const GitHubEventsField: FC<{ events: string[]; onChange: (next: string[]) => void }> = ({

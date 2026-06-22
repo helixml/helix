@@ -34,7 +34,7 @@ func BuildPrompt(workerID orgchart.WorkerID, mandate string, triggers []activati
 		}
 		switch t.Kind {
 		case activation.TriggerHire:
-			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Stream you subscribe to.\n")
+			ctx.WriteString("You have just been hired. This is your first activation. Complete any one-time setup your role describes, then exit. The runtime will re-activate you when an event arrives on a Topic you subscribe to.\n")
 		case activation.TriggerEvent:
 			ctx.WriteString(renderTrigger(t))
 		case activation.TriggerManual:
@@ -72,8 +72,8 @@ Act now. No preamble.
 // "neat" is for humans tailing the prompt.
 func renderTrigger(t activation.Trigger) string {
 	var b strings.Builder
-	b.WriteString("A new event arrived on a Stream you subscribe to.\n\n")
-	fmt.Fprintf(&b, "  stream:      %s\n", t.StreamID)
+	b.WriteString("A new event arrived on a Topic you subscribe to.\n\n")
+	fmt.Fprintf(&b, "  topic:      %s\n", t.TopicID)
 	fmt.Fprintf(&b, "  event:       %s\n", t.EventID)
 	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
 	if t.Source != "" {
@@ -139,7 +139,7 @@ func DescribeTrigger(t activation.Trigger) string {
 	case activation.TriggerHire:
 		return "hire"
 	case activation.TriggerEvent:
-		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.StreamID, t.Source)
+		return fmt.Sprintf("event %s on %s from %s", t.EventID, t.TopicID, t.Source)
 	case activation.TriggerManual:
 		return "manual"
 	default:

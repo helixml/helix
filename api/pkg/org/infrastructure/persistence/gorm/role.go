@@ -19,7 +19,7 @@ type roleRow struct {
 	OrgID     string   `gorm:"primaryKey;type:text;index"`
 	Content   string   `gorm:"not null"`
 	Tools     []string `gorm:"serializer:json"`
-	Streams   []string `gorm:"serializer:json"`
+	Topics   []string `gorm:"serializer:json"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -33,22 +33,22 @@ func (roleMapper) ToRow(r orgchart.Role) (roleRow, error) {
 	for _, t := range r.Tools {
 		tools = append(tools, string(t))
 	}
-	streams := make([]string, 0, len(r.Streams))
-	for _, s := range r.Streams {
-		streams = append(streams, string(s))
+	topics := make([]string, 0, len(r.Topics))
+	for _, s := range r.Topics {
+		topics = append(topics, string(s))
 	}
 	if len(tools) == 0 {
 		tools = nil
 	}
-	if len(streams) == 0 {
-		streams = nil
+	if len(topics) == 0 {
+		topics = nil
 	}
 	return roleRow{
 		ID:        string(r.ID),
 		OrgID:     r.OrganizationID,
 		Content:   r.Content,
 		Tools:     tools,
-		Streams:   streams,
+		Topics:   topics,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}, nil
@@ -62,11 +62,11 @@ func (roleMapper) ToDomain(row roleRow) (orgchart.Role, error) {
 			tools = append(tools, tool.Name(t))
 		}
 	}
-	var streams []streaming.StreamID
-	if len(row.Streams) > 0 {
-		streams = make([]streaming.StreamID, 0, len(row.Streams))
-		for _, s := range row.Streams {
-			streams = append(streams, streaming.StreamID(s))
+	var topics []streaming.TopicID
+	if len(row.Topics) > 0 {
+		topics = make([]streaming.TopicID, 0, len(row.Topics))
+		for _, s := range row.Topics {
+			topics = append(topics, streaming.TopicID(s))
 		}
 	}
 	return orgchart.Role{
@@ -74,7 +74,7 @@ func (roleMapper) ToDomain(row roleRow) (orgchart.Role, error) {
 		OrganizationID: row.OrgID,
 		Content:        row.Content,
 		Tools:          tools,
-		Streams:        streams,
+		Topics:        topics,
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 	}, nil
@@ -109,9 +109,9 @@ func (r *rolesRepo) Update(ctx context.Context, ro orgchart.Role) error {
 	if err != nil {
 		return fmt.Errorf("marshal tools: %w", err)
 	}
-	streamsJSON, err := json.Marshal(row.Streams)
+	topicsJSON, err := json.Marshal(row.Topics)
 	if err != nil {
-		return fmt.Errorf("marshal streams: %w", err)
+		return fmt.Errorf("marshal topics: %w", err)
 	}
 	return r.Repository.Update(ctx,
 		store.WithOrg(row.OrgID),
@@ -119,7 +119,7 @@ func (r *rolesRepo) Update(ctx context.Context, ro orgchart.Role) error {
 		store.WithUpdates(map[string]any{
 			"content":    row.Content,
 			"tools":      string(toolsJSON),
-			"streams":    string(streamsJSON),
+			"topics":    string(topicsJSON),
 			"updated_at": row.UpdatedAt,
 		}),
 	)

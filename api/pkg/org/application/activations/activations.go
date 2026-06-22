@@ -105,7 +105,7 @@ type ActivateResult struct {
 //     in-flight activation, so a double-click folds into one follow-up).
 //
 // The worker-id is validated up front (it propagates into the
-// helix-specs git layout and stream ids — a defensive format check).
+// helix-specs git layout and topic ids — a defensive format check).
 // Callers should still confirm the Worker exists (404) before calling —
 // Activate's Ensure will also error on a missing Worker, but a pre-check
 // gives the cleaner status.

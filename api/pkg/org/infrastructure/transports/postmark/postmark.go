@@ -12,12 +12,12 @@
 //	  "from":    "you@gmail.com"
 //	}
 //
-// Streams declare just an alias (`{"alias":"sam"}`); the transport
-// joins server-level config with stream-level alias at runtime.
+// Topics declare just an alias (`{"alias":"sam"}`); the transport
+// joins server-level config with topic-level alias at runtime.
 // Inbound mail addressed to `<hash>+<alias>@inbound.postmarkapp.com`
-// routes to the stream with that alias. Outbound mail is sent
+// routes to the topic with that alias. Outbound mail is sent
 // `From: <config.from>` with `Reply-To: <hash>+<alias>@…` so
-// customers' replies land back on the right stream.
+// customers' replies land back on the right topic.
 package postmark
 
 import (
@@ -150,16 +150,16 @@ func (t *Transport) config(ctx context.Context) (Config, error) {
 	return c, nil
 }
 
-// findStreamByAlias scans email-transport streams for one whose alias
+// findTopicByAlias scans email-transport topics for one whose alias
 // matches. With small N this linear scan is fine; if installations
-// ever grow many email streams a denormalised alias column on the
-// streams table is the obvious follow-on.
-func (t *Transport) findStreamByAlias(ctx context.Context, alias string) (streaming.Stream, error) {
-	streams, err := t.store.Streams.List(ctx, t.orgID)
+// ever grow many email topics a denormalised alias column on the
+// topics table is the obvious follow-on.
+func (t *Transport) findTopicByAlias(ctx context.Context, alias string) (streaming.Topic, error) {
+	topics, err := t.store.Topics.List(ctx, t.orgID)
 	if err != nil {
-		return streaming.Stream{}, fmt.Errorf("list streams: %w", err)
+		return streaming.Topic{}, fmt.Errorf("list topics: %w", err)
 	}
-	for _, s := range streams {
+	for _, s := range topics {
 		if s.Transport.Kind != transport.KindEmail {
 			continue
 		}
@@ -169,7 +169,7 @@ func (t *Transport) findStreamByAlias(ctx context.Context, alias string) (stream
 		}
 		return s, nil
 	}
-	return streaming.Stream{}, fmt.Errorf("no email stream with alias %q", alias)
+	return streaming.Topic{}, fmt.Errorf("no email topic with alias %q", alias)
 }
 
 // parseAlias extracts the "+alias" suffix from a recipient local-part.
@@ -204,7 +204,7 @@ type inboundPayload struct {
 	Headers           []inboundHeader        `json:"Headers"`
 	Attachments       []inboundAttachment    `json:"Attachments"`
 	Date              string                 `json:"Date"`
-	MessageStream     string                 `json:"MessageStream"`
+	MessageTopic     string                 `json:"MessageTopic"`
 	Extra             map[string]interface{} `json:"-"`
 }
 
@@ -236,7 +236,7 @@ func (p inboundPayload) header(name string) string {
 
 // HandleInbound is the http.Handler Postmark POSTs parsed inbound
 // mail to. It extracts the alias from the recipient address, looks
-// up the matching Stream, builds a Message envelope, and appends it.
+// up the matching Topic, builds a Message envelope, and appends it.
 // Returns 204 on success (Postmark needs a 2xx to mark the inbound
 // delivered) and 4xx/5xx on errors.
 func (t *Transport) HandleInbound() http.Handler {
@@ -265,9 +265,9 @@ func (t *Transport) HandleInbound() http.Handler {
 			http.Error(w, "no alias on recipient", http.StatusBadRequest)
 			return
 		}
-		stream, err := t.findStreamByAlias(r.Context(), alias)
+		topic, err := t.findTopicByAlias(r.Context(), alias)
 		if err != nil {
-			t.logger.Warn("postmark.inbound: stream lookup", "alias", alias, "err", err)
+			t.logger.Warn("postmark.inbound: topic lookup", "alias", alias, "err", err)
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -295,7 +295,7 @@ func (t *Transport) HandleInbound() http.Handler {
 
 		event, err := streaming.NewMessageEvent(
 			streaming.EventID("e-"+uuid.NewString()),
-			stream.ID,
+			topic.ID,
 			"", // system-emitted: external sender, no helix Worker source
 			msg,
 			time.Now().UTC(),
@@ -306,17 +306,17 @@ func (t *Transport) HandleInbound() http.Handler {
 			return
 		}
 		if err := t.store.Events.Append(r.Context(), event); err != nil {
-			t.logger.Error("postmark.inbound: append", "stream", stream.ID, "err", err)
+			t.logger.Error("postmark.inbound: append", "topic", topic.ID, "err", err)
 			http.Error(w, "append event", http.StatusInternalServerError)
 			return
 		}
 		if t.broadcaster != nil {
-			t.broadcaster.Notify(t.orgID, stream.ID)
+			t.broadcaster.Notify(t.orgID, topic.ID)
 		}
 		if t.dispatcher != nil {
 			t.dispatcher.Dispatch(r.Context(), event)
 		}
-		t.logger.Info("postmark.inbound", "stream", stream.ID, "alias", alias, "from", p.From, "subject", p.Subject)
+		t.logger.Info("postmark.inbound", "topic", topic.ID, "alias", alias, "from", p.From, "subject", p.Subject)
 
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -379,13 +379,13 @@ func (t *Transport) Emit(ctx context.Context, e streaming.Event) error {
 	if err != nil {
 		return err
 	}
-	stream, err := t.store.Streams.Get(ctx, e.OrganizationID, e.StreamID)
+	topic, err := t.store.Topics.Get(ctx, e.OrganizationID, e.TopicID)
 	if err != nil {
-		return fmt.Errorf("get stream: %w", err)
+		return fmt.Errorf("get topic: %w", err)
 	}
-	streamCfg, err := stream.Transport.EmailConfig()
+	topicCfg, err := topic.Transport.EmailConfig()
 	if err != nil {
-		return fmt.Errorf("stream email config: %w", err)
+		return fmt.Errorf("topic email config: %w", err)
 	}
 
 	from := cfg.From
@@ -402,7 +402,7 @@ func (t *Transport) Emit(ctx context.Context, e streaming.Event) error {
 		TextBody: msg.Body,
 	}
 	if !cfg.DisableReplyTo {
-		payload.ReplyTo = cfg.AliasAddress(streamCfg.Alias)
+		payload.ReplyTo = cfg.AliasAddress(topicCfg.Alias)
 	}
 	if msg.BodyContentType == "text/html" {
 		payload.TextBody = ""
@@ -441,6 +441,6 @@ func (t *Transport) Emit(ctx context.Context, e streaming.Event) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("postmark %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
-	t.logger.Info("postmark.emit", "stream", e.StreamID, "to", payload.To, "subject", payload.Subject, "status", resp.StatusCode)
+	t.logger.Info("postmark.emit", "topic", e.TopicID, "to", payload.To, "subject", payload.Subject, "status", resp.StatusCode)
 	return nil
 }

@@ -8,7 +8,7 @@ import (
 // BaseReadTools is the set of MCP tools that every Role must expose. The
 // principle: a tool belongs here only if exposing it to every Worker is
 // safe (it cannot mutate the org graph) and useful (the Worker needs it
-// to introspect its reporting line, look up peers, or read streams it
+// to introspect its reporting line, look up peers, or read topics it
 // has been subscribed to).
 //
 // `create_role` unions this list into the caller-supplied tools so that
@@ -31,9 +31,9 @@ var BaseReadTools = []tool.Name{
 	GetWorkerName,
 	ListRolesName,
 	GetRoleName,
-	ListStreamsName,
-	GetStreamName,
-	ListStreamEventsName,
+	ListTopicsName,
+	GetTopicName,
+	ListTopicEventsName,
 	ReadEventsName,
 	WorkerLogName,
 	MintCredentialName,
@@ -52,8 +52,8 @@ func OwnerRoleTools() []tool.Name {
 		UpdateRoleName,
 		UpdateIdentityName,
 		HireWorkerName,
-		CreateStreamName,
-		StreamMembersName,
+		CreateTopicName,
+		TopicMembersName,
 		SubscribeName,
 		UnsubscribeName,
 		InviteWorkersName,

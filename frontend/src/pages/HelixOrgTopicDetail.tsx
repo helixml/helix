@@ -1,14 +1,14 @@
-// HelixOrgStreamDetail is the per-stream "messages flowing through"
-// view. It hydrates from GET /streams/{id} for the initial snapshot
+// HelixOrgTopicDetail is the per-topic "messages flowing through"
+// view. It hydrates from GET /topics/{id} for the initial snapshot
 // then keeps the event list live via the SSE endpoint at
-// /streams/{id}/events — every push replaces the list wholesale so
+// /topics/{id}/events — every push replaces the list wholesale so
 // the frontend never has to diff partial updates. The shape mirrors
-// what the old htmx /ui/streams?id=… surface used to render.
+// what the old htmx /ui/topics?id=… surface used to render.
 //
 // The page also exposes inline editing of mutable fields (name,
-// description, transport config) via PUT /streams/{id}. For the
+// description, transport config) via PUT /topics/{id}. For the
 // github transport the same Repository + Events picker as the New
-// Stream dialog is shown; for other non-local transports a JSON
+// Topic dialog is shown; for other non-local transports a JSON
 // textarea is offered.
 
 import { FC, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,10 +28,10 @@ import CloseIcon from '@mui/icons-material/Close'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import { GitHubBranchesField } from '../components/helix-org/GitHubStreamConfigFields'
+import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
-import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubStreamConstants'
+import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -39,32 +39,32 @@ import useSnackbar from '../hooks/useSnackbar'
 import {
   EventCard,
   InstallWebhookFailedError,
-  StreamDTO,
-  useHelixOrgStream,
+  TopicDTO,
+  useHelixOrgTopic,
   useGitHubWebhookStatus,
   useInstallGitHubWebhook,
-  useStreamMessageCount,
-  useUpdateHelixOrgStream,
+  useTopicMessageCount,
+  useUpdateHelixOrgTopic,
 } from '../services/helixOrgService'
 
-const HelixOrgStreamDetail: FC = () => {
+const HelixOrgTopicDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
-  const streamId = router.params.stream_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Streams', routeName: 'helix_org_streams' })
+  const topicId = router.params.topic_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
 
-  const { data: stream, isLoading } = useHelixOrgStream(streamId)
-  const { data: messageCount } = useStreamMessageCount(streamId)
-  const updateStream = useUpdateHelixOrgStream()
+  const { data: topic, isLoading } = useHelixOrgTopic(topicId)
+  const { data: messageCount } = useTopicMessageCount(topicId)
+  const updateTopic = useUpdateHelixOrgTopic()
 
   // Live event list. Seeded from the initial GET so the page renders
   // immediately; replaced wholesale on every SSE push from
-  // /streams/{id}/events. Falling back to the initial snapshot keeps
+  // /topics/{id}/events. Falling back to the initial snapshot keeps
   // the list non-empty across reconnect blips.
   const [liveEvents, setLiveEvents] = useState<EventCard[] | null>(null)
-  const events = liveEvents ?? stream?.recent_events ?? []
+  const events = liveEvents ?? topic?.recent_events ?? []
 
   // SSE wiring. For normal browser sessions EventSource sends the
   // helix_session cookie automatically. For embed-token flows
@@ -76,8 +76,8 @@ const HelixOrgStreamDetail: FC = () => {
   const orgID = account.organizationTools.organization?.id || orgSlug || ''
   const sseUrlRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!orgID || !streamId) return
-    const url = `/api/v1/orgs/${encodeURIComponent(orgID)}/streams/${encodeURIComponent(streamId)}/events`
+    if (!orgID || !topicId) return
+    const url = `/api/v1/orgs/${encodeURIComponent(orgID)}/topics/${encodeURIComponent(topicId)}/events`
     sseUrlRef.current = url
     const es = new EventSource(url, { withCredentials: true })
     const onMessage = (ev: MessageEvent) => {
@@ -94,9 +94,9 @@ const HelixOrgStreamDetail: FC = () => {
       es.removeEventListener('message', onMessage)
       es.close()
     }
-  }, [orgID, streamId])
+  }, [orgID, topicId])
 
-  const subscribers = stream?.subscribers ?? []
+  const subscribers = topic?.subscribers ?? []
 
   const formatTimestamp = (iso: string) => {
     if (!iso) return ''
@@ -107,7 +107,7 @@ const HelixOrgStreamDetail: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={stream?.name || streamId || 'Stream'}
+      breadcrumbTitle={topic?.name || topicId || 'Topic'}
       breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
@@ -115,25 +115,25 @@ const HelixOrgStreamDetail: FC = () => {
         <Stack spacing={2}>
           {isLoading ? (
             <LoadingSpinner />
-          ) : !stream ? (
-            <Typography color="text.secondary">Stream not found.</Typography>
+          ) : !topic ? (
+            <Typography color="text.secondary">Topic not found.</Typography>
           ) : (
             <>
               <Box>
                 <Stack direction="row" alignItems="baseline" spacing={2}>
-                  <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{stream.id}</Typography>
-                  <Chip label={stream.kind} size="small" sx={{ fontFamily: 'monospace' }} />
+                  <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{topic.id}</Typography>
+                  <Chip label={topic.kind} size="small" sx={{ fontFamily: 'monospace' }} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  {stream.name}
+                  {topic.name}
                 </Typography>
-                {stream.description && (
+                {topic.description && (
                   <Typography variant="body2" sx={{ mt: 1 }}>
-                    {stream.description}
+                    {topic.description}
                   </Typography>
                 )}
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}>
-                  created by {stream.created_by} · {formatTimestamp(stream.created_at)}
+                  created by {topic.created_by} · {formatTimestamp(topic.created_at)}
                 </Typography>
                 {subscribers.length > 0 && (
                   <Box sx={{ mt: 1 }}>
@@ -147,12 +147,12 @@ const HelixOrgStreamDetail: FC = () => {
 
               <Divider />
 
-              <StreamConfigSection
-                stream={stream}
+              <TopicConfigSection
+                topic={topic}
                 onSave={async (payload) => {
                   try {
-                    await updateStream.mutateAsync({ streamId: stream.id, payload })
-                    snackbar.success('stream updated')
+                    await updateTopic.mutateAsync({ topicId: topic.id, payload })
+                    snackbar.success('topic updated')
                     return true
                   } catch (e: any) {
                     const msg = e?.response?.data?.error || e?.message || 'update failed'
@@ -160,12 +160,12 @@ const HelixOrgStreamDetail: FC = () => {
                     return false
                   }
                 }}
-                saving={updateStream.isPending}
+                saving={updateTopic.isPending}
               />
 
-              {stream.kind === 'github' && (
+              {topic.kind === 'github' && (
                 <GitHubWebhookStatus
-                  stream={stream}
+                  topic={topic}
                   orgSlug={orgSlug}
                 />
               )}
@@ -184,7 +184,7 @@ const HelixOrgStreamDetail: FC = () => {
                 </Stack>
                 {events.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-                    No events on this stream yet.
+                    No events on this topic yet.
                   </Typography>
                 ) : (
                   <Stack spacing={1}>
@@ -202,14 +202,14 @@ const HelixOrgStreamDetail: FC = () => {
   )
 }
 
-// StreamConfigSection renders the stream's mutable configuration —
+// TopicConfigSection renders the topic's mutable configuration —
 // name, description, transport config — in a read-only Paper that
 // flips into edit mode when the operator clicks Edit. The transport
 // kind itself is NOT editable here (changing transport mid-flight
 // would orphan webhook deliveries, GitHub installations etc); spin
-// up a new stream and delete the old one for that.
-interface StreamConfigSectionProps {
-  stream: StreamDTO
+// up a new topic and delete the old one for that.
+interface TopicConfigSectionProps {
+  topic: TopicDTO
   onSave: (payload: {
     name: string
     description?: string
@@ -218,15 +218,15 @@ interface StreamConfigSectionProps {
   saving: boolean
 }
 
-const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, saving }) => {
+const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
   const snackbar = useSnackbar()
   const [editing, setEditing] = useState(false)
 
-  // Local edit-mode state. Seeded from the stream every time the
+  // Local edit-mode state. Seeded from the topic every time the
   // user enters edit mode so cancel → re-edit starts from the
   // current server state, not whatever the user last typed.
-  const [name, setName] = useState(stream.name)
-  const [description, setDescription] = useState(stream.description ?? '')
+  const [name, setName] = useState(topic.name)
+  const [description, setDescription] = useState(topic.description ?? '')
   const [configText, setConfigText] = useState('')
   const [ghRepo, setGhRepo] = useState('')
   const [ghBranches, setGhBranches] = useState<string[]>([])
@@ -238,15 +238,15 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
   const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
 
   const enterEdit = () => {
-    setName(stream.name)
-    setDescription(stream.description ?? '')
-    if (stream.kind === 'github') {
-      const cfg = (stream.config ?? {}) as Record<string, unknown>
+    setName(topic.name)
+    setDescription(topic.description ?? '')
+    if (topic.kind === 'github') {
+      const cfg = (topic.config ?? {}) as Record<string, unknown>
       setGhOriginalConfig(cfg)
       setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
       setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
-    } else if (stream.config) {
-      setConfigText(JSON.stringify(stream.config, null, 2))
+    } else if (topic.config) {
+      setConfigText(JSON.stringify(topic.config, null, 2))
     } else {
       setConfigText('')
     }
@@ -266,7 +266,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
       transport?: { config?: Record<string, unknown> }
     } = { name: name.trim(), description: description.trim() || undefined }
 
-    if (stream.kind === 'github') {
+    if (topic.kind === 'github') {
       if (!ghRepo.trim() || !GITHUB_REPO_PATTERN.test(ghRepo.trim())) {
         snackbar.error('GitHub repo is required and must be owner/name')
         return
@@ -284,7 +284,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         delete ghConfig.branches
       }
       payload.transport = { config: ghConfig }
-    } else if (stream.kind !== 'local' && configText.trim()) {
+    } else if (topic.kind !== 'local' && configText.trim()) {
       try {
         const parsed = JSON.parse(configText)
         if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -296,7 +296,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
         snackbar.error('Transport config must be valid JSON')
         return
       }
-    } else if (stream.kind !== 'local') {
+    } else if (topic.kind !== 'local') {
       // Allow clearing back to no config.
       payload.transport = { config: {} }
     }
@@ -305,10 +305,10 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
   }
 
   const configPreview = useMemo(() => {
-    if (stream.kind === 'local') return null
-    if (!stream.config || Object.keys(stream.config).length === 0) return '(empty)'
-    return JSON.stringify(stream.config, null, 2)
-  }, [stream.kind, stream.config])
+    if (topic.kind === 'local') return null
+    if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
+    return JSON.stringify(topic.config, null, 2)
+  }, [topic.kind, topic.config])
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
@@ -323,10 +323,10 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
 
       {!editing ? (
         <Stack spacing={1.5}>
-          <ReadOnlyRow label="Name" value={stream.name} />
-          <ReadOnlyRow label="Description" value={stream.description || '—'} />
-          <ReadOnlyRow label="Transport" value={stream.kind} mono />
-          {stream.kind !== 'local' && (
+          <ReadOnlyRow label="Name" value={topic.name} />
+          <ReadOnlyRow label="Description" value={topic.description || '—'} />
+          <ReadOnlyRow label="Transport" value={topic.kind} mono />
+          {topic.kind !== 'local' && (
             <Box>
               <Typography variant="caption" color="text.secondary">Config</Typography>
               <Typography
@@ -363,7 +363,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
             size="small"
             fullWidth
           />
-          {stream.kind === 'github' && (
+          {topic.kind === 'github' && (
             <>
               <GitHubRepoPicker value={ghRepo} onChange={setGhRepo} />
               <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
@@ -373,7 +373,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
               </Typography>
             </>
           )}
-          {stream.kind !== 'local' && stream.kind !== 'github' && (
+          {topic.kind !== 'local' && topic.kind !== 'github' && (
             <TextField
               label="Transport config (JSON)"
               value={configText}
@@ -386,7 +386,7 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
               sx={{ '& textarea': { fontFamily: 'monospace', fontSize: '0.8rem' } }}
             />
           )}
-          {stream.kind === 'local' && (
+          {topic.kind === 'local' && (
             <Typography variant="caption" color="text.secondary">
               local transport has no config — nothing to edit beyond name/description.
             </Typography>
@@ -411,26 +411,26 @@ const StreamConfigSection: FC<StreamConfigSectionProps> = ({ stream, onSave, sav
 }
 
 // GitHubWebhookStatus is the simplified "Connect to GitHub" panel.
-// Helix auto-installs the webhook on GitHub when the stream is
+// Helix auto-installs the webhook on GitHub when the topic is
 // created, so most operators never need to copy a URL or paste a
 // secret. This component just surfaces the current state and gives
 // the operator a deep-link to the GitHub UI for tweaks.
 //
 // States:
-//   - webhook_id set on the stream config → "Helix installed
+//   - webhook_id set on the topic config → "Helix installed
 //     webhook #N on owner/name." + Edit-on-GitHub link
 //   - webhook_id unset → "Webhook not installed yet" + button to
 //     re-run the install
 //   - localhost SERVER_URL → red warning ("change SERVER_URL or
 //     GitHub can't deliver")
 interface GitHubWebhookStatusProps {
-  stream: StreamDTO
+  topic: TopicDTO
   orgSlug?: string
 }
 
 // SettingsLink is the actionable button on the loopback warning —
 // jumps the operator to the helix-org Settings page where
-// `streams.public_url` can be set. Stops the user staring at
+// `topics.public_url` can be set. Stops the user staring at
 // "what URL is wrong, where do I change it?" The Settings page
 // has every per-org config including the new public_url override.
 const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
@@ -448,28 +448,28 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
   )
 }
 
-const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) => {
+const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) => {
   const snackbar = useSnackbar()
   const install = useInstallGitHubWebhook()
-  // Live truth from GitHub: does a webhook for this stream's payload URL
+  // Live truth from GitHub: does a webhook for this topic's payload URL
   // actually exist on the repo? This is the source of truth for the link vs
   // re-install decision — the stored config can be stale (hook deleted on
   // GitHub, or installed before we tracked the id).
-  const status = useGitHubWebhookStatus(stream.id)
+  const status = useGitHubWebhookStatus(topic.id)
 
   // Check the EFFECTIVE public URL — what the install endpoint
-  // would actually use (streams.public_url override applied on
+  // would actually use (topics.public_url override applied on
   // top of SERVER_URL). When the operator sets that org config
   // to a publicly reachable URL the warning goes away even
   // though the SERVER_URL env still points at localhost.
   // Fallback to window.location.origin only when the server
   // sent nothing (e.g. older API).
-  const effectivePublicURL = stream.effective_public_url && stream.effective_public_url.length > 0
-    ? stream.effective_public_url
+  const effectivePublicURL = topic.effective_public_url && topic.effective_public_url.length > 0
+    ? topic.effective_public_url
     : window.location.origin
   const isLocalhost = /(localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(effectivePublicURL)
 
-  const cfg = (stream.config ?? {}) as { repo?: string; webhook_id?: number; webhook_html_url?: string }
+  const cfg = (topic.config ?? {}) as { repo?: string; webhook_id?: number; webhook_html_url?: string }
 
   // Resolve the live status into a concrete view. "unknown" (couldn't reach
   // GitHub / no creds / no public URL) falls back to the stored config so the
@@ -503,7 +503,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
 
   const reinstall = async () => {
     try {
-      const out = await install.mutateAsync(stream.id)
+      const out = await install.mutateAsync(topic.id)
       if (out.warning) {
         // Webhook is registered on GitHub; the warning tells the
         // operator what's still wrong on their side (typically
@@ -535,7 +535,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mb: 1 }}>
             GitHub's servers can't reach this URL, so webhook deliveries won't arrive. Fix by either:
-            (a) setting <code>streams.public_url</code> on the helix-org Settings page to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
+            (a) setting <code>topics.public_url</code> on the helix-org Settings page to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
             (b) editing <code>SERVER_URL</code> in helix's .env and restarting the api container.
           </Typography>
           <SettingsLink orgSlug={orgSlug} />
@@ -545,14 +545,14 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
         <Stack direction="row" spacing={1} alignItems="center">
           <CircularProgress size={16} />
           <Typography variant="body2" color="text.secondary">
-            Checking GitHub for this stream's webhook…
+            Checking GitHub for this topic's webhook…
           </Typography>
         </Stack>
       ) : view === 'installed' ? (
         <Stack spacing={1}>
           <Typography variant="body2">
             Webhook registered on <strong>{cfg.repo}</strong>{webhookId ? <> (id <code>{webhookId}</code>)</> : null}.
-            {active ? ' Deliveries flow into this stream automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
+            {active ? ' Deliveries flow into this topic automatically.' : ' ⚠ It is currently disabled on GitHub, so no deliveries arrive — re-install to re-enable.'}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             {webhookHtmlUrl && (
@@ -582,7 +582,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary">
-            Tweak the events whitelist (or any other webhook settings) directly on GitHub's UI. Helix routes deliveries by repo + stream id, so as long as the payload URL stays intact your changes take effect immediately.
+            Tweak the events whitelist (or any other webhook settings) directly on GitHub's UI. Helix routes deliveries by repo + topic id, so as long as the payload URL stays intact your changes take effect immediately.
           </Typography>
         </Stack>
       ) : (
@@ -614,10 +614,10 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ stream, orgSlug }) 
 }
 
 // MessageCountCard is the compact metric chip beside the Messages
-// header showing how many messages are waiting on the stream (meta.total
+// header showing how many messages are waiting on the topic (meta.total
 // from the paginated messages endpoint). Undefined while the count query
 // is in flight — render an em-dash placeholder rather than 0 so a
-// loading state doesn't read as "empty stream".
+// loading state doesn't read as "empty topic".
 const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
   <Paper
     variant="outlined"
@@ -697,4 +697,4 @@ const EventRow: FC<{ ev: EventCard; formatTs: (iso: string) => string }> = ({ ev
   )
 }
 
-export default HelixOrgStreamDetail
+export default HelixOrgTopicDetail

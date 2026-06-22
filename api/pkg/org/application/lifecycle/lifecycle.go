@@ -52,9 +52,9 @@ type Service struct {
 	Helix  HelixRuntime
 	Logger *slog.Logger
 
-	// Reconciler reconciles the activation/team Streams after the Worker
-	// row is gone — it tears down the fired Worker's own Streams and
-	// collapses an ex-manager's team Stream when its last report just
+	// Reconciler reconciles the activation/team Topics after the Worker
+	// row is gone — it tears down the fired Worker's own Topics and
+	// collapses an ex-manager's team Topic when its last report just
 	// left. nil is a no-op (tests without topology wiring).
 	Reconciler *reconcile.Reconciler
 
@@ -142,7 +142,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		id = orgchart.WorkerID("w-" + s.NewID())
 	}
 	// The id becomes a path segment in the helix-specs git layout
-	// (workers/<id>/.context/…) and in stream ids — reject any traversal
+	// (workers/<id>/.context/…) and in topic ids — reject any traversal
 	// or separator before it propagates.
 	if err := orgchart.ValidID(string(id)); err != nil {
 		return HireResult{}, fmt.Errorf("worker id: %w", err)
@@ -181,9 +181,9 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		}
 	}
 
-	// Reconcile the activation/team Streams implied by the new Worker and
+	// Reconcile the activation/team Topics implied by the new Worker and
 	// its reporting line (mints the hire's transcript + the
-	// manager's team Stream from one declarative pass). A nil Reconciler is
+	// manager's team Topic from one declarative pass). A nil Reconciler is
 	// a no-op (the Reconciler guards its own nil receiver).
 	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {
 		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
@@ -228,10 +228,10 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 //  6. Remove the env directory from disk and delete its row.
 //  7. Delete the Worker row.
 //  8. Reconcile topology: tear down the fired Worker's own activation +
-//     team Streams and collapse any ex-manager's team Stream that just
+//     team Topics and collapse any ex-manager's team Topic that just
 //     lost its last report. topology is the single owner of
-//     activation/team Stream lifecycle — there is no inline
-//     Streams.Delete here any more.
+//     activation/team Topic lifecycle — there is no inline
+//     Topics.Delete here any more.
 //
 // Steps 2/3/5/6/8 are best-effort and logged on failure — a half-
 // torn worker is better than refusing to clean up partial state.
@@ -246,7 +246,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 // per-Worker tool cascade to clean up.
 //
 // Activation events themselves are intentionally left behind as an
-// audit trail; only the Stream row is dropped.
+// audit trail; only the Topic row is dropped.
 func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
@@ -261,7 +261,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// Capture the fired Worker's managers AND reports BEFORE deletion: the
 	// reporting lines cascade-drop with the Worker row, so the List* calls
 	// return nothing afterward. We feed both sets to the topology reconcile
-	// below. The ex-managers let a manager's team Stream collapse when its
+	// below. The ex-managers let a manager's team Topic collapse when its
 	// last report leaves. The ex-reports are needed for DM teardown: the
 	// reconciler's DM-channel cleanup is an all-pairs-of-affected scan, so
 	// to tear down `s-dm-<fired>-<report>` BOTH endpoints must be in the
@@ -306,13 +306,13 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		return fmt.Errorf("delete worker row %q: %w", id, err)
 	}
 
-	// Settle the activation/team Streams now that the row (and its
+	// Settle the activation/team Topics now that the row (and its
 	// reporting lines) are gone. topology is the single owner of their
 	// lifecycle: reconciling `id` tears down the fired Worker's own
-	// activation + team Streams (it has fallen out of the graph), and
-	// reconciling the ex-managers collapses a manager's team Stream when
+	// activation + team Topics (it has fallen out of the graph), and
+	// reconciling the ex-managers collapses a manager's team Topic when
 	// its last report just left. Best-effort: a failure here leaves a
-	// dangling Stream row, not a half-deleted worker, so we log and
+	// dangling Topic row, not a half-deleted worker, so we log and
 	// continue rather than failing the Fire.
 	if s.Reconciler != nil {
 		affected := append([]orgchart.WorkerID{id}, exManagers...)
