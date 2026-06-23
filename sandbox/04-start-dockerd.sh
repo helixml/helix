@@ -158,7 +158,7 @@ until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
-        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
+        exit 1
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
     sleep 1
@@ -296,12 +296,12 @@ AVAILABLE_EXPERIMENTAL_DESKTOPS=("sway" "zorin" "xfce" "kde")
 # non-zero (image missing or pull failed) we hard-fail the boot here rather
 # than continuing and letting hydra fail every sandbox-create later with a
 # confusing "No such image" error. See the function's return-code contract
-# above. NOTE: this script is sourced by entrypoint.sh, so use `return` not
-# `exit` to propagate failure to the parent shell.
+# above. This script is executed (not sourced) by s6-overlay at
+# /etc/cont-init.d/40-start-dockerd.sh, so use `exit` to abort the boot.
 for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
     if ! load_desktop_image "$desktop" "true"; then
         echo "❌ Aborting sandbox boot: required production desktop '${desktop}' is not available."
-        return 1
+        exit 1
     fi
 done
 
