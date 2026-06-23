@@ -26,12 +26,12 @@ import {
   Alert,
   Tooltip,
 } from '@mui/material'
-import { Add, Delete, Refresh, CheckCircle, Error as ErrorIcon, GitHub } from '@mui/icons-material'
+import { Add, Delete, Edit as EditIcon, Refresh, CheckCircle, Error as ErrorIcon, GitHub } from '@mui/icons-material'
 import { Cloud } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
-import type { TypesServiceConnectionResponse, TypesServiceConnectionCreateRequest } from '../../api/api'
+import type { TypesServiceConnectionResponse, TypesServiceConnectionCreateRequest, TypesServiceConnectionUpdateRequest } from '../../api/api'
 import { TypesServiceConnectionType } from '../../api/api'
 import SlackAppSetup from './SlackAppSetup'
 
@@ -66,6 +66,7 @@ const ServiceConnectionsTable: FC = () => {
   const [slackAppToken, setSlackAppToken] = useState('')
 
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const isGithub = connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
   const isSlackApp = connectionType === TypesServiceConnectionType.ServiceConnectionTypeSlackApp
@@ -95,6 +96,21 @@ const ServiceConnectionsTable: FC = () => {
     },
     onError: (error: any) => {
       snackbar.error(error?.response?.data || 'Failed to create connection')
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, req }: { id: string; req: TypesServiceConnectionUpdateRequest }) => {
+      const response = await apiClient.v1ServiceConnectionsUpdate(id, req)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-connections'] })
+      snackbar.success('Service connection updated')
+      handleCloseDialog()
+    },
+    onError: (error: any) => {
+      snackbar.error(error?.response?.data || 'Failed to update connection')
     },
   })
 
@@ -137,8 +153,30 @@ const ServiceConnectionsTable: FC = () => {
     },
   })
 
+  const openEdit = (conn: TypesServiceConnectionResponse) => {
+    setEditingId(conn.id!)
+    setConnectionType(conn.type as TypesServiceConnectionType)
+    setName(conn.name || '')
+    setDescription(conn.description || '')
+    setGithubAppId(conn.github_app_id ? String(conn.github_app_id) : '')
+    setGithubInstallationId(conn.github_installation_id ? String(conn.github_installation_id) : '')
+    setGithubPrivateKey('')
+    setGithubBaseUrl(conn.base_url || '')
+    setAdoOrgUrl(conn.ado_organization_url || '')
+    setAdoTenantId(conn.ado_tenant_id || '')
+    setAdoClientId(conn.ado_client_id || '')
+    setAdoClientSecret('')
+    setSlackIngressMode(conn.slack_ingress_mode || 'rest')
+    setSlackClientId(conn.slack_client_id || '')
+    setSlackClientSecret('')
+    setSlackSigningSecret('')
+    setSlackAppToken('')
+    setCreateDialogOpen(true)
+  }
+
   const handleCloseDialog = () => {
     setCreateDialogOpen(false)
+    setEditingId(null)
     setConnectionType(TypesServiceConnectionType.ServiceConnectionTypeGitHubApp)
     setName('')
     setDescription('')
@@ -158,6 +196,29 @@ const ServiceConnectionsTable: FC = () => {
   }
 
   const handleCreate = () => {
+    if (editingId) {
+      const req: TypesServiceConnectionUpdateRequest = { name, description }
+      if (isGithub) {
+        if (githubAppId) req.github_app_id = parseInt(githubAppId, 10)
+        if (githubInstallationId) req.github_installation_id = parseInt(githubInstallationId, 10)
+        if (githubPrivateKey) req.github_private_key = githubPrivateKey
+        if (githubBaseUrl) req.base_url = githubBaseUrl
+      } else if (isSlackApp) {
+        req.slack_ingress_mode = slackIngressMode
+        req.slack_client_id = slackClientId
+        if (slackClientSecret) req.slack_client_secret = slackClientSecret
+        if (slackSigningSecret) req.slack_signing_secret = slackSigningSecret
+        if (slackAppToken) req.slack_app_token = slackAppToken
+      } else {
+        if (adoOrgUrl) req.ado_organization_url = adoOrgUrl
+        if (adoTenantId) req.ado_tenant_id = adoTenantId
+        if (adoClientId) req.ado_client_id = adoClientId
+        if (adoClientSecret) req.ado_client_secret = adoClientSecret
+      }
+      updateMutation.mutate({ id: editingId, req })
+      return
+    }
+
     const req: TypesServiceConnectionCreateRequest = {
       name,
       description,
@@ -187,6 +248,7 @@ const ServiceConnectionsTable: FC = () => {
 
   const isFormValid = () => {
     if (!name.trim()) return false
+    if (editingId) return true
 
     if (isGithub) {
       // Validate GitHub App ID and Installation ID are valid numbers
@@ -341,6 +403,9 @@ const ServiceConnectionsTable: FC = () => {
                       >
                         {testingId === conn.id ? <CircularProgress size={16} /> : 'Test'}
                       </Button>
+                      <IconButton size="small" onClick={() => openEdit(conn)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
                       <IconButton
                         size="small"
                         color="error"
@@ -364,14 +429,18 @@ const ServiceConnectionsTable: FC = () => {
 
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Add Service Connection</DialogTitle>
+        <DialogTitle>{editingId ? 'Edit Service Connection' : 'Add Service Connection'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {editingId && (
+              <Alert severity="info">Leave secret fields blank to keep their current values.</Alert>
+            )}
             <FormControl fullWidth>
               <InputLabel>Connection Type</InputLabel>
               <Select
                 value={connectionType}
                 label="Connection Type"
+                disabled={!!editingId}
                 onChange={(e) => setConnectionType(e.target.value as any)}
               >
                 <MenuItem value="github_app">
@@ -577,9 +646,9 @@ const ServiceConnectionsTable: FC = () => {
           <Button
             variant="contained"
             onClick={handleCreate}
-            disabled={!isFormValid() || createMutation.isPending}
+            disabled={!isFormValid() || createMutation.isPending || updateMutation.isPending}
           >
-            {createMutation.isPending ? <CircularProgress size={20} /> : 'Create'}
+            {(createMutation.isPending || updateMutation.isPending) ? <CircularProgress size={20} /> : (editingId ? 'Save' : 'Create')}
           </Button>
         </DialogActions>
       </Dialog>
