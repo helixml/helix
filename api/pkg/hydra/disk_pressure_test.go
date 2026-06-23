@@ -494,11 +494,26 @@ func (s *DiskPressureStatfsSuite) TestPoolFreeBytes_StatfsFallback() {
 // diskPressurePaths: env parsing + defaults
 // -----------------------------------------------------------------------
 
-func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_DefaultIsK8sLayout() {
-	// Default must cover the three PVC mount points the helix-sandbox chart
-	// provisions. Without /var/lib/docker the original ENOSPC-during-pull
-	// failure mode would still slip past the guard.
-	assert.Equal(s.T(), []string{"/var/lib/docker", "/hydra-data", "/data"}, diskPressurePaths())
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_DefaultIsRuntimeUbiquitous() {
+	// Default must cover paths that exist in every Helix sandbox runtime
+	// (K8s chart, docker-compose dev, Mac UTM VM). Without /var/lib/docker
+	// the original ENOSPC-during-pull failure mode would still slip past
+	// the guard. /data is deliberately excluded from the default because
+	// it only exists on the K8s chart; including it broke local dev by
+	// triggering fail-closed admission (ENOENT) on every start.
+	assert.Equal(s.T(), []string{"/var/lib/docker", "/hydra-data"}, diskPressurePaths())
+}
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_DefaultExcludesWorkspaceData() {
+	// Regression guard: /data must NOT be in the default. It is a
+	// K8s-chart-specific PVC mount; including it caused fail-closed
+	// admission on every non-K8s deployment (docker-compose dev, UTM)
+	// because statfs returned ENOENT for /data and the multi-path probe
+	// marks pathENOENT=true, refusing every sandbox start. Operators on
+	// the K8s chart opt in via HELIX_DISK_PRESSURE_PATHS instead.
+	for _, p := range diskPressurePaths() {
+		assert.NotEqual(s.T(), "/data", p, "/data must not be in default disk-pressure paths")
+	}
 }
 
 func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_SingularBackCompat() {
