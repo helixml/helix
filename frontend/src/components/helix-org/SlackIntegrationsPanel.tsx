@@ -164,16 +164,21 @@ const SlackIntegrationsPanel: FC = () => {
               {apps.length > 1 && !chosenApp ? (
                 <Typography variant="body2" color="text.secondary">Choose a Slack app to connect a workspace.</Typography>
               ) : oauthAvailable ? (
-                <Stack spacing={1.5} alignItems="flex-start">
+                <Stack spacing={1} alignItems="flex-start">
                   <Button variant="contained" startIcon={<SlackLogo sx={{ fontSize: 18 }} />} onClick={handleInstall} disabled={startInstall.isPending}>
-                    Add to Slack
+                    Install into your workspace
                   </Button>
-                  {manualConnect}
+                  <Typography variant="caption" color="text.secondary">
+                    Opens Slack to pick the workspace and approve. Helix sets the bot token automatically — nothing to paste.
+                  </Typography>
+                  <Box sx={{ pt: 0.5 }}>{manualConnect}</Box>
                 </Stack>
               ) : (
                 <Stack spacing={1}>
                   <Typography variant="body2" color="text.secondary">
-                    This app connects by bot token. Install it into your workspace in Slack, then paste the bot token here.
+                    One-click install isn't enabled for this app yet. An admin can turn it on in
+                    Service Connections → Edit by adding the app's OAuth Client ID &amp; Secret.
+                    Until then, connect by pasting a bot token:
                   </Typography>
                   {manualConnect}
                 </Stack>
