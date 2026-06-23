@@ -2282,6 +2282,11 @@ steps:
 
   # Step 3: Create DMG, sign, notarize, upload to R2
   - name: create-dmg
+    # Non-blocking: a Mac-client signing/notarization problem (e.g. an expired
+    # Apple Developer agreement) must not fail the tag build and block the
+    # server images + helm chart release. The DMG still builds; if notarize
+    # fails the step is marked failed-but-ignored and the release proceeds.
+    failure: ignore
     environment:
       PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/luke/go/bin
       KEYCHAIN_PASSWORD:
