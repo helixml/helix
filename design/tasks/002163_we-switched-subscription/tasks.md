@@ -6,9 +6,11 @@
 - [ ] Also verify `"sonnet"` → `claude-sonnet-4-6` and `"haiku"` → `claude-haiku-4-5`
 - [ ] If shorthand resolution doesn't work, fall back to the version-bump approach (change `"opus"` to `"claude-opus-4-8"` everywhere below)
 
+(These verification tasks require a live subscription container — will be done post-merge during QA.)
+
 ## Backend — switch to shorthand identifiers
 
-- [ ] Update default in `api/pkg/server/zed_config_handlers.go:677` — change `"claude-opus-4-6"` to `"opus"`
+- [~] Update default in `api/pkg/server/zed_config_handlers.go:677` — change `"claude-opus-4-6"` to `"opus"`
 - [ ] Update `listClaudeModels` in `api/pkg/server/claude_subscription_handlers.go:303-307` — change model IDs to `"opus"`, `"sonnet"`, `"haiku"` and names to `"Claude Opus"`, `"Claude Sonnet"`, `"Claude Haiku"` (drop version numbers)
 - [ ] Update doc comment on `ClaudeSubscriptionModel` in `api/pkg/types/types.go:1570` — change `"claude-opus-4-6"` to `"opus"`
 
