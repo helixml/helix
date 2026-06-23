@@ -33,6 +33,24 @@ type InstallResult struct {
 	// Config is the transport config to persist on the Topic, with the
 	// hook coordinates merged in. nil = nothing to persist.
 	Config json.RawMessage
+	// Notice is a non-fatal, human-facing message the caller surfaces to
+	// the user when Install succeeded as far as it could but couldn't
+	// fully self-provision — e.g. Slack can self-join a PUBLIC channel,
+	// but a PRIVATE channel must be joined by a human (`/invite @bot`),
+	// which no API can do remotely. Empty = nothing to say. Distinct from
+	// an error: the Topic is valid and usable once the user acts on it.
+	Notice string
+}
+
+// AutoInstaller is an optional extension a streaming.Inbound provisioner
+// may implement to request that its Install run automatically when a
+// Topic of its Kind is created — e.g. Slack joining the bound channel so
+// the operator needs no separate "install" click. Provisioners that
+// drive installation through their own explicit step (GitHub's per-repo
+// webhook install) simply don't implement it, and topic creation leaves
+// them untouched. The decision lives here in the domain, not in any UI.
+type AutoInstaller interface {
+	AutoInstallOnCreate() bool
 }
 
 // InboundState is the live hook state: State is "installed" | "missing"

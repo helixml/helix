@@ -87,7 +87,7 @@ func (r *rig) lastActivation(t *testing.T) activation.Trigger {
 
 func (r *rig) mkTopic(t *testing.T, id, name string) streaming.TopicID {
 	t.Helper()
-	top, err := r.topics.Create(context.Background(), org, topics.CreateParams{ID: id, Name: name})
+	top, _, err := r.topics.Create(context.Background(), org, topics.CreateParams{ID: id, Name: name})
 	if err != nil {
 		t.Fatalf("create topic %s: %v", id, err)
 	}

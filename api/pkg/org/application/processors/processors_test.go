@@ -35,7 +35,7 @@ func setup(t *testing.T) (*store.Store, *processors.Processors, *topics.Topics) 
 func TestCreateAutoProvisionsOutputTopic(t *testing.T) {
 	ctx := context.Background()
 	s, svc, top := setup(t)
-	if _, err := top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"}); err != nil {
+	if _, _, err := top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := svc.Create(ctx, org, processors.CreateParams{
@@ -61,8 +61,8 @@ func TestCreateAutoProvisionsOutputTopic(t *testing.T) {
 func TestDeleteCascadesOwnedButKeepsExplicit(t *testing.T) {
 	ctx := context.Background()
 	s, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
-	shared, _ := top.Create(ctx, org, topics.CreateParams{ID: "s-shared", Name: "Shared"})
+	_, _, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
+	shared, _, _ := top.Create(ctx, org, topics.CreateParams{ID: "s-shared", Name: "Shared"})
 
 	// Two outputs: one auto-provisioned (owned), one explicit (shared).
 	p, err := svc.Create(ctx, org, processors.CreateParams{
@@ -93,7 +93,7 @@ func TestDeleteCascadesOwnedButKeepsExplicit(t *testing.T) {
 func TestDeleteRemovesAutoProvisionedTopic(t *testing.T) {
 	ctx := context.Background()
 	s, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
+	_, _, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
 	p, err := svc.Create(ctx, org, processors.CreateParams{
 		Name: "Fmt", InputTopicID: "s-in", Kind: processor.KindTemplate,
 		Config: tmplCfg("{{ .Message.body }}"),
@@ -113,7 +113,7 @@ func TestDeleteRemovesAutoProvisionedTopic(t *testing.T) {
 func TestUpdateRevalidatesConfig(t *testing.T) {
 	ctx := context.Background()
 	_, svc, top := setup(t)
-	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
+	_, _, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-in", Name: "In"})
 	p, _ := svc.Create(ctx, org, processors.CreateParams{
 		Name: "Fmt", InputTopicID: "s-in", Kind: processor.KindTemplate,
 		Config: tmplCfg("{{ .Message.body }}"),

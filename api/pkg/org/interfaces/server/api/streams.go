@@ -135,7 +135,7 @@ func (a *apiHandler) createTopic(w http.ResponseWriter, r *http.Request) {
 			tr.Config = raw
 		}
 	}
-	s, err := a.deps.Topics.Create(ctx, orgID, topics.CreateParams{
+	s, notice, err := a.deps.Topics.Create(ctx, orgID, topics.CreateParams{
 		ID:          strings.TrimSpace(req.ID),
 		Name:        req.Name,
 		Description: req.Description,
@@ -147,12 +147,13 @@ func (a *apiHandler) createTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, TopicDTO{
-		ID:          string(s.ID),
-		Name:        s.Name,
-		Description: s.Description,
-		Kind:        string(s.Transport.Kind),
-		CreatedBy:   string(s.CreatedBy),
-		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
+		ID:                 string(s.ID),
+		Name:               s.Name,
+		Description:        s.Description,
+		Kind:               string(s.Transport.Kind),
+		CreatedBy:          string(s.CreatedBy),
+		CreatedAt:          s.CreatedAt.Format(time.RFC3339),
+		ProvisioningNotice: notice,
 	})
 }
 

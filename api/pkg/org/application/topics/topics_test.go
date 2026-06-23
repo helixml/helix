@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
@@ -28,13 +29,94 @@ func newService(st *store.Store) *Topics {
 	})
 }
 
+// fakeProvisioner is a streaming.Inbound that optionally opts into
+// create-time auto-install (streaming.AutoInstaller). It lets the topics
+// tests exercise the Create→autoInstall notice path without a transport.
+type fakeProvisioner struct {
+	auto   bool
+	result streaming.InstallResult
+	err    error
+}
+
+func (f fakeProvisioner) AutoInstallOnCreate() bool { return f.auto }
+func (f fakeProvisioner) Install(_ context.Context, _ string, _ streaming.Topic) (streaming.InstallResult, error) {
+	return f.result, f.err
+}
+func (f fakeProvisioner) Status(_ context.Context, _ string, _ streaming.Topic) (streaming.InboundState, error) {
+	return streaming.InboundState{}, nil
+}
+
+func newServiceWithProvisioner(st *store.Store, kind transport.Kind, p streaming.Inbound) *Topics {
+	return New(Deps{
+		Topics:       st.Topics,
+		Now:          fixedClock,
+		NewID:        func() string { return "id" },
+		Provisioners: map[transport.Kind]streaming.Inbound{kind: p},
+	})
+}
+
+func TestTopicsCreate_AutoInstallSurfacesNotice(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newServiceWithProvisioner(st, transport.KindWebhook,
+		fakeProvisioner{auto: true, result: streaming.InstallResult{Notice: "invite the bot"}})
+
+	_, notice, err := svc.Create(context.Background(), "org-test", CreateParams{
+		Name: "n", CreatedBy: "w-owner", Transport: transport.Transport{Kind: transport.KindWebhook},
+	})
+	if err != nil {
+		t.Fatalf("Create() = %v, want nil", err)
+	}
+	if notice != "invite the bot" {
+		t.Fatalf("notice = %q, want the provisioner's notice surfaced", notice)
+	}
+}
+
+func TestTopicsCreate_AutoInstallFailureIsNonFatal(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newServiceWithProvisioner(st, transport.KindWebhook,
+		fakeProvisioner{auto: true, err: errors.New("slack down")})
+
+	topic, notice, err := svc.Create(context.Background(), "org-test", CreateParams{
+		ID: "s-1", Name: "n", CreatedBy: "w-owner", Transport: transport.Transport{Kind: transport.KindWebhook},
+	})
+	if err != nil {
+		t.Fatalf("Create() = %v, want nil (provisioning is best-effort)", err)
+	}
+	if topic.ID != "s-1" {
+		t.Fatalf("topic should still be created; got id %q", topic.ID)
+	}
+	if notice == "" {
+		t.Fatal("a provisioning failure should produce a non-empty notice")
+	}
+}
+
+func TestTopicsCreate_NoAutoInstallWhenNotOptedIn(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	// auto=false → provisioner must NOT run; no notice.
+	svc := newServiceWithProvisioner(st, transport.KindWebhook,
+		fakeProvisioner{auto: false, result: streaming.InstallResult{Notice: "should not appear"}})
+
+	_, notice, err := svc.Create(context.Background(), "org-test", CreateParams{
+		Name: "n", CreatedBy: "w-owner", Transport: transport.Transport{Kind: transport.KindWebhook},
+	})
+	if err != nil {
+		t.Fatalf("Create() = %v", err)
+	}
+	if notice != "" {
+		t.Fatalf("notice = %q, want empty (provisioner did not opt in)", notice)
+	}
+}
+
 func TestTopicsCreate_HappyPath(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
 	ctx := context.Background()
 
-	got, err := svc.Create(ctx, "org-test", CreateParams{
+	got, _, err := svc.Create(ctx, "org-test", CreateParams{
 		ID:          "s-general",
 		Name:        "general",
 		Description: "the general channel",
@@ -76,7 +158,7 @@ func TestTopicsCreate_AutoID(t *testing.T) {
 	svc := newService(st)
 	ctx := context.Background()
 
-	got, err := svc.Create(ctx, "org-test", CreateParams{Name: "n", CreatedBy: "w-owner"})
+	got, _, err := svc.Create(ctx, "org-test", CreateParams{Name: "n", CreatedBy: "w-owner"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -92,7 +174,7 @@ func TestTopicsCreate_WebhookTransport(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := json.RawMessage(`{"outbound_url":"https://example.com/in"}`)
-	got, err := svc.Create(ctx, "org-test", CreateParams{
+	got, _, err := svc.Create(ctx, "org-test", CreateParams{
 		Name:      "hook",
 		CreatedBy: "w-owner",
 		Transport: transport.Transport{Kind: transport.KindWebhook, Config: cfg},
@@ -111,11 +193,11 @@ func TestTopicsCreate_OrgScoping(t *testing.T) {
 	svc := newService(st)
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, "org-a", CreateParams{ID: "s-x", Name: "x", CreatedBy: "w-owner"}); err != nil {
+	if _, _, err := svc.Create(ctx, "org-a", CreateParams{ID: "s-x", Name: "x", CreatedBy: "w-owner"}); err != nil {
 		t.Fatalf("Create org-a: %v", err)
 	}
 	// Same id under a different org is allowed (composite PK).
-	if _, err := svc.Create(ctx, "org-b", CreateParams{ID: "s-x", Name: "x", CreatedBy: "w-owner"}); err != nil {
+	if _, _, err := svc.Create(ctx, "org-b", CreateParams{ID: "s-x", Name: "x", CreatedBy: "w-owner"}); err != nil {
 		t.Fatalf("Create org-b: %v", err)
 	}
 	// org-a cannot see org-b's via Get under org-a only sees its own.
@@ -128,7 +210,7 @@ func TestTopicsCreate_EmptyNameRejected(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newService(st)
-	if _, err := svc.Create(context.Background(), "org-test", CreateParams{CreatedBy: "w-owner"}); err == nil {
+	if _, _, err := svc.Create(context.Background(), "org-test", CreateParams{CreatedBy: "w-owner"}); err == nil {
 		t.Fatal("Create with empty name: want error, got nil")
 	}
 }
@@ -139,7 +221,7 @@ func TestTopicsUpdate_HappyPath(t *testing.T) {
 	svc := newService(st)
 	ctx := context.Background()
 
-	if _, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-1", Name: "old", Description: "od", CreatedBy: "w-owner"}); err != nil {
+	if _, _, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-1", Name: "old", Description: "od", CreatedBy: "w-owner"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -167,7 +249,7 @@ func TestTopicsUpdate_TransportPatch(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := json.RawMessage(`{"repo":"helixml/helix","events":["issues"]}`)
-	if _, err := svc.Create(ctx, "org-test", CreateParams{
+	if _, _, err := svc.Create(ctx, "org-test", CreateParams{
 		ID: "s-1", Name: "n", CreatedBy: "w-owner",
 		Transport: transport.Transport{Kind: transport.KindGitHub, Config: cfg},
 	}); err != nil {
@@ -206,7 +288,7 @@ func TestTopicsUpdate_OrgScoping(t *testing.T) {
 	st := memory.New()
 	svc := newService(st)
 	ctx := context.Background()
-	if _, err := svc.Create(ctx, "org-a", CreateParams{ID: "s-1", Name: "n", CreatedBy: "w-owner"}); err != nil {
+	if _, _, err := svc.Create(ctx, "org-a", CreateParams{ID: "s-1", Name: "n", CreatedBy: "w-owner"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	// Updating under the wrong org is a not-found, never a cross-tenant write.
@@ -221,7 +303,7 @@ func TestTopicsDelete_HappyPath(t *testing.T) {
 	st := memory.New()
 	svc := newService(st)
 	ctx := context.Background()
-	if _, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-1", Name: "n", CreatedBy: "w-owner"}); err != nil {
+	if _, _, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-1", Name: "n", CreatedBy: "w-owner"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if err := svc.Delete(ctx, "org-test", "s-1"); err != nil {

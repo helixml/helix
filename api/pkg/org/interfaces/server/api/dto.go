@@ -174,6 +174,11 @@ type TopicDTO struct {
 	RecentEvents       []EventCard            `json:"recent_events,omitempty"`
 	Config             map[string]interface{} `json:"config,omitempty"`
 	EffectivePublicURL string                 `json:"effective_public_url,omitempty"`
+	// ProvisioningNotice is a non-fatal, human-facing message produced at
+	// create time when the transport could be created but couldn't fully
+	// self-provision — e.g. Slack couldn't auto-join a private channel and
+	// the user must `/invite` the bot. Only set on the create response.
+	ProvisioningNotice string `json:"provisioning_notice,omitempty"`
 }
 
 // CreateTopicRequest is the body of POST /topics.

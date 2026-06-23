@@ -21848,6 +21848,10 @@
                 "name": {
                     "type": "string"
                 },
+                "provisioning_notice": {
+                    "description": "ProvisioningNotice is a non-fatal, human-facing message produced at\ncreate time when the transport could be created but couldn't fully\nself-provision — e.g. Slack couldn't auto-join a private channel and\nthe user must `/invite` the bot. Only set on the create response.",
+                    "type": "string"
+                },
                 "recent_events": {
                     "type": "array",
                     "items": {

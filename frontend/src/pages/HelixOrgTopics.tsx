@@ -445,7 +445,16 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
           }
         }
       } else {
-        snackbar.success('topic created')
+        // Some transports self-provision at create time and return a
+        // non-fatal notice the user must act on (e.g. Slack couldn't
+        // auto-join a private channel → invite the bot). The message text
+        // is produced by the backend (domain layer); we only render it.
+        const notice = (created as any)?.provisioning_notice as string | undefined
+        if (notice) {
+          snackbar.info(notice)
+        } else {
+          snackbar.success('topic created')
+        }
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
       setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *'); setSlackConnId(''); setSlackChannel('')
@@ -628,7 +637,7 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
                 onChange={(e) => setSlackChannel(e.target.value)}
                 fullWidth
                 size="small"
-                helperText="The Slack channel id (not the #name) this topic binds to — find it under a channel's View details. Invite the Helix bot to that channel (/invite) so it receives messages."
+                helperText="The Slack channel id (not the #name) this topic binds to — find it under a channel's View details. Public channels: the bot joins automatically on create. Private channels: invite the bot once with /invite."
               />
             </>
           )}
