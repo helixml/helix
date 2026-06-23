@@ -15,22 +15,51 @@ import (
 
 // Disk-pressure admission control.
 //
-// The ZFS pool that backs every session zvol must never hit 0% free: ENOSPC
-// inside a session's XFS zvol corrupts the filesystem, which cascades into
-// Postgres faults and git-repository corruption. This guard watches the pool's
-// FREE PERCENT and applies two protections, both keyed off thresholds that are
-// configurable via env:
+// The storage backing every session must never hit 0% free: ENOSPC inside a
+// session's filesystem corrupts state, which cascades into Postgres faults and
+// git-repository corruption. This guard watches the storage's FREE PERCENT and
+// applies two protections, both keyed off thresholds that are configurable via
+// env:
 //
-//   - Free ≤ refuse threshold (default 2%): refuse to START new dev containers,
-//     surfacing a clear user-facing error.
-//   - Free ≤ stop threshold (default 1%): an emergency brake STOPS (not deletes)
-//     existing running dev containers so they stop writing. Sessions remain
-//     resumable — the zvol/workspace is never touched.
+//   - Free <= refuse threshold (default 2%): refuse to START new dev
+//     containers, surfacing a clear user-facing error.
+//   - Free <= stop threshold (default 1%): an emergency brake STOPS (not
+//     deletes) existing running dev containers so they stop writing. Sessions
+//     remain resumable, the zvol/workspace is never touched.
 //
-// CRITICAL fail-open contract: a failed or unknowable measurement must NEVER
-// refuse a start and NEVER trigger an emergency stop. When we cannot read the
-// pool's free percent we do nothing — the alternative (acting on garbage) is
-// worse than not acting.
+// Two backends measure free space:
+//
+//   - zfs:    `zpool list -Hp -o size,free <pool>` against the ZFS pool that
+//             backs zvols. Used when ZFS is available and a parent dataset is
+//             configured. This is the original implementation.
+//   - statfs: `syscall.Statfs(2)` against EACH of the configured data paths.
+//             Used as a fallback on non-ZFS hosts (most K8s deployments,
+//             which run on ext4 / xfs / overlay). Default measures
+//             /var/lib/docker (image layers, the original ENOSPC site) and
+//             /hydra-data (hydra state, zvol-equivalent storage); these
+//             two exist in every Helix sandbox runtime (K8s chart,
+//             docker-compose dev, Mac UTM VM). The K8s helix-sandbox
+//             chart additionally provisions a workspace-data PVC at
+//             /data; operators on that chart should set
+//             HELIX_DISK_PRESSURE_PATHS="/var/lib/docker,/hydra-data,/data"
+//             to cover it. The statfs backend measures every path and
+//             uses the LOWEST free percentage as the admission signal,
+//             so adding paths only ever makes the guard stricter.
+//
+// Fail policy:
+//
+//   - Backend reports a measurement: act on it (refuse / stop / allow per
+//     thresholds).
+//   - statfs fails with ENOENT for ANY configured path: the operator
+//     misconfigured `HELIX_DISK_PRESSURE_PATHS`, FAIL CLOSED on start
+//     (refuse) so we do not silently allow unprotected starts. Monitor
+//     logs and skips the tick.
+//   - statfs fails with a non-ENOENT error on a path: log and skip that
+//     path; other paths may still produce a usable reading.
+//   - Both backends unavailable (ZFS absent AND statfs probe errors on
+//     every path for other reasons): FAIL OPEN with a prominent warn log,
+//     matching pre-fallback behaviour. This should be unreachable in
+//     practice on any sane host.
 
 const (
 	defaultDiskPressureRefuseFreePct = 2.0
@@ -117,8 +146,8 @@ func envDuration(key string, def time.Duration) time.Duration {
 	return d
 }
 
-// poolName returns the ZFS pool name — the first "/"-separated component of
-// zfsParentDataset (e.g. "prod/helix-zvols" → "prod"). Empty if the parent
+// poolName returns the ZFS pool name, the first "/"-separated component of
+// zfsParentDataset (e.g. "prod/helix-zvols" -> "prod"). Empty if the parent
 // dataset is unset.
 func poolName() string {
 	if zfsParentDataset == "" {
@@ -127,14 +156,165 @@ func poolName() string {
 	return strings.SplitN(zfsParentDataset, "/", 2)[0]
 }
 
-// poolFreePercent returns the percentage of the ZFS pool that is free, computed
-// from `zpool list -Hp -o size,free <pool>` (raw byte values).
+// defaultDiskPressurePaths is the set of filesystem paths the statfs backend
+// measures by default. /var/lib/docker (image layers, the original
+// ENOSPC-during-pull site) and /hydra-data (hydra state, zvol-equivalent
+// storage) exist in every Helix sandbox runtime: the K8s helix-sandbox
+// chart, docker-compose dev, and the Mac UTM VM all mount or create them.
+// Statfs-ing only /var/lib/docker would miss fills on /hydra-data, which is
+// the specific failure mode the multi-path admission check guards against.
+//
+// /data (the workspace-data PVC) is deliberately NOT a default: it only
+// exists on the K8s helix-sandbox chart. The previous default included it
+// and that caused fail-closed admission in local dev environments where
+// /data does not exist (statfs ENOENT -> pathENOENT=true -> every start
+// refused). Chart deployments that want /data covered should set
+// HELIX_DISK_PRESSURE_PATHS="/var/lib/docker,/hydra-data,/data" in Helm
+// values; see charts/helix-sandbox/values.yaml sandbox.extraEnv.
+var defaultDiskPressurePaths = []string{
+	"/var/lib/docker",
+	"/hydra-data",
+}
+
+// diskPressurePaths returns the list of filesystem paths the statfs backend
+// should measure. Selection rules (in order):
+//
+//  1. HELIX_DISK_PRESSURE_PATHS (plural, comma-separated): each entry is
+//     whitespace-trimmed; empty entries are dropped. Use this on
+//     multi-volume deployments to monitor every mount that could fill.
+//  2. HELIX_DISK_PRESSURE_PATH (singular, kept for backwards compatibility
+//     with deployments that adopted the original single-path fallback):
+//     used as a one-element list when the plural form is unset.
+//  3. Default: defaultDiskPressurePaths (/var/lib/docker, /hydra-data) -
+//     paths that exist in every Helix sandbox runtime. K8s chart
+//     deployments wanting /data covered must opt in via the env var; see
+//     defaultDiskPressurePaths for the rationale.
+//
+// The admission check uses the LOWEST free percentage across the returned
+// paths, so adding paths only ever makes the guard stricter.
+func diskPressurePaths() []string {
+	if v := strings.TrimSpace(os.Getenv("HELIX_DISK_PRESSURE_PATHS")); v != "" {
+		raw := strings.Split(v, ",")
+		paths := make([]string, 0, len(raw))
+		for _, p := range raw {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			paths = append(paths, p)
+		}
+		if len(paths) > 0 {
+			return paths
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("HELIX_DISK_PRESSURE_PATH")); v != "" {
+		return []string{v}
+	}
+	return append([]string{}, defaultDiskPressurePaths...)
+}
+
+// statfsFreePercentMulti and statfsFreeBytesMulti are implemented per-OS:
+//   - disk_pressure_statfs_unix.go: real syscall.Statfs-backed implementation
+//   - disk_pressure_statfs_windows.go: not-supported stubs (hydra is not
+//     deployed on windows; the CLI just needs to cross-compile)
+
+// measurement describes the result of a free-space probe. Backend identifies
+// which probe produced it (zfs / statfs / none) so callers can log and tests
+// can assert. PathENOENT is true when the statfs backend was selected but a
+// configured path does not exist, which the start guard treats as
+// fail-closed. TriggerPath is the path that produced the worst (lowest-free)
+// reading on the statfs backend; empty for the ZFS backend. Threading it
+// through to the refusal log lets operators see which volume is constraining
+// (e.g. "refused: /var/lib/docker at 1.3% free") rather than a generic
+// message.
+type measurement struct {
+	freePct     float64
+	freeBytes   int64
+	backend     string
+	hasPct      bool
+	hasBytes    bool
+	pathENOENT  bool
+	triggerPath string
+}
+
+// zfsBackendAvailable reports whether the ZFS backend can be queried. Both ZFS
+// itself AND a configured parent dataset are required (an empty dataset means
+// hydra is running in non-ZFS mode even on a host with ZFS userspace
+// installed).
+func zfsBackendAvailable() bool {
+	return ZFSAvailable() && zfsParentDataset != ""
+}
+
+// measureDisk runs the active backend (ZFS or statfs) and returns a populated
+// measurement. The error is non-nil only when NEITHER backend produced a
+// usable reading.
+func measureDisk() (measurement, error) {
+	var m measurement
+	if zfsBackendAvailable() {
+		m.backend = "zfs"
+		pct, pctErr := poolFreePercentZFS()
+		free, freeErr := poolFreeBytesZFS()
+		if pctErr == nil {
+			m.freePct = pct
+			m.hasPct = true
+		}
+		if freeErr == nil {
+			m.freeBytes = free
+			m.hasBytes = true
+		}
+		if m.hasPct || m.hasBytes {
+			return m, nil
+		}
+		// ZFS configured but both probes failed (e.g. transient `zpool`
+		// failure). Don't fall over to statfs, the operator selected ZFS, log
+		// the error so they can see it.
+		return m, fmt.Errorf("zfs probe failed: pct_err=%v free_err=%v", pctErr, freeErr)
+	}
+
+	// Non-ZFS host: statfs every configured path and take the worst
+	// (lowest free percent) reading as the admission signal.
+	m.backend = "statfs"
+	paths := diskPressurePaths()
+	pct, triggerPath, pctENOENT, pctErr := statfsFreePercentMulti(paths)
+	if pctErr == nil {
+		m.freePct = pct
+		m.hasPct = true
+		m.triggerPath = triggerPath
+	} else if pctENOENT {
+		m.pathENOENT = true
+	}
+	free, byteTrigger, bytesENOENT, freeErr := statfsFreeBytesMulti(paths)
+	if freeErr == nil {
+		m.freeBytes = free
+		m.hasBytes = true
+		if m.triggerPath == "" {
+			m.triggerPath = byteTrigger
+		}
+	} else if bytesENOENT {
+		m.pathENOENT = true
+	}
+	if m.hasPct || m.hasBytes {
+		return m, nil
+	}
+	return m, fmt.Errorf("statfs probe failed for paths %v: %w", paths, pctErr)
+}
+
+// poolFreePercent returns the percentage of the ZFS pool that is free.
+//
+// Thin wrapper around poolFreePercentZFS that exists for the test suite which
+// pokes at the ZFS path directly (forcing zfsAvailableFlag and mocking
+// execCmdOutput). The production admission/monitor paths go through
+// measureDisk() instead so they pick up the statfs fallback.
+func poolFreePercent() (float64, error) {
+	return poolFreePercentZFS()
+}
+
+// poolFreePercentZFS is the ZFS-only implementation, computed from
+// `zpool list -Hp -o size,free <pool>` (raw byte values).
 //
 // Returns an error if ZFS is unavailable, the pool name is empty, the command
-// fails, the output can't be parsed, or size is zero. Callers MUST treat any
-// error as "unknown — do nothing" (fail open): never refuse a start and never
-// trigger an emergency stop on a failed/unknowable measurement.
-func poolFreePercent() (float64, error) {
+// fails, the output can't be parsed, or size is zero.
+func poolFreePercentZFS() (float64, error) {
 	if !ZFSAvailable() {
 		return 0, fmt.Errorf("ZFS not available; cannot measure pool free space")
 	}
@@ -168,14 +348,32 @@ func poolFreePercent() (float64, error) {
 	return float64(free) / float64(size) * 100, nil
 }
 
-// poolFreeBytes returns the number of free bytes in the ZFS pool, read from
+// poolFreeBytes returns the number of free bytes for the GC reconcile path's
+// before/after delta. Tries ZFS first, then falls back to statfs on the
+// configured disk-pressure paths.
+//
+// On the statfs backend we report the free-bytes value from the SAME path
+// that statfsFreePercentMulti identifies as the constraining volume (the
+// lowest-free-percent path), not the sum across all paths. Summing would
+// hide whether the reaper actually clawed back space on the volume that is
+// under pressure: if /var/lib/docker is full and the reaper frees space on
+// /data, the sum would still grow but pressure remains. Reporting the
+// constraining-volume figure keeps the delta meaningful for the reaper's
+// before/after comparison.
+func poolFreeBytes() (int64, error) {
+	if zfsBackendAvailable() {
+		return poolFreeBytesZFS()
+	}
+	free, _, _, err := statfsFreeBytesMulti(diskPressurePaths())
+	return free, err
+}
+
+// poolFreeBytesZFS is the ZFS-only implementation, read from
 // `zpool list -Hp -o free <pool>` (raw byte value).
 //
-// Returns an error under the same conditions as poolFreePercent (ZFS
-// unavailable, empty pool name, command failure, or unparsable output). Used by
-// the GC reconcile path to cheaply measure reclaimed space as a before/after
-// delta instead of running a per-directory `du` sweep.
-func poolFreeBytes() (int64, error) {
+// Returns an error if ZFS is unavailable, the pool name is empty, the command
+// fails, or output can't be parsed.
+func poolFreeBytesZFS() (int64, error) {
 	if !ZFSAvailable() {
 		return 0, fmt.Errorf("ZFS not available; cannot measure pool free space")
 	}
@@ -203,40 +401,69 @@ func poolFreeBytes() (int64, error) {
 }
 
 // checkDiskPressureForStart is the admission-control guard for new dev
-// containers. It returns a non-nil error (to be surfaced to the user) ONLY when
-// the pool's free percent is at or below the refuse threshold.
+// containers. It returns a non-nil error (to be surfaced to the user) when the
+// active backend's free percent is at or below the refuse threshold.
 //
-// Fail-open: if disk pressure is disabled, or the measurement errors, it returns
-// nil (allow the start).
+// Fail policy:
+//   - Disabled: allow.
+//   - Successful measurement above threshold: allow.
+//   - Successful measurement at/below threshold: refuse.
+//   - statfs path missing (ENOENT, misconfiguration): refuse. Silently
+//     allowing on misconfig is exactly the bug this fallback fixes.
+//   - All other measurement failures: fail-open (allow) with a warn log,
+//     preserving prior behaviour for transient `zpool` failures.
 func checkDiskPressureForStart() error {
 	cfg := getDiskPressureConfig()
 	if !cfg.enabled {
 		return nil
 	}
 
-	freePct, err := poolFreePercent()
+	m, err := measureDisk()
 	if err != nil {
-		// Unknown measurement → fail open, allow the start.
-		log.Warn().Err(err).Msg("disk-pressure: could not measure pool free percent for start guard, allowing start (fail-open)")
+		if m.pathENOENT {
+			log.Error().Err(err).
+				Str("backend", m.backend).
+				Strs("paths", diskPressurePaths()).
+				Msg("disk-pressure: refusing to start dev container, a configured data path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
+			return fmt.Errorf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths())
+		}
+		// Unknown measurement, both backends unavailable. Fail open, allow
+		// the start, but log loudly so operators notice.
+		log.Warn().Err(err).Str("backend", m.backend).
+			Msg("disk-pressure: could not measure free space for start guard, allowing start (fail-open)")
 		return nil
 	}
 
-	if freePct <= cfg.refuseFreePct {
+	if !m.hasPct {
+		// Successful probe but no percentage (statfs Blocks=0 only).
+		log.Warn().Str("backend", m.backend).
+			Msg("disk-pressure: measurement returned no percentage, allowing start (fail-open)")
+		return nil
+	}
+
+	if m.freePct <= cfg.refuseFreePct {
 		log.Error().
+			Str("backend", m.backend).
 			Str("pool", poolName()).
-			Float64("free_pct", freePct).
+			Str("trigger_path", m.triggerPath).
+			Float64("free_pct", m.freePct).
 			Float64("refuse_pct", cfg.refuseFreePct).
-			Msg("disk-pressure: refusing to start dev container — pool free space critically low")
-		return fmt.Errorf("refusing to start dev container: disk space critically low — pool %q is %.2f%% free (minimum %.0f%% required); free up space and retry", poolName(), freePct, cfg.refuseFreePct)
+			Msg("disk-pressure: refusing to start dev container, free space critically low")
+		where := m.backend
+		if m.triggerPath != "" {
+			where = fmt.Sprintf("%s at %s", m.backend, m.triggerPath)
+		}
+		return fmt.Errorf("refusing to start dev container: disk space critically low, %s reports %.2f%% free (minimum %.0f%% required); free up space and retry", where, m.freePct, cfg.refuseFreePct)
 	}
 
 	return nil
 }
 
-// runDiskPressureMonitor is the emergency-brake monitor goroutine. It polls the
-// pool's free percent on a ticker and, when free percent drops to or below the
-// stop threshold, gracefully STOPS all running dev containers (resumable — never
-// deletes). Returns immediately if disk pressure is disabled.
+// runDiskPressureMonitor is the emergency-brake monitor goroutine. It polls
+// the active backend's free percent on a ticker and, when free percent drops
+// to or below the stop threshold, gracefully STOPS all running dev containers
+// (resumable, never deletes). Returns immediately if disk pressure is
+// disabled.
 func (dm *DevContainerManager) runDiskPressureMonitor() {
 	cfg := getDiskPressureConfig()
 	if !cfg.enabled {
@@ -244,7 +471,14 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 		return
 	}
 
+	backend := "statfs"
+	if zfsBackendAvailable() {
+		backend = "zfs"
+	}
 	log.Info().
+		Str("backend", backend).
+		Str("pool", poolName()).
+		Strs("paths", diskPressurePaths()).
 		Float64("refuse_free_pct", cfg.refuseFreePct).
 		Float64("stop_free_pct", cfg.stopFreePct).
 		Dur("check_interval", cfg.checkInterval).
@@ -253,20 +487,25 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 	ticker := time.NewTicker(cfg.checkInterval)
 	defer ticker.Stop()
 	for range ticker.C {
-		freePct, err := poolFreePercent()
+		m, err := measureDisk()
 		if err != nil {
-			// Unknown measurement → do nothing this tick (fail-open).
-			log.Debug().Err(err).Msg("disk-pressure: could not measure pool free percent this tick, skipping")
+			// Unknown measurement, do nothing this tick (fail-open).
+			log.Debug().Err(err).Str("backend", m.backend).Msg("disk-pressure: could not measure free space this tick, skipping")
+			continue
+		}
+		if !m.hasPct {
 			continue
 		}
 
-		if freePct <= cfg.stopFreePct {
+		if m.freePct <= cfg.stopFreePct {
 			log.Error().
+				Str("backend", m.backend).
 				Str("pool", poolName()).
-				Float64("free_pct", freePct).
+				Str("trigger_path", m.triggerPath).
+				Float64("free_pct", m.freePct).
 				Float64("stop_pct", cfg.stopFreePct).
-				Msg("disk-pressure: EMERGENCY BRAKE — pool free space below stop threshold, stopping all dev containers")
-			dm.emergencyStopAllDevContainers(freePct)
+				Msg("disk-pressure: EMERGENCY BRAKE, free space below stop threshold, stopping all dev containers")
+			dm.emergencyStopAllDevContainers(m.freePct)
 		}
 	}
 }

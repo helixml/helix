@@ -1,9 +1,15 @@
 package hydra
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	dockertypes "github.com/docker/docker/api/types"
 )
 
 func TestImageTag(t *testing.T) {
@@ -258,6 +264,268 @@ func TestGPUDevicePaths(t *testing.T) {
 	if filepath.Base(got.cardDevice) != "card2" {
 		t.Errorf("want card2, got %s", got.cardDevice)
 	}
+}
+
+// fakeRecoveryClient is a hand-rolled imageRecoveryClient for testing
+// recoverImageFromSources. It records call args and lets each method's
+// behaviour be overridden per source ref.
+type fakeRecoveryClient struct {
+	pullBody  func(source string) (io.ReadCloser, error)
+	tagErr    func(source, target string) error
+	inspect   func(image string) (dockertypes.ImageInspect, []byte, error)
+	pullCalls []string
+	tagCalls  []struct{ source, target string }
+	inspects  []string
+}
+
+func (f *fakeRecoveryClient) ImagePull(_ context.Context, source string, _ dockertypes.ImagePullOptions) (io.ReadCloser, error) {
+	f.pullCalls = append(f.pullCalls, source)
+	if f.pullBody == nil {
+		return io.NopCloser(strings.NewReader(`{"status":"Pull complete"}`)), nil
+	}
+	return f.pullBody(source)
+}
+
+func (f *fakeRecoveryClient) ImageTag(_ context.Context, source, target string) error {
+	f.tagCalls = append(f.tagCalls, struct{ source, target string }{source, target})
+	if f.tagErr == nil {
+		return nil
+	}
+	return f.tagErr(source, target)
+}
+
+func (f *fakeRecoveryClient) ImageInspectWithRaw(_ context.Context, image string) (dockertypes.ImageInspect, []byte, error) {
+	f.inspects = append(f.inspects, image)
+	if f.inspect == nil {
+		return dockertypes.ImageInspect{RepoTags: []string{image}}, nil, nil
+	}
+	return f.inspect(image)
+}
+
+func TestDrainPullStream(t *testing.T) {
+	t.Run("clean stream returns nil", func(t *testing.T) {
+		body := `{"status":"Pulling from helixml/helix-ubuntu"}
+{"status":"Pull complete"}
+`
+		if err := drainPullStream(strings.NewReader(body)); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("error field surfaces", func(t *testing.T) {
+		body := `{"status":"Pulling fs layer"}
+{"error":"no space left on device"}
+`
+		err := drainPullStream(strings.NewReader(body))
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "no space left on device") {
+			t.Errorf("expected error mentioning disk-full, got %v", err)
+		}
+	})
+
+	t.Run("errorDetail.message surfaces", func(t *testing.T) {
+		body := `{"status":"Pulling"}
+{"errorDetail":{"message":"manifest unknown: manifest unknown"},"error":""}
+`
+		err := drainPullStream(strings.NewReader(body))
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "manifest unknown") {
+			t.Errorf("expected error mentioning manifest, got %v", err)
+		}
+	})
+
+	t.Run("empty stream is fine", func(t *testing.T) {
+		if err := drainPullStream(strings.NewReader("")); err != nil {
+			t.Fatalf("expected nil for empty stream, got %v", err)
+		}
+	})
+}
+
+func TestRecoverImageFromSources_HappyPath(t *testing.T) {
+	fc := &fakeRecoveryClient{}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{"registry:5000/helix-ubuntu:abc123"},
+		"helix-ubuntu:abc123",
+		"helix-ubuntu:abc123",
+	)
+	if !ok {
+		t.Fatalf("expected recovery success")
+	}
+	if len(fc.pullCalls) != 1 || fc.pullCalls[0] != "registry:5000/helix-ubuntu:abc123" {
+		t.Errorf("unexpected pull calls: %v", fc.pullCalls)
+	}
+	// source differs from both targets, so both tag calls fire
+	if len(fc.tagCalls) != 2 {
+		t.Errorf("expected 2 tag calls, got %v", fc.tagCalls)
+	}
+	if len(fc.inspects) != 1 || fc.inspects[0] != "helix-ubuntu:abc123" {
+		t.Errorf("expected one inspect call on originalImage, got %v", fc.inspects)
+	}
+}
+
+func TestRecoverImageFromSources_TagsBothRefs(t *testing.T) {
+	fc := &fakeRecoveryClient{}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{"ghcr.io/helixml/helix-ubuntu:abc123"},
+		"helix-ubuntu:abc123",
+		"helix-ubuntu:abc123",
+	)
+	if !ok {
+		t.Fatalf("expected recovery success")
+	}
+	// source differs from both resolvedImage and originalImage, so both
+	// tag operations fire (even though the two targets happen to be the
+	// same string here).
+	if len(fc.tagCalls) != 2 {
+		t.Fatalf("expected 2 tag calls, got %v", fc.tagCalls)
+	}
+	for _, c := range fc.tagCalls {
+		if c.source != "ghcr.io/helixml/helix-ubuntu:abc123" ||
+			c.target != "helix-ubuntu:abc123" {
+			t.Errorf("unexpected tag call: %+v", c)
+		}
+	}
+}
+
+func TestRecoverImageFromSources_PullStreamErrorIsSurfaced(t *testing.T) {
+	// Simulate the production fault: pull stream contains errorDetail.message
+	// with "no space left on device". recoverImageFromSources should treat
+	// this source as failed, not log "recovered successfully".
+	fc := &fakeRecoveryClient{
+		pullBody: func(source string) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(
+				`{"status":"Extracting"}
+{"errorDetail":{"message":"failed to register layer: write /var/lib/docker/...: no space left on device"},"error":"failed to register layer"}
+`)), nil
+		},
+	}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{"registry:5000/helix-ubuntu:2.11.23-linux-amd64"},
+		"helix-ubuntu:2.11.23-linux-amd64",
+		"helix-ubuntu:2.11.23-linux-amd64",
+	)
+	if ok {
+		t.Fatalf("expected recovery to fail when pull stream reports disk-full")
+	}
+	if len(fc.tagCalls) != 0 {
+		t.Errorf("expected no tag attempts after pull-stream error, got %v", fc.tagCalls)
+	}
+	if len(fc.inspects) != 0 {
+		t.Errorf("expected no inspect attempts after pull-stream error, got %v", fc.inspects)
+	}
+}
+
+func TestRecoverImageFromSources_TagFailureFailsSource(t *testing.T) {
+	fc := &fakeRecoveryClient{
+		tagErr: func(source, target string) error {
+			return errors.New("Error response from daemon: invalid reference format")
+		},
+	}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{"ghcr.io/helixml/helix-ubuntu:abc123"},
+		"helix-ubuntu:abc123",
+		"helix-ubuntu:abc123",
+	)
+	if ok {
+		t.Fatalf("expected recovery to fail when ImageTag errors")
+	}
+	if len(fc.inspects) != 0 {
+		t.Errorf("inspect should not run after tag failure, got %v", fc.inspects)
+	}
+}
+
+func TestRecoverImageFromSources_InspectNotFoundFailsSource(t *testing.T) {
+	fc := &fakeRecoveryClient{
+		inspect: func(image string) (dockertypes.ImageInspect, []byte, error) {
+			return dockertypes.ImageInspect{}, nil, errors.New("Error: No such image: " + image)
+		},
+	}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{"registry:5000/helix-ubuntu:abc123"},
+		"helix-ubuntu:abc123",
+		"helix-ubuntu:abc123",
+	)
+	if ok {
+		t.Fatalf("expected recovery to fail when post-pull inspect returns NotFound")
+	}
+}
+
+func TestRecoverImageFromSources_FallsThroughToNextSource(t *testing.T) {
+	// First source fails in pull stream, second succeeds. Recovery returns
+	// true and reports the second source as the one that worked.
+	fc := &fakeRecoveryClient{
+		pullBody: func(source string) (io.ReadCloser, error) {
+			if strings.HasPrefix(source, "ghcr.io/") {
+				return io.NopCloser(strings.NewReader(
+					`{"errorDetail":{"message":"denied: not authorized"},"error":"denied"}` + "\n",
+				)), nil
+			}
+			return io.NopCloser(strings.NewReader(`{"status":"Pull complete"}`)), nil
+		},
+	}
+	ok := recoverImageFromSources(
+		context.Background(),
+		fc,
+		[]string{
+			"ghcr.io/helixml/helix-ubuntu:abc123",
+			"registry:5000/helix-ubuntu:abc123",
+		},
+		"helix-ubuntu:abc123",
+		"helix-ubuntu:abc123",
+	)
+	if !ok {
+		t.Fatalf("expected recovery to succeed via fallback source")
+	}
+	if len(fc.pullCalls) != 2 {
+		t.Errorf("expected both sources tried, got %v", fc.pullCalls)
+	}
+}
+
+func TestBuildRecoveryPullSources(t *testing.T) {
+	tmp := t.TempDir()
+
+	t.Run("no ref file, no registry host", func(t *testing.T) {
+		got := buildRecoveryPullSources("helix-ubuntu:abc123", tmp, "")
+		want := []string{"registry:5000/helix-ubuntu:abc123"}
+		if len(got) != len(want) || got[0] != want[0] {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("ref file rewrites tag and is first", func(t *testing.T) {
+		ref := filepath.Join(tmp, "helix-ubuntu.ref")
+		if err := os.WriteFile(ref, []byte("ghcr.io/helixml/helix-ubuntu:oldtag\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got := buildRecoveryPullSources("helix-ubuntu:abc123", tmp, "10.0.0.5:5000")
+		want := []string{
+			"ghcr.io/helixml/helix-ubuntu:abc123",
+			"10.0.0.5:5000/helix-ubuntu:abc123",
+			"registry:5000/helix-ubuntu:abc123",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("[%d] got %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
 }
 
 func TestEnumerateDRMDevices_HeadlessCompute(t *testing.T) {

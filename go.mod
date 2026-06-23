@@ -44,7 +44,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/helixml/kodit v1.3.7
+	github.com/helixml/kodit v1.3.8
 	github.com/infracloudio/msbotbuilder-go v0.2.5
 	github.com/jfrog/froggit-go v1.20.1
 	github.com/joho/godotenv v1.5.1

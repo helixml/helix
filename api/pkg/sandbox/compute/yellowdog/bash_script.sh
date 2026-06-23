@@ -118,12 +118,16 @@ sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # YD-provisioned runner. If you add a var that compose-manager or the sandbox
 # reads, it MUST be forwarded here (or set by install.sh for bare runners) or it
 # is silently dead on YD hosts. Values for the optional knobs below arrive via
-# the YD task environment (provider.taskEnvironment); `-e NAME` passes them
-# through from this script's env. Only forward when set so an unconfigured knob
-# leaves compose-manager on its own default.
+# the YD task environment (provider.taskEnvironment) and so are in THIS script's
+# env. MUST use the `-e NAME="$NAME"` value form (expanded by the shell before
+# `sudo`): the docker run below is `sudo docker run`, and sudo's env_reset
+# strips the var, so the bare `-e NAME` passthrough form silently delivers
+# NOTHING. (GPU_VENDOR uses the value form for exactly this reason; the bare
+# form was an earlier bug that dropped these knobs on every YD runner.) Only
+# forward when set so an unconfigured knob leaves compose-manager on its default.
 EXTRA_ENV=""
-[ -n "${HELIX_NEURON_COMPILE_CACHE_URL:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_NEURON_COMPILE_CACHE_URL"
-[ -n "${HELIX_RUNNER_READINESS_TIMEOUT:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_RUNNER_READINESS_TIMEOUT"
+[ -n "${HELIX_NEURON_COMPILE_CACHE_URL:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_NEURON_COMPILE_CACHE_URL=$HELIX_NEURON_COMPILE_CACHE_URL"
+[ -n "${HELIX_RUNNER_READINESS_TIMEOUT:-}" ] && EXTRA_ENV="$EXTRA_ENV -e HELIX_RUNNER_READINESS_TIMEOUT=$HELIX_RUNNER_READINESS_TIMEOUT"
 
 sudo docker run --rm --name "$CONTAINER_NAME" \
   --privileged $GPU_FLAGS $DEVICE_FLAGS \
