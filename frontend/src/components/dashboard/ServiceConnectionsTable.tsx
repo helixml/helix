@@ -196,13 +196,10 @@ const ServiceConnectionsTable: FC = () => {
       if (isNaN(installIdNum) || installIdNum <= 0) return false
       return !!githubPrivateKey.trim()
     } else if (isSlackApp) {
-      // Both modes use OAuth install → both need client id/secret. REST adds
-      // the signing secret; Socket adds the app-level token.
-      if (!slackClientId.trim() || !slackClientSecret.trim()) return false
       if (slackIngressMode === 'socket') {
         return !!slackAppToken.trim()
       }
-      return !!slackSigningSecret.trim()
+      return !!slackClientId.trim() && !!slackClientSecret.trim() && !!slackSigningSecret.trim()
     } else {
       return !!adoOrgUrl.trim() && !!adoTenantId.trim() && !!adoClientId.trim() && !!adoClientSecret
     }
@@ -490,18 +487,20 @@ const ServiceConnectionsTable: FC = () => {
                   </Button>
                 </Box>
                 <TextField
-                  label="Client ID"
+                  label={slackIngressMode === 'socket' ? 'Client ID (optional)' : 'Client ID'}
                   fullWidth
-                  required
+                  required={slackIngressMode === 'rest'}
                   value={slackClientId}
                   onChange={(e) => setSlackClientId(e.target.value)}
                   placeholder="1234567890.1234567890"
-                  helperText="Basic Information → App Credentials. Enables one-click Install to Slack for orgs."
+                  helperText={slackIngressMode === 'socket'
+                    ? 'Fill in to give orgs one-click "Add to Slack". Otherwise they connect by pasting a bot token.'
+                    : 'Basic Information → App Credentials. Enables one-click Add to Slack for orgs.'}
                 />
                 <TextField
-                  label="Client Secret"
+                  label={slackIngressMode === 'socket' ? 'Client Secret (optional)' : 'Client Secret'}
                   fullWidth
-                  required
+                  required={slackIngressMode === 'rest'}
                   type="password"
                   value={slackClientSecret}
                   onChange={(e) => setSlackClientSecret(e.target.value)}
