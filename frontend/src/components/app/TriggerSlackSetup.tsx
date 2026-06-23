@@ -6,7 +6,6 @@ import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import IconButton from '@mui/material/IconButton'
-import CloseIcon from '@mui/icons-material/Close'
 import TextField from '@mui/material/TextField'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
@@ -16,12 +15,15 @@ import DarkDialog from '../dialog/DarkDialog'
 import { IAppFlatState } from '../../types'
 import { SetupStep, SetupStepList, CopyableCodeBlock } from '../slack/SlackSetupScaffold'
 
-import createSlackAppScreenshot from '../../../assets/img/slack/create_new_app.png'
-import createSlackAppManifest from '../../../assets/img/slack/manifest.png'
-import createSlackApp from '../../../assets/img/slack/create.png'
-import createSlackAppToken from '../../../assets/img/slack/app_token.png'
-import createSlackAppTokenScopes from '../../../assets/img/slack/app_token_scopes.png'
-import createSlackAppInstall from '../../../assets/img/slack/install_app.png'
+// Screenshots live in Vite's publicDir (frontend/assets), served at the
+// site root — reference them by URL, NOT a JS import (Vite forbids
+// importing publicDir assets, which silently breaks the <img>).
+const createSlackAppScreenshot = '/img/slack/create_new_app.png'
+const createSlackAppManifest = '/img/slack/manifest.png'
+const createSlackApp = '/img/slack/create.png'
+const createSlackAppToken = '/img/slack/app_token.png'
+const createSlackAppTokenScopes = '/img/slack/app_token_scopes.png'
+const createSlackAppInstall = '/img/slack/install_app.png'
 
 const getSlackAppManifest = (appName: string, description: string) => `{
     "display_information": {
@@ -110,25 +112,6 @@ interface TriggerSlackSetupProps {
   onBotTokenChange?: (token: string) => void
 }
 
-// Screenshot rendered indented under a step. Clicking enlarges it.
-const StepImage: FC<{ src: string; step: number; onClick: (src: string) => void }> = ({ src, step, onClick }) => (
-  <Box sx={{ position: 'relative', display: 'inline-block' }}>
-    <Box
-      component="img"
-      src={src}
-      alt={`Step ${step} screenshot`}
-      onClick={() => onClick(src)}
-      sx={{
-        width: '80%', maxWidth: '80%', maxHeight: '200px', height: 'auto',
-        borderRadius: 1, border: '1px solid rgba(255,255,255,0.1)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)', cursor: 'pointer',
-        transition: 'transform 0.2s ease-in-out',
-        '&:hover': { transform: 'scale(1.02)', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' },
-      }}
-    />
-  </Box>
-)
-
 const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   open,
   onClose,
@@ -138,7 +121,6 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   onAppTokenChange,
   onBotTokenChange,
 }) => {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [showAppToken, setShowAppToken] = useState(false)
   const [showBotToken, setShowBotToken] = useState(false)
 
@@ -179,24 +161,16 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
 
   const steps: SetupStep[] = [
     { step: 1, text: 'Go to api.slack.com/apps', link: 'https://api.slack.com/apps', linkLabel: 'api.slack.com/apps ↗' },
-    { step: 2, text: 'Click "Create New App"', below: <StepImage src={createSlackAppScreenshot} step={2} onClick={setSelectedImage} /> },
+    { step: 2, text: 'Click "Create New App"', image: createSlackAppScreenshot },
     { step: 3, text: 'Choose "From a manifest" and copy the provided manifest into the text field', below: <CopyableCodeBlock code={manifest} /> },
     { step: 4, text: 'Select the workspace that you want to install the app to' },
-    { step: 5, text: 'Copy/paste the manifest into your app', below: <StepImage src={createSlackAppManifest} step={5} onClick={setSelectedImage} /> },
-    { step: 6, text: 'Click "Create"', below: <StepImage src={createSlackApp} step={6} onClick={setSelectedImage} /> },
-    { step: 7, text: 'In "Basic Information" create an App-Level Token with scope "connections:write" (required for Socket Mode)', below: <StepImage src={createSlackAppToken} step={7} onClick={setSelectedImage} /> },
-    { step: 8, text: 'Generate the App-Level token and copy the xapp- token into Helix', below: (
-      <>
-        <Box sx={{ mb: 2 }}><StepImage src={createSlackAppTokenScopes} step={8} onClick={setSelectedImage} /></Box>
-        {tokenField(appToken, showAppToken, setShowAppToken, 'xapp-...', 'Your Slack app token (starts with xapp-)', onAppTokenChange, 'Copy the generated App Token here:')}
-      </>
-    ) },
-    { step: 9, text: 'Go to "Install App" and generate/reinstall to get the "Bot User OAuth Token" (xoxb-)', below: (
-      <>
-        <Box sx={{ mb: 2 }}><StepImage src={createSlackAppInstall} step={9} onClick={setSelectedImage} /></Box>
-        {tokenField(botToken, showBotToken, setShowBotToken, 'xoxb-...', 'Your Slack bot token (starts with xoxb-)', onBotTokenChange, 'Copy the generated Bot User OAuth Token here:')}
-      </>
-    ) },
+    { step: 5, text: 'Copy/paste the manifest into your app', image: createSlackAppManifest },
+    { step: 6, text: 'Click "Create"', image: createSlackApp },
+    { step: 7, text: 'In "Basic Information" create an App-Level Token with scope "connections:write" (required for Socket Mode)', image: createSlackAppToken },
+    { step: 8, text: 'Generate the App-Level token and copy the xapp- token into Helix', image: createSlackAppTokenScopes,
+      below: tokenField(appToken, showAppToken, setShowAppToken, 'xapp-...', 'Your Slack app token (starts with xapp-)', onAppTokenChange, 'Copy the generated App Token here:') },
+    { step: 9, text: 'Go to "Install App" and generate/reinstall to get the "Bot User OAuth Token" (xoxb-)', image: createSlackAppInstall,
+      below: tokenField(botToken, showBotToken, setShowBotToken, 'xoxb-...', 'Your Slack bot token (starts with xoxb-)', onBotTokenChange, 'Copy the generated Bot User OAuth Token here:') },
   ]
 
   return (
@@ -217,27 +191,6 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
         <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button onClick={onClose} variant="outlined">Close</Button>
         </DialogActions>
-      </DarkDialog>
-
-      {/* Image Modal */}
-      <DarkDialog
-        open={!!selectedImage}
-        onClose={() => setSelectedImage(null)}
-        PaperProps={{ sx: { background: 'transparent', boxShadow: 'none', overflow: 'visible', display: 'inline-block', p: 0, m: 0 } }}
-      >
-        <Box sx={{ position: 'relative', textAlign: 'center', p: 0, m: 0 }}>
-          <IconButton
-            aria-label="close"
-            onClick={() => setSelectedImage(null)}
-            sx={{ position: 'absolute', top: 8, right: 8, zIndex: 2, color: 'white', background: 'rgba(0,0,0,0.4)', '&:hover': { background: 'rgba(0,0,0,0.7)' } }}
-          >
-            <CloseIcon />
-          </IconButton>
-          {selectedImage && (
-            <Box component="img" src={selectedImage} alt="Enlarged screenshot"
-              sx={{ maxWidth: '600px', maxHeight: '60vh', height: 'auto', borderRadius: 1, boxShadow: '0 4px 24px rgba(0,0,0,0.7)' }} />
-          )}
-        </Box>
       </DarkDialog>
     </>
   )
