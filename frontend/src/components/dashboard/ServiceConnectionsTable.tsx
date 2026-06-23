@@ -463,24 +463,18 @@ const ServiceConnectionsTable: FC = () => {
               </>
             ) : isSlackApp ? (
               <>
-                <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}>
+                <Box>
                   <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
                     One Slack app for the whole deployment
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     This is the single Helix Slack app. Org admins install <em>this</em> app into their own
-                    Slack workspaces from their org Settings — they never create their own. Create it once at
-                    api.slack.com, then paste its credentials below.
+                    Slack workspaces from their org Settings — they never create their own. Pick how it
+                    receives events below; the setup steps depend on it.
                   </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    sx={{ mt: 1.5 }}
-                    onClick={() => setSlackSetupOpen(true)}
-                  >
-                    View setup instructions
-                  </Button>
                 </Box>
+                {/* Mode first — it determines both the manifest and which
+                    credentials the setup instructions ask for. */}
                 <FormControl fullWidth>
                   <InputLabel>Ingress Mode</InputLabel>
                   <Select
@@ -492,6 +486,11 @@ const ServiceConnectionsTable: FC = () => {
                     <MenuItem value="socket">Socket Mode — self-hosted, single workspace</MenuItem>
                   </Select>
                 </FormControl>
+                <Box>
+                  <Button size="small" variant="outlined" onClick={() => setSlackSetupOpen(true)}>
+                    View {slackIngressMode === 'socket' ? 'Socket Mode' : 'REST'} setup instructions
+                  </Button>
+                </Box>
                 {slackIngressMode === 'rest' ? (
                   <>
                     <TextField
