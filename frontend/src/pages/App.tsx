@@ -33,6 +33,7 @@ import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
 import Skills from '../components/app/Skills'
 import MemoriesManagement from '../components/app/MemoriesManagement'
+import { AGENT_TYPE_ZED_EXTERNAL } from '../types'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -210,11 +211,11 @@ const App: FC = () => {
                     </Grid>
                   ) : (
                     <>
-                      <Grid item xs={12} md={6} sx={{
-                        borderRight: '1px solid #303047',
+                      <Grid item xs={12} md={appTools.flatApp?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL && tabValue !== 'apikeys' ? 12 : 6} sx={{
+                        ...(( appTools.flatApp?.default_agent_type !== AGENT_TYPE_ZED_EXTERNAL || tabValue === 'apikeys') && { borderRight: '1px solid #303047' }),
                         overflow: 'auto',
                         pb: 8,
-                        minHeight: 'calc(100vh - 120px)', // Ensure minimum height minus header
+                        minHeight: 'calc(100vh - 120px)',
                         ...lightTheme.scrollbar
                       }}>
                         <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
@@ -279,10 +280,9 @@ const App: FC = () => {
                           </Box>
                         </Box>
                       </Grid>
-                      {/* For API keys section show  */}
                       {tabValue === 'apikeys' ? (
                         <CodeExamples apiKey={account.appApiKeys[0]?.key || ''} />
-                      ) : (
+                      ) : appTools.flatApp?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL ? null : (
                         <PreviewPanel
                           appId={appTools.id}
                           loading={appTools.isInferenceLoading}
