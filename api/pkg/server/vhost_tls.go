@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/caddyserver/certmagic"
@@ -63,7 +64,14 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 	}
 
 	cfg := certmagic.NewDefault()
-	cfg.Storage = &certmagic.FileStorage{Path: "/data/certmagic"}
+	// Persist certs/account keys under the filestore root, which is the
+	// one directory mounted as a durable volume in every deployment
+	// (dev compose helix-filestore, prod ${FILESTORE_DATA}, Helm PVC).
+	// The previous hardcoded /data/certmagic was not a mounted volume on
+	// the api service, so certs were lost on container recreate and we
+	// risked hitting Let's Encrypt rate limits on every redeploy.
+	certStorePath := filepath.Join(apiServer.Cfg.FileStore.LocalFSPath, "certmagic")
+	cfg.Storage = &certmagic.FileStorage{Path: certStorePath}
 
 	cfg.OnDemand = &certmagic.OnDemandConfig{
 		DecisionFunc: func(_ context.Context, name string) error {
