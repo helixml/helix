@@ -34,23 +34,31 @@ import (
 //   - zfs:    `zpool list -Hp -o size,free <pool>` against the ZFS pool that
 //             backs zvols. Used when ZFS is available and a parent dataset is
 //             configured. This is the original implementation.
-//   - statfs: `syscall.Statfs(2)` against the hydra data directory. Used as a
-//             fallback on non-ZFS hosts (most K8s deployments, which run on
-//             ext4 / xfs / overlay). Without this fallback the disk-pressure
-//             guard fails-open silently on non-ZFS hosts, which is how a
-//             K8s-on-ext4 deployment silently filled its volume mid-pull.
+//   - statfs: `syscall.Statfs(2)` against EACH of the configured data paths.
+//             Used as a fallback on non-ZFS hosts (most K8s deployments,
+//             which run on ext4 / xfs / overlay). The K8s helix-sandbox
+//             chart provisions three separate PVCs per pod (docker-storage
+//             /var/lib/docker, hydra-data /hydra-data, workspace-data
+//             /data), and a fill on any one of them stops sandbox starts
+//             (the original incident was a fill of /var/lib/docker mid
+//             image-layer extract). The statfs backend measures every path
+//             and uses the LOWEST free percentage as the admission signal,
+//             so adding paths only ever makes the guard stricter.
 //
 // Fail policy:
 //
 //   - Backend reports a measurement: act on it (refuse / stop / allow per
 //     thresholds).
-//   - statfs fails with ENOENT (configured path does not exist): the operator
-//     misconfigured `HELIX_DISK_PRESSURE_PATH`, FAIL CLOSED on start (refuse)
-//     so we do not silently allow unprotected starts. Monitor logs and skips
-//     the tick.
-//   - Both backends unavailable (ZFS absent AND statfs path errors for other
-//     reasons): FAIL OPEN with a prominent warn log, matching pre-fallback
-//     behaviour. This should be unreachable in practice on any sane host.
+//   - statfs fails with ENOENT for ANY configured path: the operator
+//     misconfigured `HELIX_DISK_PRESSURE_PATHS`, FAIL CLOSED on start
+//     (refuse) so we do not silently allow unprotected starts. Monitor
+//     logs and skips the tick.
+//   - statfs fails with a non-ENOENT error on a path: log and skip that
+//     path; other paths may still produce a usable reading.
+//   - Both backends unavailable (ZFS absent AND statfs probe errors on
+//     every path for other reasons): FAIL OPEN with a prominent warn log,
+//     matching pre-fallback behaviour. This should be unreachable in
+//     practice on any sane host.
 
 const (
 	defaultDiskPressureRefuseFreePct = 2.0
@@ -147,15 +155,52 @@ func poolName() string {
 	return strings.SplitN(zfsParentDataset, "/", 2)[0]
 }
 
-// diskPressurePath returns the filesystem path that the statfs fallback should
-// measure. Defaults to DefaultDataDir (/hydra-data) and is overridable via
-// HELIX_DISK_PRESSURE_PATH for operators who mount their volume elsewhere
-// (e.g. /var/lib/hydra on a K8s PVC).
-func diskPressurePath() string {
-	if v := strings.TrimSpace(os.Getenv("HELIX_DISK_PRESSURE_PATH")); v != "" {
-		return v
+// defaultDiskPressurePaths is the set of filesystem paths the statfs backend
+// measures by default. They correspond 1:1 to the three PVCs the
+// helix-sandbox K8s chart mounts into each pod: /var/lib/docker
+// (docker-storage, image layers), /hydra-data (hydra-data, hydra state and
+// zvol-equivalent storage), /data (workspace-data, per-session workspaces).
+// Statfs-ing only one of these would miss fills on the other two, which is
+// the specific failure mode the multi-path admission check guards against
+// (helix-ubuntu pulls fill /var/lib/docker, not /hydra-data).
+var defaultDiskPressurePaths = []string{
+	"/var/lib/docker",
+	"/hydra-data",
+	"/data",
+}
+
+// diskPressurePaths returns the list of filesystem paths the statfs backend
+// should measure. Selection rules (in order):
+//
+//  1. HELIX_DISK_PRESSURE_PATHS (plural, comma-separated): each entry is
+//     whitespace-trimmed; empty entries are dropped. Use this on
+//     multi-volume deployments to monitor every mount that could fill.
+//  2. HELIX_DISK_PRESSURE_PATH (singular, kept for backwards compatibility
+//     with deployments that adopted the original single-path fallback):
+//     used as a one-element list when the plural form is unset.
+//  3. Default: defaultDiskPressurePaths, the three K8s PVC mount points.
+//
+// The admission check uses the LOWEST free percentage across the returned
+// paths, so adding paths only ever makes the guard stricter.
+func diskPressurePaths() []string {
+	if v := strings.TrimSpace(os.Getenv("HELIX_DISK_PRESSURE_PATHS")); v != "" {
+		raw := strings.Split(v, ",")
+		paths := make([]string, 0, len(raw))
+		for _, p := range raw {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			paths = append(paths, p)
+		}
+		if len(paths) > 0 {
+			return paths
+		}
 	}
-	return DefaultDataDir
+	if v := strings.TrimSpace(os.Getenv("HELIX_DISK_PRESSURE_PATH")); v != "" {
+		return []string{v}
+	}
+	return append([]string{}, defaultDiskPressurePaths...)
 }
 
 // statfsFn is the seam used to mock syscall.Statfs in tests. Production code
@@ -201,17 +246,100 @@ func statfsFreeBytes(path string) (int64, error) {
 	return int64(avail), nil
 }
 
+// statfsFreePercentMulti runs statfsFreePercent against every path in `paths`
+// and returns the LOWEST free-percentage, the path that produced it, and a
+// pathENOENT flag set when any path returned ENOENT.
+//
+// Policy:
+//   - ENOENT on any path: pathENOENT=true. The start guard treats this as
+//     fail-closed because a missing path indicates operator misconfiguration
+//     (HELIX_DISK_PRESSURE_PATHS lists a directory that does not exist).
+//   - Non-ENOENT error on a path: log and skip that path. Other paths may
+//     still measure successfully; we want one bad mount to not blind the
+//     guard against the rest.
+//   - At least one successful measurement: return min(freePct) and the
+//     corresponding triggerPath. The caller threads triggerPath into refusal
+//     logs and user-facing errors so operators see which volume is full.
+//   - All paths errored without any ENOENT: return the last error so the
+//     caller falls open with the existing warn log.
+//
+// `paths` must be non-empty; callers should pass diskPressurePaths().
+func statfsFreePercentMulti(paths []string) (minPct float64, triggerPath string, pathENOENT bool, err error) {
+	if len(paths) == 0 {
+		return 0, "", false, fmt.Errorf("statfsFreePercentMulti: no paths configured")
+	}
+	have := false
+	var lastErr error
+	for _, p := range paths {
+		pct, perr := statfsFreePercent(p)
+		if perr != nil {
+			if errors.Is(perr, syscall.ENOENT) {
+				pathENOENT = true
+				lastErr = perr
+				log.Error().Err(perr).Str("path", p).
+					Msg("disk-pressure: configured path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
+				continue
+			}
+			lastErr = perr
+			log.Warn().Err(perr).Str("path", p).
+				Msg("disk-pressure: statfs failed for path, skipping (other paths may still measure)")
+			continue
+		}
+		if !have || pct < minPct {
+			minPct = pct
+			triggerPath = p
+			have = true
+		}
+	}
+	if !have {
+		if lastErr != nil {
+			return 0, "", pathENOENT, fmt.Errorf("statfs probe failed for all paths: %w", lastErr)
+		}
+		return 0, "", pathENOENT, fmt.Errorf("statfs probe failed for all paths")
+	}
+	return minPct, triggerPath, pathENOENT, nil
+}
+
+// statfsFreeBytesMulti returns the free-bytes reading from the SAME path
+// that statfsFreePercentMulti would identify as the constraining volume.
+// Picking the min-free-pct path (rather than e.g. the sum of free bytes
+// across all paths) keeps the GC reaper's before/after delta sensible: the
+// reaper reclaims space on the volume that is actually under pressure, so
+// the delta we surface should track that volume. ENOENT on the trigger path
+// is propagated to the caller so it can fail closed exactly like the start
+// guard.
+func statfsFreeBytesMulti(paths []string) (int64, string, bool, error) {
+	_, triggerPath, pathENOENT, err := statfsFreePercentMulti(paths)
+	if err != nil {
+		return 0, "", pathENOENT, err
+	}
+	free, ferr := statfsFreeBytes(triggerPath)
+	if ferr != nil {
+		if errors.Is(ferr, syscall.ENOENT) {
+			pathENOENT = true
+		}
+		return 0, triggerPath, pathENOENT, ferr
+	}
+	return free, triggerPath, pathENOENT, nil
+}
+
 // measurement describes the result of a free-space probe. Backend identifies
 // which probe produced it (zfs / statfs / none) so callers can log and tests
-// can assert. PathENOENT is true when the statfs backend was selected but the
-// configured path does not exist, which the start guard treats as fail-closed.
+// can assert. PathENOENT is true when the statfs backend was selected but a
+// configured path does not exist, which the start guard treats as
+// fail-closed. TriggerPath is the path that produced the worst (lowest-free)
+// reading on the statfs backend; empty for the ZFS backend. Threading it
+// through to the refusal log lets operators see which volume is constraining
+// (e.g. "refused: /var/lib/docker at 1.3% free") rather than a generic
+// message.
 type measurement struct {
-	freePct    float64
-	freeBytes  int64
-	backend    string
-	hasPct     bool
-	hasBytes   bool
-	pathENOENT bool
+	freePct     float64
+	freeBytes   int64
+	backend     string
+	hasPct      bool
+	hasBytes    bool
+	pathENOENT  bool
+	triggerPath string
 }
 
 // zfsBackendAvailable reports whether the ZFS backend can be queried. Both ZFS
@@ -248,29 +376,32 @@ func measureDisk() (measurement, error) {
 		return m, fmt.Errorf("zfs probe failed: pct_err=%v free_err=%v", pctErr, freeErr)
 	}
 
-	// Non-ZFS host: statfs the hydra data directory.
+	// Non-ZFS host: statfs every configured path and take the worst
+	// (lowest free percent) reading as the admission signal.
 	m.backend = "statfs"
-	path := diskPressurePath()
-	pct, pctErr := statfsFreePercent(path)
-	free, freeErr := statfsFreeBytes(path)
+	paths := diskPressurePaths()
+	pct, triggerPath, pctENOENT, pctErr := statfsFreePercentMulti(paths)
 	if pctErr == nil {
 		m.freePct = pct
 		m.hasPct = true
+		m.triggerPath = triggerPath
+	} else if pctENOENT {
+		m.pathENOENT = true
 	}
+	free, byteTrigger, bytesENOENT, freeErr := statfsFreeBytesMulti(paths)
 	if freeErr == nil {
 		m.freeBytes = free
 		m.hasBytes = true
+		if m.triggerPath == "" {
+			m.triggerPath = byteTrigger
+		}
+	} else if bytesENOENT {
+		m.pathENOENT = true
 	}
 	if m.hasPct || m.hasBytes {
 		return m, nil
 	}
-	// Both calls failed identically (same syscall). If the path doesn't exist
-	// the operator misconfigured HELIX_DISK_PRESSURE_PATH; mark the
-	// measurement so the start guard can fail closed.
-	if errors.Is(pctErr, syscall.ENOENT) || errors.Is(freeErr, syscall.ENOENT) {
-		m.pathENOENT = true
-	}
-	return m, fmt.Errorf("statfs probe failed at %q: %w", path, pctErr)
+	return m, fmt.Errorf("statfs probe failed for paths %v: %w", paths, pctErr)
 }
 
 // poolFreePercent returns the percentage of the ZFS pool that is free.
@@ -323,17 +454,23 @@ func poolFreePercentZFS() (float64, error) {
 }
 
 // poolFreeBytes returns the number of free bytes for the GC reconcile path's
-// before/after delta. Tries ZFS first, then falls back to statfs against the
-// hydra data directory so the GC reaper produces a meaningful number on
-// non-ZFS hosts too.
+// before/after delta. Tries ZFS first, then falls back to statfs on the
+// configured disk-pressure paths.
 //
-// Used by the GC reconcile path to cheaply measure reclaimed space as a
-// before/after delta instead of running a per-directory `du` sweep.
+// On the statfs backend we report the free-bytes value from the SAME path
+// that statfsFreePercentMulti identifies as the constraining volume (the
+// lowest-free-percent path), not the sum across all paths. Summing would
+// hide whether the reaper actually clawed back space on the volume that is
+// under pressure: if /var/lib/docker is full and the reaper frees space on
+// /data, the sum would still grow but pressure remains. Reporting the
+// constraining-volume figure keeps the delta meaningful for the reaper's
+// before/after comparison.
 func poolFreeBytes() (int64, error) {
 	if zfsBackendAvailable() {
 		return poolFreeBytesZFS()
 	}
-	return statfsFreeBytes(diskPressurePath())
+	free, _, _, err := statfsFreeBytesMulti(diskPressurePaths())
+	return free, err
 }
 
 // poolFreeBytesZFS is the ZFS-only implementation, read from
@@ -391,9 +528,9 @@ func checkDiskPressureForStart() error {
 		if m.pathENOENT {
 			log.Error().Err(err).
 				Str("backend", m.backend).
-				Str("path", diskPressurePath()).
-				Msg("disk-pressure: refusing to start dev container, configured data path does not exist (set HELIX_DISK_PRESSURE_PATH or create the directory)")
-			return fmt.Errorf("refusing to start dev container: disk-pressure path %q does not exist; set HELIX_DISK_PRESSURE_PATH to the hydra data directory and retry", diskPressurePath())
+				Strs("paths", diskPressurePaths()).
+				Msg("disk-pressure: refusing to start dev container, a configured data path does not exist (set HELIX_DISK_PRESSURE_PATHS or create the directory)")
+			return fmt.Errorf("refusing to start dev container: one of the disk-pressure paths %v does not exist; set HELIX_DISK_PRESSURE_PATHS to the correct mounts and retry", diskPressurePaths())
 		}
 		// Unknown measurement, both backends unavailable. Fail open, allow
 		// the start, but log loudly so operators notice.
@@ -413,11 +550,15 @@ func checkDiskPressureForStart() error {
 		log.Error().
 			Str("backend", m.backend).
 			Str("pool", poolName()).
-			Str("path", diskPressurePath()).
+			Str("trigger_path", m.triggerPath).
 			Float64("free_pct", m.freePct).
 			Float64("refuse_pct", cfg.refuseFreePct).
 			Msg("disk-pressure: refusing to start dev container, free space critically low")
-		return fmt.Errorf("refusing to start dev container: disk space critically low, %s reports %.2f%% free (minimum %.0f%% required); free up space and retry", m.backend, m.freePct, cfg.refuseFreePct)
+		where := m.backend
+		if m.triggerPath != "" {
+			where = fmt.Sprintf("%s at %s", m.backend, m.triggerPath)
+		}
+		return fmt.Errorf("refusing to start dev container: disk space critically low, %s reports %.2f%% free (minimum %.0f%% required); free up space and retry", where, m.freePct, cfg.refuseFreePct)
 	}
 
 	return nil
@@ -442,7 +583,7 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 	log.Info().
 		Str("backend", backend).
 		Str("pool", poolName()).
-		Str("path", diskPressurePath()).
+		Strs("paths", diskPressurePaths()).
 		Float64("refuse_free_pct", cfg.refuseFreePct).
 		Float64("stop_free_pct", cfg.stopFreePct).
 		Dur("check_interval", cfg.checkInterval).
@@ -465,7 +606,7 @@ func (dm *DevContainerManager) runDiskPressureMonitor() {
 			log.Error().
 				Str("backend", m.backend).
 				Str("pool", poolName()).
-				Str("path", diskPressurePath()).
+				Str("trigger_path", m.triggerPath).
 				Float64("free_pct", m.freePct).
 				Float64("stop_pct", cfg.stopFreePct).
 				Msg("disk-pressure: EMERGENCY BRAKE, free space below stop threshold, stopping all dev containers")

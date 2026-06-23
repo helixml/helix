@@ -491,14 +491,153 @@ func (s *DiskPressureStatfsSuite) TestPoolFreeBytes_StatfsFallback() {
 }
 
 // -----------------------------------------------------------------------
-// diskPressurePath: env override
+// diskPressurePaths: env parsing + defaults
 // -----------------------------------------------------------------------
 
-func (s *DiskPressureStatfsSuite) TestDiskPressurePath_Default() {
-	assert.Equal(s.T(), DefaultDataDir, diskPressurePath())
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_DefaultIsK8sLayout() {
+	// Default must cover the three PVC mount points the helix-sandbox chart
+	// provisions. Without /var/lib/docker the original ENOSPC-during-pull
+	// failure mode would still slip past the guard.
+	assert.Equal(s.T(), []string{"/var/lib/docker", "/hydra-data", "/data"}, diskPressurePaths())
 }
 
-func (s *DiskPressureStatfsSuite) TestDiskPressurePath_EnvOverride() {
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_SingularBackCompat() {
+	// Operators on the previous single-path env var keep working.
 	s.T().Setenv("HELIX_DISK_PRESSURE_PATH", "/var/lib/hydra")
-	assert.Equal(s.T(), "/var/lib/hydra", diskPressurePath())
+	assert.Equal(s.T(), []string{"/var/lib/hydra"}, diskPressurePaths())
+}
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_PluralWins() {
+	// When both are set the plural form takes precedence.
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATH", "/single")
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATHS", "/a,/b,/c")
+	assert.Equal(s.T(), []string{"/a", "/b", "/c"}, diskPressurePaths())
+}
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_TrimsAndDropsEmpties() {
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATHS", "  /a , ,/b ,  ,/c  ")
+	assert.Equal(s.T(), []string{"/a", "/b", "/c"}, diskPressurePaths())
+}
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePaths_EmptyPluralFallsThroughToSingular() {
+	// Plural set to whitespace-only entries -> treated as unset; singular wins.
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATHS", " , , ")
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATH", "/var/lib/hydra")
+	assert.Equal(s.T(), []string{"/var/lib/hydra"}, diskPressurePaths())
+}
+
+// -----------------------------------------------------------------------
+// statfsFreePercentMulti
+// -----------------------------------------------------------------------
+
+// perPathResult describes the synthetic statfs reply for a single path.
+type perPathResult struct {
+	blocks uint64
+	bavail uint64
+	bsize  int64
+	err    error
+}
+
+// installPerPathStatfs swaps statfsFn for a map-driven mock keyed by path.
+// Returns a cleanup the suite should invoke in TearDown order; for these
+// tests we just rely on the suite's TearDownTest which restores origStatfs.
+func (s *DiskPressureStatfsSuite) installPerPathStatfs(results map[string]perPathResult) {
+	statfsFn = func(path string, stat *syscall.Statfs_t) error {
+		r, ok := results[path]
+		if !ok {
+			return fmt.Errorf("unexpected statfs path in test: %s", path)
+		}
+		if r.err != nil {
+			return r.err
+		}
+		stat.Blocks = r.blocks
+		stat.Bavail = r.bavail
+		setStatfsBsize(stat, r.bsize)
+		return nil
+	}
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_PicksMinFreePct() {
+	// /a 50%, /b 10%, /c 30%  -> min is /b at 10%.
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/a": {blocks: 1000, bavail: 500, bsize: 1},
+		"/b": {blocks: 1000, bavail: 100, bsize: 1},
+		"/c": {blocks: 1000, bavail: 300, bsize: 1},
+	})
+	pct, trigger, enoent, err := statfsFreePercentMulti([]string{"/a", "/b", "/c"})
+	require.NoError(s.T(), err)
+	assert.False(s.T(), enoent)
+	assert.Equal(s.T(), "/b", trigger)
+	assert.InDelta(s.T(), 10.0, pct, 0.0001)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_TriggerPathIsTheConstrainingOne() {
+	// Single path: trigger must be that path.
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/only": {blocks: 1000, bavail: 17, bsize: 1},
+	})
+	_, trigger, _, err := statfsFreePercentMulti([]string{"/only"})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "/only", trigger)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_AnyENOENTIsFailClosed() {
+	// /a measures fine, /b is ENOENT. Overall must surface pathENOENT=true
+	// AND return an error so the start guard refuses.
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/a": {blocks: 1000, bavail: 500, bsize: 1},
+		"/b": {err: syscall.ENOENT},
+	})
+	_, _, enoent, err := statfsFreePercentMulti([]string{"/a", "/b"})
+	// At least one measurement succeeded so freePct is returned (no error),
+	// but pathENOENT must be set so callers can fail closed on misconfig.
+	require.NoError(s.T(), err)
+	assert.True(s.T(), enoent, "any ENOENT path must surface pathENOENT=true")
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_TransientErrorSkipped() {
+	// /a is EIO (transient), /b is fine. Multi should use /b and NOT fail.
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/a": {err: syscall.EIO},
+		"/b": {blocks: 1000, bavail: 250, bsize: 1},
+	})
+	pct, trigger, enoent, err := statfsFreePercentMulti([]string{"/a", "/b"})
+	require.NoError(s.T(), err)
+	assert.False(s.T(), enoent)
+	assert.Equal(s.T(), "/b", trigger)
+	assert.InDelta(s.T(), 25.0, pct, 0.0001)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_AllErrorsReturnError() {
+	// All paths error (non-ENOENT): no measurement, caller falls open.
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/a": {err: syscall.EIO},
+		"/b": {err: syscall.EACCES},
+	})
+	_, _, _, err := statfsFreePercentMulti([]string{"/a", "/b"})
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsMulti_EmptyPathsErrors() {
+	_, _, _, err := statfsFreePercentMulti(nil)
+	require.Error(s.T(), err)
+}
+
+// -----------------------------------------------------------------------
+// admission refusal surfaces the triggering path
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_RefusalIncludesTriggerPath() {
+	// /var/lib/docker is the full one. The refusal log + error must name it
+	// so operators can fix the right volume.
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATHS", "/var/lib/docker,/hydra-data,/data")
+	s.installPerPathStatfs(map[string]perPathResult{
+		"/var/lib/docker": {blocks: 1000, bavail: 13, bsize: 1}, // 1.3% free
+		"/hydra-data":     {blocks: 1000, bavail: 800, bsize: 1},
+		"/data":           {blocks: 1000, bavail: 700, bsize: 1},
+	})
+	err := checkDiskPressureForStart()
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "/var/lib/docker", "operator must see which volume is constraining")
+	assert.Contains(s.T(), err.Error(), "disk space critically low")
 }
