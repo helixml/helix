@@ -3043,9 +3043,32 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	return nil
 }
 
+// lockPromptDrain serialises queue-drain dispatch for a single session and
+// returns the unlock func (call via defer). Without it, two drain goroutines —
+// e.g. message_completed → processPromptQueue and agent_ready →
+// processAnyPendingPrompt — can each atomically claim a DIFFERENT pending prompt
+// and dispatch both to Zed at the same instant. Zed then serialises them in
+// arrival order, which is non-deterministic w.r.t. submission order, producing
+// out-of-order interactions (the streaming one ends up above an already-complete
+// one in the transcript). Holding this lock across claim → [cancel] → send →
+// CreateInteraction guarantees the next drain's busy re-check (in
+// sendQueuedPromptToSession) observes the committed Waiting interaction and
+// defers (queue mode) or cancels the freshly-started turn in order (interrupt
+// mode). See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
+func (apiServer *HelixAPIServer) lockPromptDrain(sessionID string) func() {
+	muIface, _ := apiServer.promptDrainMutexes.LoadOrStore(sessionID, &sync.Mutex{})
+	mu := muIface.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // processPromptQueue checks for pending non-interrupt prompts and sends the next one
 // This is called after a message is completed to process queued non-interrupt messages
 func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, sessionID string) {
+	// Serialise drains for this session — see lockPromptDrain. Acquired before
+	// the busy-check so the check + claim + dispatch are atomic w.r.t. other drains.
+	defer apiServer.lockPromptDrain(sessionID)()
+
 	// Check if the session is busy (last interaction is waiting for a response).
 	// This prevents sending a queue-mode prompt while Zed is already processing
 	// a locally-submitted message. The check uses DB state which is race-free:
@@ -3132,6 +3155,11 @@ func (apiServer *HelixAPIServer) processPromptQueue(ctx context.Context, session
 // processAnyPendingPrompt checks for any pending prompt (interrupt or non-interrupt) and sends it
 // This is used when the session is idle to process ALL pending prompts, not just non-interrupt ones
 func (apiServer *HelixAPIServer) processAnyPendingPrompt(ctx context.Context, sessionID string) {
+	// Serialise drains for this session — see lockPromptDrain. Without this, this
+	// readiness-path drain can claim one pending prompt while processPromptQueue
+	// concurrently claims another and both dispatch to Zed at once, reordering them.
+	defer apiServer.lockPromptDrain(sessionID)()
+
 	// Get the next pending prompt (any type)
 	nextPrompt, err := apiServer.Store.GetAnyPendingPrompt(ctx, sessionID)
 	if err != nil {

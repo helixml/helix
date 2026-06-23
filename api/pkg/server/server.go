@@ -127,6 +127,7 @@ type HelixAPIServer struct {
 	externalAgentUserMapping    map[string]string      // External agent session_id -> user_id mapping
 	pendingCancelChannels       map[string]chan string // request_id -> channel that receives turn_cancelled status
 	autoRestartInflight         sync.Map               // session_id -> struct{}: dedupes concurrent auto-restart triggers (zero value ready)
+	promptDrainMutexes          sync.Map               // session_id -> *sync.Mutex: serialises queue-drain dispatch per session (zero value ready). See lockPromptDrain.
 	// Comment processing timeouts - uses database for queue state (QueuedAt/RequestID fields)
 	sessionCommentTimeout     map[string]*time.Timer // planning_session_id -> timeout timer for current comment
 	sessionCommentMutex       sync.RWMutex           // Mutex for timeout operations
