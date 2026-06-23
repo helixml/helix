@@ -18298,6 +18298,75 @@ paths:
       summary: 'Helix-org: set a setting'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/slack/oauth/start:
+    get:
+      description: Build the Slack OAuth authorize URL for installing the global app
+        into an org's workspace
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Start Slack workspace install
+      tags:
+      - slack
+  /api/v1/orgs/{org}/slack/workspaces:
+    get:
+      description: List the Slack workspaces installed for an organization
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ServiceConnectionResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List org Slack workspaces
+      tags:
+      - slack
+  /api/v1/orgs/{org}/slack/workspaces/{id}:
+    delete:
+      description: Remove a Slack workspace install from an organization
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Workspace connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Disconnect an org Slack workspace
+      tags:
+      - slack
   /api/v1/orgs/{org}/tools:
     get:
       produces:

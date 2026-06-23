@@ -37,6 +37,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
+import SlackIntegrationsPanel from '../components/helix-org/SlackIntegrationsPanel'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import {
   SettingsSpecDTO,
@@ -194,6 +195,8 @@ const HelixOrgSettings: FC = () => {
               </Paper>
 
               <GitHubAppPanel />
+
+              <SlackIntegrationsPanel />
 
               {/* Generic spec rows — everything not first-class or hidden */}
               {(data?.specs ?? [])

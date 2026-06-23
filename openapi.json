@@ -11907,6 +11907,125 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/slack/oauth/start": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Build the Slack OAuth authorize URL for installing the global app into an org's workspace",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Start Slack workspace install",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the Slack workspaces installed for an organization",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List org Slack workspaces",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.ServiceConnectionResponse"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a Slack workspace install from an organization",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Disconnect an org Slack workspace",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Workspace connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/tools": {
             "get": {
                 "security": [

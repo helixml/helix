@@ -188,8 +188,17 @@ func (s *HelixAPIServer) slackRedirectURI() string {
 }
 
 // slackOAuthStart (GET /api/v1/orgs/{org}/slack/oauth/start) builds the
-// "Add to Slack" authorize URL and redirects the org admin to it. The
+// "Add to Slack" authorize URL and returns it as JSON so the
+// (token-authenticated) frontend can redirect the browser to it. The
 // org id is carried through the round trip in an encrypted state param.
+// @Summary Start Slack workspace install
+// @Description Build the Slack OAuth authorize URL for installing the global app into an org's workspace
+// @Tags slack
+// @Produce json
+// @Param org path string true "Organization ID or slug"
+// @Success 200 {object} map[string]string
+// @Router /api/v1/orgs/{org}/slack/oauth/start [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil {
@@ -228,7 +237,8 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 	}
 
 	authorizeURL := slackcore.AuthorizeURL(app.SlackClientID, s.slackRedirectURI(), defaultSlackBotScopes, state)
-	http.Redirect(w, r, authorizeURL, http.StatusFound)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"url": authorizeURL})
 }
 
 // slackOAuthCallback (GET /api/v1/slack/oauth/callback) completes the
@@ -338,6 +348,14 @@ func slackWorkspaceName(install slackcore.Install) string {
 // listSlackWorkspaces (GET /api/v1/orgs/{org}/slack/workspaces) returns
 // the org's connected Slack workspaces. Org-scoped: only the caller's
 // org rows are ever returned.
+// @Summary List org Slack workspaces
+// @Description List the Slack workspaces installed for an organization
+// @Tags slack
+// @Produce json
+// @Param org path string true "Organization ID or slug"
+// @Success 200 {array} types.ServiceConnectionResponse
+// @Router /api/v1/orgs/{org}/slack/workspaces [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listSlackWorkspaces(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil {
@@ -370,6 +388,14 @@ func (s *HelixAPIServer) listSlackWorkspaces(w http.ResponseWriter, r *http.Requ
 // deleteSlackWorkspace (DELETE /api/v1/orgs/{org}/slack/workspaces/{id})
 // removes one workspace install. The org of the connection must match
 // the resolved org (cross-org delete is blocked).
+// @Summary Disconnect an org Slack workspace
+// @Description Remove a Slack workspace install from an organization
+// @Tags slack
+// @Param org path string true "Organization ID or slug"
+// @Param id path string true "Workspace connection ID"
+// @Success 204
+// @Router /api/v1/orgs/{org}/slack/workspaces/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteSlackWorkspace(w http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	if user == nil {

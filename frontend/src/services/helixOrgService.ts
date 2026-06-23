@@ -128,6 +128,50 @@ export function useHelixOrgBase(): { base: string; orgID: string } {
   return { base, orgID }
 }
 
+// useListSlackWorkspaces returns the Slack workspaces installed for the
+// current org (org-scoped slack_workspace ServiceConnections). Used by
+// the topic transport picker (choose a workspace) and the Settings
+// integrations panel (list / disconnect).
+export function useListSlackWorkspaces(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'slack-workspaces'],
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsSlackWorkspacesDetail(orgID)
+      return (res.data as any[]) || []
+    },
+    enabled: (options?.enabled ?? true) && !!orgID,
+  })
+}
+
+// useStartSlackInstall asks the backend (authenticated) for the Slack
+// OAuth authorize URL, then the caller redirects the browser to it.
+export function useStartSlackInstall() {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.getApiClient().v1OrgsSlackOauthStartDetail(orgID)
+      return (res.data as any).url as string
+    },
+  })
+}
+
+export function useDisconnectSlackWorkspace() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.getApiClient().v1OrgsSlackWorkspacesDelete(orgID, id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['helix-org', orgID, 'slack-workspaces'] })
+    },
+  })
+}
+
 export function useHelixOrgOverview(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()

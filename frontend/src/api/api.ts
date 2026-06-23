@@ -12366,6 +12366,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Build the Slack OAuth authorize URL for installing the global app into an org's workspace
+     *
+     * @tags slack
+     * @name V1OrgsSlackOauthStartDetail
+     * @summary Start Slack workspace install
+     * @request GET:/api/v1/orgs/{org}/slack/oauth/start
+     * @secure
+     */
+    v1OrgsSlackOauthStartDetail: (org: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/orgs/${org}/slack/oauth/start`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List the Slack workspaces installed for an organization
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesDetail
+     * @summary List org Slack workspaces
+     * @request GET:/api/v1/orgs/{org}/slack/workspaces
+     * @secure
+     */
+    v1OrgsSlackWorkspacesDetail: (org: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse[], any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a Slack workspace install from an organization
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesDelete
+     * @summary Disconnect an org Slack workspace
+     * @request DELETE:/api/v1/orgs/{org}/slack/workspaces/{id}
+     * @secure
+     */
+    v1OrgsSlackWorkspacesDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @tags HelixOrg
