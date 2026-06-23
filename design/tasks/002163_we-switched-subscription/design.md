@@ -104,6 +104,14 @@ if strings.HasPrefix(modelID, "claude-opus-4-7") {
 
 **What if `resolveModelPreference()` doesn't support bare shorthand?** The first implementation task is to verify this in a real subscription container. If `"opus"` doesn't resolve correctly, the fallback is using `"claude-opus-4-8"` (a simple version bump). The substring matching behavior is documented in the settings-sync-daemon code comments and aligns with Claude Code's `--model` flag behavior.
 
+## Implementation notes
+
+- `AppSettings.tsx` imports `CLAUDE_SUBSCRIPTION_MODELS` and `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL` from `CodingAgentForm.tsx` — updating the constants in CodingAgentForm fixes both files automatically.
+- `settings-sync-daemon/main_test.go:63` uses `claude-opus-4-6` but it's testing the Zed settings injection skip logic (API-key path), not the subscription default — no change needed.
+- `docs.go` (generated OpenAPI spec) still has old doc comment — needs `./stack update_openapi` regeneration.
+- `frontend/src/types.ts` and `frontend/src/api/api.ts` contain old doc comment from generated types — will update when OpenAPI is regenerated.
+- Added `claude-opus-4-8` as the first entry in `RECOMMENDED_CODING_MODELS` (API-key path model list) — this was an additional gap not in the original task list.
+
 ## Codebase patterns (from 002134 spec)
 
 - `ClaudeSubscriptionModel` flows through `CodeAgentConfig.Model` → `managed-settings.json` → `resolveModelPreference()` in claude-agent-acp. The settings-sync-daemon writes it; claude-agent-acp reads it.
