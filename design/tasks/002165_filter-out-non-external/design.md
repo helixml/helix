@@ -1,93 +1,112 @@
-# Design: Filter Spec Task Agent Switchers to External, Spec-Task-Owned Agents
+# Design: Filter Helix-Org-Chart and Non-External Agents from Spec Task Agent Switchers
 
 ## Summary
 
-A **frontend-only** change touching two dropdowns that share the same apps source and the
-same `AgentDropdown` component. The primary target is the **live-switch control**
-(`SwitchAgentControl`); the same filtering is also applied to the **details-panel selector**.
+Two parts:
+- **Frontend (cheap):** keep only `zed_external` agents in both spec-task dropdowns.
+- **Backend (required):** expose a per-app marker that says "this app backs a Helix
+  Org-chart Worker", because `GET /api/v1/apps` currently has **no way** for the frontend to
+  tell. The frontend then filters those out.
 
-## Key Files (from codebase research)
+This stopped being frontend-only once we learned the real meaning of "Helix Org" (Phil's
+org-chart feature). The link between an org-chart Worker and its App lives only in the
+org sidecar tables and is not surfaced on the App.
 
-- `frontend/src/components/session/SwitchAgentControl.tsx` — **primary**.
-  - `eligibleAgents` memo (~lines 64–71) currently filters `apps.apps` to apps where an
-    assistant has `agent_type === AGENT_TYPE_ZED_EXTERNAL`.
-  - Current value comes from `session?.parent_app` (~line 76); the dropdown can show any id
-    as its value, so the active agent stays visible even if not in the list.
-  - Rendered at the top of the chat panel header in `SpecTaskDetailContent.tsx` (~lines 1999–2007).
-- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — **secondary**.
-  - `sortedApps` memo (~lines 248–263) currently *sorts* external first but keeps everything.
-  - Details-panel `<AgentDropdown ... agents={sortedApps} />` (~lines 1451–1461); current
-    value is `selectedAgent` (task `helix_app_id`).
-- `frontend/src/components/agent/AgentDropdown.tsx` — shared presentational `Select`; no change.
-- `frontend/src/contexts/apps.tsx` — apps source (`GET /api/v1/apps`); no change.
-- `frontend/src/types.ts`
-  - `AGENT_TYPE_ZED_EXTERNAL = 'zed_external'` (line 86).
-  - `IApp`: `global: boolean`, `owner_type: IOwnerType` (`'user' | 'system' | 'org'`),
-    `config.helix.assistants[].agent_type`, `config.helix.default_agent_type`.
+## Key facts from codebase research
 
-## How to identify each category
+- **Two dropdowns, one source.** `SwitchAgentControl`
+  (`frontend/src/components/session/SwitchAgentControl.tsx`, `eligibleAgents` ~lines 64–71)
+  and the details-panel `AgentDropdown` (`SpecTaskDetailContent.tsx`, `sortedApps`
+  ~lines 248–263) both read `useApps()` → `GET /api/v1/apps`.
+- **External marker.** `AGENT_TYPE_ZED_EXTERNAL = 'zed_external'`
+  (`frontend/src/types.ts:86`), checked on `config.helix.assistants[].agent_type` and/or
+  `config.helix.default_agent_type`.
+- **Org-chart link.** An AI Worker's App id is stored in `org_worker_runtime_state`
+  (backend `helix`, key `agent_app_id`), keyed by `org_id` + `worker_id`. See
+  `api/pkg/org/infrastructure/runtime/helix/state.go` (`WorkerState.AgentAppID`) and
+  `api/pkg/org/infrastructure/persistence/gorm/worker_runtime.go`. Workers are listed by
+  `GET /api/v1/orgs/{org}/workers` (`api/pkg/org/interfaces/server/api/workers.go`,
+  `WorkerDTO.agentAppId`).
+- **The App has no org-chart field.** `types.App` / `IApp` expose only `organization_id`,
+  `owner`, `owner_type`, `global` — none of which distinguish an org-chart Worker app.
+  `GET /api/v1/apps` returns org-chart Worker apps mixed in with normal apps.
+- **Feature gate.** The org-chart feature is behind `HELIX_ORG_ENABLED` (default false). When
+  off, there are no Workers, so the new marker is simply always false.
 
-**External agent** (keep): an app where any assistant has
-`agent_type === AGENT_TYPE_ZED_EXTERNAL`, OR `config.helix.default_agent_type === AGENT_TYPE_ZED_EXTERNAL`.
-- `SwitchAgentControl` today checks only the assistants array; the details panel also checks
-  `default_agent_type`. We keep the **more inclusive** predicate (assistants OR
-  `default_agent_type`) and use the same one in both places for consistency.
+## Decision: backend computes an `is_helix_org_agent` flag on the apps listing
 
-**Owned by Helix org** (exclude): there is **no hard-coded Helix org id/slug** in the
-codebase (confirmed by research). The reliable signal for first-party / built-in agents,
-already exposed on `IApp`, is `app.global === true` OR `app.owner_type === 'system'`.
-User/org-created spec-task agents have `global === false` and `owner_type` of `'user'`/`'org'`.
+Add a **non-persisted, computed** boolean to the App returned by `GET /api/v1/apps`:
 
-## Decision: one shared filter helper, applied in both components
+- Backend (`api/pkg/types/types.go`): add `IsHelixOrgAgent bool` with
+  `json:"is_helix_org_agent" gorm:"-"` to `App` (computed, not stored).
+- In the apps list handler (`api/pkg/server/app_handlers.go`, `listApps` /
+  `listOrganizationApps`): when `HELIX_ORG_ENABLED` is on and an org is in scope, gather the
+  set of `agent_app_id`s from `org_worker_runtime_state` for that org and set
+  `IsHelixOrgAgent = true` on matching apps. When the feature is off, leave it false (no
+  extra query). Use the existing org store/repository for the lookup; do not add a new table.
+- Frontend (`frontend/src/types.ts`): add `is_helix_org_agent?: boolean` to `IApp`.
 
-Add a small reusable predicate (e.g. in a shared util or co-located and used by both) to
-avoid divergence:
+**Why a computed flag (not a client-side worker query):** keeps the dropdown logic simple
+and synchronous, avoids a second round-trip and loading/race handling in the dropdowns,
+keeps the org-chart knowledge in the backend (single source of truth), and naturally
+no-ops when the feature is off.
+
+*Alternative considered:* have the frontend call `GET /api/v1/orgs/{org}/workers`, build a
+`Set` of `agentAppId`, and filter client-side. Rejected as primary because it couples both
+dropdowns to the helix-org service, adds a query + loading state, and only works in org
+context. Acceptable fallback if a backend change is undesirable.
+
+## Frontend filtering (both dropdowns)
+
+Shared predicate helpers (place where both components import them):
 
 ```ts
 export const isExternalAgent = (app: IApp) =>
   app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) ||
   app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
 
-export const isHelixOrgAgent = (app: IApp) =>
-  app.global === true || app.owner_type === 'system';
+export const isHelixOrgChartAgent = (app: IApp) => app.is_helix_org_agent === true;
 
 export const isSpecTaskSwitchableAgent = (app: IApp) =>
-  isExternalAgent(app) && !isHelixOrgAgent(app);
+  isExternalAgent(app) && !isHelixOrgChartAgent(app);
 ```
 
-**SwitchAgentControl** — replace the `eligibleAgents` filter with
-`apps.apps.filter(isSpecTaskSwitchableAgent)`. The current agent (`session.parent_app`)
-already stays visible as the dropdown value, so no extra re-add step is strictly required,
-but if the active agent should appear as a selectable row, include it explicitly when missing.
-
-**Details panel** — replace `sortedApps` with an `eligibleApps` memo:
-```ts
-const eligibleApps = useMemo(() => {
-  const list = (apps.apps ?? []).filter(isSpecTaskSwitchableAgent);
-  if (selectedAgent && !list.some(a => a.id === selectedAgent)) {
-    const current = apps.apps?.find(a => a.id === selectedAgent);
-    if (current) list.unshift(current); // keep current selection valid (US-3)
-  }
-  return list;
-}, [apps.apps, selectedAgent]);
-```
-Pass `eligibleApps` as the `agents` prop and remove the old `sortedApps` logic.
+- **SwitchAgentControl:** replace the `eligibleAgents` filter with
+  `apps.apps.filter(isSpecTaskSwitchableAgent)`. The current agent (`session.parent_app`)
+  already renders as the dropdown value even if not in the list; include it explicitly as a
+  row if it should be selectable.
+- **Details panel:** replace `sortedApps` with an `eligibleApps` memo using
+  `isSpecTaskSwitchableAgent`, and re-add the currently-assigned agent
+  (`selectedAgent` / `helix_app_id`) if it was filtered out (US-3):
+  ```ts
+  const eligibleApps = useMemo(() => {
+    const list = (apps.apps ?? []).filter(isSpecTaskSwitchableAgent);
+    if (selectedAgent && !list.some(a => a.id === selectedAgent)) {
+      const current = apps.apps?.find(a => a.id === selectedAgent);
+      if (current) list.unshift(current);
+    }
+    return list;
+  }, [apps.apps, selectedAgent]);
+  ```
+  Then point `<AgentDropdown agents={...} />` at `eligibleApps` and remove `sortedApps`.
 
 ## Edge cases & rationale
 
-- **Active/assigned agent excluded by filter** (US-3) — keep it visible so neither dropdown
-  renders an empty/invalid selection. `SwitchAgentControl` already tolerates this via its
-  value handling; the details panel needs the explicit re-add shown above.
-- **No hard-coded Helix org** — `global`/`owner_type === 'system'` is the closest correct
-  signal and is already on `IApp`. The `isHelixOrgAgent` predicate is isolated so it can be
-  swapped for an explicit Helix org id later if product defines one.
-- **Empty result** (US-4) — `AgentDropdown` already tolerates an empty `agents` array.
+- **Customer-org agents stay.** We filter on org-chart Worker membership, not on
+  `owner_type === 'org'`, so legitimately org-owned spec-task agents remain visible (US-1).
+- **Active/assigned agent excluded by filter** (US-3): keep it visible so neither dropdown
+  shows a blank selection.
+- **Feature off** (US-5): no Workers → flag always false → only the external filter applies →
+  no regression.
+- **Empty result** (US-4): `AgentDropdown` already tolerates an empty `agents` array.
 
 ## Testing
 
-- Manual: open a spec task with a running session. Confirm the top live-switch dropdown
-  lists only external, non-global/non-system agents; confirm the details-panel dropdown
-  matches; confirm an active/assigned agent that would be filtered still shows and stays
-  selected; confirm switching still works (in-place switch persists / `helix_app_id` updates).
-- Add a small unit test for the `isSpecTaskSwitchableAgent` predicate covering: external
-  user-owned (keep), external global/system (drop), non-external (drop).
+- Backend: with `HELIX_ORG_ENABLED` on, an app backing an org-chart Worker is returned with
+  `is_helix_org_agent: true`; a normal app returns false; with the feature off, all false.
+- Frontend unit test for `isSpecTaskSwitchableAgent`: external + not org-chart → keep;
+  external + org-chart → drop; non-external → drop.
+- Manual: open a spec task with a running session in an org that has org-chart Workers.
+  Confirm both dropdowns hide org-chart Worker agents and non-external agents, keep standalone
+  external agents (including customer-org-owned), keep the active/assigned agent selected, and
+  that in-place switching / `helix_app_id` updates still work.
