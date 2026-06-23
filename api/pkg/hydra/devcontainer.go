@@ -208,76 +208,182 @@ func resolveRegistryImageWithBase(image string, baseDir string) string {
 	return ref
 }
 
-// tryRecoverImage attempts to pull a missing desktop image from available registries.
-// It tries the production registry (.ref file), then the local shared registry.
-// Returns true if the image was recovered and is available for container creation.
-func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
-	log.Warn().
-		Str("resolved_image", resolvedImage).
-		Str("original_image", originalImage).
-		Msg("Image missing from Docker — attempting recovery")
+// imageRecoveryClient is the minimum Docker client surface tryRecoverImage
+// needs. The real *client.Client satisfies it; tests substitute a fake.
+type imageRecoveryClient interface {
+	ImagePull(ctx context.Context, refStr string, options dockertypes.ImagePullOptions) (io.ReadCloser, error)
+	ImageTag(ctx context.Context, source, target string) error
+	ImageInspectWithRaw(ctx context.Context, imageID string) (dockertypes.ImageInspect, []byte, error)
+}
 
-	// Extract image name without tag for looking up registry sources
+// pullStatus matches the JSON status messages emitted by Docker's image-pull
+// stream. ImagePull only returns a Go error for setup failures (bad ref,
+// transport). The interesting failures, "no space left on device",
+// "manifest unknown", "denied", 5xx from the registry, are reported as
+// JSON messages with a non-empty Error / ErrorDetail.Message. Code that
+// drains the stream without decoding it silently treats those as success.
+type pullStatus struct {
+	Status      string `json:"status"`
+	Error       string `json:"error"`
+	ErrorDetail struct {
+		Message string `json:"message"`
+	} `json:"errorDetail"`
+}
+
+// drainPullStream decodes the JSON message stream from ImagePull. Returns
+// an error if any message reports a pull failure (Error or
+// ErrorDetail.Message populated). Returns nil on a clean EOF.
+func drainPullStream(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg pullStatus
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("decode pull status: %w", err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("pull failed: %s", msg.Error)
+		}
+		if msg.ErrorDetail.Message != "" {
+			return fmt.Errorf("pull failed: %s", msg.ErrorDetail.Message)
+		}
+	}
+}
+
+// buildRecoveryPullSources returns the ordered list of registry refs to try
+// when recovering a missing image. Priority:
+//  1. Production registry ref (<refDir>/<image>.ref, e.g.
+//     ghcr.io/helixml/helix-ubuntu:VERSION)
+//  2. Local shared registry via host (registryHost)
+//  3. Local shared registry via DNS name (registry:5000)
+func buildRecoveryPullSources(originalImage, refDir, registryHost string) []string {
 	imageName := originalImage
 	if idx := strings.LastIndex(originalImage, ":"); idx != -1 {
 		imageName = originalImage[:idx]
 	}
 
-	// Build list of registry sources to try, in priority order:
-	// 1. Production registry ref (.ref file, e.g., ghcr.io/helixml/helix-ubuntu:VERSION)
-	// 2. Local shared registry (registry:5000/IMAGE:TAG)
-	var pullSources []string
+	var sources []string
 
-	// Check for production registry ref
-	refFile := filepath.Join("/opt/images", imageName+".ref")
+	refFile := filepath.Join(refDir, imageName+".ref")
 	if refData, err := os.ReadFile(refFile); err == nil {
 		ref := strings.TrimSpace(string(refData))
 		if ref != "" {
-			// Replace the tag with the requested version
 			tag := imageTag(originalImage)
 			if baseRef := strings.LastIndex(ref, ":"); baseRef != -1 && tag != "" {
 				ref = ref[:baseRef] + ":" + tag
 			}
-			pullSources = append(pullSources, ref)
+			sources = append(sources, ref)
 		}
 	}
 
-	// Try the local shared registry
-	registryHost := GetRegistryHost()
 	if registryHost != "" {
-		pullSources = append(pullSources, registryHost+"/"+originalImage)
+		sources = append(sources, registryHost+"/"+originalImage)
 	}
-	// Also try the DNS name (works when registry is on the same Docker network)
-	pullSources = append(pullSources, "registry:5000/"+originalImage)
+	sources = append(sources, "registry:5000/"+originalImage)
 
-	for _, source := range pullSources {
+	return sources
+}
+
+// tryRecoverImage attempts to pull a missing desktop image from available registries.
+// It tries the production registry (.ref file), then the local shared registry.
+// Returns true if the image was recovered and is verified present locally under
+// the expected name.
+func (dm *DevContainerManager) tryRecoverImage(ctx context.Context, dockerClient *client.Client, resolvedImage, originalImage string) bool {
+	sources := buildRecoveryPullSources(originalImage, "/opt/images", GetRegistryHost())
+	return recoverImageFromSources(ctx, dockerClient, sources, resolvedImage, originalImage)
+}
+
+// recoverImageFromSources is the testable core of tryRecoverImage. It walks
+// the supplied sources in order, attempting a pull + tag + verify for each.
+// The first source that ends with originalImage present locally wins.
+//
+// This is where the three previously-silent failure modes are surfaced:
+//  1. ImagePull JSON stream errors (e.g. "no space left on device") are
+//     decoded and returned as errors, not discarded.
+//  2. ImageTag errors are captured and logged with source/target refs,
+//     and treated as "this source did not work, try the next one".
+//  3. ImageInspectWithRaw confirms the image is actually present locally
+//     before we report success. Without this, a partially-extracted pull
+//     would let the caller log "recovered" then fail again on
+//     ContainerCreate with the same "No such image" message.
+func recoverImageFromSources(ctx context.Context, dockerClient imageRecoveryClient, sources []string, resolvedImage, originalImage string) bool {
+	log.Warn().
+		Str("resolved_image", resolvedImage).
+		Str("original_image", originalImage).
+		Strs("sources", sources).
+		Msg("Image missing from Docker, attempting recovery")
+
+	for _, source := range sources {
 		log.Info().Str("source", source).Msg("Trying recovery pull")
+
 		pullOut, pullErr := dockerClient.ImagePull(ctx, source, dockertypes.ImagePullOptions{})
 		if pullErr != nil {
-			log.Debug().Err(pullErr).Str("source", source).Msg("Recovery pull failed, trying next source")
+			log.Warn().Err(pullErr).Str("source", source).Msg("Recovery pull setup failed, trying next source")
 			continue
 		}
-		// Drain the pull output to completion
-		_, _ = io.Copy(io.Discard, pullOut)
+		streamErr := drainPullStream(pullOut)
 		pullOut.Close()
+		if streamErr != nil {
+			log.Error().Err(streamErr).Str("source", source).Msg("Recovery pull reported error in stream, trying next source")
+			continue
+		}
 
-		// Tag as the expected local name so the container creation succeeds
+		// Tag the pulled image under the expected local names so
+		// ContainerCreate finds it. Capture errors instead of swallowing
+		// them: a failed tag means this source did not actually land
+		// the image we need.
+		tagFailed := false
 		if source != resolvedImage {
-			_ = dockerClient.ImageTag(ctx, source, resolvedImage)
+			if err := dockerClient.ImageTag(ctx, source, resolvedImage); err != nil {
+				log.Warn().Err(err).
+					Str("source", source).
+					Str("target", resolvedImage).
+					Msg("ImageTag failed during recovery, trying next source")
+				tagFailed = true
+			}
 		}
-		if source != originalImage {
-			_ = dockerClient.ImageTag(ctx, source, originalImage)
+		if !tagFailed && source != originalImage {
+			if err := dockerClient.ImageTag(ctx, source, originalImage); err != nil {
+				log.Warn().Err(err).
+					Str("source", source).
+					Str("target", originalImage).
+					Msg("ImageTag failed during recovery, trying next source")
+				tagFailed = true
+			}
 		}
+		if tagFailed {
+			continue
+		}
+
+		// Verify the image is actually present under the name
+		// ContainerCreate will look up. Without this, a pull that
+		// "succeeded" with cached "Already exists" layers but never
+		// finished extracting (e.g. disk full) would still report
+		// recovery success, and the very next ContainerCreate would
+		// fail with the same misleading "No such image".
+		inspect, _, inspectErr := dockerClient.ImageInspectWithRaw(ctx, originalImage)
+		if inspectErr != nil {
+			log.Error().Err(inspectErr).
+				Str("source", source).
+				Str("image", originalImage).
+				Msg("Image not present locally after pull+tag, trying next source")
+			continue
+		}
+
 		log.Info().
-			Str("image", resolvedImage).
+			Str("image", originalImage).
+			Str("resolved_image", resolvedImage).
 			Str("source", source).
+			Strs("local_tags", inspect.RepoTags).
 			Msg("Image recovered successfully")
 		return true
 	}
 
 	log.Error().
 		Str("image", resolvedImage).
-		Strs("sources_tried", pullSources).
+		Strs("sources_tried", sources).
 		Msg("Failed to recover image from any registry source")
 	return false
 }
