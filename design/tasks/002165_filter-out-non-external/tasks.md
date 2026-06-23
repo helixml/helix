@@ -1,10 +1,10 @@
-# Implementation Tasks: Filter Spec Task Agent Switcher to External, Spec-Task-Owned Agents
+# Implementation Tasks: Filter Spec Task Agent Switchers to External, Spec-Task-Owned Agents
 
-- [ ] In `frontend/src/components/tasks/SpecTaskDetailContent.tsx`, add an `isExternal(app)` helper that returns true when any assistant has `agent_type === AGENT_TYPE_ZED_EXTERNAL` or `config.helix.default_agent_type === AGENT_TYPE_ZED_EXTERNAL`.
-- [ ] Add an `isHelixOrgOwned(app)` helper that returns true when `app.global === true` or `app.owner_type === 'system'`.
-- [ ] Replace the `sortedApps` memo with an `eligibleApps` memo that filters `apps.apps` to `isExternal(app) && !isHelixOrgOwned(app)`.
-- [ ] In the same memo, ensure the currently-assigned agent (`selectedAgent` / `helix_app_id`) is included even if it would be filtered out, so the dropdown selection stays valid.
-- [ ] Update the `<AgentDropdown agents={...} />` prop to use the new filtered list and remove the now-unused `sortedApps` code.
-- [ ] Verify the empty-list case renders without errors (no eligible agents).
-- [ ] Manually verify on the spec task details page: only external, non-Helix-org agents appear; the previously-assigned agent stays visible/selected; switching agents still persists `helix_app_id`.
-- [ ] Update/add a small test for the filter predicates if a test for the old `sortedApps` exists.
+- [ ] Add shared predicate helpers — `isExternalAgent(app)` (assistant `agent_type === AGENT_TYPE_ZED_EXTERNAL` OR `config.helix.default_agent_type === AGENT_TYPE_ZED_EXTERNAL`), `isHelixOrgAgent(app)` (`app.global === true` OR `app.owner_type === 'system'`), and `isSpecTaskSwitchableAgent(app)` (external AND not Helix-org). Place where both components can import them.
+- [ ] Update `frontend/src/components/session/SwitchAgentControl.tsx`: replace the `eligibleAgents` filter with `apps.apps.filter(isSpecTaskSwitchableAgent)`.
+- [ ] In `SwitchAgentControl`, ensure the currently active agent (`session.parent_app`) stays visible/selected even if it would be filtered out.
+- [ ] Update `frontend/src/components/tasks/SpecTaskDetailContent.tsx`: replace the `sortedApps` memo with an `eligibleApps` memo that filters via `isSpecTaskSwitchableAgent` and re-adds the currently-assigned agent (`selectedAgent` / `helix_app_id`) if it was filtered out.
+- [ ] Point the details-panel `<AgentDropdown agents={...} />` at the new `eligibleApps` and remove the unused `sortedApps` code.
+- [ ] Verify the empty-list case renders without errors in both dropdowns.
+- [ ] Manually verify on the spec task details page: top live-switch dropdown and details-panel dropdown both show only external, non-Helix-org agents; an active/assigned filtered agent still shows and stays selected; in-place switching and `helix_app_id` updates still work.
+- [ ] Add a unit test for `isSpecTaskSwitchableAgent` (external user-owned → keep; external global/system → drop; non-external → drop).

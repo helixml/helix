@@ -1,80 +1,93 @@
-# Design: Filter Spec Task Agent Switcher to External, Spec-Task-Owned Agents
+# Design: Filter Spec Task Agent Switchers to External, Spec-Task-Owned Agents
 
 ## Summary
 
-This is a **small, frontend-only** change. The agent switcher on the spec task details
-page is populated by a memoized `sortedApps` value that currently *sorts* external agents
-first but keeps everything. We change it to *filter* the list down to eligible agents.
+A **frontend-only** change touching two dropdowns that share the same apps source and the
+same `AgentDropdown` component. The primary target is the **live-switch control**
+(`SwitchAgentControl`); the same filtering is also applied to the **details-panel selector**.
 
 ## Key Files (from codebase research)
 
-- `frontend/src/components/tasks/SpecTaskDetailContent.tsx`
-  - `sortedApps` memo (~lines 238–263) builds the dropdown list from `apps.apps`.
-  - `<AgentDropdown ... agents={sortedApps} ... />` (~lines 1451–1461) renders it.
-  - `selectedAgent` / `handleAgentChange` (~lines 888–911) persist the choice via
-    `helix_app_id`.
-- `frontend/src/components/agent/AgentDropdown.tsx` — presentational `Select`; no change needed.
-- `frontend/src/contexts/apps.tsx` — loads apps from `GET /api/v1/apps`; no change needed.
+- `frontend/src/components/session/SwitchAgentControl.tsx` — **primary**.
+  - `eligibleAgents` memo (~lines 64–71) currently filters `apps.apps` to apps where an
+    assistant has `agent_type === AGENT_TYPE_ZED_EXTERNAL`.
+  - Current value comes from `session?.parent_app` (~line 76); the dropdown can show any id
+    as its value, so the active agent stays visible even if not in the list.
+  - Rendered at the top of the chat panel header in `SpecTaskDetailContent.tsx` (~lines 1999–2007).
+- `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — **secondary**.
+  - `sortedApps` memo (~lines 248–263) currently *sorts* external first but keeps everything.
+  - Details-panel `<AgentDropdown ... agents={sortedApps} />` (~lines 1451–1461); current
+    value is `selectedAgent` (task `helix_app_id`).
+- `frontend/src/components/agent/AgentDropdown.tsx` — shared presentational `Select`; no change.
+- `frontend/src/contexts/apps.tsx` — apps source (`GET /api/v1/apps`); no change.
 - `frontend/src/types.ts`
-  - `AGENT_TYPE_ZED_EXTERNAL = 'zed_external'` (line 86) — the "external" marker.
-  - `IApp` has `global: boolean`, `owner_type: IOwnerType` where
-    `IOwnerType = 'user' | 'system' | 'org'`.
+  - `AGENT_TYPE_ZED_EXTERNAL = 'zed_external'` (line 86).
+  - `IApp`: `global: boolean`, `owner_type: IOwnerType` (`'user' | 'system' | 'org'`),
+    `config.helix.assistants[].agent_type`, `config.helix.default_agent_type`.
 
 ## How to identify each category
 
 **External agent** (keep): an app where any assistant has
 `agent_type === AGENT_TYPE_ZED_EXTERNAL`, OR `config.helix.default_agent_type === AGENT_TYPE_ZED_EXTERNAL`.
-This is the exact predicate already used to compute `zedExternalApps` today.
+- `SwitchAgentControl` today checks only the assistants array; the details panel also checks
+  `default_agent_type`. We keep the **more inclusive** predicate (assistants OR
+  `default_agent_type`) and use the same one in both places for consistency.
 
 **Owned by Helix org** (exclude): there is **no hard-coded Helix org id/slug** in the
-codebase. The available, reliable signal for first-party / built-in agents is:
-`app.global === true` OR `app.owner_type === 'system'`. Agents created by the
-user/org for spec tasks have `global === false` and `owner_type` of `'user'` or `'org'`.
-We treat `global || owner_type === 'system'` as "owned by the Helix org" and exclude them.
+codebase (confirmed by research). The reliable signal for first-party / built-in agents,
+already exposed on `IApp`, is `app.global === true` OR `app.owner_type === 'system'`.
+User/org-created spec-task agents have `global === false` and `owner_type` of `'user'`/`'org'`.
 
-## Decision: filter, don't sort
+## Decision: one shared filter helper, applied in both components
 
-Replace the current "split into zedExternal + others, then concatenate" logic with a
-single filter:
+Add a small reusable predicate (e.g. in a shared util or co-located and used by both) to
+avoid divergence:
 
 ```ts
-const isExternal = (app: IApp) =>
+export const isExternalAgent = (app: IApp) =>
   app.config?.helix?.assistants?.some(a => a.agent_type === AGENT_TYPE_ZED_EXTERNAL) ||
   app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL;
 
-const isHelixOrgOwned = (app: IApp) =>
+export const isHelixOrgAgent = (app: IApp) =>
   app.global === true || app.owner_type === 'system';
 
+export const isSpecTaskSwitchableAgent = (app: IApp) =>
+  isExternalAgent(app) && !isHelixOrgAgent(app);
+```
+
+**SwitchAgentControl** — replace the `eligibleAgents` filter with
+`apps.apps.filter(isSpecTaskSwitchableAgent)`. The current agent (`session.parent_app`)
+already stays visible as the dropdown value, so no extra re-add step is strictly required,
+but if the active agent should appear as a selectable row, include it explicitly when missing.
+
+**Details panel** — replace `sortedApps` with an `eligibleApps` memo:
+```ts
 const eligibleApps = useMemo(() => {
-  const list = (apps.apps ?? []).filter(
-    app => isExternal(app) && !isHelixOrgOwned(app),
-  );
-  // Keep the currently-assigned agent visible even if it would be filtered out.
+  const list = (apps.apps ?? []).filter(isSpecTaskSwitchableAgent);
   if (selectedAgent && !list.some(a => a.id === selectedAgent)) {
     const current = apps.apps?.find(a => a.id === selectedAgent);
-    if (current) list.unshift(current);
+    if (current) list.unshift(current); // keep current selection valid (US-3)
   }
   return list;
 }, [apps.apps, selectedAgent]);
 ```
-
-`eligibleApps` then replaces `sortedApps` as the `agents` prop. (Rename or keep the
-variable name — either is fine as long as it's consistent.)
+Pass `eligibleApps` as the `agents` prop and remove the old `sortedApps` logic.
 
 ## Edge cases & rationale
 
-- **Currently-assigned agent excluded by filter** — re-add it (US-2) so the dropdown
-  never renders an empty/invalid selection.
-- **No hard-coded Helix org** — research confirmed no `HELIX_ORG_ID` constant exists.
-  `global`/`owner_type === 'system'` is the closest correct signal for first-party agents
-  and is already exposed on `IApp` to the frontend. If product later defines an explicit
-  Helix org id, swap `isHelixOrgOwned` to use it; the predicate is isolated for that reason.
-- **Empty result** — `AgentDropdown` already tolerates an empty `agents` array (US-3).
+- **Active/assigned agent excluded by filter** (US-3) — keep it visible so neither dropdown
+  renders an empty/invalid selection. `SwitchAgentControl` already tolerates this via its
+  value handling; the details panel needs the explicit re-add shown above.
+- **No hard-coded Helix org** — `global`/`owner_type === 'system'` is the closest correct
+  signal and is already on `IApp`. The `isHelixOrgAgent` predicate is isolated so it can be
+  swapped for an explicit Helix org id later if product defines one.
+- **Empty result** (US-4) — `AgentDropdown` already tolerates an empty `agents` array.
 
 ## Testing
 
-- Manual: open a spec task details page; confirm the dropdown lists only external,
-  non-global/non-system agents; confirm a previously-assigned (now-filtered) agent still
-  shows and stays selected; confirm switching still persists `helix_app_id`.
-- If a unit/component test exists for `sortedApps`, update it; otherwise a small test of
-  the filter predicates is sufficient.
+- Manual: open a spec task with a running session. Confirm the top live-switch dropdown
+  lists only external, non-global/non-system agents; confirm the details-panel dropdown
+  matches; confirm an active/assigned agent that would be filtered still shows and stays
+  selected; confirm switching still works (in-place switch persists / `helix_app_id` updates).
+- Add a small unit test for the `isSpecTaskSwitchableAgent` predicate covering: external
+  user-owned (keep), external global/system (drop), non-external (drop).
