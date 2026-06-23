@@ -38,3 +38,10 @@
 - [x] `CGO_ENABLED=0 go build ./api/pkg/...` passes
 - [x] `CGO_ENABLED=0 go test ./api/pkg/server/ ./api/pkg/external-agent/` — all tests pass
 - [ ] `cd frontend && yarn tsc && yarn build` — TypeScript compiler not available in this environment
+
+## End-to-end verification (local dev stack)
+
+- [x] Models endpoint returns tier-level shorthand: `{"id":"opus",...}`, `{"id":"sonnet",...}`, `{"id":"haiku",...}`
+- [x] Subscription dropdown shows "Claude Opus (recommended)", "Claude Sonnet", "Claude Haiku"
+- [x] Creating a project with subscription mode stores `claude_subscription_model: "opus"` in DB
+- [ ] Live container test: verify Claude Code's `resolveModelPreference()` resolves `"opus"` → `claude-opus-4-8` (requires running session)
