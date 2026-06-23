@@ -10,28 +10,31 @@
 
 ## Backend — switch to shorthand identifiers
 
-- [~] Update default in `api/pkg/server/zed_config_handlers.go:677` — change `"claude-opus-4-6"` to `"opus"`
-- [ ] Update `listClaudeModels` in `api/pkg/server/claude_subscription_handlers.go:303-307` — change model IDs to `"opus"`, `"sonnet"`, `"haiku"` and names to `"Claude Opus"`, `"Claude Sonnet"`, `"Claude Haiku"` (drop version numbers)
-- [ ] Update doc comment on `ClaudeSubscriptionModel` in `api/pkg/types/types.go:1570` — change `"claude-opus-4-6"` to `"opus"`
+- [x] Update default in `api/pkg/server/zed_config_handlers.go:677` — change `"claude-opus-4-6"` to `"opus"`
+- [x] Update `listClaudeModels` in `api/pkg/server/claude_subscription_handlers.go:303-307` — change model IDs to `"opus"`, `"sonnet"`, `"haiku"` and names to `"Claude Opus"`, `"Claude Sonnet"`, `"Claude Haiku"` (drop version numbers)
+- [x] Update doc comment on `ClaudeSubscriptionModel` in `api/pkg/types/types.go:1570` — change `"claude-opus-4-6"` to `"opus"`
+- [x] Update settings-sync-daemon comment to document shorthand resolution
 
 ## Backend — fix normalizer (API-key path)
 
-- [ ] Add `claude-opus-4-8` and `claude-opus-4-7` prefix entries to `normalizeModelIDForZed` in `api/pkg/external-agent/zed_config.go` (before the generic `claude-opus-4` catch-all at line 562)
-- [ ] Add test cases for `claude-opus-4-7` → `claude-opus-4-7-latest` and `claude-opus-4-8` → `claude-opus-4-8-latest` in `api/pkg/external-agent/zed_config_test.go`
+- [x] Add `claude-opus-4-8` and `claude-opus-4-7` prefix entries to `normalizeModelIDForZed` in `api/pkg/external-agent/zed_config.go` (before the generic `claude-opus-4` catch-all at line 562)
+- [x] Add test cases for `claude-opus-4-7` → `claude-opus-4-7-latest` and `claude-opus-4-8` → `claude-opus-4-8-latest` in `api/pkg/external-agent/zed_config_test.go`
 
 ## Frontend — update to tier-level labels
 
-- [ ] In `CodingAgentForm.tsx`: change `CLAUDE_SUBSCRIPTION_MODELS` IDs to `"opus"`, `"sonnet"`, `"haiku"` and labels to `"Claude Opus (recommended)"`, `"Claude Sonnet"`, `"Claude Haiku"`; change `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL` to `"opus"`
-- [ ] In `AppSettings.tsx`: update the subscription model reference to use `"opus"` as default
-- [ ] Update `DEFAULT_ONBOARDING_AGENT_MODEL` in `frontend/src/pages/Onboarding.tsx:62` from `claude-opus-4-6` to `claude-opus-4-8` (this is the API-key path — needs a concrete ID, not a shorthand)
+- [x] In `CodingAgentForm.tsx`: change `CLAUDE_SUBSCRIPTION_MODELS` IDs to `"opus"`, `"sonnet"`, `"haiku"` and labels to `"Claude Opus (recommended)"`, `"Claude Sonnet"`, `"Claude Haiku"`; change `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL` to `"opus"`
+- [x] In `AppSettings.tsx`: no changes needed — imports from CodingAgentForm, automatically picks up the new constants
+- [x] Update `DEFAULT_ONBOARDING_AGENT_MODEL` in `frontend/src/pages/Onboarding.tsx:62` from `claude-opus-4-6` to `claude-opus-4-8` (this is the API-key path — needs a concrete ID, not a shorthand)
+- [x] Add `claude-opus-4-8` to `RECOMMENDED_CODING_MODELS` in `frontend/src/constants/models.ts` as first entry
 
 ## Tests
 
-- [ ] Update `api/pkg/server/zed_config_handlers_test.go` — expected default model from `claude-opus-4-6` to `opus`
-- [ ] Update `api/cmd/settings-sync-daemon/main_test.go:63` — test fixture model from `claude-opus-4-6` to `opus`
-- [ ] Regenerate OpenAPI (`./stack update_openapi`) to update doc comment in generated files
+- [x] Update `api/pkg/server/zed_config_handlers_test.go` — expected default model from `claude-opus-4-6` to `opus`
+- [x] `api/cmd/settings-sync-daemon/main_test.go:63` — no change needed (tests Zed injection skip logic, not subscription default)
+- [ ] Regenerate OpenAPI (`./stack update_openapi`) to update doc comment in generated files — `./stack` not available in this environment, will be done post-merge
 
 ## Build verification
 
-- [ ] `go build ./pkg/...` and `CGO_ENABLED=1 go test ./pkg/server/ ./pkg/external-agent/` pass
-- [ ] `cd frontend && yarn tsc && yarn build` pass
+- [x] `CGO_ENABLED=0 go build ./api/pkg/...` passes
+- [x] `CGO_ENABLED=0 go test ./api/pkg/server/ ./api/pkg/external-agent/` — all tests pass
+- [ ] `cd frontend && yarn tsc && yarn build` — TypeScript compiler not available in this environment
