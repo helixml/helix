@@ -33,6 +33,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import type { TypesServiceConnectionResponse, TypesServiceConnectionCreateRequest } from '../../api/api'
 import { TypesServiceConnectionType } from '../../api/api'
+import SlackAppSetup from './SlackAppSetup'
 
 const ServiceConnectionsTable: FC = () => {
   const api = useApi()
@@ -64,6 +65,8 @@ const ServiceConnectionsTable: FC = () => {
   const [slackSigningSecret, setSlackSigningSecret] = useState('')
   const [slackAppToken, setSlackAppToken] = useState('')
   const [slackBotToken, setSlackBotToken] = useState('')
+
+  const [slackSetupOpen, setSlackSetupOpen] = useState(false)
 
   const isGithub = connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
   const isSlackApp = connectionType === TypesServiceConnectionType.ServiceConnectionTypeSlackApp
@@ -460,12 +463,24 @@ const ServiceConnectionsTable: FC = () => {
               </>
             ) : isSlackApp ? (
               <>
-                <Alert severity="info" sx={{ mb: 1 }}>
-                  The single deployment-wide Slack app. Org admins then install it into their own
-                  workspaces (REST) — or, self-hosted, run it in Socket Mode against one workspace.
-                  Create the app at api.slack.com/apps. Redirect URL: <code>/api/v1/slack/oauth/callback</code>;
-                  Events Request URL: <code>/api/v1/slack/events</code>.
-                </Alert>
+                <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    One Slack app for the whole deployment
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    This is the single Helix Slack app. Org admins install <em>this</em> app into their own
+                    Slack workspaces from their org Settings — they never create their own. Create it once at
+                    api.slack.com, then paste its credentials below.
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={{ mt: 1.5 }}
+                    onClick={() => setSlackSetupOpen(true)}
+                  >
+                    View setup instructions
+                  </Button>
+                </Box>
                 <FormControl fullWidth>
                   <InputLabel>Ingress Mode</InputLabel>
                   <Select
@@ -585,6 +600,12 @@ const ServiceConnectionsTable: FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <SlackAppSetup
+        open={slackSetupOpen}
+        onClose={() => setSlackSetupOpen(false)}
+        ingressMode={slackIngressMode === 'socket' ? 'socket' : 'rest'}
+      />
     </Card>
   )
 }
