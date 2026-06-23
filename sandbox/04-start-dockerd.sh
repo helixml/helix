@@ -158,7 +158,7 @@ until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
         echo "Check dockerd logs above for details"
-        return 1  # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
+        exit 1
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
     sleep 1
@@ -186,7 +186,12 @@ echo "✅ iptables FORWARD policy set to ACCEPT"
 #
 # Usage: load_desktop_image <name> <required>
 #   name: desktop name (sway, zorin, ubuntu)
-#   required: "true" if missing image is a warning, "false" for info
+#   required: "true" if missing image is FATAL (return 1), "false" for skip
+#
+# Return codes:
+#   0: image present (already loaded, re-tagged, or freshly pulled), OR
+#      image not configured / pull failed AND required="false" (skip silently)
+#   1: image not configured or pull failed AND required="true" (caller must abort)
 load_desktop_image() {
     local NAME="$1"
     local REQUIRED="${2:-false}"
@@ -266,12 +271,16 @@ load_desktop_image() {
 
     # Image not available
     if [ "$REQUIRED" = "true" ]; then
-        echo "⚠️  ${IMAGE_NAME} not available"
+        echo "❌ FATAL: ${IMAGE_NAME} is a REQUIRED production desktop image and is not available."
         echo "   In development: Run './stack build-${NAME}' to build and transfer"
-        echo "   In production: Check .ref file and registry access"
-    else
-        echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
+        echo "   In production: Check .ref file, registry access, and free disk space."
+        echo "   Boot will abort so the operator can fix this rather than silently"
+        echo "   running a sandbox host that cannot launch any sessions."
+        return 1
     fi
+
+    echo "ℹ️  ${IMAGE_NAME} not configured (optional)"
+    return 0
 }
 
 # Load desktop images.
@@ -283,8 +292,17 @@ load_desktop_image() {
 PRODUCTION_DESKTOPS=("ubuntu")
 AVAILABLE_EXPERIMENTAL_DESKTOPS=("sway" "zorin" "xfce" "kde")
 
+# Production desktops MUST load successfully. If load_desktop_image returns
+# non-zero (image missing or pull failed) we hard-fail the boot here rather
+# than continuing and letting hydra fail every sandbox-create later with a
+# confusing "No such image" error. See the function's return-code contract
+# above. This script is executed (not sourced) by s6-overlay at
+# /etc/cont-init.d/40-start-dockerd.sh, so use `exit` to abort the boot.
 for desktop in "${PRODUCTION_DESKTOPS[@]}"; do
-    load_desktop_image "$desktop" "false"
+    if ! load_desktop_image "$desktop" "true"; then
+        echo "❌ Aborting sandbox boot: required production desktop '${desktop}' is not available."
+        exit 1
+    fi
 done
 
 declare -A ENABLED_EXPERIMENTAL=()
