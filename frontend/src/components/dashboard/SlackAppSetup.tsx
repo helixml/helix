@@ -38,7 +38,12 @@ const BOT_SCOPES = [
   'chat:write.customize',
 ]
 
-const BOT_EVENTS = ['app_mention', 'message.channels', 'message.groups', 'message.im', 'message.mpim']
+// Each message.* event requires its matching *:history scope, and these
+// must stay in sync with BOT_SCOPES (and the backend's
+// defaultSlackBotScopes used for the OAuth install). message.mpim is
+// omitted because group-DM (mpim:history) isn't in the requested scopes —
+// adding it back means adding mpim:history to both scope lists.
+const BOT_EVENTS = ['app_mention', 'message.channels', 'message.groups', 'message.im']
 
 // buildManifest returns a Slack app manifest pre-filled for this
 // deployment. REST embeds the OAuth redirect URL and disables Socket
