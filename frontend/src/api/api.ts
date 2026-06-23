@@ -1864,6 +1864,10 @@ export interface ServerAddLabelRequest {
   label?: string;
 }
 
+export interface ServerConnectSlackWorkspaceRequest {
+  bot_token?: string;
+}
+
 export interface ServerOpenaiModelEntry {
   created?: number;
   id?: string;
@@ -12404,6 +12408,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/slack/workspaces`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesCreate
+     * @summary Connect a Slack workspace by bot token
+     * @request POST:/api/v1/orgs/{org}/slack/workspaces
+     * @secure
+     */
+    v1OrgsSlackWorkspacesCreate: (
+      org: string,
+      request: ServerConnectSlackWorkspaceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse, any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

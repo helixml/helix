@@ -13,6 +13,7 @@ import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import TextField from '@mui/material/TextField'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -26,6 +27,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import {
   useListSlackWorkspaces,
   useStartSlackInstall,
+  useConnectSlackWorkspace,
   useDisconnectSlackWorkspace,
 } from '../../services/helixOrgService'
 
@@ -33,11 +35,14 @@ const SlackIntegrationsPanel: FC = () => {
   const snackbar = useSnackbar()
   const { data: workspaces = [], isLoading } = useListSlackWorkspaces()
   const startInstall = useStartSlackInstall()
+  const connectToken = useConnectSlackWorkspace()
   const disconnect = useDisconnectSlackWorkspace()
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [current, setCurrent] = useState<any | null>(null)
   const [deleting, setDeleting] = useState<any | undefined>()
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualToken, setManualToken] = useState('')
 
   const handleInstall = async () => {
     try {
@@ -45,6 +50,18 @@ const SlackIntegrationsPanel: FC = () => {
       window.location.href = url
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'Slack is not configured by the administrator yet')
+    }
+  }
+
+  const handleConnectToken = async () => {
+    if (!manualToken.trim()) return
+    try {
+      await connectToken.mutateAsync(manualToken.trim())
+      snackbar.success('Workspace connected')
+      setManualToken('')
+      setManualOpen(false)
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'Could not connect workspace')
     }
   }
 
@@ -103,6 +120,36 @@ const SlackIntegrationsPanel: FC = () => {
         >
           Install to Slack
         </Button>
+      </Box>
+
+      {/* Manual / Socket Mode connect: paste a bot token. On-prem (Socket
+          Mode) has no OAuth, so the workspace is connected this way. */}
+      <Box sx={{ mt: 1 }}>
+        {!manualOpen ? (
+          <Button size="small" variant="text" onClick={() => setManualOpen(true)} sx={{ px: 0 }}>
+            Or connect with a bot token (Socket Mode / on-prem)
+          </Button>
+        ) : (
+          <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: 1 }}>
+            <TextField
+              size="small"
+              fullWidth
+              type="password"
+              label="Bot User OAuth Token"
+              placeholder="xoxb-…"
+              value={manualToken}
+              onChange={(e) => setManualToken(e.target.value)}
+              helperText="From your Slack app's OAuth & Permissions page, after installing it into the workspace."
+            />
+            <Button variant="contained" size="small" sx={{ mt: 0.5 }} onClick={handleConnectToken}
+              disabled={!manualToken.trim() || connectToken.isPending}>
+              Connect
+            </Button>
+            <Button size="small" sx={{ mt: 0.5 }} onClick={() => { setManualOpen(false); setManualToken('') }}>
+              Cancel
+            </Button>
+          </Stack>
+        )}
       </Box>
 
       {!isLoading && workspaces.length === 0 ? (

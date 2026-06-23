@@ -958,6 +958,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 			// org-scope middleware.
 			authRouter.HandleFunc("/orgs/{org}/slack/oauth/start", apiServer.slackOAuthStart).Methods(http.MethodGet)
 			authRouter.HandleFunc("/orgs/{org}/slack/workspaces", apiServer.listSlackWorkspaces).Methods(http.MethodGet)
+			authRouter.HandleFunc("/orgs/{org}/slack/workspaces", apiServer.connectSlackWorkspace).Methods(http.MethodPost)
 			authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", apiServer.deleteSlackWorkspace).Methods(http.MethodDelete)
 
 			authRouter.PathPrefix("/orgs/{org}/").Handler(

@@ -158,6 +158,24 @@ export function useStartSlackInstall() {
   })
 }
 
+// useConnectSlackWorkspace connects a workspace from a pasted bot token
+// (Socket Mode / on-prem — no OAuth). The backend auth.tests the token,
+// derives the team, and stores a slack_workspace connection.
+export function useConnectSlackWorkspace() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (botToken: string) => {
+      const res = await api.getApiClient().v1OrgsSlackWorkspacesCreate(orgID, { bot_token: botToken })
+      return res.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['helix-org', orgID, 'slack-workspaces'] })
+    },
+  })
+}
+
 export function useDisconnectSlackWorkspace() {
   const api = useApi()
   const qc = useQueryClient()

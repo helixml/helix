@@ -64,7 +64,6 @@ const ServiceConnectionsTable: FC = () => {
   const [slackClientSecret, setSlackClientSecret] = useState('')
   const [slackSigningSecret, setSlackSigningSecret] = useState('')
   const [slackAppToken, setSlackAppToken] = useState('')
-  const [slackBotToken, setSlackBotToken] = useState('')
 
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
 
@@ -156,7 +155,6 @@ const ServiceConnectionsTable: FC = () => {
     setSlackClientSecret('')
     setSlackSigningSecret('')
     setSlackAppToken('')
-    setSlackBotToken('')
   }
 
   const handleCreate = () => {
@@ -177,7 +175,6 @@ const ServiceConnectionsTable: FC = () => {
       if (slackClientSecret) req.slack_client_secret = slackClientSecret
       if (slackSigningSecret) req.slack_signing_secret = slackSigningSecret
       if (slackAppToken) req.slack_app_token = slackAppToken
-      if (slackBotToken) req.slack_bot_token = slackBotToken
     } else {
       req.ado_organization_url = adoOrgUrl
       req.ado_tenant_id = adoTenantId
@@ -199,10 +196,10 @@ const ServiceConnectionsTable: FC = () => {
       if (isNaN(installIdNum) || installIdNum <= 0) return false
       return !!githubPrivateKey.trim()
     } else if (isSlackApp) {
-      // REST install needs client id/secret + signing secret; Socket Mode
-      // needs app + bot tokens. Require the set matching the chosen mode.
+      // REST needs client id/secret + signing secret; Socket Mode needs only
+      // the app-level token (bot tokens are added per-workspace, not here).
       if (slackIngressMode === 'socket') {
-        return !!slackAppToken.trim() && !!slackBotToken.trim()
+        return !!slackAppToken.trim()
       }
       return !!slackClientId.trim() && !!slackClientSecret.trim() && !!slackSigningSecret.trim()
     } else {
@@ -529,17 +526,12 @@ const ServiceConnectionsTable: FC = () => {
                       type="password"
                       value={slackAppToken}
                       onChange={(e) => setSlackAppToken(e.target.value)}
-                      helperText="Basic Information → App-Level Tokens (connections:write)"
+                      helperText="Basic Information → App-Level Tokens (connections:write). This opens the socket; bot tokens are added per-workspace."
                     />
-                    <TextField
-                      label="Bot Token (xoxb-…)"
-                      fullWidth
-                      required
-                      type="password"
-                      value={slackBotToken}
-                      onChange={(e) => setSlackBotToken(e.target.value)}
-                      helperText="OAuth & Permissions → Bot User OAuth Token"
-                    />
+                    <Typography variant="caption" color="text.secondary">
+                      No bot token here — each workspace is connected separately (its bot token is
+                      pasted on that org's Settings → Slack page), just like the REST install.
+                    </Typography>
                   </>
                 )}
               </>

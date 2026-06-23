@@ -100,9 +100,8 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
         { step: 1, text: 'Go to api.slack.com/apps and click "Create New App" → "From a manifest".', link: 'https://api.slack.com/apps', image: createSlackAppScreenshot },
         { step: 2, text: 'Choose the workspace that will manage this app — the one allowed to configure it. The app can still be installed into other workspaces.' },
         { step: 3, text: 'Paste this manifest (Socket Mode enabled — events arrive over a WebSocket, no public URL needed), then click "Create".', image: createSlackAppManifest, below: <CopyableCodeBlock code={manifest} /> },
-        { step: 4, text: 'Open "Basic Information" → "App-Level Tokens" and generate a token with the connections:write scope. Copy the xapp- token into the form below.', image: createSlackAppToken },
-        { step: 5, text: 'Open "Install App", install to the workspace, and copy the Bot User OAuth Token (xoxb-) into the form below.', image: createSlackAppInstall },
-        { step: 6, text: 'Save. Helix opens the Socket Mode connection automatically — no Redirect or Request URL required.' },
+        { step: 4, text: 'Open "Basic Information" → "App-Level Tokens" and generate a token with the connections:write scope. Copy the xapp- token into the form below and Save. This opens the socket.', image: createSlackAppToken },
+        { step: 5, text: 'Connect each workspace separately: install the app into a workspace, then paste its Bot User OAuth Token (xoxb-) on that org\'s Settings → Slack page. No bot token goes here — one socket serves every connected workspace.', image: createSlackAppInstall },
       ]
 
   return (

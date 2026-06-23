@@ -10024,6 +10024,50 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Connect a Slack workspace by bot token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bot token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.connectSlackWorkspaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/orgs/{org}/slack/workspaces/{id}": {
@@ -25411,6 +25455,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "label": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.connectSlackWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "bot_token": {
                     "type": "string"
                 }
             }

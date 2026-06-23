@@ -98,11 +98,13 @@ func (w *slackWorkspaces) ByID(ctx context.Context, id string) (slacktransport.W
 
 // runSlackSocketMode runs the Socket Mode ingress until ctx is
 // cancelled, but only when the global app is configured with
-// ingress_mode=socket and has both an app-level token and a bot token.
-// Otherwise it logs why and returns immediately (REST-only deployments
-// never open a socket). Single-replica: a nil SingleOwner means this
-// process always owns the connection; a pg advisory lock can gate
-// multi-replica later.
+// ingress_mode=socket and an app-level token. The socket connection
+// needs ONLY the app-level token (xapp-) — the bot token is per-workspace
+// and is resolved from the slack_workspace ServiceConnection by team_id,
+// exactly like REST. So one socket can serve multiple workspaces, each
+// connected by pasting its bot token. Single-replica: a nil SingleOwner
+// means this process always owns the connection; a pg advisory lock can
+// gate multi-replica later.
 func (s *HelixAPIServer) runSlackSocketMode(ctx context.Context, ingest *slacktransport.Ingest, logger *slog.Logger) {
 	app, err := s.getGlobalSlackApp(ctx)
 	if err != nil {
@@ -113,8 +115,8 @@ func (s *HelixAPIServer) runSlackSocketMode(ctx context.Context, ingest *slacktr
 		logger.Info("slack.socketmode: ingress mode is not 'socket' — not starting", "mode", app.SlackIngressMode)
 		return
 	}
-	if app.SlackAppToken == "" || app.SlackBotToken == "" {
-		logger.Warn("slack.socketmode: socket mode requires both an app token and a bot token — not starting")
+	if app.SlackAppToken == "" {
+		logger.Warn("slack.socketmode: socket mode requires an app-level token — not starting")
 		return
 	}
 	key, err := s.getEncryptionKey()
@@ -127,13 +129,10 @@ func (s *HelixAPIServer) runSlackSocketMode(ctx context.Context, ingest *slacktr
 		logger.Error("slack.socketmode: decrypt app token", "err", err)
 		return
 	}
-	botToken, err := crypto.DecryptAES256GCM(app.SlackBotToken, key)
-	if err != nil {
-		logger.Error("slack.socketmode: decrypt bot token", "err", err)
-		return
-	}
 
-	connector := slackcore.NewConnector(string(appToken), string(botToken), "", logger)
+	// Connect with the app token alone; per-workspace bot tokens are
+	// resolved downstream (ingest → workspace by team_id) for any posting.
+	connector := slackcore.NewConnector(string(appToken), "", "", logger)
 	runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
 	logger.Info("slack.socketmode: starting")
 	if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
@@ -295,6 +294,88 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 
 	// Redirect back to the org's integrations UI.
 	http.Redirect(w, r, fmt.Sprintf("/orgs/%s?slack_installed=1", url.PathEscape(orgID)), http.StatusFound)
+}
+
+// connectSlackWorkspaceRequest is the body of the manual
+// (Socket Mode / on-prem) workspace connect: the operator pastes the bot
+// token they got by installing the app into their workspace.
+type connectSlackWorkspaceRequest struct {
+	BotToken string `json:"bot_token"`
+}
+
+// connectSlackWorkspace (POST /api/v1/orgs/{org}/slack/workspaces) connects
+// a Slack workspace to an org from a pasted bot token. This is the
+// Socket Mode / on-prem counterpart to the REST OAuth install: there's no
+// OAuth redirect, so the operator installs the app into their workspace
+// and pastes the resulting xoxb- token. We auth.test it to derive the
+// team id / name / bot user, then persist a slack_workspace connection —
+// the same row shape the OAuth flow produces, so inbound/outbound resolve
+// it identically by team_id.
+// @Summary Connect a Slack workspace by bot token
+// @Description Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)
+// @Tags slack
+// @Accept json
+// @Produce json
+// @Param org path string true "Organization ID or slug"
+// @Param request body connectSlackWorkspaceRequest true "Bot token"
+// @Success 201 {object} types.ServiceConnectionResponse
+// @Router /api/v1/orgs/{org}/slack/workspaces [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req connectSlackWorkspaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.BotToken == "" {
+		http.Error(w, "bot_token is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the token and derive the workspace identity.
+	id, err := slackcore.AuthTest(r.Context(), slackcore.New(req.BotToken, ""))
+	if err != nil {
+		http.Error(w, "Bot token rejected by Slack: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	install := slackcore.Install{
+		BotToken:  req.BotToken,
+		TeamID:    id.TeamID,
+		TeamName:  id.Team,
+		BotUserID: id.UserID,
+	}
+	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install); err != nil {
+		http.Error(w, "Failed to save workspace: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the freshly-stored workspace.
+	conns, _ := s.Store.ListServiceConnectionsByType(r.Context(), org.ID, types.ServiceConnectionTypeSlackWorkspace)
+	for _, c := range conns {
+		if c.SlackTeamID == id.TeamID {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(c.ToResponse())
+			return
+		}
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 
 // upsertSlackWorkspace creates or updates the org's slack_workspace

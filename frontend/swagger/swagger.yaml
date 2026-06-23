@@ -2911,6 +2911,11 @@ definitions:
       label:
         type: string
     type: object
+  server.connectSlackWorkspaceRequest:
+    properties:
+      bot_token:
+        type: string
+    type: object
   server.openaiModelEntry:
     properties:
       created:
@@ -18350,6 +18355,35 @@ paths:
       security:
       - BearerAuth: []
       summary: List org Slack workspaces
+      tags:
+      - slack
+    post:
+      consumes:
+      - application/json
+      description: Connect a Slack workspace to an org from a bot token (Socket Mode
+        / on-prem)
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.connectSlackWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+      security:
+      - BearerAuth: []
+      summary: Connect a Slack workspace by bot token
       tags:
       - slack
   /api/v1/orgs/{org}/slack/workspaces/{id}:
