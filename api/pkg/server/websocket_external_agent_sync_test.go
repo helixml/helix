@@ -3468,3 +3468,49 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_ExistingThread_NoSessionMapping
 	s.server.contextMappingsMutex.RUnlock()
 	s.False(ok, "same-thread continuation must NOT register a mapping (would leak — no thread_created consumes it)")
 }
+
+// TestLockPromptDrainSerializesPerSession verifies the per-session drain lock
+// (a) serialises concurrent drains for the SAME session — the core fix for the
+// out-of-order dispatch race — and (b) does NOT block drains for DIFFERENT
+// sessions. See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
+func TestLockPromptDrainSerializesPerSession(t *testing.T) {
+	apiServer := &HelixAPIServer{}
+
+	// (a) Same session: a held lock must block a second acquisition until released.
+	unlock := apiServer.lockPromptDrain("ses_same")
+	acquired := make(chan struct{})
+	go func() {
+		release := apiServer.lockPromptDrain("ses_same")
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("second lockPromptDrain for the same session acquired while first was held — not serialised")
+	case <-time.After(100 * time.Millisecond):
+		// expected: still blocked
+	}
+	unlock()
+	select {
+	case <-acquired:
+		// expected: unblocked after release
+	case <-time.After(time.Second):
+		t.Fatal("second lockPromptDrain did not acquire after the first was released")
+	}
+
+	// (b) Different session: must not block even while ses_same's lock is held.
+	hold := apiServer.lockPromptDrain("ses_same")
+	defer hold()
+	other := make(chan struct{})
+	go func() {
+		release := apiServer.lockPromptDrain("ses_other")
+		close(other)
+		release()
+	}()
+	select {
+	case <-other:
+		// expected: different session is independent
+	case <-time.After(time.Second):
+		t.Fatal("lockPromptDrain for a different session blocked — lock is not per-session")
+	}
+}

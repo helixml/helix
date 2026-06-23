@@ -214,6 +214,10 @@ export function usePromptHistory({
 }: UsePromptHistoryOptions): UsePromptHistoryReturn {
   // Load initial state from localStorage
   const [history, setHistory] = useState<PromptHistoryEntry[]>(() => loadHistory(specTaskId))
+  // Mirror of the latest history for synchronous reads in event handlers (e.g.
+  // updateInterrupt's immediate push) without depending on a stale closure.
+  const historyRef = useRef<PromptHistoryEntry[]>(history)
+  historyRef.current = history
   const [draft, setDraftState] = useState<string>(() => loadDraft(sessionId))
   const [historyIndex, setHistoryIndex] = useState(-1)  // -1 = current draft, 0+ = history
 
@@ -701,7 +705,28 @@ export function usePromptHistory({
       saveHistory(updated, specTaskId)
       return updated
     })
-  }, [specTaskId])
+
+    // Persist the interrupt flag IMMEDIATELY rather than waiting for the
+    // SYNC_DEBOUNCE_MS batched sync. Interrupt is an intent-bearing escalation:
+    // if the backend drains the queue (current turn completes) before the
+    // debounced sync lands, the escalation is silently lost and the prompt is
+    // dispatched as a plain queue message — which can also reorder it relative
+    // to a sibling. A targeted single-entry push closes that window.
+    // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
+    const existing = historyRef.current.find(h => h.id === id)
+    if (existing && apiClient && specTaskId && projectId && navigator.onLine) {
+      syncPromptHistory(apiClient, projectId, specTaskId, [{ ...existing, interrupt }])
+        .then(() => {
+          setHistory(prev =>
+            prev.map(h => (h.id === id ? { ...h, syncedToBackend: true } : h))
+          )
+        })
+        .catch(e => {
+          // Leave syncedToBackend=false so the debounced sync retries.
+          console.warn('[PromptHistory] Failed to flush interrupt toggle immediately:', e)
+        })
+    }
+  }, [specTaskId, apiClient, projectId])
 
   // Remove a message from queue by marking it as deleted (tombstone).
   // The entry stays in localStorage to prevent re-import from backend on sync.

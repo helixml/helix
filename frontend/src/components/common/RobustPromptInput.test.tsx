@@ -46,7 +46,7 @@ const mkEntry = (id: string, ts: number, overrides: Partial<PromptHistoryEntry> 
   ...overrides,
 })
 
-describe('RobustPromptInput empty-Enter promotes most-recent queued to interrupt', () => {
+describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', () => {
   beforeEach(() => {
     updateInterrupt.mockClear()
     saveToHistory.mockClear()
@@ -68,7 +68,7 @@ describe('RobustPromptInput empty-Enter promotes most-recent queued to interrupt
     fireEvent.keyDown(textarea!, { key: 'Enter', shiftKey: false })
   }
 
-  it('flips the highest-timestamp pending non-interrupt entry to interrupt', () => {
+  it('flips the lowest-timestamp (oldest) pending non-interrupt entry to interrupt', () => {
     pendingPrompts = [
       mkEntry('a', 1000),
       mkEntry('b', 3000),
@@ -77,7 +77,7 @@ describe('RobustPromptInput empty-Enter promotes most-recent queued to interrupt
     const { container } = renderInput()
     pressEnter(container)
     expect(updateInterrupt).toHaveBeenCalledTimes(1)
-    expect(updateInterrupt).toHaveBeenCalledWith('b', true)
+    expect(updateInterrupt).toHaveBeenCalledWith('a', true)
     expect(saveToHistory).not.toHaveBeenCalled()
   })
 

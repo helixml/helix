@@ -941,9 +941,13 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
 
   // Handle key events
   // Enter = queue mode (non-interrupt), Ctrl+Enter = interrupt mode
-  // Empty Enter (no draft, no attachments) = promote the most recent queued
-  // entry to interrupt mode, which dispatches it immediately via the existing
-  // sync loop. Equivalent to clicking the lightning icon on that queue item.
+  // Empty Enter (no draft, no attachments) = promote the OLDEST queued entry to
+  // interrupt mode, which dispatches it immediately via the existing sync loop.
+  // Equivalent to clicking the lightning icon on that queue item.
+  // Oldest-first (not most-recent) so repeated empty-Enter escalates the queue in
+  // FIFO order — promoting the newest would dispatch it ahead of older queued
+  // messages, reordering the conversation.
+  // See design/2026-06-23-queue-drain-out-of-order-dispatch.md.
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -954,7 +958,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       // Empty field: promote most-recent queued entry to interrupt instead of sending nothing.
       if (!content && attachments.length === 0) {
         if (disabled) return
-        // Promote the most-recent NON-interrupt queued message to interrupt.
+        // Promote the OLDEST NON-interrupt queued message to interrupt.
         // Scans queuedPrompts (failed + pending) so a deferred message — the one
         // the user is actually trying to escalate — is still a candidate.
         const candidates = queuedPrompts.filter(p =>
@@ -964,7 +968,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
           p.id !== editingId
         )
         if (candidates.length === 0) return
-        const target = candidates.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+        const target = candidates.reduce((a, b) => (b.timestamp < a.timestamp ? b : a))
         updateInterrupt(target.id, true)
         return
       }

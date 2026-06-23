@@ -290,6 +290,11 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 // processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)
 // Used when the session is busy but user sent an interrupt message
 func (apiServer *HelixAPIServer) processInterruptPrompt(ctx context.Context, sessionID string) {
+	// Serialise drains for this session — see lockPromptDrain. Held across
+	// cancel → send so two rapid interrupts can't cancel + dispatch concurrently
+	// and reorder; the second interrupt cancels the first's freshly-started turn.
+	defer apiServer.lockPromptDrain(sessionID)()
+
 	// Get the next interrupt prompt for this session
 	nextPrompt, err := apiServer.Store.GetNextInterruptPrompt(ctx, sessionID)
 	if err != nil {
