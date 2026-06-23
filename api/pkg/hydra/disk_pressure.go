@@ -36,13 +36,16 @@ import (
 //             configured. This is the original implementation.
 //   - statfs: `syscall.Statfs(2)` against EACH of the configured data paths.
 //             Used as a fallback on non-ZFS hosts (most K8s deployments,
-//             which run on ext4 / xfs / overlay). The K8s helix-sandbox
-//             chart provisions three separate PVCs per pod (docker-storage
-//             /var/lib/docker, hydra-data /hydra-data, workspace-data
-//             /data), and a fill on any one of them stops sandbox starts
-//             (the original incident was a fill of /var/lib/docker mid
-//             image-layer extract). The statfs backend measures every path
-//             and uses the LOWEST free percentage as the admission signal,
+//             which run on ext4 / xfs / overlay). Default measures
+//             /var/lib/docker (image layers, the original ENOSPC site) and
+//             /hydra-data (hydra state, zvol-equivalent storage); these
+//             two exist in every Helix sandbox runtime (K8s chart,
+//             docker-compose dev, Mac UTM VM). The K8s helix-sandbox
+//             chart additionally provisions a workspace-data PVC at
+//             /data; operators on that chart should set
+//             HELIX_DISK_PRESSURE_PATHS="/var/lib/docker,/hydra-data,/data"
+//             to cover it. The statfs backend measures every path and
+//             uses the LOWEST free percentage as the admission signal,
 //             so adding paths only ever makes the guard stricter.
 //
 // Fail policy:
@@ -156,17 +159,23 @@ func poolName() string {
 }
 
 // defaultDiskPressurePaths is the set of filesystem paths the statfs backend
-// measures by default. They correspond 1:1 to the three PVCs the
-// helix-sandbox K8s chart mounts into each pod: /var/lib/docker
-// (docker-storage, image layers), /hydra-data (hydra-data, hydra state and
-// zvol-equivalent storage), /data (workspace-data, per-session workspaces).
-// Statfs-ing only one of these would miss fills on the other two, which is
-// the specific failure mode the multi-path admission check guards against
-// (helix-ubuntu pulls fill /var/lib/docker, not /hydra-data).
+// measures by default. /var/lib/docker (image layers, the original
+// ENOSPC-during-pull site) and /hydra-data (hydra state, zvol-equivalent
+// storage) exist in every Helix sandbox runtime: the K8s helix-sandbox
+// chart, docker-compose dev, and the Mac UTM VM all mount or create them.
+// Statfs-ing only /var/lib/docker would miss fills on /hydra-data, which is
+// the specific failure mode the multi-path admission check guards against.
+//
+// /data (the workspace-data PVC) is deliberately NOT a default: it only
+// exists on the K8s helix-sandbox chart. The previous default included it
+// and that caused fail-closed admission in local dev environments where
+// /data does not exist (statfs ENOENT -> pathENOENT=true -> every start
+// refused). Chart deployments that want /data covered should set
+// HELIX_DISK_PRESSURE_PATHS="/var/lib/docker,/hydra-data,/data" in Helm
+// values; see charts/helix-sandbox/values.yaml sandbox.extraEnv.
 var defaultDiskPressurePaths = []string{
 	"/var/lib/docker",
 	"/hydra-data",
-	"/data",
 }
 
 // diskPressurePaths returns the list of filesystem paths the statfs backend
@@ -178,7 +187,10 @@ var defaultDiskPressurePaths = []string{
 //  2. HELIX_DISK_PRESSURE_PATH (singular, kept for backwards compatibility
 //     with deployments that adopted the original single-path fallback):
 //     used as a one-element list when the plural form is unset.
-//  3. Default: defaultDiskPressurePaths, the three K8s PVC mount points.
+//  3. Default: defaultDiskPressurePaths (/var/lib/docker, /hydra-data) -
+//     paths that exist in every Helix sandbox runtime. K8s chart
+//     deployments wanting /data covered must opt in via the env var; see
+//     defaultDiskPressurePaths for the rationale.
 //
 // The admission check uses the LOWEST free percentage across the returned
 // paths, so adding paths only ever makes the guard stricter.
