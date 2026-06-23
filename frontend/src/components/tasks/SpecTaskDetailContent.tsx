@@ -75,7 +75,8 @@ import {
   useGetSession,
   GET_SESSION_QUERY_KEY,
 } from "../../services/sessionService";
-import { SESSION_TYPE_TEXT, AGENT_TYPE_ZED_EXTERNAL } from "../../types";
+import { SESSION_TYPE_TEXT } from "../../types";
+import { isSpecTaskSwitchableAgent } from "../../utils/apps";
 import {
   useUpdateSpecTask,
   useSpecTask,
@@ -244,23 +245,18 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Chat panel collapse state - when true, uses mobile-style tab layout even on desktop
   const [chatCollapsed, setChatCollapsed] = useState(false);
 
-  // Sort apps: zed_external agents first, then others
-  const sortedApps = useMemo(() => {
+  // Agents the task can switch to: external agents that are not part of the
+  // Helix org chart. The currently-assigned agent is kept visible even if it
+  // would be filtered out, so the dropdown selection stays valid.
+  const eligibleApps = useMemo(() => {
     if (!apps.apps) return [];
-    const zedExternalApps = apps.apps.filter(
-      (app) =>
-        app.config?.helix?.assistants?.some(
-          (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) || app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL,
-    );
-    const otherApps = apps.apps.filter(
-      (app) =>
-        !app.config?.helix?.assistants?.some(
-          (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-        ) && app.config?.helix?.default_agent_type !== AGENT_TYPE_ZED_EXTERNAL,
-    );
-    return [...zedExternalApps, ...otherApps];
-  }, [apps.apps]);
+    const list = apps.apps.filter(isSpecTaskSwitchableAgent);
+    if (selectedAgent && !list.some((a) => a.id === selectedAgent)) {
+      const current = apps.apps.find((a) => a.id === selectedAgent);
+      if (current) list.unshift(current);
+    }
+    return list;
+  }, [apps.apps, selectedAgent]);
 
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
@@ -1453,7 +1449,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         <AgentDropdown
           value={selectedAgent}
           onChange={handleAgentChange}
-          agents={sortedApps}
+          agents={eligibleApps}
           label="Agent"
           disabled={updatingAgent}
           size="small"
