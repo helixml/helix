@@ -85,7 +85,7 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
         { step: 1, text: 'Go to api.slack.com/apps and click "Create New App" → "From a manifest".', link: 'https://api.slack.com/apps', image: createSlackAppScreenshot },
-        { step: 2, text: 'Choose any workspace to author the app in. This is only where the app lives — your org admins install it into their own workspaces, they don\'t create their own.' },
+        { step: 2, text: 'Choose the workspace that will manage this app — the one allowed to configure it. That\'s separate from use: your org admins install it into their own workspaces, they don\'t create their own.' },
         { step: 3, text: 'Paste this manifest (it pre-fills the bot scopes, events, and your Helix OAuth Redirect URL), then click "Create".', image: createSlackAppManifest, below: <CopyableCodeBlock code={manifest} /> },
         { step: 4, text: 'Open "Basic Information" → "App Credentials". Copy the Client ID, Client Secret and Signing Secret into the form below, and Save — Helix needs them before the next step.' },
         { step: 5, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below. Slack verifies it instantly now that Helix has the signing secret.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
@@ -93,7 +93,7 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
       ]
     : [
         { step: 1, text: 'Go to api.slack.com/apps and click "Create New App" → "From a manifest".', link: 'https://api.slack.com/apps', image: createSlackAppScreenshot },
-        { step: 2, text: 'Choose the single workspace this self-hosted Helix will serve.' },
+        { step: 2, text: 'Choose the workspace that will manage this app — the one allowed to configure it. The app can still be installed into other workspaces.' },
         { step: 3, text: 'Paste this manifest (Socket Mode enabled — events arrive over a WebSocket, no public URL needed), then click "Create".', image: createSlackAppManifest, below: <CopyableCodeBlock code={manifest} /> },
         { step: 4, text: 'Open "Basic Information" → "App-Level Tokens" and generate a token with the connections:write scope. Copy the xapp- token into the form below.', image: createSlackAppToken },
         { step: 5, text: 'Open "Install App", install to the workspace, and copy the Bot User OAuth Token (xoxb-) into the form below.', image: createSlackAppInstall },
