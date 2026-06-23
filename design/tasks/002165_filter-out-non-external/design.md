@@ -110,3 +110,39 @@ export const isSpecTaskSwitchableAgent = (app: IApp) =>
   Confirm both dropdowns hide org-chart Worker agents and non-external agents, keep standalone
   external agents (including customer-org-owned), keep the active/assigned agent selected, and
   that in-place switching / `helix_app_id` updates still work.
+
+## Implementation Notes (as built)
+
+- **Backend signal** lives in `markHelixOrgAgents` (`api/pkg/server/app_handlers.go`),
+  called from `listOrganizationApps` only — org-chart Workers are always org-scoped, so the
+  personal/global apps path can't contain them. The flag field is
+  `App.IsHelixOrgAgent bool json:"is_helix_org_agent" gorm:"-"` (computed, not persisted).
+- **Reaching the DB:** `store.Store` does NOT expose `GormDB()` on the interface — only the
+  concrete `*PostgresStore` does. Used the same anonymous-interface accessor pattern that
+  `openOrgStore` (`helix_org.go`) uses: `s.Store.(interface{ GormDB() *gorm.DB })`. A
+  non-Postgres store → no helix-org → no-op.
+- **The query** is a single `Distinct().Pluck()` on `org_worker_runtime_state` filtering
+  `org_id`, `backend='helix'`, `key='agent_app_id'`, `value <> ''`. The key/backend strings
+  are duplicated from `api/pkg/org/infrastructure/runtime/helix/state.go` (`keyAgentAppID` is
+  unexported there, so we can't import it; `Backend` is exported but we kept both literals
+  together for clarity, with a comment pointing at the source of truth).
+- **Org id:** the `organization_id` query param the frontend sends is the canonical `org_…`
+  id, which is exactly what the org subsystem keys `org_worker_runtime_state` by (the org
+  server resolves slug→id via `lookupOrg` before persisting). So no extra `lookupOrg` call is
+  needed here — consistent with the existing `ListApps(OrganizationID: orgID)` call.
+- **Error handling:** a query failure returns HTTPError500 (fail-fast per repo convention),
+  not a silent fallback. The gate (`!HelixOrgEnabled`) prevents touching the table when the
+  feature is off — confirmed safe in the inner Helix where the table doesn't exist.
+- **Frontend predicates** live in `frontend/src/utils/apps.ts` (existing app-utils module):
+  `isExternalAgent`, `isHelixOrgChartAgent`, `isSpecTaskSwitchableAgent`. Both dropdowns
+  import the shared `isSpecTaskSwitchableAgent` so they never diverge. Note the details-panel
+  predicate is now the *more inclusive* external check (assistants OR `default_agent_type`),
+  matching what `sortedApps` used; `SwitchAgentControl` previously only checked assistants —
+  this unifies them.
+- **Gotcha — `AgentDropdown` empty/unknown value:** it uses `renderValue` to look the value
+  up in `agents`; an unknown id shows "Select Agent" (no MUI warning), and an empty list
+  shows a disabled "No agents available" item. To honor US-3 we still re-add the
+  active/assigned agent to the list so its *name* renders, not just a valid selection.
+- **Testing reality:** `HELIX_ORG_ENABLED=false` by default and the inner Helix has no
+  `org_worker_runtime_state` table, so the positive flagging path is unit-tested for the gate
+  only and must be verified on a feature-enabled stack. See tasks.md → Verification.

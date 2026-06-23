@@ -16,4 +16,14 @@
 - [x] Verify the empty-list case renders without errors in both dropdowns — `AgentDropdown` already renders a disabled "No agents available" item when `agents.length === 0`, and `renderValue` falls back to "Select Agent" for an unknown value (no MUI warning). `tsc --noEmit` clean.
 
 ## Verification
-- [ ] Manually verify in an org with org-chart Workers: both dropdowns hide org-chart Worker agents and non-external agents, keep standalone external agents (including customer-org-owned), keep the active/assigned agent selected, and in-place switching / `helix_app_id` updates still work.
+- [x] Verified what is verifiable in this environment (see notes). NOT verified end-to-end: the positive org-chart exclusion path — `HELIX_ORG_ENABLED=false` in the inner Helix and the `org_worker_runtime_state` table does not exist, so no org-chart Workers/agents can be created here.
+
+### What was verified
+- Backend `go build ./pkg/server ./pkg/types` clean; `go test -run Test_markHelixOrgAgents` passes (2 no-op cases). API hot-reloaded (Air) with no compile errors.
+- Frontend `tsc --noEmit` clean; `vitest run src/utils/apps.test.ts` 6/6 pass; no Vite transform errors in `helix-frontend-1`.
+- Confirmed the feature gate is safe: with `HELIX_ORG_ENABLED=false` the table is absent, and `markHelixOrgAgents` returns before any DB access, so the apps listing is unaffected (no-regression guarantee, US-5). When the feature is on, `openOrgStore` AutoMigrate creates the table, so the query target exists.
+
+### Not verified (requires HELIX_ORG_ENABLED + org-chart Workers + a live external-agent session)
+- Org-chart Worker agents actually disappearing from the two dropdowns.
+- The active/assigned agent staying visible when it would be filtered out, against a live session.
+- These need an org with the helix-org feature enabled and at least one hired AI Worker; not available in the inner Helix. Recommend verifying on a stack with `HELIX_ORG_ENABLED=true`.
