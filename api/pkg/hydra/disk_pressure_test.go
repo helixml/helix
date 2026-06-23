@@ -3,6 +3,7 @@ package hydra
 import (
 	"fmt"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -293,4 +294,211 @@ func (s *DiskPressureSuite) TestConfigEnvOverrides() {
 	assert.InDelta(s.T(), 5.0, cfg.refuseFreePct, 0.0001)
 	assert.InDelta(s.T(), 3.0, cfg.stopFreePct, 0.0001)
 	assert.Equal(s.T(), "10s", cfg.checkInterval.String())
+}
+
+// =======================================================================
+// statfs fallback (non-ZFS hosts: K8s on ext4/xfs, the actual deployment
+// shape where the original implementation silently failed open).
+// =======================================================================
+
+// DiskPressureStatfsSuite exercises the non-ZFS code path: ZFS is forced
+// "unavailable" so measureDisk() picks the statfs backend, and statfsFn is
+// swapped for a table-driven mock so we can pin free percentages and inject
+// ENOENT without touching the real filesystem.
+type DiskPressureStatfsSuite struct {
+	suite.Suite
+
+	origStatfs func(path string, stat *syscall.Statfs_t) error
+	origOutput func(name string, args ...string) ([]byte, error)
+
+	// statfsBlocks/statfsBavail/statfsBsize define the synthetic filesystem
+	// returned by the mock. Free % = Bavail/Blocks.
+	statfsBlocks uint64
+	statfsBavail uint64
+	statfsBsize  int64
+	statfsErr    error
+}
+
+func TestDiskPressureStatfsSuite(t *testing.T) {
+	suite.Run(t, new(DiskPressureStatfsSuite))
+}
+
+func (s *DiskPressureStatfsSuite) SetupTest() {
+	resetZFSState()
+	resetDiskPressureConfig()
+
+	// Force ZFS UNAVAILABLE so zfsBackendAvailable() returns false and
+	// measureDisk() takes the statfs branch.
+	zfsAvailableFlag = false
+	zfsParentDataset = ""
+	zfsAvailableOnce.Do(func() {})
+
+	// Default: 1000 blocks total, 100 available, 1-byte blocks => 10% free.
+	s.statfsBlocks = 1000
+	s.statfsBavail = 100
+	s.statfsBsize = 1
+	s.statfsErr = nil
+
+	s.origStatfs = statfsFn
+	statfsFn = func(_ string, stat *syscall.Statfs_t) error {
+		if s.statfsErr != nil {
+			return s.statfsErr
+		}
+		stat.Blocks = s.statfsBlocks
+		stat.Bavail = s.statfsBavail
+		setStatfsBsize(stat, s.statfsBsize)
+		return nil
+	}
+
+	// Trip wires: ZFS should NEVER be queried when the backend is statfs. If
+	// these fire, the routing is wrong.
+	s.origOutput = execCmdOutput
+	execCmdOutput = func(name string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("statfs suite should not invoke %s %s", name, strings.Join(args, " "))
+	}
+}
+
+func (s *DiskPressureStatfsSuite) TearDownTest() {
+	statfsFn = s.origStatfs
+	execCmdOutput = s.origOutput
+	resetZFSState()
+	resetDiskPressureConfig()
+}
+
+// -----------------------------------------------------------------------
+// statfsFreePercent / statfsFreeBytes
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestStatfsFreePercent_TenPercent() {
+	pct, err := statfsFreePercent("/anywhere")
+	require.NoError(s.T(), err)
+	assert.InDelta(s.T(), 10.0, pct, 0.0001)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsFreePercent_ZeroBlocksError() {
+	s.statfsBlocks = 0
+	_, err := statfsFreePercent("/anywhere")
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsFreePercent_ENOENT() {
+	s.statfsErr = syscall.ENOENT
+	_, err := statfsFreePercent("/no/such/path")
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestStatfsFreeBytes_Computes() {
+	// 100 available blocks * 4096 = 409,600 bytes
+	s.statfsBavail = 100
+	s.statfsBsize = 4096
+	free, err := statfsFreeBytes("/anywhere")
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(100*4096), free)
+}
+
+// -----------------------------------------------------------------------
+// measureDisk: backend selection
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestMeasureDisk_PicksStatfsWhenNoZFS() {
+	m, err := measureDisk()
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), "statfs", m.backend)
+	assert.True(s.T(), m.hasPct)
+	assert.InDelta(s.T(), 10.0, m.freePct, 0.0001)
+}
+
+func (s *DiskPressureStatfsSuite) TestMeasureDisk_StatfsENOENTPropagates() {
+	s.statfsErr = syscall.ENOENT
+	m, err := measureDisk()
+	require.Error(s.T(), err)
+	assert.Equal(s.T(), "statfs", m.backend)
+	assert.True(s.T(), m.pathENOENT, "ENOENT must surface so the start guard can fail closed")
+}
+
+// -----------------------------------------------------------------------
+// checkDiskPressureForStart on the statfs backend
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsRefusesAtThreshold() {
+	// Bavail/Blocks = 20/1000 = 2.0%, refuse threshold default 2% => refuse.
+	s.statfsBavail = 20
+	err := checkDiskPressureForStart()
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "disk space critically low")
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsRefusesBelowThreshold() {
+	// 5/1000 = 0.5%
+	s.statfsBavail = 5
+	err := checkDiskPressureForStart()
+	require.Error(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsAllowsAmple() {
+	// 100/1000 = 10%
+	s.statfsBavail = 100
+	err := checkDiskPressureForStart()
+	require.NoError(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsAllowsJustAbove() {
+	// 25/1000 = 2.5%, strictly above 2% refuse threshold
+	s.statfsBavail = 25
+	err := checkDiskPressureForStart()
+	require.NoError(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsFailsClosedOnENOENT() {
+	// Misconfigured path: refuse, do NOT silently allow. This is the bug the
+	// fallback exists to fix.
+	s.statfsErr = syscall.ENOENT
+	err := checkDiskPressureForStart()
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "does not exist")
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsFailsOpenOnOtherErr() {
+	// EIO and friends are transient hardware / FUSE errors. Fail open here so
+	// a flaky filesystem doesn't lock out all sandbox starts; the warn log
+	// surfaces the issue for operators.
+	s.statfsErr = syscall.EIO
+	err := checkDiskPressureForStart()
+	require.NoError(s.T(), err)
+}
+
+func (s *DiskPressureStatfsSuite) TestCheckStart_StatfsAllowsWhenDisabled() {
+	s.T().Setenv("HELIX_DISK_PRESSURE_ENABLED", "false")
+	resetDiskPressureConfig()
+
+	// Even with 0% free, disabled => allow.
+	s.statfsBavail = 0
+	err := checkDiskPressureForStart()
+	require.NoError(s.T(), err)
+}
+
+// -----------------------------------------------------------------------
+// poolFreeBytes fallback on non-ZFS hosts
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestPoolFreeBytes_StatfsFallback() {
+	// 250 blocks * 4096 byte blocks = 1,024,000 bytes available.
+	s.statfsBavail = 250
+	s.statfsBsize = 4096
+	free, err := poolFreeBytes()
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(250*4096), free)
+}
+
+// -----------------------------------------------------------------------
+// diskPressurePath: env override
+// -----------------------------------------------------------------------
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePath_Default() {
+	assert.Equal(s.T(), DefaultDataDir, diskPressurePath())
+}
+
+func (s *DiskPressureStatfsSuite) TestDiskPressurePath_EnvOverride() {
+	s.T().Setenv("HELIX_DISK_PRESSURE_PATH", "/var/lib/hydra")
+	assert.Equal(s.T(), "/var/lib/hydra", diskPressurePath())
 }
