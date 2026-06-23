@@ -35,10 +35,11 @@ type Event struct {
 	BotID string
 }
 
-// SigningSecretFunc resolves the global Slack app's signing secret (the
-// REST-mode request-authenticity key). Returning empty string + nil
-// means "no app configured" — the handler treats that as inert.
-type SigningSecretFunc func(ctx context.Context) (string, error)
+// SigningSecretFunc resolves every configured Slack app's signing secret.
+// A request is accepted if it verifies against any of them, so multiple
+// REST apps can share the one Events endpoint. An empty slice means "no
+// app configured" — the handler treats that as inert.
+type SigningSecretFunc func(ctx context.Context) ([]string, error)
 
 // EventHandler consumes a normalised inbound event for one workspace
 // (identified by teamID). Returning an error is logged but never
@@ -71,8 +72,8 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		secret, err := signingSecret(r.Context())
-		if err != nil || secret == "" {
+		secrets, err := signingSecret(r.Context())
+		if err != nil || len(secrets) == 0 {
 			logger.Info("slack.events: no signing secret — inert", "err", err)
 			http.Error(w, "slack not configured", http.StatusServiceUnavailable)
 			return
@@ -84,21 +85,11 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 			return
 		}
 
-		// Signature first — fail closed before parsing an adversarial
-		// body. NewSecretsVerifier also enforces the 5-minute timestamp
-		// window, so a replayed (stale) delivery is rejected here too.
-		verifier, err := slack.NewSecretsVerifier(r.Header, secret)
-		if err != nil {
-			logger.Warn("slack.events: build verifier", "err", err)
-			http.Error(w, "invalid signature", http.StatusUnauthorized)
-			return
-		}
-		if _, err := verifier.Write(body); err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if err := verifier.Ensure(); err != nil {
-			logger.Warn("slack.events: bad signature", "err", err)
+		// Accept if the request verifies against any configured app's
+		// secret. NewSecretsVerifier also enforces the 5-minute timestamp
+		// window, so a replayed (stale) delivery is rejected too.
+		if !verifyAny(r.Header, body, secrets) {
+			logger.Warn("slack.events: bad signature")
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
@@ -134,6 +125,28 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// verifyAny reports whether the request verifies against any of the
+// candidate signing secrets. Each secret gets its own verifier (Write
+// consumes the body).
+func verifyAny(header http.Header, body []byte, secrets []string) bool {
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		v, err := slack.NewSecretsVerifier(header, secret)
+		if err != nil {
+			continue
+		}
+		if _, err := v.Write(body); err != nil {
+			continue
+		}
+		if v.Ensure() == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // ToEvent normalises a parsed inner event into the transport-neutral

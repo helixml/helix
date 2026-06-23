@@ -30,7 +30,7 @@ func signedRequest(body string) *http.Request {
 	return r
 }
 
-func secretFn(_ context.Context) (string, error) { return testSecret, nil }
+func secretFn(_ context.Context) ([]string, error) { return []string{testSecret}, nil }
 
 func TestEventsAPI_URLVerification_EchoesChallenge(t *testing.T) {
 	h := EventsAPIHandler(secretFn, func(context.Context, string, Event) error {
@@ -69,7 +69,7 @@ func TestEventsAPI_BadSignature_Rejected(t *testing.T) {
 }
 
 func TestEventsAPI_NoSigningSecret_Inert(t *testing.T) {
-	empty := func(context.Context) (string, error) { return "", nil }
+	empty := func(context.Context) ([]string, error) { return nil, nil }
 	h := EventsAPIHandler(empty, func(context.Context, string, Event) error { return nil }, nil)
 
 	w := httptest.NewRecorder()

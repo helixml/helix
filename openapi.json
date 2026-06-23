@@ -11907,6 +11907,46 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/slack/apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the deployment's global Slack apps available to install into a workspace",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List installable Slack apps",
+                "parameters": [
+                    {
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.ServiceConnectionResponse"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/slack/oauth/start": {
             "get": {
                 "security": [
@@ -11925,6 +11965,14 @@
                         "name": "org",
                         "in": "path",
                         "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Slack app id to install (when multiple are configured)",
+                        "name": "app_id",
+                        "in": "query",
                         "schema": {
                             "type": "string"
                         }

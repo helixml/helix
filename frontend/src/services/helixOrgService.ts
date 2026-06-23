@@ -145,14 +145,28 @@ export function useListSlackWorkspaces(options?: { enabled?: boolean }) {
   })
 }
 
-// useStartSlackInstall asks the backend (authenticated) for the Slack
-// OAuth authorize URL, then the caller redirects the browser to it.
+export function useListSlackApps(options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: ['helix-org', orgID, 'slack-apps'],
+    queryFn: async () => {
+      const res = await api.getApiClient().v1OrgsSlackAppsDetail(orgID)
+      return (res.data as any[]) || []
+    },
+    enabled: (options?.enabled ?? true) && !!orgID,
+  })
+}
+
+// useStartSlackInstall asks the backend for the OAuth authorize URL (for a
+// specific app when more than one is configured), then the caller
+// redirects the browser to it.
 export function useStartSlackInstall() {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async () => {
-      const res = await api.getApiClient().v1OrgsSlackOauthStartDetail(orgID)
+    mutationFn: async (appId?: string) => {
+      const res = await api.getApiClient().v1OrgsSlackOauthStartDetail(orgID, appId ? { app_id: appId } : undefined)
       return (res.data as any).url as string
     },
   })

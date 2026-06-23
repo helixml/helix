@@ -12377,6 +12377,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List the deployment's global Slack apps available to install into a workspace
+     *
+     * @tags slack
+     * @name V1OrgsSlackAppsDetail
+     * @summary List installable Slack apps
+     * @request GET:/api/v1/orgs/{org}/slack/apps
+     * @secure
+     */
+    v1OrgsSlackAppsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse[], any>({
+        path: `/api/v1/orgs/${org}/slack/apps`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Build the Slack OAuth authorize URL for installing the global app into an org's workspace
      *
      * @tags slack
@@ -12385,10 +12403,18 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/orgs/{org}/slack/oauth/start
      * @secure
      */
-    v1OrgsSlackOauthStartDetail: (org: string, params: RequestParams = {}) =>
+    v1OrgsSlackOauthStartDetail: (
+      org: string,
+      query?: {
+        /** Slack app id to install (when multiple are configured) */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<Record<string, string>, any>({
         path: `/api/v1/orgs/${org}/slack/oauth/start`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

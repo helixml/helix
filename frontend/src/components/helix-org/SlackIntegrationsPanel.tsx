@@ -14,6 +14,9 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -26,6 +29,7 @@ import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   useListSlackWorkspaces,
+  useListSlackApps,
   useStartSlackInstall,
   useConnectSlackWorkspace,
   useDisconnectSlackWorkspace,
@@ -34,6 +38,7 @@ import {
 const SlackIntegrationsPanel: FC = () => {
   const snackbar = useSnackbar()
   const { data: workspaces = [], isLoading } = useListSlackWorkspaces()
+  const { data: apps = [] } = useListSlackApps()
   const startInstall = useStartSlackInstall()
   const connectToken = useConnectSlackWorkspace()
   const disconnect = useDisconnectSlackWorkspace()
@@ -43,10 +48,17 @@ const SlackIntegrationsPanel: FC = () => {
   const [deleting, setDeleting] = useState<any | undefined>()
   const [manualOpen, setManualOpen] = useState(false)
   const [manualToken, setManualToken] = useState('')
+  const [selectedApp, setSelectedApp] = useState('')
+
+  const appId = selectedApp || (apps.length === 1 ? apps[0].id : '')
 
   const handleInstall = async () => {
+    if (apps.length > 1 && !appId) {
+      snackbar.error('Choose which Slack app to install')
+      return
+    }
     try {
-      const url = await startInstall.mutateAsync()
+      const url = await startInstall.mutateAsync(appId || undefined)
       window.location.href = url
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'Slack is not configured by the administrator yet')
@@ -111,15 +123,27 @@ const SlackIntegrationsPanel: FC = () => {
             Workers reply as their persona; route to a specific Worker with a filter (e.g. !qa-bot).
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={handleInstall}
-          disabled={startInstall.isPending}
-        >
-          Install to Slack
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {apps.length > 1 && (
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Slack app</InputLabel>
+              <Select label="Slack app" value={appId} onChange={(e) => setSelectedApp(e.target.value)}>
+                {apps.map((a: any) => (
+                  <MenuItem key={a.id} value={a.id}>{a.name || a.id}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={handleInstall}
+            disabled={startInstall.isPending}
+          >
+            Install to Slack
+          </Button>
+        </Stack>
       </Box>
 
       {/* Manual / Socket Mode connect: paste a bot token. On-prem (Socket

@@ -196,12 +196,13 @@ const ServiceConnectionsTable: FC = () => {
       if (isNaN(installIdNum) || installIdNum <= 0) return false
       return !!githubPrivateKey.trim()
     } else if (isSlackApp) {
-      // REST needs client id/secret + signing secret; Socket Mode needs only
-      // the app-level token (bot tokens are added per-workspace, not here).
+      // Both modes use OAuth install → both need client id/secret. REST adds
+      // the signing secret; Socket adds the app-level token.
+      if (!slackClientId.trim() || !slackClientSecret.trim()) return false
       if (slackIngressMode === 'socket') {
         return !!slackAppToken.trim()
       }
-      return !!slackClientId.trim() && !!slackClientSecret.trim() && !!slackSigningSecret.trim()
+      return !!slackSigningSecret.trim()
     } else {
       return !!adoOrgUrl.trim() && !!adoTenantId.trim() && !!adoClientId.trim() && !!adoClientSecret
     }
@@ -488,51 +489,43 @@ const ServiceConnectionsTable: FC = () => {
                     View {slackIngressMode === 'socket' ? 'Socket Mode' : 'REST'} setup instructions
                   </Button>
                 </Box>
+                <TextField
+                  label="Client ID"
+                  fullWidth
+                  required
+                  value={slackClientId}
+                  onChange={(e) => setSlackClientId(e.target.value)}
+                  placeholder="1234567890.1234567890"
+                  helperText="Basic Information → App Credentials. Enables one-click Install to Slack for orgs."
+                />
+                <TextField
+                  label="Client Secret"
+                  fullWidth
+                  required
+                  type="password"
+                  value={slackClientSecret}
+                  onChange={(e) => setSlackClientSecret(e.target.value)}
+                />
                 {slackIngressMode === 'rest' ? (
-                  <>
-                    <TextField
-                      label="Client ID"
-                      fullWidth
-                      required
-                      value={slackClientId}
-                      onChange={(e) => setSlackClientId(e.target.value)}
-                      placeholder="1234567890.1234567890"
-                      helperText="Basic Information → App Credentials"
-                    />
-                    <TextField
-                      label="Client Secret"
-                      fullWidth
-                      required
-                      type="password"
-                      value={slackClientSecret}
-                      onChange={(e) => setSlackClientSecret(e.target.value)}
-                    />
-                    <TextField
-                      label="Signing Secret"
-                      fullWidth
-                      required
-                      type="password"
-                      value={slackSigningSecret}
-                      onChange={(e) => setSlackSigningSecret(e.target.value)}
-                      helperText="Used to verify inbound Events API requests"
-                    />
-                  </>
+                  <TextField
+                    label="Signing Secret"
+                    fullWidth
+                    required
+                    type="password"
+                    value={slackSigningSecret}
+                    onChange={(e) => setSlackSigningSecret(e.target.value)}
+                    helperText="Used to verify inbound Events API requests"
+                  />
                 ) : (
-                  <>
-                    <TextField
-                      label="App-Level Token (xapp-…)"
-                      fullWidth
-                      required
-                      type="password"
-                      value={slackAppToken}
-                      onChange={(e) => setSlackAppToken(e.target.value)}
-                      helperText="Basic Information → App-Level Tokens (connections:write). This opens the socket; bot tokens are added per-workspace."
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      No bot token here — each workspace is connected separately (its bot token is
-                      pasted on that org's Settings → Slack page), just like the REST install.
-                    </Typography>
-                  </>
+                  <TextField
+                    label="App-Level Token (xapp-…)"
+                    fullWidth
+                    required
+                    type="password"
+                    value={slackAppToken}
+                    onChange={(e) => setSlackAppToken(e.target.value)}
+                    helperText="Basic Information → App-Level Tokens (connections:write). Opens the socket; events for every installed workspace arrive over it."
+                  />
                 )}
               </>
             ) : (

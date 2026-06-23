@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -96,27 +98,55 @@ func (w *slackWorkspaces) ByID(ctx context.Context, id string) (slacktransport.W
 	return w.toWorkspace(conn)
 }
 
-// runSlackSocketMode runs the Socket Mode ingress until ctx is
-// cancelled, but only when the global app is configured with
-// ingress_mode=socket and an app-level token. The socket connection
-// needs ONLY the app-level token (xapp-) — the bot token is per-workspace
-// and is resolved from the slack_workspace ServiceConnection by team_id,
-// exactly like REST. So one socket can serve multiple workspaces, each
-// connected by pasting its bot token. Single-replica: a nil SingleOwner
-// means this process always owns the connection; a pg advisory lock can
-// gate multi-replica later.
-func (s *HelixAPIServer) runSlackSocketMode(ctx context.Context, ingest *slacktransport.Ingest, logger *slog.Logger) {
-	app, err := s.getGlobalSlackApp(ctx)
+// errMultipleSlackApps is returned when an install must pick between
+// several configured global Slack apps but none was named.
+var errMultipleSlackApps = errors.New("multiple Slack apps configured — choose one")
+
+// listSlackApps returns every deployment-wide slack_app ServiceConnection.
+func (s *HelixAPIServer) listSlackApps(ctx context.Context) ([]*types.ServiceConnection, error) {
+	return s.Store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackApp)
+}
+
+func (s *HelixAPIServer) getSlackAppByID(ctx context.Context, id string) (*types.ServiceConnection, error) {
+	conn, err := s.Store.GetServiceConnection(ctx, id)
 	if err != nil {
-		logger.Info("slack.socketmode: no global app configured — not starting")
-		return
+		return nil, err
 	}
-	if app.SlackIngressMode != "socket" {
-		logger.Info("slack.socketmode: ingress mode is not 'socket' — not starting", "mode", app.SlackIngressMode)
-		return
+	if conn.Type != types.ServiceConnectionTypeSlackApp || conn.OrganizationID != "" {
+		return nil, helixstore.ErrNotFound
 	}
-	if app.SlackAppToken == "" {
-		logger.Warn("slack.socketmode: socket mode requires an app-level token — not starting")
+	return conn, nil
+}
+
+// resolveSlackApp picks the app to install with: the one named by appID,
+// or the only configured app when appID is empty. errMultipleSlackApps
+// when ambiguous, ErrNotFound when none.
+func (s *HelixAPIServer) resolveSlackApp(ctx context.Context, appID string) (*types.ServiceConnection, error) {
+	if appID != "" {
+		return s.getSlackAppByID(ctx, appID)
+	}
+	apps, err := s.listSlackApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	switch len(apps) {
+	case 0:
+		return nil, helixstore.ErrNotFound
+	case 1:
+		return apps[0], nil
+	default:
+		return nil, errMultipleSlackApps
+	}
+}
+
+// runSlackSocketModes opens one Socket Mode connection per socket-mode
+// app, each until ctx is cancelled. The socket needs only the app-level
+// token (xapp-); per-workspace bot tokens are resolved downstream (ingest
+// → workspace by team_id), so one socket serves every installed workspace.
+func (s *HelixAPIServer) runSlackSocketModes(ctx context.Context, ingest *slacktransport.Ingest, logger *slog.Logger) {
+	apps, err := s.listSlackApps(ctx)
+	if err != nil {
+		logger.Error("slack.socketmode: list apps", "err", err)
 		return
 	}
 	key, err := s.getEncryptionKey()
@@ -124,59 +154,53 @@ func (s *HelixAPIServer) runSlackSocketMode(ctx context.Context, ingest *slacktr
 		logger.Error("slack.socketmode: encryption key", "err", err)
 		return
 	}
-	appToken, err := crypto.DecryptAES256GCM(app.SlackAppToken, key)
-	if err != nil {
-		logger.Error("slack.socketmode: decrypt app token", "err", err)
-		return
-	}
-
-	// Connect with the app token alone; per-workspace bot tokens are
-	// resolved downstream (ingest → workspace by team_id) for any posting.
-	connector := slackcore.NewConnector(string(appToken), "", "", logger)
-	runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
-	logger.Info("slack.socketmode: starting")
-	if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
-		logger.Error("slack.socketmode: runner exited", "err", err)
-	}
-}
-
-// getGlobalSlackApp returns the single deployment-wide slack_app
-// ServiceConnection (OrganizationID=""), or ErrNotFound. The first one
-// wins — there should only ever be one.
-func (s *HelixAPIServer) getGlobalSlackApp(ctx context.Context) (*types.ServiceConnection, error) {
-	apps, err := s.Store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackApp)
-	if err != nil {
-		return nil, err
-	}
-	if len(apps) == 0 {
-		return nil, helixstore.ErrNotFound
-	}
-	return apps[0], nil
-}
-
-// slackSigningSecret resolves the global app's decrypted REST signing
-// secret. Returns "" (no error) when no app is configured, so the
-// Events handler stays inert rather than erroring.
-func (s *HelixAPIServer) slackSigningSecret(ctx context.Context) (string, error) {
-	app, err := s.getGlobalSlackApp(ctx)
-	if err != nil {
-		if err == helixstore.ErrNotFound {
-			return "", nil
+	started := 0
+	for _, app := range apps {
+		if app.SlackIngressMode != "socket" || app.SlackAppToken == "" {
+			continue
 		}
-		return "", err
+		appToken, err := crypto.DecryptAES256GCM(app.SlackAppToken, key)
+		if err != nil {
+			logger.Error("slack.socketmode: decrypt app token", "app", app.ID, "err", err)
+			continue
+		}
+		started++
+		go func(name, token string) {
+			connector := slackcore.NewConnector(token, "", "", logger)
+			runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
+			logger.Info("slack.socketmode: starting", "app", name)
+			if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("slack.socketmode: runner exited", "app", name, "err", err)
+			}
+		}(app.Name, string(appToken))
 	}
-	if app.SlackSigningSecret == "" {
-		return "", nil
+	if started == 0 {
+		logger.Info("slack.socketmode: no socket-mode app configured — not starting")
+	}
+}
+
+// slackSigningSecrets returns every configured app's decrypted signing
+// secret. The Events handler accepts a request that verifies against any
+// of them. Empty slice = no app configured (handler stays inert).
+func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, error) {
+	apps, err := s.listSlackApps(ctx)
+	if err != nil || len(apps) == 0 {
+		return nil, nil
 	}
 	key, err := s.getEncryptionKey()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	dec, err := crypto.DecryptAES256GCM(app.SlackSigningSecret, key)
-	if err != nil {
-		return "", err
+	var out []string
+	for _, app := range apps {
+		if app.SlackSigningSecret == "" {
+			continue
+		}
+		if dec, err := crypto.DecryptAES256GCM(app.SlackSigningSecret, key); err == nil {
+			out = append(out, string(dec))
+		}
 	}
-	return string(dec), nil
+	return out, nil
 }
 
 // slackRedirectURI is the OAuth callback URL Slack redirects back to
@@ -184,6 +208,46 @@ func (s *HelixAPIServer) slackSigningSecret(ctx context.Context) (string, error)
 // URL configured on the Slack app.
 func (s *HelixAPIServer) slackRedirectURI() string {
 	return s.Cfg.WebServer.URL + "/api/v1/slack/oauth/callback"
+}
+
+// listOrgSlackApps (GET /api/v1/orgs/{org}/slack/apps) lists the
+// deployment's global Slack apps so an org admin can pick which to install
+// when more than one is configured. Org-member gated; secrets are hidden
+// by ToResponse.
+// @Summary List installable Slack apps
+// @Description List the deployment's global Slack apps available to install into a workspace
+// @Tags slack
+// @Produce json
+// @Param org path string true "Organization ID or slug"
+// @Success 200 {array} types.ServiceConnectionResponse
+// @Router /api/v1/orgs/{org}/slack/apps [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listOrgSlackApps(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	org, err := s.lookupOrg(r.Context(), mux.Vars(r)["org"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	apps, err := s.listSlackApps(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]*types.ServiceConnectionResponse, len(apps))
+	for i, a := range apps {
+		out[i] = a.ToResponse()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // slackOAuthStart (GET /api/v1/orgs/{org}/slack/oauth/start) builds the
@@ -195,6 +259,7 @@ func (s *HelixAPIServer) slackRedirectURI() string {
 // @Tags slack
 // @Produce json
 // @Param org path string true "Organization ID or slug"
+// @Param app_id query string false "Slack app id to install (when multiple are configured)"
 // @Success 200 {object} map[string]string
 // @Router /api/v1/orgs/{org}/slack/oauth/start [get]
 // @Security BearerAuth
@@ -214,13 +279,17 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	app, err := s.getGlobalSlackApp(r.Context())
+	app, err := s.resolveSlackApp(r.Context(), r.URL.Query().Get("app_id"))
 	if err != nil {
+		if errors.Is(err, errMultipleSlackApps) {
+			http.Error(w, "Multiple Slack apps configured — pass app_id to choose one", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "Slack app not configured by the administrator", http.StatusServiceUnavailable)
 		return
 	}
 	if app.SlackClientID == "" {
-		http.Error(w, "Slack app is missing its client id (REST install requires it)", http.StatusServiceUnavailable)
+		http.Error(w, "Slack app is missing its client id (OAuth install requires it)", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -229,7 +298,7 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	state, err := crypto.EncryptAES256GCM([]byte(org.ID), key)
+	state, err := crypto.EncryptAES256GCM([]byte(org.ID+"|"+app.ID), key)
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
@@ -257,14 +326,14 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
-	orgBytes, err := crypto.DecryptAES256GCM(state, key)
+	stateBytes, err := crypto.DecryptAES256GCM(state, key)
 	if err != nil {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
-	orgID := string(orgBytes)
+	orgID, appConnID, _ := strings.Cut(string(stateBytes), "|")
 
-	app, err := s.getGlobalSlackApp(r.Context())
+	app, err := s.resolveSlackApp(r.Context(), appConnID)
 	if err != nil {
 		http.Error(w, "Slack app not configured", http.StatusServiceUnavailable)
 		return

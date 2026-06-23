@@ -9952,6 +9952,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/slack/apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the deployment's global Slack apps available to install into a workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List installable Slack apps",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/slack/oauth/start": {
             "get": {
                 "security": [
@@ -9974,6 +10011,12 @@ const docTemplate = `{
                         "name": "org",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Slack app id to install (when multiple are configured)",
+                        "name": "app_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {

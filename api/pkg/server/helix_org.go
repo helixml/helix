@@ -517,12 +517,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// the dispatcher + processor/filter layer route to Workers.
 	slackIngest := slacktransport.NewIngest(slackWS, st, svc.Publishing, logger)
 	// REST Events API source — one global signed webhook for every org.
-	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecret, slackIngest.OnEvent, logger)
+	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecrets, slackIngest.OnEvent, logger)
 	// Socket Mode source — long-lived goroutine, only active when the
 	// global app is configured with ingress_mode=socket. Single-replica
 	// here (nil owner); a pg advisory lock can gate multi-replica later.
 	slackSocketRun := func(ctx context.Context) {
-		cfg.APIServer.runSlackSocketMode(ctx, slackIngest, logger)
+		cfg.APIServer.runSlackSocketModes(ctx, slackIngest, logger)
 	}
 
 	// Processor execution: the runner re-publishes each processor's
