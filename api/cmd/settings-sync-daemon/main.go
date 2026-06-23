@@ -571,8 +571,9 @@ const (
 
 // writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
 // claude-agent-acp SettingsManager picks up the model preference at session init.
-// resolveModelPreference() handles substring matching so "claude-opus-4-6" correctly
-// resolves to the model's canonical value ID (e.g. "claude-opus-4-6-latest").
+// resolveModelPreference() handles substring matching so tier-level shorthand
+// (e.g. "opus") resolves to the latest version, and versioned IDs (e.g.
+// "claude-opus-4-6") resolve to their canonical form ("claude-opus-4-6-latest").
 func (d *SettingsDaemon) writeClaudeManagedSettings() {
 	settings := map[string]interface{}{}
 	if d.codeAgentConfig != nil && d.codeAgentConfig.Model != "" {

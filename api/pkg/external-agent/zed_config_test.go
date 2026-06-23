@@ -217,6 +217,8 @@ func TestNormalizeModelIDForZed(t *testing.T) {
 		{name: "already latest suffix sonnet", input: "claude-sonnet-4-5-latest", expected: "claude-sonnet-4-5-latest"},
 
 		// Actual Anthropic API model IDs (from /v1/models with anthropic-version header)
+		{name: "claude-opus-4-8", input: "claude-opus-4-8", expected: "claude-opus-4-8-latest"},
+		{name: "claude-opus-4-7", input: "claude-opus-4-7", expected: "claude-opus-4-7-latest"},
 		{name: "claude-sonnet-4-6", input: "claude-sonnet-4-6", expected: "claude-sonnet-4-6-latest"},
 		{name: "claude-opus-4-6", input: "claude-opus-4-6", expected: "claude-opus-4-6-latest"},
 		{name: "claude-opus-4-5-20251101", input: "claude-opus-4-5-20251101", expected: "claude-opus-4-5-latest"},

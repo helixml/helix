@@ -301,9 +301,9 @@ type ClaudeModel struct {
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
 	models := []*ClaudeModel{
-		{ID: "claude-opus-4-6", Name: "Claude Opus 4.6", Description: "Most capable Claude model"},
-		{ID: "claude-sonnet-4-5-latest", Name: "Claude Sonnet 4.5", Description: "Best balance of speed and capability"},
-		{ID: "claude-haiku-4-5-latest", Name: "Claude Haiku 4.5", Description: "Fastest Claude model"},
+		{ID: "opus", Name: "Claude Opus", Description: "Most capable Claude model"},
+		{ID: "sonnet", Name: "Claude Sonnet", Description: "Best balance of speed and capability"},
+		{ID: "haiku", Name: "Claude Haiku", Description: "Fastest Claude model"},
 	}
 	return models, nil
 }

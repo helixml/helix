@@ -10,14 +10,14 @@ import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 
 export type ClaudeCodeMode = 'subscription' | 'api_key'
 
-// Hardcoded Anthropic model tiers offered in Claude subscription mode.
-// These ids match the backend default and the /claude-subscriptions/models endpoint.
+// Tier-level shorthand IDs for Claude subscription mode. Claude Code's
+// resolveModelPreference() resolves these to the latest version of each tier.
 export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6 (recommended)' },
-  { id: 'claude-sonnet-4-5-latest', label: 'Claude Sonnet 4.5' },
-  { id: 'claude-haiku-4-5-latest', label: 'Claude Haiku 4.5' },
+  { id: 'opus', label: 'Claude Opus (recommended)' },
+  { id: 'sonnet', label: 'Claude Sonnet' },
+  { id: 'haiku', label: 'Claude Haiku' },
 ]
-export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'claude-opus-4-6'
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus'
 
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime
