@@ -140,7 +140,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "claude-opus-4-6",
+				Model:     "opus",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
@@ -167,7 +167,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "claude-opus-4-6",
+				Model:     "opus",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},

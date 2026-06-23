@@ -534,6 +534,16 @@ func normalizeModelIDForZed(modelID string) string {
 		return modelID
 	}
 
+	// Claude 4.8 models
+	if strings.HasPrefix(modelID, "claude-opus-4-8") {
+		return "claude-opus-4-8-latest"
+	}
+
+	// Claude 4.7 models
+	if strings.HasPrefix(modelID, "claude-opus-4-7") {
+		return "claude-opus-4-7-latest"
+	}
+
 	// Claude 4.6 models
 	if strings.HasPrefix(modelID, "claude-opus-4-6") {
 		return "claude-opus-4-6-latest"

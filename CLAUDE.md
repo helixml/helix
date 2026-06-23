@@ -47,6 +47,11 @@
 - **NEVER** `./stack start-tmux` (needs interactive terminal)
 - OK: `./stack start`, `./stack build`, `build-zed`, `build-ubuntu`, `build-sandbox`, `update_openapi`
 
+### Dev Stack Networking
+- The **local dev stack** is at `localhost:8080`. Use this for all API calls when testing your changes.
+- `api:8080` is the **outer Helix stack** (the one running your agent session). Requests to `api:8080` hit the production/outer API, NOT your local dev code. The `$USER_API_TOKEN` / `$HELIX_API_URL` env vars also point at the outer stack.
+- When using `curl` or the browser to test, always use `http://localhost:8080`, never `http://api:8080`.
+
 ### Hot Reloading
 - **API**: Air auto-rebuilds Go changes
 - **Frontend**: Vite HMR (dev mode) or `yarn build` + refresh (prod mode). The `helix-frontend-1` container runs Vite dev server on **port 8081** — changes to `frontend/src/` are live immediately, no rebuild needed. The main app at port 8080 proxies to it.

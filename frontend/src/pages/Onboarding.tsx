@@ -59,7 +59,7 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import type { TypesWallet } from "../api/api";
 import { RECOMMENDED_CODING_MODELS } from "../constants/models";
 
-const DEFAULT_ONBOARDING_AGENT_MODEL = "claude-opus-4-6";
+const DEFAULT_ONBOARDING_AGENT_MODEL = "claude-opus-4-8";
 import type {
   TypesExternalRepositoryType,
   TypesRepositoryInfo,

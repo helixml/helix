@@ -674,7 +674,7 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			apiType = ""
 			model = assistant.ClaudeSubscriptionModel
 			if model == "" {
-				model = "claude-opus-4-6"
+				model = "opus"
 			}
 		} else {
 			// API key mode: route through Helix proxy.
