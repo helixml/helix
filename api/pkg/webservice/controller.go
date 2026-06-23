@@ -31,6 +31,7 @@ import (
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -55,8 +56,10 @@ type Controller struct {
 	getProjectSecrets ProjectSecretsGetter
 }
 
-// New constructs a Controller. The defaults are sized for typical
-// headless containers (~30s cold-start, up to 90s for the app to bind).
+// New constructs a Controller. The defaults are sized for Docker-capable
+// web-service sandboxes that boot docker-compose stacks: a few minutes of
+// cold-start plus a generous window for the app to bind its port.
+// (Web-service deploys source .helix/startup.sh from the helix-specs branch.)
 func New(s store.Store, sc *sandbox.Controller) *Controller {
 	return &Controller{
 		store:         s,
@@ -64,8 +67,13 @@ func New(s store.Store, sc *sandbox.Controller) *Controller {
 		provisionWait: 3 * time.Minute,
 		provisionPoll: 2 * time.Second,
 		bootstrapWait: 5 * time.Minute,
-		readinessWait: 90 * time.Second,
-		readinessPoll: 2 * time.Second,
+		// Web services boot whole docker-compose stacks, so a cold first
+		// deploy can take several minutes (image builds + pulls + dependency
+		// installs + per-service healthcheck start_periods). Give the app
+		// plenty of time to bind its port before we call the deploy failed
+		// and roll back.
+		readinessWait: 10 * time.Minute,
+		readinessPoll: 3 * time.Second,
 	}
 }
 
@@ -149,7 +157,7 @@ func (c *Controller) runDeploy(
 	repo *types.GitRepository,
 	state *types.ProjectWebServiceState,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+c.readinessWait+2*time.Minute)
 	defer cancel()
 
 	if err := c.markBuilding(ctx, deployID); err != nil {
@@ -167,8 +175,19 @@ func (c *Controller) runDeploy(
 		return
 	}
 
+	// Mint a short-lived API key so the in-container `git clone` can
+	// authenticate to Helix's git server (the repo is private; an
+	// unauthenticated clone fails with "could not read Username"). Revoked
+	// once the deploy finishes.
+	gitToken, revokeToken, err := c.mintDeployGitToken(ctx, project, req.Owner)
+	if err != nil {
+		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("mint git token: %s", err))
+		return
+	}
+	defer revokeToken()
+
 	// Deploy the requested code in place (stops the old app first).
-	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort); err != nil {
+	if err := c.deployInPlace(ctx, sb, repo, req.ProjectID, req.CommitSHA, state.ContainerPort, gitToken); err != nil {
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("deploy: %s", err))
 		return
 	}
@@ -179,7 +198,7 @@ func (c *Controller) runDeploy(
 	if err := c.waitForReady(ctx, sb.ID, state.ContainerPort); err != nil {
 		// Roll back to the last-known-good commit so the site comes back up
 		// against the same intact /data. The data is never touched either way.
-		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort)
+		c.rollback(ctx, sb, repo, req.ProjectID, previousSHA, state.ContainerPort, gitToken)
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("readiness: %s", err))
 		return
 	}
@@ -218,8 +237,13 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 	}
 
 	createReq := &types.CreateSandboxRequest{
-		Name:           fmt.Sprintf("web-service-%s", project.ID),
-		Runtime:        types.SandboxRuntimeHeadlessUbuntu,
+		Name: fmt.Sprintf("web-service-%s", project.ID),
+		// The web service hosts whole docker-compose stacks, so it needs a
+		// Docker daemon. The desktop runtime is the Docker-capable image
+		// (privileged, ships dockerd + docker compose, gets the
+		// /var/lib/docker volume); the agent/GUI stack is disabled for
+		// sandbox-API containers so it runs effectively headless.
+		Runtime:        types.SandboxRuntimeUbuntuDesktop,
 		ProjectID:      project.ID,
 		Purpose:        types.SandboxPurposeWebService,
 		Persistent:     true,
@@ -272,7 +296,7 @@ func (c *Controller) ensureSandbox(ctx context.Context, req DeployRequest, proje
 // Prod-scoped project secrets are injected via the exec environment (see
 // projectSecretEnv) so they reach startup.sh without being written into the
 // command line or logs.
-func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int) error {
+func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, sha string, containerPort int, gitToken string) error {
 	hydraClient, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return err
@@ -286,8 +310,13 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 	// deploy script inherits this exec process environment, so secrets propagate
 	// through to startup.sh.
 	env := c.projectSecretEnv(ctx, projectID, sb.ID)
+	// The clone token also rides in via the env (not the script string) so it
+	// stays out of command logs; deployScript reads it to authenticate clone/fetch.
+	if gitToken != "" {
+		env = append(env, "HELIX_GIT_TOKEN="+gitToken)
+	}
 
-	_, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
+	resp, execErr := hydraClient.RunSandboxCommand(ctx, sb.ID, &hydra.ExecRequest{
 		SandboxID:      sb.ID,
 		Cmd:            "/bin/bash",
 		Args:           []string{"-c", script},
@@ -295,7 +324,43 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		Env:            env,
 		TimeoutSeconds: int(c.bootstrapWait.Seconds()),
 	})
-	return execErr
+	if execErr != nil {
+		return execErr
+	}
+	// The bootstrap backgrounds the app and exits 0 on success. A non-zero exit
+	// means clone/fetch/launch failed — fail the deploy now rather than waiting
+	// out the full readiness window against an app that will never bind.
+	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
+		return fmt.Errorf("bootstrap exited %d: %s", *resp.ExitCode, strings.TrimSpace(resp.Stderr+resp.Stdout))
+	}
+	return nil
+}
+
+// mintDeployGitToken creates a short-lived API key owned by the deploying user
+// so the in-container git clone can authenticate to Helix's private git server.
+// The returned revoke func deletes the key; call it once the deploy finishes.
+func (c *Controller) mintDeployGitToken(ctx context.Context, project *types.Project, owner string) (string, func(), error) {
+	key, err := system.GenerateAPIKey()
+	if err != nil {
+		return "", func() {}, err
+	}
+	if _, err := c.store.CreateAPIKey(ctx, &types.ApiKey{
+		Owner:          owner,
+		OwnerType:      types.OwnerTypeUser,
+		Key:            key,
+		Name:           "web-service-deploy",
+		Type:           types.APIKeyType("api"),
+		OrganizationID: project.OrganizationID,
+		ProjectID:      project.ID,
+	}); err != nil {
+		return "", func() {}, err
+	}
+	revoke := func() {
+		if err := c.store.DeleteAPIKey(context.Background(), key); err != nil {
+			log.Warn().Err(err).Str("project_id", project.ID).Msg("failed to revoke web-service deploy git token")
+		}
+	}
+	return key, revoke, nil
 }
 
 // projectSecretEnv returns the prod-scoped project secrets as `KEY=value`
@@ -324,12 +389,12 @@ func (c *Controller) projectSecretEnv(ctx context.Context, projectID, sandboxID 
 // logged, not surfaced (the deploy is already being marked failed). When there
 // is no previous commit (first-ever deploy), there is nothing to roll back to;
 // the broken app is left stopped.
-func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, previousSHA string, containerPort int) {
+func (c *Controller) rollback(ctx context.Context, sb *types.Sandbox, repo *types.GitRepository, projectID, previousSHA string, containerPort int, gitToken string) {
 	if previousSHA == "" {
 		log.Warn().Str("sandbox_id", sb.ID).Msg("deploy failed and no previous commit to roll back to; app left stopped")
 		return
 	}
-	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort); err != nil {
+	if err := c.deployInPlace(ctx, sb, repo, projectID, previousSHA, containerPort, gitToken); err != nil {
 		log.Error().Err(err).Str("sandbox_id", sb.ID).Str("rollback_sha", previousSHA).Msg("rollback to previous commit failed")
 		return
 	}
@@ -381,14 +446,30 @@ func deployScript(cloneURL, sha string, containerPort int) string {
 		`  rm -f "$PIDFILE"`,
 		"fi",
 		"cd /workspace",
+		// Embed the deploy token (passed via env, not the script string) into
+		// the clone URL so git can authenticate to Helix's private git server.
+		"CLONE_URL=" + shellEscape(cloneURL),
+		`if [ -n "${HELIX_GIT_TOKEN:-}" ]; then CLONE_URL=$(printf '%s' "$CLONE_URL" | sed -E "s#^(https?://)#\1api:${HELIX_GIT_TOKEN}@#"); fi`,
 		"if [ ! -d .git ]; then",
-		"  git clone --depth 50 " + shellEscape(cloneURL) + " .",
+		`  git clone --depth 50 "$CLONE_URL" .`,
+		"else",
+		// Refresh origin with the current token (the previous deploy's token
+		// has been revoked) so fetch authenticates.
+		`  git remote set-url origin "$CLONE_URL"`,
 		"fi",
 		"git fetch --all",
 		checkout,
+		// The startup script is sourced exclusively from the project's
+		// helix-specs branch (its canonical Helix-metadata branch) — never
+		// from the deployed app branch — so there is a single definition of
+		// how the project boots. The app code still comes from the branch
+		// checked out above; only .helix/ is overlaid from helix-specs.
+		// Shallow clone implies --single-branch, so origin/helix-specs has no
+		// tracking ref; fetch it explicitly and overlay .helix from FETCH_HEAD.
+		"git fetch --depth 1 origin helix-specs && git checkout FETCH_HEAD -- .helix",
 		"chmod +x .helix/startup.sh 2>/dev/null || true",
 		"if [ ! -f .helix/startup.sh ]; then",
-		"  echo 'No .helix/startup.sh found in repository' >&2; exit 2",
+		"  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2",
 		"fi",
 		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash .helix/startup.sh >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,
