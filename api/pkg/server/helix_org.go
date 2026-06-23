@@ -38,11 +38,13 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
+	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -79,6 +81,16 @@ type helixOrgHandlers struct {
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
 	publicGitHubWebhookForStream http.Handler
+	// publicSlackEvents is the global inbound Slack Events API handler
+	// mounted on the INSECURE router at /api/v1/slack/events. Slack
+	// deliveries authenticate via the global app's signing-secret HMAC
+	// (checked inside the handler), and team_id routes each delivery to
+	// the owning org. One handler serves every org install.
+	publicSlackEvents http.Handler
+	// slackSocketRun runs the Socket Mode ingress for the lifetime of
+	// ctx, when the global app is configured for it. Started in a
+	// goroutine from the run loop, like streamCron.
+	slackSocketRun func(ctx context.Context)
 	// publicGitHubManifestCallback receives GitHub's browser redirect after
 	// the App Manifest flow creates the app (path
 	// /api/v1/orgs/{org}/github/app-manifest/callback). Insecure mount: it's
@@ -409,6 +421,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
+	// Slack outbound: worker publishes to a KindSlack topic post back to
+	// the bound channel as the worker's persona. slackWorkspaces is the
+	// org-aware adapter resolving a topic's slack_workspace
+	// ServiceConnection to a decrypted bot token.
+	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
+	dispatcher.RegisterOutbound(transport.KindSlack, slacktransport.NewOutbound(slackWS, nil, logger))
 	deps.Dispatcher = dispatcher
 
 	// streamCron drives KindCron topics. Same call sequence as the
@@ -482,12 +500,31 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			githubtransport.TokenResolver(gitHubTokenResolver),
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
+		// Slack "install" = join the shared bot to the topic's channel.
+		// No per-topic webhook to register; inbound flows through the one
+		// shared Events/Socket ingest.
+		transport.KindSlack: slacktransport.NewProvisioner(slackWS, logger),
 	}
 
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
+
+	// Slack inbound: one shared ingest serves both ingress sources. It
+	// resolves a delivery's team_id to the owning org (a slack_workspace
+	// ServiceConnection), then publishes onto matching KindSlack topics —
+	// the dispatcher + processor/filter layer route to Workers.
+	slackIngest := slacktransport.NewIngest(slackWS, st, svc.Publishing, logger)
+	// REST Events API source — one global signed webhook for every org.
+	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecret, slackIngest.OnEvent, logger)
+	// Socket Mode source — long-lived goroutine, only active when the
+	// global app is configured with ingress_mode=socket. Single-replica
+	// here (nil owner); a pg advisory lock can gate multi-replica later.
+	slackSocketRun := func(ctx context.Context) {
+		cfg.APIServer.runSlackSocketMode(ctx, slackIngest, logger)
+	}
+
 	// Processor execution: the runner re-publishes each processor's
 	// output through svc.Publishing, so it is wired after buildOrgServices
 	// (which builds Publishing) and registered late on the dispatcher,
@@ -664,6 +701,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
+		publicSlackEvents:            publicSlackEvents,
+		slackSocketRun:               slackSocketRun,
 	}, nil
 }
 

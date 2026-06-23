@@ -134,6 +134,11 @@ const (
 	ExternalRepositoryTypeGitLab    ExternalRepositoryType = "gitlab"
 	ExternalRepositoryTypeADO       ExternalRepositoryType = "ado"
 	ExternalRepositoryTypeBitbucket ExternalRepositoryType = "bitbucket"
+	// ExternalRepositoryTypeSlack tags Slack ServiceConnections. Slack
+	// is not a git provider, but ServiceConnection.ProviderType is a
+	// generic non-null provider tag and Slack connections reuse the
+	// ServiceConnection table.
+	ExternalRepositoryTypeSlack ExternalRepositoryType = "slack"
 )
 
 // GitRepositoryCreateRequest represents a request to create a new repository

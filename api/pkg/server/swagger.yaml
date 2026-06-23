@@ -5079,12 +5079,14 @@ definitions:
     - gitlab
     - ado
     - bitbucket
+    - slack
     type: string
     x-enum-varnames:
     - ExternalRepositoryTypeGitHub
     - ExternalRepositoryTypeGitLab
     - ExternalRepositoryTypeADO
     - ExternalRepositoryTypeBitbucket
+    - ExternalRepositoryTypeSlack
   types.ExternalStatus:
     properties:
       commits_ahead:
@@ -8764,6 +8766,19 @@ definitions:
         type: string
       name:
         type: string
+      slack_app_token:
+        type: string
+      slack_bot_token:
+        type: string
+      slack_client_id:
+        description: Slack global app fields (type=slack_app)
+        type: string
+      slack_client_secret:
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_signing_secret:
+        type: string
       type:
         $ref: '#/definitions/types.ServiceConnectionType'
     type: object
@@ -8791,6 +8806,14 @@ definitions:
         type: boolean
       has_github_private_key:
         type: boolean
+      has_slack_app_token:
+        type: boolean
+      has_slack_bot_token:
+        type: boolean
+      has_slack_client_secret:
+        type: boolean
+      has_slack_signing_secret:
+        type: boolean
       id:
         type: string
       last_error:
@@ -8803,6 +8826,19 @@ definitions:
         type: string
       provider_type:
         $ref: '#/definitions/types.ExternalRepositoryType'
+      slack_app_id:
+        type: string
+      slack_bot_user_id:
+        type: string
+      slack_client_id:
+        description: Slack (non-sensitive fields + has-secret flags)
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_team_id:
+        type: string
+      slack_team_name:
+        type: string
       type:
         $ref: '#/definitions/types.ServiceConnectionType'
       updated_at:
@@ -8812,10 +8848,14 @@ definitions:
     enum:
     - github_app
     - ado_service_principal
+    - slack_app
+    - slack_workspace
     type: string
     x-enum-varnames:
     - ServiceConnectionTypeGitHubApp
     - ServiceConnectionTypeADOServicePrincipal
+    - ServiceConnectionTypeSlackApp
+    - ServiceConnectionTypeSlackWorkspace
   types.ServiceConnectionUpdateRequest:
     properties:
       ado_client_id:
@@ -8840,6 +8880,19 @@ definitions:
       github_private_key:
         type: string
       name:
+        type: string
+      slack_app_token:
+        type: string
+      slack_bot_token:
+        type: string
+      slack_client_id:
+        description: Slack global app fields (only update if provided)
+        type: string
+      slack_client_secret:
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_signing_secret:
         type: string
     type: object
   types.ServiceDownloadProgress:

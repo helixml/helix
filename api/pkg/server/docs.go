@@ -28310,13 +28310,15 @@ const docTemplate = `{
                 "github",
                 "gitlab",
                 "ado",
-                "bitbucket"
+                "bitbucket",
+                "slack"
             ],
             "x-enum-varnames": [
                 "ExternalRepositoryTypeGitHub",
                 "ExternalRepositoryTypeGitLab",
                 "ExternalRepositoryTypeADO",
-                "ExternalRepositoryTypeBitbucket"
+                "ExternalRepositoryTypeBitbucket",
+                "ExternalRepositoryTypeSlack"
             ]
         },
         "types.ExternalStatus": {
@@ -33330,6 +33332,25 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (type=slack_app)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 }
@@ -33370,6 +33391,18 @@ const docTemplate = `{
                 "has_github_private_key": {
                     "type": "boolean"
                 },
+                "has_slack_app_token": {
+                    "type": "boolean"
+                },
+                "has_slack_bot_token": {
+                    "type": "boolean"
+                },
+                "has_slack_client_secret": {
+                    "type": "boolean"
+                },
+                "has_slack_signing_secret": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -33388,6 +33421,25 @@ const docTemplate = `{
                 "provider_type": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
+                "slack_app_id": {
+                    "type": "string"
+                },
+                "slack_bot_user_id": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack (non-sensitive fields + has-secret flags)",
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_team_id": {
+                    "type": "string"
+                },
+                "slack_team_name": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 },
@@ -33400,11 +33452,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "github_app",
-                "ado_service_principal"
+                "ado_service_principal",
+                "slack_app",
+                "slack_workspace"
             ],
             "x-enum-varnames": [
                 "ServiceConnectionTypeGitHubApp",
-                "ServiceConnectionTypeADOServicePrincipal"
+                "ServiceConnectionTypeADOServicePrincipal",
+                "ServiceConnectionTypeSlackApp",
+                "ServiceConnectionTypeSlackWorkspace"
             ]
         },
         "types.ServiceConnectionUpdateRequest": {
@@ -33441,6 +33497,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (only update if provided)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
                     "type": "string"
                 }
             }

@@ -180,6 +180,18 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		}
 		providerType = types.ExternalRepositoryTypeADO
 
+	case types.ServiceConnectionTypeSlackApp:
+		// The global Slack app. REST mode needs client id/secret +
+		// signing secret; Socket Mode needs app token + bot token. We
+		// don't hard-require a particular subset here — the operator may
+		// fill REST now and Socket later — but at least one credential
+		// must be present so an empty row can't masquerade as configured.
+		if req.SlackClientID == "" && req.SlackSigningSecret == "" && req.SlackAppToken == "" && req.SlackBotToken == "" {
+			http.Error(w, "Slack app requires at least one of: client id/signing secret (REST) or app/bot token (Socket Mode)", http.StatusBadRequest)
+			return
+		}
+		providerType = types.ExternalRepositoryTypeSlack
+
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported connection type: %s", req.Type), http.StatusBadRequest)
 		return
@@ -241,6 +253,38 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 			return
 		}
 		connection.ADOClientSecret = encryptedSecret
+	}
+
+	// Encrypt and store global Slack app credentials
+	if req.Type == types.ServiceConnectionTypeSlackApp {
+		connection.SlackClientID = req.SlackClientID
+		connection.SlackIngressMode = req.SlackIngressMode
+		for field, plaintext := range map[string]*string{
+			"slack_client_secret":  &req.SlackClientSecret,
+			"slack_signing_secret": &req.SlackSigningSecret,
+			"slack_app_token":      &req.SlackAppToken,
+			"slack_bot_token":      &req.SlackBotToken,
+		} {
+			if *plaintext == "" {
+				continue
+			}
+			enc, err := crypto.EncryptAES256GCM([]byte(*plaintext), encryptionKey)
+			if err != nil {
+				log.Error().Err(err).Str("field", field).Msg("Failed to encrypt slack credential")
+				http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
+				return
+			}
+			switch field {
+			case "slack_client_secret":
+				connection.SlackClientSecret = enc
+			case "slack_signing_secret":
+				connection.SlackSigningSecret = enc
+			case "slack_app_token":
+				connection.SlackAppToken = enc
+			case "slack_bot_token":
+				connection.SlackBotToken = enc
+			}
+		}
 	}
 
 	if err := s.Store.CreateServiceConnection(r.Context(), connection); err != nil {
@@ -353,6 +397,34 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 			return
 		}
 		connection.ADOClientSecret = encryptedSecret
+	}
+
+	// Update global Slack app fields if provided
+	if req.SlackClientID != nil {
+		connection.SlackClientID = *req.SlackClientID
+	}
+	if req.SlackIngressMode != nil {
+		connection.SlackIngressMode = *req.SlackIngressMode
+	}
+	for _, f := range []struct {
+		val *string
+		dst *string
+	}{
+		{req.SlackClientSecret, &connection.SlackClientSecret},
+		{req.SlackSigningSecret, &connection.SlackSigningSecret},
+		{req.SlackAppToken, &connection.SlackAppToken},
+		{req.SlackBotToken, &connection.SlackBotToken},
+	} {
+		if f.val == nil || *f.val == "" {
+			continue
+		}
+		enc, err := crypto.EncryptAES256GCM([]byte(*f.val), encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encrypt slack credential")
+			http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		*f.dst = enc
 	}
 
 	if err := s.Store.UpdateServiceConnection(r.Context(), connection); err != nil {
@@ -554,6 +626,14 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 		if err != nil {
 			return fmt.Errorf("failed to authenticate with ADO Service Principal: %w", err)
 		}
+		return nil
+
+	case types.ServiceConnectionTypeSlackApp, types.ServiceConnectionTypeSlackWorkspace:
+		// REST app credentials can't be validated without an OAuth
+		// round-trip, and a Socket Mode auth.test would open a real
+		// connection — both out of scope for a synchronous create-time
+		// probe. Treat as a no-op success; real validation happens on
+		// first connect / install.
 		return nil
 
 	default:

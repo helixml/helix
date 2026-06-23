@@ -104,6 +104,31 @@ func (s *PostgresStore) ListServiceConnectionsByProvider(ctx context.Context, or
 	return connections, nil
 }
 
+// GetServiceConnectionBySlackTeamID returns the slack_workspace
+// connection whose Slack team id matches. This is the inbound routing
+// hot path: every inbound Slack delivery carries a team_id and must
+// resolve to the org that installed the app into that workspace. The
+// slack_team_id column is indexed. Returns ErrNotFound when no
+// workspace install matches.
+func (s *PostgresStore) GetServiceConnectionBySlackTeamID(ctx context.Context, teamID string) (*types.ServiceConnection, error) {
+	if teamID == "" {
+		return nil, fmt.Errorf("team id is required")
+	}
+
+	var connection types.ServiceConnection
+	err := s.gdb.WithContext(ctx).
+		Where("type = ? AND slack_team_id = ?", types.ServiceConnectionTypeSlackWorkspace, teamID).
+		First(&connection).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to get service connection by slack team id: %w", err)
+	}
+
+	return &connection, nil
+}
+
 // UpdateServiceConnection updates a service connection
 func (s *PostgresStore) UpdateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error {
 	connection.UpdatedAt = time.Now()

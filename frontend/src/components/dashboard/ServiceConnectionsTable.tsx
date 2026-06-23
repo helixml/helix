@@ -57,6 +57,17 @@ const ServiceConnectionsTable: FC = () => {
   const [adoClientId, setAdoClientId] = useState('')
   const [adoClientSecret, setAdoClientSecret] = useState('')
 
+  // Global Slack app (slack_app) form state
+  const [slackIngressMode, setSlackIngressMode] = useState('rest')
+  const [slackClientId, setSlackClientId] = useState('')
+  const [slackClientSecret, setSlackClientSecret] = useState('')
+  const [slackSigningSecret, setSlackSigningSecret] = useState('')
+  const [slackAppToken, setSlackAppToken] = useState('')
+  const [slackBotToken, setSlackBotToken] = useState('')
+
+  const isGithub = connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
+  const isSlackApp = connectionType === TypesServiceConnectionType.ServiceConnectionTypeSlackApp
+
   const [testingId, setTestingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -137,6 +148,12 @@ const ServiceConnectionsTable: FC = () => {
     setAdoTenantId('')
     setAdoClientId('')
     setAdoClientSecret('')
+    setSlackIngressMode('rest')
+    setSlackClientId('')
+    setSlackClientSecret('')
+    setSlackSigningSecret('')
+    setSlackAppToken('')
+    setSlackBotToken('')
   }
 
   const handleCreate = () => {
@@ -146,11 +163,18 @@ const ServiceConnectionsTable: FC = () => {
       type: connectionType,
     }
 
-    if (connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp) {
+    if (isGithub) {
       req.github_app_id = parseInt(githubAppId, 10)
       req.github_installation_id = parseInt(githubInstallationId, 10)
       req.github_private_key = githubPrivateKey
       if (githubBaseUrl) req.base_url = githubBaseUrl
+    } else if (isSlackApp) {
+      req.slack_ingress_mode = slackIngressMode
+      if (slackClientId) req.slack_client_id = slackClientId
+      if (slackClientSecret) req.slack_client_secret = slackClientSecret
+      if (slackSigningSecret) req.slack_signing_secret = slackSigningSecret
+      if (slackAppToken) req.slack_app_token = slackAppToken
+      if (slackBotToken) req.slack_bot_token = slackBotToken
     } else {
       req.ado_organization_url = adoOrgUrl
       req.ado_tenant_id = adoTenantId
@@ -164,13 +188,20 @@ const ServiceConnectionsTable: FC = () => {
   const isFormValid = () => {
     if (!name.trim()) return false
 
-    if (connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp) {
+    if (isGithub) {
       // Validate GitHub App ID and Installation ID are valid numbers
       const appIdNum = parseInt(githubAppId, 10)
       const installIdNum = parseInt(githubInstallationId, 10)
       if (isNaN(appIdNum) || appIdNum <= 0) return false
       if (isNaN(installIdNum) || installIdNum <= 0) return false
       return !!githubPrivateKey.trim()
+    } else if (isSlackApp) {
+      // REST install needs client id/secret + signing secret; Socket Mode
+      // needs app + bot tokens. Require the set matching the chosen mode.
+      if (slackIngressMode === 'socket') {
+        return !!slackAppToken.trim() && !!slackBotToken.trim()
+      }
+      return !!slackClientId.trim() && !!slackClientSecret.trim() && !!slackSigningSecret.trim()
     } else {
       return !!adoOrgUrl.trim() && !!adoTenantId.trim() && !!adoClientId.trim() && !!adoClientSecret
     }
@@ -253,7 +284,13 @@ const ServiceConnectionsTable: FC = () => {
                     <TableCell>
                       <Chip
                         icon={conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? <GitHub sx={{ fontSize: 16 }} /> : <Cloud size={14} />}
-                        label={conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? 'GitHub App' : 'ADO Service Principal'}
+                        label={
+                          conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
+                            ? 'GitHub App'
+                            : conn.type === TypesServiceConnectionType.ServiceConnectionTypeSlackApp
+                              ? 'Global Slack App'
+                              : 'ADO Service Principal'
+                        }
                         size="small"
                         variant="outlined"
                       />
@@ -263,6 +300,11 @@ const ServiceConnectionsTable: FC = () => {
                         <Typography variant="caption">
                           App ID: {conn.github_app_id}, Installation: {conn.github_installation_id}
                           {conn.base_url && ` (${conn.base_url})`}
+                        </Typography>
+                      ) : conn.type === TypesServiceConnectionType.ServiceConnectionTypeSlackApp ? (
+                        <Typography variant="caption">
+                          Ingress: {conn.slack_ingress_mode || 'rest'}
+                          {conn.slack_client_id && <><br />Client: {conn.slack_client_id}</>}
                         </Typography>
                       ) : (
                         <Typography variant="caption">
@@ -346,6 +388,12 @@ const ServiceConnectionsTable: FC = () => {
                     Azure DevOps Service Principal
                   </Box>
                 </MenuItem>
+                <MenuItem value="slack_app">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Cloud size={18} />
+                    Global Slack App
+                  </Box>
+                </MenuItem>
               </Select>
             </FormControl>
 
@@ -366,7 +414,7 @@ const ServiceConnectionsTable: FC = () => {
               placeholder="Optional description"
             />
 
-            {connectionType === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? (
+            {isGithub ? (
               <>
                 <Alert severity="info" sx={{ mb: 1 }}>
                   GitHub Apps provide service-to-service authentication without requiring user credentials.
@@ -409,6 +457,77 @@ const ServiceConnectionsTable: FC = () => {
                   placeholder="https://github.mycompany.com"
                   helperText="Leave empty for github.com, or enter your GitHub Enterprise URL"
                 />
+              </>
+            ) : isSlackApp ? (
+              <>
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  The single deployment-wide Slack app. Org admins then install it into their own
+                  workspaces (REST) — or, self-hosted, run it in Socket Mode against one workspace.
+                  Create the app at api.slack.com/apps. Redirect URL: <code>/api/v1/slack/oauth/callback</code>;
+                  Events Request URL: <code>/api/v1/slack/events</code>.
+                </Alert>
+                <FormControl fullWidth>
+                  <InputLabel>Ingress Mode</InputLabel>
+                  <Select
+                    value={slackIngressMode}
+                    label="Ingress Mode"
+                    onChange={(e) => setSlackIngressMode(e.target.value)}
+                  >
+                    <MenuItem value="rest">REST (Events API) — SaaS, per-org OAuth install</MenuItem>
+                    <MenuItem value="socket">Socket Mode — self-hosted, single workspace</MenuItem>
+                  </Select>
+                </FormControl>
+                {slackIngressMode === 'rest' ? (
+                  <>
+                    <TextField
+                      label="Client ID"
+                      fullWidth
+                      required
+                      value={slackClientId}
+                      onChange={(e) => setSlackClientId(e.target.value)}
+                      placeholder="1234567890.1234567890"
+                      helperText="Basic Information → App Credentials"
+                    />
+                    <TextField
+                      label="Client Secret"
+                      fullWidth
+                      required
+                      type="password"
+                      value={slackClientSecret}
+                      onChange={(e) => setSlackClientSecret(e.target.value)}
+                    />
+                    <TextField
+                      label="Signing Secret"
+                      fullWidth
+                      required
+                      type="password"
+                      value={slackSigningSecret}
+                      onChange={(e) => setSlackSigningSecret(e.target.value)}
+                      helperText="Used to verify inbound Events API requests"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <TextField
+                      label="App-Level Token (xapp-…)"
+                      fullWidth
+                      required
+                      type="password"
+                      value={slackAppToken}
+                      onChange={(e) => setSlackAppToken(e.target.value)}
+                      helperText="Basic Information → App-Level Tokens (connections:write)"
+                    />
+                    <TextField
+                      label="Bot Token (xoxb-…)"
+                      fullWidth
+                      required
+                      type="password"
+                      value={slackBotToken}
+                      onChange={(e) => setSlackBotToken(e.target.value)}
+                      helperText="OAuth & Permissions → Bot User OAuth Token"
+                    />
+                  </>
+                )}
               </>
             ) : (
               <>

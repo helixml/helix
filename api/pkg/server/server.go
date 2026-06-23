@@ -919,6 +919,28 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 					Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
 					Methods(http.MethodGet)
 			}
+			// /api/v1/slack/events — single global inbound Slack Events
+			// API endpoint. Insecure mount: Slack deliveries carry no
+			// helix session; the handler verifies the global app's
+			// signing-secret HMAC and routes by team_id. One endpoint
+			// serves every org install.
+			if orgHandlers.publicSlackEvents != nil {
+				insecureRouter.
+					Handle("/slack/events", orgHandlers.publicSlackEvents).
+					Methods(http.MethodPost)
+			}
+			// /api/v1/slack/oauth/callback — top-level browser redirect
+			// from slack.com after the admin approves the install.
+			// Insecure (no session cookie); authenticated by the
+			// encrypted ?state= carrying the org id.
+			insecureRouter.
+				HandleFunc("/slack/oauth/callback", apiServer.slackOAuthCallback).
+				Methods(http.MethodGet)
+			// Socket Mode ingress — long-lived, only active when the
+			// global app is configured for it. Started like streamCron.
+			if orgHandlers.slackSocketRun != nil {
+				go orgHandlers.slackSocketRun(ctx)
+			}
 
 			// /api/v1/orgs/{org}/* — per-tenant surface for the
 			// org-graph resources (chart, workers, roles, positions,
@@ -929,6 +951,15 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 			// store layer scope to it. authRouter is a sub-mux of
 			// /api/v1, so paths registered against it are matched as
 			// full request paths.
+			// Org-scoped Slack endpoints. Registered BEFORE the
+			// /orgs/{org}/ catch-all so these exact paths win the match.
+			// Each handler does its own lookupOrg + org-membership
+			// authorisation (strict multi-tenancy), so they don't need the
+			// org-scope middleware.
+			authRouter.HandleFunc("/orgs/{org}/slack/oauth/start", apiServer.slackOAuthStart).Methods(http.MethodGet)
+			authRouter.HandleFunc("/orgs/{org}/slack/workspaces", apiServer.listSlackWorkspaces).Methods(http.MethodGet)
+			authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", apiServer.deleteSlackWorkspace).Methods(http.MethodDelete)
+
 			authRouter.PathPrefix("/orgs/{org}/").Handler(
 				requireFeature(helixorg.AlphaFeature)(
 					apiServer.withHelixOrgScope(orgHandlers.scope,

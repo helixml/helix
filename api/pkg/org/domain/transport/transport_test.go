@@ -172,6 +172,38 @@ func TestTransportValidate_GitHub(t *testing.T) {
 	}
 }
 
+func TestTransportValidate_Slack(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     string
+		wantErr string
+	}{
+		{"valid", `{"service_connection_id":"sc-123","channel":"C0123ABCD"}`, ""},
+
+		{"missing both (no config)", "", "service_connection_id is required"},
+		{"missing connection", `{"channel":"C0123ABCD"}`, "service_connection_id is required"},
+		{"empty connection", `{"service_connection_id":"","channel":"C0123ABCD"}`, "service_connection_id is required"},
+		{"missing channel", `{"service_connection_id":"sc-123"}`, "channel is required"},
+		{"empty channel", `{"service_connection_id":"sc-123","channel":""}`, "channel is required"},
+
+		{"malformed json", `{not json`, "parse slack config"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tr := transport.Transport{Kind: transport.KindSlack}
+			if tc.cfg != "" {
+				tr.Config = json.RawMessage(tc.cfg)
+			}
+			err := tr.Validate()
+			assertError(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestTransportValidate_EmptyKindFails(t *testing.T) {
 	t.Parallel()
 	err := (transport.Transport{}).Validate()
@@ -188,7 +220,8 @@ func TestTransportValidate_UnknownKindFails(t *testing.T) {
 		!strings.Contains(err.Error(), `"webhook"`) ||
 		!strings.Contains(err.Error(), `"email"`) ||
 		!strings.Contains(err.Error(), `"github"`) ||
-		!strings.Contains(err.Error(), `"cron"`) {
+		!strings.Contains(err.Error(), `"cron"`) ||
+		!strings.Contains(err.Error(), `"slack"`) {
 		t.Fatalf("unknown-kind error should list every valid kind; got %q", err)
 	}
 }
@@ -413,6 +446,46 @@ func TestGitHubConfigParse_MalformedJSONFails(t *testing.T) {
 	assertError(t, err, "parse github config")
 }
 
+// --- SlackConfig parser --------------------------------------------------
+
+func TestSlackConfigParse_RejectsWrongKind(t *testing.T) {
+	t.Parallel()
+	_, err := transport.Transport{Kind: transport.KindLocal}.SlackConfig()
+	if err == nil {
+		t.Fatalf("expected error parsing local transport as slack")
+	}
+}
+
+func TestSlackConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
+	t.Parallel()
+	c, err := transport.Transport{Kind: transport.KindSlack}.SlackConfig()
+	if err != nil {
+		t.Fatalf("SlackConfig() = %v, want nil", err)
+	}
+	if c.ServiceConnectionID != "" || c.Channel != "" {
+		t.Fatalf("zero value violated: %+v", c)
+	}
+}
+
+func TestSlackConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"service_connection_id":"sc-123","channel":"C0123ABCD"}`)
+	c, err := transport.Transport{Kind: transport.KindSlack, Config: raw}.SlackConfig()
+	if err != nil {
+		t.Fatalf("SlackConfig() = %v", err)
+	}
+	if c.ServiceConnectionID != "sc-123" || c.Channel != "C0123ABCD" {
+		t.Fatalf("round-trip violated: %+v", c)
+	}
+}
+
+func TestSlackConfigParse_MalformedJSONFails(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{not json`)
+	_, err := transport.Transport{Kind: transport.KindSlack, Config: raw}.SlackConfig()
+	assertError(t, err, "parse slack config")
+}
+
 // --- Constructors and enum invariants ------------------------------------
 
 func TestLocalTransport_IsZeroConfig(t *testing.T) {
@@ -439,6 +512,7 @@ func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 		transport.KindEmail,
 		transport.KindGitHub,
 		transport.KindCron,
+		transport.KindSlack,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("TransportKindValues() length = %d, want %d (%v)", len(got), len(want), got)

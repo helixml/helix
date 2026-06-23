@@ -3200,6 +3200,7 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeGitLab = "gitlab",
   ExternalRepositoryTypeADO = "ado",
   ExternalRepositoryTypeBitbucket = "bitbucket",
+  ExternalRepositoryTypeSlack = "slack",
 }
 
 export interface TypesExternalStatus {
@@ -5483,6 +5484,13 @@ export interface TypesServiceConnectionCreateRequest {
   github_installation_id?: number;
   github_private_key?: string;
   name?: string;
+  slack_app_token?: string;
+  slack_bot_token?: string;
+  /** Slack global app fields (type=slack_app) */
+  slack_client_id?: string;
+  slack_client_secret?: string;
+  slack_ingress_mode?: string;
+  slack_signing_secret?: string;
   type?: TypesServiceConnectionType;
 }
 
@@ -5499,12 +5507,23 @@ export interface TypesServiceConnectionResponse {
   github_installation_id?: number;
   has_ado_client_secret?: boolean;
   has_github_private_key?: boolean;
+  has_slack_app_token?: boolean;
+  has_slack_bot_token?: boolean;
+  has_slack_client_secret?: boolean;
+  has_slack_signing_secret?: boolean;
   id?: string;
   last_error?: string;
   last_tested_at?: string;
   name?: string;
   organization_id?: string;
   provider_type?: TypesExternalRepositoryType;
+  slack_app_id?: string;
+  slack_bot_user_id?: string;
+  /** Slack (non-sensitive fields + has-secret flags) */
+  slack_client_id?: string;
+  slack_ingress_mode?: string;
+  slack_team_id?: string;
+  slack_team_name?: string;
   type?: TypesServiceConnectionType;
   updated_at?: string;
 }
@@ -5512,6 +5531,8 @@ export interface TypesServiceConnectionResponse {
 export enum TypesServiceConnectionType {
   ServiceConnectionTypeGitHubApp = "github_app",
   ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
+  ServiceConnectionTypeSlackApp = "slack_app",
+  ServiceConnectionTypeSlackWorkspace = "slack_workspace",
 }
 
 export interface TypesServiceConnectionUpdateRequest {
@@ -5528,6 +5549,13 @@ export interface TypesServiceConnectionUpdateRequest {
   github_installation_id?: number;
   github_private_key?: string;
   name?: string;
+  slack_app_token?: string;
+  slack_bot_token?: string;
+  /** Slack global app fields (only update if provided) */
+  slack_client_id?: string;
+  slack_client_secret?: string;
+  slack_ingress_mode?: string;
+  slack_signing_secret?: string;
 }
 
 export interface TypesServiceDownloadProgress {
