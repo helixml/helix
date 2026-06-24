@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 // AlternativeModelOption represents a provider/model combination for fallback substitution
@@ -345,6 +346,13 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Flag apps that back a Helix org-chart Worker so the frontend can hide
+	// them from the spec-task agent switchers. Done before the owner/member
+	// split so both return paths carry the flag.
+	if httpErr := s.markHelixOrgAgents(ctx, orgID, apps); httpErr != nil {
+		return nil, httpErr
+	}
+
 	// Org owners see all apps
 	if orgMembership.Role == types.OrganizationRoleOwner {
 		return apps, nil
@@ -360,6 +368,51 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 	}
 
 	return authorizedApps, nil
+}
+
+// markHelixOrgAgents sets IsHelixOrgAgent on any app that backs a Helix
+// org-chart Worker for the given org. Org-chart Workers only exist when the
+// helix-org feature is enabled and are always org-scoped, so this is a no-op
+// otherwise.
+func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, apps []*types.App) *system.HTTPError {
+	if !s.Cfg.HelixOrgEnabled || orgID == "" || len(apps) == 0 {
+		return nil
+	}
+
+	// helix-org shares helix's Postgres connection; reach the *gorm.DB via the
+	// same anonymous-interface accessor used by openOrgStore (helix_org.go).
+	accessor, ok := s.Store.(interface{ GormDB() *gorm.DB })
+	if !ok {
+		// A non-Postgres store means helix-org cannot be running either.
+		return nil
+	}
+
+	// org_worker_runtime_state holds one row per (org, worker, backend, key).
+	// The "helix" backend's "agent_app_id" value is the App backing that
+	// Worker — see api/pkg/org/infrastructure/runtime/helix/state.go.
+	var agentAppIDs []string
+	if err := accessor.GormDB().WithContext(ctx).
+		Table("org_worker_runtime_state").
+		Where("org_id = ? AND backend = ? AND key = ? AND value <> ?", orgID, "helix", "agent_app_id", "").
+		Distinct("value").
+		Pluck("value", &agentAppIDs).Error; err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("failed to list helix-org agent apps: %s", err))
+	}
+
+	if len(agentAppIDs) == 0 {
+		return nil
+	}
+
+	orgAgents := make(map[string]struct{}, len(agentAppIDs))
+	for _, id := range agentAppIDs {
+		orgAgents[id] = struct{}{}
+	}
+	for _, app := range apps {
+		if _, ok := orgAgents[app.ID]; ok {
+			app.IsHelixOrgAgent = true
+		}
+	}
+	return nil
 }
 
 // createApp godoc

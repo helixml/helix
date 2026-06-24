@@ -1878,6 +1878,11 @@ type App struct {
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 
 	User User `json:"user" gorm:"-"` // Owner user struct, populated by the server for organization views
+
+	// IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+	// (see api/pkg/org). Computed at list time, not persisted, so the frontend
+	// can hide org-chart agents from the spec-task agent switchers.
+	IsHelixOrgAgent bool `json:"is_helix_org_agent" gorm:"-"`
 }
 
 type KeyPair struct {

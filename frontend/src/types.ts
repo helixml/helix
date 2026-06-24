@@ -770,6 +770,10 @@ export interface IApp {
   owner: string;
   owner_type: IOwnerType;
   user?: IUser;
+  // True when this app backs a Helix org-chart Worker. Computed server-side at
+  // list time (not persisted); used to hide org-chart agents from the spec-task
+  // agent switchers.
+  is_helix_org_agent?: boolean;
 }
 
 export interface IAppUpdate {

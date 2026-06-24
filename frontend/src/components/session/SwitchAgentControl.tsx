@@ -12,7 +12,7 @@ import AgentDropdown from "../agent/AgentDropdown";
 import useApps from "../../hooks/useApps";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useGetSession, useSwitchAgent } from "../../services/sessionService";
-import { AGENT_TYPE_ZED_EXTERNAL } from "../../types";
+import { isSpecTaskSwitchableAgent } from "../../utils/apps";
 
 interface SwitchAgentControlProps {
   /** Session being viewed in the chat panel. The dropdown's current value
@@ -59,21 +59,24 @@ const SwitchAgentControl: FC<SwitchAgentControlProps> = ({
   const session = sessionResponse?.data;
   const switchMutation = useSwitchAgent(sessionId);
 
-  // Filter to zed_external agents — switching only makes sense between
-  // external-agent frameworks that run inside Zed.
-  const eligibleAgents = useMemo(() => {
-    if (!apps.apps) return [];
-    return apps.apps.filter((app) =>
-      app.config?.helix?.assistants?.some(
-        (a) => a.agent_type === AGENT_TYPE_ZED_EXTERNAL,
-      ),
-    );
-  }, [apps.apps]);
-
   // The dropdown value reflects the session's parent_app (the helix app the
   // agent was launched from). For sessions without parent_app the dropdown
   // shows "Select Agent" and any selection becomes a switch.
   const currentAppId = session?.parent_app || "";
+
+  // Switching only makes sense between external-agent frameworks that run
+  // inside Zed, and never to a Helix org-chart Worker agent — those belong to
+  // the org chart, not to spec tasks. The session's current agent is kept
+  // visible even if it would be filtered out, so its name still renders.
+  const eligibleAgents = useMemo(() => {
+    if (!apps.apps) return [];
+    const list = apps.apps.filter(isSpecTaskSwitchableAgent);
+    if (currentAppId && !list.some((a) => a.id === currentAppId)) {
+      const current = apps.apps.find((a) => a.id === currentAppId);
+      if (current) list.unshift(current);
+    }
+    return list;
+  }, [apps.apps, currentAppId]);
 
   const handleSelect = (newAppId: string) => {
     if (!sessionId || pending || newAppId === currentAppId) return;

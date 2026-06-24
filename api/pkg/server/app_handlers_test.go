@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,6 +14,51 @@ import (
 
 	"go.uber.org/mock/gomock"
 )
+
+// markHelixOrgAgents must be a no-op when the helix-org feature is disabled:
+// no app is flagged and the database is never touched (the mock store does not
+// implement GormDB, so any query would panic). This guards the no-regression
+// guarantee for the default (feature-off) configuration. The positive path
+// (flagging an app that backs an org-chart Worker) requires a live Postgres
+// org_worker_runtime_state table and is verified end-to-end, not here.
+func Test_markHelixOrgAgents_FeatureDisabled_NoOp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	server := &HelixAPIServer{
+		Store: store.NewMockStore(ctrl),
+		Cfg:   &config.ServerConfig{}, // HelixOrgEnabled defaults to false
+	}
+
+	apps := []*types.App{
+		{ID: "app_1"},
+		{ID: "app_2"},
+	}
+
+	httpErr := server.markHelixOrgAgents(context.Background(), "org_1", apps)
+	require.Nil(t, httpErr)
+	for _, app := range apps {
+		assert.False(t, app.IsHelixOrgAgent, "app %s should not be flagged when feature is off", app.ID)
+	}
+}
+
+// With the feature enabled but an empty org id there are no org-chart Workers
+// to consider, so it stays a no-op and never queries the database.
+func Test_markHelixOrgAgents_NoOrg_NoOp(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	server := &HelixAPIServer{
+		Store: store.NewMockStore(ctrl),
+		Cfg:   &config.ServerConfig{HelixOrgEnabled: true},
+	}
+
+	apps := []*types.App{{ID: "app_1"}}
+
+	httpErr := server.markHelixOrgAgents(context.Background(), "", apps)
+	require.Nil(t, httpErr)
+	assert.False(t, apps[0].IsHelixOrgAgent)
+}
 
 func Test_populateAppOwner_PopulateUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
