@@ -533,11 +533,14 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	slackIngest := slacktransport.NewIngest(slackWS, st, svc.Publishing, logger)
 	// REST Events API source — one global signed webhook for every org.
 	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecrets, slackIngest.OnEvent, logger)
-	// Socket Mode source — long-lived goroutine, only active when the
-	// global app is configured with ingress_mode=socket. Single-replica
-	// here (nil owner); a pg advisory lock can gate multi-replica later.
+	// Socket Mode source — a manager reconciles live connections against
+	// the configured socket-mode apps on an interval (and on Kick from the
+	// create/delete handlers), so installing or editing a socket app takes
+	// effect with no server restart. Single-replica here (nil owner in the
+	// connector); a pg advisory lock can gate multi-replica later.
+	cfg.APIServer.slackSocket = cfg.APIServer.newSlackSocketManager(slackIngest, logger)
 	slackSocketRun := func(ctx context.Context) {
-		cfg.APIServer.runSlackSocketModes(ctx, slackIngest, logger)
+		cfg.APIServer.slackSocket.Run(ctx, slackSocketReconcileInterval)
 	}
 
 	// Processor execution: the runner re-publishes each processor's

@@ -206,44 +206,59 @@ func (s *HelixAPIServer) resolveSlackApp(ctx context.Context, appID string) (*ty
 	}
 }
 
-// runSlackSocketModes opens one Socket Mode connection per socket-mode
-// app, each until ctx is cancelled. The socket needs only the app-level
-// token (xapp-); per-workspace bot tokens are resolved downstream (ingest
-// → workspace by team_id), so one socket serves every installed workspace.
-func (s *HelixAPIServer) runSlackSocketModes(ctx context.Context, ingest *slacktransport.Ingest, logger *slog.Logger) {
-	apps, err := s.listSlackApps(ctx)
-	if err != nil {
-		logger.Error("slack.socketmode: list apps", "err", err)
-		return
-	}
-	key, err := s.getEncryptionKey()
-	if err != nil {
-		logger.Error("slack.socketmode: encryption key", "err", err)
-		return
-	}
-	started := 0
-	for _, app := range apps {
-		if app.SlackIngressMode != "socket" || app.SlackAppToken == "" {
-			continue
-		}
-		appToken, err := crypto.DecryptAES256GCM(app.SlackAppToken, key)
+// slackSocketReconcileInterval is how often the Socket Mode manager
+// re-scans the configured apps as a backstop. Create/delete handlers Kick
+// it for instant pickup, so this only needs to catch changes the handlers
+// can't signal (e.g. a direct DB edit) and re-establish dropped sockets.
+const slackSocketReconcileInterval = 30 * time.Second
+
+// newSlackSocketManager builds the manager that keeps Socket Mode
+// connections in sync with the configured socket-mode apps. Each socket
+// needs only the app-level token (xapp-); per-workspace bot tokens are
+// resolved downstream (ingest → workspace by team_id), so one socket
+// serves every installed workspace. The manager reconciles on an interval
+// (and on Kick), so installing or editing a socket app takes effect with
+// no server restart.
+func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, logger *slog.Logger) *slacktransport.SocketManager {
+	list := func(ctx context.Context) ([]slacktransport.SocketApp, error) {
+		apps, err := s.listSlackApps(ctx)
 		if err != nil {
-			logger.Error("slack.socketmode: decrypt app token", "app", app.ID, "err", err)
-			continue
+			return nil, err
 		}
-		started++
-		go func(name, token string) {
-			connector := slackcore.NewConnector(token, "", "", logger)
-			runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
-			logger.Info("slack.socketmode: starting", "app", name)
-			if err := runner.Run(ctx); err != nil && ctx.Err() == nil {
-				logger.Error("slack.socketmode: runner exited", "app", name, "err", err)
+		key, err := s.getEncryptionKey()
+		if err != nil {
+			return nil, err
+		}
+		var out []slacktransport.SocketApp
+		for _, app := range apps {
+			if app.SlackIngressMode != "socket" || app.SlackAppToken == "" {
+				continue
 			}
-		}(app.Name, string(appToken))
+			appToken, err := crypto.DecryptAES256GCM(app.SlackAppToken, key)
+			if err != nil {
+				logger.Error("slack.socketmode: decrypt app token", "app", app.ID, "err", err)
+				continue
+			}
+			out = append(out, slacktransport.SocketApp{ID: app.ID, AppToken: string(appToken)})
+		}
+		return out, nil
 	}
-	if started == 0 {
-		logger.Info("slack.socketmode: no socket-mode app configured — not starting")
+	// connect opens one Socket Mode connection bound to appCtx (a child of
+	// the manager's run context). slackcore.SocketMode.Run self-heals on
+	// transient drops until appCtx is cancelled; the returned stop cancels
+	// it (used when the app is deleted or its token changes).
+	connect := func(ctx context.Context, app slacktransport.SocketApp) func() {
+		appCtx, cancel := context.WithCancel(ctx)
+		go func() {
+			connector := slackcore.NewConnector(app.AppToken, "", "", logger)
+			runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
+			if err := runner.Run(appCtx); err != nil && appCtx.Err() == nil {
+				logger.Error("slack.socketmode: connection exited", "app", app.ID, "err", err)
+			}
+		}()
+		return cancel
 	}
+	return slacktransport.NewSocketManager(list, connect, logger)
 }
 
 // slackSigningSecrets returns every configured app's decrypted signing

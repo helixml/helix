@@ -39,6 +39,7 @@ import (
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
@@ -101,12 +102,17 @@ type activeStreamProxy struct {
 }
 
 type HelixAPIServer struct {
-	Cfg                         *config.ServerConfig
-	Store                       store.Store
+	Cfg   *config.ServerConfig
+	Store store.Store
 	// slackTopics auto-creates/removes the per-workspace Slack Topic when
 	// a workspace is connected/disconnected. nil when helix-org isn't
 	// mounted.
 	slackTopics *slackWorkspaceTopics
+	// slackSocket reconciles live Socket Mode connections against the
+	// configured socket-mode apps; Kicked when a slack_app is created or
+	// deleted so changes apply without a restart. nil when helix-org isn't
+	// mounted.
+	slackSocket                 *slacktransport.SocketManager
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller

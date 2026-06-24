@@ -304,6 +304,12 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// A new socket-mode slack_app needs its Socket Mode connection opened
+	// now — Kick the manager so it picks the app up without a restart.
+	if connection.Type == types.ServiceConnectionTypeSlackApp && s.slackSocket != nil {
+		s.slackSocket.Kick()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(connection.ToResponse())
@@ -444,6 +450,12 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// An edited slack_app may have changed ingress mode or app token —
+	// Kick the socket manager so it (re)connects or tears down as needed.
+	if connection.Type == types.ServiceConnectionTypeSlackApp && s.slackSocket != nil {
+		s.slackSocket.Kick()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connection.ToResponse())
 }
@@ -493,9 +505,13 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 
 	// A global slack_app's workspace installs (and their Topics) depend on
 	// it for inbound delivery — cascade-delete them so they don't linger
-	// orphaned across every org the app was installed into.
+	// orphaned across every org the app was installed into. Also Kick the
+	// socket manager so a socket app's live connection is torn down now.
 	if conn.Type == types.ServiceConnectionTypeSlackApp {
 		s.cascadeDeleteSlackAppWorkspaces(r.Context(), connectionID)
+		if s.slackSocket != nil {
+			s.slackSocket.Kick()
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
