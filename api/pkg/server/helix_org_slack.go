@@ -134,6 +134,32 @@ func (w *slackWorkspaces) ByTeamID(ctx context.Context, teamID string) (slacktra
 	return w.toWorkspace(conn)
 }
 
+// ByOrg resolves the org's connected workspace install — used by the
+// credential provider to hand a Worker the bot token. It prefers an
+// app-linked (OAuth-installed) connection over a bare manual-token one,
+// so a leftover duplicate row doesn't win. This is a prototype
+// simplification: the correct model is team-scoped minting keyed on the
+// triggering event's team_id (the agent already sees it in
+// extra.slack_team_id), so a Worker mints the token for the exact
+// workspace the message came from.
+func (w *slackWorkspaces) ByOrg(ctx context.Context, orgID string) (slacktransport.Workspace, error) {
+	conns, err := w.store.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeSlackWorkspace)
+	if err != nil {
+		return slacktransport.Workspace{}, err
+	}
+	if len(conns) == 0 {
+		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+	}
+	chosen := conns[0]
+	for _, c := range conns {
+		if c.SlackAppConnectionID != "" {
+			chosen = c
+			break
+		}
+	}
+	return w.toWorkspace(chosen)
+}
+
 // ByID resolves a workspace by its ServiceConnection id.
 func (w *slackWorkspaces) ByID(ctx context.Context, id string) (slacktransport.Workspace, error) {
 	conn, err := w.store.GetServiceConnection(ctx, id)

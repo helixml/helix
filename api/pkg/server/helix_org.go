@@ -26,8 +26,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -44,8 +44,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
-	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
+	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -158,7 +158,7 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 // services" shape from design §5.4.
 type orgServices struct {
 	Roles         *roles.Roles
-	Topics       *topics.Topics
+	Topics        *topics.Topics
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -176,8 +176,8 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	return orgServices{
-		Roles:   rolesSvc,
-		Topics:  topicsSvc,
+		Roles:  rolesSvc,
+		Topics: topicsSvc,
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
 		}),
@@ -430,6 +430,19 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	dispatcher.RegisterOutbound(transport.KindSlack, slacktransport.NewOutbound(slackWS, st.Events, nil, logger))
 	// Auto-manage one Slack Topic per connected workspace.
 	cfg.APIServer.slackTopics = &slackWorkspaceTopics{topics: st.Topics, logger: logger}
+	// mint_credential provider=slack hands a Worker the workspace bot
+	// token so it can drive the Slack Web API directly (chat.postMessage,
+	// reactions.add, files.upload) — the transport owns ingress + this
+	// token; outbound richness is the agent's job via curl.
+	deps.CredentialProviders["slack"] = slacktransport.NewCredentialProvider(
+		func(ctx context.Context, orgID string) (slacktransport.Identity, error) {
+			ws, err := slackWS.ByOrg(ctx, orgID)
+			if err != nil {
+				return slacktransport.Identity{}, err
+			}
+			return slacktransport.Identity{Token: ws.BotToken}, nil
+		},
+	)
 	deps.Dispatcher = dispatcher
 
 	// streamCron drives KindCron topics. Same call sequence as the
@@ -546,7 +559,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Sessions:   orgWorkerRuntime{st: st},
 	})
 	apiDeps := helixorgapi.Deps{
-		Topics:       svc.Topics,
+		Topics:        svc.Topics,
 		Roles:         svc.Roles,
 		Workers:       svc.Workers,
 		Subscriptions: svc.Subscriptions,
