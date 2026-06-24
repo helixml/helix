@@ -269,6 +269,21 @@ load_desktop_image() {
         fi
     fi
 
+    # Dev/local fallback: the image may be in the local push registry
+    # (registry:5000) even without a .ref file — e.g. `./stack build-sandbox`
+    # pushed it there but the in-sandbox transfer pull was interrupted (a
+    # container restart mid-transfer). Pull it directly instead of crash-looping
+    # the whole sandbox host. Harmless in prod: registry:5000 won't resolve / be
+    # populated, so this falls through to the FATAL below.
+    local LOCAL_REGISTRY_REF="registry:5000/${IMAGE_NAME}:${VERSION}"
+    echo "🔄 Local fallback: trying ${LOCAL_REGISTRY_REF} ..."
+    if docker pull "$LOCAL_REGISTRY_REF" 2>&1; then
+        docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:${VERSION}" 2>/dev/null || true
+        docker tag "$LOCAL_REGISTRY_REF" "${IMAGE_NAME}:latest" 2>/dev/null || true
+        echo "✅ ${IMAGE_NAME}:${VERSION} pulled from local push registry"
+        return 0
+    fi
+
     # Image not available
     if [ "$REQUIRED" = "true" ]; then
         echo "❌ FATAL: ${IMAGE_NAME} is a REQUIRED production desktop image and is not available."

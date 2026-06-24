@@ -109,6 +109,17 @@ cat <<GNOME_EOF > $XDG_RUNTIME_DIR/start_gnome
 #!/bin/bash
 source /opt/gow/bash-lib/utils.sh
 
+# Web-service sandboxes only host a docker-compose app reached via the proxy —
+# they don't need the GNOME desktop or the video-streaming stack. When
+# HELIX_DISABLE_DESKTOP=1, skip the entire desktop/streaming boot (GNOME shell,
+# desktop-bridge, settings-sync daemon) and just keep the container alive so
+# exec and web-service deploys work. dockerd starts independently via cont-init,
+# so it is unaffected. (HELIX_DISABLE_AGENT only skips Zed; this skips the rest.)
+if [ "${HELIX_DISABLE_DESKTOP}" = "1" ]; then
+  gow_log "[start] HELIX_DISABLE_DESKTOP=1 — skipping GNOME + streaming boot (web-service mode); keeping container alive"
+  exec sleep infinity
+fi
+
 # Set GNOME environment
 export XDG_CURRENT_DESKTOP=GNOME
 export XDG_SESSION_DESKTOP=gnome
