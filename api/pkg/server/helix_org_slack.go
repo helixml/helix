@@ -134,45 +134,35 @@ func (w *slackWorkspaces) ByTeamID(ctx context.Context, teamID string) (slacktra
 	return w.toWorkspace(conn)
 }
 
-// ByOrg resolves the org's connected workspace install — used by the
-// credential provider to hand a Worker the bot token. It prefers an
-// app-linked (OAuth-installed) connection over a bare manual-token one,
-// so a leftover duplicate row doesn't win. This is a prototype
-// simplification: the correct model is team-scoped minting keyed on the
-// triggering event's team_id (the agent already sees it in
-// extra.slack_team_id), so a Worker mints the token for the exact
-// workspace the message came from.
-func (w *slackWorkspaces) ByOrg(ctx context.Context, orgID string) (slacktransport.Workspace, error) {
+// resolveForOrg resolves the bot token for the credential provider. When
+// teamID is set (the triggering event's extra.slack_team_id) it returns
+// that exact workspace; empty teamID falls back to the org's workspace.
+// Either way the candidate set is the caller's org only
+// (ListServiceConnectionsByType is org-scoped), so a Worker can never
+// mint another org's token. App-linked (OAuth-installed) connections win
+// over a bare manual-token duplicate for the same team.
+func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID string) (slacktransport.Workspace, error) {
 	conns, err := w.store.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeSlackWorkspace)
 	if err != nil {
 		return slacktransport.Workspace{}, err
 	}
-	if len(conns) == 0 {
+	var candidates []*types.ServiceConnection
+	for _, c := range conns {
+		if teamID == "" || c.SlackTeamID == teamID {
+			candidates = append(candidates, c)
+		}
+	}
+	if len(candidates) == 0 {
 		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
 	}
-	chosen := conns[0]
-	for _, c := range conns {
+	chosen := candidates[0]
+	for _, c := range candidates {
 		if c.SlackAppConnectionID != "" {
 			chosen = c
 			break
 		}
 	}
 	return w.toWorkspace(chosen)
-}
-
-// ByID resolves a workspace by its ServiceConnection id.
-func (w *slackWorkspaces) ByID(ctx context.Context, id string) (slacktransport.Workspace, error) {
-	conn, err := w.store.GetServiceConnection(ctx, id)
-	if err != nil {
-		if err == helixstore.ErrNotFound {
-			return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
-		}
-		return slacktransport.Workspace{}, err
-	}
-	if conn.Type != types.ServiceConnectionTypeSlackWorkspace {
-		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
-	}
-	return w.toWorkspace(conn)
 }
 
 // errMultipleSlackApps is returned when an install must pick between
@@ -663,10 +653,42 @@ func (s *HelixAPIServer) deleteSlackWorkspace(w http.ResponseWriter, r *http.Req
 		http.Error(w, "Connection not found", http.StatusNotFound)
 		return
 	}
-	if err := s.Store.DeleteServiceConnection(r.Context(), connID); err != nil {
+	if err := s.deleteSlackWorkspaceAndTopic(r.Context(), org.ID, connID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.slackTopics.remove(r.Context(), org.ID, connID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSlackWorkspaceAndTopic removes a workspace install and the
+// auto-managed Topic bound to it. Shared by the org-facing disconnect
+// handler and the slack_app delete cascade.
+func (s *HelixAPIServer) deleteSlackWorkspaceAndTopic(ctx context.Context, orgID, connID string) error {
+	if err := s.Store.DeleteServiceConnection(ctx, connID); err != nil {
+		return err
+	}
+	s.slackTopics.remove(ctx, orgID, connID)
+	return nil
+}
+
+// cascadeDeleteSlackAppWorkspaces removes every workspace install made
+// from a global slack_app (and each one's Topic) when that app is
+// deleted. The installs depend on the app's signing secret / app token
+// for inbound delivery, so they are dead without it. Spans all orgs — one
+// global app can be installed into many. Best-effort: a failure on one
+// workspace is logged and the rest proceed.
+func (s *HelixAPIServer) cascadeDeleteSlackAppWorkspaces(ctx context.Context, appConnID string) {
+	workspaces, err := s.Store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackWorkspace)
+	if err != nil {
+		log.Error().Err(err).Str("app", appConnID).Msg("slack app delete cascade: list workspaces")
+		return
+	}
+	for _, ws := range workspaces {
+		if ws.SlackAppConnectionID != appConnID {
+			continue
+		}
+		if err := s.deleteSlackWorkspaceAndTopic(ctx, ws.OrganizationID, ws.ID); err != nil {
+			log.Error().Err(err).Str("app", appConnID).Str("workspace", ws.ID).Msg("slack app delete cascade: delete workspace")
+		}
+	}
 }

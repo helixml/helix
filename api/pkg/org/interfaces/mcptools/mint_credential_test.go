@@ -25,14 +25,16 @@ func (f fakeCredCaller) OrganizationID() string { return f.orgID }
 type fakeProvider struct {
 	name    string
 	gotOrg  string
+	gotRes  string
 	credOut credential.Credential
 	errOut  error
 }
 
 func (f *fakeProvider) Name() string { return f.name }
 
-func (f *fakeProvider) Mint(_ context.Context, orgID string) (credential.Credential, error) {
+func (f *fakeProvider) Mint(_ context.Context, orgID, resource string) (credential.Credential, error) {
 	f.gotOrg = orgID
+	f.gotRes = resource
 	return f.credOut, f.errOut
 }
 
@@ -80,6 +82,24 @@ func TestMintCredential_HappyPath(t *testing.T) {
 	}
 	if gh.gotOrg != "org-1" {
 		t.Errorf("provider got orgID = %q, want org-1", gh.gotOrg)
+	}
+}
+
+// The optional `resource` arg is passed through to the provider so it
+// can pick the right identity (e.g. the slack workspace team_id).
+func TestMintCredential_ResourcePassedThrough(t *testing.T) {
+	t.Parallel()
+	sl := &fakeProvider{name: "slack", credOut: credential.Credential{Token: "xoxb-1"}}
+	tl := newMintTool(sl)
+	_, err := tl.Invoke(context.Background(), tool.Invocation{
+		Caller: fakeCredCaller{id: "w-1", orgID: "org-1"},
+		Args:   json.RawMessage(`{"provider":"slack","resource":"T5AQP0ARY"}`),
+	})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if sl.gotRes != "T5AQP0ARY" {
+		t.Errorf("provider got resource = %q, want T5AQP0ARY", sl.gotRes)
 	}
 }
 

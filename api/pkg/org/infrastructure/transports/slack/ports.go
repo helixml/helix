@@ -1,8 +1,10 @@
 // Package slack is the org-graph wiring for the Slack transport. It
 // turns the generic Slack protocol layer (api/pkg/serviceconnection/slack)
-// into a KindSlack Topic transport: inbound events publish onto matching
-// org Topics, outbound publishes post back as the Worker's persona, and
-// the provisioner joins the shared bot to a Topic's channel.
+// into a KindSlack Topic transport: inbound events publish onto the
+// workspace's org Topic. Egress is the agent's job — a Worker mints the
+// workspace bot token (mint_credential provider=slack) and drives the
+// Slack Web API directly, guided by the transport-provided reply hint on
+// the inbound Message.
 //
 // All multi-tenancy lives here. The generic layer knows nothing about
 // orgs; this package resolves a Slack team_id to the org that installed
@@ -13,8 +15,6 @@ package slack
 import (
 	"context"
 	"errors"
-
-	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 )
 
 // Workspace is the org-scoped Slack workspace install — the subset of a
@@ -33,26 +33,10 @@ var ErrNoWorkspace = errors.New("no slack workspace install for that id/team")
 
 // Workspaces resolves Slack workspace installs. Implemented at the
 // composition root over the helix ServiceConnection store (+ bot-token
-// decryption). The two lookups keep the import edge one-directional —
-// this package never imports the helix store.
+// decryption). The import edge stays one-directional — this package
+// never imports the helix store.
 type Workspaces interface {
 	// ByTeamID resolves the org-scoped workspace a Slack delivery
 	// (team_id) belongs to — the inbound routing key.
 	ByTeamID(ctx context.Context, teamID string) (Workspace, error)
-	// ByID resolves a workspace by its ServiceConnection id (the value a
-	// Topic's SlackConfig.ServiceConnectionID holds) — the outbound /
-	// provisioning key.
-	ByID(ctx context.Context, id string) (Workspace, error)
-}
-
-// PersonaResolver maps a posting Worker to its display persona for
-// outbound messages. Injected as a port so the shared envelope stays
-// transport-neutral.
-type PersonaResolver func(ctx context.Context, orgID, workerID string) (slackcore.Persona, error)
-
-// DefaultPersona uses the bare Worker id as the username and no avatar
-// (Slack shows the bot's default). A richer resolver can be injected at
-// the composition root without touching the outbound path.
-func DefaultPersona(_ context.Context, _, workerID string) (slackcore.Persona, error) {
-	return slackcore.Persona{Username: workerID}, nil
 }

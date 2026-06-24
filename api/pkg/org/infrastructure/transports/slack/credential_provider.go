@@ -17,7 +17,7 @@ import (
 // app enables token rotation, so ExpiresAt is typically the zero Time;
 // the provider rejects an empty token so agents get a clear failure
 // rather than an opaquely-empty credential.
-type IdentityResolver func(ctx context.Context, orgID string) (Identity, error)
+type IdentityResolver func(ctx context.Context, orgID, teamID string) (Identity, error)
 
 // Identity is the minimal projection of the org's Slack workspace
 // install the credential provider needs.
@@ -41,11 +41,14 @@ type credentialProvider struct {
 
 func (p *credentialProvider) Name() string { return "slack" }
 
-func (p *credentialProvider) Mint(ctx context.Context, orgID string) (credential.Credential, error) {
+// Mint resolves the bot token for the workspace named by resource (the
+// Slack team_id, from the inbound event's extra.slack_team_id). An empty
+// resource falls back to the org's workspace install.
+func (p *credentialProvider) Mint(ctx context.Context, orgID, resource string) (credential.Credential, error) {
 	if p.resolver == nil {
 		return credential.Credential{}, fmt.Errorf("slack credential provider: no identity resolver wired")
 	}
-	id, err := p.resolver(ctx, orgID)
+	id, err := p.resolver(ctx, orgID, resource)
 	if err != nil {
 		return credential.Credential{}, fmt.Errorf("resolve slack identity for org %q: %w", orgID, err)
 	}

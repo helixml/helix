@@ -44,7 +44,9 @@ type credentialProvider struct {
 
 func (p *credentialProvider) Name() string { return "github" }
 
-func (p *credentialProvider) Mint(ctx context.Context, orgID string) (credential.Credential, error) {
+// Mint ignores resource — an org has a single GitHub identity, so there
+// is nothing to disambiguate.
+func (p *credentialProvider) Mint(ctx context.Context, orgID, _ string) (credential.Credential, error) {
 	if p.resolver == nil {
 		return credential.Credential{}, fmt.Errorf("github credential provider: no identity resolver wired")
 	}

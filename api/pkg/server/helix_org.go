@@ -421,22 +421,21 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
-	// Slack outbound: a worker's reply on a workspace-scoped KindSlack
-	// topic posts back to the channel/thread it answered, as the worker's
-	// persona. slackWorkspaces resolves the topic's slack_workspace
-	// ServiceConnection to a decrypted bot token; st.Events lets the
-	// emitter find the inbound message the reply targets.
+	// Slack has no outbound emitter: egress is the agent's job. A Worker
+	// replies (and reacts, uploads, …) by driving the Slack Web API
+	// directly with a bot token it mints on demand — so the transport
+	// never models Slack's API. slackWS resolves the org's workspace
+	// install to a decrypted bot token for that mint.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
-	dispatcher.RegisterOutbound(transport.KindSlack, slacktransport.NewOutbound(slackWS, st.Events, nil, logger))
 	// Auto-manage one Slack Topic per connected workspace.
 	cfg.APIServer.slackTopics = &slackWorkspaceTopics{topics: st.Topics, logger: logger}
-	// mint_credential provider=slack hands a Worker the workspace bot
-	// token so it can drive the Slack Web API directly (chat.postMessage,
-	// reactions.add, files.upload) — the transport owns ingress + this
-	// token; outbound richness is the agent's job via curl.
+	// mint_credential provider=slack hands a Worker the bot token for the
+	// workspace the message came from (resource = the event's
+	// extra.slack_team_id) so it can drive the Slack Web API directly —
+	// chat.postMessage, reactions.add, files.upload.
 	deps.CredentialProviders["slack"] = slacktransport.NewCredentialProvider(
-		func(ctx context.Context, orgID string) (slacktransport.Identity, error) {
-			ws, err := slackWS.ByOrg(ctx, orgID)
+		func(ctx context.Context, orgID, teamID string) (slacktransport.Identity, error) {
+			ws, err := slackWS.resolveForOrg(ctx, orgID, teamID)
 			if err != nil {
 				return slacktransport.Identity{}, err
 			}

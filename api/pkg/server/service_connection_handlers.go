@@ -479,7 +479,7 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 	}
 
 	// Verify connection exists
-	_, err := s.Store.GetServiceConnection(r.Context(), connectionID)
+	conn, err := s.Store.GetServiceConnection(r.Context(), connectionID)
 	if err != nil {
 		http.Error(w, "Connection not found", http.StatusNotFound)
 		return
@@ -489,6 +489,13 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 		log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to delete service connection")
 		http.Error(w, fmt.Sprintf("Failed to delete connection: %s", err.Error()), http.StatusInternalServerError)
 		return
+	}
+
+	// A global slack_app's workspace installs (and their Topics) depend on
+	// it for inbound delivery — cascade-delete them so they don't linger
+	// orphaned across every org the app was installed into.
+	if conn.Type == types.ServiceConnectionTypeSlackApp {
+		s.cascadeDeleteSlackAppWorkspaces(r.Context(), connectionID)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

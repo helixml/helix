@@ -31,6 +31,16 @@ type Message struct {
 	MessageID       string          `json:"message_id,omitempty"`
 	Attachments     []Attachment    `json:"attachments,omitempty"`
 	Extra           json.RawMessage `json:"extra,omitempty"`
+
+	// ReplyHint is transport-authored guidance, rendered into the
+	// recipient Worker's activation prompt, on how to respond to this
+	// message through its origin transport — e.g. for Slack, "mint a bot
+	// token for this workspace and POST chat.postMessage to this channel/
+	// thread". The inbound transport sets it (with the concrete
+	// coordinates baked in); it rides through routing like the rest of the
+	// envelope, so a Worker reached via a processor still knows how to
+	// reply. Empty for in-process Topics with no external egress.
+	ReplyHint string `json:"reply_hint,omitempty"`
 }
 
 // Attachment is a pointer to bytes the Message references — never

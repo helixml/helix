@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,8 +119,19 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	if c.msg.Body != "!qa-bot help" || c.msg.MessageID != "1700.1" || c.msg.ThreadID != "1699.9" || c.msg.From != "U1" {
 		t.Fatalf("message mapping mismatch: %+v", c.msg)
 	}
-	if ch := extraChannel(c.msg.Extra); ch != "C-random" {
-		t.Fatalf("Extra channel = %q, want C-random", ch)
+	var ex slackExtra
+	if err := json.Unmarshal(c.msg.Extra, &ex); err != nil {
+		t.Fatalf("unmarshal extra: %v", err)
+	}
+	if ex.Channel != "C-random" {
+		t.Fatalf("Extra channel = %q, want C-random", ex.Channel)
+	}
+	// The transport stamps a ReplyHint carrying the concrete coordinates
+	// the agent needs to reply via the Slack API (no Role text required).
+	for _, want := range []string{"mint_credential", "C-random", "chat.postMessage"} {
+		if !strings.Contains(c.msg.ReplyHint, want) {
+			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
+		}
 	}
 }
 
