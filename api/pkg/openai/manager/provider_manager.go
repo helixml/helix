@@ -444,6 +444,14 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
 	}, endpoint.Models...)
 
+	// DB/UI-configured Anthropic providers must use x-api-key auth (not Bearer) for
+	// /v1/models. Exclude Vertex (VertexProjectID set) — it routes via OAuth, not x-api-key.
+	if endpoint.VertexProjectID == "" &&
+		(endpoint.Name == string(types.ProviderAnthropic) ||
+			strings.Contains(strings.ToLower(endpoint.BaseURL), "api.anthropic.com")) {
+		openaiClient.SetIsAnthropic(true)
+	}
+
 	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger
 	billingLogger := m.billingLogger
 	if !endpoint.BillingEnabled && (endpoint.EndpointType == types.ProviderEndpointTypeUser || endpoint.EndpointType == types.ProviderEndpointTypeOrg) {
