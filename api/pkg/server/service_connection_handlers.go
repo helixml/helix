@@ -44,7 +44,18 @@ func (s *HelixAPIServer) listServiceConnections(w http.ResponseWriter, r *http.R
 
 	organizationID := r.URL.Query().Get("organization_id")
 
-	connections, err := s.Store.ListServiceConnections(r.Context(), organizationID)
+	// The admin panel manages deployment-global, admin-owned connections
+	// (GitHub App, ADO, global Slack app). Org-scoped installs like
+	// slack_workspace belong to an org and are managed in that org's own
+	// settings, so they must not appear here. Default (no org filter) =
+	// global only; an explicit organization_id scopes to that org.
+	var connections []*types.ServiceConnection
+	var err error
+	if organizationID != "" {
+		connections, err = s.Store.ListServiceConnections(r.Context(), organizationID)
+	} else {
+		connections, err = s.Store.ListGlobalServiceConnections(r.Context())
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list service connections")
 		http.Error(w, fmt.Sprintf("Failed to list connections: %s", err.Error()), http.StatusInternalServerError)

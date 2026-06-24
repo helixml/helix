@@ -486,6 +486,7 @@ type Store interface {
 	CreateServiceConnection(ctx context.Context, connection *types.ServiceConnection) error
 	GetServiceConnection(ctx context.Context, id string) (*types.ServiceConnection, error)
 	ListServiceConnections(ctx context.Context, organizationID string) ([]*types.ServiceConnection, error)
+	ListGlobalServiceConnections(ctx context.Context) ([]*types.ServiceConnection, error)
 	ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error)
 	ListServiceConnectionsByProvider(ctx context.Context, organizationID string, providerType types.ExternalRepositoryType) ([]*types.ServiceConnection, error)
 	GetServiceConnectionBySlackTeamID(ctx context.Context, teamID string) (*types.ServiceConnection, error)

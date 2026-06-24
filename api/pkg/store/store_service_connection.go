@@ -66,6 +66,25 @@ func (s *PostgresStore) ListServiceConnections(ctx context.Context, organization
 	return connections, nil
 }
 
+// ListGlobalServiceConnections lists only deployment-global,
+// admin-owned connections — those with no organization_id (the GitHub
+// App, ADO Service Principal, and global Slack app). Org-scoped installs
+// such as slack_workspace are excluded: they belong to an org and are
+// managed in that org's own settings, not the global admin panel.
+func (s *PostgresStore) ListGlobalServiceConnections(ctx context.Context) ([]*types.ServiceConnection, error) {
+	var connections []*types.ServiceConnection
+
+	err := s.gdb.WithContext(ctx).
+		Where("organization_id = ? OR organization_id IS NULL", "").
+		Order("created_at DESC").
+		Find(&connections).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list global service connections: %w", err)
+	}
+
+	return connections, nil
+}
+
 // ListServiceConnectionsByType lists service connections filtered by type
 func (s *PostgresStore) ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error) {
 	var connections []*types.ServiceConnection

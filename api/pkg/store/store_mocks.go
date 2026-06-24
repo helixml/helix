@@ -4477,6 +4477,21 @@ func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, request)
 }
 
+// ListGlobalServiceConnections mocks base method.
+func (m *MockStore) ListGlobalServiceConnections(ctx context.Context) ([]*types.ServiceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGlobalServiceConnections", ctx)
+	ret0, _ := ret[0].([]*types.ServiceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGlobalServiceConnections indicates an expected call of ListGlobalServiceConnections.
+func (mr *MockStoreMockRecorder) ListGlobalServiceConnections(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGlobalServiceConnections", reflect.TypeOf((*MockStore)(nil).ListGlobalServiceConnections), ctx)
+}
+
 // ListGuidelinesHistory mocks base method.
 func (m *MockStore) ListGuidelinesHistory(ctx context.Context, organizationID, projectID, userID string) ([]*types.GuidelinesHistory, error) {
 	m.ctrl.T.Helper()
