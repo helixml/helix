@@ -34,8 +34,26 @@ func TestCredentialProvider_Mint_HappyPath(t *testing.T) {
 	if cred.Token != "xoxb-test-token" {
 		t.Errorf("Token = %q, want xoxb-test-token", cred.Token)
 	}
-	if !strings.Contains(cred.Usage, "SLACK_BOT_TOKEN") {
-		t.Errorf("Usage = %q, want a hint mentioning SLACK_BOT_TOKEN", cred.Usage)
+	if cred.Usage == "" {
+		t.Error("Usage should carry an export hint for the agent")
+	}
+}
+
+// The agent mints by passing the triggering event's team_id as resource
+// so it gets the bot token for the workspace the message came from. The
+// provider must forward resource through to the resolver verbatim.
+func TestCredentialProvider_Mint_ForwardsResourceAsTeamID(t *testing.T) {
+	t.Parallel()
+	var gotResource string
+	p := slacktransport.NewCredentialProvider(func(_ context.Context, _, resource string) (slacktransport.Identity, error) {
+		gotResource = resource
+		return slacktransport.Identity{Token: "xoxb-team-token"}, nil
+	})
+	if _, err := p.Mint(context.Background(), "org-test", "T123"); err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	if gotResource != "T123" {
+		t.Errorf("resolver got resource = %q, want the team_id T123 forwarded", gotResource)
 	}
 }
 

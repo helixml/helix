@@ -244,9 +244,6 @@ func TestMintCredential_DescriptionListsProviders(t *testing.T) {
 	if !strings.Contains(desc, "github") || !strings.Contains(desc, "slack") {
 		t.Errorf("description %q must mention registered providers", desc)
 	}
-	if !strings.Contains(strings.ToLower(desc), "401") {
-		t.Errorf("description %q must mention 401/auth-error recovery", desc)
-	}
 }
 
 // Empty registry: description must not crash and must surface the

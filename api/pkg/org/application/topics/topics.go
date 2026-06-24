@@ -73,51 +73,21 @@ type CreateParams struct {
 }
 
 // Create builds and persists a new Topic, returning the created
-// aggregate plus an optional non-fatal notice. Name uniqueness and
-// org-scoping are enforced by the repo; transport defaulting and
-// validation by streaming.NewTopic.
-//
-// When the Topic's transport provisioner opts into create-time install
-// (streaming.AutoInstaller — Slack does, to self-join the channel), it
-// is run best-effort: it never fails Create, but a human-facing notice
-// it produces (e.g. "invite the bot to this private channel") is
-// returned for the caller to surface. Empty notice = nothing to say.
-func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (streaming.Topic, string, error) {
+// aggregate. Name uniqueness and org-scoping are enforced by the repo;
+// transport defaulting and validation by streaming.NewTopic.
+func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (streaming.Topic, error) {
 	id := streaming.TopicID(strings.TrimSpace(p.ID))
 	if id == "" {
 		id = streaming.TopicID("s-" + s.newID())
 	}
 	topic, err := streaming.NewTopic(id, p.Name, p.Description, p.CreatedBy, s.now(), p.Transport, orgID)
 	if err != nil {
-		return streaming.Topic{}, "", err
+		return streaming.Topic{}, err
 	}
 	if err := s.topics.Create(ctx, topic); err != nil {
-		return streaming.Topic{}, "", err
+		return streaming.Topic{}, err
 	}
-	return topic, s.autoInstall(ctx, orgID, topic), nil
-}
-
-// autoInstall runs the inbound provisioner for the topic's kind when that
-// provisioner opts into create-time installation (streaming.AutoInstaller).
-// Best-effort by contract: a provisioning failure NEVER fails topic
-// creation — the Topic row is valid regardless — so this returns a
-// human-facing notice rather than an error. The provisioner's own Notice
-// (e.g. private-channel invite guidance) is preferred; an unexpected
-// error is turned into a generic notice. Empty string = nothing to say.
-func (s *Topics) autoInstall(ctx context.Context, orgID string, topic streaming.Topic) string {
-	p, ok := s.provisioners[topic.Transport.Kind]
-	if !ok {
-		return ""
-	}
-	auto, ok := p.(streaming.AutoInstaller)
-	if !ok || !auto.AutoInstallOnCreate() {
-		return ""
-	}
-	res, err := p.Install(ctx, orgID, topic)
-	if err != nil {
-		return fmt.Sprintf("Topic created, but inbound auto-setup didn't complete: %s", err.Error())
-	}
-	return res.Notice
+	return topic, nil
 }
 
 // TransportPatch is the partial transport update applied by Update.

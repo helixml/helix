@@ -271,31 +271,25 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 	if req.Type == types.ServiceConnectionTypeSlackApp {
 		connection.SlackClientID = req.SlackClientID
 		connection.SlackIngressMode = req.SlackIngressMode
-		for field, plaintext := range map[string]*string{
-			"slack_client_secret":  &req.SlackClientSecret,
-			"slack_signing_secret": &req.SlackSigningSecret,
-			"slack_app_token":      &req.SlackAppToken,
-			"slack_bot_token":      &req.SlackBotToken,
+		for _, f := range []struct {
+			val string
+			dst *string
+		}{
+			{req.SlackClientSecret, &connection.SlackClientSecret},
+			{req.SlackSigningSecret, &connection.SlackSigningSecret},
+			{req.SlackAppToken, &connection.SlackAppToken},
+			{req.SlackBotToken, &connection.SlackBotToken},
 		} {
-			if *plaintext == "" {
+			if f.val == "" {
 				continue
 			}
-			enc, err := crypto.EncryptAES256GCM([]byte(*plaintext), encryptionKey)
+			enc, err := crypto.EncryptAES256GCM([]byte(f.val), encryptionKey)
 			if err != nil {
-				log.Error().Err(err).Str("field", field).Msg("Failed to encrypt slack credential")
+				log.Error().Err(err).Msg("Failed to encrypt slack credential")
 				http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
 				return
 			}
-			switch field {
-			case "slack_client_secret":
-				connection.SlackClientSecret = enc
-			case "slack_signing_secret":
-				connection.SlackSigningSecret = enc
-			case "slack_app_token":
-				connection.SlackAppToken = enc
-			case "slack_bot_token":
-				connection.SlackBotToken = enc
-			}
+			*f.dst = enc
 		}
 	}
 

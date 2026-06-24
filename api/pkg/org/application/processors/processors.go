@@ -34,7 +34,7 @@ var ErrCycle = errors.New("processor would create a cycle in the topic graph")
 // processors service needs to auto-provision and tear down output
 // Topics. *topics.Topics satisfies it.
 type TopicWriter interface {
-	Create(ctx context.Context, orgID string, p topics.CreateParams) (streaming.Topic, string, error)
+	Create(ctx context.Context, orgID string, p topics.CreateParams) (streaming.Topic, error)
 	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
 }
 
@@ -129,7 +129,7 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 			outputs = append(outputs, processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false})
 			continue
 		}
-		t, _, err := s.topics.Create(ctx, orgID, topics.CreateParams{
+		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
 			Name:        outputTopicName(id, spec.Label, i, len(specs)),
 			Description: fmt.Sprintf("Output of processor %s (%s)", id, p.Name),
 			CreatedBy:   p.CreatedBy,

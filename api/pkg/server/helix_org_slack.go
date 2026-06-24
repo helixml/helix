@@ -170,7 +170,6 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 // several configured global Slack apps but none was named.
 var errMultipleSlackApps = errors.New("multiple Slack apps configured — choose one")
 
-// listSlackApps returns every deployment-wide slack_app ServiceConnection.
 func (s *HelixAPIServer) listSlackApps(ctx context.Context) ([]*types.ServiceConnection, error) {
 	return s.Store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackApp)
 }
@@ -252,7 +251,7 @@ func (s *HelixAPIServer) newSlackSocketManager(ingest *slacktransport.Ingest, lo
 		appCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			connector := slackcore.NewConnector(app.AppToken, "", "", logger)
-			runner := slackcore.NewSocketMode(ingest.OnEvent, nil, connector, logger)
+			runner := slackcore.NewSocketMode(ingest.OnEvent, connector, logger)
 			if err := runner.Run(appCtx); err != nil && appCtx.Err() == nil {
 				logger.Error("slack.socketmode: connection exited", "app", app.ID, "err", err)
 			}
@@ -519,7 +518,6 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Return the freshly-stored workspace.
 	conns, _ := s.Store.ListServiceConnectionsByType(r.Context(), org.ID, types.ServiceConnectionTypeSlackWorkspace)
 	for _, c := range conns {
 		if c.SlackTeamID == id.TeamID {

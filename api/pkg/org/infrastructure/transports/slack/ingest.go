@@ -36,7 +36,6 @@ type Ingest struct {
 	logger     *slog.Logger
 }
 
-// NewIngest builds the ingest.
 func NewIngest(ws Workspaces, st *store.Store, pub Publisher, logger *slog.Logger) *Ingest {
 	if logger == nil {
 		logger = slog.Default()

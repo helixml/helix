@@ -111,7 +111,7 @@ func (t *CreateTopic) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 			Config: args.Transport.Config,
 		}
 	}
-	s, notice, err := t.deps.Topics.Create(ctx, orgID, topics.CreateParams{
+	s, err := t.deps.Topics.Create(ctx, orgID, topics.CreateParams{
 		ID:          args.ID,
 		Name:        args.Name,
 		Description: args.Description,
@@ -121,9 +121,5 @@ func (t *CreateTopic) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{"id": string(s.ID)}
-	if notice != "" {
-		out["notice"] = notice
-	}
-	return json.Marshal(out)
+	return json.Marshal(map[string]string{"id": string(s.ID)})
 }

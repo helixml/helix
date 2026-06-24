@@ -68,6 +68,28 @@ func TestEventsAPI_BadSignature_Rejected(t *testing.T) {
 	}
 }
 
+func TestEventsAPI_StaleTimestamp_Rejected(t *testing.T) {
+	// A correctly-signed request whose timestamp is outside Slack's
+	// 5-minute window is a replay — NewSecretsVerifier must reject it, so
+	// a captured-and-resent delivery can't be replayed against us.
+	h := EventsAPIHandler(secretFn, func(context.Context, string, Event) error {
+		t.Fatal("onEvent must not be called for a stale (replayed) request")
+		return nil
+	}, nil)
+
+	body := `{"type":"url_verification","challenge":"x"}`
+	staleTS := fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix())
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(body))
+	r.Header.Set("X-Slack-Request-Timestamp", staleTS)
+	r.Header.Set("X-Slack-Signature", sign(testSecret, staleTS, body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (stale timestamp rejected)", w.Code)
+	}
+}
+
 func TestEventsAPI_NoSigningSecret_Inert(t *testing.T) {
 	empty := func(context.Context) ([]string, error) { return nil, nil }
 	h := EventsAPIHandler(empty, func(context.Context, string, Event) error { return nil }, nil)

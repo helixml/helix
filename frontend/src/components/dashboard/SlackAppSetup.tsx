@@ -24,8 +24,9 @@ import useAccount from '../../hooks/useAccount'
 const createSlackAppManifest = '/img/slack/manifest.png'
 const createSlackAppToken = '/img/slack/app_token.png'
 
-// Bot scopes the global app requests — keep in sync with the backend's
-// defaultSlackBotScopes (helix_org_slack.go).
+// Bot scopes the global app requests. The backend's defaultSlackBotScopes
+// (helix_org_slack.go) is authoritative — it's what the OAuth install
+// actually requests — so this manifest list must stay a superset of it.
 const BOT_SCOPES = [
   'app_mentions:read',
   'channels:history',
@@ -40,12 +41,17 @@ const BOT_SCOPES = [
   'files:write',
 ]
 
-// Each message.* event requires its matching *:history scope, and these
-// must stay in sync with BOT_SCOPES (and the backend's
-// defaultSlackBotScopes used for the OAuth install). message.mpim is
-// omitted because group-DM (mpim:history) isn't in the requested scopes —
-// adding it back means adding mpim:history to both scope lists.
-const BOT_EVENTS = ['app_mention', 'message.channels', 'message.groups', 'message.im']
+// Each subscribed message.* event requires its matching *:history scope,
+// so the event list is derived from BOT_SCOPES rather than maintained by
+// hand — adding (or dropping) a *:history scope updates both at once.
+const SCOPE_EVENT: Record<string, string> = {
+  'app_mentions:read': 'app_mention',
+  'channels:history': 'message.channels',
+  'groups:history': 'message.groups',
+  'im:history': 'message.im',
+  'mpim:history': 'message.mpim',
+}
+const BOT_EVENTS = BOT_SCOPES.map((s) => SCOPE_EVENT[s]).filter(Boolean)
 
 // buildManifest returns a Slack app manifest pre-filled for this
 // deployment. REST embeds the OAuth redirect URL and disables Socket

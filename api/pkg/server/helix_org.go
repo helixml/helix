@@ -536,8 +536,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Socket Mode source — a manager reconciles live connections against
 	// the configured socket-mode apps on an interval (and on Kick from the
 	// create/delete handlers), so installing or editing a socket app takes
-	// effect with no server restart. Single-replica here (nil owner in the
-	// connector); a pg advisory lock can gate multi-replica later.
+	// effect with no server restart. Single-replica: a multi-replica
+	// deployment would need a cross-replica owner lock to hold the one
+	// socket, which isn't wired today.
 	cfg.APIServer.slackSocket = cfg.APIServer.newSlackSocketManager(slackIngest, logger)
 	slackSocketRun := func(ctx context.Context) {
 		cfg.APIServer.slackSocket.Run(ctx, slackSocketReconcileInterval)

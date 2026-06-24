@@ -428,16 +428,7 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
           }
         }
       } else {
-        // Some transports self-provision at create time and return a
-        // non-fatal notice the user must act on (e.g. Slack couldn't
-        // auto-join a private channel → invite the bot). The message text
-        // is produced by the backend (domain layer); we only render it.
-        const notice = (created as any)?.provisioning_notice as string | undefined
-        if (notice) {
-          snackbar.info(notice)
-        } else {
-          snackbar.success('topic created')
-        }
+        snackbar.success('topic created')
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
       setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')

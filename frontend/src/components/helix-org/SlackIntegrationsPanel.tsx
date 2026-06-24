@@ -1,4 +1,4 @@
-import { FC, useState } from 'react'
+import { FC, useState, useMemo, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
@@ -79,33 +79,34 @@ const SlackIntegrationsPanel: FC = () => {
     }
   }
 
-  const appNameById = new Map<string, string>(apps.map((a: any) => [a.id, a.name || a.id]))
+  const tableData = useMemo(() => {
+    const appNameById = new Map<string, string>(apps.map((a: any) => [a.id, a.name || a.id]))
+    return workspaces.map((ws: any) => ({
+      id: ws.id,
+      _data: ws,
+      workspace: (
+        <Typography variant="body2" fontWeight={600}>
+          {ws.slack_team_name || ws.name || ws.slack_team_id || ws.id}
+        </Typography>
+      ),
+      team: (
+        <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+          {ws.slack_team_id || '—'}
+        </Typography>
+      ),
+      app: (
+        <Typography variant="body2" color="text.secondary">
+          {ws.slack_app_connection_id ? (appNameById.get(ws.slack_app_connection_id) || 'Unknown app') : 'Bot token'}
+        </Typography>
+      ),
+    }))
+  }, [workspaces, apps])
 
-  const tableData = workspaces.map((ws: any) => ({
-    id: ws.id,
-    _data: ws,
-    workspace: (
-      <Typography variant="body2" fontWeight={600}>
-        {ws.slack_team_name || ws.name || ws.slack_team_id || ws.id}
-      </Typography>
-    ),
-    team: (
-      <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-        {ws.slack_team_id || '—'}
-      </Typography>
-    ),
-    app: (
-      <Typography variant="body2" color="text.secondary">
-        {ws.slack_app_connection_id ? (appNameById.get(ws.slack_app_connection_id) || 'Unknown app') : 'Bot token'}
-      </Typography>
-    ),
-  }))
-
-  const getActions = (row: any) => (
+  const getActions = useCallback((row: any) => (
     <IconButton size="small" onClick={(e) => { e.stopPropagation(); setAnchorEl(e.currentTarget); setCurrent(row._data) }}>
       <MoreVertIcon fontSize="small" />
     </IconButton>
-  )
+  ), [])
 
   const manualConnect = (
     <Box>

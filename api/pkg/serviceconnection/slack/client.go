@@ -31,32 +31,6 @@ func New(token, apiURL string) *slack.Client {
 	return slack.New(token)
 }
 
-// Persona is the name + avatar a message is posted under through a
-// shared bot. A channel has exactly one real Slack member (the bot);
-// personas let participants tell senders apart (chat.postMessage
-// `username` / `icon_url`).
-type Persona struct {
-	Username string
-	IconURL  string
-}
-
-// PostAs posts body to channel under persona, threading under threadTS
-// when non-empty. Returns the posted message ts.
-func PostAs(ctx context.Context, client *slack.Client, channel, threadTS string, persona Persona, body string) (string, error) {
-	opts := []slack.MsgOption{slack.MsgOptionText(body, false)}
-	if persona.Username != "" {
-		opts = append(opts, slack.MsgOptionUsername(persona.Username))
-	}
-	if persona.IconURL != "" {
-		opts = append(opts, slack.MsgOptionIconURL(persona.IconURL))
-	}
-	if threadTS != "" {
-		opts = append(opts, slack.MsgOptionTS(threadTS))
-	}
-	_, ts, err := client.PostMessageContext(ctx, channel, opts...)
-	return ts, err
-}
-
 // Identity is the subset of auth.test we use to derive a workspace's
 // team id (e.g. on first Socket Mode connect, where there is no OAuth
 // install to read it from).

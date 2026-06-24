@@ -85,5 +85,6 @@ no loop.
 - Optional `"slack"` CredentialProvider so agents can curl Slack (mirror
   `infrastructure/transports/github/credential_provider.go`).
 - Unify `api/pkg/trigger/slack` onto `api/pkg/serviceconnection/slack`.
-- Socket Mode multi-replica: plumb a `*sql.DB` for the pg advisory `SingleOwner`
-  (currently single-replica with a nil owner).
+- Socket Mode multi-replica: a single replica holds the socket today. Multi-replica
+  would need a cross-replica owner lock (e.g. a pg advisory lock) so exactly one
+  replica opens the connection; not built yet.

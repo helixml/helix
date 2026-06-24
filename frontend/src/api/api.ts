@@ -277,13 +277,6 @@ export interface ApiTopicDTO {
   id?: string;
   kind?: string;
   name?: string;
-  /**
-   * ProvisioningNotice is a non-fatal, human-facing message produced at
-   * create time when the transport could be created but couldn't fully
-   * self-provision — e.g. Slack couldn't auto-join a private channel and
-   * the user must `/invite` the bot. Only set on the create response.
-   */
-  provisioning_notice?: string;
   recent_events?: ApiEventCard[];
   subscribers?: string[];
 }
