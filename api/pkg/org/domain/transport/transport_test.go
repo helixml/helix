@@ -180,13 +180,10 @@ func TestTransportValidate_Slack(t *testing.T) {
 		cfg     string
 		wantErr string
 	}{
-		{"valid", `{"service_connection_id":"sc-123","channel":"C0123ABCD"}`, ""},
+		{"valid", `{"service_connection_id":"sc-123"}`, ""},
 
-		{"missing both (no config)", "", "service_connection_id is required"},
-		{"missing connection", `{"channel":"C0123ABCD"}`, "service_connection_id is required"},
-		{"empty connection", `{"service_connection_id":"","channel":"C0123ABCD"}`, "service_connection_id is required"},
-		{"missing channel", `{"service_connection_id":"sc-123"}`, "channel is required"},
-		{"empty channel", `{"service_connection_id":"sc-123","channel":""}`, "channel is required"},
+		{"missing connection (no config)", "", "service_connection_id is required"},
+		{"empty connection", `{"service_connection_id":""}`, "service_connection_id is required"},
 
 		{"malformed json", `{not json`, "parse slack config"},
 	}
@@ -462,19 +459,19 @@ func TestSlackConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SlackConfig() = %v, want nil", err)
 	}
-	if c.ServiceConnectionID != "" || c.Channel != "" {
+	if c.ServiceConnectionID != "" {
 		t.Fatalf("zero value violated: %+v", c)
 	}
 }
 
 func TestSlackConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 	t.Parallel()
-	raw := json.RawMessage(`{"service_connection_id":"sc-123","channel":"C0123ABCD"}`)
+	raw := json.RawMessage(`{"service_connection_id":"sc-123"}`)
 	c, err := transport.Transport{Kind: transport.KindSlack, Config: raw}.SlackConfig()
 	if err != nil {
 		t.Fatalf("SlackConfig() = %v", err)
 	}
-	if c.ServiceConnectionID != "sc-123" || c.Channel != "C0123ABCD" {
+	if c.ServiceConnectionID != "sc-123" {
 		t.Fatalf("round-trip violated: %+v", c)
 	}
 }

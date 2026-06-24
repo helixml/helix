@@ -45,7 +45,6 @@ import {
   useInstallGitHubWebhook,
   useListGitHubRepos,
   useListHelixOrgTopics,
-  useListSlackWorkspaces,
 } from '../services/helixOrgService'
 import { GitHubEventsField, GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
@@ -57,7 +56,6 @@ const TRANSPORT_KINDS = [
   { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this topic to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
   { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this topic at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
-  { value: 'slack', label: 'slack', help: 'Slack channel. Pick one of your org\'s connected Slack workspaces (install on the Settings page) and a channel. Inbound messages publish onto this topic; Workers reply as their persona. Routing to a specific Worker is done with a filter (e.g. !qa-bot).' },
 ]
 
 // CRON_PRESETS are one-click chips that inject a standard 5-field
@@ -320,11 +318,6 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
   // or one of the @aliases the backend recognises (@hourly, @daily, …).
   // CRON_PRESETS populate it via one-click chips.
   const [cronSchedule, setCronSchedule] = useState<string>('0 0 * * *')
-  // Slack: pick one of the org's connected workspaces + a channel id.
-  const [slackConnId, setSlackConnId] = useState<string>('')
-  const [slackChannel, setSlackChannel] = useState<string>('')
-  const slackWorkspacesQuery = useListSlackWorkspaces({ enabled: open })
-  const slackWorkspaces = slackWorkspacesQuery.data ?? []
 
   // Probe GitHub on dialog open — the result tells us whether to
   // disable the `github` transport option (no OAuth connection →
@@ -392,16 +385,6 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
         return
       }
       config = { schedule: sched }
-    } else if (kind === 'slack') {
-      if (!slackConnId) {
-        snackbar.error('Pick a connected Slack workspace')
-        return
-      }
-      if (!slackChannel.trim()) {
-        snackbar.error('Slack channel id is required')
-        return
-      }
-      config = { service_connection_id: slackConnId, channel: slackChannel.trim() }
     } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
@@ -457,7 +440,7 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
         }
       }
       setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *'); setSlackConnId(''); setSlackChannel('')
+      setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
       onClose()
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'create failed')
@@ -466,7 +449,7 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
 
   const handleClose = () => {
     setId(''); setName(''); setDescription(''); setKind('local'); setConfigText('')
-    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *'); setSlackConnId(''); setSlackChannel('')
+    setGhRepo(''); setGhEvents(['*']); setGhBranches(['*']); setCronSchedule('0 0 * * *')
     onClose()
   }
 
@@ -608,40 +591,7 @@ const NewTopicDialog: FC<{ open: boolean; onClose: () => void }> = ({ open, onCl
               </Box>
             </Box>
           )}
-          {kind === 'slack' && (
-            <>
-              <FormControl fullWidth size="small">
-                <InputLabel id="slack-ws-label">Slack workspace</InputLabel>
-                <Select
-                  labelId="slack-ws-label"
-                  value={slackConnId}
-                  label="Slack workspace"
-                  onChange={(e) => setSlackConnId(e.target.value)}
-                >
-                  {slackWorkspaces.length === 0 && (
-                    <MenuItem value="" disabled>
-                      No workspaces connected — install one on the Settings page
-                    </MenuItem>
-                  )}
-                  {slackWorkspaces.map((ws: any) => (
-                    <MenuItem key={ws.id} value={ws.id}>
-                      {ws.slack_team_name || ws.name || ws.slack_team_id || ws.id}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <TextField
-                label="Channel ID"
-                placeholder="C0123ABCD"
-                value={slackChannel}
-                onChange={(e) => setSlackChannel(e.target.value)}
-                fullWidth
-                size="small"
-                helperText="The Slack channel id (not the #name) this topic binds to — find it under a channel's View details. Public channels: the bot joins automatically on create. Private channels: invite the bot once with /invite."
-              />
-            </>
-          )}
-          {kind !== 'local' && kind !== 'github' && kind !== 'cron' && kind !== 'slack' && (
+          {kind !== 'local' && kind !== 'github' && kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
               placeholder='{"outbound_url": "https://example.com/hook"}'

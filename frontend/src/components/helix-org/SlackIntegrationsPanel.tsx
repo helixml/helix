@@ -143,8 +143,10 @@ const SlackIntegrationsPanel: FC = () => {
         <Typography variant="h6">Slack</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Connect a Slack workspace, then bind topics to channels. Workers reply as their persona;
-        route to a specific Worker with a filter (e.g. <code>!qa-bot</code>).
+        Connect a Slack workspace and a topic for it is created automatically. Then
+        <code> /invite</code> the bot into any channels you want it to listen on — messages from those
+        channels flow to the topic, and Workers reply in the same channel/thread as their persona.
+        Route to a specific Worker with a filter (e.g. <code>!qa-bot</code>).
       </Typography>
 
       <Stack spacing={2}>

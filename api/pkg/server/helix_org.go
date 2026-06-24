@@ -421,12 +421,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
-	// Slack outbound: worker publishes to a KindSlack topic post back to
-	// the bound channel as the worker's persona. slackWorkspaces is the
-	// org-aware adapter resolving a topic's slack_workspace
-	// ServiceConnection to a decrypted bot token.
+	// Slack outbound: a worker's reply on a workspace-scoped KindSlack
+	// topic posts back to the channel/thread it answered, as the worker's
+	// persona. slackWorkspaces resolves the topic's slack_workspace
+	// ServiceConnection to a decrypted bot token; st.Events lets the
+	// emitter find the inbound message the reply targets.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
-	dispatcher.RegisterOutbound(transport.KindSlack, slacktransport.NewOutbound(slackWS, nil, logger))
+	dispatcher.RegisterOutbound(transport.KindSlack, slacktransport.NewOutbound(slackWS, st.Events, nil, logger))
+	// Auto-manage one Slack Topic per connected workspace.
+	cfg.APIServer.slackTopics = &slackWorkspaceTopics{topics: st.Topics, logger: logger}
 	deps.Dispatcher = dispatcher
 
 	// streamCron drives KindCron topics. Same call sequence as the
@@ -500,10 +503,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			githubtransport.TokenResolver(gitHubTokenResolver),
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
-		// Slack "install" = join the shared bot to the topic's channel.
-		// No per-topic webhook to register; inbound flows through the one
-		// shared Events/Socket ingest.
-		transport.KindSlack: slacktransport.NewProvisioner(slackWS, logger),
+		// Slack has no per-topic install: a Slack topic is workspace-scoped
+		// and receives every channel the bot is /invite'd into. The topic
+		// is auto-created with the workspace (slackWorkspaceTopicID), so
+		// there's no provisioner to register.
 	}
 
 	// Application services shared by the REST adapter. Built once here

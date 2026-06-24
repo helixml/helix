@@ -34,32 +34,22 @@ import (
 const KindSlack Kind = "slack"
 
 // SlackConfig is the parsed shape of Transport.Config when
-// Kind == KindSlack. Workspace credentials are not here — they live on
-// the org-scoped slack_workspace ServiceConnection referenced by
-// ServiceConnectionID. This is purely the workspace + channel binding.
+// Kind == KindSlack. A Slack Topic is workspace-scoped: it ingests every
+// channel the workspace bot is in and posts replies back to whichever
+// channel/thread a message came from. Workspace credentials live on the
+// org-scoped slack_workspace ServiceConnection referenced here.
 type SlackConfig struct {
 	// ServiceConnectionID is the id of the org-scoped slack_workspace
 	// ServiceConnection whose bot this Topic ingests from and posts to.
-	// Required. Lets one org bind Topics to multiple installed
-	// workspaces.
+	// Required.
 	ServiceConnectionID string `json:"service_connection_id,omitempty"`
-
-	// Channel is the Slack channel id (e.g. "C0123ABCD") this Topic is
-	// bound to. Required. Inbound messages in this channel publish onto
-	// the Topic; outbound publishes post here. One Topic ↔ one channel.
-	Channel string `json:"channel,omitempty"`
 }
 
-// Validate enforces that both the workspace connection and the channel
-// are set. Neither format is pinned — Slack mints opaque ids and the
-// connection id is a Helix UUID; we route on exact match, so non-empty
-// is the only invariant.
+// Validate enforces that the workspace connection is set. The id is a
+// Helix UUID matched exactly, so non-empty is the only invariant.
 func (c SlackConfig) Validate() error {
 	if c.ServiceConnectionID == "" {
 		return errors.New("slack transport: service_connection_id is required")
-	}
-	if c.Channel == "" {
-		return errors.New("slack transport: channel is required")
 	}
 	return nil
 }

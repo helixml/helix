@@ -103,6 +103,10 @@ type activeStreamProxy struct {
 type HelixAPIServer struct {
 	Cfg                         *config.ServerConfig
 	Store                       store.Store
+	// slackTopics auto-creates/removes the per-workspace Slack Topic when
+	// a workspace is connected/disconnected. nil when helix-org isn't
+	// mounted.
+	slackTopics *slackWorkspaceTopics
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller

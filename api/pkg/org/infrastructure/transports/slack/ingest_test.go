@@ -48,9 +48,9 @@ func (p *recordingPublisher) Publish(_ context.Context, orgID string, topicID st
 	return streaming.Event{}, nil
 }
 
-func seedSlackTopic(t *testing.T, s *store.Store, orgID, id, connID, channel string) {
+func seedSlackTopic(t *testing.T, s *store.Store, orgID, id, connID string) {
 	t.Helper()
-	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID, Channel: channel})
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID})
 	tp, err := streaming.NewTopic(
 		streaming.TopicID(id), "slack-"+id, "", "", time.Now().UTC(),
 		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID,
@@ -73,7 +73,7 @@ func newTestIngest(t *testing.T) (*Ingest, *recordingPublisher, *store.Store) {
 
 func TestIngest_BotEvent_Dropped(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
+	seedSlackTopic(t, s, "org1", "tp1", "sc1")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", Text: "hi", BotID: "B1"})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestIngest_BotEvent_Dropped(t *testing.T) {
 
 func TestIngest_UnknownTeam_Dropped(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
+	seedSlackTopic(t, s, "org1", "tp1", "sc1")
 
 	if err := ing.OnEvent(context.Background(), "T-unknown", slackcore.Event{Channel: "C1", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)
@@ -96,12 +96,14 @@ func TestIngest_UnknownTeam_Dropped(t *testing.T) {
 	}
 }
 
-func TestIngest_MatchingChannel_Published(t *testing.T) {
+// Workspace-scoped: a message from ANY channel of the workspace publishes
+// onto the workspace topic, with the channel carried in the message Extra.
+func TestIngest_AnyChannel_Published(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
+	seedSlackTopic(t, s, "org1", "tp1", "sc1")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{
-		Channel: "C1", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
+		Channel: "C-random", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
 	})
 	if err != nil {
 		t.Fatalf("OnEvent: %v", err)
@@ -116,24 +118,15 @@ func TestIngest_MatchingChannel_Published(t *testing.T) {
 	if c.msg.Body != "!qa-bot help" || c.msg.MessageID != "1700.1" || c.msg.ThreadID != "1699.9" || c.msg.From != "U1" {
 		t.Fatalf("message mapping mismatch: %+v", c.msg)
 	}
-}
-
-func TestIngest_WrongChannel_NotPublished(t *testing.T) {
-	ing, pub, s := newTestIngest(t)
-	seedSlackTopic(t, s, "org1", "tp1", "sc1", "C1")
-
-	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C-other", User: "U1", Text: "hi"}); err != nil {
-		t.Fatalf("OnEvent: %v", err)
-	}
-	if len(pub.calls) != 0 {
-		t.Fatalf("non-matching channel must not publish; got %d", len(pub.calls))
+	if ch := extraChannel(c.msg.Extra); ch != "C-random" {
+		t.Fatalf("Extra channel = %q, want C-random", ch)
 	}
 }
 
 func TestIngest_WrongWorkspaceBinding_NotPublished(t *testing.T) {
 	ing, pub, s := newTestIngest(t)
-	// Topic bound to a DIFFERENT workspace connection (sc2), same channel.
-	seedSlackTopic(t, s, "org1", "tp1", "sc2", "C1")
+	// Topic bound to a DIFFERENT workspace connection (sc2).
+	seedSlackTopic(t, s, "org1", "tp1", "sc2")
 
 	if err := ing.OnEvent(context.Background(), "T1", slackcore.Event{Channel: "C1", User: "U1", Text: "hi"}); err != nil {
 		t.Fatalf("OnEvent: %v", err)

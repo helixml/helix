@@ -82,12 +82,12 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return fmt.Errorf("slack ingest: resolve workspace: %w", err)
 	}
 
-	topics, err := i.matchingTopics(ctx, ws, ev.Channel)
+	topics, err := i.matchingTopics(ctx, ws)
 	if err != nil {
 		return err
 	}
 	if len(topics) == 0 {
-		i.logger.Info("slack.ingest: no bound topic for channel", "org", ws.OrgID, "channel", ev.Channel)
+		i.logger.Info("slack.ingest: no topic for workspace", "org", ws.OrgID, "workspace", ws.ID)
 		return nil
 	}
 
@@ -110,12 +110,11 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 	return nil
 }
 
-// matchingTopics returns every KindSlack Topic in the workspace's org
-// bound to (this workspace connection, this channel). The org-scoped
-// list enforces tenant isolation: a delivery for org A's workspace can
-// only ever match org A's Topics, and the ServiceConnectionID check
-// keeps multiple workspace installs in one org apart.
-func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace, channel string) ([]streaming.Topic, error) {
+// matchingTopics returns the KindSlack Topic(s) in the workspace's org
+// bound to this workspace connection. A Slack Topic is workspace-scoped —
+// it receives every channel the bot is in — so the only match key is the
+// ServiceConnectionID. The org-scoped list enforces tenant isolation.
+func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace) ([]streaming.Topic, error) {
 	all, err := i.store.Topics.List(ctx, ws.OrgID)
 	if err != nil {
 		return nil, fmt.Errorf("slack ingest: list topics: %w", err)
@@ -130,7 +129,7 @@ func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace, channel strin
 			i.logger.Warn("slack.ingest: topic config parse", "topic", t.ID, "err", err)
 			continue
 		}
-		if cfg.ServiceConnectionID == ws.ID && cfg.Channel == channel {
+		if cfg.ServiceConnectionID == ws.ID {
 			matched = append(matched, t)
 		}
 	}

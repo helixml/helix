@@ -9,17 +9,68 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// slackWorkspaceTopics keeps a workspace-scoped Slack Topic in sync with
+// the slack_workspace ServiceConnection lifecycle: one Topic per connected
+// workspace, created on connect and removed on disconnect. The Topic id is
+// deterministic (s-slack-ws-<connID>) so this never touches user-created
+// topics — same ownership-by-convention the team-topic reconciler uses.
+type slackWorkspaceTopics struct {
+	topics helixorgstore.Topics
+	logger *slog.Logger
+}
+
+func slackWorkspaceTopicID(connID string) streaming.TopicID {
+	return streaming.TopicID("s-slack-ws-" + connID)
+}
+
+func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, workspaceName string) {
+	if r == nil {
+		return
+	}
+	id := slackWorkspaceTopicID(connID)
+	if _, err := r.topics.Get(ctx, orgID, id); err == nil {
+		return // already exists
+	}
+	name := "Slack: " + workspaceName
+	if strings.TrimSpace(workspaceName) == "" {
+		name = "Slack: " + connID
+	}
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID})
+	topic, err := streaming.NewTopic(id, name, "Messages from the connected Slack workspace.", "", time.Now().UTC(),
+		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID)
+	if err != nil {
+		r.logger.Error("slack.reconcile: build topic", "org", orgID, "conn", connID, "err", err)
+		return
+	}
+	if err := r.topics.Create(ctx, topic); err != nil {
+		r.logger.Error("slack.reconcile: create topic", "org", orgID, "conn", connID, "err", err)
+	}
+}
+
+func (r *slackWorkspaceTopics) remove(ctx context.Context, orgID, connID string) {
+	if r == nil {
+		return
+	}
+	if err := r.topics.Delete(ctx, orgID, slackWorkspaceTopicID(connID)); err != nil {
+		r.logger.Warn("slack.reconcile: delete topic", "org", orgID, "conn", connID, "err", err)
+	}
+}
 
 // defaultSlackBotScopes are the bot scopes the "Install to Slack" flow
 // requests. They cover reading channel/group/DM messages + app mentions
@@ -472,7 +523,11 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 			if appConnID != "" {
 				conn.SlackAppConnectionID = appConnID
 			}
-			return s.Store.UpdateServiceConnection(ctx, conn)
+			if err := s.Store.UpdateServiceConnection(ctx, conn); err != nil {
+				return err
+			}
+			s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name)
+			return nil
 		}
 	}
 
@@ -489,7 +544,11 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 		SlackAppConnectionID: appConnID,
 		SlackBotToken:        encToken,
 	}
-	return s.Store.CreateServiceConnection(ctx, conn)
+	if err := s.Store.CreateServiceConnection(ctx, conn); err != nil {
+		return err
+	}
+	s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name)
+	return nil
 }
 
 func slackWorkspaceName(install slackcore.Install) string {
@@ -580,5 +639,6 @@ func (s *HelixAPIServer) deleteSlackWorkspace(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.slackTopics.remove(r.Context(), org.ID, connID)
 	w.WriteHeader(http.StatusNoContent)
 }
