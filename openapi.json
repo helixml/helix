@@ -12391,7 +12391,7 @@
                     "200": {
                         "description": "SSE: event: message / data: [EventCard,...]",
                         "content": {
-                            "text/event-topic": {
+                            "text/event-stream": {
                                 "schema": {
                                     "type": "string"
                                 }

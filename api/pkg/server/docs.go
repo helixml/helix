@@ -10374,7 +10374,7 @@ const docTemplate = `{
                     }
                 ],
                 "produces": [
-                    "text/event-topic"
+                    "text/event-stream"
                 ],
                 "tags": [
                     "HelixOrg"

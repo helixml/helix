@@ -18583,7 +18583,7 @@ paths:
         required: true
         type: string
       produces:
-      - text/event-topic
+      - text/event-stream
       responses:
         "200":
           description: 'SSE: event: message / data: [EventCard,...]'

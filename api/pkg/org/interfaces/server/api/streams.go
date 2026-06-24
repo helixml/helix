@@ -489,7 +489,7 @@ func (a *apiHandler) listTopicMessages(w http.ResponseWriter, r *http.Request) {
 //
 // @Summary Helix-org: SSE topic of events for one topic
 // @Tags HelixOrg
-// @Produce text/event-topic
+// @Produce text/event-stream
 // @Param id path string true "Topic ID"
 // @Success 200 {string} string "SSE: event: message / data: [EventCard,...]"
 // @Security ApiKeyAuth
@@ -517,7 +517,7 @@ func (a *apiHandler) topicEventsSSE(w http.ResponseWriter, r *http.Request) {
 	wake := a.deps.Hub.Subscribe(orgID, []streaming.TopicID{streaming.TopicID(topicID)})
 	defer a.deps.Hub.Unsubscribe([]streaming.TopicID{streaming.TopicID(topicID)}, wake)
 
-	w.Header().Set("Content-Type", "text/event-topic")
+	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
