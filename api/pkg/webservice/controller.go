@@ -203,6 +203,11 @@ func (c *Controller) runDeploy(
 		return
 	}
 
+	// Make the hosted containers self-heal on crash. The compose file is
+	// user-controlled, so we enforce the restart policy from our side once the
+	// app is up. Best-effort — never fails the deploy.
+	c.applyRestartPolicy(ctx, sb)
+
 	// Same sandbox across deploys, but keep active_sandbox_id authoritative.
 	if err := c.store.SetActiveWebServiceSandbox(ctx, req.ProjectID, sb.ID); err != nil {
 		c.markFailed(ctx, deployID, sb.ID, fmt.Sprintf("set active sandbox: %s", err))
@@ -212,6 +217,111 @@ func (c *Controller) runDeploy(
 	// Mark this deploy live; supersede the previous live row if any.
 	c.markLive(ctx, deployID, sb.ID)
 	c.markSupersededPrevious(ctx, deployID, req.ProjectID)
+}
+
+// applyRestartPolicy sets restart=unless-stopped on every container in the
+// web-service sandbox so a crashed app container is brought back automatically
+// by the inner dockerd. The compose file is user-controlled, so we enforce
+// this from our side. Best-effort: logs and swallows errors.
+func (c *Controller) applyRestartPolicy(ctx context.Context, sb *types.Sandbox) {
+	hydraClient, err := c.sandboxes.HydraClient(sb)
+	if err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("web service: restart-policy: no hydra client")
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, err = hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
+		SandboxID:      sb.ID,
+		Cmd:            "/bin/sh",
+		Args:           []string{"-c", `ids=$(docker ps -q); [ -n "$ids" ] && docker update --restart unless-stopped $ids >/dev/null || true`},
+		Cwd:            "/",
+		TimeoutSeconds: 25,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sb.ID).Msg("web service: failed to apply restart policy")
+	}
+}
+
+// sandboxDockerAlive returns true if the sandbox's inner dockerd answers a
+// quick `docker info`. Used by recovery to decide restart-in-place vs recreate.
+func (c *Controller) sandboxDockerAlive(ctx context.Context, sb *types.Sandbox) bool {
+	hydraClient, err := c.sandboxes.HydraClient(sb)
+	if err != nil {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
+		SandboxID:      sb.ID,
+		Cmd:            "/bin/sh",
+		Args:           []string{"-c", "docker info >/dev/null 2>&1"},
+		Cwd:            "/",
+		TimeoutSeconds: 20,
+	})
+	if err != nil {
+		return false
+	}
+	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
+		return false
+	}
+	return true
+}
+
+// RecoverWebService brings a project's web service back to a serving state
+// after the health-monitor detects it down. It escalates:
+//  1. active sandbox row gone → Redeploy (provisions a fresh sandbox).
+//  2. sandbox not running, or its inner dockerd is unresponsive (the hung-
+//     dockerd failure that caused our outage) → delete the sandbox, then
+//     Redeploy. The broken container is removed via the OUTER docker, so a hung
+//     inner dockerd doesn't block it; the project-keyed /data (incl. Postgres)
+//     reattaches to the fresh sandbox.
+//  3. sandbox running + dockerd alive → Redeploy in place (re-runs
+//     .helix/startup.sh → docker compose up against the same sandbox).
+//
+// Redeploy is async; this returns once recovery has been kicked off.
+func (c *Controller) RecoverWebService(ctx context.Context, projectID string) error {
+	state, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("get web service state: %w", err)
+	}
+	if !state.Enabled || state.ActiveSandboxID == "" {
+		return nil // nothing to recover
+	}
+	project, err := c.store.GetProject(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	recreate := false
+	reason := "restart in place"
+	sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+	switch {
+	case err != nil || sb == nil:
+		reason = "active sandbox row is gone"
+		// Redeploy provisions a fresh sandbox; /data reattaches by project id.
+	case sb.Status != types.SandboxStatusRunning:
+		recreate, reason = true, fmt.Sprintf("sandbox status=%s", sb.Status)
+	case !c.sandboxDockerAlive(ctx, sb):
+		recreate, reason = true, "sandbox dockerd unresponsive"
+	}
+
+	if recreate {
+		log.Warn().Str("project_id", projectID).Str("sandbox_id", state.ActiveSandboxID).
+			Str("reason", reason).Msg("health-monitor: recreating web-service sandbox")
+		if delErr := c.sandboxes.Delete(context.Background(), state.ActiveSandboxID); delErr != nil {
+			log.Warn().Err(delErr).Str("sandbox_id", state.ActiveSandboxID).
+				Msg("health-monitor: failed to delete broken sandbox (continuing to redeploy)")
+		}
+	} else {
+		log.Info().Str("project_id", projectID).Str("reason", reason).
+			Msg("health-monitor: recovering web service")
+	}
+
+	if _, err := c.Redeploy(ctx, DeployRequest{ProjectID: projectID, Owner: project.UserID}); err != nil {
+		return fmt.Errorf("redeploy: %w", err)
+	}
+	return nil
 }
 
 // ensureSandbox returns the project's single web-service sandbox, creating it

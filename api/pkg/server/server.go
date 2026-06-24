@@ -725,6 +725,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Reap expired sandboxes (Sandboxes API).
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
+	// Probe live web services and auto-recover any that stop responding
+	// (crashed/hung stack heals without a human).
+	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController, apiServer.sandboxController).Start(ctx)
+
 	// Reap stale runner registrations: sandbox_instances rows whose
 	// last_seen is older than the stale-threshold get their status
 	// flipped to "offline" so the admin UI + the FindAvailable selector
