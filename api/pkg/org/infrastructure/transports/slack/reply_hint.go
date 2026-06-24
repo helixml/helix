@@ -6,7 +6,12 @@ import "fmt"
 // outbound messages (chat.postMessage icon_url). It is a public URL —
 // Slack's servers fetch it — so it renders even when this deployment is
 // only reachable on localhost. Requires the chat:write.customize scope.
-const helixSlackIconURL = "https://github.com/helixml.png"
+//
+// It must be a DIRECT image link, not a redirect: Slack's icon fetcher
+// does not follow redirects, so github.com/helixml.png (a 302 to the CDN)
+// silently fails and falls back to the app's default icon. This is the
+// helixml GitHub org avatar's direct CDN URL.
+const helixSlackIconURL = "https://avatars.githubusercontent.com/u/149581110?v=4"
 
 // replyHint is the transport-authored guidance the ingest stamps onto
 // every inbound Message (Message.ReplyHint). It is rendered into the
