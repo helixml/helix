@@ -22,7 +22,6 @@ import { SetupStep, SetupStepList, CopyField, CopyableCodeBlock } from '../slack
 // site root — reference them by URL, not a JS import.
 const createSlackAppManifest = '/img/slack/manifest.png'
 const createSlackAppToken = '/img/slack/app_token.png'
-const createSlackAppInstall = '/img/slack/install_app.png'
 
 // Bot scopes the global app requests — keep in sync with the backend's
 // defaultSlackBotScopes (helix_org_slack.go).
@@ -86,19 +85,20 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
     <CopyableCodeBlock title="Prefer to paste the manifest yourself?" code={manifest} />
   )
 
+  const distributionNote = 'Optional — only if orgs will install into workspaces other than the one that owns the app (e.g. a SaaS deployment): open "Manage Distribution" and activate public distribution.'
+
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
         { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix redirect URL — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
         { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
         { step: 3, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below — Slack verifies it instantly once the signing secret is saved.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
-        { step: 4, text: 'Done. Org admins click "Install into your workspace" from their org Settings → Slack — Helix handles the rest.' },
+        { step: 4, text: distributionNote },
       ]
     : [
         { step: 1, text: 'Click "Create the app in Slack" above. Slack opens pre-filled (Socket Mode enabled + your redirect URL) — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
         { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID and Client Secret into the form below.' },
         { step: 3, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below, then Save.', image: createSlackAppToken },
-        { step: 4, text: 'Open "Manage Distribution" and activate public distribution so orgs can install it via OAuth.' },
-        { step: 5, text: 'Done. Org admins click "Install into your workspace" from their org Settings → Slack.', image: createSlackAppInstall },
+        { step: 4, text: distributionNote },
       ]
 
   return (
@@ -124,10 +124,20 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
         </Stack>
 
         <Box sx={{ mb: 2 }}>
-          <CopyField label="OAuth Redirect URL (already in the manifest)" value={redirectURL} />
+          <CopyField label="OAuth Redirect URL" value={redirectURL} />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+            The manifest adds this for newly-created apps. For an existing app, make sure it's listed under
+            OAuth &amp; Permissions → Redirect URLs, or the install will fail with a redirect_uri mismatch.
+          </Typography>
         </Box>
 
         <SetupStepList steps={steps} />
+
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          That's it — you don't install the app or copy a bot token yourself. Org admins open their
+          Settings → Slack and click <strong>Install into your workspace</strong>; Helix runs the OAuth
+          install and stores the bot token for them.
+        </Typography>
       </DialogContent>
       <DialogActions sx={{ p: 3, pt: 1 }}>
         <Button onClick={onClose} variant="outlined">Close</Button>
