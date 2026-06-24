@@ -17,6 +17,7 @@ import DialogActions from '@mui/material/DialogActions'
 import { SlackLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import { SetupStep, SetupStepList, CopyField, CopyableCodeBlock } from '../slack/SlackSetupScaffold'
+import useAccount from '../../hooks/useAccount'
 
 // Screenshots live in Vite's publicDir (frontend/assets), served at the
 // site root — reference them by URL, not a JS import.
@@ -75,7 +76,8 @@ interface SlackAppSetupProps {
 }
 
 const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const account = useAccount()
+  const origin = account.serverConfig?.server_url || (typeof window !== 'undefined' ? window.location.origin : '')
   const redirectURL = `${origin}/api/v1/slack/oauth/callback`
   const eventsURL = `${origin}/api/v1/slack/events`
   const manifest = useMemo(() => buildManifest(ingressMode, redirectURL), [ingressMode, redirectURL])
