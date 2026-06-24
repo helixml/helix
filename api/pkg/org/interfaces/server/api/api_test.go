@@ -582,49 +582,12 @@ func seedGithubTopic(t *testing.T, st *store.Store, id, repo string) {
 	}
 }
 
-// TestGetTopic_EffectivePublicURL_PrefersOrgConfig pins the
-// override priority: when `topics.public_url` is set on the org's
-// config registry, it wins over the Deps.PublicServerURL (which
-// production wiring sources from SERVER_URL env). The detail
-// page's loopback warning evaluates this field, so getting the
-// priority wrong manifests as a stale warning even after the org
-// admin "fixed" their public URL via the Settings page.
-func TestGetTopic_EffectivePublicURL_PrefersOrgConfig(t *testing.T) {
-	deps, st, reg := newDeps(t)
-	// SERVER_URL env equivalent — a localhost loopback that the
-	// org admin is in the middle of replacing.
-	deps.PublicServerURL = "http://localhost:8080"
-
-	// topics.public_url override on the org config — the helix-org
-	// Settings page editable row. Registry needs the spec registered
-	// before Set will accept the value.
-	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
-	if err := reg.Set(context.Background(), "org-test", "topics.public_url",
-		`"https://helix.example.com"`); err != nil {
-		t.Fatalf("set topics.public_url: %v", err)
-	}
-
-	seedGithubTopic(t, st, "s-gh", "helixml/helix")
-
-	rec := do(t, orgapi.Handler(deps), "GET", "/topics/s-gh", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body)
-	}
-	var got orgapi.TopicDTO
-	decode(t, rec, &got)
-	if got.EffectivePublicURL != "https://helix.example.com" {
-		t.Errorf("EffectivePublicURL = %q, want override to win over SERVER_URL", got.EffectivePublicURL)
-	}
-}
-
-// TestGetTopic_EffectivePublicURL_FallsBackToServerURL pins the
-// fallback: when no `topics.public_url` is set, the SERVER_URL
-// env (via Deps.PublicServerURL) is used as-is.
-func TestGetTopic_EffectivePublicURL_FallsBackToServerURL(t *testing.T) {
-	deps, st, reg := newDeps(t)
+// TestGetTopic_EffectivePublicURL_UsesServerURL pins that the field is
+// SERVER_URL (via Deps.PublicServerURL). The detail page's loopback
+// warning evaluates this field.
+func TestGetTopic_EffectivePublicURL_UsesServerURL(t *testing.T) {
+	deps, st, _ := newDeps(t)
 	deps.PublicServerURL = "https://server-url-env.example.com"
-	// Register the spec but DON'T set a value — fallback path.
-	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
 
 	seedGithubTopic(t, st, "s-fallback", "helixml/helix")
 

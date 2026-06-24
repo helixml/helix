@@ -216,22 +216,11 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
-// resolveEffectivePublicURL returns the base URL helix uses for
-// github webhook payload URLs, in the same priority order as
-// installGitHubWebhook: `topics.public_url` org config wins,
-// SERVER_URL (env) is the fallback. Returns "" when neither is
-// set. Surfaced in TopicDTO so the detail page can evaluate the
-// loopback warning without re-implementing the priority logic.
-func (a *apiHandler) resolveEffectivePublicURL(ctx context.Context, orgID string) string {
-	envURL := strings.TrimSpace(a.deps.PublicServerURL)
-	if a.deps.Configs != nil {
-		if override, err := a.deps.Configs.GetString(ctx, orgID, "topics.public_url"); err == nil {
-			if v := strings.TrimSpace(override); v != "" {
-				return v
-			}
-		}
-	}
-	return envURL
+// resolveEffectivePublicURL returns helix's public base URL (SERVER_URL),
+// used for github webhook payload URLs. Surfaced in TopicDTO so the detail
+// page can evaluate the loopback warning. Returns "" when SERVER_URL is unset.
+func (a *apiHandler) resolveEffectivePublicURL(_ context.Context, _ string) string {
+	return strings.TrimSpace(a.deps.PublicServerURL)
 }
 
 // transportConfigMap unmarshals a Transport.Config raw JSON blob
