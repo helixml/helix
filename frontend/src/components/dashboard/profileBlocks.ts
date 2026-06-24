@@ -393,27 +393,30 @@ export const blockDesktopReserve: ProfileBlock = {
 // If composeparse ever learns to count neuron `devices:` (Count=2), it MUST
 // land together with a gpudetect neuron probe, or assignment to the inf2
 // runner breaks (2 > 0 reject). Both are out of scope for v1.
-// Validated live on a real inf2.xlarge (2026-06-19). Every value below was
-// proven on the box - see design/2026-06-15-neuron-inference-design.md and the
-// findings writeup. Notable corrections vs the original design guesses:
-//   - image is pytorch-inference-vllm-neuronx (the AWS vLLM DLC), NOT neuron/vllm
-//   - inf2.xlarge exposes a SINGLE /dev/neuron0 (1 device, 2 cores -> tp=2)
+// Validated live on a real inf2 instance (2026-06-24): TinyLlama serves tokens
+// over the OpenAI API. See the findings writeup for the full investigation.
+// Hard-won facts:
+//   - image MUST be the SDK 2.28 vLLM DLC. SDK 2.29+ dropped Inferentia2 from
+//     the NxD inference backend, so newer images fail to compile on inf2
+//     ("RangeSelect is not supported on arch Trn1, must be Trn2 or greater").
+//   - inf2.xlarge exposes a SINGLE /dev/neuron0 (1 chip, 2 cores -> tp=2)
 //   - needs cap_add SYS_ADMIN + IPC_LOCK
-//   - neuron backend is selected by VLLM_NEURON_FRAMEWORK env; vLLM 0.16 dropped
-//     the --device / --override-neuron-config flags
+//   - neuron backend is selected by VLLM_NEURON_FRAMEWORK env; this vLLM build
+//     does NOT accept the --device / --override-neuron-config flags
 //   - needs --block-size 8 (vLLM asserts block_size when prefix caching is on)
 //   - --swap-space 0: vLLM reserves ~8GB host RAM for CPU swap by default, which
 //     OOMs the 16GB inf2.xlarge; disabling it is required
-//   - vLLM compiles the model on first start (~minutes for ~1B); NEURON_COMPILE_
-//     CACHE_URL=s3://... makes that a compile-once-per-fleet cost (validated)
-//   - inf2.xlarge's ~16GB HOST RAM caps the model at ~1B-2B (weights load into
-//     host memory before the device). 3B/7B OOM here and need inf2.8xlarge.
-export const blockChatNeuronQwen15B: ProfileBlock = {
-  id: "chat-neuron-qwen-1.5b",
-  name: "inf2.xlarge - Qwen2.5-1.5B (Neuron)",
+//   - vLLM compiles the model on first start; NEURON_COMPILE_CACHE_URL=s3://...
+//     makes that a compile-once-per-fleet cost
+//   - MODEL CHOICE: inf2 only compiles simpler/older model graphs. Modern small
+//     models (Qwen2.5, Llama-3.2) crash the compiler inlining its attention
+//     kernel for the Trn1 arch; they need Trn2, not inf2. TinyLlama compiles.
+export const blockChatNeuronTinyLlama: ProfileBlock = {
+  id: "chat-neuron-tinyllama",
+  name: "inf2 - TinyLlama-1.1B (Neuron)",
   category: "chat",
   description:
-    "Qwen2.5-1.5B-Instruct served by vLLM on AWS Inferentia2 (inf2.xlarge, ~$0.99/hr). Helix inference on non-NVIDIA hardware over the standard OpenAI API. inf2.xlarge host RAM caps the model around 1-2B; use inf2.8xlarge for 7B.",
+    "TinyLlama-1.1B served by vLLM on AWS Inferentia2 (inf2.xlarge, ~$0.99/hr) via Neuron SDK 2.28. Helix inference on non-NVIDIA hardware over the standard OpenAI API. inf2 only compiles simpler/older model graphs; modern models (Qwen2.5, Llama-3.2) need Trn2.",
   pros: [
     "LLM inference on AWS Inferentia2 - no NVIDIA hardware",
     "Standard OpenAI API (vLLM) - Helix's router routes to it unchanged",
@@ -421,8 +424,8 @@ export const blockChatNeuronQwen15B: ProfileBlock = {
   ],
   cons: [
     "vLLM compiles the model on first start (cached afterwards via S3)",
-    "inf2.xlarge host RAM caps model size at ~1-2B; 7B needs inf2.8xlarge",
-    "vLLM-Neuron is less mature than CUDA vLLM",
+    "inf2 only compiles simpler/older models; modern small models (Qwen2.5, Llama-3.2) fail - use Trn2 for those",
+    "Pinned to Neuron SDK 2.28 - SDK 2.29+ dropped inf2 support",
   ],
   // GPU-memory fields don't model Neuron device memory; left at 1 core's
   // worth of "claim the whole accelerator" since one model owns the pool.
@@ -439,9 +442,9 @@ export const blockChatNeuronQwen15B: ProfileBlock = {
   // where <prefix> is an S3 key prefix, not a folder - only the bucket need
   // exist; the Neuron SDK creates everything under the prefix. Without it set,
   // vLLM falls back to a local compile cache.
-  composeService: `vllm-neuron-qwen:
-    image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.16.0-neuronx-py312-sdk2.30.0-ubuntu24.04
-    container_name: vllm-neuron-qwen
+  composeService: `vllm-neuron-tinyllama:
+    image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.13.0-neuronx-py312-sdk2.28.0-ubuntu24.04
+    container_name: vllm-neuron-tinyllama
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -460,15 +463,15 @@ export const blockChatNeuronQwen15B: ProfileBlock = {
       - -m
       - vllm.entrypoints.openai.api_server
       - --model
-      - Qwen/Qwen2.5-1.5B-Instruct
+      - TinyLlama/TinyLlama-1.1B-Chat-v1.0
       - --served-model-name
-      - qwen2.5-1.5b-instruct
+      - tinyllama
       - --tensor-parallel-size
       - "2"
       - --max-num-seqs
       - "4"
       - --max-model-len
-      - "8192"
+      - "2048"
       - --block-size
       - "8"
       - --swap-space
@@ -485,7 +488,7 @@ export const allBlocks: ProfileBlock[] = [
   blockEmbedText,
   blockEmbedVL,
   blockDesktopReserve,
-  blockChatNeuronQwen15B,
+  blockChatNeuronTinyLlama,
 ];
 
 // ----------------------------------------------------------------------
@@ -573,10 +576,10 @@ export const curatedProfiles: CuratedProfile[] = [
     composeYAML: composeFromBlocks([blockChat35B]),
   },
   {
-    id: "inf2-qwen-1.5b-neuron",
-    name: "AWS Inferentia2: Qwen2.5-1.5B (Neuron)",
+    id: "inf2-tinyllama-neuron",
+    name: "AWS Inferentia2: TinyLlama-1.1B (Neuron)",
     description:
-      "Single inf2.xlarge serving Qwen2.5-1.5B-Instruct on AWS Neuron via vLLM. Hardware-agnostic inference - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live on inf2.xlarge.",
+      "Single inf2.xlarge serving TinyLlama-1.1B on AWS Neuron via vLLM (SDK 2.28). Hardware-agnostic inference - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live serving a token on inf2.",
     pros: [
       "LLM inference on non-NVIDIA (Inferentia2) hardware",
       "Standard OpenAI API - inference router routes to it unchanged",
@@ -584,13 +587,13 @@ export const curatedProfiles: CuratedProfile[] = [
     ],
     cons: [
       "vLLM compiles on first start (cached afterwards via S3)",
-      "inf2.xlarge host RAM caps model at ~1-2B; 7B needs inf2.8xlarge",
-      "Neuron SDK / AMI / image-tag must be a compatible triple",
+      "inf2 only compiles simpler/older models; modern models (Qwen2.5, Llama-3.2) need Trn2",
+      "Neuron SDK / AMI / image-tag must be a compatible triple (SDK 2.28 for inf2)",
     ],
-    blockIDs: ["chat-neuron-qwen-1.5b"],
+    blockIDs: ["chat-neuron-tinyllama"],
     vendor: "neuron",
     architectures: [],
-    composeYAML: composeFromBlocks([blockChatNeuronQwen15B]),
+    composeYAML: composeFromBlocks([blockChatNeuronTinyLlama]),
   },
   {
     id: "8xh100-prod",
