@@ -8,6 +8,7 @@
 
 import { FC, useMemo } from 'react'
 import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import DialogTitle from '@mui/material/DialogTitle'
@@ -19,7 +20,6 @@ import { SetupStep, SetupStepList, CopyField, CopyableCodeBlock } from '../slack
 
 // Screenshots live in Vite's publicDir (frontend/assets), served at the
 // site root — reference them by URL, not a JS import.
-const createSlackAppScreenshot = '/img/slack/create_new_app.png'
 const createSlackAppManifest = '/img/slack/manifest.png'
 const createSlackAppToken = '/img/slack/app_token.png'
 const createSlackAppInstall = '/img/slack/install_app.png'
@@ -80,23 +80,25 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
   const redirectURL = `${origin}/api/v1/slack/oauth/callback`
   const eventsURL = `${origin}/api/v1/slack/events`
   const manifest = useMemo(() => buildManifest(ingressMode, redirectURL), [ingressMode, redirectURL])
+  const createAppURL = `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(manifest)}`
+
+  const manifestFallback = (
+    <CopyableCodeBlock title="Prefer to paste the manifest yourself?" code={manifest} />
+  )
 
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
-        { step: 1, text: 'Go to api.slack.com/apps and click "Create New App" → "From a manifest".', link: 'https://api.slack.com/apps', image: createSlackAppScreenshot },
-        { step: 2, text: 'Choose the workspace that will manage this app — the one allowed to configure it. That\'s separate from use: your org admins install it into their own workspaces, they don\'t create their own.' },
-        { step: 3, text: 'Paste this manifest (it pre-fills the bot scopes, events, and your Helix OAuth Redirect URL), then click "Create".', image: createSlackAppManifest, below: <CopyableCodeBlock code={manifest} /> },
-        { step: 4, text: 'Open "Basic Information" → "App Credentials". Copy the Client ID, Client Secret and Signing Secret into the form below, and Save — Helix needs them before the next step.' },
-        { step: 5, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below. Slack verifies it instantly now that Helix has the signing secret.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
-        { step: 6, text: 'Done. Org admins can now click "Install to Slack" from their org Settings to add Helix to their workspace.' },
+        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix redirect URL — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
+        { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
+        { step: 3, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below — Slack verifies it instantly once the signing secret is saved.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
+        { step: 4, text: 'Done. Org admins click "Install into your workspace" from their org Settings → Slack — Helix handles the rest.' },
       ]
     : [
-        { step: 1, text: 'Go to api.slack.com/apps and click "Create New App" → "From a manifest".', link: 'https://api.slack.com/apps', image: createSlackAppScreenshot },
-        { step: 2, text: 'Choose the workspace that will manage this app — the one allowed to configure it. The app can still be installed into other workspaces.' },
-        { step: 3, text: 'Paste this manifest (Socket Mode enabled — events arrive over a WebSocket, no public Events URL needed; it also wires the OAuth Redirect URL), then click "Create".', image: createSlackAppManifest, below: <CopyableCodeBlock code={manifest} /> },
-        { step: 4, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below and Save. This opens the socket for every installed workspace.', image: createSlackAppToken },
-        { step: 5, text: 'Open "Manage Distribution" and activate public distribution so the app can be installed into workspaces via OAuth.' },
-        { step: 6, text: 'Org admins click "Install to Slack" from their org Settings → Slack — the same one-click OAuth install as REST. (Or paste a bot token there manually.)', image: createSlackAppInstall },
+        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens pre-filled (Socket Mode enabled + your redirect URL) — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
+        { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID and Client Secret into the form below.' },
+        { step: 3, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below, then Save.', image: createSlackAppToken },
+        { step: 4, text: 'Open "Manage Distribution" and activate public distribution so orgs can install it via OAuth.' },
+        { step: 5, text: 'Done. Org admins click "Install into your workspace" from their org Settings → Slack.', image: createSlackAppInstall },
       ]
 
   return (
@@ -110,9 +112,16 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) =
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           You're creating <strong>one</strong> Slack app for this whole Helix deployment.
-          {' '}Each org admin then installs it into their own Slack workspace with one click — they never create their own app.
+          {' '}Each org admin then installs it into their own workspace with one click — they never create their own app.
           {ingressMode === 'socket' && ' Socket Mode delivers every installed workspace\'s events over one WebSocket.'}
         </Typography>
+
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+          <Button variant="contained" startIcon={<SlackLogo sx={{ fontSize: 18 }} />} href={createAppURL} target="_blank" rel="noopener noreferrer">
+            Create the app in Slack
+          </Button>
+          <Typography variant="caption" color="text.secondary">Opens Slack pre-filled with this configuration.</Typography>
+        </Stack>
 
         <Box sx={{ mb: 2 }}>
           <CopyField label="OAuth Redirect URL (already in the manifest)" value={redirectURL} />
