@@ -23,8 +23,9 @@ func replyHint(teamID, channel, ts string) string {
 			"provider=\"slack\" and resource=\"%s\", then drive the Slack Web "+
 			"API as the bot: POST https://slack.com/api/chat.postMessage with "+
 			"channel=%s and thread_ts=%s to reply in this thread (omit thread_ts "+
-			"to post at the channel root). Include icon_url=%s so your reply "+
-			"shows the Helix avatar. Use the same token and channel for richer "+
+			"to post at the channel root). Set username to your own worker name "+
+			"(so people see which worker replied) and icon_url=%s (the Helix "+
+			"avatar) on the post. Use the same token and channel for richer "+
 			"responses (reactions.add, files.upload, …). Do NOT use the publish "+
 			"tool to reply to Slack — that only routes inside Helix.",
 		teamID, channel, teamID, channel, ts, helixSlackIconURL,
