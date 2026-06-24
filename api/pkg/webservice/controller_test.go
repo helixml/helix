@@ -102,9 +102,13 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 			t.Errorf("deploy script missing %q:\n%s", want, script)
 		}
 	}
-	// No SHA → no checkout line.
-	if strings.Contains(script, "git checkout") {
-		t.Errorf("empty SHA should not produce a checkout:\n%s", script)
+	// No SHA → no SHA checkout (the quoted-SHA form). The .helix dir is always
+	// overlaid from the helix-specs branch, so a FETCH_HEAD checkout is expected.
+	if strings.Contains(script, "git checkout '") {
+		t.Errorf("empty SHA should not produce a SHA checkout:\n%s", script)
+	}
+	if !strings.Contains(script, "git checkout FETCH_HEAD -- .helix") {
+		t.Errorf("startup script must be overlaid from the helix-specs branch:\n%s", script)
 	}
 }
 

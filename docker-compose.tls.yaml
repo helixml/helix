@@ -22,4 +22,8 @@ services:
   api:
     ports:
       - ${VHOST_HTTPS_PORT:-443}:443
-      - ${VHOST_HTTP_PORT:-80}:80
+      # :80 is only needed for HTTP-01 / TLS-ALPN-01 challenges and the
+      # HTTP→HTTPS redirect. We run DNS-01 (HELIX_VHOST_ACME_DNS_PROVIDER=
+      # cloudflare), so the API server never binds :80 — leave it unmapped.
+      # Re-enable this line if you switch back to HTTP-01:
+      # - ${VHOST_HTTP_PORT:-80}:80
