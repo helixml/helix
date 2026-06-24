@@ -79,6 +79,8 @@ const SlackIntegrationsPanel: FC = () => {
     }
   }
 
+  const appNameById = new Map<string, string>(apps.map((a: any) => [a.id, a.name || a.id]))
+
   const tableData = workspaces.map((ws: any) => ({
     id: ws.id,
     _data: ws,
@@ -90,6 +92,11 @@ const SlackIntegrationsPanel: FC = () => {
     team: (
       <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
         {ws.slack_team_id || '—'}
+      </Typography>
+    ),
+    app: (
+      <Typography variant="body2" color="text.secondary">
+        {ws.slack_app_connection_id ? (appNameById.get(ws.slack_app_connection_id) || 'Unknown app') : 'Bot token'}
       </Typography>
     ),
   }))
@@ -196,6 +203,7 @@ const SlackIntegrationsPanel: FC = () => {
               authenticated={true}
               fields={[
                 { name: 'workspace', title: 'Workspace' },
+                { name: 'app', title: 'Installed app' },
                 { name: 'team', title: 'Team ID' },
               ]}
               data={tableData}

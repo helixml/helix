@@ -33629,6 +33629,9 @@ const docTemplate = `{
                 "provider_type": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
+                "slack_app_connection_id": {
+                    "type": "string"
+                },
                 "slack_app_id": {
                     "type": "string"
                 },

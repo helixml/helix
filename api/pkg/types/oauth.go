@@ -304,6 +304,11 @@ type ServiceConnection struct {
 	SlackTeamName  string `json:"slack_team_name,omitempty"`
 	SlackBotUserID string `json:"slack_bot_user_id,omitempty"`
 	SlackAppID     string `json:"slack_app_id,omitempty"`
+	// SlackAppConnectionID is the id of the slack_app ServiceConnection
+	// this workspace was installed from (OAuth installs only — empty for a
+	// manually pasted bot token). Lets the UI show which app each
+	// workspace belongs to when several global apps exist.
+	SlackAppConnectionID string `json:"slack_app_connection_id,omitempty"`
 	// SlackBotToken is the xoxb-… token. On slack_app it is the single
 	// Socket-Mode workspace bot token; on slack_workspace it is the
 	// per-org installed bot token. Encrypted at rest.
@@ -425,6 +430,7 @@ type ServiceConnectionResponse struct {
 	SlackTeamName         string `json:"slack_team_name,omitempty"`
 	SlackBotUserID        string `json:"slack_bot_user_id,omitempty"`
 	SlackAppID            string `json:"slack_app_id,omitempty"`
+	SlackAppConnectionID  string `json:"slack_app_connection_id,omitempty"`
 	HasSlackClientSecret  bool   `json:"has_slack_client_secret,omitempty"`
 	HasSlackSigningSecret bool   `json:"has_slack_signing_secret,omitempty"`
 	HasSlackAppToken      bool   `json:"has_slack_app_token,omitempty"`
@@ -460,6 +466,7 @@ func (c *ServiceConnection) ToResponse() *ServiceConnectionResponse {
 		SlackTeamName:         c.SlackTeamName,
 		SlackBotUserID:        c.SlackBotUserID,
 		SlackAppID:            c.SlackAppID,
+		SlackAppConnectionID:  c.SlackAppConnectionID,
 		HasSlackClientSecret:  c.SlackClientSecret != "",
 		HasSlackSigningSecret: c.SlackSigningSecret != "",
 		HasSlackAppToken:      c.SlackAppToken != "",

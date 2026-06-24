@@ -5528,6 +5528,7 @@ export interface TypesServiceConnectionResponse {
   name?: string;
   organization_id?: string;
   provider_type?: TypesExternalRepositoryType;
+  slack_app_connection_id?: string;
   slack_app_id?: string;
   slack_bot_user_id?: string;
   /** Slack (non-sensitive fields + has-secret flags) */

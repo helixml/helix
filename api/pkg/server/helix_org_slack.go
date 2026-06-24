@@ -355,7 +355,7 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := s.upsertSlackWorkspace(r.Context(), orgID, install); err != nil {
+	if err := s.upsertSlackWorkspace(r.Context(), orgID, install, app.ID); err != nil {
 		log.Error().Err(err).Str("org", orgID).Msg("slack oauth: persist workspace failed")
 		http.Error(w, "Failed to save Slack install", http.StatusInternalServerError)
 		return
@@ -429,7 +429,7 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		TeamName:  id.Team,
 		BotUserID: id.UserID,
 	}
-	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install); err != nil {
+	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install, ""); err != nil {
 		http.Error(w, "Failed to save workspace: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -450,7 +450,7 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 // upsertSlackWorkspace creates or updates the org's slack_workspace
 // ServiceConnection for the installed team. Re-installing the same
 // workspace refreshes the bot token rather than creating a duplicate.
-func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string, install slackcore.Install) error {
+func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string, install slackcore.Install, appConnID string) error {
 	key, err := s.getEncryptionKey()
 	if err != nil {
 		return err
@@ -469,21 +469,25 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 			conn.SlackAppID = install.AppID
 			conn.SlackBotToken = encToken
 			conn.Name = slackWorkspaceName(install)
+			if appConnID != "" {
+				conn.SlackAppConnectionID = appConnID
+			}
 			return s.Store.UpdateServiceConnection(ctx, conn)
 		}
 	}
 
 	conn := &types.ServiceConnection{
-		ID:             uuid.New().String(),
-		OrganizationID: orgID,
-		Name:           slackWorkspaceName(install),
-		Type:           types.ServiceConnectionTypeSlackWorkspace,
-		ProviderType:   types.ExternalRepositoryTypeSlack,
-		SlackTeamID:    install.TeamID,
-		SlackTeamName:  install.TeamName,
-		SlackBotUserID: install.BotUserID,
-		SlackAppID:     install.AppID,
-		SlackBotToken:  encToken,
+		ID:                   uuid.New().String(),
+		OrganizationID:       orgID,
+		Name:                 slackWorkspaceName(install),
+		Type:                 types.ServiceConnectionTypeSlackWorkspace,
+		ProviderType:         types.ExternalRepositoryTypeSlack,
+		SlackTeamID:          install.TeamID,
+		SlackTeamName:        install.TeamName,
+		SlackBotUserID:       install.BotUserID,
+		SlackAppID:           install.AppID,
+		SlackAppConnectionID: appConnID,
+		SlackBotToken:        encToken,
 	}
 	return s.Store.CreateServiceConnection(ctx, conn)
 }
