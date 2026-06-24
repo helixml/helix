@@ -18,6 +18,12 @@ type HealthResponse struct {
 	Version         string `json:"version"`
 }
 
+// containerSessionIDLabel is the Docker label hydra stamps on every dev
+// container with its session id, so hydra can re-adopt running containers
+// (with the exact session id) after a restart — see
+// DevContainerManager.RecoverDevContainersFromDocker.
+const containerSessionIDLabel = "helix.session_id"
+
 // DevContainerType represents the type of dev container
 type DevContainerType string
 

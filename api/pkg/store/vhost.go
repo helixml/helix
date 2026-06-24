@@ -260,6 +260,20 @@ func (s *PostgresStore) ListEnabledWebServiceProjectsByRepo(ctx context.Context,
 	return rows, nil
 }
 
+// ListActiveWebServices returns every project web-service state that is
+// enabled and has a live deployment (an active sandbox). Used by the
+// health-monitor to probe and auto-recover running web services.
+func (s *PostgresStore) ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error) {
+	var rows []*types.ProjectWebServiceState
+	err := s.gdb.WithContext(ctx).
+		Where("enabled = ? AND active_sandbox_id <> ''", true).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListWebServiceDeploys returns the most recent N deploys for a project,
 // newest first.
 func (s *PostgresStore) ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error) {

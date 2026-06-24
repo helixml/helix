@@ -4206,6 +4206,21 @@ func (mr *MockStoreMockRecorder) ListAccessGrants(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAccessGrants", reflect.TypeOf((*MockStore)(nil).ListAccessGrants), ctx, q)
 }
 
+// ListActiveWebServices mocks base method.
+func (m *MockStore) ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveWebServices", ctx)
+	ret0, _ := ret[0].([]*types.ProjectWebServiceState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveWebServices indicates an expected call of ListActiveWebServices.
+func (mr *MockStoreMockRecorder) ListActiveWebServices(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveWebServices", reflect.TypeOf((*MockStore)(nil).ListActiveWebServices), ctx)
+}
+
 // ListAgentRunners mocks base method.
 func (m *MockStore) ListAgentRunners(ctx context.Context, query types.ListAgentRunnersQuery) ([]*types.AgentRunner, int64, error) {
 	m.ctrl.T.Helper()
@@ -4402,6 +4417,21 @@ func (mr *MockStoreMockRecorder) ListExpiredSandboxes(ctx, now any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExpiredSandboxes", reflect.TypeOf((*MockStore)(nil).ListExpiredSandboxes), ctx, now)
 }
 
+// ListExternalAgentSessionIDs mocks base method.
+func (m *MockStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExternalAgentSessionIDs", ctx, cutoff)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExternalAgentSessionIDs indicates an expected call of ListExternalAgentSessionIDs.
+func (mr *MockStoreMockRecorder) ListExternalAgentSessionIDs(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExternalAgentSessionIDs", reflect.TypeOf((*MockStore)(nil).ListExternalAgentSessionIDs), ctx, cutoff)
+}
+
 // ListGitProviderConnections mocks base method.
 func (m *MockStore) ListGitProviderConnections(ctx context.Context, userID string) ([]*types.GitProviderConnection, error) {
 	m.ctrl.T.Helper()
@@ -4460,21 +4490,6 @@ func (m *MockStore) ListIdleDesktops(ctx context.Context, idleSince time.Time) (
 func (mr *MockStoreMockRecorder) ListIdleDesktops(ctx, idleSince any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListIdleDesktops", reflect.TypeOf((*MockStore)(nil).ListIdleDesktops), ctx, idleSince)
-}
-
-// ListExternalAgentSessionIDs mocks base method.
-func (m *MockStore) ListExternalAgentSessionIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListExternalAgentSessionIDs", ctx, cutoff)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListExternalAgentSessionIDs indicates an expected call of ListExternalAgentSessionIDs.
-func (mr *MockStoreMockRecorder) ListExternalAgentSessionIDs(ctx, cutoff any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExternalAgentSessionIDs", reflect.TypeOf((*MockStore)(nil).ListExternalAgentSessionIDs), ctx, cutoff)
 }
 
 // ListInteractions mocks base method.
@@ -5789,20 +5804,6 @@ func (mr *MockStoreMockRecorder) SetActiveWebServiceSandbox(ctx, projectID, sand
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveWebServiceSandbox", reflect.TypeOf((*MockStore)(nil).SetActiveWebServiceSandbox), ctx, projectID, sandboxID)
 }
 
-// SetWebServiceHostDeviceID mocks base method.
-func (m *MockStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetWebServiceHostDeviceID", ctx, projectID, hostDeviceID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetWebServiceHostDeviceID indicates an expected call of SetWebServiceHostDeviceID.
-func (mr *MockStoreMockRecorder) SetWebServiceHostDeviceID(ctx, projectID, hostDeviceID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWebServiceHostDeviceID", reflect.TypeOf((*MockStore)(nil).SetWebServiceHostDeviceID), ctx, projectID, hostDeviceID)
-}
-
 // SetLicenseKey mocks base method.
 func (m *MockStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
 	m.ctrl.T.Helper()
@@ -5929,6 +5930,20 @@ func (m *MockStore) SetSandboxStatus(ctx context.Context, id string, status type
 func (mr *MockStoreMockRecorder) SetSandboxStatus(ctx, id, status, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSandboxStatus", reflect.TypeOf((*MockStore)(nil).SetSandboxStatus), ctx, id, status, message)
+}
+
+// SetWebServiceHostDeviceID mocks base method.
+func (m *MockStore) SetWebServiceHostDeviceID(ctx context.Context, projectID, hostDeviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetWebServiceHostDeviceID", ctx, projectID, hostDeviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetWebServiceHostDeviceID indicates an expected call of SetWebServiceHostDeviceID.
+func (mr *MockStoreMockRecorder) SetWebServiceHostDeviceID(ctx, projectID, hostDeviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWebServiceHostDeviceID", reflect.TypeOf((*MockStore)(nil).SetWebServiceHostDeviceID), ctx, projectID, hostDeviceID)
 }
 
 // SpawnWorkSession mocks base method.

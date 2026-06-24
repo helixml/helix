@@ -447,6 +447,13 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		Image:    resolvedImage,
 		Hostname: req.Hostname,
 		Env:      dm.buildEnv(req),
+		// Stamp the session id as a label so hydra can re-adopt the container
+		// (with the exact session id, no name-prefix guessing) after a hydra
+		// restart. Covers both spec-task (ses_*) and sandbox-API (sbx_*)
+		// containers — the latter were previously orphaned on restart.
+		Labels: map[string]string{
+			containerSessionIDLabel: req.SessionID,
+		},
 	}
 	if len(req.Entrypoint) > 0 {
 		containerConfig.Entrypoint = req.Entrypoint
@@ -2014,17 +2021,35 @@ func (dm *DevContainerManager) GetDevContainer(ctx context.Context, sessionID st
 		return nil, fmt.Errorf("dev container not found for session: %s", sessionID)
 	}
 
-	// Optionally refresh status from Docker
+	// Refresh status AND IP from Docker. The container's IP can change across
+	// a container restart; a stale cached IP causes "no route to host" 502s on
+	// the proxy path. Since the proxy calls GetDevContainer on every request,
+	// refreshing the IP here keeps routing correct without any retry logic.
 	dockerClient, err := dm.getDockerClient(dc.DockerSocket)
 	if err == nil {
 		defer dockerClient.Close()
 		inspect, err := dockerClient.ContainerInspect(ctx, dc.ContainerID)
 		if err == nil {
+			status := DevContainerStatusStopped
 			if inspect.State.Running {
-				dc.Status = DevContainerStatusRunning
-			} else {
-				dc.Status = DevContainerStatusStopped
+				status = DevContainerStatusRunning
 			}
+			ip := ""
+			for _, network := range inspect.NetworkSettings.Networks {
+				if network.IPAddress != "" {
+					ip = network.IPAddress
+					break
+				}
+			}
+			if ip == "" {
+				ip = inspect.NetworkSettings.IPAddress
+			}
+			dm.mu.Lock()
+			dc.Status = status
+			if ip != "" {
+				dc.IPAddress = ip
+			}
+			dm.mu.Unlock()
 		}
 	}
 
@@ -2086,58 +2111,63 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 
 	recoveredCount := 0
 	for _, c := range containers {
-		// Check if this looks like a Helix dev container
-		// Container names are like "/sway-external-ses_xxx" or "/ubuntu-external-ses_xxx"
-		for _, name := range c.Names {
-			name = strings.TrimPrefix(name, "/")
-			if strings.Contains(name, "-external-") {
-				// Extract session ID from container name
-				// Format: {type}-external-{session_id_suffix}
-				parts := strings.Split(name, "-external-")
-				if len(parts) == 2 {
-					sessionIDSuffix := parts[1]
-					sessionID := "ses_" + sessionIDSuffix
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
 
-					// Determine container type from prefix
-					containerType := DevContainerTypeSway
-					if strings.HasPrefix(name, "ubuntu") {
-						containerType = DevContainerTypeUbuntu
-					}
-
-					// Get container IP
-					ipAddress := ""
-					for _, net := range c.NetworkSettings.Networks {
-						ipAddress = net.IPAddress
-						break
-					}
-
-					dc := &DevContainer{
-						SessionID:     sessionID,
-						ContainerID:   c.ID,
-						ContainerName: name,
-						Status:        DevContainerStatusRunning,
-						IPAddress:     ipAddress,
-						ContainerType: containerType,
-						CreatedAt:     time.Unix(c.Created, 0),
-						DockerSocket:  dockerSocket,
-					}
-
-					dm.mu.Lock()
-					dm.containers[sessionID] = dc
-					dm.mu.Unlock()
-
-					// Start streaming logs for recovered container
-					go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
-
-					recoveredCount++
-					log.Info().
-						Str("session_id", sessionID).
-						Str("container_id", c.ID[:12]).
-						Str("container_name", name).
-						Msg("Recovered dev container from Docker")
+		// Prefer the helix.session_id label — it carries the exact session id
+		// and covers BOTH spec-task (ses_*) and sandbox-API (sbx_*) containers.
+		// The latter (web-service hosting) were previously orphaned on restart
+		// because the name-based fallback below only matches "*-external-*".
+		sessionID := c.Labels[containerSessionIDLabel]
+		if sessionID == "" {
+			// Legacy fallback for containers created before the label existed:
+			// names like "ubuntu-external-<suffix>" → "ses_<suffix>".
+			for _, n := range c.Names {
+				n = strings.TrimPrefix(n, "/")
+				if parts := strings.Split(n, "-external-"); len(parts) == 2 {
+					sessionID = "ses_" + parts[1]
+					name = n
+					break
 				}
 			}
 		}
+		if sessionID == "" {
+			continue // not a Helix dev container
+		}
+
+		// Get container IP (fresh from this list — survives container restarts).
+		ipAddress := ""
+		for _, net := range c.NetworkSettings.Networks {
+			ipAddress = net.IPAddress
+			break
+		}
+
+		dc := &DevContainer{
+			SessionID:     sessionID,
+			ContainerID:   c.ID,
+			ContainerName: name,
+			Status:        DevContainerStatusRunning,
+			IPAddress:     ipAddress,
+			ContainerType: containerTypeForName(name),
+			CreatedAt:     time.Unix(c.Created, 0),
+			DockerSocket:  dockerSocket,
+		}
+
+		dm.mu.Lock()
+		dm.containers[sessionID] = dc
+		dm.mu.Unlock()
+
+		// Start streaming logs for recovered container
+		go dm.streamContainerLogs(context.Background(), c.ID, name, dockerSocket)
+
+		recoveredCount++
+		log.Info().
+			Str("session_id", sessionID).
+			Str("container_id", c.ID[:12]).
+			Str("container_name", name).
+			Msg("Recovered dev container from Docker")
 	}
 
 	if recoveredCount > 0 {
@@ -2145,6 +2175,20 @@ func (dm *DevContainerManager) RecoverDevContainersFromDocker(ctx context.Contex
 	}
 
 	return nil
+}
+
+// containerTypeForName infers a DevContainerType from a container name for
+// recovery. Sandbox-API containers (sbx-*) are treated as headless; only the
+// container id/IP matter for proxy/exec, so this is best-effort.
+func containerTypeForName(name string) DevContainerType {
+	switch {
+	case strings.HasPrefix(name, "ubuntu"):
+		return DevContainerTypeUbuntu
+	case strings.HasPrefix(name, "sway"):
+		return DevContainerTypeSway
+	default:
+		return DevContainerTypeHeadless
+	}
 }
 
 // getDesktopVersion reads the version file for the given container type.
