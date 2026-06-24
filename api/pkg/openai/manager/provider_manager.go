@@ -286,6 +286,11 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 		TLSSkipVerify: m.cfg.Tools.TLSSkipVerify,
 	})
 
+	// Preserve x-api-key auth across key rotation for the Anthropic global provider.
+	if provider == types.ProviderAnthropic {
+		openaiClient.SetIsAnthropic(true)
+	}
+
 	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.modelInfoProvider, m.billingLogger, m.logStores...)
 
 	m.globalClientsMu.Lock()
