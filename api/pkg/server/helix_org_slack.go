@@ -418,9 +418,11 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 
 // connectSlackWorkspaceRequest is the body of the manual
 // (Socket Mode / on-prem) workspace connect: the operator pastes the bot
-// token they got by installing the app into their workspace.
+// token they got by installing the app into their workspace, and names
+// which global app it belongs to so the UI can show it.
 type connectSlackWorkspaceRequest struct {
-	BotToken string `json:"bot_token"`
+	BotToken        string `json:"bot_token"`
+	AppConnectionID string `json:"app_connection_id"`
 }
 
 // connectSlackWorkspace (POST /api/v1/orgs/{org}/slack/workspaces) connects
@@ -480,7 +482,7 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		TeamName:  id.Team,
 		BotUserID: id.UserID,
 	}
-	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install, ""); err != nil {
+	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install, req.AppConnectionID); err != nil {
 		http.Error(w, "Failed to save workspace: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

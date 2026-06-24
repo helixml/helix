@@ -58,7 +58,7 @@ const SlackIntegrationsPanel: FC = () => {
   const handleConnectToken = async () => {
     if (!manualToken.trim()) return
     try {
-      await connectToken.mutateAsync(manualToken.trim())
+      await connectToken.mutateAsync({ botToken: manualToken.trim(), appConnectionId: appId || undefined })
       snackbar.success('Workspace connected')
       setManualToken('')
       setManualOpen(false)

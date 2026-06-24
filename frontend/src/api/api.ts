@@ -1865,6 +1865,7 @@ export interface ServerAddLabelRequest {
 }
 
 export interface ServerConnectSlackWorkspaceRequest {
+  app_connection_id?: string;
   bot_token?: string;
 }
 

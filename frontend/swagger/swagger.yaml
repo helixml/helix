@@ -2913,6 +2913,8 @@ definitions:
     type: object
   server.connectSlackWorkspaceRequest:
     properties:
+      app_connection_id:
+        type: string
       bot_token:
         type: string
     type: object

@@ -25505,6 +25505,9 @@ const docTemplate = `{
         "server.connectSlackWorkspaceRequest": {
             "type": "object",
             "properties": {
+                "app_connection_id": {
+                    "type": "string"
+                },
                 "bot_token": {
                     "type": "string"
                 }

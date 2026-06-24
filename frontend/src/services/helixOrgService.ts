@@ -180,8 +180,11 @@ export function useConnectSlackWorkspace() {
   const qc = useQueryClient()
   const { orgID } = useHelixOrgBase()
   return useMutation({
-    mutationFn: async (botToken: string) => {
-      const res = await api.getApiClient().v1OrgsSlackWorkspacesCreate(orgID, { bot_token: botToken })
+    mutationFn: async (args: { botToken: string; appConnectionId?: string }) => {
+      const res = await api.getApiClient().v1OrgsSlackWorkspacesCreate(orgID, {
+        bot_token: args.botToken,
+        app_connection_id: args.appConnectionId,
+      })
       return res.data
     },
     onSuccess: () => {
