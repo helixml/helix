@@ -122,6 +122,13 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		envMap = map[string]string{}
 	}
 	envMap["HELIX_DISABLE_AGENT"] = "1"
+	// Web-service sandboxes host a docker-compose app, not a GUI — skip booting
+	// GNOME + the video-streaming stack (desktop-bridge, settings-sync). Only
+	// dockerd (via cont-init) and the app run. Other sandbox-API runtimes still
+	// get the desktop if they use a desktop runtime.
+	if sandbox.Purpose == types.SandboxPurposeWebService {
+		envMap["HELIX_DISABLE_DESKTOP"] = "1"
+	}
 	envMap["HELIX_SANDBOX_ID"] = sandbox.ID
 	envMap["HELIX_SESSION_ID"] = sandbox.ID
 	envMap["HELIX_USER_ID"] = sandbox.Owner
