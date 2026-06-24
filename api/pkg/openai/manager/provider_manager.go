@@ -425,6 +425,23 @@ func (m *MultiClientManager) GetClient(_ context.Context, req *GetClientRequest)
 	return nil, fmt.Errorf("no client found for provider: %s, available providers: [%s]", req.Provider, strings.Join(availableProviders, ", "))
 }
 
+// isAnthropicAPIEndpoint reports whether a DB/UI-configured provider endpoint
+// targets the direct Anthropic API and therefore needs x-api-key auth (not
+// Bearer) for /v1/models. Detection keys off the canonical provider name
+// (matching the frontend's `name === 'anthropic'` convention) or an
+// api.anthropic.com base URL. Vertex endpoints are excluded — they authenticate
+// via OAuth, not x-api-key.
+// ponytail: name/URL heuristic; the proper fix is an explicit provider-kind /
+// api-format field on ProviderEndpoint, which would also catch Anthropic
+// endpoints renamed and pointed at a proxy (not matched here today).
+func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
+	if endpoint.VertexProjectID != "" {
+		return false
+	}
+	return strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) ||
+		strings.Contains(strings.ToLower(endpoint.BaseURL), "api.anthropic.com")
+}
+
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {
 	apiKey := endpoint.APIKey
 	if endpoint.APIKeyFromFile != "" {
@@ -450,10 +467,8 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 	}, endpoint.Models...)
 
 	// DB/UI-configured Anthropic providers must use x-api-key auth (not Bearer) for
-	// /v1/models. Exclude Vertex (VertexProjectID set) — it routes via OAuth, not x-api-key.
-	if endpoint.VertexProjectID == "" &&
-		(endpoint.Name == string(types.ProviderAnthropic) ||
-			strings.Contains(strings.ToLower(endpoint.BaseURL), "api.anthropic.com")) {
+	// /v1/models. See isAnthropicAPIEndpoint.
+	if isAnthropicAPIEndpoint(endpoint) {
 		openaiClient.SetIsAnthropic(true)
 	}
 
