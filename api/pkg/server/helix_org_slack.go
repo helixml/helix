@@ -39,7 +39,7 @@ func slackWorkspaceTopicID(connID string) streaming.TopicID {
 	return streaming.TopicID("s-slack-ws-" + connID)
 }
 
-func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, workspaceName string) {
+func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, workspaceName, appName string) {
 	if r == nil {
 		return
 	}
@@ -47,10 +47,7 @@ func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, worksp
 	if _, err := r.topics.Get(ctx, orgID, id); err == nil {
 		return // already exists
 	}
-	name := "Slack: " + workspaceName
-	if strings.TrimSpace(workspaceName) == "" {
-		name = "Slack: " + connID
-	}
+	name := slacktransport.TopicName(appName, workspaceName)
 	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID})
 	topic, err := streaming.NewTopic(id, name, "Messages from the connected Slack workspace.", "", time.Now().UTC(),
 		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID)
@@ -74,8 +71,10 @@ func (r *slackWorkspaceTopics) remove(ctx context.Context, orgID, connID string)
 
 // defaultSlackBotScopes are the bot scopes the "Install to Slack" flow
 // requests. They cover reading channel/group/DM messages + app mentions
-// (inbound), posting as a customised persona (outbound), and joining
-// channels (provisioner).
+// (inbound), posting as a customised persona (outbound), joining channels
+// (provisioner), and the richer egress gestures a Worker drives directly
+// via the Slack Web API (reactions, file uploads). Keep in sync with the
+// frontend manifest's BOT_SCOPES in SlackAppSetup.tsx.
 var defaultSlackBotScopes = []string{
 	"app_mentions:read",
 	"channels:history",
@@ -86,6 +85,8 @@ var defaultSlackBotScopes = []string{
 	"im:history",
 	"chat:write",
 	"chat:write.customize",
+	"reactions:write",
+	"files:write",
 }
 
 // slackWorkspaces implements slacktransport.Workspaces over the helix
@@ -544,6 +545,15 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 		return fmt.Errorf("encrypt bot token: %w", err)
 	}
 
+	// Resolve the installed app's name so the auto-created Topic is named
+	// after it rather than the workspace's opaque connection id.
+	appName := ""
+	if appConnID != "" {
+		if app, err := s.getSlackAppByID(ctx, appConnID); err == nil {
+			appName = app.Name
+		}
+	}
+
 	// Reuse an existing row for the same team in this org if present.
 	existing, _ := s.Store.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeSlackWorkspace)
 	for _, conn := range existing {
@@ -559,7 +569,7 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 			if err := s.Store.UpdateServiceConnection(ctx, conn); err != nil {
 				return err
 			}
-			s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name)
+			s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
 			return nil
 		}
 	}
@@ -580,7 +590,7 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 	if err := s.Store.CreateServiceConnection(ctx, conn); err != nil {
 		return err
 	}
-	s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name)
+	s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
 	return nil
 }
 

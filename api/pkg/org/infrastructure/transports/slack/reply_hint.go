@@ -2,6 +2,12 @@ package slack
 
 import "fmt"
 
+// helixSlackIconURL is a public Helix logo used as the bot avatar on
+// outbound messages (chat.postMessage icon_url). It is a public URL —
+// Slack's servers fetch it — so it renders even when this deployment is
+// only reachable on localhost. Requires the chat:write.customize scope.
+const helixSlackIconURL = "https://github.com/helixml.png"
+
 // replyHint is the transport-authored guidance the ingest stamps onto
 // every inbound Message (Message.ReplyHint). It is rendered into the
 // recipient Worker's activation prompt and tells the agent how to respond
@@ -17,9 +23,10 @@ func replyHint(teamID, channel, ts string) string {
 			"provider=\"slack\" and resource=\"%s\", then drive the Slack Web "+
 			"API as the bot: POST https://slack.com/api/chat.postMessage with "+
 			"channel=%s and thread_ts=%s to reply in this thread (omit thread_ts "+
-			"to post at the channel root). Use the same token and channel for "+
-			"richer responses (reactions.add, files.upload, …). Do NOT use the "+
-			"publish tool to reply to Slack — that only routes inside Helix.",
-		teamID, channel, teamID, channel, ts,
+			"to post at the channel root). Include icon_url=%s so your reply "+
+			"shows the Helix avatar. Use the same token and channel for richer "+
+			"responses (reactions.add, files.upload, …). Do NOT use the publish "+
+			"tool to reply to Slack — that only routes inside Helix.",
+		teamID, channel, teamID, channel, ts, helixSlackIconURL,
 	)
 }

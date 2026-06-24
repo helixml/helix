@@ -128,7 +128,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	}
 	// The transport stamps a ReplyHint carrying the concrete coordinates
 	// the agent needs to reply via the Slack API (no Role text required).
-	for _, want := range []string{"mint_credential", "C-random", "chat.postMessage"} {
+	for _, want := range []string{"mint_credential", "C-random", "chat.postMessage", "icon_url"} {
 		if !strings.Contains(c.msg.ReplyHint, want) {
 			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
 		}

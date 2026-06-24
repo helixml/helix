@@ -14,6 +14,7 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -589,6 +590,24 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 		}
 		testReq.ADOClientSecret = string(decryptedSecret)
 	}
+	// Slack tokens — decrypt so the validators can probe Slack.
+	for _, f := range []struct {
+		enc string
+		dst *string
+	}{
+		{connection.SlackAppToken, &testReq.SlackAppToken},
+		{connection.SlackBotToken, &testReq.SlackBotToken},
+	} {
+		if f.enc == "" {
+			continue
+		}
+		dec, err := crypto.DecryptAES256GCM(f.enc, encryptionKey)
+		if err != nil {
+			http.Error(w, "Failed to decrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		*f.dst = string(dec)
+	}
 
 	// Test the connection
 	testErr := s.testServiceConnection(r.Context(), testReq)
@@ -663,12 +682,25 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 		return nil
 
 	case types.ServiceConnectionTypeSlackApp, types.ServiceConnectionTypeSlackWorkspace:
-		// REST app credentials can't be validated without an OAuth
-		// round-trip, and a Socket Mode auth.test would open a real
-		// connection — both out of scope for a synchronous create-time
-		// probe. Treat as a no-op success; real validation happens on
-		// first connect / install.
-		return nil
+		// Validate whatever credential actually reaches Slack:
+		//   - a Socket Mode app-level token (xapp-) via apps.connections.open
+		//     (returns a wss URL but opens no persistent connection)
+		//   - a bot token (xoxb-) via auth.test
+		// A REST app exposes only a signing secret, which has no API to
+		// probe — report that honestly rather than a false "ok".
+		if req.SlackAppToken != "" {
+			if err := slackcore.ValidateAppToken(ctx, req.SlackAppToken, ""); err != nil {
+				return fmt.Errorf("Slack app-level token rejected: %w", err)
+			}
+			return nil
+		}
+		if req.SlackBotToken != "" {
+			if err := slackcore.ValidateBotToken(ctx, req.SlackBotToken, ""); err != nil {
+				return fmt.Errorf("Slack bot token rejected: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("nothing to validate: a REST app's signing secret can't be probed via the API — install the app into a workspace and test that connection")
 
 	default:
 		return fmt.Errorf("unsupported connection type: %s", req.Type)

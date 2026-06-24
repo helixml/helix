@@ -36,6 +36,8 @@ const BOT_SCOPES = [
   'im:history',
   'chat:write',
   'chat:write.customize',
+  'reactions:write',
+  'files:write',
 ]
 
 // Each message.* event requires its matching *:history scope, and these
@@ -49,14 +51,17 @@ const BOT_EVENTS = ['app_mention', 'message.channels', 'message.groups', 'messag
 // deployment. REST embeds the OAuth redirect URL and disables Socket
 // Mode; Socket Mode enables the socket (events arrive over the WebSocket,
 // so no public request URL is needed).
-const buildManifest = (mode: 'rest' | 'socket', redirectURL: string): string => {
+const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, appName?: string): string => {
+  // Slack caps the app name at 35 chars and the bot display name at 80;
+  // fall back to "Helix" when no connection name was given.
+  const name = (appName || '').trim().slice(0, 35) || 'Helix'
   const manifest: any = {
     display_information: {
-      name: 'Helix',
+      name,
       description: 'Helix AI — connect your Slack workspace to Helix agents.',
       background_color: '#69264d',
     },
-    features: { bot_user: { display_name: 'Helix', always_online: true } },
+    features: { bot_user: { display_name: name, always_online: true } },
     oauth_config: { scopes: { bot: BOT_SCOPES } },
     settings: {
       event_subscriptions: { bot_events: BOT_EVENTS },
@@ -73,14 +78,17 @@ interface SlackAppSetupProps {
   open: boolean
   onClose: () => void
   ingressMode: 'rest' | 'socket'
+  // appName is the connection name the operator typed; the manifest uses it
+  // so the Slack app + bot are named to match, rather than a generic "Helix".
+  appName?: string
 }
 
-const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode }) => {
+const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, appName }) => {
   const account = useAccount()
   const origin = account.serverConfig?.server_url || (typeof window !== 'undefined' ? window.location.origin : '')
   const redirectURL = `${origin}/api/v1/slack/oauth/callback`
   const eventsURL = `${origin}/api/v1/slack/events`
-  const manifest = useMemo(() => buildManifest(ingressMode, redirectURL), [ingressMode, redirectURL])
+  const manifest = useMemo(() => buildManifest(ingressMode, redirectURL, appName), [ingressMode, redirectURL, appName])
   const createAppURL = `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(manifest)}`
 
   const manifestFallback = (

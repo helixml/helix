@@ -653,6 +653,7 @@ const ServiceConnectionsTable: FC = () => {
         open={slackSetupOpen}
         onClose={() => setSlackSetupOpen(false)}
         ingressMode={slackIngressMode === 'socket' ? 'socket' : 'rest'}
+        appName={name}
       />
     </Card>
   )
