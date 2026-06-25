@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -164,12 +166,36 @@ func main() {
 	}
 }
 
+// instanceTypeRe matches a plausible EC2 instance type (e.g. "inf2.8xlarge",
+// "g5.xlarge", "trn1n.32xlarge"). Used to reject garbage from a non-AWS host
+// that happens to answer at the IMDS link-local IP (captive portals, on-prem
+// metadata services) — without it, an HTML error page could be stored verbatim
+// and overflow the varchar(100) column, failing the whole heartbeat UPDATE.
+var instanceTypeRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}\.[a-z0-9]+$`)
+
+// cachedInstanceType memoises the (immutable) instance type after the first
+// successful lookup so we stop hitting IMDS on every 30s heartbeat. Empty
+// results are not cached, so a transient boot-time IMDS failure self-heals.
+var cachedInstanceType atomic.Value // string
+
+// instanceType returns the cached instance type or probes IMDS once to find it.
+func instanceType(ctx context.Context) string {
+	if v, _ := cachedInstanceType.Load().(string); v != "" {
+		return v
+	}
+	t := detectInstanceType(ctx)
+	if t != "" {
+		cachedInstanceType.Store(t)
+	}
+	return t
+}
+
 // detectInstanceType queries the AWS IMDS for the EC2 instance type (e.g.
 // "inf2.8xlarge"). Uses IMDSv2 (token-authenticated). Returns "" on any
-// failure — bare-metal hosts (e.g. prime), non-AWS clouds, and IMDS being
-// unreachable all just yield an empty string with no hang. The 1.5s client
-// timeout caps the wait so a non-existent metadata endpoint can't block the
-// heartbeat loop.
+// failure or an implausible response — bare-metal hosts (e.g. prime), non-AWS
+// clouds, and IMDS being unreachable all yield an empty string with no hang.
+// The 1.5s client timeout caps the wait (URL is a literal IP, so there is no
+// DNS) so a non-existent metadata endpoint can't block the heartbeat loop.
 func detectInstanceType(ctx context.Context) string {
 	const imds = "http://169.254.169.254"
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
@@ -183,7 +209,10 @@ func detectInstanceType(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	token, _ := io.ReadAll(tokResp.Body)
+	var token []byte
+	if tokResp.StatusCode == http.StatusOK {
+		token, _ = io.ReadAll(io.LimitReader(tokResp.Body, 1024))
+	}
 	tokResp.Body.Close()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imds+"/latest/meta-data/instance-type", nil)
@@ -201,8 +230,14 @@ func detectInstanceType(ctx context.Context) string {
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	body, _ := io.ReadAll(resp.Body)
-	return strings.TrimSpace(string(body))
+	// Cap the read so a rogue responder can't hand us a huge body, then
+	// validate the shape so junk never reaches the varchar(100) column.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
+	it := strings.TrimSpace(string(body))
+	if !instanceTypeRe.MatchString(it) {
+		return ""
+	}
+	return it
 }
 
 func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
@@ -224,7 +259,8 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	gpus := gpudetect.Detect(probeCtx)
 	// Cloud instance type (e.g. inf2.8xlarge). Empty on bare-metal / non-AWS.
-	instanceType := detectInstanceType(probeCtx)
+	// Cached after first success, so this is a no-op on subsequent heartbeats.
+	instType := instanceType(probeCtx)
 	probeCancel()
 
 	// Read compose-manager status from the file it writes after each Apply.
@@ -240,7 +276,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
-		InstanceType:          instanceType,
+		InstanceType:          instType,
 		HelixVersion:          data.GetHelixVersion(),
 		GPUs:                  gpus,
 		ProfileStatus:         profileStatus,

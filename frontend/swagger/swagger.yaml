@@ -1464,6 +1464,12 @@ definitions:
         type: boolean
       id:
         type: string
+      is_helix_org_agent:
+        description: |-
+          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+          (see api/pkg/org). Computed at list time, not persisted, so the frontend
+          can hide org-chart agents from the spec-task agent switchers.
+        type: boolean
       model_substitutions:
         items:
           $ref: '#/definitions/server.ModelSubstitution'
@@ -2534,7 +2540,21 @@ definitions:
         type: string
       container_id:
         type: string
+      gpu_vendor:
+        description: nvidia | amd | neuron
+        type: string
+      gpus:
+        description: per-accelerator inventory
+        items:
+          $ref: '#/definitions/types.GPUStatus'
+        type: array
       id:
+        type: string
+      instance_type:
+        description: |-
+          Hardware reported by the sandbox heartbeat — drives the admin UI's
+          per-runner architecture display so an operator can pick a compatible
+          profile. InstanceType is empty on bare-metal hosts (e.g. prime).
         type: string
       profile_error:
         type: string
@@ -3199,6 +3219,12 @@ definitions:
         type: boolean
       id:
         type: string
+      is_helix_org_agent:
+        description: |-
+          IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+          (see api/pkg/org). Computed at list time, not persisted, so the frontend
+          can hide org-chart agents from the spec-task agent switchers.
+        type: boolean
       organization_id:
         type: string
       owner:
@@ -3366,7 +3392,8 @@ definitions:
           "claude_code" and CodeAgentCredentialType is "subscription". It flows through
           CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
           which the claude-agent-acp package reads (resolveModelPreference) to pick the
-          model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+          model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
+          (resolveModelPreference resolves this to the latest Opus version).
         type: string
       code_agent_credential_type:
         allOf:
@@ -4627,7 +4654,7 @@ definitions:
           project
         type: string
       scope:
-        description: optional, one of "dev", "prod", "both"; defaults to "both"
+        description: optional, one of "dev", "prod", "both"; defaults to "dev"
         type: string
       value:
         type: string
@@ -8375,6 +8402,12 @@ definitions:
         description: Helix version running on this sandbox (git commit hash or release
           version)
         type: string
+      instance_type:
+        description: |-
+          InstanceType is the cloud instance type (e.g. "inf2.8xlarge", "g5.xlarge")
+          detected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any
+          non-AWS environment — the admin UI then just shows the GPU model instead.
+        type: string
       privileged_mode_enabled:
         description: Privileged mode (host Docker access for development)
         type: boolean
@@ -8460,6 +8493,11 @@ definitions:
         description: Hostname for DNS resolution
         type: string
       id:
+        type: string
+      instance_type:
+        description: |-
+          InstanceType is the cloud instance type reported by the sandbox heartbeat
+          (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
         type: string
       ip_address:
         description: IP address of the sandbox
@@ -8588,7 +8626,8 @@ definitions:
         - $ref: '#/definitions/types.SecretScope'
         description: |-
           Scope controls which environment a project secret is injected into.
-          Defaults to "both" so pre-existing secrets keep their original behaviour.
+          Defaults to "dev" so pre-existing secrets keep their original (dev-only)
+          behaviour and dev stays the primary path.
       updated:
         type: string
       value:

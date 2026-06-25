@@ -206,8 +206,11 @@ const neuronChip = (instanceType?: string): { family: string; coresPerChip: numb
 // Handles Neuron, NVIDIA/AMD, and bare-metal hosts (no instance type).
 const RunnerHardwareCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) => {
   const gpus = sandbox.gpus || []
-  const vendor = sandbox.gpu_vendor || gpus[0]?.vendor || ''
-  const isNeuron = vendor === 'neuron' || gpus.some((g) => g.vendor === 'neuron')
+  const isNeuron = sandbox.gpu_vendor === 'neuron' || gpus.some((g) => g.vendor === 'neuron')
+  // Prefer the per-accelerator vendor for Neuron: install.sh leaves the coarse
+  // GPU_VENDOR env empty/none on Neuron hosts, so the device inventory is the
+  // reliable signal.
+  const vendor = isNeuron ? 'neuron' : (sandbox.gpu_vendor || gpus[0]?.vendor || '')
 
   let accelerator: React.ReactNode = (
     <Typography variant="body2" color="text.secondary">No accelerator reported</Typography>
@@ -215,7 +218,7 @@ const RunnerHardwareCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) =
   if (isNeuron) {
     const chip = neuronChip(sandbox.instance_type)
     const chips = gpus.length || 1
-    const family = chip?.family || 'AWS Neuron'
+    const family = chip?.family || 'Neuron' // template prepends "AWS "
     const totalCores = chip ? chips * chip.coresPerChip : 0
     accelerator = (
       <Typography variant="body2">
