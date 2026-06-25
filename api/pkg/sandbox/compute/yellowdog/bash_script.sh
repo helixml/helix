@@ -91,18 +91,27 @@ trap 'exit 130' INT
 # and the new task will never start.
 sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
-# ECR auth. When HELIX_SANDBOX_REGISTRY points the image at a private
-# ECR (<acct>.dkr.ecr.<region>.amazonaws.com), the docker pull below
-# needs a login - the default ghcr.io image is public so this is a
-# no-op for existing deployments. The worker authenticates via its EC2
-# instance profile (no creds shipped in the task); the region is read
-# from the host segment of the image ref. Mirror the image first with
-# scripts/yd-mirror-sandbox-image.sh.
+# ECR auth + in-region rewrite. When the image points at the helixml ECR
+# (<acct>.dkr.ecr.<region>.amazonaws.com), the docker pull below needs a
+# login - the default ghcr.io image is public so this whole block is a
+# no-op for existing deployments.
+#
+# The image is replicated to every ECR region, so we rewrite the region
+# segment to this worker's own region ($YD_REGION, set by the YD platform)
+# and pull locally - one control-plane registry value works in all regions
+# and never pulls cross-region. The worker authenticates via its instance
+# IAM role (no creds shipped in the task). Mirror the image first with the
+# yellowdog-poc mirror-sandbox-image.sh.
 ECR_HOST="${IMG%%/*}"
 if [[ "$ECR_HOST" == *.dkr.ecr.*.amazonaws.com ]]; then
-  ECR_REGION=$(echo "$ECR_HOST" | cut -d. -f4)
-  echo "=== ECR login: $ECR_HOST (region $ECR_REGION) ==="
-  aws ecr get-login-password --region "$ECR_REGION" \
+  REF_REGION=$(echo "$ECR_HOST" | cut -d. -f4)
+  PULL_REGION="${YD_REGION:-$REF_REGION}"
+  if [ "$PULL_REGION" != "$REF_REGION" ]; then
+    ECR_HOST="${ECR_HOST/.dkr.ecr.${REF_REGION}./.dkr.ecr.${PULL_REGION}.}"
+    IMG="${ECR_HOST}/${IMG#*/}"
+  fi
+  echo "=== ECR login: $ECR_HOST (region $PULL_REGION), image $IMG ==="
+  aws ecr get-login-password --region "$PULL_REGION" \
     | sudo docker login --username AWS --password-stdin "$ECR_HOST"
 fi
 
