@@ -107,7 +107,12 @@ type HelixAPIServer struct {
 	// the org primitives the Slack handlers need — the per-workspace
 	// Topic reconciler and the Socket Mode manager — live inside it, not
 	// as fields on this struct.
-	helixOrg                    *helixOrgHandlers
+	helixOrg *helixOrgHandlers
+	// onServiceConnectionChange is an optional post-mutation hook a
+	// subsystem registers (helix-org, in mountHelixOrg) so it can react to
+	// the connection types it owns without the generic service-connection
+	// handlers depending on it. nil when unregistered.
+	onServiceConnectionChange   func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller

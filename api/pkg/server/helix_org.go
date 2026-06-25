@@ -220,9 +220,12 @@ func (s *HelixAPIServer) mountHelixOrg(ctx context.Context, insecureRouter, auth
 	if orgHandlers == nil {
 		return nil
 	}
-	// Hold the subsystem handle so the admin service-connection handlers
-	// can reach the Socket Mode manager it owns (kickSlackSocket).
+	// Hold the subsystem handle (the Slack handlers reach the per-workspace
+	// Topic reconciler through it) and register the post-mutation hook so
+	// the generic service-connection handlers can stay helix-org-agnostic
+	// while a slack_app change still reconciles Socket Mode / cascades.
 	s.helixOrg = orgHandlers
+	s.onServiceConnectionChange = s.reactToServiceConnectionChange
 
 	// Stream-cron scheduler runs for the lifetime of ctx
 	// (ListenAndServe's). Logs its own errors; one bad fire can't kill

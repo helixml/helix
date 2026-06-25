@@ -18,6 +18,18 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// notifyServiceConnectionChange fires the optional post-mutation hook a
+// subsystem may have registered, after a connection is created, updated
+// (deleted=false) or deleted (deleted=true). This handler stays generic:
+// it knows the connection types and their credentials but nothing about
+// which subsystem reacts or why (helix-org reacts to slack_app changes,
+// registered in mountHelixOrg). No-op when nothing is registered.
+func (s *HelixAPIServer) notifyServiceConnectionChange(ctx context.Context, conn *types.ServiceConnection, deleted bool) {
+	if s.onServiceConnectionChange != nil {
+		s.onServiceConnectionChange(ctx, conn, deleted)
+	}
+}
+
 // listServiceConnections returns all service connections for the organization
 // @Summary List service connections
 // @Description List all service connections (GitHub Apps, ADO Service Principals) for the organization
@@ -304,11 +316,7 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// A new socket-mode slack_app needs its Socket Mode connection opened
-	// now — Kick the manager so it picks the app up without a restart.
-	if connection.Type == types.ServiceConnectionTypeSlackApp {
-		s.helixOrg.kickSlackSocket()
-	}
+	s.notifyServiceConnectionChange(r.Context(), connection, false)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -450,11 +458,7 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// An edited slack_app may have changed ingress mode or app token —
-	// Kick the socket manager so it (re)connects or tears down as needed.
-	if connection.Type == types.ServiceConnectionTypeSlackApp {
-		s.helixOrg.kickSlackSocket()
-	}
+	s.notifyServiceConnectionChange(r.Context(), connection, false)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connection.ToResponse())
@@ -503,15 +507,7 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// A global slack_app's workspace installs (and their Topics) depend on
-	// it for inbound delivery — cascade-delete them so they don't linger
-	// orphaned across every org the app was installed into. Also Kick the
-	// socket manager so a socket app's live connection is torn down now.
-	// All of this lives in the helix-org subsystem, so skip when it's off.
-	if conn.Type == types.ServiceConnectionTypeSlackApp && s.helixOrg != nil {
-		s.cascadeDeleteSlackAppWorkspaces(r.Context(), connectionID)
-		s.helixOrg.kickSlackSocket()
-	}
+	s.notifyServiceConnectionChange(r.Context(), conn, true)
 
 	w.WriteHeader(http.StatusNoContent)
 }
