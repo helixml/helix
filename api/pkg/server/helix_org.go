@@ -201,6 +201,122 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	}
 }
 
+// mountHelixOrg brings up the optional helix-org subsystem and registers
+// its entire HTTP surface: the public GitHub/Slack webhooks + OAuth
+// callbacks on the insecure router, the org-scoped Slack endpoints and
+// the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
+// plus the long-lived stream-cron and Socket Mode goroutines. Every
+// org-shaped route + lifecycle hook lives here; registerRoutes only
+// decides whether to call this (HelixOrgEnabled).
+func (s *HelixAPIServer) mountHelixOrg(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
+	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
+		GitRepositoryService: s.gitRepositoryService,
+		APIServer:            s,
+	}, s.Store)
+	if err != nil {
+		return fmt.Errorf("initialise helix-org: %w", err)
+	}
+	if orgHandlers == nil {
+		return nil
+	}
+	// Hold the subsystem handle so the admin service-connection handlers
+	// can reach the Socket Mode manager it owns (kickSlackSocket).
+	s.helixOrg = orgHandlers
+
+	// Stream-cron scheduler runs for the lifetime of ctx
+	// (ListenAndServe's). Logs its own errors; one bad fire can't kill
+	// the loop because fire() has panic recovery.
+	if orgHandlers.streamCron != nil {
+		go func() {
+			if err := orgHandlers.streamCron.Start(ctx); err != nil {
+				log.Error().Err(err).Msg("streamcron scheduler exited with error")
+			}
+		}()
+	}
+	// /api/v1/orgs/{org}/github/webhook — public, GitHub deliveries
+	// authenticate via HMAC of the per-org webhook_secret. Registered on
+	// the INSECURE router so the helix session-cookie / api-key auth
+	// doesn't 401 inbound deliveries. Must be registered BEFORE the
+	// authRouter PathPrefix("/orgs/{org}/") so this exact path wins.
+	if orgHandlers.publicGitHubWebhook != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
+			Methods(http.MethodPost)
+	}
+	// Per-stream variant — operators paste this URL into a GitHub repo's
+	// webhook config when they want a 1:1 mapping between a GitHub webhook
+	// and a helix stream. Insecure mount: GitHub deliveries authenticate
+	// via HMAC over the body, not a helix session.
+	if orgHandlers.publicGitHubWebhookForStream != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+			Methods(http.MethodPost)
+	}
+	// GitHub App Manifest flow callbacks — top-level browser navigations
+	// from github.com (GET), so they must be on the insecure router (no
+	// session cookie / API key). The conversion callback authenticates
+	// via the encrypted ?state=. Registered before the /orgs/{org}/
+	// prefix so these exact paths win the match.
+	if orgHandlers.publicGitHubManifestCallback != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+			Methods(http.MethodGet)
+	}
+	// /api/v1/slack/events — single global inbound Slack Events API
+	// endpoint. Insecure mount: Slack deliveries carry no helix session;
+	// the handler verifies the global app's signing-secret HMAC and
+	// routes by team_id. One endpoint serves every org install.
+	if orgHandlers.publicSlackEvents != nil {
+		insecureRouter.
+			Handle("/slack/events", orgHandlers.publicSlackEvents).
+			Methods(http.MethodPost)
+	}
+	// /api/v1/slack/oauth/callback — top-level browser redirect from
+	// slack.com after the admin approves the install. Insecure (no
+	// session cookie); authenticated by the encrypted ?state= carrying
+	// the org id.
+	insecureRouter.
+		HandleFunc("/slack/oauth/callback", s.slackOAuthCallback).
+		Methods(http.MethodGet)
+	// Socket Mode ingress — long-lived, only active when the global app
+	// is configured for it. Started like streamCron.
+	if orgHandlers.slackSocketRun != nil {
+		go orgHandlers.slackSocketRun(ctx)
+	}
+
+	// Org-scoped Slack endpoints. Registered BEFORE the /orgs/{org}/
+	// catch-all so these exact paths win the match. Each handler does its
+	// own lookupOrg + org-membership authorisation (strict multi-tenancy),
+	// so they don't need the org-scope middleware.
+	authRouter.HandleFunc("/orgs/{org}/slack/apps", s.listOrgSlackApps).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/oauth/start", s.slackOAuthStart).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.listSlackWorkspaces).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.connectSlackWorkspace).Methods(http.MethodPost)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", s.deleteSlackWorkspace).Methods(http.MethodDelete)
+
+	// /api/v1/orgs/{org}/* — per-tenant surface for the org-graph
+	// resources. withHelixOrgScope resolves {org} (slug or org_id) to a
+	// canonical orgID, authorises org-membership, bootstraps the tenant on
+	// first request, and stashes orgID on ctx so downstream handlers + the
+	// store layer scope to it.
+	authRouter.PathPrefix("/orgs/{org}/").Handler(
+		requireFeature(helixorg.AlphaFeature)(
+			s.withHelixOrgScope(orgHandlers.scope,
+				stripOrgScopedPrefix(orgHandlers.api),
+			),
+		),
+	)
+
+	// Expose helix-org's owner MCP through the standard Helix MCP gateway.
+	// Backend identifies tenants by URL prefix
+	// (/api/v1/mcp/helix-org/{org}/...) — the gateway already auth-checks
+	// the api_key via authRouter; the per-org backend layer resolves orgID
+	// from the request before dispatching to the handler.
+	s.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(s, orgHandlers))
+	return nil
+}
+
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
 	if cfg.APIServer == nil {
 		log.Warn().Msg("helix-org disabled: no HelixAPIServer threaded into helixOrgConfig")
