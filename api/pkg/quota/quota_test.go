@@ -161,6 +161,29 @@ func (s *QuotaManagerSuite) TestGetQuotas_UserTrialingGetsProQuotas() {
 	s.Equal(20, resp.MaxProjects)
 }
 
+// An admin PlanOverride="pro" grants Pro with NO Stripe subscription at all —
+// the out-of-band-paid-customer case.
+func (s *QuotaManagerSuite) TestGetQuotas_PlanOverrideProGrantsProWithoutSub() {
+	w := &types.Wallet{UserID: "user1", PlanOverride: types.PlanOverridePro}
+	s.expectUserQuotaDefaults("user1", w, enforceQuotasSettings())
+
+	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
+	s.NoError(err)
+	s.Equal(5, resp.MaxConcurrentDesktops, "PlanOverride=pro grants Pro without any subscription")
+}
+
+// PlanOverride="free" forces Free even when an active subscription exists
+// (override takes precedence over the Stripe-derived tier).
+func (s *QuotaManagerSuite) TestGetQuotas_PlanOverrideFreeBeatsActiveSub() {
+	w := proWallet("user1")
+	w.PlanOverride = types.PlanOverrideFree
+	s.expectUserQuotaDefaults("user1", w, enforceQuotasSettings())
+
+	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
+	s.NoError(err)
+	s.Equal(2, resp.MaxConcurrentDesktops, "PlanOverride=free forces Free even with an active sub")
+}
+
 func (s *QuotaManagerSuite) TestGetQuotas_UserQuotasDisabled() {
 	s.expectUserQuotaDefaults("user1", freeWallet("user1"), disabledQuotasSettings())
 

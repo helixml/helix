@@ -253,6 +253,12 @@ type User struct {
 	TrialDaysOnFirstOrg    *int     `json:"trial_days_on_first_org,omitempty"`
 	TrialCreditsOnFirstOrg *float64 `json:"trial_credits_on_first_org,omitempty"`
 
+	// PlanOnFirstOrg, when set ("pro"), grants a paid plan override to the
+	// user's first owned org's wallet on creation — admin "Activate" with a
+	// paid (non-Stripe) plan for a user who has no org yet. Consumed alongside
+	// the trial intent, then cleared.
+	PlanOnFirstOrg *string `json:"plan_on_first_org,omitempty"`
+
 	// PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the
 	// /admin/users/{id}/credits endpoint when the user has no owned org yet.
 	// Consumed by consumeUserAdminCredits on first owned org, then cleared.

@@ -241,6 +241,14 @@ export interface ActivateTrialInput {
     userId: string;
     days?: number;
     credits?: number;
+    // plan "pro" grants a PAID plan via a PlanOverride (no Stripe subscription)
+    // — for customers who paid out-of-band. "" (default) uses the Stripe trial.
+    plan?: string;
+}
+
+export interface SetOrgPlanInput {
+    orgId: string;
+    plan: string; // "pro" | "free" | "" (clear → derive from Stripe)
 }
 
 export interface GrantCreditsInput {
@@ -292,11 +300,34 @@ export function useAdminActivateTrial() {
             const response = await apiClient.v1AdminUsersTrialActivateCreate(input.userId, {
                 days: input.days ?? 0,
                 credits: input.credits ?? 0,
+                plan: input.plan ?? "",
             });
             return response.data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}
+
+/**
+ * Hook to set an organization's plan override (cloud edition, admin only).
+ * plan "pro"/"free" forces the quota tier independent of Stripe (for customers
+ * who paid out-of-band); "" clears the override. Never reverted by a Stripe
+ * webhook.
+ */
+export function useAdminSetOrgPlan() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (input: SetOrgPlanInput) => {
+            const response = await apiClient.v1AdminOrgsPlanCreate(input.orgId, { plan: input.plan });
+            return response.data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: adminOrgsQueryKey() });
         },
     });
 }

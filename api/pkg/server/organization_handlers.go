@@ -338,6 +338,10 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	// without entangling them with trial-state UI or revocation flows.
 	apiServer.consumeUserAdminCredits(ctx, user, createdOrg.ID)
 
+	// Apply any admin-stashed paid-plan grant (PlanOnFirstOrg) as a
+	// PlanOverride on this first org's wallet (out-of-band paid customers).
+	apiServer.consumeUserPlanOnFirstOrg(ctx, user, createdOrg.ID)
+
 	writeResponse(rw, createdOrg, http.StatusCreated)
 }
 

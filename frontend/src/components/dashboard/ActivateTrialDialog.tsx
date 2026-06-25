@@ -11,6 +11,7 @@ import {
     CircularProgress,
     IconButton,
     Typography,
+    MenuItem,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesUser } from '../../api/api';
@@ -33,6 +34,8 @@ const DEFAULT_CREDITS = 0;
 const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user }) => {
     const [days, setDays] = useState(String(DEFAULT_DAYS));
     const [credits, setCredits] = useState(String(DEFAULT_CREDITS));
+    // '' = Stripe trial (uses days); 'pro' = paid plan via PlanOverride (no Stripe).
+    const [plan, setPlan] = useState('');
     const [error, setError] = useState('');
     const activateTrial = useAdminActivateTrial();
     const snackbar = useSnackbar();
@@ -41,15 +44,17 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
         if (open) {
             setDays(String(DEFAULT_DAYS));
             setCredits(String(DEFAULT_CREDITS));
+            setPlan('');
             setError('');
         }
     }, [open]);
 
     const handleSubmit = async () => {
         if (!user?.id) return;
+        const isPaid = plan === 'pro';
         const daysNum = parseInt(days, 10);
         const creditsNum = parseFloat(credits);
-        if (!Number.isFinite(daysNum) || daysNum <= 0) {
+        if (!isPaid && (!Number.isFinite(daysNum) || daysNum <= 0)) {
             setError('Days must be a positive number');
             return;
         }
@@ -60,18 +65,19 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
         try {
             const result = await activateTrial.mutateAsync({
                 userId: user.id,
-                days: daysNum,
+                days: isPaid ? 0 : daysNum,
                 credits: creditsNum,
+                plan,
             });
             const status = (result as any)?.status as string | undefined;
             if (status === 'stashed') {
-                snackbar.success(`Trial intent stashed — applied when ${user.email} creates their first org`);
+                snackbar.success(`${isPaid ? 'Paid plan' : 'Trial'} intent stashed — applied when ${user.email} creates their first org`);
             } else {
-                snackbar.success(`${daysNum}-day trial activated for ${user.email}`);
+                snackbar.success(isPaid ? `Paid (Pro) plan activated for ${user.email}` : `${daysNum}-day trial activated for ${user.email}`);
             }
             onClose();
         } catch (err: any) {
-            const msg = err?.response?.data?.error || err?.message || 'Failed to activate trial';
+            const msg = err?.response?.data?.error || err?.message || 'Failed to activate';
             setError(msg);
         }
     };
@@ -115,13 +121,31 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                     )}
 
                     <TextField
+                        select
+                        fullWidth
+                        label="Plan"
+                        value={plan}
+                        onChange={(e) => setPlan(e.target.value)}
+                        margin="normal"
+                        disabled={activateTrial.isPending}
+                        helperText={
+                            plan === 'pro'
+                                ? 'Paid Pro — no Stripe, no card, indefinite (for customers who paid out-of-band)'
+                                : 'Stripe trial for the chosen number of days'
+                        }
+                    >
+                        <MenuItem value="">Trial (Stripe)</MenuItem>
+                        <MenuItem value="pro">Paid — Pro (no Stripe)</MenuItem>
+                    </TextField>
+
+                    <TextField
                         fullWidth
                         label="Days"
                         value={days}
                         onChange={(e) => setDays(e.target.value)}
                         margin="normal"
-                        disabled={activateTrial.isPending}
-                        helperText="Length of the free trial in days"
+                        disabled={activateTrial.isPending || plan === 'pro'}
+                        helperText={plan === 'pro' ? 'Not used for a paid plan' : 'Length of the free trial in days'}
                     />
 
                     <TextField

@@ -743,6 +743,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/orgs/{id}/plan": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Force an org's quota tier independent of Stripe — for customers who paid out-of-band. plan: \"pro\" | \"free\" | \"\" (clear). Never reverted by a Stripe webhook.",
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Set an organization's plan override (admin only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Plan override",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.SetOrgPlanRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}": {
             "delete": {
                 "security": [
@@ -23094,6 +23134,10 @@ const docTemplate = `{
                 },
                 "days": {
                     "type": "integer"
+                },
+                "plan": {
+                    "description": "Plan selects what to grant. \"pro\" grants a PAID plan via a PlanOverride\n(no Stripe subscription) — for customers who paid out-of-band (bank\ntransfer). Empty or \"trial\" uses the Stripe trial path (Days applies).",
+                    "type": "string"
                 }
             }
         },
@@ -24966,6 +25010,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "sandbox_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SetOrgPlanRequest": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "description": "Plan: \"pro\" | \"free\" forces the org's quota tier independent of Stripe\n(for customers who paid out-of-band). \"\" clears the override and reverts\nto the Stripe-derived tier.",
                     "type": "string"
                 }
             }
@@ -36870,6 +36923,10 @@ const docTemplate = `{
                     "description": "PendingAdminCreditsOnFirstOrg holds credits stashed by admin via the\n/admin/users/{id}/credits endpoint when the user has no owned org yet.\nConsumed by consumeUserAdminCredits on first owned org, then cleared.\nKept separate from TrialCreditsOnFirstOrg so admins can comp credits\nwithout entangling the grant with trial-state UI or revocation flows.",
                     "type": "number"
                 },
+                "plan_on_first_org": {
+                    "description": "PlanOnFirstOrg, when set (\"pro\"), grants a paid plan override to the\nuser's first owned org's wallet on creation — admin \"Activate\" with a\npaid (non-Stripe) plan for a user who has no org yet. Consumed alongside\nthe trial intent, then cleared.",
+                    "type": "string"
+                },
                 "project_id": {
                     "description": "When running in Helix Code sandbox",
                     "type": "string"
@@ -37262,6 +37319,10 @@ const docTemplate = `{
                 },
                 "org_id": {
                     "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "plan_override": {
+                    "description": "PlanOverride, when set (\"free\"|\"pro\"), forces the quota tier for this\nwallet regardless of the Stripe subscription — used to grant a paid plan\nto a customer who paid out-of-band (bank transfer, no card / no Stripe).\n\"\" means derive the tier from the Stripe subscription as usual. Stripe\nsync only ever writes the Subscription* fields, never this one, so an\nadmin grant can't be reverted by a webhook.",
                     "type": "string"
                 },
                 "stripe_customer_id": {
