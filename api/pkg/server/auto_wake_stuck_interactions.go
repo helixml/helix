@@ -691,6 +691,36 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 		session = nil
 	}
 
+	// A desktop-quota block is NOT a transient cold-start — retrying can't help,
+	// and the generic "agent never connected" banner hides the real reason. If
+	// the session's org is at its concurrent-desktop limit (and quotas are
+	// enforced), surface the actual limit to the user immediately and stop.
+	// Mirrors hydra_executor.checkLimits (gated on EnforceQuotas).
+	if session != nil && apiServer.quotaManager != nil {
+		if settings, sErr := apiServer.Store.GetSystemSettings(ctx); sErr == nil && settings.EnforceQuotas {
+			if resp, qErr := apiServer.quotaManager.LimitReached(ctx, &types.QuotaLimitReachedRequest{
+				UserID:         session.Owner,
+				OrganizationID: session.OrganizationID,
+				Resource:       types.ResourceDesktop,
+			}); qErr == nil && resp != nil && resp.LimitReached {
+				stuck.State = types.InteractionStateError
+				stuck.Error = fmt.Sprintf("Desktop limit reached (%d). Stop a running desktop session, or raise your organization's concurrent-desktop limit, then retry.", resp.Limit)
+				stuck.Updated = time.Now()
+				stuck.Completed = time.Now()
+				if _, uErr := apiServer.Store.UpdateInteraction(ctx, stuck); uErr != nil {
+					log.Warn().Err(uErr).Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Failed to mark interaction errored for desktop limit")
+					return
+				}
+				if _, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
+					log.Warn().Err(clearErr).Str("session_id", stuck.SessionID).Msg("[AUTO_WAKE] Failed to clear starting status after surfacing desktop limit")
+				}
+				log.Warn().Str("interaction_id", stuck.ID).Str("session_id", stuck.SessionID).Int("limit", resp.Limit).
+					Msg("[AUTO_WAKE] Desktop limit reached — surfaced to user, not retrying cold-start")
+				return
+			}
+		}
+	}
+
 	// Skip if a container boot is genuinely in progress and we're still
 	// inside the grace period. Both "starting" and "running" count as
 	// in-progress here: see the function header for why the post-bridge,
