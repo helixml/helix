@@ -44,6 +44,13 @@ type SandboxInstanceInfo struct {
 	ProfileError    string                                       `json:"profile_error,omitempty"`
 	ServiceHealth   map[string]string                            `json:"service_health,omitempty"`
 	ProfileProgress map[string]types.ServiceDownloadProgress     `json:"profile_progress,omitempty"`
+
+	// Hardware reported by the sandbox heartbeat — drives the admin UI's
+	// per-runner architecture display so an operator can pick a compatible
+	// profile. InstanceType is empty on bare-metal hosts (e.g. prime).
+	InstanceType string            `json:"instance_type,omitempty"` // e.g. "inf2.8xlarge"
+	GPUVendor    string            `json:"gpu_vendor,omitempty"`    // nvidia | amd | neuron
+	GPUs         []types.GPUStatus `json:"gpus,omitempty"`          // per-accelerator inventory
 }
 
 // DevContainerWithClients extends DevContainerResponse with connected clients and video stats
@@ -130,6 +137,8 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 			ActiveProfileID: sb.ActiveProfileID,
 			ProfileStatus:   sb.ProfileStatus,
 			ProfileError:    sb.ProfileError,
+			InstanceType:    sb.InstanceType,
+			GPUVendor:       sb.GPUVendor,
 		}
 		// jsonb columns deserialise as []byte; unmarshal best-effort.
 		if len(sb.ServiceHealth) > 0 {
@@ -137,6 +146,9 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		}
 		if len(sb.ProfileProgress) > 0 {
 			_ = json.Unmarshal(sb.ProfileProgress, &info.ProfileProgress)
+		}
+		if len(sb.GPUs) > 0 {
+			_ = json.Unmarshal(sb.GPUs, &info.GPUs)
 		}
 		sandboxInfos[i] = info
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -64,6 +65,7 @@ type HeartbeatRequest struct {
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
 	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
+	InstanceType          string               `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
@@ -162,6 +164,47 @@ func main() {
 	}
 }
 
+// detectInstanceType queries the AWS IMDS for the EC2 instance type (e.g.
+// "inf2.8xlarge"). Uses IMDSv2 (token-authenticated). Returns "" on any
+// failure — bare-metal hosts (e.g. prime), non-AWS clouds, and IMDS being
+// unreachable all just yield an empty string with no hang. The 1.5s client
+// timeout caps the wait so a non-existent metadata endpoint can't block the
+// heartbeat loop.
+func detectInstanceType(ctx context.Context) string {
+	const imds = "http://169.254.169.254"
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+
+	tokReq, err := http.NewRequestWithContext(ctx, http.MethodPut, imds+"/latest/api/token", nil)
+	if err != nil {
+		return ""
+	}
+	tokReq.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
+	tokResp, err := client.Do(tokReq)
+	if err != nil {
+		return ""
+	}
+	token, _ := io.ReadAll(tokResp.Body)
+	tokResp.Body.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imds+"/latest/meta-data/instance-type", nil)
+	if err != nil {
+		return ""
+	}
+	if len(token) > 0 {
+		req.Header.Set("X-aws-ec2-metadata-token", string(token))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return strings.TrimSpace(string(body))
+}
+
 func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
 	// Discover all desktop versions dynamically
 	// Scans /opt/images/helix-*.version files
@@ -180,6 +223,8 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// rather than block the loop.
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	gpus := gpudetect.Detect(probeCtx)
+	// Cloud instance type (e.g. inf2.8xlarge). Empty on bare-metal / non-AWS.
+	instanceType := detectInstanceType(probeCtx)
 	probeCancel()
 
 	// Read compose-manager status from the file it writes after each Apply.
@@ -195,6 +240,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
+		InstanceType:          instanceType,
 		HelixVersion:          data.GetHelixVersion(),
 		GPUs:                  gpus,
 		ProfileStatus:         profileStatus,
