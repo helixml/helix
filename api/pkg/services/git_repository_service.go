@@ -153,6 +153,21 @@ func (s *GitRepositoryService) GetGitHomePath() string {
 	return filepath.Join(s.filestoreBase, "git-home")
 }
 
+// GetLocalBranchSHA returns the commit SHA that the local mirror's <branch>
+// currently points at (refs/heads/<branch>). The web-service CD watcher uses
+// this — after a SyncBaseBranch — to detect when a GitHub default branch has
+// advanced and a redeploy is due.
+func (s *GitRepositoryService) GetLocalBranchSHA(ctx context.Context, repoID, branch string) (string, error) {
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+	stdout, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments("refs/heads/" + branch).
+		RunStdString(ctx, &gitcmd.RunOpts{Dir: repoPath})
+	if err != nil {
+		return "", fmt.Errorf("rev-parse refs/heads/%s in %s: %w", branch, repoID, err)
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
 // Initialize creates the git repository base directory and sets up git server
 func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Create git repositories base directory
