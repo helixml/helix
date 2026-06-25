@@ -74,7 +74,7 @@ func TestProjectSecretEnv(t *testing.T) {
 // script must kill the previous app instance BEFORE launching the new one, so
 // the durable /data dir is never opened by two processes at once.
 func TestDeployScriptStopsBeforeStart(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "abc123", 3000)
+	script := deployScript("https://github.com/o/r.git", "abc123", "myrepo", 3000)
 
 	killIdx := strings.Index(script, "kill -TERM")
 	launchIdx := strings.Index(script, "startup.sh")
@@ -92,7 +92,7 @@ func TestDeployScriptStopsBeforeStart(t *testing.T) {
 // TestDeployScriptExportsDataDirAndPort — the app receives the durable data
 // dir and its port via env so it knows where to persist state.
 func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "", 8080)
+	script := deployScript("https://github.com/o/r.git", "", "myrepo", 8080)
 	for _, want := range []string{
 		"HELIX_WEB_SERVICE_DATA_DIR=/data",
 		"HELIX_WEB_SERVICE_PORT=8080",
@@ -102,21 +102,49 @@ func TestDeployScriptExportsDataDirAndPort(t *testing.T) {
 			t.Errorf("deploy script missing %q:\n%s", want, script)
 		}
 	}
-	// No SHA → no SHA checkout (the quoted-SHA form). The .helix dir is always
-	// overlaid from the helix-specs branch, so a FETCH_HEAD checkout is expected.
-	if strings.Contains(script, "git checkout '") {
+	// No SHA → no SHA checkout (the quoted-SHA form).
+	if strings.Contains(script, "checkout '") {
 		t.Errorf("empty SHA should not produce a SHA checkout:\n%s", script)
 	}
-	if !strings.Contains(script, "git checkout FETCH_HEAD -- .helix") {
-		t.Errorf("startup script must be overlaid from the helix-specs branch:\n%s", script)
+	// The startup script is sourced from the helix-specs branch, checked out as
+	// a SIBLING worktree of the code (not overlaid into it).
+	if !strings.Contains(script, `worktree add --force --detach "$SPECS" FETCH_HEAD`) {
+		t.Errorf("helix-specs must be checked out as a sibling worktree:\n%s", script)
 	}
 }
 
-// TestDeployScriptChecksOutSHA — when a SHA is given it is checked out.
+// TestDeployScriptChecksOutSHA — when a SHA is given it is checked out (in the
+// code worktree).
 func TestDeployScriptChecksOutSHA(t *testing.T) {
-	script := deployScript("https://github.com/o/r.git", "deadbeef", 8080)
-	if !strings.Contains(script, "git checkout 'deadbeef'") {
+	script := deployScript("https://github.com/o/r.git", "deadbeef", "myrepo", 8080)
+	if !strings.Contains(script, "checkout 'deadbeef'") {
 		t.Errorf("expected checkout of the requested SHA:\n%s", script)
+	}
+}
+
+// TestDeployScriptMirrorsSpecTaskLayout encodes the core guarantee: the deploy
+// reproduces the spec-task workspace layout so a startup script behaves
+// identically in both contexts. The app code is cloned into its own dir and
+// helix-specs is a SIBLING worktree (never a subdir of the code); startup.sh is
+// invoked with CWD = the code dir and $0 = the helix-specs worktree.
+func TestDeployScriptMirrorsSpecTaskLayout(t *testing.T) {
+	script := deployScript("https://github.com/o/r.git", "", "myrepo", 8080)
+	for _, want := range []string{
+		`CODE='/workspace/myrepo'`,
+		`SPECS=/workspace/helix-specs`,
+		`git -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`cd "$CODE"`,
+		`bash "$SPECS/.helix/startup.sh"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("deploy script missing %q (spec-task layout parity):\n%s", want, script)
+		}
+	}
+	// helix-specs must be a SIBLING, not nested under the code dir — otherwise
+	// `dirname "$0"/..` resolves to the code dir in web-service but the
+	// helix-specs worktree in spec-task, re-introducing the asymmetry.
+	if strings.Contains(script, "/workspace/myrepo/helix-specs") {
+		t.Errorf("helix-specs must not be nested under the code dir:\n%s", script)
 	}
 }
 
