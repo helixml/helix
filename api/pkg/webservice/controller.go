@@ -412,7 +412,7 @@ func (c *Controller) deployInPlace(ctx context.Context, sb *types.Sandbox, repo 
 		return err
 	}
 
-	script := deployScript(repo.CloneURL, sha, containerPort)
+	script := deployScript(repo.CloneURL, sha, repoDirName(repo), containerPort)
 
 	// Inject prod-scoped project secrets via the exec environment (NOT inlined
 	// into the shell script) so the values don't leak into command logs. The
@@ -527,23 +527,58 @@ func (c *Controller) lastLiveSHA(ctx context.Context, projectID string) string {
 	return ""
 }
 
-// deployScript builds the in-place deploy shell script. It stops any
-// previously-launched app (tracked via a pidfile under /data) BEFORE starting
-// the new one, guaranteeing a single writer of the durable /data dir. The app
-// is launched in its own session (setsid) so we can stop its whole process
-// group on the next deploy. It receives HELIX_WEB_SERVICE_PORT and
-// HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under the
-// latter so state survives redeploys and reboots.
-func deployScript(cloneURL, sha string, containerPort int) string {
+// repoDirName returns a filesystem-safe single path component for the app
+// code checkout, mirroring the spec-task convention of cloning the primary
+// repo into a dir named after it (helix-run-startup-script.sh uses
+// $HOME/work/$HELIX_PRIMARY_REPO_NAME). Falls back to "app" when the name is
+// empty or unusable.
+func repoDirName(repo *types.GitRepository) string {
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, strings.TrimSpace(repo.Name))
+	safe = strings.Trim(safe, "-.")
+	if safe == "" {
+		return "app"
+	}
+	return safe
+}
+
+// deployScript builds the in-place deploy shell script. It reproduces the
+// spec-task agent workspace layout EXACTLY so a project's .helix/startup.sh
+// behaves identically in both contexts — no script can work in one and fail in
+// the other:
+//   - the app code is cloned into its own dir ($CODE = /workspace/<repo>),
+//   - the helix-specs branch is checked out as a SIBLING git worktree
+//     ($SPECS = /workspace/helix-specs) — never a subdir of the code, so
+//     `dirname "$0"/..` is the helix-specs worktree in both contexts (matching
+//     helix-run-startup-script.sh), not the code dir,
+//   - startup.sh is invoked with CWD = the code dir and
+//     $0 = $SPECS/.helix/startup.sh.
+//
+// It stops any previously-launched app (tracked via a pidfile under /data)
+// BEFORE starting the new one, guaranteeing a single writer of the durable
+// /data dir. The app is launched in its own session (setsid) so we can stop its
+// whole process group on the next deploy. It receives HELIX_WEB_SERVICE_PORT
+// and HELIX_WEB_SERVICE_DATA_DIR=/data — apps put their database/uploads under
+// the latter so state survives redeploys and reboots.
+func deployScript(cloneURL, sha, codeDir string, containerPort int) string {
+	code := "/workspace/" + codeDir
 	checkout := ""
 	if sha != "" {
-		checkout = "git checkout " + shellEscape(sha)
+		checkout = "git -C " + shellEscape(code) + " checkout " + shellEscape(sha)
 	}
 	return strings.Join([]string{
 		"set -e",
 		"mkdir -p /data /workspace",
 		"PIDFILE=/data/.helix-webservice.pid",
 		"LOGFILE=/data/.helix-webservice.log",
+		"CODE=" + shellEscape(code),
+		"SPECS=/workspace/helix-specs",
 		// Stop the previous app instance (single-writer guarantee). setsid made
 		// it a group leader, so PID == PGID and `kill -- -PID` stops the group.
 		`if [ -f "$PIDFILE" ]; then`,
@@ -555,33 +590,39 @@ func deployScript(cloneURL, sha string, containerPort int) string {
 		`  fi`,
 		`  rm -f "$PIDFILE"`,
 		"fi",
-		"cd /workspace",
 		// Embed the deploy token (passed via env, not the script string) into
 		// the clone URL so git can authenticate to Helix's private git server.
 		"CLONE_URL=" + shellEscape(cloneURL),
 		`if [ -n "${HELIX_GIT_TOKEN:-}" ]; then CLONE_URL=$(printf '%s' "$CLONE_URL" | sed -E "s#^(https?://)#\1api:${HELIX_GIT_TOKEN}@#"); fi`,
-		"if [ ! -d .git ]; then",
-		`  git clone --depth 50 "$CLONE_URL" .`,
-		"else",
-		// Refresh origin with the current token (the previous deploy's token
-		// has been revoked) so fetch authenticates.
-		`  git remote set-url origin "$CLONE_URL"`,
-		"fi",
-		"git fetch --all",
+		// Clone the app code into its own dir on first run; refresh origin (the
+		// previous deploy's token was revoked) otherwise.
+		`if [ ! -d "$CODE/.git" ]; then`,
+		`  git clone --depth 50 "$CLONE_URL" "$CODE"`,
+		`else`,
+		`  git -C "$CODE" remote set-url origin "$CLONE_URL"`,
+		`fi`,
+		`git -C "$CODE" fetch --all`,
 		checkout,
 		// The startup script is sourced exclusively from the project's
-		// helix-specs branch (its canonical Helix-metadata branch) — never
-		// from the deployed app branch — so there is a single definition of
-		// how the project boots. The app code still comes from the branch
-		// checked out above; only .helix/ is overlaid from helix-specs.
-		// Shallow clone implies --single-branch, so origin/helix-specs has no
-		// tracking ref; fetch it explicitly and overlay .helix from FETCH_HEAD.
-		"git fetch --depth 1 origin helix-specs && git checkout FETCH_HEAD -- .helix",
-		"chmod +x .helix/startup.sh 2>/dev/null || true",
-		"if [ ! -f .helix/startup.sh ]; then",
-		"  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2",
-		"fi",
-		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash .helix/startup.sh >"$LOGFILE" 2>&1 &`, containerPort),
+		// helix-specs branch (its canonical Helix-metadata branch) — never from
+		// the deployed app branch — so there is a single definition of how the
+		// project boots. Check it out as a SIBLING worktree of the code,
+		// detached at the fetched tip so redeploys never hit a branch-checkout
+		// conflict; remove any stale worktree first. Shallow clone implies
+		// --single-branch, so helix-specs must be fetched explicitly.
+		`git -C "$CODE" worktree remove --force "$SPECS" 2>/dev/null || true`,
+		`rm -rf "$SPECS"`,
+		`git -C "$CODE" fetch --depth 1 origin helix-specs`,
+		`git -C "$CODE" worktree add --force --detach "$SPECS" FETCH_HEAD`,
+		`if [ ! -f "$SPECS/.helix/startup.sh" ]; then`,
+		`  echo 'No .helix/startup.sh found on the helix-specs branch' >&2; exit 2`,
+		`fi`,
+		`chmod +x "$SPECS/.helix/startup.sh" 2>/dev/null || true`,
+		// Invoke exactly like the spec-task runner (helix-run-startup-script.sh):
+		// CWD = code root, $0 = the sibling helix-specs worktree. setsid → own
+		// process group for a clean stop on the next deploy.
+		`cd "$CODE"`,
+		fmt.Sprintf(`setsid env HELIX_WEB_SERVICE_PORT=%d HELIX_WEB_SERVICE_DATA_DIR=/data bash "$SPECS/.helix/startup.sh" >"$LOGFILE" 2>&1 &`, containerPort),
 		`echo $! > "$PIDFILE"`,
 	}, "\n")
 }
