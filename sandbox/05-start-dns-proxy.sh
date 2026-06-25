@@ -39,13 +39,20 @@ for _ in $(seq 1 30); do
 done
 
 # Supervisor: keep dns-proxy alive for the lifetime of the container.
+#
+# Redirect to a log FILE rather than piping to `sed`/stdout. cont-init's stdout
+# is closed once init finishes, so a `... | sed` supervisor dies of SIGPIPE the
+# first time it writes after boot (silently leaving dns-proxy unsupervised).
+# Writing to a persistent file fd avoids that — this is exactly why the dockerd
+# supervisor in 04-start-dockerd.sh tees to /var/log/helix-services. The
+# log-tailer surfaces /var/log/helix-services/*.log in the Runner Logs stream.
+mkdir -p /var/log/helix-services 2>/dev/null || true
 (
     while true; do
         dns-proxy -listen "${GATEWAY}:53" -upstream "${UPSTREAM_DNS}"
-        code=$?
-        echo "[dns-proxy] exited (code ${code}); restarting in 2s..."
+        echo "[$(date -Iseconds)] dns-proxy exited (code $?); restarting in 2s..."
         sleep 2
     done
-) | sed -u 's/^/[DNS-PROXY] /' &
+) >> /var/log/helix-services/dns-proxy.log 2>&1 &
 
 echo "✅ DNS proxy supervisor started (${GATEWAY}:53 → ${UPSTREAM_DNS})"
