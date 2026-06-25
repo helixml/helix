@@ -408,9 +408,11 @@ export const blockDesktopReserve: ProfileBlock = {
 //     OOMs the 16GB inf2.xlarge; disabling it is required
 //   - vLLM compiles the model on first start; NEURON_COMPILE_CACHE_URL=s3://...
 //     makes that a compile-once-per-fleet cost
-//   - MODEL CHOICE: inf2 only compiles simpler/older model graphs. Modern small
-//     models (Qwen2.5, Llama-3.2) crash the compiler inlining its attention
-//     kernel for the Trn1 arch; they need Trn2, not inf2. TinyLlama compiles.
+//   - MODEL CHOICE: on THIS SDK (2.28) only simpler graphs compile; modern
+//     models (Qwen2.5, Llama-3.2) crash the compiler. But that crash is a
+//     neuronx-cc 2.23+ REGRESSION - the SDK 2.24 DLC compiles mainstream 7B
+//     models on inf2 fine (see blockChatNeuronMistral7B). For anything beyond a
+//     tiny smoke model, prefer the SDK 2.24 path, not Trn2.
 export const blockChatNeuronTinyLlama: ProfileBlock = {
   id: "chat-neuron-tinyllama",
   name: "inf2 - TinyLlama-1.1B (Neuron)",
@@ -424,7 +426,7 @@ export const blockChatNeuronTinyLlama: ProfileBlock = {
   ],
   cons: [
     "vLLM compiles the model on first start (cached afterwards via S3)",
-    "inf2 only compiles simpler/older models; modern small models (Qwen2.5, Llama-3.2) fail - use Trn2 for those",
+    "Tiny smoke model only; for a mainstream 7B on inf2 use the SDK 2.24 path (blockChatNeuronMistral7B)",
     "Pinned to Neuron SDK 2.28 - SDK 2.29+ dropped inf2 support",
   ],
   // GPU-memory fields don't model Neuron device memory; left at 1 core's
@@ -480,6 +482,76 @@ export const blockChatNeuronTinyLlama: ProfileBlock = {
       - "8000"`,
 };
 
+// Validated live on a real inf2.8xlarge (2026-06-25): zephyr-7b-beta (a
+// Mistral-7B fine-tune) compiles (Compiler status PASS, ~3.4 min) and serves a
+// coherent token over the OpenAI API. KEY FINDING: the modern-model compile
+// crash on inf2 was a neuronx-cc 2.23+ REGRESSION (SDK 2.28/2.30). The OLDER
+// vLLM DLC (0.7.2 / SDK 2.24, compiler cc ~2.20) compiles mainstream models on
+// inf2 fine via the NxDI backend - no Trn2 required. Hard-won facts:
+//   - image: the SDK 2.24 vLLM DLC (0.7.2). Do NOT use 2.28/2.30 for modern models.
+//   - this vLLM version DOES accept --device neuron (0.13/0.16 dropped it).
+//   - backend: NxDI is the only one installed in this DLC and is the default, so
+//     leave VLLM_NEURON_FRAMEWORK unset. Do NOT set it to transformers-neuronx -
+//     TNx is not packaged in this image and the worker fails to start.
+//   - model: prefer a no-tied-embedding model. zephyr-7b-beta is ungated and
+//     Mistral-arch; Qwen2.5 fails separately on tie_word_embeddings=true.
+//   - inf2.8xlarge (~128 GB host RAM) is needed to load a 7B; inf2.xlarge (16 GB)
+//     is too small. TP=2 uses both NeuronCores of the single chip.
+export const blockChatNeuronMistral7B: ProfileBlock = {
+  id: "chat-neuron-mistral-7b",
+  name: "inf2.8xlarge - Mistral-7B (Neuron)",
+  category: "chat",
+  description:
+    "Mistral-7B (Zephyr-7B-beta) served by vLLM on AWS Inferentia2 (inf2.8xlarge) via Neuron SDK 2.24. Production-quality LLM on non-NVIDIA hardware over the standard OpenAI API. Pinned to the SDK 2.24 DLC because SDK 2.28+ regressed the compiler for modern models on inf2.",
+  pros: [
+    "Production-quality 7B on AWS Inferentia2 - no NVIDIA hardware",
+    "Standard OpenAI API (vLLM) - Helix's router routes to it unchanged",
+    "Compiles in ~3-4 min on inf2.8xlarge (validated live)",
+  ],
+  cons: [
+    "Pinned to Neuron SDK 2.24 (vLLM 0.7.2) - newer SDKs regress modern-model compile on inf2",
+    "Needs inf2.8xlarge (~128 GB host RAM); inf2.xlarge (16 GB) is too small for a 7B",
+    "Avoid tied-embedding models (Qwen2.5) on this path - use Mistral/Llama arch",
+  ],
+  gpuMemoryFraction: 1,
+  gpuCount: 1,
+  minVRAMBytesPerGPU: 0,
+  requiresVendor: "neuron",
+  composeService: `vllm-neuron-mistral:
+    image: public.ecr.aws/neuron/pytorch-inference-vllm-neuronx:0.7.2-neuronx-py310-sdk2.24.0-ubuntu22.04
+    container_name: vllm-neuron-mistral
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /models:/root/.cache/huggingface
+    devices:
+      - "/dev/neuron0:/dev/neuron0"
+    cap_add:
+      - SYS_ADMIN
+      - IPC_LOCK
+    environment:
+      - NEURON_COMPILE_CACHE_URL
+    shm_size: 4g
+    command:
+      - python
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - HuggingFaceH4/zephyr-7b-beta
+      - --served-model-name
+      - zephyr-7b
+      - --tensor-parallel-size
+      - "2"
+      - --max-num-seqs
+      - "4"
+      - --max-model-len
+      - "4096"
+      - --device
+      - neuron
+      - --port
+      - "8000"`,
+};
+
 export const allBlocks: ProfileBlock[] = [
   blockChatTiny,
   blockChat7B,
@@ -489,6 +561,7 @@ export const allBlocks: ProfileBlock[] = [
   blockEmbedVL,
   blockDesktopReserve,
   blockChatNeuronTinyLlama,
+  blockChatNeuronMistral7B,
 ];
 
 // ----------------------------------------------------------------------
@@ -587,13 +660,33 @@ export const curatedProfiles: CuratedProfile[] = [
     ],
     cons: [
       "vLLM compiles on first start (cached afterwards via S3)",
-      "inf2 only compiles simpler/older models; modern models (Qwen2.5, Llama-3.2) need Trn2",
+      "Tiny smoke model; for a mainstream 7B on inf2 use the Mistral-7B (SDK 2.24) profile",
       "Neuron SDK / AMI / image-tag must be a compatible triple (SDK 2.28 for inf2)",
     ],
     blockIDs: ["chat-neuron-tinyllama"],
     vendor: "neuron",
     architectures: [],
     composeYAML: composeFromBlocks([blockChatNeuronTinyLlama]),
+  },
+  {
+    id: "inf2-mistral-7b-neuron",
+    name: "AWS Inferentia2: Mistral-7B (Neuron)",
+    description:
+      "Single inf2.8xlarge serving a Mistral-7B (Zephyr-7B-beta) on AWS Neuron via vLLM (SDK 2.24). Production-quality LLM on non-NVIDIA hardware - the same control plane that drives NVIDIA g5 runners drives Inferentia2 via the same YD provisioning loop. Validated live serving a coherent token on inf2.8xlarge (compile ~3.4 min).",
+    pros: [
+      "Production-quality 7B inference on non-NVIDIA (Inferentia2) hardware",
+      "Standard OpenAI API - inference router routes to it unchanged",
+      "No Trn2 needed - runs on inf2 we can provision today",
+    ],
+    cons: [
+      "vLLM compiles on first start (cached afterwards)",
+      "Pinned to SDK 2.24 (vLLM 0.7.2) - newer SDKs regress modern-model compile on inf2",
+      "Needs inf2.8xlarge (~128 GB host RAM); avoid tied-embedding models (Qwen2.5)",
+    ],
+    blockIDs: ["chat-neuron-mistral-7b"],
+    vendor: "neuron",
+    architectures: [],
+    composeYAML: composeFromBlocks([blockChatNeuronMistral7B]),
   },
   {
     id: "8xh100-prod",
