@@ -91,6 +91,21 @@ trap 'exit 130' INT
 # and the new task will never start.
 sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
+# ECR auth. When HELIX_SANDBOX_REGISTRY points the image at a private
+# ECR (<acct>.dkr.ecr.<region>.amazonaws.com), the docker pull below
+# needs a login - the default ghcr.io image is public so this is a
+# no-op for existing deployments. The worker authenticates via its EC2
+# instance profile (no creds shipped in the task); the region is read
+# from the host segment of the image ref. Mirror the image first with
+# scripts/yd-mirror-sandbox-image.sh.
+ECR_HOST="${IMG%%/*}"
+if [[ "$ECR_HOST" == *.dkr.ecr.*.amazonaws.com ]]; then
+  ECR_REGION=$(echo "$ECR_HOST" | cut -d. -f4)
+  echo "=== ECR login: $ECR_HOST (region $ECR_REGION) ==="
+  aws ecr get-login-password --region "$ECR_REGION" \
+    | sudo docker login --username AWS --password-stdin "$ECR_HOST"
+fi
+
 # Run docker BACKGROUNDED (& + wait) rather than in the foreground.
 # Bash queues signals received during a foreground synchronous command
 # and only delivers them after that command exits - so a SIGTERM from
