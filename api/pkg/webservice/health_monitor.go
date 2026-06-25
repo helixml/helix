@@ -71,6 +71,14 @@ func (m *HealthMonitor) runOnce(ctx context.Context) {
 	active := make(map[string]struct{}, len(states))
 	for _, st := range states {
 		active[st.ProjectID] = struct{}{}
+		// A deploy in flight (initial `docker compose up --build` or a redeploy)
+		// legitimately won't answer for minutes — don't treat that as unhealthy.
+		// Recovering mid-build needlessly restarts the stack, and for a slow build
+		// could repeatedly interrupt it. Skip and clear any accrued failures.
+		if m.deployInProgress(ctx, st.ProjectID) {
+			m.reset(st.ProjectID)
+			continue
+		}
 		if m.probe(ctx, st) {
 			m.reset(st.ProjectID)
 			continue
@@ -78,6 +86,21 @@ func (m *HealthMonitor) runOnce(ctx context.Context) {
 		m.onFailure(st.ProjectID)
 	}
 	m.gc(active)
+}
+
+// deployInProgress reports whether the project's most recent web-service deploy
+// is still pending or building. ListWebServiceDeploys returns newest-first.
+func (m *HealthMonitor) deployInProgress(ctx context.Context, projectID string) bool {
+	deploys, err := m.store.ListWebServiceDeploys(ctx, projectID, 1)
+	if err != nil || len(deploys) == 0 {
+		return false
+	}
+	switch deploys[0].Status {
+	case types.WebServiceDeployStatusPending, types.WebServiceDeployStatusBuilding:
+		return true
+	default:
+		return false
+	}
 }
 
 // probe returns true if the project's web service answers on its container
