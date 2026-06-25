@@ -28,6 +28,7 @@ import {
 } from '@mui/material'
 import { Add, Delete, Edit as EditIcon, Refresh, CheckCircle, Error as ErrorIcon, GitHub } from '@mui/icons-material'
 import { Cloud } from 'lucide-react'
+import { SlackLogo } from '../icons/ProviderIcons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -341,7 +342,13 @@ const ServiceConnectionsTable: FC = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        icon={conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp ? <GitHub sx={{ fontSize: 16 }} /> : <Cloud size={14} />}
+                        icon={
+                          conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
+                            ? <GitHub sx={{ fontSize: 16 }} />
+                            : conn.type === TypesServiceConnectionType.ServiceConnectionTypeSlackApp
+                              ? <SlackLogo sx={{ fontSize: 16 }} />
+                              : <Cloud size={14} />
+                        }
                         label={
                           conn.type === TypesServiceConnectionType.ServiceConnectionTypeGitHubApp
                             ? 'GitHub App'
@@ -455,7 +462,7 @@ const ServiceConnectionsTable: FC = () => {
                 </MenuItem>
                 <MenuItem value="slack_app">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Cloud size={18} />
+                    <SlackLogo sx={{ fontSize: 20 }} />
                     Global Slack App
                   </Box>
                 </MenuItem>
