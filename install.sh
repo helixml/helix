@@ -937,16 +937,23 @@ do_upgrade() {
         esac
     fi
 
+    # $INSTALL_DIR is typically root-owned (/opt/HelixML created by a sudo
+    # install), so .env writes need sudo even when docker runs without it.
+    local SUDO=""
+    if [ "$ENVIRONMENT" != "gitbash" ] && [ ! -w "$INSTALL_DIR/.env" ]; then
+        SUDO="sudo"
+    fi
+
     local backup="$INSTALL_DIR/.env.bak.$(date +%Y%m%d-%H%M%S)"
-    cp "$INSTALL_DIR/.env" "$backup"
+    $SUDO cp "$INSTALL_DIR/.env" "$backup"
     echo "Backed up .env to $backup"
 
     # Rewrite HELIX_VERSION in place. If the line is absent, append it.
     if grep -qE '^HELIX_VERSION=' "$INSTALL_DIR/.env"; then
-        sed -i.tmp "s|^HELIX_VERSION=.*|HELIX_VERSION=${target_version}|" "$INSTALL_DIR/.env"
-        rm -f "$INSTALL_DIR/.env.tmp"
+        $SUDO sed -i.tmp "s|^HELIX_VERSION=.*|HELIX_VERSION=${target_version}|" "$INSTALL_DIR/.env"
+        $SUDO rm -f "$INSTALL_DIR/.env.tmp"
     else
-        printf '\nHELIX_VERSION=%s\n' "$target_version" >> "$INSTALL_DIR/.env"
+        printf '\nHELIX_VERSION=%s\n' "$target_version" | $SUDO tee -a "$INSTALL_DIR/.env" >/dev/null
     fi
     echo "Set HELIX_VERSION=$target_version in $INSTALL_DIR/.env"
 
