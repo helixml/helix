@@ -123,8 +123,8 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
           Host this project as a live website. Turn it on and you'll get
           a default URL straight away. You can also point your own domain
           at it. Every push to your default branch deploys automatically —
-          Helix runs the <code>.helix/startup.sh</code> script in your repo
-          to start your app.
+          Helix runs the <code>.helix/startup.sh</code> script from your
+          repo's <code>helix-specs</code> branch to start your app.
         </Typography>
       </Box>
 
