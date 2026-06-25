@@ -11,24 +11,25 @@ set -euo pipefail
 #      roll the image version back in place if the health-check fails.
 #   2. runner (code.helix.ml): bump SANDBOX_TAG in the upgrade script, re-run it.
 #
+# Both hosts are reached over plain SSH with one dedicated CD key (the key's
+# public half is authorised on luke_helix_ml@london, which has passwordless
+# sudo, and root@code.helix.ml).
+#
 # Invoked by the `deploy-prod` Drone pipeline on a GREEN release tag (so the
 # controlplane/sandbox images for $DRONE_TAG already exist on ghcr). Can also be
 # run manually:  scripts/deploy-prod.sh VERSION
 #
-# Required env (CI provides these from Drone secrets):
-#   GCLOUD_SA_KEY        base64 GCP service-account JSON with compute SSH access
-#                        to the london instance. When unset, falls back to
-#                        ambient `gcloud` auth (local runs).
-#   CODE_RUNNER_SSH_KEY  base64 OpenSSH private key for $RUNNER_SSH. When unset,
-#                        falls back to the ambient SSH agent/keys (local runs).
+# Required env (CI provides this from a Drone secret):
+#   HELIX_CD_SSH_KEY   base64-encoded OpenSSH private key authorised on both
+#                      hosts. When unset, falls back to the ambient SSH
+#                      agent/keys (local runs).
 # Optional env / config (defaults shown):
-#   LONDON_INSTANCE=helix-cloud-london   LONDON_ZONE=europe-west2-a
-#   LONDON_PROJECT=helixml               LONDON_STACK_DIR=/data/helix-app/helix
-#   LONDON_DB_DATASET=data/helix-postgres  LONDON_HEALTH_HOST=app.helix.ml
+#   LONDON_SSH=luke_helix_ml@34.39.116.64   LONDON_STACK_DIR=/data/helix-app/helix
+#   LONDON_DB_DATASET=data/helix-postgres   LONDON_HEALTH_HOST=app.helix.ml
 #   RUNNER_SSH=root@code.helix.ml
 #   RUNNER_UPGRADE_SCRIPT=/opt/HelixML/upgrade-sandbox-app.helix.ml.sh
+#   DEPLOY_RUNNER=true   (set false to skip the runner upgrade)
 #   SLACK_WEBHOOK_URL    optional notifications
-#   DEPLOY_RUNNER=true   set false to skip the runner upgrade
 # =============================================================================
 
 VERSION="${1:-${DRONE_TAG:-}}"
@@ -37,9 +38,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-LONDON_INSTANCE="${LONDON_INSTANCE:-helix-cloud-london}"
-LONDON_ZONE="${LONDON_ZONE:-europe-west2-a}"
-LONDON_PROJECT="${LONDON_PROJECT:-helixml}"
+LONDON_SSH="${LONDON_SSH:-luke_helix_ml@34.39.116.64}"
 LONDON_STACK_DIR="${LONDON_STACK_DIR:-/data/helix-app/helix}"
 LONDON_DB_DATASET="${LONDON_DB_DATASET:-data/helix-postgres}"
 LONDON_HEALTH_HOST="${LONDON_HEALTH_HOST:-app.helix.ml}"
@@ -63,29 +62,22 @@ fail() {
 }
 
 # --- auth -------------------------------------------------------------------
-if [ -n "${GCLOUD_SA_KEY:-}" ]; then
-  echo "$GCLOUD_SA_KEY" | base64 -d > /tmp/gcloud-sa.json
-  gcloud auth activate-service-account --key-file=/tmp/gcloud-sa.json --quiet
-  gcloud config set project "$LONDON_PROJECT" --quiet
-  rm -f /tmp/gcloud-sa.json
-fi
-
-SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20"
-if [ -n "${CODE_RUNNER_SSH_KEY:-}" ]; then
+SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o ServerAliveInterval=30"
+if [ -n "${HELIX_CD_SSH_KEY:-}" ]; then
   mkdir -p "$HOME/.ssh"
-  echo "$CODE_RUNNER_SSH_KEY" | base64 -d > "$HOME/.ssh/code_runner"
-  chmod 600 "$HOME/.ssh/code_runner"
-  SSH_OPTS="$SSH_OPTS -i $HOME/.ssh/code_runner"
+  echo "$HELIX_CD_SSH_KEY" | base64 -d > "$HOME/.ssh/helix_cd"
+  chmod 600 "$HOME/.ssh/helix_cd"
+  SSH_OPTS="$SSH_OPTS -i $HOME/.ssh/helix_cd -o IdentitiesOnly=yes"
 fi
 
-gssh() {
-  gcloud compute ssh --zone "$LONDON_ZONE" "$LONDON_INSTANCE" \
-    --project "$LONDON_PROJECT" --quiet --command "$1"
+rsh() { # rsh <user@host> <script>
+  # shellcheck disable=SC2086
+  ssh $SSH_OPTS "$1" "$2"
 }
 
 # --- 1. controlplane (london) ----------------------------------------------
 SNAP="${LONDON_DB_DATASET}@pre-${VERSION}-$(date +%Y%m%d-%H%M%S)"
-log "Deploying controlplane ${VERSION} to ${LONDON_INSTANCE} (snapshot ${SNAP}) ..."
+log "Deploying controlplane ${VERSION} to ${LONDON_SSH} (snapshot ${SNAP}) ..."
 
 # Remote script. Unquoted heredoc: local values ($VERSION, $SNAP, $LONDON_*) are
 # substituted here; values evaluated ON the remote are escaped (\$).
@@ -119,7 +111,7 @@ echo "controlplane healthy on $VERSION"
 REMOTE
 )
 
-if ! gssh "$CP_DEPLOY"; then
+if ! rsh "$LONDON_SSH" "$CP_DEPLOY"; then
   fail "controlplane deploy/health-check failed (image rolled back in place). DB snapshot: ${SNAP}"
 fi
 log "controlplane on ${VERSION} ✓"
@@ -133,8 +125,7 @@ sed -i 's/^SANDBOX_TAG=.*/SANDBOX_TAG="$VERSION"/' "$RUNNER_UPGRADE_SCRIPT"
 "$RUNNER_UPGRADE_SCRIPT"
 REMOTE
 )
-  # shellcheck disable=SC2086
-  if ! ssh $SSH_OPTS "$RUNNER_SSH" "$RUNNER_DEPLOY"; then
+  if ! rsh "$RUNNER_SSH" "$RUNNER_DEPLOY"; then
     fail "runner deploy failed — controlplane is on ${VERSION} but the runner may still be on the old image (version skew). Re-run: ssh ${RUNNER_SSH} ${RUNNER_UPGRADE_SCRIPT}"
   fi
   log "runner on ${VERSION} ✓"

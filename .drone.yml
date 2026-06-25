@@ -2417,11 +2417,10 @@ steps:
 # pole and is intentionally NOT a dependency. Mutually exclusive with
 # release-rollback (which fires on failure of the same core steps).
 #
-# Required Drone secrets:
-#   gcloud_sa_key        base64 GCP service-account JSON with compute SSH access
-#                        to helix-cloud-london (roles/compute.osLogin or
-#                        instanceAdmin + default-allow-ssh firewall)
-#   code_runner_ssh_key  base64 OpenSSH private key for root@code.helix.ml
+# Required Drone secret:
+#   helix_cd_ssh_key  base64 OpenSSH private key authorised on both
+#                     luke_helix_ml@helix-cloud-london (static IP, passwordless
+#                     sudo) and root@code.helix.ml
 # Can also be run manually: scripts/deploy-prod.sh VERSION
 # ====================================================================
 kind: pipeline
@@ -2448,18 +2447,11 @@ steps:
   - name: deploy-prod
     image: debian:bookworm-slim
     environment:
-      GCLOUD_SA_KEY:
-        from_secret: gcloud_sa_key
-      CODE_RUNNER_SSH_KEY:
-        from_secret: code_runner_ssh_key
+      HELIX_CD_SSH_KEY:
+        from_secret: helix_cd_ssh_key
       SLACK_WEBHOOK_URL:
         from_secret: JANITOR_SLACK_WEBHOOK_URL
     commands:
       - apt-get update -qq
-      - apt-get install -y -qq curl ca-certificates gnupg openssh-client > /dev/null
-      # Google Cloud SDK apt repo (for `gcloud compute ssh` to london)
-      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
-      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
-      - apt-get update -qq
-      - apt-get install -y -qq google-cloud-cli > /dev/null
+      - apt-get install -y -qq curl ca-certificates openssh-client > /dev/null
       - scripts/deploy-prod.sh "$DRONE_TAG"
