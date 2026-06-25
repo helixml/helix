@@ -19,6 +19,7 @@ func TestIsAnthropicAPIEndpoint(t *testing.T) {
 		{"canonical name", types.ProviderEndpoint{Name: "anthropic"}, true},
 		{"display name (EqualFold)", types.ProviderEndpoint{Name: "Anthropic"}, true},
 		{"base url match", types.ProviderEndpoint{Name: "custom", BaseURL: "https://api.anthropic.com/v1"}, true},
+		{"lookalike host not matched", types.ProviderEndpoint{Name: "custom", BaseURL: "https://api.anthropic.com.proxy.evil.com/v1"}, false},
 		{"openai", types.ProviderEndpoint{Name: "openai", BaseURL: "https://api.openai.com/v1"}, false},
 		{"renamed proxy (known gap)", types.ProviderEndpoint{Name: "claude-prod", BaseURL: "https://gw.internal/anthropic"}, false},
 		{"vertex anthropic excluded", types.ProviderEndpoint{Name: "anthropic", VertexProjectID: "proj-1"}, false},

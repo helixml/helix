@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -438,8 +439,15 @@ func isAnthropicAPIEndpoint(endpoint *types.ProviderEndpoint) bool {
 	if endpoint.VertexProjectID != "" {
 		return false
 	}
-	return strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) ||
-		strings.Contains(strings.ToLower(endpoint.BaseURL), "api.anthropic.com")
+	if strings.EqualFold(endpoint.Name, string(types.ProviderAnthropic)) {
+		return true
+	}
+	// Host-exact match so a lookalike like api.anthropic.com.proxy.evil.com
+	// does not match.
+	if u, err := url.Parse(endpoint.BaseURL); err == nil {
+		return strings.EqualFold(u.Hostname(), "api.anthropic.com")
+	}
+	return false
 }
 
 func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) (openai.Client, error) {
