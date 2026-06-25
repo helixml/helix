@@ -3254,6 +3254,10 @@ type SandboxInstance struct {
 	GPUVendor  string `json:"gpu_vendor,omitempty" gorm:"type:varchar(50)"`  // "nvidia", "amd", "intel", "none"
 	RenderNode string `json:"render_node,omitempty" gorm:"type:varchar(50)"` // /dev/dri/renderD128 or SOFTWARE
 
+	// InstanceType is the cloud instance type reported by the sandbox heartbeat
+	// (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
+	InstanceType string `json:"instance_type,omitempty" gorm:"type:varchar(100)"`
+
 	// Sandbox capacity. MaxSandboxes is set explicitly at auto-register
 	// and Manager-provisioned paths from HELIX_SANDBOX_MAX_DEV_CONTAINERS
 	// (default 20); the gorm default below only applies to rows inserted
@@ -3356,6 +3360,11 @@ type SandboxHeartbeatRequest struct {
 	// GPU configuration
 	GPUVendor  string `json:"gpu_vendor,omitempty"`  // nvidia, amd, intel, none
 	RenderNode string `json:"render_node,omitempty"` // /dev/dri/renderD128 or SOFTWARE
+
+	// InstanceType is the cloud instance type (e.g. "inf2.8xlarge", "g5.xlarge")
+	// detected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any
+	// non-AWS environment — the admin UI then just shows the GPU model instead.
+	InstanceType string `json:"instance_type,omitempty"`
 
 	// Privileged mode (host Docker access for development)
 	PrivilegedModeEnabled bool `json:"privileged_mode_enabled,omitempty"`

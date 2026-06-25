@@ -6,12 +6,15 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -64,6 +67,7 @@ type HeartbeatRequest struct {
 	ContainerUsage        []ContainerDiskUsage `json:"container_usage,omitempty"`
 	PrivilegedModeEnabled bool                 `json:"privileged_mode_enabled,omitempty"`
 	GPUVendor             string               `json:"gpu_vendor,omitempty"`    // nvidia, amd, intel, none
+	InstanceType          string               `json:"instance_type,omitempty"` // cloud instance type via IMDS; empty on bare metal
 	HelixVersion          string               `json:"helix_version,omitempty"` // git commit hash or release version
 
 	// Sandbox-absorbs-runner pivot: rich GPU inventory used by the inference
@@ -162,6 +166,80 @@ func main() {
 	}
 }
 
+// instanceTypeRe matches a plausible EC2 instance type (e.g. "inf2.8xlarge",
+// "g5.xlarge", "trn1n.32xlarge"). Used to reject garbage from a non-AWS host
+// that happens to answer at the IMDS link-local IP (captive portals, on-prem
+// metadata services) — without it, an HTML error page could be stored verbatim
+// and overflow the varchar(100) column, failing the whole heartbeat UPDATE.
+var instanceTypeRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}\.[a-z0-9]+$`)
+
+// cachedInstanceType memoises the (immutable) instance type after the first
+// successful lookup so we stop hitting IMDS on every 30s heartbeat. Empty
+// results are not cached, so a transient boot-time IMDS failure self-heals.
+var cachedInstanceType atomic.Value // string
+
+// instanceType returns the cached instance type or probes IMDS once to find it.
+func instanceType(ctx context.Context) string {
+	if v, _ := cachedInstanceType.Load().(string); v != "" {
+		return v
+	}
+	t := detectInstanceType(ctx)
+	if t != "" {
+		cachedInstanceType.Store(t)
+	}
+	return t
+}
+
+// detectInstanceType queries the AWS IMDS for the EC2 instance type (e.g.
+// "inf2.8xlarge"). Uses IMDSv2 (token-authenticated). Returns "" on any
+// failure or an implausible response — bare-metal hosts (e.g. prime), non-AWS
+// clouds, and IMDS being unreachable all yield an empty string with no hang.
+// The 1.5s client timeout caps the wait (URL is a literal IP, so there is no
+// DNS) so a non-existent metadata endpoint can't block the heartbeat loop.
+func detectInstanceType(ctx context.Context) string {
+	const imds = "http://169.254.169.254"
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+
+	tokReq, err := http.NewRequestWithContext(ctx, http.MethodPut, imds+"/latest/api/token", nil)
+	if err != nil {
+		return ""
+	}
+	tokReq.Header.Set("X-aws-ec2-metadata-token-ttl-seconds", "60")
+	tokResp, err := client.Do(tokReq)
+	if err != nil {
+		return ""
+	}
+	var token []byte
+	if tokResp.StatusCode == http.StatusOK {
+		token, _ = io.ReadAll(io.LimitReader(tokResp.Body, 1024))
+	}
+	tokResp.Body.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imds+"/latest/meta-data/instance-type", nil)
+	if err != nil {
+		return ""
+	}
+	if len(token) > 0 {
+		req.Header.Set("X-aws-ec2-metadata-token", string(token))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	// Cap the read so a rogue responder can't hand us a huge body, then
+	// validate the shape so junk never reaches the varchar(100) column.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
+	it := strings.TrimSpace(string(body))
+	if !instanceTypeRe.MatchString(it) {
+		return ""
+	}
+	return it
+}
+
 func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedModeEnabled bool) {
 	// Discover all desktop versions dynamically
 	// Scans /opt/images/helix-*.version files
@@ -180,6 +258,9 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 	// rather than block the loop.
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	gpus := gpudetect.Detect(probeCtx)
+	// Cloud instance type (e.g. inf2.8xlarge). Empty on bare-metal / non-AWS.
+	// Cached after first success, so this is a no-op on subsequent heartbeats.
+	instType := instanceType(probeCtx)
 	probeCancel()
 
 	// Read compose-manager status from the file it writes after each Apply.
@@ -195,6 +276,7 @@ func sendHeartbeat(apiURL, runnerToken, sandboxInstanceID string, privilegedMode
 		ContainerUsage:        containerUsage,
 		PrivilegedModeEnabled: privilegedModeEnabled,
 		GPUVendor:             gpuVendor,
+		InstanceType:          instType,
 		HelixVersion:          data.GetHelixVersion(),
 		GPUs:                  gpus,
 		ProfileStatus:         profileStatus,

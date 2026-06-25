@@ -115,6 +115,17 @@ interface ServiceDownloadProgress {
   stage?: string
 }
 
+// RunnerGPU is one entry of the per-runner accelerator inventory reported by
+// the heartbeat (a subset of the Go types.GPUStatus). For Neuron there is one
+// entry per chip with vendor "neuron"; memory/arch may be empty.
+interface RunnerGPU {
+  index: number
+  model_name?: string
+  vendor?: string
+  architecture?: string
+  total_memory?: number
+}
+
 interface SandboxInstanceInfo {
   id: string
   session_id: string
@@ -125,6 +136,10 @@ interface SandboxInstanceInfo {
   profile_error?: string
   service_health?: Record<string, string>
   profile_progress?: Record<string, ServiceDownloadProgress>
+  // Hardware reported by the heartbeat — drives the architecture display.
+  instance_type?: string
+  gpu_vendor?: string
+  gpus?: RunnerGPU[]
 }
 
 interface AgentSandboxesDebugResponse {
@@ -172,6 +187,77 @@ const getProfileStatusColor = (status: string): 'success' | 'warning' | 'error' 
     default:
       return 'default'
   }
+}
+
+// neuronChip maps an AWS instance type to its Neuron accelerator family and
+// NeuronCores-per-chip, so the UI can show "1 x Inferentia2 (2 NeuronCores)".
+// Returns null for non-Neuron / unknown instance types.
+const neuronChip = (instanceType?: string): { family: string; coresPerChip: number } | null => {
+  const t = (instanceType || '').toLowerCase()
+  if (t.startsWith('inf1.')) return { family: 'Inferentia1', coresPerChip: 4 }
+  if (t.startsWith('inf2.')) return { family: 'Inferentia2', coresPerChip: 2 }
+  if (t.startsWith('trn1.') || t.startsWith('trn1n.')) return { family: 'Trainium1', coresPerChip: 2 }
+  if (t.startsWith('trn2.')) return { family: 'Trainium2', coresPerChip: 8 }
+  return null
+}
+
+// RunnerHardwareCard shows the runner's architecture — cloud instance type and
+// accelerator inventory — so an operator can choose a compatible profile.
+// Handles Neuron, NVIDIA/AMD, and bare-metal hosts (no instance type).
+const RunnerHardwareCard: FC<{ sandbox: SandboxInstanceInfo }> = ({ sandbox }) => {
+  const gpus = sandbox.gpus || []
+  const isNeuron = sandbox.gpu_vendor === 'neuron' || gpus.some((g) => g.vendor === 'neuron')
+  // Prefer the per-accelerator vendor for Neuron: install.sh leaves the coarse
+  // GPU_VENDOR env empty/none on Neuron hosts, so the device inventory is the
+  // reliable signal.
+  const vendor = isNeuron ? 'neuron' : (sandbox.gpu_vendor || gpus[0]?.vendor || '')
+
+  let accelerator: React.ReactNode = (
+    <Typography variant="body2" color="text.secondary">No accelerator reported</Typography>
+  )
+  if (isNeuron) {
+    const chip = neuronChip(sandbox.instance_type)
+    const chips = gpus.length || 1
+    const family = chip?.family || 'Neuron' // template prepends "AWS "
+    const totalCores = chip ? chips * chip.coresPerChip : 0
+    accelerator = (
+      <Typography variant="body2">
+        {chips} × AWS {family}
+        {totalCores > 0 ? ` — ${totalCores} NeuronCore${totalCores > 1 ? 's' : ''}` : ''}
+      </Typography>
+    )
+  } else if (gpus.length > 0) {
+    const names = Array.from(new Set(gpus.map((g) => g.model_name).filter(Boolean)))
+    accelerator = (
+      <Typography variant="body2">
+        {gpus.length} × {names.join(', ') || (vendor ? vendor.toUpperCase() : 'GPU')}
+      </Typography>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader title="Hardware" subheader="Architecture reported by the runner heartbeat" />
+      <CardContent>
+        <Grid container spacing={2}>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary" display="block">Instance type</Typography>
+            <Typography variant="body2">{sandbox.instance_type || 'Bare metal / unknown'}</Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary" display="block">Accelerator</Typography>
+            {accelerator}
+          </Grid>
+          {vendor && (
+            <Grid item xs={6}>
+              <Typography variant="caption" color="text.secondary" display="block">Vendor</Typography>
+              <Typography variant="body2">{vendor.toUpperCase()}</Typography>
+            </Grid>
+          )}
+        </Grid>
+      </CardContent>
+    </Card>
+  )
 }
 
 // SandboxProfileCard renders the inference-profile state for one sandbox:
@@ -901,6 +987,7 @@ const Runners: FC = () => {
             )
             return (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <RunnerHardwareCard sandbox={selectedRunner} />
                 <SandboxProfileCard sandbox={selectedRunner} />
                 <Card>
                   <CardHeader

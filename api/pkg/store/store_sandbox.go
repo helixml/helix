@@ -31,6 +31,12 @@ func (s *PostgresStore) UpdateSandboxHeartbeat(ctx context.Context, id string, r
 		updates["helix_version"] = req.HelixVersion
 	}
 
+	// Store cloud instance type if detected. Empty on bare-metal / non-AWS
+	// hosts, so we only write when present to avoid blanking a known value.
+	if req.InstanceType != "" {
+		updates["instance_type"] = req.InstanceType
+	}
+
 	// Store desktop versions as JSON if provided
 	if len(req.DesktopVersions) > 0 {
 		updates["desktop_versions"] = req.DesktopVersions

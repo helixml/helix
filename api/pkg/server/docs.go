@@ -23168,6 +23168,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "is_helix_org_agent": {
+                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
+                    "type": "boolean"
+                },
                 "model_substitutions": {
                     "type": "array",
                     "items": {
@@ -24778,7 +24782,22 @@ const docTemplate = `{
                 "container_id": {
                     "type": "string"
                 },
+                "gpu_vendor": {
+                    "description": "nvidia | amd | neuron",
+                    "type": "string"
+                },
+                "gpus": {
+                    "description": "per-accelerator inventory",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUStatus"
+                    }
+                },
                 "id": {
+                    "type": "string"
+                },
+                "instance_type": {
+                    "description": "Hardware reported by the sandbox heartbeat — drives the admin UI's\nper-runner architecture display so an operator can pick a compatible\nprofile. InstanceType is empty on bare-metal hosts (e.g. prime).",
                     "type": "string"
                 },
                 "profile_error": {
@@ -25696,6 +25715,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "is_helix_org_agent": {
+                    "description": "IsHelixOrgAgent is true when this app backs a Helix org-chart Worker\n(see api/pkg/org). Computed at list time, not persisted, so the frontend\ncan hide org-chart agents from the spec-task agent switchers.",
+                    "type": "boolean"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -25935,7 +25958,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "claude_subscription_model": {
-                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"claude-opus-4-6\".",
+                    "description": "ClaudeSubscriptionModel is the Anthropic model to use when CodeAgentRuntime is\n\"claude_code\" and CodeAgentCredentialType is \"subscription\". It flows through\nCodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,\nwhich the claude-agent-acp package reads (resolveModelPreference) to pick the\nmodel — otherwise Claude Code defaults to Sonnet. Empty means \"opus\"\n(resolveModelPreference resolves this to the latest Opus version).",
                     "type": "string"
                 },
                 "code_agent_credential_type": {
@@ -27646,7 +27669,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "description": "optional, one of \"dev\", \"prod\", \"both\"; defaults to \"both\"",
+                    "description": "optional, one of \"dev\", \"prod\", \"both\"; defaults to \"dev\"",
                     "type": "string"
                 },
                 "value": {
@@ -32878,6 +32901,10 @@ const docTemplate = `{
                     "description": "Helix version running on this sandbox (git commit hash or release version)",
                     "type": "string"
                 },
+                "instance_type": {
+                    "description": "InstanceType is the cloud instance type (e.g. \"inf2.8xlarge\", \"g5.xlarge\")\ndetected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any\nnon-AWS environment — the admin UI then just shows the GPU model instead.",
+                    "type": "string"
+                },
                 "privileged_mode_enabled": {
                     "description": "Privileged mode (host Docker access for development)",
                     "type": "boolean"
@@ -32955,6 +32982,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "instance_type": {
+                    "description": "InstanceType is the cloud instance type reported by the sandbox heartbeat\n(e.g. \"inf2.8xlarge\"). Empty on bare-metal / non-AWS hosts.",
                     "type": "string"
                 },
                 "ip_address": {
@@ -33095,7 +33126,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "description": "Scope controls which environment a project secret is injected into.\nDefaults to \"both\" so pre-existing secrets keep their original behaviour.",
+                    "description": "Scope controls which environment a project secret is injected into.\nDefaults to \"dev\" so pre-existing secrets keep their original (dev-only)\nbehaviour and dev stays the primary path.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.SecretScope"
