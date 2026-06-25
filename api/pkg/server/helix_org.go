@@ -91,6 +91,14 @@ type helixOrgHandlers struct {
 	// ctx, when the global app is configured for it. Started in a
 	// goroutine from the run loop, like streamCron.
 	slackSocketRun func(ctx context.Context)
+	// slackTopics auto-creates/removes the per-workspace Slack Topic when
+	// a workspace is connected/disconnected. An org primitive owned by
+	// this subsystem, not the core server.
+	slackTopics *slackWorkspaceTopics
+	// slackSocket reconciles live Socket Mode connections against the
+	// configured socket-mode apps; Kicked by the admin service-connection
+	// handlers when a slack_app changes so it applies without a restart.
+	slackSocket *slacktransport.SocketManager
 	// publicGitHubManifestCallback receives GitHub's browser redirect after
 	// the App Manifest flow creates the app (path
 	// /api/v1/orgs/{org}/github/app-manifest/callback). Insecure mount: it's
@@ -428,7 +436,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// install to a decrypted bot token for that mint.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
 	// Auto-manage one Slack Topic per connected workspace.
-	cfg.APIServer.slackTopics = &slackWorkspaceTopics{topics: st.Topics, logger: logger}
+	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}
 	// mint_credential provider=slack hands a Worker the bot token for the
 	// workspace the message came from (resource = the event's
 	// extra.slack_team_id) so it can drive the Slack Web API directly —
@@ -539,9 +547,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// effect with no server restart. Single-replica: a multi-replica
 	// deployment would need a cross-replica owner lock to hold the one
 	// socket, which isn't wired today.
-	cfg.APIServer.slackSocket = cfg.APIServer.newSlackSocketManager(slackIngest, logger)
+	slackSocket := cfg.APIServer.newSlackSocketManager(slackIngest, logger)
 	slackSocketRun := func(ctx context.Context) {
-		cfg.APIServer.slackSocket.Run(ctx, slackSocketReconcileInterval)
+		slackSocket.Run(ctx, slackSocketReconcileInterval)
 	}
 
 	// Processor execution: the runner re-publishes each processor's
@@ -722,6 +730,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
 		publicSlackEvents:            publicSlackEvents,
 		slackSocketRun:               slackSocketRun,
+		slackTopics:                  slackTopics,
+		slackSocket:                  slackSocket,
 	}, nil
 }
 

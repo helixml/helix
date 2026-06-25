@@ -62,9 +62,6 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
       [TypesExternalRepositoryType.ExternalRepositoryTypeGitLab]: 'gitlab',
       [TypesExternalRepositoryType.ExternalRepositoryTypeADO]: 'ado',
       [TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket]: 'other',
-      // Slack is not a git repository type — it tags Slack ServiceConnections
-      // and is never selectable here — but the Record must stay exhaustive.
-      [TypesExternalRepositoryType.ExternalRepositoryTypeSlack]: 'other',
     }
     const submitType = typeMap[type]
     await onSubmit(url, name, submitType, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined, gitlabBaseUrl || undefined)

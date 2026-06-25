@@ -45,22 +45,26 @@ func (s *HelixAPIServer) listServiceConnections(w http.ResponseWriter, r *http.R
 
 	organizationID := r.URL.Query().Get("organization_id")
 
-	// The admin panel manages deployment-global, admin-owned connections
-	// (GitHub App, ADO, global Slack app). Org-scoped installs like
-	// slack_workspace belong to an org and are managed in that org's own
-	// settings, so they must not appear here. Default (no org filter) =
-	// global only; an explicit organization_id scopes to that org.
-	var connections []*types.ServiceConnection
-	var err error
-	if organizationID != "" {
-		connections, err = s.Store.ListServiceConnections(r.Context(), organizationID)
-	} else {
-		connections, err = s.Store.ListGlobalServiceConnections(r.Context())
-	}
+	connections, err := s.Store.ListServiceConnections(r.Context(), organizationID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list service connections")
 		http.Error(w, fmt.Sprintf("Failed to list connections: %s", err.Error()), http.StatusInternalServerError)
 		return
+	}
+
+	// The admin panel manages deployment-global, admin-owned connections
+	// (GitHub App, ADO, global Slack app). Org-scoped installs like
+	// slack_workspace belong to an org and are managed in that org's own
+	// settings, so when no org filter is given (the global view) drop any
+	// connection that belongs to an org.
+	if organizationID == "" {
+		global := connections[:0]
+		for _, c := range connections {
+			if c.OrganizationID == "" {
+				global = append(global, c)
+			}
+		}
+		connections = global
 	}
 
 	// Convert to response objects (hide sensitive fields)
@@ -202,7 +206,8 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 			http.Error(w, "Slack app requires at least one of: client id/signing secret (REST) or app/bot token (Socket Mode)", http.StatusBadRequest)
 			return
 		}
-		providerType = types.ExternalRepositoryTypeSlack
+		// Slack isn't a git provider — leave ProviderType unset; the
+		// connection Type (slack_app) already identifies it.
 
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported connection type: %s", req.Type), http.StatusBadRequest)
@@ -301,8 +306,8 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 
 	// A new socket-mode slack_app needs its Socket Mode connection opened
 	// now — Kick the manager so it picks the app up without a restart.
-	if connection.Type == types.ServiceConnectionTypeSlackApp && s.slackSocket != nil {
-		s.slackSocket.Kick()
+	if connection.Type == types.ServiceConnectionTypeSlackApp {
+		s.kickSlackSocket()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -447,8 +452,8 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 
 	// An edited slack_app may have changed ingress mode or app token —
 	// Kick the socket manager so it (re)connects or tears down as needed.
-	if connection.Type == types.ServiceConnectionTypeSlackApp && s.slackSocket != nil {
-		s.slackSocket.Kick()
+	if connection.Type == types.ServiceConnectionTypeSlackApp {
+		s.kickSlackSocket()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -502,11 +507,10 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 	// it for inbound delivery — cascade-delete them so they don't linger
 	// orphaned across every org the app was installed into. Also Kick the
 	// socket manager so a socket app's live connection is torn down now.
-	if conn.Type == types.ServiceConnectionTypeSlackApp {
+	// All of this lives in the helix-org subsystem, so skip when it's off.
+	if conn.Type == types.ServiceConnectionTypeSlackApp && s.helixOrg != nil {
 		s.cascadeDeleteSlackAppWorkspaces(r.Context(), connectionID)
-		if s.slackSocket != nil {
-			s.slackSocket.Kick()
-		}
+		s.kickSlackSocket()
 	}
 
 	w.WriteHeader(http.StatusNoContent)

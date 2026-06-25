@@ -5086,14 +5086,12 @@ definitions:
     - gitlab
     - ado
     - bitbucket
-    - slack
     type: string
     x-enum-varnames:
     - ExternalRepositoryTypeGitHub
     - ExternalRepositoryTypeGitLab
     - ExternalRepositoryTypeADO
     - ExternalRepositoryTypeBitbucket
-    - ExternalRepositoryTypeSlack
   types.ExternalStatus:
     properties:
       commits_ahead:

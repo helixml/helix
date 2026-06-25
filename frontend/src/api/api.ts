@@ -3205,7 +3205,6 @@ export enum TypesExternalRepositoryType {
   ExternalRepositoryTypeGitLab = "gitlab",
   ExternalRepositoryTypeADO = "ado",
   ExternalRepositoryTypeBitbucket = "bitbucket",
-  ExternalRepositoryTypeSlack = "slack",
 }
 
 export interface TypesExternalStatus {

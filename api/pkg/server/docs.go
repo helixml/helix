@@ -28517,15 +28517,13 @@ const docTemplate = `{
                 "github",
                 "gitlab",
                 "ado",
-                "bitbucket",
-                "slack"
+                "bitbucket"
             ],
             "x-enum-varnames": [
                 "ExternalRepositoryTypeGitHub",
                 "ExternalRepositoryTypeGitLab",
                 "ExternalRepositoryTypeADO",
-                "ExternalRepositoryTypeBitbucket",
-                "ExternalRepositoryTypeSlack"
+                "ExternalRepositoryTypeBitbucket"
             ]
         },
         "types.ExternalStatus": {

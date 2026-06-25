@@ -3398,21 +3398,6 @@ func (mr *MockStoreMockRecorder) GetServiceConnection(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceConnection", reflect.TypeOf((*MockStore)(nil).GetServiceConnection), ctx, id)
 }
 
-// GetServiceConnectionBySlackTeamID mocks base method.
-func (m *MockStore) GetServiceConnectionBySlackTeamID(ctx context.Context, teamID string) (*types.ServiceConnection, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetServiceConnectionBySlackTeamID", ctx, teamID)
-	ret0, _ := ret[0].(*types.ServiceConnection)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetServiceConnectionBySlackTeamID indicates an expected call of GetServiceConnectionBySlackTeamID.
-func (mr *MockStoreMockRecorder) GetServiceConnectionBySlackTeamID(ctx, teamID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceConnectionBySlackTeamID", reflect.TypeOf((*MockStore)(nil).GetServiceConnectionBySlackTeamID), ctx, teamID)
-}
-
 // GetSession mocks base method.
 func (m *MockStore) GetSession(ctx context.Context, id string) (*types.Session, error) {
 	m.ctrl.T.Helper()
@@ -4475,21 +4460,6 @@ func (m *MockStore) ListGitRepositories(ctx context.Context, request *types.List
 func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, request)
-}
-
-// ListGlobalServiceConnections mocks base method.
-func (m *MockStore) ListGlobalServiceConnections(ctx context.Context) ([]*types.ServiceConnection, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListGlobalServiceConnections", ctx)
-	ret0, _ := ret[0].([]*types.ServiceConnection)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListGlobalServiceConnections indicates an expected call of ListGlobalServiceConnections.
-func (mr *MockStoreMockRecorder) ListGlobalServiceConnections(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGlobalServiceConnections", reflect.TypeOf((*MockStore)(nil).ListGlobalServiceConnections), ctx)
 }
 
 // ListGuidelinesHistory mocks base method.

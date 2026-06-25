@@ -39,7 +39,6 @@ import (
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
-	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/proxy"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/quota"
@@ -104,15 +103,12 @@ type activeStreamProxy struct {
 type HelixAPIServer struct {
 	Cfg   *config.ServerConfig
 	Store store.Store
-	// slackTopics auto-creates/removes the per-workspace Slack Topic when
-	// a workspace is connected/disconnected. nil when helix-org isn't
-	// mounted.
-	slackTopics *slackWorkspaceTopics
-	// slackSocket reconciles live Socket Mode connections against the
-	// configured socket-mode apps; Kicked when a slack_app is created or
-	// deleted so changes apply without a restart. nil when helix-org isn't
-	// mounted.
-	slackSocket                 *slacktransport.SocketManager
+	// helixOrg is the optional helix-org subsystem, set once it is
+	// mounted (nil otherwise). The core server holds only this handle;
+	// the org primitives the Slack handlers need — the per-workspace
+	// Topic reconciler and the Socket Mode manager — live inside it, not
+	// as fields on this struct.
+	helixOrg                    *helixOrgHandlers
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -884,6 +880,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 		}, apiServer.Store); err != nil {
 			return nil, fmt.Errorf("initialise helix-org: %w", err)
 		} else if orgHandlers != nil {
+			// Hold the subsystem handle so the Slack handlers (and the
+			// admin service-connection handlers) can reach the org
+			// primitives it owns.
+			apiServer.helixOrg = orgHandlers
 			// Stream-cron scheduler runs for the lifetime of ctx
 			// (ListenAndServe's). Logs its own errors; one bad fire
 			// can't kill the loop because fire() has panic recovery.

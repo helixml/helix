@@ -124,15 +124,22 @@ func (w *slackWorkspaces) toWorkspace(conn *types.ServiceConnection) (slacktrans
 }
 
 // ByTeamID resolves the org-scoped workspace install for a Slack team.
+// team_id is globally unique to a workspace, so the slack_workspace rows
+// (listed across all orgs) are scanned for the one that matches.
 func (w *slackWorkspaces) ByTeamID(ctx context.Context, teamID string) (slacktransport.Workspace, error) {
-	conn, err := w.store.GetServiceConnectionBySlackTeamID(ctx, teamID)
+	if teamID == "" {
+		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+	}
+	conns, err := w.store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackWorkspace)
 	if err != nil {
-		if err == helixstore.ErrNotFound {
-			return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
-		}
 		return slacktransport.Workspace{}, err
 	}
-	return w.toWorkspace(conn)
+	for _, conn := range conns {
+		if conn.SlackTeamID == teamID {
+			return w.toWorkspace(conn)
+		}
+	}
+	return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
 }
 
 // resolveForOrg resolves the bot token for the credential provider. When
@@ -164,6 +171,17 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 		}
 	}
 	return w.toWorkspace(chosen)
+}
+
+// kickSlackSocket asks the helix-org Socket Mode manager to re-reconcile
+// its connections so a slack_app create/edit/delete applies without a
+// restart. No-op when helix-org isn't mounted or Socket Mode is unused.
+// The single seam the core admin service-connection handlers use to
+// reach this org primitive.
+func (s *HelixAPIServer) kickSlackSocket() {
+	if s.helixOrg != nil && s.helixOrg.slackSocket != nil {
+		s.helixOrg.slackSocket.Kick()
+	}
 }
 
 // errMultipleSlackApps is returned when an install must pick between
@@ -567,7 +585,7 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 			if err := s.Store.UpdateServiceConnection(ctx, conn); err != nil {
 				return err
 			}
-			s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
+			s.helixOrg.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
 			return nil
 		}
 	}
@@ -577,7 +595,6 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 		OrganizationID:       orgID,
 		Name:                 slackWorkspaceName(install),
 		Type:                 types.ServiceConnectionTypeSlackWorkspace,
-		ProviderType:         types.ExternalRepositoryTypeSlack,
 		SlackTeamID:          install.TeamID,
 		SlackTeamName:        install.TeamName,
 		SlackBotUserID:       install.BotUserID,
@@ -588,7 +605,7 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 	if err := s.Store.CreateServiceConnection(ctx, conn); err != nil {
 		return err
 	}
-	s.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
+	s.helixOrg.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
 	return nil
 }
 
@@ -690,7 +707,7 @@ func (s *HelixAPIServer) deleteSlackWorkspaceAndTopic(ctx context.Context, orgID
 	if err := s.Store.DeleteServiceConnection(ctx, connID); err != nil {
 		return err
 	}
-	s.slackTopics.remove(ctx, orgID, connID)
+	s.helixOrg.slackTopics.remove(ctx, orgID, connID)
 	return nil
 }
 

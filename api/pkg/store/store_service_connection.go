@@ -66,25 +66,6 @@ func (s *PostgresStore) ListServiceConnections(ctx context.Context, organization
 	return connections, nil
 }
 
-// ListGlobalServiceConnections lists only deployment-global,
-// admin-owned connections — those with no organization_id (the GitHub
-// App, ADO Service Principal, and global Slack app). Org-scoped installs
-// such as slack_workspace are excluded: they belong to an org and are
-// managed in that org's own settings, not the global admin panel.
-func (s *PostgresStore) ListGlobalServiceConnections(ctx context.Context) ([]*types.ServiceConnection, error) {
-	var connections []*types.ServiceConnection
-
-	err := s.gdb.WithContext(ctx).
-		Where("organization_id = ? OR organization_id IS NULL", "").
-		Order("created_at DESC").
-		Find(&connections).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to list global service connections: %w", err)
-	}
-
-	return connections, nil
-}
-
 // ListServiceConnectionsByType lists service connections filtered by type
 func (s *PostgresStore) ListServiceConnectionsByType(ctx context.Context, organizationID string, connType types.ServiceConnectionType) ([]*types.ServiceConnection, error) {
 	var connections []*types.ServiceConnection
@@ -121,31 +102,6 @@ func (s *PostgresStore) ListServiceConnectionsByProvider(ctx context.Context, or
 	}
 
 	return connections, nil
-}
-
-// GetServiceConnectionBySlackTeamID returns the slack_workspace
-// connection whose Slack team id matches. This is the inbound routing
-// hot path: every inbound Slack delivery carries a team_id and must
-// resolve to the org that installed the app into that workspace. The
-// slack_team_id column is indexed. Returns ErrNotFound when no
-// workspace install matches.
-func (s *PostgresStore) GetServiceConnectionBySlackTeamID(ctx context.Context, teamID string) (*types.ServiceConnection, error) {
-	if teamID == "" {
-		return nil, fmt.Errorf("team id is required")
-	}
-
-	var connection types.ServiceConnection
-	err := s.gdb.WithContext(ctx).
-		Where("type = ? AND slack_team_id = ?", types.ServiceConnectionTypeSlackWorkspace, teamID).
-		First(&connection).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("failed to get service connection by slack team id: %w", err)
-	}
-
-	return &connection, nil
 }
 
 // UpdateServiceConnection updates a service connection
