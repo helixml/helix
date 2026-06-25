@@ -1417,6 +1417,12 @@ definitions:
         type: number
       days:
         type: integer
+      plan:
+        description: |-
+          Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
+          (no Stripe subscription) — for customers who paid out-of-band (bank
+          transfer). Empty or "trial" uses the Stripe trial path (Days applies).
+        type: string
     type: object
   server.ActivateTrialResponse:
     properties:
@@ -2667,6 +2673,15 @@ definitions:
   server.SetActiveSandboxRequest:
     properties:
       sandbox_id:
+        type: string
+    type: object
+  server.SetOrgPlanRequest:
+    properties:
+      plan:
+        description: |-
+          Plan: "pro" | "free" forces the org's quota tier independent of Stripe
+          (for customers who paid out-of-band). "" clears the override and reverts
+          to the Stripe-derived tier.
         type: string
     type: object
   server.SharePointSiteResolveRequest:
@@ -11367,6 +11382,13 @@ definitions:
           Kept separate from TrialCreditsOnFirstOrg so admins can comp credits
           without entangling the grant with trial-state UI or revocation flows.
         type: number
+      plan_on_first_org:
+        description: |-
+          PlanOnFirstOrg, when set ("pro"), grants a paid plan override to the
+          user's first owned org's wallet on creation — admin "Activate" with a
+          paid (non-Stripe) plan for a user who has no org yet. Consumed alongside
+          the trial intent, then cleared.
+        type: string
       project_id:
         description: When running in Helix Code sandbox
         type: string
@@ -11650,6 +11672,15 @@ definitions:
         type: string
       org_id:
         description: If belongs to an organization
+        type: string
+      plan_override:
+        description: |-
+          PlanOverride, when set ("free"|"pro"), forces the quota tier for this
+          wallet regardless of the Stripe subscription — used to grant a paid plan
+          to a customer who paid out-of-band (bank transfer, no card / no Stripe).
+          "" means derive the tier from the Stripe subscription as usual. Stripe
+          sync only ever writes the Subscription* fields, never this one, so an
+          admin grant can't be reverted by a webhook.
         type: string
       stripe_customer_id:
         type: string
@@ -12294,6 +12325,33 @@ paths:
       security:
       - BearerAuth: []
       summary: List organizations with wallets (admin only)
+      tags:
+      - organizations
+  /api/v1/admin/orgs/{id}/plan:
+    post:
+      description: 'Force an org''s quota tier independent of Stripe — for customers
+        who paid out-of-band. plan: "pro" | "free" | "" (clear). Never reverted by
+        a Stripe webhook.'
+      parameters:
+      - description: Organization ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Plan override
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.SetOrgPlanRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Wallet'
+      security:
+      - BearerAuth: []
+      summary: Set an organization's plan override (admin only)
       tags:
       - organizations
   /api/v1/admin/users/{id}:

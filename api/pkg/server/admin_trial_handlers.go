@@ -27,6 +27,10 @@ const (
 type ActivateTrialRequest struct {
 	Days    int     `json:"days"`
 	Credits float64 `json:"credits"`
+	// Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
+	// (no Stripe subscription) — for customers who paid out-of-band (bank
+	// transfer). Empty or "trial" uses the Stripe trial path (Days applies).
+	Plan string `json:"plan,omitempty"`
 }
 
 // ActivateTrialResponse describes the outcome of a trial activation.
@@ -129,6 +133,41 @@ func (s *HelixAPIServer) consumeUserTrialIntent(ctx context.Context, user *types
 		Msg(fmt.Sprintf("admin-granted trial subscription created for %d days", days))
 }
 
+// consumeUserPlanOnFirstOrg applies any admin-stashed paid-plan intent
+// (PlanOnFirstOrg) to the given org's wallet as a PlanOverride. Called after an
+// org is created. Best-effort: errors are logged, never block org creation.
+// Independent of the Stripe trial path — a paid out-of-band grant needs no
+// subscription.
+func (s *HelixAPIServer) consumeUserPlanOnFirstOrg(ctx context.Context, user *types.User, orgID string) {
+	if user == nil || user.PlanOnFirstOrg == nil || *user.PlanOnFirstOrg == "" {
+		return
+	}
+	plan := *user.PlanOnFirstOrg
+
+	wallet, err := s.getOrCreateWallet(ctx, user, orgID)
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Str("org_id", orgID).
+			Msg("failed to get/create wallet for plan-override consumption")
+		return
+	}
+	wallet.PlanOverride = plan
+	if _, err := s.Store.UpdateWallet(ctx, wallet); err != nil {
+		log.Warn().Err(err).Str("wallet_id", wallet.ID).
+			Msg("failed to persist plan override to wallet")
+		return
+	}
+
+	user.PlanOnFirstOrg = nil
+	if _, err := s.Store.UpdateUser(ctx, user); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).
+			Msg("failed to clear PlanOnFirstOrg after consumption")
+		return
+	}
+
+	log.Info().Str("user_id", user.ID).Str("org_id", orgID).Str("plan", plan).
+		Msg("admin-stashed paid plan applied to first org wallet")
+}
+
 // adminActivateTrial godoc
 // @Summary Activate a trial for a user (Admin, cloud only)
 // @Description Stash a trial intent on the user, or immediately create a Stripe trial subscription on the user's oldest-owned org. Days defaults to 90; credits are taken verbatim from the request (0 means no admin top-up beyond what Stripe's subscription invoice contributes).
@@ -184,6 +223,46 @@ func (apiServer *HelixAPIServer) adminActivateTrial(_ http.ResponseWriter, req *
 	oldestOrg, err := oldestOwnedOrg(ctx, apiServer.Store, targetUserID)
 	if err != nil {
 		return nil, system.NewHTTPError500("failed to list user organizations: " + err.Error())
+	}
+
+	// Paid plan granted out-of-band (e.g. bank transfer): set a PlanOverride,
+	// no Stripe subscription. Independent of Stripe so it is never reverted by
+	// a webhook. Applied to the oldest owned org now, or stashed for the user's
+	// first org.
+	if body.Plan == types.PlanOverridePro {
+		if oldestOrg == nil {
+			plan := types.PlanOverridePro
+			targetUser.PlanOnFirstOrg = &plan
+			if body.Credits > 0 {
+				c := body.Credits
+				targetUser.PendingAdminCreditsOnFirstOrg = &c
+			}
+			updated, uErr := apiServer.Store.UpdateUser(ctx, targetUser)
+			if uErr != nil {
+				return nil, system.NewHTTPError500("failed to stash paid-plan intent: " + uErr.Error())
+			}
+			log.Info().Str("admin_id", adminUser.ID).Str("target_user_id", targetUserID).
+				Msg("admin stashed paid-plan intent on user (no org yet)")
+			return &ActivateTrialResponse{User: updated, Status: "stashed"}, nil
+		}
+		wallet, wErr := apiServer.getOrCreateWallet(ctx, targetUser, oldestOrg.ID)
+		if wErr != nil {
+			return nil, system.NewHTTPError500("failed to get wallet for oldest owned org: " + wErr.Error())
+		}
+		wallet.PlanOverride = types.PlanOverridePro
+		if _, wErr := apiServer.Store.UpdateWallet(ctx, wallet); wErr != nil {
+			return nil, system.NewHTTPError500("failed to set plan override: " + wErr.Error())
+		}
+		if body.Credits > 0 {
+			if _, bErr := apiServer.Store.UpdateWalletBalance(ctx, wallet.ID, body.Credits, types.TransactionMetadata{
+				TransactionType: types.TransactionTypeSubscription,
+			}); bErr != nil {
+				log.Warn().Err(bErr).Str("wallet_id", wallet.ID).Msg("failed to top up wallet with credits")
+			}
+		}
+		log.Info().Str("admin_id", adminUser.ID).Str("target_user_id", targetUserID).Str("org_id", oldestOrg.ID).
+			Msg("admin granted paid plan (PlanOverride=pro) on oldest owned org")
+		return &ActivateTrialResponse{User: targetUser, OrgID: oldestOrg.ID, Status: "applied"}, nil
 	}
 
 	// Path A: no owned org yet. Stash intent on the user; consumeUserTrialIntent

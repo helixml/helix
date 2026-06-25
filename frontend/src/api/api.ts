@@ -924,6 +924,12 @@ export interface OpenaiViolence {
 export interface ServerActivateTrialRequest {
   credits?: number;
   days?: number;
+  /**
+   * Plan selects what to grant. "pro" grants a PAID plan via a PlanOverride
+   * (no Stripe subscription) — for customers who paid out-of-band (bank
+   * transfer). Empty or "trial" uses the Stripe trial path (Days applies).
+   */
+  plan?: string;
 }
 
 export interface ServerActivateTrialResponse {
@@ -952,6 +958,12 @@ export interface ServerAppCreateResponse {
   created?: string;
   global?: boolean;
   id?: string;
+  /**
+   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
+   * can hide org-chart agents from the spec-task agent switchers.
+   */
+  is_helix_org_agent?: boolean;
   model_substitutions?: ServerModelSubstitution[];
   organization_id?: string;
   /** uuid of user ID */
@@ -1601,7 +1613,17 @@ export interface ServerSandboxInstanceInfo {
    */
   active_profile_id?: string;
   container_id?: string;
+  /** nvidia | amd | neuron */
+  gpu_vendor?: string;
+  /** per-accelerator inventory */
+  gpus?: TypesGPUStatus[];
   id?: string;
+  /**
+   * Hardware reported by the sandbox heartbeat — drives the admin UI's
+   * per-runner architecture display so an operator can pick a compatible
+   * profile. InstanceType is empty on bare-metal hosts (e.g. prime).
+   */
+  instance_type?: string;
   profile_error?: string;
   profile_progress?: Record<string, TypesServiceDownloadProgress>;
   profile_status?: string;
@@ -1672,6 +1694,15 @@ export interface ServerSessionTOCResponse {
 
 export interface ServerSetActiveSandboxRequest {
   sandbox_id?: string;
+}
+
+export interface ServerSetOrgPlanRequest {
+  /**
+   * Plan: "pro" | "free" forces the org's quota tier independent of Stripe
+   * (for customers who paid out-of-band). "" clears the override and reverts
+   * to the Stripe-derived tier.
+   */
+  plan?: string;
 }
 
 export interface ServerSharePointSiteResolveRequest {
@@ -2028,6 +2059,12 @@ export interface TypesApp {
   created?: string;
   global?: boolean;
   id?: string;
+  /**
+   * IsHelixOrgAgent is true when this app backs a Helix org-chart Worker
+   * (see api/pkg/org). Computed at list time, not persisted, so the frontend
+   * can hide org-chart agents from the spec-task agent switchers.
+   */
+  is_helix_org_agent?: boolean;
   organization_id?: string;
   /** uuid of user ID */
   owner?: string;
@@ -2122,7 +2159,8 @@ export interface TypesAssistantConfig {
    * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
-   * model — otherwise Claude Code defaults to Sonnet. Empty means "claude-opus-4-6".
+   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
+   * (resolveModelPreference resolves this to the latest Opus version).
    */
   claude_subscription_model?: string;
   /**
@@ -2913,7 +2951,7 @@ export interface TypesCreateSecretRequest {
   name?: string;
   /** optional, if set, the secret will be available to the specified project */
   project_id?: string;
-  /** optional, one of "dev", "prod", "both"; defaults to "both" */
+  /** optional, one of "dev", "prod", "both"; defaults to "dev" */
   scope?: string;
   value?: string;
 }
@@ -5189,6 +5227,12 @@ export interface TypesSandboxHeartbeatRequest {
   gpus?: TypesGPUStatus[];
   /** Helix version running on this sandbox (git commit hash or release version) */
   helix_version?: string;
+  /**
+   * InstanceType is the cloud instance type (e.g. "inf2.8xlarge", "g5.xlarge")
+   * detected via the AWS IMDS. Empty on bare-metal hosts (e.g. prime) and any
+   * non-AWS environment — the admin UI then just shows the GPU model instead.
+   */
+  instance_type?: string;
   /** Privileged mode (host Docker access for development) */
   privileged_mode_enabled?: boolean;
   /** ProfileError carries the failure detail when ProfileStatus="failed". */
@@ -5258,6 +5302,11 @@ export interface TypesSandboxInstance {
   /** Hostname for DNS resolution */
   hostname?: string;
   id?: string;
+  /**
+   * InstanceType is the cloud instance type reported by the sandbox heartbeat
+   * (e.g. "inf2.8xlarge"). Empty on bare-metal / non-AWS hosts.
+   */
+  instance_type?: string;
   /** IP address of the sandbox */
   ip_address?: string;
   /** Last heartbeat time */
@@ -5346,7 +5395,8 @@ export interface TypesSecret {
   project_id?: string;
   /**
    * Scope controls which environment a project secret is injected into.
-   * Defaults to "both" so pre-existing secrets keep their original behaviour.
+   * Defaults to "dev" so pre-existing secrets keep their original (dev-only)
+   * behaviour and dev stays the primary path.
    */
   scope?: TypesSecretScope;
   updated?: string;
@@ -7016,6 +7066,13 @@ export interface TypesUser {
    * without entangling the grant with trial-state UI or revocation flows.
    */
   pending_admin_credits_on_first_org?: number;
+  /**
+   * PlanOnFirstOrg, when set ("pro"), grants a paid plan override to the
+   * user's first owned org's wallet on creation — admin "Activate" with a
+   * paid (non-Stripe) plan for a user who has no org yet. Consumed alongside
+   * the trial intent, then cleared.
+   */
+  plan_on_first_org?: string;
   /** When running in Helix Code sandbox */
   project_id?: string;
   sb?: boolean;
@@ -7202,6 +7259,15 @@ export interface TypesWallet {
   id?: string;
   /** If belongs to an organization */
   org_id?: string;
+  /**
+   * PlanOverride, when set ("free"|"pro"), forces the quota tier for this
+   * wallet regardless of the Stripe subscription — used to grant a paid plan
+   * to a customer who paid out-of-band (bank transfer, no card / no Stripe).
+   * "" means derive the tier from the Stripe subscription as usual. Stripe
+   * sync only ever writes the Subscription* fields, never this one, so an
+   * admin grant can't be reverted by a webhook.
+   */
+  plan_override?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
   subscription_cancel_at_period_end?: boolean;
@@ -7760,6 +7826,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/admin/orgs`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Force an org's quota tier independent of Stripe — for customers who paid out-of-band. plan: "pro" | "free" | "" (clear). Never reverted by a Stripe webhook.
+     *
+     * @tags organizations
+     * @name V1AdminOrgsPlanCreate
+     * @summary Set an organization's plan override (admin only)
+     * @request POST:/api/v1/admin/orgs/{id}/plan
+     * @secure
+     */
+    v1AdminOrgsPlanCreate: (id: string, request: ServerSetOrgPlanRequest, params: RequestParams = {}) =>
+      this.request<TypesWallet, any>({
+        path: `/api/v1/admin/orgs/${id}/plan`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
