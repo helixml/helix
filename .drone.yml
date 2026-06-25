@@ -2367,7 +2367,11 @@ depends_on:
   - build-sandbox-amd64
   - build-sandbox-arm64
   - manifest-sandbox
-  - build-macos-dmg
+  # Deliberately NOT depends_on build-macos-dmg: the macOS DMG is a non-gating
+  # long pole, and a DMG failure must never roll back a release whose SaaS
+  # deploy (deploy-prod) has already succeeded. deploy-prod and release-rollback
+  # gate on the same core build/test/manifest steps, so they stay mutually
+  # exclusive — core green -> deploy-prod runs; core failed -> rollback runs.
 
 trigger:
   ref:
@@ -2404,3 +2408,58 @@ steps:
       - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
       # Run rollback
       - scripts/release-rollback.sh "$DRONE_TAG"
+
+---
+# ====================================================================
+# Self-deploy a GREEN release to the live SaaS (controlplane + runner),
+# automating design/2026-06-25-prod-version-bump-runbook.md. Runs only when the
+# core build/test/manifest steps succeeded; the macOS DMG is a non-gating long
+# pole and is intentionally NOT a dependency. Mutually exclusive with
+# release-rollback (which fires on failure of the same core steps).
+#
+# Required Drone secrets:
+#   gcloud_sa_key        base64 GCP service-account JSON with compute SSH access
+#                        to helix-cloud-london (roles/compute.osLogin or
+#                        instanceAdmin + default-allow-ssh firewall)
+#   code_runner_ssh_key  base64 OpenSSH private key for root@code.helix.ml
+# Can also be run manually: scripts/deploy-prod.sh VERSION
+# ====================================================================
+kind: pipeline
+type: docker
+name: deploy-prod
+
+depends_on:
+  - default
+  - build-controlplane-amd64
+  - build-controlplane-arm64
+  - manifest-controlplane
+  - build-sandbox-amd64
+  - build-sandbox-arm64
+  - manifest-sandbox
+
+trigger:
+  ref:
+    include:
+      - refs/tags/*
+  status:
+    - success
+
+steps:
+  - name: deploy-prod
+    image: debian:bookworm-slim
+    environment:
+      GCLOUD_SA_KEY:
+        from_secret: gcloud_sa_key
+      CODE_RUNNER_SSH_KEY:
+        from_secret: code_runner_ssh_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - apt-get update -qq
+      - apt-get install -y -qq curl ca-certificates gnupg openssh-client > /dev/null
+      # Google Cloud SDK apt repo (for `gcloud compute ssh` to london)
+      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+      - apt-get update -qq
+      - apt-get install -y -qq google-cloud-cli > /dev/null
+      - scripts/deploy-prod.sh "$DRONE_TAG"
