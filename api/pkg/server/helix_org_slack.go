@@ -173,15 +173,17 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 	return w.toWorkspace(chosen)
 }
 
-// kickSlackSocket asks the helix-org Socket Mode manager to re-reconcile
-// its connections so a slack_app create/edit/delete applies without a
-// restart. No-op when helix-org isn't mounted or Socket Mode is unused.
-// The single seam the core admin service-connection handlers use to
-// reach this org primitive.
-func (s *HelixAPIServer) kickSlackSocket() {
-	if s.helixOrg != nil && s.helixOrg.slackSocket != nil {
-		s.helixOrg.slackSocket.Kick()
+// kickSlackSocket asks the Socket Mode manager to re-reconcile its
+// connections so a slack_app create/edit/delete applies without a
+// restart. Lives on the org subsystem (not the core server) and is
+// nil-safe on both the subsystem and the manager, so the admin
+// service-connection handlers can call it unconditionally — it's a no-op
+// when helix-org isn't mounted or Socket Mode is unused.
+func (h *helixOrgHandlers) kickSlackSocket() {
+	if h == nil || h.slackSocket == nil {
+		return
 	}
+	h.slackSocket.Kick()
 }
 
 // errMultipleSlackApps is returned when an install must pick between
