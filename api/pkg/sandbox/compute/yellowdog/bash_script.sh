@@ -104,6 +104,7 @@ sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 # yellowdog-poc mirror-sandbox-image.sh.
 ECR_HOST="${IMG%%/*}"
 if [[ "$ECR_HOST" == *.dkr.ecr.*.amazonaws.com ]]; then
+  command -v aws >/dev/null || { echo "ERROR: image is on ECR ($ECR_HOST) but aws CLI is not installed on this worker" >&2; exit 1; }
   REF_REGION=$(echo "$ECR_HOST" | cut -d. -f4)
   PULL_REGION="${YD_REGION:-$REF_REGION}"
   if [ "$PULL_REGION" != "$REF_REGION" ]; then
