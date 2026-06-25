@@ -729,6 +729,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// (crashed/hung stack heals without a human).
 	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController, apiServer.sandboxController).Start(ctx)
 
+	// Continuous delivery for agent-created apps: when a GitHub-hosted project's
+	// default branch advances (e.g. a PR is merged), redeploy its web service.
+	// (Helix-hosted repos already auto-deploy via the git post-receive hook.)
+	go webservice.NewGitHubDeployWatcher(apiServer.Store, apiServer.webServiceController, apiServer.gitRepositoryService).Start(ctx)
+
 	// Reap stale runner registrations: sandbox_instances rows whose
 	// last_seen is older than the stale-threshold get their status
 	// flipped to "offline" so the admin UI + the FindAvailable selector

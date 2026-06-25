@@ -122,6 +122,12 @@ func (f *fakeGitRepoService) PullFromRemote(_ context.Context, _, _ string, _ bo
 func (f *fakeGitRepoService) SyncAllBranches(_ context.Context, _ string, _ bool) error {
 	panic("SyncAllBranches unexpected")
 }
+func (f *fakeGitRepoService) SyncBaseBranch(_ context.Context, _, _ string) error {
+	panic("SyncBaseBranch unexpected")
+}
+func (f *fakeGitRepoService) GetLocalBranchSHA(_ context.Context, _, _ string) (string, error) {
+	panic("GetLocalBranchSHA unexpected")
+}
 func (f *fakeGitRepoService) GetExternalRepoStatus(_ context.Context, _, _ string) (*types.ExternalStatus, error) {
 	panic("GetExternalRepoStatus unexpected")
 }
