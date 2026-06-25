@@ -92,7 +92,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                 }}
             >
                 <Typography variant="h6" component="div">
-                    Activate Trial
+                    Activate
                 </Typography>
                 <IconButton aria-label="close" onClick={handleClose} disabled={activateTrial.isPending}>
                     <CloseIcon />
@@ -146,7 +146,7 @@ const ActivateTrialDialog: FC<ActivateTrialDialogProps> = ({ open, onClose, user
                     disabled={activateTrial.isPending}
                     startIcon={activateTrial.isPending ? <CircularProgress size={20} /> : null}
                 >
-                    {activateTrial.isPending ? 'Activating…' : 'Activate Trial'}
+                    {activateTrial.isPending ? 'Activating…' : 'Activate'}
                 </Button>
             </DialogActions>
         </Dialog>

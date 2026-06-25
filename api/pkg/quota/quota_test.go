@@ -87,6 +87,14 @@ func proWallet(userID string) *types.Wallet {
 	}
 }
 
+func trialingWallet(userID string) *types.Wallet {
+	return &types.Wallet{
+		UserID:               userID,
+		StripeSubscriptionID: "sub_trial",
+		SubscriptionStatus:   stripe.SubscriptionStatusTrialing,
+	}
+}
+
 func orgFreeWallet(orgID string) *types.Wallet {
 	return &types.Wallet{OrgID: orgID}
 }
@@ -138,6 +146,19 @@ func (s *QuotaManagerSuite) TestGetQuotas_UserProQuotas() {
 	s.Equal(20, resp.MaxProjects)
 	s.Equal(20, resp.MaxRepositories)
 	s.Equal(10000, resp.MaxSpecTasks)
+}
+
+// A trialing subscription must grant Pro quotas, not Free. Regression test for
+// the bug where the quota path checked `status == active` exactly, so trialing
+// orgs were silently throttled to Free limits (e.g. 2 concurrent desktops).
+func (s *QuotaManagerSuite) TestGetQuotas_UserTrialingGetsProQuotas() {
+	s.expectUserQuotaDefaults("user1", trialingWallet("user1"), enforceQuotasSettings())
+
+	resp, err := s.manager.GetQuotas(context.Background(), &types.QuotaRequest{UserID: "user1"})
+	s.NoError(err)
+
+	s.Equal(5, resp.MaxConcurrentDesktops, "trialing should get Pro desktop limit, not Free")
+	s.Equal(20, resp.MaxProjects)
 }
 
 func (s *QuotaManagerSuite) TestGetQuotas_UserQuotasDisabled() {
