@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const testSecret = "8f742231b10e8888abcd99yyyzzz85a5"
+// Not a real credential — a fixed HMAC key the test signs and verifies
+// against itself. The inline directive keeps the secret scanner from
+// flagging its entropy.
+const testSecret = "8f742231b10e8888abcd99yyyzzz85a5" //gitleaks:allow
 
 // sign computes the Slack v0 request signature for a body + timestamp.
 func sign(secret, ts, body string) string {
