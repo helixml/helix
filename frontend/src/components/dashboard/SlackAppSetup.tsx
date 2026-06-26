@@ -26,9 +26,10 @@ const createSlackAppToken = '/img/slack/app_token.png'
 
 // The Helix logo the operator uploads as the Slack app icon. Slack
 // manifests can't carry an image, so this is the one branding step done by
-// hand. The helixml GitHub org avatar is a public, square PNG (512px) —
-// the same mark the bot posts under (reply_hint.go's icon_url).
-const helixSlackAppIcon = 'https://avatars.githubusercontent.com/u/149581110?s=512'
+// hand. Served from the deployment as a 1024×1024 square PNG (the Helix
+// mark on a brand-dark background) — Slack requires a square 512–2000px
+// icon, which the public GitHub avatar isn't.
+const helixSlackAppIcon = '/img/slack/helix-icon.png'
 
 // Bot scopes the global app requests. The backend's defaultSlackBotScopes
 // (helix_org_slack.go) is authoritative — it's what the OAuth install
@@ -91,7 +92,9 @@ const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, eventsURL: 
         'Mention a Worker or post in a connected channel and the right agent picks the message up, ' +
         'reads the surrounding thread, and replies right here in Slack — all backed by your own ' +
         'Helix deployment. Learn more at https://helix.ml.',
-      background_color: '#69264d',
+      // Helix brand dark — matches the app icon background and the
+      // product's own theme (frontend/src/themes.tsx darkBackgroundColor).
+      background_color: '#121214',
     },
     features: { bot_user: { display_name: name, always_online: true } },
     oauth_config: { scopes: { bot: BOT_SCOPES } },
