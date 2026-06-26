@@ -400,10 +400,11 @@ func (s *topicsRepo) Create(_ context.Context, st streaming.Topic) error {
 		return fmt.Errorf("topic %q in org %q: already exists", st.ID, st.OrganizationID)
 	}
 	// Enforce composite (org_id, name) uniqueness to mirror the gorm
-	// idx_topic_org_name constraint.
+	// idx_topic_org_name constraint. Wrap store.ErrConflict so adapters map
+	// it to 409 (and the topics service's pre-check reads it).
 	for k2, ex := range s.rows {
 		if k2.OrgID == st.OrganizationID && ex.Name == st.Name {
-			return fmt.Errorf("topic name %q already in use in org %q", st.Name, st.OrganizationID)
+			return fmt.Errorf("a topic named %q in this org %w", st.Name, store.ErrConflict)
 		}
 	}
 	s.rows[k] = st

@@ -80,6 +80,13 @@ func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (stre
 	if id == "" {
 		id = streaming.TopicID("s-" + s.newID())
 	}
+	// Validate (org, name) uniqueness up front so a clash fails as a clean
+	// conflict instead of a leaked unique-constraint error. The store's
+	// idx_topic_org_name index is the race backstop (it also returns
+	// store.ErrConflict), but this pre-check gives an early, friendly error.
+	if err := s.ensureNameAvailable(ctx, orgID, p.Name); err != nil {
+		return streaming.Topic{}, err
+	}
 	topic, err := streaming.NewTopic(id, p.Name, p.Description, p.CreatedBy, s.now(), p.Transport, orgID)
 	if err != nil {
 		return streaming.Topic{}, err
@@ -88,6 +95,21 @@ func (s *Topics) Create(ctx context.Context, orgID string, p CreateParams) (stre
 		return streaming.Topic{}, err
 	}
 	return topic, nil
+}
+
+// ensureNameAvailable returns store.ErrConflict when the org already has a
+// Topic with this name (the same exact-match the gorm unique index enforces).
+func (s *Topics) ensureNameAvailable(ctx context.Context, orgID, name string) error {
+	existing, err := s.topics.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("check topic name uniqueness: %w", err)
+	}
+	for _, t := range existing {
+		if t.Name == name {
+			return fmt.Errorf("a topic named %q already exists in this org: %w", name, store.ErrConflict)
+		}
+	}
+	return nil
 }
 
 // TransportPatch is the partial transport update applied by Update.
