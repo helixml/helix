@@ -3,12 +3,12 @@ package gorm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
+	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
 // domainEventRow is the GORM row for an append-only DomainEvent.
@@ -39,7 +39,11 @@ type domainEventRow struct {
 
 func (domainEventRow) TableName() string { return "org_domain_events" }
 
-func toDomainEventRow(e domainevent.DomainEvent) domainEventRow {
+// domainEventMapper converts between the aggregate and its row, the only
+// per-entity glue the generic Repository needs.
+type domainEventMapper struct{}
+
+func (domainEventMapper) ToRow(e domainevent.DomainEvent) (domainEventRow, error) {
 	meta := ""
 	if len(e.Metadata) > 0 {
 		meta = string(e.Metadata)
@@ -53,10 +57,10 @@ func toDomainEventRow(e domainevent.DomainEvent) domainEventRow {
 		Source:    e.Source,
 		Metadata:  meta,
 		CreatedAt: e.CreatedAt,
-	}
+	}, nil
 }
 
-func fromDomainEventRow(row domainEventRow) domainevent.DomainEvent {
+func (domainEventMapper) ToDomain(row domainEventRow) (domainevent.DomainEvent, error) {
 	var meta json.RawMessage
 	if row.Metadata != "" {
 		meta = json.RawMessage(row.Metadata)
@@ -70,37 +74,39 @@ func fromDomainEventRow(row domainEventRow) domainevent.DomainEvent {
 		Source:         row.Source,
 		Metadata:       meta,
 		CreatedAt:      row.CreatedAt,
-	}
+	}, nil
 }
 
+// domainEventsRepo wraps the generic Repository, exactly like every other
+// per-entity store (topicsRepo, activationsRepo). Append/ListBySubject just
+// name the two operations the domainevent.Repository port exposes; all the
+// gorm boilerplate lives in the generic primitive.
 type domainEventsRepo struct {
-	db *gorm.DB
+	*Repository[domainevent.DomainEvent, domainEventRow]
 }
 
 func newDomainEventsRepo(db *gorm.DB) *domainEventsRepo {
-	return &domainEventsRepo{db: db}
+	return &domainEventsRepo{Repository: NewRepository[domainevent.DomainEvent, domainEventRow](db, domainEventMapper{}, "domain event")}
 }
 
+// Append records one event (a Create under the hood).
 func (r *domainEventsRepo) Append(ctx context.Context, e domainevent.DomainEvent) error {
-	if err := r.db.WithContext(ctx).Create(toDomainEventRow(e)).Error; err != nil {
-		return fmt.Errorf("append domain event %q: %w", e.ID, err)
-	}
-	return nil
+	return r.Repository.Create(ctx, e)
 }
 
+// ListBySubject is the membership-projection read: the (org, type, subject)
+// equalities plus the optional created_at window, newest first — served by
+// idx_org_domain_events_lookup. Expressed in store.Options so it rides the
+// same query layer as every other repo.
 func (r *domainEventsRepo) ListBySubject(ctx context.Context, orgID string, typ domainevent.Type, subject string, since time.Time) ([]domainevent.DomainEvent, error) {
-	q := r.db.WithContext(ctx).
-		Where("org_id = ? AND type = ? AND subject = ?", orgID, typ, subject)
+	opts := []store.Option{
+		store.WithOrg(orgID),
+		store.WithCondition("type", string(typ)),
+		store.WithCondition("subject", subject),
+		store.WithOrderDesc("created_at"),
+	}
 	if !since.IsZero() {
-		q = q.Where("created_at >= ?", since.UTC())
+		opts = append(opts, store.WithWhere("created_at >= ?", since.UTC()))
 	}
-	var rows []domainEventRow
-	if err := q.Order("created_at DESC").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list domain events for subject %q: %w", subject, err)
-	}
-	out := make([]domainevent.DomainEvent, len(rows))
-	for i, row := range rows {
-		out[i] = fromDomainEventRow(row)
-	}
-	return out, nil
+	return r.Repository.Find(ctx, opts...)
 }
