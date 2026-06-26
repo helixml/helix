@@ -24,6 +24,12 @@ import useAccount from '../../hooks/useAccount'
 const createSlackAppManifest = '/img/slack/manifest.png'
 const createSlackAppToken = '/img/slack/app_token.png'
 
+// The Helix logo the operator uploads as the Slack app icon. Slack
+// manifests can't carry an image, so this is the one branding step done by
+// hand. The helixml GitHub org avatar is a public, square PNG (512px) —
+// the same mark the bot posts under (reply_hint.go's icon_url).
+const helixSlackAppIcon = 'https://avatars.githubusercontent.com/u/149581110?s=512'
+
 // Bot scopes the global app requests. The backend's defaultSlackBotScopes
 // (helix_org_slack.go) is authoritative — it's what the OAuth install
 // actually requests — so this manifest list must stay a superset of it.
@@ -65,6 +71,16 @@ const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, appName?: s
     display_information: {
       name,
       description: 'Helix AI — connect your Slack workspace to Helix agents.',
+      // The richest branding the manifest can carry. Slack does NOT
+      // support an app icon in the manifest (it's uploaded by hand in
+      // Basic Information → Display Information after the app is created),
+      // so name / description / long_description / background_color are
+      // all the Helix identity we can pre-fill.
+      long_description:
+        'Helix connects this Slack workspace to your Helix AI agents and org-chart Workers. ' +
+        'Mention a Worker or post in a connected channel and the right agent picks the message up, ' +
+        'reads the surrounding thread, and replies right here in Slack — all backed by your own ' +
+        'Helix deployment. Learn more at https://helix.ml.',
       background_color: '#69264d',
     },
     features: { bot_user: { display_name: name, always_online: true } },
@@ -103,18 +119,34 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
 
   const distributionNote = 'Optional — only if orgs will install into workspaces other than the one that owns the app (e.g. a SaaS deployment): open "Manage Distribution" and activate public distribution.'
 
+  // The manifest pre-fills every field Slack allows, but not the app icon
+  // (Slack has no manifest field for it). This is the one branding step the
+  // operator does by hand, on the same Basic Information page as the
+  // credentials below.
+  const iconStep: SetupStep = {
+    step: 2,
+    text: 'Give the app its Helix icon: under "Basic Information" → "Display Information", upload the Helix logo as the App icon (the manifest can\'t carry an image, so this is the one branding step you do by hand).',
+    below: (
+      <Button size="small" variant="text" href={helixSlackAppIcon} target="_blank" rel="noopener noreferrer" sx={{ pl: 0 }}>
+        Download the Helix icon
+      </Button>
+    ),
+  }
+
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
         { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix redirect URL — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
-        { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
-        { step: 3, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below — Slack verifies it instantly once the signing secret is saved.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
-        { step: 4, text: distributionNote },
+        iconStep,
+        { step: 3, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
+        { step: 4, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below — Slack verifies it instantly once the signing secret is saved.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
+        { step: 5, text: distributionNote },
       ]
     : [
         { step: 1, text: 'Click "Create the app in Slack" above. Slack opens pre-filled (Socket Mode enabled + your redirect URL) — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
-        { step: 2, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID and Client Secret into the form below.' },
-        { step: 3, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below, then Save.', image: createSlackAppToken },
-        { step: 4, text: distributionNote },
+        iconStep,
+        { step: 3, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID and Client Secret into the form below.' },
+        { step: 4, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below, then Save.', image: createSlackAppToken },
+        { step: 5, text: distributionNote },
       ]
 
   return (
