@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
+	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -222,4 +223,8 @@ type Store struct {
 	Configs            Configs
 	Activations        activation.Repository
 	Processors         Processors
+	// DomainEvents is the append-only decision/audit log (e.g. Slack
+	// thread participation). Typed port defined beside its aggregate,
+	// like Activations.
+	DomainEvents domainevent.Repository
 }

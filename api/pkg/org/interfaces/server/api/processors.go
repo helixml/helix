@@ -19,6 +19,10 @@ type ProcessorOutputDTO struct {
 	Match   string `json:"match,omitempty"`
 	Label   string `json:"label,omitempty"`
 	Owned   bool   `json:"owned"`
+	// ManagedFor is set when this route is auto-managed by a reconciler for
+	// the named Worker (the Slack auto-router). Empty for human-authored
+	// routes. Read-only — the UI surfaces it; reconcilers own these routes.
+	ManagedFor string `json:"managed_for,omitempty"`
 }
 
 // ProcessorAttributes is the JSON:API attributes object for a
@@ -31,6 +35,9 @@ type ProcessorAttributes struct {
 	Outputs      []ProcessorOutputDTO `json:"outputs"`
 	CreatedBy    string               `json:"created_by,omitempty"`
 	CreatedAt    string               `json:"created_at,omitempty"`
+	// Automated marks an automation-created processor (the Slack auto-router)
+	// rather than a human-created one. Read-only provenance flag.
+	Automated bool `json:"automated"`
 }
 
 // --- Request DTOs (swagger only) ---------------------------------------
@@ -75,7 +82,7 @@ func processorResource(p processor.Processor) jsonapi.Resource {
 	outs := make([]ProcessorOutputDTO, 0, len(p.Outputs))
 	for _, o := range p.Outputs {
 		outs = append(outs, ProcessorOutputDTO{
-			TopicID: string(o.TopicID), Match: o.Match, Label: o.Label, Owned: o.Owned,
+			TopicID: string(o.TopicID), Match: o.Match, Label: o.Label, Owned: o.Owned, ManagedFor: o.ManagedFor,
 		})
 	}
 	return jsonapi.Resource{
@@ -89,6 +96,7 @@ func processorResource(p processor.Processor) jsonapi.Resource {
 			Outputs:      outs,
 			CreatedBy:    p.CreatedBy,
 			CreatedAt:    p.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			Automated:    p.Automated(),
 		},
 	}
 }

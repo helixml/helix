@@ -348,6 +348,8 @@ func errStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, store.ErrConflict):
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}

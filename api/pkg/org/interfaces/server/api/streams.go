@@ -363,6 +363,14 @@ func (a *apiHandler) deleteTopic(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, fmt.Errorf("topic %q is an output of processor %q; delete the processor instead", id, pid))
 			return
 		}
+		// Tear down any Automated processor bound to this topic as its input
+		// (the Slack auto-router), cascading its owned route topics, before the
+		// topic goes — automation's lifecycle follows the topic it reads.
+		// Human-authored processors reading the topic are left alone.
+		if err := a.deps.Processors.DeleteAutomatedByInput(ctx, orgID, id); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("delete topic: tear down bound auto-router: %w", err))
+			return
+		}
 	}
 	if err := a.deps.Topics.Delete(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("delete topic: %w", err))

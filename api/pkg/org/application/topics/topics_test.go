@@ -70,6 +70,26 @@ func TestTopicsCreate_HappyPath(t *testing.T) {
 	}
 }
 
+func TestTopicsCreate_DuplicateNameRejected(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newService(st)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-a", Name: "general"}); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	// Same name, different id, same org → conflict (mapped to 409 by adapters).
+	_, err := svc.Create(ctx, "org-test", CreateParams{ID: "s-b", Name: "general"})
+	if !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("want store.ErrConflict for duplicate name, got %v", err)
+	}
+	// The same name in a DIFFERENT org is fine (uniqueness is per-org).
+	if _, err := svc.Create(ctx, "org-other", CreateParams{ID: "s-c", Name: "general"}); err != nil {
+		t.Fatalf("same name in another org should be allowed: %v", err)
+	}
+}
+
 func TestTopicsCreate_AutoID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
