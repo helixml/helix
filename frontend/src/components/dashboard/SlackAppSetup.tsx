@@ -63,10 +63,20 @@ const BOT_EVENTS = BOT_SCOPES.map((s) => SCOPE_EVENT[s]).filter(Boolean)
 // deployment. REST embeds the OAuth redirect URL and disables Socket
 // Mode; Socket Mode enables the socket (events arrive over the WebSocket,
 // so no public request URL is needed).
-const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, appName?: string): string => {
+const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, eventsURL: string, appName?: string): string => {
   // Slack caps the app name at 35 chars and the bot display name at 80;
   // fall back to "Helix" when no connection name was given.
   const name = (appName || '').trim().slice(0, 35) || 'Helix'
+  // REST delivers events over HTTPS, so the manifest MUST declare the
+  // Request URL — Slack rejects bot_events without either a request_url or
+  // Socket Mode. Slack verifies the URL at create time via the
+  // url_verification handshake, which the events endpoint answers before
+  // any signing secret exists. Socket Mode needs no URL (the socket is the
+  // channel), so socket_mode_enabled satisfies Slack instead.
+  const eventSubscriptions: any = { bot_events: BOT_EVENTS }
+  if (mode === 'rest') {
+    eventSubscriptions.request_url = eventsURL
+  }
   const manifest: any = {
     display_information: {
       name,
@@ -86,7 +96,7 @@ const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, appName?: s
     features: { bot_user: { display_name: name, always_online: true } },
     oauth_config: { scopes: { bot: BOT_SCOPES } },
     settings: {
-      event_subscriptions: { bot_events: BOT_EVENTS },
+      event_subscriptions: eventSubscriptions,
       org_deploy_enabled: false,
       socket_mode_enabled: mode === 'socket',
       token_rotation_enabled: false,
@@ -110,7 +120,7 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
   const origin = account.serverConfig?.server_url || (typeof window !== 'undefined' ? window.location.origin : '')
   const redirectURL = `${origin}/api/v1/slack/oauth/callback`
   const eventsURL = `${origin}/api/v1/slack/events`
-  const manifest = useMemo(() => buildManifest(ingressMode, redirectURL, appName), [ingressMode, redirectURL, appName])
+  const manifest = useMemo(() => buildManifest(ingressMode, redirectURL, eventsURL, appName), [ingressMode, redirectURL, eventsURL, appName])
   const createAppURL = `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(manifest)}`
 
   const manifestFallback = (
@@ -135,11 +145,10 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
 
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
-        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix redirect URL — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
+        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix request + redirect URLs — pick the workspace to own the app and click "Create". Slack verifies the Events Request URL on the spot, so Event Subscriptions are ready with no extra step.', image: createSlackAppManifest, below: manifestFallback },
         iconStep,
         { step: 3, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
-        { step: 4, text: 'Open "Event Subscriptions", turn it on, and set the Request URL to the value below — Slack verifies it instantly once the signing secret is saved.', below: <CopyField label="Events Request URL" value={eventsURL} /> },
-        { step: 5, text: distributionNote },
+        { step: 4, text: distributionNote },
       ]
     : [
         { step: 1, text: 'Click "Create the app in Slack" above. Slack opens pre-filled (Socket Mode enabled + your redirect URL) — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
@@ -178,6 +187,16 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
             OAuth &amp; Permissions → Redirect URLs, or the install will fail with a redirect_uri mismatch.
           </Typography>
         </Box>
+
+        {ingressMode === 'rest' && (
+          <Box sx={{ mb: 2 }}>
+            <CopyField label="Events Request URL" value={eventsURL} />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              The manifest sets this and Slack verifies it when the app is created. For an existing app,
+              add it under Event Subscriptions → Request URL.
+            </Typography>
+          </Box>
+        )}
 
         <SetupStepList steps={steps} />
 

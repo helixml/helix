@@ -873,10 +873,12 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
 
 - **Graceful with no app (always runnable).** With zero `slack_app` rows:
   the org Settings → Slack panel shows the connect surface but "Install to
-  Slack" is unavailable (no `slack_client_id`); `POST /api/v1/slack/events`
-  returns **503** (inert, no signing secret); the New Topic dialog still
-  offers `kind=slack` but a workspace must be picked. No console errors,
-  no 500s.
+  Slack" is unavailable (no `slack_client_id`); a real `POST
+  /api/v1/slack/events` delivery returns **503** (inert, no signing
+  secret), while a `url_verification` handshake still echoes its challenge
+  (**200**) so a manifest-set Request URL can verify before the app is
+  configured; the New Topic dialog still offers `kind=slack` but a
+  workspace must be picked. No console errors, no 500s.
 - **Workspace install (needs an app).** REST app with client creds:
   Settings → Slack → **Install to Slack** → approve in Slack → redirected
   back with `?slack_installed=1`; a `slack_workspace` row lands

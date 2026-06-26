@@ -51,18 +51,17 @@ type EventHandler func(ctx context.Context, teamID string, ev Event) error
 // 1 MiB is generous.
 const maxBody = 1 << 20
 
-// EventsAPIHandler returns the http.Handler Slack POSTs events to. It
-// verifies the request signature against the global app's signing
-// secret, answers the url_verification handshake, and forwards real
-// message events to onEvent. One handler serves every per-org install;
-// routing to the right org happens in onEvent, keyed on team_id.
+// EventsAPIHandler returns the http.Handler Slack POSTs events to. The
+// url_verification handshake is answered immediately; every real event is
+// verified against the global app's signing secret and routed to onEvent
+// by team_id. One handler serves every per-org install.
 //
 // Status codes:
 //   - 405 on non-POST
-//   - 503 when no signing secret is configured (inert)
-//   - 401 on missing, malformed, stale, or mismatched signature
-//   - 400 on an unparseable body
-//   - 200 on the url_verification challenge and on every accepted event
+//   - 200 on the url_verification challenge (always — see below)
+//   - 503 when a real event arrives but no signing secret is configured
+//   - 401 on a real event with a missing, stale, or mismatched signature
+//   - 200 on every accepted event
 func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -72,12 +71,6 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		secrets, err := signingSecret(r.Context())
-		if err != nil || len(secrets) == 0 {
-			logger.Info("slack.events: no signing secret — inert", "err", err)
-			http.Error(w, "slack not configured", http.StatusServiceUnavailable)
-			return
-		}
 
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 		if err != nil {
@@ -85,28 +78,37 @@ func EventsAPIHandler(signingSecret SigningSecretFunc, onEvent EventHandler, log
 			return
 		}
 
-		// Accept if the request verifies against any configured app's
-		// secret. NewSecretsVerifier also enforces the 5-minute timestamp
-		// window, so a replayed (stale) delivery is rejected too.
-		if !verifyAny(r.Header, body, secrets) {
-			logger.Warn("slack.events: bad signature")
-			http.Error(w, "invalid signature", http.StatusUnauthorized)
-			return
-		}
-
-		// url_verification handshake — Slack signs it too, so we only
-		// reach here after the signature check. Echo the challenge.
+		// Answer the url_verification handshake BEFORE the signature gate.
+		// Slack pings a Request URL with this challenge the moment an app
+		// is created from a manifest that declares the URL — which is
+		// before the operator has copied the new app's signing secret into
+		// Helix, so gating the handshake on the secret would make a
+		// manifest-driven REST install impossible to verify. The challenge
+		// is non-sensitive (we echo back exactly what Slack sent); every
+		// real event below is still signature-verified.
 		var probe struct {
 			Type      string `json:"type"`
 			Challenge string `json:"challenge"`
 		}
-		if err := json.Unmarshal(body, &probe); err != nil {
-			http.Error(w, "parse body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+		_ = json.Unmarshal(body, &probe)
 		if probe.Type == slackevents.URLVerification {
 			w.Header().Set("Content-Type", "text/plain")
 			_, _ = w.Write([]byte(probe.Challenge))
+			return
+		}
+
+		// A real delivery: require a configured signing secret and a valid
+		// signature. NewSecretsVerifier also enforces the 5-minute
+		// timestamp window, so a replayed (stale) delivery is rejected too.
+		secrets, err := signingSecret(r.Context())
+		if err != nil || len(secrets) == 0 {
+			logger.Info("slack.events: no signing secret — inert", "err", err)
+			http.Error(w, "slack not configured", http.StatusServiceUnavailable)
+			return
+		}
+		if !verifyAny(r.Header, body, secrets) {
+			logger.Warn("slack.events: bad signature")
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
 

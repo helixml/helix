@@ -35,6 +35,11 @@ func signedRequest(body string) *http.Request {
 
 func secretFn(_ context.Context) ([]string, error) { return []string{testSecret}, nil }
 
+// messageEventBody is a real (signature-gated) delivery — used by the
+// tests that assert the signature/secret gate, which the unauthenticated
+// url_verification handshake bypasses.
+const messageEventBody = `{"type":"event_callback","team_id":"T1","event":{"type":"message","channel":"C1","user":"U1","text":"hi","ts":"1700.1"}}`
+
 func TestEventsAPI_URLVerification_EchoesChallenge(t *testing.T) {
 	h := EventsAPIHandler(secretFn, func(context.Context, string, Event) error {
 		t.Fatal("onEvent must not be called for url_verification")
@@ -53,14 +58,34 @@ func TestEventsAPI_URLVerification_EchoesChallenge(t *testing.T) {
 	}
 }
 
+// The handshake is answered even with NO signing secret configured and an
+// invalid signature — this is what lets a manifest-set Request URL verify
+// at app-create time, before the operator has copied the secret in.
+func TestEventsAPI_URLVerification_EchoesBeforeSecretExists(t *testing.T) {
+	empty := func(context.Context) ([]string, error) { return nil, nil }
+	h := EventsAPIHandler(empty, func(context.Context, string, Event) error {
+		t.Fatal("onEvent must not be called for url_verification")
+		return nil
+	}, nil)
+
+	body := `{"type":"url_verification","challenge":"create-time"}`
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(body))
+	r.Header.Set("X-Slack-Signature", "v0=unsigned") // no valid signature yet
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || w.Body.String() != "create-time" {
+		t.Fatalf("status=%d body=%q, want 200 + challenge echoed", w.Code, w.Body.String())
+	}
+}
+
 func TestEventsAPI_BadSignature_Rejected(t *testing.T) {
 	h := EventsAPIHandler(secretFn, func(context.Context, string, Event) error {
 		t.Fatal("onEvent must not be called on bad signature")
 		return nil
 	}, nil)
 
-	body := `{"type":"url_verification","challenge":"x"}`
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(messageEventBody))
 	r.Header.Set("X-Slack-Request-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
 	r.Header.Set("X-Slack-Signature", "v0=deadbeef")
 	w := httptest.NewRecorder()
@@ -72,7 +97,7 @@ func TestEventsAPI_BadSignature_Rejected(t *testing.T) {
 }
 
 func TestEventsAPI_StaleTimestamp_Rejected(t *testing.T) {
-	// A correctly-signed request whose timestamp is outside Slack's
+	// A correctly-signed real event whose timestamp is outside Slack's
 	// 5-minute window is a replay — NewSecretsVerifier must reject it, so
 	// a captured-and-resent delivery can't be replayed against us.
 	h := EventsAPIHandler(secretFn, func(context.Context, string, Event) error {
@@ -80,11 +105,10 @@ func TestEventsAPI_StaleTimestamp_Rejected(t *testing.T) {
 		return nil
 	}, nil)
 
-	body := `{"type":"url_verification","challenge":"x"}`
 	staleTS := fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix())
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/slack/events", strings.NewReader(messageEventBody))
 	r.Header.Set("X-Slack-Request-Timestamp", staleTS)
-	r.Header.Set("X-Slack-Signature", sign(testSecret, staleTS, body))
+	r.Header.Set("X-Slack-Signature", sign(testSecret, staleTS, messageEventBody))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 
@@ -95,10 +119,13 @@ func TestEventsAPI_StaleTimestamp_Rejected(t *testing.T) {
 
 func TestEventsAPI_NoSigningSecret_Inert(t *testing.T) {
 	empty := func(context.Context) ([]string, error) { return nil, nil }
-	h := EventsAPIHandler(empty, func(context.Context, string, Event) error { return nil }, nil)
+	h := EventsAPIHandler(empty, func(context.Context, string, Event) error {
+		t.Fatal("a real event must not dispatch when no secret is configured")
+		return nil
+	}, nil)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, signedRequest(`{"type":"url_verification","challenge":"x"}`))
+	h.ServeHTTP(w, signedRequest(messageEventBody))
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 (inert)", w.Code)
