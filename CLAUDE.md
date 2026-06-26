@@ -324,6 +324,26 @@ If already registered, click "Sign in here" and use the same credentials.
 - Kill stuck builds: `pkill -f "cargo build" && pkill -f rustc`
 - Design docs: `design/YYYY-MM-DD-name.md`
 
+## Releases & Continuous Delivery
+**Cut a release with the GH CLI, always auto-generating the notes:**
+```bash
+gh release create <tag> --target main --generate-notes   # e.g. 2.11.32
+```
+- `--generate-notes` == GitHub's "Generate release notes" button: a per-PR changelog with
+  contributors + a Full Changelog diff vs the previous tag. **Never** hand-write `--notes`.
+- Tags are bare semver `2.11.x` (no `v` prefix). Bump the patch from the latest:
+  `git tag --sort=-v:refname | head`.
+- To regenerate notes on an existing release:
+  `gh api -X POST repos/helixml/helix/releases/generate-notes -f tag_name=<tag> -f target_commitish=main --jq .body > /tmp/n.md && gh release edit <tag> --notes-file /tmp/n.md`.
+
+**Cutting the tag self-deploys to prod.** The tag triggers the Drone tag build, whose
+`deploy-prod` pipeline (`scripts/deploy-prod.sh`) SSHes to prod and rolls the new version:
+the **london controlplane** (`helix-cloud-london`: ZFS-snapshots the DB, bumps `HELIX_VERSION`
+in `/data/helix-app/helix/.env`, `docker compose pull/up api`, health-checks, auto-rolls-back
+on failure) and the **code.helix.ml runner** (bumps `SANDBOX_TAG`). See
+`design/2026-06-25-prod-version-bump-runbook.md`. Watch the build with `gh pr checks` / the
+Drone MCP tools and confirm `deploy-prod` goes green.
+
 ## CI (Drone)
 **ALWAYS check CI yourself after pushing a PR.** Don't make the user discover the failure and tell you. As soon as a push is up, use `gh pr checks <num>` (or the Drone MCP tools / fallback below) to confirm green or surface failures. If failing, drill into the logs, fix, push the fix, and re-check — all without being asked.
 
