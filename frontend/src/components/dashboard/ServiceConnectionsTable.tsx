@@ -142,6 +142,9 @@ const ServiceConnectionsTable: FC = () => {
     onSuccess: (data: any) => {
       if (data?.success) {
         snackbar.success('Connection test successful')
+      } else if (data?.skipped) {
+        // Nothing to validate (e.g. a REST Slack app) — neutral, not a failure.
+        snackbar.info(data?.message || 'Nothing to validate for this connection')
       } else {
         snackbar.error(data?.error || 'Connection test failed')
       }

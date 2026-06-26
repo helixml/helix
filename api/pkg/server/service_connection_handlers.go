@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -17,6 +18,13 @@ import (
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// errNothingToValidate is returned by testServiceConnection for a
+// connection that exposes no credential a test can probe — e.g. a REST
+// slack_app holds only a signing secret, which has no API to check. It is
+// NOT a failure: callers leave the connection untested (neutral status)
+// instead of recording a false error or a misleading "ok".
+var errNothingToValidate = errors.New("nothing to validate: a REST Slack app's signing secret can't be probed via the API — install the app into a workspace and test that connection")
 
 // notifyServiceConnectionChange fires the optional post-mutation hook a
 // subsystem may have registered, after a connection is created, updated
@@ -226,14 +234,21 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Test the connection before saving
+	// Test the connection before saving.
 	testErr := s.testServiceConnection(r.Context(), req)
 	var lastError string
 	var lastTestedAt *time.Time
-	now := time.Now()
-	lastTestedAt = &now
-	if testErr != nil {
+	switch {
+	case errors.Is(testErr, errNothingToValidate):
+		// Nothing to probe (e.g. a REST slack_app) — leave it untested so
+		// the UI shows a neutral status, not a false error or "ok".
+	case testErr != nil:
+		now := time.Now()
+		lastTestedAt = &now
 		lastError = testErr.Error()
+	default:
+		now := time.Now()
+		lastTestedAt = &now
 	}
 
 	// Get encryption key
@@ -603,8 +618,27 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 		*f.dst = string(dec)
 	}
 
-	// Test the connection
+	// Test the connection.
 	testErr := s.testServiceConnection(r.Context(), testReq)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// Nothing to probe (e.g. a REST slack_app): not a failure. Leave the
+	// status untested (neutral) and tell the caller it was skipped rather
+	// than flipping the row to an error.
+	if errors.Is(testErr, errNothingToValidate) {
+		connection.LastError = ""
+		connection.LastTestedAt = nil
+		if err := s.Store.UpdateServiceConnection(r.Context(), connection); err != nil {
+			log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to clear connection status")
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"skipped": true,
+			"message": testErr.Error(),
+		})
+		return
+	}
 
 	// Update connection status
 	now := time.Now()
@@ -618,7 +652,6 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 		log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to update connection status after test")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if testErr != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -694,7 +727,7 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 			}
 			return nil
 		}
-		return fmt.Errorf("nothing to validate: a REST app's signing secret can't be probed via the API — install the app into a workspace and test that connection")
+		return errNothingToValidate
 
 	default:
 		return fmt.Errorf("unsupported connection type: %s", req.Type)
