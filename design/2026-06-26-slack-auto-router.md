@@ -107,10 +107,11 @@ A new, independent reconciler (composition — it *uses* the processors service
 and the worker/subscription stores; it is not bolted onto reconcile.Reconciler).
 For each automated Slack router in the org:
 
-- Desired managed routes = one per **AI** Worker: `Match = {{ mentions "<name>"
-  .Message.body }}` (word-boundary, case-insensitive; `<name>` = worker id with
-  the `w-` prefix stripped), output = an auto-provisioned, Worker-subscribed
-  Topic, `ManagedFor=<workerID>`.
+- Desired managed routes = one per **AI** Worker: `Match = {{ mentions
+  "<workerID>" .Message.body }}` (word-boundary, case-insensitive; matches the
+  Worker's **full id**, e.g. `w-jokebot` — the org's canonical name for it, not
+  the bare `jokebot` slug, which would over-trigger on common words), output =
+  an auto-provisioned, Worker-subscribed Topic, `ManagedFor=<workerID>`.
 - Diff vs the router's current `ManagedFor` routes:
   - Worker exists, no managed route → **add** route (provision output Topic via
     the processors service, subscribe the Worker).

@@ -90,6 +90,11 @@ func TestReconcileAddsRoutePerAIWorkerAndSubscribes(t *testing.T) {
 		if !ok {
 			t.Fatalf("no route for %s", wid)
 		}
+		// The predicate matches on the FULL worker id (w-alice), not the slug.
+		want := `{{ mentions "` + wid + `" .Message.body }}`
+		if o.Match != want {
+			t.Errorf("%s route predicate = %q, want %q", wid, o.Match, want)
+		}
 		// Worker subscribed to the route's output topic.
 		if _, err := s.Subscriptions.Find(ctx, org, orgchart.WorkerID(wid), o.TopicID); err != nil {
 			t.Errorf("%s not subscribed to %s: %v", wid, o.TopicID, err)

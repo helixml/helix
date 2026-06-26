@@ -12,7 +12,9 @@ func TestMentionsWord(t *testing.T) {
 		{"alice", "ALICE!", true},
 		{"sam", "the salmon was sampled", false}, // word boundary
 		{"sam", "ask Sam about it", true},
-		{"data-bot", "ping data-bot now", true},  // hyphenated name
+		{"data-bot", "ping data-bot now", true},      // hyphenated name
+		{"w-jokebot", "hey w-jokebot tell a joke", true}, // full worker id (w- prefix)
+		{"w-jokebot", "jokebot tell a joke", false},      // bare slug must NOT match the full-id route
 		{"bob", "no mention here", false},
 		{"", "anything at all", false},           // empty name never matches
 		{"alice", "", false},

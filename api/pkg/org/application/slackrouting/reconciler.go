@@ -29,7 +29,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -159,10 +158,9 @@ func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router p
 			}
 			continue
 		}
-		name := routeName(workerID)
 		out, err := r.procs.AddOutput(ctx, orgID, router.ID, processors.OutputSpec{
-			Label:      name,
-			Match:      matchPredicate(name),
+			Label:      string(workerID),
+			Match:      matchPredicate(workerID),
 			ManagedFor: string(workerID),
 		})
 		if err != nil {
@@ -199,14 +197,11 @@ func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, workerI
 	return nil
 }
 
-// routeName is the human-facing name a Worker is mentioned by: the Worker id
-// with its `w-` prefix stripped (`w-alice` → `alice`).
-func routeName(id orgchart.WorkerID) string {
-	return strings.TrimPrefix(string(id), "w-")
-}
-
 // matchPredicate builds the filter predicate for a managed route — a
-// word-boundary, case-insensitive mention of the Worker's name in the body.
-func matchPredicate(name string) string {
-	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, name)
+// word-boundary, case-insensitive mention of the Worker's FULL id in the body
+// (`w-jokebot`, not `jokebot`). The id is the Worker's canonical name and is
+// what the org refers to it by; matching the bare slug would over-trigger on
+// common words. `mentions`'s `\b…\b` handles the internal hyphen fine.
+func matchPredicate(workerID orgchart.WorkerID) string {
+	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, string(workerID))
 }
