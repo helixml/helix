@@ -23,6 +23,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/config"
+	"github.com/helixml/helix/api/pkg/org/domain/domainevent"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -48,7 +49,42 @@ func New() *store.Store {
 		Configs:            &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:        &activationsRepo{rows: map[orgKey]*activation.Activation{}},
 		Processors:         &processorsRepo{rows: map[orgKey]processor.Processor{}},
+		DomainEvents:       &domainEventsRepo{},
 	}
+}
+
+// ---- DomainEvents -------------------------------------------------------
+
+// domainEventsRepo is the in-memory append-only log. A flat slice is fine:
+// the log is small and only ever appended to and range-scanned.
+type domainEventsRepo struct {
+	mu   sync.RWMutex
+	rows []domainevent.DomainEvent
+}
+
+func (r *domainEventsRepo) Append(_ context.Context, e domainevent.DomainEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rows = append(r.rows, e)
+	return nil
+}
+
+func (r *domainEventsRepo) ListBySubject(_ context.Context, orgID string, typ domainevent.Type, subject string, since time.Time) ([]domainevent.DomainEvent, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]domainevent.DomainEvent, 0)
+	for _, e := range r.rows {
+		if e.OrganizationID != orgID || e.Type != typ || e.Subject != subject {
+			continue
+		}
+		if !since.IsZero() && e.CreatedAt.Before(since) {
+			continue
+		}
+		out = append(out, e)
+	}
+	// Newest first.
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
 }
 
 // orgKey is the composite (orgID, id) the memory repos use as a

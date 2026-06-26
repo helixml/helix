@@ -44,6 +44,13 @@ type HelixRuntime interface {
 	DeleteApp(ctx context.Context, id string) error
 }
 
+// SlackRouterReconciler converges Slack auto-routers' managed routes for an
+// org. *slackrouting.Reconciler satisfies it; declared here (not imported)
+// so lifecycle stays decoupled from the Slack-routing package.
+type SlackRouterReconciler interface {
+	Reconcile(ctx context.Context, orgID string) error
+}
+
 // Service composes the worker-lifecycle operations the REST layer
 // drives. All fields are required; pass nil HelixRuntime only in
 // tests that don't need the Helix-side teardown.
@@ -61,6 +68,12 @@ type Service struct {
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
+
+	// SlackRouter converges the Slack auto-routers' per-Worker routes after
+	// a hire/fire (add a route for the new Worker; GC the departed Worker's
+	// route). Org-scoped and idempotent. nil is a no-op (runtimes without
+	// Slack routing). Best-effort on fire, like the topology Reconciler.
+	SlackRouter SlackRouterReconciler
 
 	// --- Hire collaborators (the create half of the lifecycle) ---
 
@@ -187,6 +200,15 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 	// a no-op (the Reconciler guards its own nil receiver).
 	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {
 		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
+	}
+
+	// Add a Slack auto-route for the new Worker (no-op without Slack routing
+	// or an auto-router). Best-effort: a routing failure must not abort the
+	// hire — the reconciler is idempotent and re-runs on the next hire/fire.
+	if s.SlackRouter != nil {
+		if err := s.SlackRouter.Reconcile(ctx, orgID); err != nil {
+			s.logger().Warn("hire: reconcile slack routes", "worker", id, "err", err)
+		}
 	}
 
 	// Persist the hiring user's identity (if the request carried one)
@@ -319,6 +341,14 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		affected = append(affected, exReports...)
 		if err := s.Reconciler.Reconcile(ctx, orgID, affected...); err != nil {
 			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
+		}
+	}
+
+	// GC the fired Worker's Slack auto-route (its subscription already
+	// cascaded with the row; the reconciler drops the route + owned Topic).
+	if s.SlackRouter != nil {
+		if err := s.SlackRouter.Reconcile(ctx, orgID); err != nil {
+			s.logger().Warn("fire: reconcile slack routes", "worker", id, "err", err)
 		}
 	}
 	return nil

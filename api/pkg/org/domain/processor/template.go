@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"sync"
 	txttemplate "text/template"
 
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -44,6 +46,38 @@ var templateFuncs = txttemplate.FuncMap{
 	"contains":  func(sub, s string) bool { return strings.Contains(s, sub) },
 	"hasPrefix": func(pre, s string) bool { return strings.HasPrefix(s, pre) },
 	"hasSuffix": func(suf, s string) bool { return strings.HasSuffix(s, suf) },
+	// mentions reports whether name appears in s as a whole word,
+	// case-insensitively — `\bname\b`. It is what the Slack auto-router's
+	// per-Worker routes match on, so "Sam" fires on "hey Sam" but not on
+	// "salmon"/"sample". Reads as a predicate: `mentions "alice" .Message.body`.
+	"mentions": mentionsWord,
+}
+
+// mentionsWord reports a case-insensitive, word-boundary match of name in
+// s. An empty name never matches (a route with no name is inert rather than
+// matching everything). The pattern is cached per distinct name so repeated
+// predicate evaluation on a hot Topic doesn't recompile the regexp.
+func mentionsWord(name, s string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	return wordRegexp(name).MatchString(s)
+}
+
+var (
+	wordRegexpMu    sync.Mutex
+	wordRegexpCache = map[string]*regexp.Regexp{}
+)
+
+func wordRegexp(name string) *regexp.Regexp {
+	wordRegexpMu.Lock()
+	defer wordRegexpMu.Unlock()
+	if re, ok := wordRegexpCache[name]; ok {
+		return re
+	}
+	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `\b`)
+	wordRegexpCache[name] = re
+	return re
 }
 
 // Validate enforces: exactly one output, with an empty Match (a

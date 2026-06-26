@@ -81,6 +81,10 @@ type OutputSpec struct {
 	TopicID streaming.TopicID
 	Label   string
 	Match   string
+	// ManagedFor tags an auto-managed route with the orgchart.WorkerID it
+	// serves (see processor.Output.ManagedFor). Empty for ordinary
+	// human-authored outputs.
+	ManagedFor string
 }
 
 // CreateParams describes a new Processor. ID is optional (minted
@@ -92,8 +96,11 @@ type CreateParams struct {
 	InputTopicID streaming.TopicID
 	Kind         processor.Kind
 	Config       json.RawMessage
-	CreatedBy    string
-	Outputs      []OutputSpec
+	// CreatedBy anchors the processor to a Worker on the chart, or carries
+	// processor.SystemActor ("helix") when automation owns it — which is how
+	// a processor is marked Automated (see processor.Processor.Automated).
+	CreatedBy string
+	Outputs   []OutputSpec
 }
 
 // Create validates the config, auto-provisions the output Topic(s),
@@ -126,20 +133,22 @@ func (s *Processors) Create(ctx context.Context, orgID string, p CreateParams) (
 		if spec.TopicID != "" {
 			// Explicit existing topic — not owned by the processor, so it
 			// is not provisioned here and not torn down on delete.
-			outputs = append(outputs, processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false})
+			outputs = append(outputs, processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor})
 			continue
 		}
 		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
 			Name:        outputTopicName(id, spec.Label, i, len(specs)),
 			Description: fmt.Sprintf("Output of processor %s (%s)", id, p.Name),
-			CreatedBy:   p.CreatedBy,
+			// Inherit CreatedBy so an automated router's output Topics carry
+			// the same SystemActor marker for free.
+			CreatedBy: p.CreatedBy,
 		})
 		if err != nil {
 			rollback()
 			return processor.Processor{}, fmt.Errorf("provision output topic: %w", err)
 		}
 		provisioned = append(provisioned, t.ID)
-		outputs = append(outputs, processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true})
+		outputs = append(outputs, processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor})
 	}
 
 	proc, err := processor.NewProcessor(id, p.Name, p.InputTopicID, p.Kind, p.Config, outputs, p.CreatedBy, s.now(), orgID)
@@ -199,6 +208,96 @@ func (s *Processors) Update(ctx context.Context, orgID string, id processor.Proc
 	return existing, nil
 }
 
+// AddOutput appends one output branch ("route") to an existing Processor,
+// provisioning and owning a new output Topic when spec.TopicID is empty
+// (the same auto-provision rule as Create), or wiring an explicit existing
+// Topic otherwise. It re-validates the Kind config against the new output
+// set and re-runs the cycle check before persisting. On any failure it
+// deletes a Topic it provisioned so a failed add leaves no orphan. Returns
+// the resulting Output (with its TopicID filled in) so callers can wire a
+// subscription to it.
+func (s *Processors) AddOutput(ctx context.Context, orgID string, id processor.ProcessorID, spec OutputSpec) (processor.Output, error) {
+	existing, err := s.procs.Get(ctx, orgID, id)
+	if err != nil {
+		return processor.Output{}, err
+	}
+
+	var out processor.Output
+	var provisioned streaming.TopicID
+	if spec.TopicID != "" {
+		out = processor.Output{TopicID: spec.TopicID, Match: spec.Match, Label: spec.Label, Owned: false, ManagedFor: spec.ManagedFor}
+	} else {
+		t, err := s.topics.Create(ctx, orgID, topics.CreateParams{
+			Name:        addedOutputTopicName(id, spec.Label, spec.ManagedFor),
+			Description: fmt.Sprintf("Output of processor %s (%s)", id, existing.Name),
+			// Inherit CreatedBy so a managed route's output Topic carries the
+			// router's SystemActor marker.
+			CreatedBy: existing.CreatedBy,
+		})
+		if err != nil {
+			return processor.Output{}, fmt.Errorf("provision output topic: %w", err)
+		}
+		provisioned = t.ID
+		out = processor.Output{TopicID: t.ID, Match: spec.Match, Label: spec.Label, Owned: true, ManagedFor: spec.ManagedFor}
+	}
+	rollback := func() {
+		if provisioned != "" {
+			_ = s.topics.Delete(ctx, orgID, provisioned)
+		}
+	}
+
+	existing.Outputs = append(existing.Outputs, out)
+	if err := existing.Validate(); err != nil {
+		rollback()
+		return processor.Output{}, err
+	}
+	if err := s.checkAcyclic(ctx, orgID, existing, id); err != nil {
+		rollback()
+		return processor.Output{}, err
+	}
+	if err := s.procs.Update(ctx, existing); err != nil {
+		rollback()
+		return processor.Output{}, err
+	}
+	return out, nil
+}
+
+// RemoveOutput drops the output branch whose destination is topicID and,
+// when that branch owned its Topic, deletes the Topic (cascading its
+// subscriptions). Idempotent: an unknown topicID is a no-op. Rejected when
+// it would leave the Processor with zero outputs (Validate forbids that) —
+// delete the whole Processor instead.
+func (s *Processors) RemoveOutput(ctx context.Context, orgID string, id processor.ProcessorID, topicID streaming.TopicID) error {
+	existing, err := s.procs.Get(ctx, orgID, id)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, o := range existing.Outputs {
+		if o.TopicID == topicID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil // already gone
+	}
+	removed := existing.Outputs[idx]
+	existing.Outputs = append(existing.Outputs[:idx:idx], existing.Outputs[idx+1:]...)
+	if err := existing.Validate(); err != nil {
+		return fmt.Errorf("remove output %q: %w", topicID, err)
+	}
+	if err := s.procs.Update(ctx, existing); err != nil {
+		return err
+	}
+	if removed.Owned {
+		if err := s.topics.Delete(ctx, orgID, removed.TopicID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("output removed but owned topic %q cleanup failed: %w", removed.TopicID, err)
+		}
+	}
+	return nil
+}
+
 // Delete removes the Processor and the output Topics it owns (cascading
 // their subscriptions, as topic delete already does).
 func (s *Processors) Delete(ctx context.Context, orgID string, id processor.ProcessorID) error {
@@ -222,6 +321,28 @@ func (s *Processors) Delete(ctx context.Context, orgID string, id processor.Proc
 				continue
 			}
 			return fmt.Errorf("processor deleted but output topic %q cleanup failed: %w", o.TopicID, err)
+		}
+	}
+	return nil
+}
+
+// DeleteAutomatedByInput deletes every Automated Processor whose input is
+// inputTopicID, cascading each one's owned output Topics (via Delete). It is
+// how the Slack auto-router is torn down when its workspace Topic — or the
+// workspace integration itself — is deleted: the router's lifecycle is bound
+// to the Topic it reads. Human-authored processors reading the same Topic are
+// left untouched (they become inert, but the operator owns them). Idempotent.
+func (s *Processors) DeleteAutomatedByInput(ctx context.Context, orgID string, inputTopicID streaming.TopicID) error {
+	all, err := s.procs.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("list processors: %w", err)
+	}
+	for _, p := range all {
+		if p.InputTopicID != inputTopicID || !p.Automated() {
+			continue
+		}
+		if err := s.Delete(ctx, orgID, p.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("delete automated processor %q: %w", p.ID, err)
 		}
 	}
 	return nil
@@ -308,6 +429,23 @@ func (s *Processors) checkAcyclic(ctx context.Context, orgID string, candidate p
 		}
 	}
 	return nil
+}
+
+// addedOutputTopicName names an output Topic provisioned by AddOutput.
+// Unlike outputTopicName (which knows the full branch count up front), an
+// added branch names itself from its label, falling back to its ManagedFor
+// Worker id, then a generic suffix. Processor names are unique per org, so
+// `<procID> · <label>` cannot collide across processors; the topic id is
+// independently minted and unique even if two labels coincide.
+func addedOutputTopicName(id processor.ProcessorID, label, managedFor string) string {
+	suffix := label
+	if suffix == "" {
+		suffix = managedFor
+	}
+	if suffix == "" {
+		suffix = "out"
+	}
+	return fmt.Sprintf("%s · %s", id, suffix)
 }
 
 // outputTopicName builds a unique, human-readable name for an

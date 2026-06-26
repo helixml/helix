@@ -127,4 +127,115 @@ func TestUpdateRevalidatesConfig(t *testing.T) {
 	}
 }
 
+// filterCfg builds an empty filter config blob.
+func filterRouter(t *testing.T, ctx context.Context, svc *processors.Processors, top *topics.Topics) processor.Processor {
+	t.Helper()
+	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-slack", Name: "Slack"})
+	p, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Router", InputTopicID: "s-slack", Kind: processor.KindFilter,
+		Outputs: []processors.OutputSpec{{Label: "default"}}, // unconditional default
+	})
+	if err != nil {
+		t.Fatalf("create router: %v", err)
+	}
+	return p
+}
+
+func TestAddOutputProvisionsOwnedTopicAndPersists(t *testing.T) {
+	ctx := context.Background()
+	s, svc, top := setup(t)
+	p := filterRouter(t, ctx, svc, top)
+
+	out, err := svc.AddOutput(ctx, org, p.ID, processors.OutputSpec{
+		Label: "alice", Match: `{{ mentions "alice" .Message.body }}`, ManagedFor: "w-alice",
+	})
+	if err != nil {
+		t.Fatalf("add output: %v", err)
+	}
+	if out.TopicID == "" || !out.Owned || out.ManagedFor != "w-alice" {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+	// The owned topic exists.
+	if _, err := s.Topics.Get(ctx, org, out.TopicID); err != nil {
+		t.Errorf("owned output topic not created: %v", err)
+	}
+	// Persisted: the processor now has 2 outputs.
+	got, _ := svc.Get(ctx, org, p.ID)
+	if len(got.Outputs) != 2 {
+		t.Fatalf("want 2 outputs after add, got %d", len(got.Outputs))
+	}
+}
+
+func TestRemoveOutputDropsRouteAndOwnedTopic(t *testing.T) {
+	ctx := context.Background()
+	s, svc, top := setup(t)
+	p := filterRouter(t, ctx, svc, top)
+	out, _ := svc.AddOutput(ctx, org, p.ID, processors.OutputSpec{Label: "alice", Match: "x", ManagedFor: "w-alice"})
+
+	if err := svc.RemoveOutput(ctx, org, p.ID, out.TopicID); err != nil {
+		t.Fatalf("remove output: %v", err)
+	}
+	got, _ := svc.Get(ctx, org, p.ID)
+	if len(got.Outputs) != 1 {
+		t.Fatalf("want 1 output after remove, got %d", len(got.Outputs))
+	}
+	if _, err := s.Topics.Get(ctx, org, out.TopicID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("owned output topic %q should be deleted, err=%v", out.TopicID, err)
+	}
+}
+
+func TestRemoveLastOutputRejected(t *testing.T) {
+	ctx := context.Background()
+	_, svc, top := setup(t)
+	p := filterRouter(t, ctx, svc, top)
+	// The router starts with exactly one (default) output; removing it would
+	// leave the processor with zero outputs, which Validate forbids.
+	if err := svc.RemoveOutput(ctx, org, p.ID, p.Outputs[0].TopicID); err == nil {
+		t.Error("want error removing the last output, got nil")
+	}
+}
+
+func TestDeleteAutomatedByInputRemovesRouterButNotManual(t *testing.T) {
+	ctx := context.Background()
+	s, svc, top := setup(t)
+	_, _ = top.Create(ctx, org, topics.CreateParams{ID: "s-ws", Name: "Workspace"})
+
+	// Automated router on s-ws (CreatedBy = SystemActor) with an owned output.
+	auto, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Auto", InputTopicID: "s-ws", Kind: processor.KindFilter,
+		Outputs: []processors.OutputSpec{{Label: "default"}}, CreatedBy: processor.SystemActor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	autoOut := auto.Outputs[0].TopicID
+	// A human-authored filter on the SAME input topic — must be left alone.
+	manual, err := svc.Create(ctx, org, processors.CreateParams{
+		Name: "Manual", InputTopicID: "s-ws", Kind: processor.KindFilter,
+		Outputs: []processors.OutputSpec{{Label: "default"}}, CreatedBy: "w-alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteAutomatedByInput(ctx, org, "s-ws"); err != nil {
+		t.Fatalf("DeleteAutomatedByInput: %v", err)
+	}
+	// Automated router gone + its owned output topic cascaded.
+	if _, err := svc.Get(ctx, org, auto.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("automated router should be deleted, err=%v", err)
+	}
+	if _, err := s.Topics.Get(ctx, org, autoOut); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("automated router's owned output topic should be cascaded, err=%v", err)
+	}
+	// Manual processor untouched.
+	if _, err := svc.Get(ctx, org, manual.ID); err != nil {
+		t.Errorf("manual processor should survive, err=%v", err)
+	}
+	// Idempotent: a second call is a no-op.
+	if err := svc.DeleteAutomatedByInput(ctx, org, "s-ws"); err != nil {
+		t.Errorf("second DeleteAutomatedByInput should be no-op, got %v", err)
+	}
+}
+
 var _ = streaming.TopicID("")
