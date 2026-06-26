@@ -68,7 +68,7 @@ func TestFire_RemovesWorkersTranscript(t *testing.T) {
 		t.Fatalf("precondition: transcript not seeded: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}
+	svc := &lifecycle.Service{Store: st, WorkerReconcilers: []lifecycle.WorkerReconciler{reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
 	if err := svc.Fire(ctx, orgID, worker.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestFire_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 		t.Fatalf("create subscription: %v", err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}
+	svc := &lifecycle.Service{Store: st, WorkerReconcilers: []lifecycle.WorkerReconciler{reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})}}
 	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 		t.Fatalf("precondition: DM channel %q should exist after wiring the edge: %v", dm, err)
 	}
 
-	svc := &lifecycle.Service{Store: st, Reconciler: rec}
+	svc := &lifecycle.Service{Store: st, WorkerReconcilers: []lifecycle.WorkerReconciler{rec}}
 	if err := svc.Fire(ctx, orgID, mgr.ID()); err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
@@ -249,8 +249,8 @@ func TestFire_TearsDownDMChannelToReports(t *testing.T) {
 // Helix project/app, so the Fire cascade never calls into Helix).
 func newLifecycleSvc(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
-		Store:      st,
-		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions}),
+		Store:             st,
+		WorkerReconcilers: []lifecycle.WorkerReconciler{reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions})},
 	}
 }
 
@@ -366,7 +366,7 @@ func TestDeleteRole_ReconcilesSurvivingCrossRoleReport(t *testing.T) {
 
 	svc := newLifecycleSvc(st)
 	// Provision the channels the edge implies (team topic + DM channel).
-	if err := svc.Reconciler.Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
+	if err := svc.WorkerReconcilers[0].Reconcile(ctx, orgID, "w-mgr", "w-ic"); err != nil {
 		t.Fatalf("reconcile (wire edge): %v", err)
 	}
 	dm := channels.DMTopicID("w-mgr", "w-ic")

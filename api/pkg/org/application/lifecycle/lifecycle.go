@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -44,13 +43,27 @@ type HelixRuntime interface {
 	DeleteApp(ctx context.Context, id string) error
 }
 
-// OrgReconciler converges some derived state for a whole org after a
-// structural change. Contract: org-scoped (no per-Worker scoping),
-// idempotent, and best-effort (the lifecycle logs a failure and carries on —
-// the reconciler re-runs on the next mutation / at startup). *slackrouting.
-// Reconciler is the first implementer; new whole-org reconcilers just satisfy
-// this and get appended to Service.Reconcilers. Declared here (the consumer)
-// so lifecycle stays decoupled from each reconciler's package.
+// The lifecycle runs two kinds of reconciler after a structural change, and
+// they are deliberately separate types because their CONTRACTS differ — not
+// just a comment, the compiler enforces which list a reconciler can join.
+//
+// WorkerReconciler is scoped to the Worker(s) that changed: callers pass the
+// affected ids and it converges only their neighbourhood (cheap, and it
+// no-ops on an empty set). It is structural — Hire treats a failure as FATAL
+// (the new Worker's channels weren't set up), Fire as best-effort.
+// *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
+type WorkerReconciler interface {
+	Reconcile(ctx context.Context, orgID string, affected ...orgchart.WorkerID) error
+}
+
+// OrgReconciler converges some derived state for the WHOLE org — it takes no
+// affected set. Contract: idempotent and always best-effort (a failure is
+// logged and the mutation proceeds; it re-runs on the next mutation / at
+// startup). *slackrouting.Reconciler (Slack auto-router routes) is the first
+// implementer; new whole-org reconcilers just satisfy this and append.
+//
+// Both are declared here (the consumer) so lifecycle stays decoupled from
+// each reconciler's package.
 type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
@@ -63,23 +76,20 @@ type Service struct {
 	Helix  HelixRuntime
 	Logger *slog.Logger
 
-	// Reconciler reconciles the activation/team Topics after the Worker
-	// row is gone — it tears down the fired Worker's own Topics and
-	// collapses an ex-manager's team Topic when its last report just
-	// left. nil is a no-op (tests without topology wiring).
-	Reconciler *reconcile.Reconciler
+	// WorkerReconcilers are the Worker-scoped reconcilers (see the contract
+	// on WorkerReconciler) run on hire (FATAL) and fire (best-effort) with the
+	// affected Worker ids. Today just the activation/team/DM topology
+	// reconciler. Empty/nil is a no-op.
+	WorkerReconcilers []WorkerReconciler
 
 	// Mirror is the transcript mirror; Fire stops the fired Worker's
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
 
-	// Reconcilers are whole-org, best-effort reconcilers run after every
-	// hire/fire — each converges some derived state (Slack auto-router routes
-	// today; future ones just append). They differ from Reconciler above,
-	// which is scoped to the affected Workers and is fatal on hire; these take
-	// only the org and their failures are logged, never aborting the
-	// mutation. Empty/nil is a no-op.
-	Reconcilers []OrgReconciler
+	// OrgReconcilers are the whole-org, best-effort reconcilers (see the
+	// contract on OrgReconciler) run after every hire/fire — Slack auto-router
+	// routes today; future ones just append. Empty/nil is a no-op.
+	OrgReconcilers []OrgReconciler
 
 	// --- Hire collaborators (the create half of the lifecycle) ---
 
@@ -200,18 +210,23 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		}
 	}
 
-	// Reconcile the activation/team Topics implied by the new Worker and
-	// its reporting line (mints the hire's transcript + the
-	// manager's team Topic from one declarative pass). A nil Reconciler is
-	// a no-op (the Reconciler guards its own nil receiver).
-	if err := s.Reconciler.Reconcile(ctx, orgID, id); err != nil {
-		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
+	// Reconcile the activation/team Topics implied by the new Worker and its
+	// reporting line (mints the hire's transcript + the manager's team Topic
+	// from one declarative pass). FATAL: a Worker without its channels is a
+	// broken hire. Worker-scoped to the new id.
+	for _, rec := range s.WorkerReconcilers {
+		if rec == nil {
+			continue
+		}
+		if err := rec.Reconcile(ctx, orgID, id); err != nil {
+			return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
+		}
 	}
 
 	// Run the whole-org reconcilers (Slack auto-router routes, …) for the new
 	// Worker. Best-effort: a failure must not abort the hire — each is
 	// idempotent and re-runs on the next hire/fire and at startup.
-	s.runReconcilers(ctx, orgID, "hire", id)
+	s.runOrgReconcilers(ctx, orgID, "hire", id)
 
 	// Persist the hiring user's identity (if the request carried one)
 	// BEFORE dispatch so the Spawner picks it up on its first call.
@@ -330,18 +345,18 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		return fmt.Errorf("delete worker row %q: %w", id, err)
 	}
 
-	// Settle the activation/team Topics now that the row (and its
-	// reporting lines) are gone. topology is the single owner of their
-	// lifecycle: reconciling `id` tears down the fired Worker's own
-	// activation + team Topics (it has fallen out of the graph), and
-	// reconciling the ex-managers collapses a manager's team Topic when
-	// its last report just left. Best-effort: a failure here leaves a
-	// dangling Topic row, not a half-deleted worker, so we log and
-	// continue rather than failing the Fire.
-	if s.Reconciler != nil {
-		affected := append([]orgchart.WorkerID{id}, exManagers...)
-		affected = append(affected, exReports...)
-		if err := s.Reconciler.Reconcile(ctx, orgID, affected...); err != nil {
+	// Settle the activation/team Topics now that the row (and its reporting
+	// lines) are gone — the Worker-scoped reconcilers tear down the fired
+	// Worker's own Topics and collapse an ex-manager's team Topic when its
+	// last report just left. Best-effort here (unlike hire): a failure leaves
+	// a dangling Topic row, not a half-deleted worker, so we log and continue.
+	affected := append([]orgchart.WorkerID{id}, exManagers...)
+	affected = append(affected, exReports...)
+	for _, rec := range s.WorkerReconcilers {
+		if rec == nil {
+			continue
+		}
+		if err := rec.Reconcile(ctx, orgID, affected...); err != nil {
 			s.logger().Warn("fire: reconcile topology", "worker", id, "err", err)
 		}
 	}
@@ -349,15 +364,15 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// Run the whole-org reconcilers so the fired Worker's Slack auto-route is
 	// GC'd (its subscription already cascaded with the row; the reconciler
 	// drops the route + owned Topic). Best-effort, like topology above.
-	s.runReconcilers(ctx, orgID, "fire", id)
+	s.runOrgReconcilers(ctx, orgID, "fire", id)
 	return nil
 }
 
-// runReconcilers runs every whole-org reconciler best-effort, logging (not
+// runOrgReconcilers runs every whole-org reconciler best-effort, logging (not
 // propagating) failures so one reconciler can't abort the lifecycle mutation
 // or block the others. phase/worker are for the log line only.
-func (s *Service) runReconcilers(ctx context.Context, orgID, phase string, worker orgchart.WorkerID) {
-	for _, rec := range s.Reconcilers {
+func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, worker orgchart.WorkerID) {
+	for _, rec := range s.OrgReconcilers {
 		if rec == nil {
 			continue
 		}

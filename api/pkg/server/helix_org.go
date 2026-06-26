@@ -618,11 +618,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Store:  st,
 		Helix:  inProcClient,
 		Logger: logger,
-		// Single topology reconciler shared with the tools registry and
-		// the REST handlers — one owner of activation/team Topic
-		// lifecycle across hire, reparent, and fire.
-		Reconciler: deps.Reconciler,
-		Mirror:     mirror, // Fire stops the fired worker's subscription
+		// Worker-scoped reconcilers: the single topology reconciler (one owner
+		// of activation/team Topic lifecycle across hire, reparent, and fire).
+		WorkerReconcilers: []lifecycle.WorkerReconciler{deps.Reconciler},
+		Mirror:            mirror, // Fire stops the fired worker's subscription
 		// Hire collaborators (the create half of the lifecycle). REST POST
 		// /workers and the MCP hire_worker tool both drive Hire through
 		// this service, so the hire semantics live in one place.
@@ -694,7 +693,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Now:           deps.Now,
 		Logger:        logger,
 	})
-	lifecycleSvc.Reconcilers = append(lifecycleSvc.Reconcilers, slackRouteReconciler)
+	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
 	// Thread-follow: the post-routing arm that records thread participation
 	// in the domain-event log and (when enabled) fans later thread messages
 	// out to existing participants. Registered late on the runner, like the
