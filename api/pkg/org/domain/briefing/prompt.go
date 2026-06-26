@@ -116,6 +116,15 @@ func renderTrigger(t activation.Trigger) string {
 		b.WriteString(indentBlock(string(m.Extra), "    "))
 		b.WriteByte('\n')
 	}
+	// ReplyHint is transport-authored "how to respond" guidance (e.g. the
+	// Slack ingest bakes in the mint_credential + chat.postMessage recipe
+	// with this message's channel/thread). Rendered last so it reads as
+	// the call to action after the event context.
+	if m.ReplyHint != "" {
+		b.WriteString("  how_to_reply:\n")
+		b.WriteString(indentBlock(m.ReplyHint, "    "))
+		b.WriteByte('\n')
+	}
 	return b.String()
 }
 

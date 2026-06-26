@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,8 +15,28 @@ import (
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/crypto"
+	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// errNothingToValidate is returned by testServiceConnection for a
+// connection that exposes no credential a test can probe — e.g. a REST
+// slack_app holds only a signing secret, which has no API to check. It is
+// NOT a failure: callers leave the connection untested (neutral status)
+// instead of recording a false error or a misleading "ok".
+var errNothingToValidate = errors.New("nothing to validate: a REST Slack app's signing secret can't be probed via the API — install the app into a workspace and test that connection")
+
+// notifyServiceConnectionChange fires the optional post-mutation hook a
+// subsystem may have registered, after a connection is created, updated
+// (deleted=false) or deleted (deleted=true). This handler stays generic:
+// it knows the connection types and their credentials but nothing about
+// which subsystem reacts or why (helix-org reacts to slack_app changes,
+// registered in mountHelixOrg). No-op when nothing is registered.
+func (s *HelixAPIServer) notifyServiceConnectionChange(ctx context.Context, conn *types.ServiceConnection, deleted bool) {
+	if s.onServiceConnectionChange != nil {
+		s.onServiceConnectionChange(ctx, conn, deleted)
+	}
+}
 
 // listServiceConnections returns all service connections for the organization
 // @Summary List service connections
@@ -49,6 +70,21 @@ func (s *HelixAPIServer) listServiceConnections(w http.ResponseWriter, r *http.R
 		log.Error().Err(err).Msg("Failed to list service connections")
 		http.Error(w, fmt.Sprintf("Failed to list connections: %s", err.Error()), http.StatusInternalServerError)
 		return
+	}
+
+	// The admin panel manages deployment-global, admin-owned connections
+	// (GitHub App, ADO, global Slack app). Org-scoped installs like
+	// slack_workspace belong to an org and are managed in that org's own
+	// settings, so when no org filter is given (the global view) drop any
+	// connection that belongs to an org.
+	if organizationID == "" {
+		global := connections[:0]
+		for _, c := range connections {
+			if c.OrganizationID == "" {
+				global = append(global, c)
+			}
+		}
+		connections = global
 	}
 
 	// Convert to response objects (hide sensitive fields)
@@ -180,19 +216,39 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		}
 		providerType = types.ExternalRepositoryTypeADO
 
+	case types.ServiceConnectionTypeSlackApp:
+		// The global Slack app. REST mode needs client id/secret +
+		// signing secret; Socket Mode needs app token + bot token. We
+		// don't hard-require a particular subset here — the operator may
+		// fill REST now and Socket later — but at least one credential
+		// must be present so an empty row can't masquerade as configured.
+		if req.SlackClientID == "" && req.SlackSigningSecret == "" && req.SlackAppToken == "" && req.SlackBotToken == "" {
+			http.Error(w, "Slack app requires at least one of: client id/signing secret (REST) or app/bot token (Socket Mode)", http.StatusBadRequest)
+			return
+		}
+		// Slack isn't a git provider — leave ProviderType unset; the
+		// connection Type (slack_app) already identifies it.
+
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported connection type: %s", req.Type), http.StatusBadRequest)
 		return
 	}
 
-	// Test the connection before saving
+	// Test the connection before saving.
 	testErr := s.testServiceConnection(r.Context(), req)
 	var lastError string
 	var lastTestedAt *time.Time
-	now := time.Now()
-	lastTestedAt = &now
-	if testErr != nil {
+	switch {
+	case errors.Is(testErr, errNothingToValidate):
+		// Nothing to probe (e.g. a REST slack_app) — leave it untested so
+		// the UI shows a neutral status, not a false error or "ok".
+	case testErr != nil:
+		now := time.Now()
+		lastTestedAt = &now
 		lastError = testErr.Error()
+	default:
+		now := time.Now()
+		lastTestedAt = &now
 	}
 
 	// Get encryption key
@@ -243,11 +299,39 @@ func (s *HelixAPIServer) createServiceConnection(w http.ResponseWriter, r *http.
 		connection.ADOClientSecret = encryptedSecret
 	}
 
+	// Encrypt and store global Slack app credentials
+	if req.Type == types.ServiceConnectionTypeSlackApp {
+		connection.SlackClientID = req.SlackClientID
+		connection.SlackIngressMode = req.SlackIngressMode
+		for _, f := range []struct {
+			val string
+			dst *string
+		}{
+			{req.SlackClientSecret, &connection.SlackClientSecret},
+			{req.SlackSigningSecret, &connection.SlackSigningSecret},
+			{req.SlackAppToken, &connection.SlackAppToken},
+			{req.SlackBotToken, &connection.SlackBotToken},
+		} {
+			if f.val == "" {
+				continue
+			}
+			enc, err := crypto.EncryptAES256GCM([]byte(f.val), encryptionKey)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to encrypt slack credential")
+				http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
+				return
+			}
+			*f.dst = enc
+		}
+	}
+
 	if err := s.Store.CreateServiceConnection(r.Context(), connection); err != nil {
 		log.Error().Err(err).Msg("Failed to create service connection")
 		http.Error(w, fmt.Sprintf("Failed to create connection: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+
+	s.notifyServiceConnectionChange(r.Context(), connection, false)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -355,11 +439,41 @@ func (s *HelixAPIServer) updateServiceConnection(w http.ResponseWriter, r *http.
 		connection.ADOClientSecret = encryptedSecret
 	}
 
+	// Update global Slack app fields if provided
+	if req.SlackClientID != nil {
+		connection.SlackClientID = *req.SlackClientID
+	}
+	if req.SlackIngressMode != nil {
+		connection.SlackIngressMode = *req.SlackIngressMode
+	}
+	for _, f := range []struct {
+		val *string
+		dst *string
+	}{
+		{req.SlackClientSecret, &connection.SlackClientSecret},
+		{req.SlackSigningSecret, &connection.SlackSigningSecret},
+		{req.SlackAppToken, &connection.SlackAppToken},
+		{req.SlackBotToken, &connection.SlackBotToken},
+	} {
+		if f.val == nil || *f.val == "" {
+			continue
+		}
+		enc, err := crypto.EncryptAES256GCM([]byte(*f.val), encryptionKey)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to encrypt slack credential")
+			http.Error(w, "Failed to encrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		*f.dst = enc
+	}
+
 	if err := s.Store.UpdateServiceConnection(r.Context(), connection); err != nil {
 		log.Error().Err(err).Msg("Failed to update service connection")
 		http.Error(w, fmt.Sprintf("Failed to update connection: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+
+	s.notifyServiceConnectionChange(r.Context(), connection, false)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(connection.ToResponse())
@@ -396,7 +510,7 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 	}
 
 	// Verify connection exists
-	_, err := s.Store.GetServiceConnection(r.Context(), connectionID)
+	conn, err := s.Store.GetServiceConnection(r.Context(), connectionID)
 	if err != nil {
 		http.Error(w, "Connection not found", http.StatusNotFound)
 		return
@@ -407,6 +521,8 @@ func (s *HelixAPIServer) deleteServiceConnection(w http.ResponseWriter, r *http.
 		http.Error(w, fmt.Sprintf("Failed to delete connection: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+
+	s.notifyServiceConnectionChange(r.Context(), conn, true)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -483,9 +599,46 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 		}
 		testReq.ADOClientSecret = string(decryptedSecret)
 	}
+	// Slack tokens — decrypt so the validators can probe Slack.
+	for _, f := range []struct {
+		enc string
+		dst *string
+	}{
+		{connection.SlackAppToken, &testReq.SlackAppToken},
+		{connection.SlackBotToken, &testReq.SlackBotToken},
+	} {
+		if f.enc == "" {
+			continue
+		}
+		dec, err := crypto.DecryptAES256GCM(f.enc, encryptionKey)
+		if err != nil {
+			http.Error(w, "Failed to decrypt credentials", http.StatusInternalServerError)
+			return
+		}
+		*f.dst = string(dec)
+	}
 
-	// Test the connection
+	// Test the connection.
 	testErr := s.testServiceConnection(r.Context(), testReq)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// Nothing to probe (e.g. a REST slack_app): not a failure. Leave the
+	// status untested (neutral) and tell the caller it was skipped rather
+	// than flipping the row to an error.
+	if errors.Is(testErr, errNothingToValidate) {
+		connection.LastError = ""
+		connection.LastTestedAt = nil
+		if err := s.Store.UpdateServiceConnection(r.Context(), connection); err != nil {
+			log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to clear connection status")
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"skipped": true,
+			"message": testErr.Error(),
+		})
+		return
+	}
 
 	// Update connection status
 	now := time.Now()
@@ -499,7 +652,6 @@ func (s *HelixAPIServer) testServiceConnectionEndpoint(w http.ResponseWriter, r 
 		log.Error().Err(err).Str("connection_id", connectionID).Msg("Failed to update connection status after test")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if testErr != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -555,6 +707,27 @@ func (s *HelixAPIServer) testServiceConnection(ctx context.Context, req types.Se
 			return fmt.Errorf("failed to authenticate with ADO Service Principal: %w", err)
 		}
 		return nil
+
+	case types.ServiceConnectionTypeSlackApp, types.ServiceConnectionTypeSlackWorkspace:
+		// Validate whatever credential actually reaches Slack:
+		//   - a Socket Mode app-level token (xapp-) via apps.connections.open
+		//     (returns a wss URL but opens no persistent connection)
+		//   - a bot token (xoxb-) via auth.test
+		// A REST app exposes only a signing secret, which has no API to
+		// probe — report that honestly rather than a false "ok".
+		if req.SlackAppToken != "" {
+			if err := slackcore.ValidateAppToken(ctx, req.SlackAppToken, ""); err != nil {
+				return fmt.Errorf("Slack app-level token rejected: %w", err)
+			}
+			return nil
+		}
+		if req.SlackBotToken != "" {
+			if err := slackcore.ValidateBotToken(ctx, req.SlackBotToken, ""); err != nil {
+				return fmt.Errorf("Slack bot token rejected: %w", err)
+			}
+			return nil
+		}
+		return errNothingToValidate
 
 	default:
 		return fmt.Errorf("unsupported connection type: %s", req.Type)

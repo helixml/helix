@@ -29,7 +29,7 @@ func TestCredentialProvider_Mint_HappyPath(t *testing.T) {
 		gotOrgID = orgID
 		return githubtransport.Identity{Token: "ghs_test_token", ExpiresAt: expiry}, nil
 	})
-	cred, err := p.Mint(context.Background(), "org-test")
+	cred, err := p.Mint(context.Background(), "org-test", "")
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestCredentialProvider_Mint_EmptyTokenError(t *testing.T) {
 	p := githubtransport.NewCredentialProvider(func(_ context.Context, _ string) (githubtransport.Identity, error) {
 		return githubtransport.Identity{}, nil
 	})
-	_, err := p.Mint(context.Background(), "org-empty")
+	_, err := p.Mint(context.Background(), "org-empty", "")
 	if err == nil {
 		t.Fatal("Mint with empty identity: want error, got nil")
 	}
@@ -73,7 +73,7 @@ func TestCredentialProvider_Mint_ResolverErrorPropagates(t *testing.T) {
 	p := githubtransport.NewCredentialProvider(func(_ context.Context, _ string) (githubtransport.Identity, error) {
 		return githubtransport.Identity{}, boom
 	})
-	_, err := p.Mint(context.Background(), "org-test")
+	_, err := p.Mint(context.Background(), "org-test", "")
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v, want wrapping %v", err, boom)
 	}
@@ -83,7 +83,7 @@ func TestCredentialProvider_Mint_ResolverErrorPropagates(t *testing.T) {
 func TestCredentialProvider_Mint_NilResolverError(t *testing.T) {
 	t.Parallel()
 	p := githubtransport.NewCredentialProvider(nil)
-	_, err := p.Mint(context.Background(), "org-test")
+	_, err := p.Mint(context.Background(), "org-test", "")
 	if err == nil {
 		t.Fatal("Mint with nil resolver: want error, got nil")
 	}

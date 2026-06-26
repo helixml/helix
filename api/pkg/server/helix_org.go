@@ -26,8 +26,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -38,12 +38,14 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	helixorgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
+	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -79,6 +81,24 @@ type helixOrgHandlers struct {
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
 	publicGitHubWebhookForStream http.Handler
+	// publicSlackEvents is the global inbound Slack Events API handler
+	// mounted on the INSECURE router at /api/v1/slack/events. Slack
+	// deliveries authenticate via the global app's signing-secret HMAC
+	// (checked inside the handler), and team_id routes each delivery to
+	// the owning org. One handler serves every org install.
+	publicSlackEvents http.Handler
+	// slackSocketRun runs the Socket Mode ingress for the lifetime of
+	// ctx, when the global app is configured for it. Started in a
+	// goroutine from the run loop, like streamCron.
+	slackSocketRun func(ctx context.Context)
+	// slackTopics auto-creates/removes the per-workspace Slack Topic when
+	// a workspace is connected/disconnected. An org primitive owned by
+	// this subsystem, not the core server.
+	slackTopics *slackWorkspaceTopics
+	// slackSocket reconciles live Socket Mode connections against the
+	// configured socket-mode apps; Kicked by the admin service-connection
+	// handlers when a slack_app changes so it applies without a restart.
+	slackSocket *slacktransport.SocketManager
 	// publicGitHubManifestCallback receives GitHub's browser redirect after
 	// the App Manifest flow creates the app (path
 	// /api/v1/orgs/{org}/github/app-manifest/callback). Insecure mount: it's
@@ -146,7 +166,7 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 // services" shape from design §5.4.
 type orgServices struct {
 	Roles         *roles.Roles
-	Topics       *topics.Topics
+	Topics        *topics.Topics
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -164,8 +184,8 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	return orgServices{
-		Roles:   rolesSvc,
-		Topics:  topicsSvc,
+		Roles:  rolesSvc,
+		Topics: topicsSvc,
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
 		}),
@@ -179,6 +199,125 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
 	}
+}
+
+// mountHelixOrg brings up the optional helix-org subsystem and registers
+// its entire HTTP surface: the public GitHub/Slack webhooks + OAuth
+// callbacks on the insecure router, the org-scoped Slack endpoints and
+// the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
+// plus the long-lived stream-cron and Socket Mode goroutines. Every
+// org-shaped route + lifecycle hook lives here; registerRoutes only
+// decides whether to call this (HelixOrgEnabled).
+func (s *HelixAPIServer) mountHelixOrg(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
+	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
+		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
+		GitRepositoryService: s.gitRepositoryService,
+		APIServer:            s,
+	}, s.Store)
+	if err != nil {
+		return fmt.Errorf("initialise helix-org: %w", err)
+	}
+	if orgHandlers == nil {
+		return nil
+	}
+	// Hold the subsystem handle (the Slack handlers reach the per-workspace
+	// Topic reconciler through it) and register the post-mutation hook so
+	// the generic service-connection handlers can stay helix-org-agnostic
+	// while a slack_app change still reconciles Socket Mode / cascades.
+	s.helixOrg = orgHandlers
+	s.onServiceConnectionChange = s.reactToServiceConnectionChange
+
+	// Stream-cron scheduler runs for the lifetime of ctx
+	// (ListenAndServe's). Logs its own errors; one bad fire can't kill
+	// the loop because fire() has panic recovery.
+	if orgHandlers.streamCron != nil {
+		go func() {
+			if err := orgHandlers.streamCron.Start(ctx); err != nil {
+				log.Error().Err(err).Msg("streamcron scheduler exited with error")
+			}
+		}()
+	}
+	// /api/v1/orgs/{org}/github/webhook — public, GitHub deliveries
+	// authenticate via HMAC of the per-org webhook_secret. Registered on
+	// the INSECURE router so the helix session-cookie / api-key auth
+	// doesn't 401 inbound deliveries. Must be registered BEFORE the
+	// authRouter PathPrefix("/orgs/{org}/") so this exact path wins.
+	if orgHandlers.publicGitHubWebhook != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
+			Methods(http.MethodPost)
+	}
+	// Per-stream variant — operators paste this URL into a GitHub repo's
+	// webhook config when they want a 1:1 mapping between a GitHub webhook
+	// and a helix stream. Insecure mount: GitHub deliveries authenticate
+	// via HMAC over the body, not a helix session.
+	if orgHandlers.publicGitHubWebhookForStream != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+			Methods(http.MethodPost)
+	}
+	// GitHub App Manifest flow callbacks — top-level browser navigations
+	// from github.com (GET), so they must be on the insecure router (no
+	// session cookie / API key). The conversion callback authenticates
+	// via the encrypted ?state=. Registered before the /orgs/{org}/
+	// prefix so these exact paths win the match.
+	if orgHandlers.publicGitHubManifestCallback != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
+			Methods(http.MethodGet)
+	}
+	// /api/v1/slack/events — single global inbound Slack Events API
+	// endpoint. Insecure mount: Slack deliveries carry no helix session;
+	// the handler verifies the global app's signing-secret HMAC and
+	// routes by team_id. One endpoint serves every org install.
+	if orgHandlers.publicSlackEvents != nil {
+		insecureRouter.
+			Handle("/slack/events", orgHandlers.publicSlackEvents).
+			Methods(http.MethodPost)
+	}
+	// /api/v1/slack/oauth/callback — top-level browser redirect from
+	// slack.com after the admin approves the install. Insecure (no
+	// session cookie); authenticated by the encrypted ?state= carrying
+	// the org id.
+	insecureRouter.
+		HandleFunc("/slack/oauth/callback", s.slackOAuthCallback).
+		Methods(http.MethodGet)
+	// Socket Mode ingress — long-lived, only active when the global app
+	// is configured for it. Started like streamCron.
+	if orgHandlers.slackSocketRun != nil {
+		go orgHandlers.slackSocketRun(ctx)
+	}
+
+	// Org-scoped Slack endpoints. Registered BEFORE the /orgs/{org}/
+	// catch-all so these exact paths win the match. Each handler does its
+	// own lookupOrg + org-membership authorisation (strict multi-tenancy),
+	// so they don't need the org-scope middleware.
+	authRouter.HandleFunc("/orgs/{org}/slack/apps", s.listOrgSlackApps).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/oauth/start", s.slackOAuthStart).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.listSlackWorkspaces).Methods(http.MethodGet)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.connectSlackWorkspace).Methods(http.MethodPost)
+	authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", s.deleteSlackWorkspace).Methods(http.MethodDelete)
+
+	// /api/v1/orgs/{org}/* — per-tenant surface for the org-graph
+	// resources. withHelixOrgScope resolves {org} (slug or org_id) to a
+	// canonical orgID, authorises org-membership, bootstraps the tenant on
+	// first request, and stashes orgID on ctx so downstream handlers + the
+	// store layer scope to it.
+	authRouter.PathPrefix("/orgs/{org}/").Handler(
+		requireFeature(helixorg.AlphaFeature)(
+			s.withHelixOrgScope(orgHandlers.scope,
+				stripOrgScopedPrefix(orgHandlers.api),
+			),
+		),
+	)
+
+	// Expose helix-org's owner MCP through the standard Helix MCP gateway.
+	// Backend identifies tenants by URL prefix
+	// (/api/v1/mcp/helix-org/{org}/...) — the gateway already auth-checks
+	// the api_key via authRouter; the per-org backend layer resolves orgID
+	// from the request before dispatching to the handler.
+	s.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(s, orgHandlers))
+	return nil
 }
 
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
@@ -409,6 +548,27 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
+	// Slack has no outbound emitter: egress is the agent's job. A Worker
+	// replies (and reacts, uploads, …) by driving the Slack Web API
+	// directly with a bot token it mints on demand — so the transport
+	// never models Slack's API. slackWS resolves the org's workspace
+	// install to a decrypted bot token for that mint.
+	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
+	// Auto-manage one Slack Topic per connected workspace.
+	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}
+	// mint_credential provider=slack hands a Worker the bot token for the
+	// workspace the message came from (resource = the event's
+	// extra.slack_team_id) so it can drive the Slack Web API directly —
+	// chat.postMessage, reactions.add, files.upload.
+	deps.CredentialProviders["slack"] = slacktransport.NewCredentialProvider(
+		func(ctx context.Context, orgID, teamID string) (slacktransport.Identity, error) {
+			ws, err := slackWS.resolveForOrg(ctx, orgID, teamID)
+			if err != nil {
+				return slacktransport.Identity{}, err
+			}
+			return slacktransport.Identity{Token: ws.BotToken}, nil
+		},
+	)
 	deps.Dispatcher = dispatcher
 
 	// streamCron drives KindCron topics. Same call sequence as the
@@ -482,12 +642,35 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			githubtransport.TokenResolver(gitHubTokenResolver),
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
+		// Slack has no per-topic install: a Slack topic is workspace-scoped
+		// and receives every channel the bot is /invite'd into. The topic
+		// is auto-created with the workspace (slackWorkspaceTopicID), so
+		// there's no provisioner to register.
 	}
 
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
+
+	// Slack inbound: one shared ingest serves both ingress sources. It
+	// resolves a delivery's team_id to the owning org (a slack_workspace
+	// ServiceConnection), then publishes onto matching KindSlack topics —
+	// the dispatcher + processor/filter layer route to Workers.
+	slackIngest := slacktransport.NewIngest(slackWS, st, svc.Publishing, logger)
+	// REST Events API source — one global signed webhook for every org.
+	publicSlackEvents := slackcore.EventsAPIHandler(cfg.APIServer.slackSigningSecrets, slackIngest.OnEvent, logger)
+	// Socket Mode source — a manager reconciles live connections against
+	// the configured socket-mode apps on an interval (and on Kick from the
+	// create/delete handlers), so installing or editing a socket app takes
+	// effect with no server restart. Single-replica: a multi-replica
+	// deployment would need a cross-replica owner lock to hold the one
+	// socket, which isn't wired today.
+	slackSocket := cfg.APIServer.newSlackSocketManager(slackIngest, logger)
+	slackSocketRun := func(ctx context.Context) {
+		slackSocket.Run(ctx, slackSocketReconcileInterval)
+	}
+
 	// Processor execution: the runner re-publishes each processor's
 	// output through svc.Publishing, so it is wired after buildOrgServices
 	// (which builds Publishing) and registered late on the dispatcher,
@@ -506,7 +689,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Sessions:   orgWorkerRuntime{st: st},
 	})
 	apiDeps := helixorgapi.Deps{
-		Topics:       svc.Topics,
+		Topics:        svc.Topics,
 		Roles:         svc.Roles,
 		Workers:       svc.Workers,
 		Subscriptions: svc.Subscriptions,
@@ -664,6 +847,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
+		publicSlackEvents:            publicSlackEvents,
+		slackSocketRun:               slackSocketRun,
+		slackTopics:                  slackTopics,
+		slackSocket:                  slackSocket,
 	}, nil
 }
 

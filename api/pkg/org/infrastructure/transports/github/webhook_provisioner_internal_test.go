@@ -29,7 +29,6 @@ func newReg(t *testing.T) *configregistry.Registry {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	reg := configregistry.New(st.Configs)
-	reg.Register(configregistry.Spec{Key: "topics.public_url", Type: configregistry.TypeString})
 	reg.Register(configregistry.Spec{Key: "transport.github", Type: configregistry.TypeObject})
 	return reg
 }
@@ -85,25 +84,15 @@ func TestPayloadURL(t *testing.T) {
 
 func TestResolvePublicURL(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 
-	// Fallback to the server URL when no override is set.
-	reg := newReg(t)
-	p := NewWebhookProvisioner(reg, nil, "  https://fallback.example  ")
-	if got := p.resolvePublicURL(ctx, provOrg); got != "https://fallback.example" {
-		t.Fatalf("fallback resolvePublicURL = %q", got)
+	// Returns the trimmed SERVER_URL.
+	p := NewWebhookProvisioner(nil, nil, "  https://server.example  ")
+	if got := p.resolvePublicURL(); got != "https://server.example" {
+		t.Fatalf("resolvePublicURL = %q", got)
 	}
 
-	// Org config override wins over the server URL.
-	if err := reg.Set(ctx, provOrg, "topics.public_url", `"https://override.example"`); err != nil {
-		t.Fatalf("set override: %v", err)
-	}
-	if got := p.resolvePublicURL(ctx, provOrg); got != "https://override.example" {
-		t.Fatalf("override resolvePublicURL = %q", got)
-	}
-
-	// No configs and no server URL → empty.
-	if got := NewWebhookProvisioner(nil, nil, "").resolvePublicURL(ctx, provOrg); got != "" {
+	// Empty SERVER_URL → empty.
+	if got := NewWebhookProvisioner(nil, nil, "").resolvePublicURL(); got != "" {
 		t.Fatalf("empty resolvePublicURL = %q", got)
 	}
 }

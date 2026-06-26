@@ -238,6 +238,16 @@ type ServiceConnectionType string
 const (
 	ServiceConnectionTypeGitHubApp            ServiceConnectionType = "github_app"
 	ServiceConnectionTypeADOServicePrincipal  ServiceConnectionType = "ado_service_principal"
+	// ServiceConnectionTypeSlackApp is the single, deployment-wide Slack
+	// app (OrganizationID=""), helix-admin configured. Holds the OAuth
+	// client credentials + signing secret (REST) and/or the app/bot
+	// tokens (Socket Mode), plus the ingress-mode toggle.
+	ServiceConnectionTypeSlackApp ServiceConnectionType = "slack_app"
+	// ServiceConnectionTypeSlackWorkspace is a per-org Slack workspace
+	// install (OrganizationID set; an org may have several). Holds the
+	// bot token + team id, created by the OAuth install flow (REST) or
+	// derived from auth.test on first Socket Mode connect.
+	ServiceConnectionTypeSlackWorkspace ServiceConnectionType = "slack_workspace"
 )
 
 // ServiceConnection represents a service-to-service authentication configuration
@@ -281,6 +291,28 @@ type ServiceConnection struct {
 	ADOTenantID        string `json:"ado_tenant_id,omitempty"`
 	ADOClientID        string `json:"ado_client_id,omitempty"`
 	ADOClientSecret    string `json:"-" gorm:"type:text"` // Sensitive
+
+	// Slack global app (type=slack_app) — non-secret + encrypted fields.
+	SlackClientID      string `json:"slack_client_id,omitempty"`
+	SlackClientSecret  string `json:"-" gorm:"type:text"`                // Sensitive (REST OAuth install)
+	SlackSigningSecret string `json:"-" gorm:"type:text"`                // Sensitive (REST Events API authenticity)
+	SlackAppToken      string `json:"-" gorm:"type:text"`                // Sensitive (xapp-… Socket Mode)
+	SlackIngressMode   string `json:"slack_ingress_mode,omitempty"`      // "rest" | "socket"
+
+	// Slack workspace install (type=slack_workspace) — per-org.
+	SlackTeamID    string `json:"slack_team_id,omitempty"`
+	SlackTeamName  string `json:"slack_team_name,omitempty"`
+	SlackBotUserID string `json:"slack_bot_user_id,omitempty"`
+	SlackAppID     string `json:"slack_app_id,omitempty"`
+	// SlackAppConnectionID is the id of the slack_app ServiceConnection
+	// this workspace was installed from (OAuth installs only — empty for a
+	// manually pasted bot token). Lets the UI show which app each
+	// workspace belongs to when several global apps exist.
+	SlackAppConnectionID string `json:"slack_app_connection_id,omitempty"`
+	// SlackBotToken is the xoxb-… token. On slack_app it is the single
+	// Socket-Mode workspace bot token; on slack_workspace it is the
+	// per-org installed bot token. Encrypted at rest.
+	SlackBotToken string `json:"-" gorm:"type:text"` // Sensitive
 
 	// Base URL for enterprise/self-hosted instances
 	BaseURL string `json:"base_url,omitempty"`
@@ -329,6 +361,14 @@ type ServiceConnectionCreateRequest struct {
 	ADOClientID        string `json:"ado_client_id,omitempty"`
 	ADOClientSecret    string `json:"ado_client_secret,omitempty"`
 
+	// Slack global app fields (type=slack_app)
+	SlackClientID      string `json:"slack_client_id,omitempty"`
+	SlackClientSecret  string `json:"slack_client_secret,omitempty"`
+	SlackSigningSecret string `json:"slack_signing_secret,omitempty"`
+	SlackAppToken      string `json:"slack_app_token,omitempty"`
+	SlackBotToken      string `json:"slack_bot_token,omitempty"`
+	SlackIngressMode   string `json:"slack_ingress_mode,omitempty"`
+
 	// Base URL for enterprise/self-hosted instances
 	BaseURL string `json:"base_url,omitempty"`
 }
@@ -348,6 +388,14 @@ type ServiceConnectionUpdateRequest struct {
 	ADOTenantID        *string `json:"ado_tenant_id,omitempty"`
 	ADOClientID        *string `json:"ado_client_id,omitempty"`
 	ADOClientSecret    *string `json:"ado_client_secret,omitempty"`
+
+	// Slack global app fields (only update if provided)
+	SlackClientID      *string `json:"slack_client_id,omitempty"`
+	SlackClientSecret  *string `json:"slack_client_secret,omitempty"`
+	SlackSigningSecret *string `json:"slack_signing_secret,omitempty"`
+	SlackAppToken      *string `json:"slack_app_token,omitempty"`
+	SlackBotToken      *string `json:"slack_bot_token,omitempty"`
+	SlackIngressMode   *string `json:"slack_ingress_mode,omitempty"`
 
 	// Base URL for enterprise/self-hosted instances
 	BaseURL *string `json:"base_url,omitempty"`
@@ -375,6 +423,19 @@ type ServiceConnectionResponse struct {
 	ADOClientID        string `json:"ado_client_id,omitempty"`
 	HasADOClientSecret bool   `json:"has_ado_client_secret,omitempty"`
 
+	// Slack (non-sensitive fields + has-secret flags)
+	SlackClientID         string `json:"slack_client_id,omitempty"`
+	SlackIngressMode      string `json:"slack_ingress_mode,omitempty"`
+	SlackTeamID           string `json:"slack_team_id,omitempty"`
+	SlackTeamName         string `json:"slack_team_name,omitempty"`
+	SlackBotUserID        string `json:"slack_bot_user_id,omitempty"`
+	SlackAppID            string `json:"slack_app_id,omitempty"`
+	SlackAppConnectionID  string `json:"slack_app_connection_id,omitempty"`
+	HasSlackClientSecret  bool   `json:"has_slack_client_secret,omitempty"`
+	HasSlackSigningSecret bool   `json:"has_slack_signing_secret,omitempty"`
+	HasSlackAppToken      bool   `json:"has_slack_app_token,omitempty"`
+	HasSlackBotToken      bool   `json:"has_slack_bot_token,omitempty"`
+
 	BaseURL      string     `json:"base_url,omitempty"`
 	LastTestedAt *time.Time `json:"last_tested_at,omitempty"`
 	LastError    string     `json:"last_error,omitempty"`
@@ -398,8 +459,21 @@ func (c *ServiceConnection) ToResponse() *ServiceConnectionResponse {
 		ADOTenantID:          c.ADOTenantID,
 		ADOClientID:          c.ADOClientID,
 		HasADOClientSecret:   c.ADOClientSecret != "",
-		BaseURL:              c.BaseURL,
-		LastTestedAt:         c.LastTestedAt,
-		LastError:            c.LastError,
+
+		SlackClientID:         c.SlackClientID,
+		SlackIngressMode:      c.SlackIngressMode,
+		SlackTeamID:           c.SlackTeamID,
+		SlackTeamName:         c.SlackTeamName,
+		SlackBotUserID:        c.SlackBotUserID,
+		SlackAppID:            c.SlackAppID,
+		SlackAppConnectionID:  c.SlackAppConnectionID,
+		HasSlackClientSecret:  c.SlackClientSecret != "",
+		HasSlackSigningSecret: c.SlackSigningSecret != "",
+		HasSlackAppToken:      c.SlackAppToken != "",
+		HasSlackBotToken:      c.SlackBotToken != "",
+
+		BaseURL:      c.BaseURL,
+		LastTestedAt: c.LastTestedAt,
+		LastError:    c.LastError,
 	}
 }

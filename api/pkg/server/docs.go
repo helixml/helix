@@ -9952,6 +9952,202 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/slack/apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the deployment's global Slack apps available to install into a workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List installable Slack apps",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/oauth/start": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Build the Slack OAuth authorize URL for installing the global app into an org's workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Start Slack workspace install",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Slack app id to install (when multiple are configured)",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List the Slack workspaces installed for an organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "List org Slack workspaces",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ServiceConnectionResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Connect a Slack workspace by bot token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bot token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.connectSlackWorkspaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServiceConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/slack/workspaces/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a Slack workspace install from an organization",
+                "tags": [
+                    "slack"
+                ],
+                "summary": "Disconnect an org Slack workspace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/tools": {
             "get": {
                 "security": [
@@ -10178,7 +10374,7 @@ const docTemplate = `{
                     }
                 ],
                 "produces": [
-                    "text/event-topic"
+                    "text/event-stream"
                 ],
                 "tags": [
                     "HelixOrg"
@@ -25302,6 +25498,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.connectSlackWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "app_connection_id": {
+                    "type": "string"
+                },
+                "bot_token": {
+                    "type": "string"
+                }
+            }
+        },
         "server.openaiModelEntry": {
             "type": "object",
             "properties": {
@@ -33330,6 +33537,25 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (type=slack_app)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 }
@@ -33370,6 +33596,18 @@ const docTemplate = `{
                 "has_github_private_key": {
                     "type": "boolean"
                 },
+                "has_slack_app_token": {
+                    "type": "boolean"
+                },
+                "has_slack_bot_token": {
+                    "type": "boolean"
+                },
+                "has_slack_client_secret": {
+                    "type": "boolean"
+                },
+                "has_slack_signing_secret": {
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -33388,6 +33626,28 @@ const docTemplate = `{
                 "provider_type": {
                     "$ref": "#/definitions/types.ExternalRepositoryType"
                 },
+                "slack_app_connection_id": {
+                    "type": "string"
+                },
+                "slack_app_id": {
+                    "type": "string"
+                },
+                "slack_bot_user_id": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack (non-sensitive fields + has-secret flags)",
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_team_id": {
+                    "type": "string"
+                },
+                "slack_team_name": {
+                    "type": "string"
+                },
                 "type": {
                     "$ref": "#/definitions/types.ServiceConnectionType"
                 },
@@ -33400,11 +33660,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "github_app",
-                "ado_service_principal"
+                "ado_service_principal",
+                "slack_app",
+                "slack_workspace"
             ],
             "x-enum-varnames": [
                 "ServiceConnectionTypeGitHubApp",
-                "ServiceConnectionTypeADOServicePrincipal"
+                "ServiceConnectionTypeADOServicePrincipal",
+                "ServiceConnectionTypeSlackApp",
+                "ServiceConnectionTypeSlackWorkspace"
             ]
         },
         "types.ServiceConnectionUpdateRequest": {
@@ -33441,6 +33705,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "slack_app_token": {
+                    "type": "string"
+                },
+                "slack_bot_token": {
+                    "type": "string"
+                },
+                "slack_client_id": {
+                    "description": "Slack global app fields (only update if provided)",
+                    "type": "string"
+                },
+                "slack_client_secret": {
+                    "type": "string"
+                },
+                "slack_ingress_mode": {
+                    "type": "string"
+                },
+                "slack_signing_secret": {
                     "type": "string"
                 }
             }

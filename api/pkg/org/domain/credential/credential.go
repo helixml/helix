@@ -30,10 +30,14 @@ type Provider interface {
 	// providers.
 	Name() string
 
-	// Mint returns a fresh credential for orgID. Implementations should
-	// return an error (not an empty Credential) when no identity is
-	// configured for the org so callers can surface a clear failure.
-	Mint(ctx context.Context, orgID string) (Credential, error)
+	// Mint returns a fresh credential for orgID. resource is an optional,
+	// provider-specific scope the agent passes to disambiguate which
+	// identity to mint when an org has several (e.g. for slack, the
+	// workspace team_id from the inbound event's extra.slack_team_id);
+	// empty means "the org's default/only identity". Implementations
+	// should return an error (not an empty Credential) when no identity
+	// is configured so callers can surface a clear failure.
+	Mint(ctx context.Context, orgID, resource string) (Credential, error)
 }
 
 // Credential is the value returned by Provider.Mint. The mint_credential

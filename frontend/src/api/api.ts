@@ -1857,6 +1857,11 @@ export interface ServerAddLabelRequest {
   label?: string;
 }
 
+export interface ServerConnectSlackWorkspaceRequest {
+  app_connection_id?: string;
+  bot_token?: string;
+}
+
 export interface ServerOpenaiModelEntry {
   created?: number;
   id?: string;
@@ -5483,6 +5488,13 @@ export interface TypesServiceConnectionCreateRequest {
   github_installation_id?: number;
   github_private_key?: string;
   name?: string;
+  slack_app_token?: string;
+  slack_bot_token?: string;
+  /** Slack global app fields (type=slack_app) */
+  slack_client_id?: string;
+  slack_client_secret?: string;
+  slack_ingress_mode?: string;
+  slack_signing_secret?: string;
   type?: TypesServiceConnectionType;
 }
 
@@ -5499,12 +5511,24 @@ export interface TypesServiceConnectionResponse {
   github_installation_id?: number;
   has_ado_client_secret?: boolean;
   has_github_private_key?: boolean;
+  has_slack_app_token?: boolean;
+  has_slack_bot_token?: boolean;
+  has_slack_client_secret?: boolean;
+  has_slack_signing_secret?: boolean;
   id?: string;
   last_error?: string;
   last_tested_at?: string;
   name?: string;
   organization_id?: string;
   provider_type?: TypesExternalRepositoryType;
+  slack_app_connection_id?: string;
+  slack_app_id?: string;
+  slack_bot_user_id?: string;
+  /** Slack (non-sensitive fields + has-secret flags) */
+  slack_client_id?: string;
+  slack_ingress_mode?: string;
+  slack_team_id?: string;
+  slack_team_name?: string;
   type?: TypesServiceConnectionType;
   updated_at?: string;
 }
@@ -5512,6 +5536,8 @@ export interface TypesServiceConnectionResponse {
 export enum TypesServiceConnectionType {
   ServiceConnectionTypeGitHubApp = "github_app",
   ServiceConnectionTypeADOServicePrincipal = "ado_service_principal",
+  ServiceConnectionTypeSlackApp = "slack_app",
+  ServiceConnectionTypeSlackWorkspace = "slack_workspace",
 }
 
 export interface TypesServiceConnectionUpdateRequest {
@@ -5528,6 +5554,13 @@ export interface TypesServiceConnectionUpdateRequest {
   github_installation_id?: number;
   github_private_key?: string;
   name?: string;
+  slack_app_token?: string;
+  slack_bot_token?: string;
+  /** Slack global app fields (only update if provided) */
+  slack_client_id?: string;
+  slack_client_secret?: string;
+  slack_ingress_mode?: string;
+  slack_signing_secret?: string;
 }
 
 export interface TypesServiceDownloadProgress {
@@ -12334,6 +12367,109 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: payload,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List the deployment's global Slack apps available to install into a workspace
+     *
+     * @tags slack
+     * @name V1OrgsSlackAppsDetail
+     * @summary List installable Slack apps
+     * @request GET:/api/v1/orgs/{org}/slack/apps
+     * @secure
+     */
+    v1OrgsSlackAppsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse[], any>({
+        path: `/api/v1/orgs/${org}/slack/apps`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Build the Slack OAuth authorize URL for installing the global app into an org's workspace
+     *
+     * @tags slack
+     * @name V1OrgsSlackOauthStartDetail
+     * @summary Start Slack workspace install
+     * @request GET:/api/v1/orgs/{org}/slack/oauth/start
+     * @secure
+     */
+    v1OrgsSlackOauthStartDetail: (
+      org: string,
+      query?: {
+        /** Slack app id to install (when multiple are configured) */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/orgs/${org}/slack/oauth/start`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List the Slack workspaces installed for an organization
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesDetail
+     * @summary List org Slack workspaces
+     * @request GET:/api/v1/orgs/{org}/slack/workspaces
+     * @secure
+     */
+    v1OrgsSlackWorkspacesDetail: (org: string, params: RequestParams = {}) =>
+      this.request<TypesServiceConnectionResponse[], any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Connect a Slack workspace to an org from a bot token (Socket Mode / on-prem)
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesCreate
+     * @summary Connect a Slack workspace by bot token
+     * @request POST:/api/v1/orgs/{org}/slack/workspaces
+     * @secure
+     */
+    v1OrgsSlackWorkspacesCreate: (
+      org: string,
+      request: ServerConnectSlackWorkspaceRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesServiceConnectionResponse, any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a Slack workspace install from an organization
+     *
+     * @tags slack
+     * @name V1OrgsSlackWorkspacesDelete
+     * @summary Disconnect an org Slack workspace
+     * @request DELETE:/api/v1/orgs/{org}/slack/workspaces/{id}
+     * @secure
+     */
+    v1OrgsSlackWorkspacesDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/slack/workspaces/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

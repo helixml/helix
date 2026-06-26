@@ -2904,6 +2904,13 @@ definitions:
       label:
         type: string
     type: object
+  server.connectSlackWorkspaceRequest:
+    properties:
+      app_connection_id:
+        type: string
+      bot_token:
+        type: string
+    type: object
   server.openaiModelEntry:
     properties:
       created:
@@ -8764,6 +8771,19 @@ definitions:
         type: string
       name:
         type: string
+      slack_app_token:
+        type: string
+      slack_bot_token:
+        type: string
+      slack_client_id:
+        description: Slack global app fields (type=slack_app)
+        type: string
+      slack_client_secret:
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_signing_secret:
+        type: string
       type:
         $ref: '#/definitions/types.ServiceConnectionType'
     type: object
@@ -8791,6 +8811,14 @@ definitions:
         type: boolean
       has_github_private_key:
         type: boolean
+      has_slack_app_token:
+        type: boolean
+      has_slack_bot_token:
+        type: boolean
+      has_slack_client_secret:
+        type: boolean
+      has_slack_signing_secret:
+        type: boolean
       id:
         type: string
       last_error:
@@ -8803,6 +8831,21 @@ definitions:
         type: string
       provider_type:
         $ref: '#/definitions/types.ExternalRepositoryType'
+      slack_app_connection_id:
+        type: string
+      slack_app_id:
+        type: string
+      slack_bot_user_id:
+        type: string
+      slack_client_id:
+        description: Slack (non-sensitive fields + has-secret flags)
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_team_id:
+        type: string
+      slack_team_name:
+        type: string
       type:
         $ref: '#/definitions/types.ServiceConnectionType'
       updated_at:
@@ -8812,10 +8855,14 @@ definitions:
     enum:
     - github_app
     - ado_service_principal
+    - slack_app
+    - slack_workspace
     type: string
     x-enum-varnames:
     - ServiceConnectionTypeGitHubApp
     - ServiceConnectionTypeADOServicePrincipal
+    - ServiceConnectionTypeSlackApp
+    - ServiceConnectionTypeSlackWorkspace
   types.ServiceConnectionUpdateRequest:
     properties:
       ado_client_id:
@@ -8840,6 +8887,19 @@ definitions:
       github_private_key:
         type: string
       name:
+        type: string
+      slack_app_token:
+        type: string
+      slack_bot_token:
+        type: string
+      slack_client_id:
+        description: Slack global app fields (only update if provided)
+        type: string
+      slack_client_secret:
+        type: string
+      slack_ingress_mode:
+        type: string
+      slack_signing_secret:
         type: string
     type: object
   types.ServiceDownloadProgress:
@@ -18245,6 +18305,132 @@ paths:
       summary: 'Helix-org: set a setting'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/slack/apps:
+    get:
+      description: List the deployment's global Slack apps available to install into
+        a workspace
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ServiceConnectionResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List installable Slack apps
+      tags:
+      - slack
+  /api/v1/orgs/{org}/slack/oauth/start:
+    get:
+      description: Build the Slack OAuth authorize URL for installing the global app
+        into an org's workspace
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Slack app id to install (when multiple are configured)
+        in: query
+        name: app_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Start Slack workspace install
+      tags:
+      - slack
+  /api/v1/orgs/{org}/slack/workspaces:
+    get:
+      description: List the Slack workspaces installed for an organization
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ServiceConnectionResponse'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List org Slack workspaces
+      tags:
+      - slack
+    post:
+      consumes:
+      - application/json
+      description: Connect a Slack workspace to an org from a bot token (Socket Mode
+        / on-prem)
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.connectSlackWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.ServiceConnectionResponse'
+      security:
+      - BearerAuth: []
+      summary: Connect a Slack workspace by bot token
+      tags:
+      - slack
+  /api/v1/orgs/{org}/slack/workspaces/{id}:
+    delete:
+      description: Remove a Slack workspace install from an organization
+      parameters:
+      - description: Organization ID or slug
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Workspace connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Disconnect an org Slack workspace
+      tags:
+      - slack
   /api/v1/orgs/{org}/tools:
     get:
       produces:
@@ -18388,7 +18574,7 @@ paths:
         required: true
         type: string
       produces:
-      - text/event-topic
+      - text/event-stream
       responses:
         "200":
           description: 'SSE: event: message / data: [EventCard,...]'

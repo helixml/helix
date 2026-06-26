@@ -53,6 +53,14 @@ type mintCredentialArgs struct {
 	// (e.g. "github"). The list of valid values is enumerated in
 	// the error message when a caller picks an unknown provider.
 	Provider string `json:"provider"`
+
+	// Resource is an optional, provider-specific scope identifying which
+	// identity to mint when your org has several. For slack, pass the
+	// workspace team id (the event's extra.slack_team_id) so you get the
+	// token for the workspace the message came from. Empty means "the
+	// org's default identity" (correct for providers with one, e.g.
+	// github).
+	Resource string `json:"resource,omitempty"`
 }
 
 var mintCredentialSchema = mustSchema[mintCredentialArgs]()
@@ -74,7 +82,10 @@ func (t *MintCredential) Description() string {
 		"error, your token has expired** — call mint_credential again, " +
 		"re-export, and retry. Do not give up on the task; expired tokens " +
 		"are expected for any work that takes more than ~1 hour.\n\n" +
-		"Args: provider (string, required) — one of: " + avail + ".\n" +
+		"Args: provider (string, required) — one of: " + avail + "; " +
+		"resource (string, optional) — a provider-specific scope when your " +
+		"org has several identities (for slack, the workspace team id from " +
+		"the event's extra.slack_team_id).\n" +
 		"Returns: { token, expires_at (RFC3339), usage }."
 }
 
@@ -96,7 +107,7 @@ func (t *MintCredential) Invoke(ctx context.Context, inv tool.Invocation) (json.
 	if orgID == "" {
 		return nil, fmt.Errorf("mint_credential: caller has no OrgID")
 	}
-	cred, err := p.Mint(ctx, orgID)
+	cred, err := p.Mint(ctx, orgID, args.Resource)
 	if err != nil {
 		return nil, fmt.Errorf("mint %s credential: %w", args.Provider, err)
 	}

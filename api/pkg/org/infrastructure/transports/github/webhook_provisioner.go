@@ -29,9 +29,8 @@ type WebhookProvisioner struct {
 }
 
 // NewWebhookProvisioner builds the provisioner. configs backs the
-// topics.public_url override + the per-org webhook secret; token
-// resolves the org's GitHub credential; publicServerURL is the fallback
-// external base URL.
+// per-org webhook secret; token resolves the org's GitHub credential;
+// publicServerURL (SERVER_URL) is helix's public base URL.
 func NewWebhookProvisioner(configs *configregistry.Registry, token TokenResolver, publicServerURL string) *WebhookProvisioner {
 	return &WebhookProvisioner{configs: configs, token: token, publicURL: publicServerURL}
 }
@@ -43,14 +42,14 @@ func fail(kind streaming.FailKind, format string, args ...any) *streaming.Failur
 // Install registers (or adopts) the repo webhook for the github topic
 // and returns the hook coordinates + the transport config to persist.
 func (p *WebhookProvisioner) Install(ctx context.Context, orgID string, topic streaming.Topic) (streaming.InstallResult, error) {
-	publicURL := p.resolvePublicURL(ctx, orgID)
+	publicURL := p.resolvePublicURL()
 	if publicURL == "" {
-		return streaming.InstallResult{}, fail(streaming.FailPrecondition, "no public URL configured for helix. Set `topics.public_url` on the helix-org Settings page (or SERVER_URL in helix's .env), then re-install the webhook.")
+		return streaming.InstallResult{}, fail(streaming.FailPrecondition, "no public URL configured for helix. Set SERVER_URL in helix's .env to a publicly reachable URL and restart the api container, then re-install the webhook.")
 	}
 	if u, err := url.Parse(publicURL); err == nil {
 		host := strings.ToLower(u.Hostname())
 		if host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" {
-			return streaming.InstallResult{}, fail(streaming.FailPrecondition, "public URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set `topics.public_url` on the helix-org Settings page to a publicly reachable hostname (cloudflared / ngrok / reverse proxy), or update SERVER_URL in helix's .env and restart the api container", publicURL)
+			return streaming.InstallResult{}, fail(streaming.FailPrecondition, "SERVER_URL %q is a loopback address — GitHub refuses to install webhooks pointed at unreachable hosts. Set SERVER_URL in helix's .env to a publicly reachable hostname (cloudflared / ngrok / reverse proxy) and restart the api container", publicURL)
 		}
 	}
 
@@ -120,7 +119,7 @@ func (p *WebhookProvisioner) Status(ctx context.Context, orgID string, topic str
 	if ferr != nil {
 		return unknown(fmt.Sprintf("malformed repo %q", cfg.Repo))
 	}
-	publicURL := p.resolvePublicURL(ctx, orgID)
+	publicURL := p.resolvePublicURL()
 	if publicURL == "" {
 		return unknown("no public URL configured for helix")
 	}
@@ -169,16 +168,9 @@ func (p *WebhookProvisioner) resolveToken(ctx context.Context, orgID string) (st
 	return token, nil
 }
 
-// resolvePublicURL: `topics.public_url` org config wins; publicServerURL
-// is the fallback.
-func (p *WebhookProvisioner) resolvePublicURL(ctx context.Context, orgID string) string {
-	publicURL := strings.TrimSpace(p.publicURL)
-	if p.configs != nil {
-		if override, err := p.configs.GetString(ctx, orgID, "topics.public_url"); err == nil && strings.TrimSpace(override) != "" {
-			publicURL = strings.TrimSpace(override)
-		}
-	}
-	return publicURL
+// resolvePublicURL returns helix's public base URL (SERVER_URL).
+func (p *WebhookProvisioner) resolvePublicURL() string {
+	return strings.TrimSpace(p.publicURL)
 }
 
 func (p *WebhookProvisioner) payloadURL(publicURL, orgID string, topicID streaming.TopicID) string {

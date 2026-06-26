@@ -46,7 +46,6 @@ import (
 	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/sandbox/compute/bootstrap"
-	"github.com/helixml/helix/api/pkg/server/helixorg"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
@@ -101,8 +100,19 @@ type activeStreamProxy struct {
 }
 
 type HelixAPIServer struct {
-	Cfg                         *config.ServerConfig
-	Store                       store.Store
+	Cfg   *config.ServerConfig
+	Store store.Store
+	// helixOrg is the optional helix-org subsystem, set once it is
+	// mounted (nil otherwise). The core server holds only this handle;
+	// the org primitives the Slack handlers need — the per-workspace
+	// Topic reconciler and the Socket Mode manager — live inside it, not
+	// as fields on this struct.
+	helixOrg *helixOrgHandlers
+	// onServiceConnectionChange is an optional post-mutation hook a
+	// subsystem registers (helix-org, in mountHelixOrg) so it can react to
+	// the connection types it owns without the generic service-connection
+	// handlers depending on it. nil when unregistered.
+	onServiceConnectionChange   func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
 	Stripe                      *stripe.Stripe
 	quotaManager                quota.QuotaManager
 	Controller                  *controller.Controller
@@ -860,90 +870,12 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	// helix-org alpha: embed the standalone helix-org HTTP surface as
 	// an in-process handler, gated per-user by the `helix-org` alpha
-	// feature. See design/2026-05-17-helix-org-saas-alpha.md.
-	//
-	// The MCP / webhook / org-graph / settings / streams JSON API lives
-	// at /api/v1/org/ and is consumed by the React pages at
-	// /helix-org/* (frontend/src/pages/HelixOrg*.tsx). Phase C of the
-	// UI migration deleted the htmx SSR that used to live at /ui/*.
+	// feature. See design/2026-05-17-helix-org-saas-alpha.md. All of its
+	// routing + lifecycle wiring lives in mountHelixOrg (helix_org.go);
+	// the core server only decides whether to bring it up.
 	if apiServer.Cfg.HelixOrgEnabled {
-		if orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
-			LocalFSPath:          apiServer.Cfg.FileStore.LocalFSPath,
-			GitRepositoryService: apiServer.gitRepositoryService,
-			APIServer:            apiServer,
-		}, apiServer.Store); err != nil {
-			return nil, fmt.Errorf("initialise helix-org: %w", err)
-		} else if orgHandlers != nil {
-			// Stream-cron scheduler runs for the lifetime of ctx
-			// (ListenAndServe's). Logs its own errors; one bad fire
-			// can't kill the loop because fire() has panic recovery.
-			if orgHandlers.streamCron != nil {
-				go func() {
-					if err := orgHandlers.streamCron.Start(ctx); err != nil {
-						log.Error().Err(err).Msg("streamcron scheduler exited with error")
-					}
-				}()
-			}
-			// /api/v1/orgs/{org}/github/webhook — public, GitHub
-			// deliveries authenticate via HMAC of the per-org
-			// webhook_secret. Registered on the INSECURE router so
-			// the helix session-cookie / api-key auth doesn't 401
-			// inbound deliveries. Must be registered BEFORE the
-			// authRouter PathPrefix("/orgs/{org}/") so this exact
-			// path wins the match.
-			if orgHandlers.publicGitHubWebhook != nil {
-				insecureRouter.
-					Handle("/orgs/{org}/github/webhook", orgHandlers.publicGitHubWebhook).
-					Methods(http.MethodPost)
-			}
-			// Per-stream variant — operators paste this URL into a
-			// GitHub repo's webhook config when they want a 1:1
-			// mapping between a GitHub webhook and a helix stream
-			// (e.g. two streams for the same repo, each watching a
-			// different events whitelist). Insecure mount: GitHub
-			// deliveries authenticate via HMAC over the body, not a
-			// helix session.
-			if orgHandlers.publicGitHubWebhookForStream != nil {
-				insecureRouter.
-					Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
-					Methods(http.MethodPost)
-			}
-			// GitHub App Manifest flow callbacks — top-level browser
-			// navigations from github.com (GET), so they must be on the
-			// insecure router (no session cookie / API key). The conversion
-			// callback authenticates via the encrypted ?state=. Registered
-			// before the authRouter /orgs/{org}/ prefix so these exact paths
-			// win the match.
-			if orgHandlers.publicGitHubManifestCallback != nil {
-				insecureRouter.
-					Handle("/orgs/{org}/github/app-manifest/callback", orgHandlers.publicGitHubManifestCallback).
-					Methods(http.MethodGet)
-			}
-
-			// /api/v1/orgs/{org}/* — per-tenant surface for the
-			// org-graph resources (chart, workers, roles, positions,
-			// streams, settings). withHelixOrgScope resolves {org}
-			// (slug or org_id) to a canonical orgID, authorises
-			// org-membership, bootstraps the tenant on first request,
-			// and stashes orgID on ctx so downstream handlers + the
-			// store layer scope to it. authRouter is a sub-mux of
-			// /api/v1, so paths registered against it are matched as
-			// full request paths.
-			authRouter.PathPrefix("/orgs/{org}/").Handler(
-				requireFeature(helixorg.AlphaFeature)(
-					apiServer.withHelixOrgScope(orgHandlers.scope,
-						stripOrgScopedPrefix(orgHandlers.api),
-					),
-				),
-			)
-
-			// Expose helix-org's owner MCP through the standard Helix MCP
-			// gateway. Backend identifies tenants by URL prefix
-			// (/api/v1/mcp/helix-org/{org}/...) — the gateway already
-			// auth-checks the api_key via authRouter; the per-org
-			// backend layer resolves orgID from the request before
-			// dispatching to the handler.
-			apiServer.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(apiServer, orgHandlers))
+		if err := apiServer.mountHelixOrg(ctx, insecureRouter, authRouter); err != nil {
+			return nil, err
 		}
 	}
 

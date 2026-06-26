@@ -855,6 +855,53 @@ endpoint, not a live activation. Publish:
   such that a branch's output leads back to its own input is rejected 409;
   no edge persists.
 
+## §18. Slack transport (critical flows)
+
+Three tenancy layers (see `design/2026-06-23-helix-org-slack-serviceconnection.md`):
+the deployment-global `slack_app` (admin), the per-org `slack_workspace`
+install, and the workspace-scoped Slack Topic.
+
+**No global Slack app may be configured on this deployment — that is
+expected, not a failure.** The global `slack_app` is a helix-admin
+ServiceConnection set up outside org mode; a QA run can't create one from
+the org UI. When none exists, the correct behaviour is graceful
+degradation (below), not an error. Only run the install/inbound steps if
+an app is present: `SELECT count(*) FROM service_connections WHERE type =
+'slack_app'` → ≥1, and at least one has the credentials for its
+`slack_ingress_mode` (`rest` → client id/secret + signing secret;
+`socket` → app token + bot token).
+
+- **Graceful with no app (always runnable).** With zero `slack_app` rows:
+  the org Settings → Slack panel shows the connect surface but "Install to
+  Slack" is unavailable (no `slack_client_id`); a real `POST
+  /api/v1/slack/events` delivery returns **503** (inert, no signing
+  secret), while a `url_verification` handshake still echoes its challenge
+  (**200**) so a manifest-set Request URL can verify before the app is
+  configured; the New Topic dialog still offers `kind=slack` but a
+  workspace must be picked. No console errors, no 500s.
+- **Workspace install (needs an app).** REST app with client creds:
+  Settings → Slack → **Install to Slack** → approve in Slack → redirected
+  back with `?slack_installed=1`; a `slack_workspace` row lands
+  (org-scoped, `slack_team_id` set, bot token encrypted) and an
+  auto-managed Topic `s-slack-ws-<connID>` appears named *"Slack:
+  <workspace> (<app>)"*. Socket/on-prem app: paste the `xoxb-` bot token
+  instead — backend `auth.test`s it, derives the team, stores the same row
+  shape. Re-installing the same workspace refreshes the token (no
+  duplicate row).
+- **Inbound → routing → reply.** Post in a channel the bot is in. The
+  message publishes onto the workspace Topic (`org_events` row, `extra`
+  carries `slack_channel`/`slack_team_id`); the bot's own posts are
+  dropped (no echo loop). A subscribed Worker (or a processor filter)
+  activates; its prompt carries the `how_to_reply` hint. The Worker mints
+  a token (`mint_credential provider=slack resource=<team_id>`) and posts
+  back via `chat.postMessage` under its own name. Unknown team / no bound
+  Topic → 200 + silently dropped.
+- **Isolation + cascade.** `GET /api/v1/orgs/<org>/slack/workspaces`
+  returns only that org's installs (cross-org id-guess → 404). Deleting
+  the global `slack_app` cascade-removes every workspace install it
+  produced **and** their `s-slack-ws-*` Topics across all orgs; a
+  socket-mode app's live connection is torn down without a restart.
+
 ## Pass criteria
 
 - §1 — a fresh org is **empty** (no workers/roles); seeding via New
@@ -941,6 +988,13 @@ endpoint, not a live activation. Publish:
   independently (409); deleting the processor cascades its owned outputs.
   Validation errors are 400 with a helpful message and the drawer stays
   open.
+- §18 — with no `slack_app` configured the Slack surfaces degrade
+  gracefully (install unavailable, events endpoint 503, no errors). With
+  an app: a workspace install creates an org-scoped `slack_workspace` +
+  its `s-slack-ws-*` Topic; an inbound message routes onto that Topic
+  (bot self-echo dropped) and a Worker replies via a `slack`-minted token;
+  workspace lists are org-isolated; deleting the global app cascades away
+  its installs and their Topics.
 - No console errors beyond the three Vite WS errors at startup.
 
 ## Known limitations
