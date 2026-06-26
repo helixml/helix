@@ -82,6 +82,14 @@ func NewThreadFollower(deps ThreadFollowerDeps) *ThreadFollower {
 	}
 }
 
+// threadSubject scopes a thread root to the router that owns it, so thread
+// membership is keyed by (workspace-router, thread) rather than thread alone.
+// `/` is a safe separator: a processor id (p-slack-router-<connID>) and a
+// Slack ts ("1700000000.000100") contain none.
+func threadSubject(routerID processor.ProcessorID, root string) string {
+	return string(routerID) + "/" + root
+}
+
 // threadRoot derives the thread key a message belongs to: its explicit
 // thread id, falling back to its own message id (a top-level Slack message
 // is a potential thread root). Empty when neither is set (a non-Slack or
@@ -106,6 +114,12 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 		return
 	}
 	orgID := p.OrganizationID
+	// Scope thread identity to this router. One router exists per Slack
+	// workspace connection, so this keys membership by (workspace, thread)
+	// rather than thread alone: two workspaces in the same org can never
+	// share membership even if Slack reuses a `ts` value across them. p.ID is
+	// stable per connection (p-slack-router-<connID>).
+	subject := threadSubject(p.ID, root)
 
 	// route output Topic ⇄ ManagedFor Worker.
 	workerByTopic := map[streaming.TopicID]string{}
@@ -130,9 +144,9 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 	if f.window > 0 {
 		since = f.now().Add(-f.window)
 	}
-	prior, err := f.events.ListBySubject(ctx, orgID, domainevent.TypeSlackThreadParticipant, root, since)
+	prior, err := f.events.ListBySubject(ctx, orgID, domainevent.TypeSlackThreadParticipant, subject, since)
 	if err != nil {
-		f.logger.Warn("slackrouting.threadfollow: list members", "thread", root, "err", err)
+		f.logger.Warn("slackrouting.threadfollow: list members", "thread", subject, "err", err)
 	}
 	priorMembers := domainevent.Participants(prior)
 	priorSet := map[string]struct{}{}
@@ -145,7 +159,7 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 		if _, ok := priorSet[w]; ok {
 			continue
 		}
-		ev, err := domainevent.New(f.mintID(), orgID, domainevent.TypeSlackThreadParticipant, root, w, string(p.ID), nil, f.now())
+		ev, err := domainevent.New(f.mintID(), orgID, domainevent.TypeSlackThreadParticipant, subject, w, string(p.ID), nil, f.now())
 		if err != nil {
 			f.logger.Warn("slackrouting.threadfollow: build event", "worker", w, "err", err)
 			continue

@@ -181,6 +181,39 @@ func TestReconcilePreservesManualRoutesAndEdits(t *testing.T) {
 	}
 }
 
+// Two workspaces in one org → two automated routers. The reconciler must
+// maintain a managed route (and subscription) per AI Worker on BOTH, so a
+// Worker is reachable by name from either workspace.
+func TestReconcileMaintainsEveryRouterInOrg(t *testing.T) {
+	ctx := context.Background()
+	s, procs, rec := setup(t)
+	makeRouter(t, ctx, s, procs) // p-slack-router on s-slack
+	// A second workspace's router on its own input topic.
+	in2, _ := streaming.NewTopic("s-slack-2", "Slack 2", "", "", time.Now().UTC(), transport.Transport{}, org)
+	_ = s.Topics.Create(ctx, in2)
+	if _, err := procs.Create(ctx, org, processors.CreateParams{
+		ID: "p-slack-router-2", Name: "Slack Router 2", InputTopicID: "s-slack-2", Kind: processor.KindFilter,
+		Outputs: []processors.OutputSpec{{Label: "default"}}, CreatedBy: processor.SystemActor,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	addAIWorker(t, ctx, s, "w-alice")
+
+	if err := rec.Reconcile(ctx, org); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	for _, rid := range []string{"p-slack-router", "p-slack-router-2"} {
+		p, _ := procs.Get(ctx, org, rid)
+		route, ok := routesByWorker(p)["w-alice"]
+		if !ok {
+			t.Fatalf("router %s has no route for w-alice", rid)
+		}
+		if _, err := s.Subscriptions.Find(ctx, org, "w-alice", route.TopicID); err != nil {
+			t.Errorf("w-alice not subscribed to %s's route topic %s: %v", rid, route.TopicID, err)
+		}
+	}
+}
+
 func TestReconcileNoRouterIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	s, _, rec := setup(t)

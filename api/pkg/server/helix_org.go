@@ -694,7 +694,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Now:           deps.Now,
 		Logger:        logger,
 	})
-	lifecycleSvc.SlackRouter = slackRouteReconciler
+	lifecycleSvc.Reconcilers = append(lifecycleSvc.Reconcilers, slackRouteReconciler)
 	// Thread-follow: the post-routing arm that records thread participation
 	// in the domain-event log and (when enabled) fans later thread messages
 	// out to existing participants. Registered late on the runner, like the

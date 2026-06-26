@@ -44,10 +44,14 @@ type HelixRuntime interface {
 	DeleteApp(ctx context.Context, id string) error
 }
 
-// SlackRouterReconciler converges Slack auto-routers' managed routes for an
-// org. *slackrouting.Reconciler satisfies it; declared here (not imported)
-// so lifecycle stays decoupled from the Slack-routing package.
-type SlackRouterReconciler interface {
+// OrgReconciler converges some derived state for a whole org after a
+// structural change. Contract: org-scoped (no per-Worker scoping),
+// idempotent, and best-effort (the lifecycle logs a failure and carries on —
+// the reconciler re-runs on the next mutation / at startup). *slackrouting.
+// Reconciler is the first implementer; new whole-org reconcilers just satisfy
+// this and get appended to Service.Reconcilers. Declared here (the consumer)
+// so lifecycle stays decoupled from each reconciler's package.
+type OrgReconciler interface {
 	Reconcile(ctx context.Context, orgID string) error
 }
 
@@ -69,11 +73,13 @@ type Service struct {
 	// subscription so it doesn't leak. nil is a no-op.
 	Mirror *helix.Mirror
 
-	// SlackRouter converges the Slack auto-routers' per-Worker routes after
-	// a hire/fire (add a route for the new Worker; GC the departed Worker's
-	// route). Org-scoped and idempotent. nil is a no-op (runtimes without
-	// Slack routing). Best-effort on fire, like the topology Reconciler.
-	SlackRouter SlackRouterReconciler
+	// Reconcilers are whole-org, best-effort reconcilers run after every
+	// hire/fire — each converges some derived state (Slack auto-router routes
+	// today; future ones just append). They differ from Reconciler above,
+	// which is scoped to the affected Workers and is fatal on hire; these take
+	// only the org and their failures are logged, never aborting the
+	// mutation. Empty/nil is a no-op.
+	Reconcilers []OrgReconciler
 
 	// --- Hire collaborators (the create half of the lifecycle) ---
 
@@ -202,14 +208,10 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		return HireResult{}, fmt.Errorf("reconcile topology for hire %q: %w", id, err)
 	}
 
-	// Add a Slack auto-route for the new Worker (no-op without Slack routing
-	// or an auto-router). Best-effort: a routing failure must not abort the
-	// hire — the reconciler is idempotent and re-runs on the next hire/fire.
-	if s.SlackRouter != nil {
-		if err := s.SlackRouter.Reconcile(ctx, orgID); err != nil {
-			s.logger().Warn("hire: reconcile slack routes", "worker", id, "err", err)
-		}
-	}
+	// Run the whole-org reconcilers (Slack auto-router routes, …) for the new
+	// Worker. Best-effort: a failure must not abort the hire — each is
+	// idempotent and re-runs on the next hire/fire and at startup.
+	s.runReconcilers(ctx, orgID, "hire", id)
 
 	// Persist the hiring user's identity (if the request carried one)
 	// BEFORE dispatch so the Spawner picks it up on its first call.
@@ -344,14 +346,25 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 		}
 	}
 
-	// GC the fired Worker's Slack auto-route (its subscription already
-	// cascaded with the row; the reconciler drops the route + owned Topic).
-	if s.SlackRouter != nil {
-		if err := s.SlackRouter.Reconcile(ctx, orgID); err != nil {
-			s.logger().Warn("fire: reconcile slack routes", "worker", id, "err", err)
+	// Run the whole-org reconcilers so the fired Worker's Slack auto-route is
+	// GC'd (its subscription already cascaded with the row; the reconciler
+	// drops the route + owned Topic). Best-effort, like topology above.
+	s.runReconcilers(ctx, orgID, "fire", id)
+	return nil
+}
+
+// runReconcilers runs every whole-org reconciler best-effort, logging (not
+// propagating) failures so one reconciler can't abort the lifecycle mutation
+// or block the others. phase/worker are for the log line only.
+func (s *Service) runReconcilers(ctx context.Context, orgID, phase string, worker orgchart.WorkerID) {
+	for _, rec := range s.Reconcilers {
+		if rec == nil {
+			continue
+		}
+		if err := rec.Reconcile(ctx, orgID); err != nil {
+			s.logger().Warn(phase+": reconcile", "worker", worker, "err", err)
 		}
 	}
-	return nil
 }
 
 // DeleteRole tears down a Role end-to-end:

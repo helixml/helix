@@ -186,6 +186,28 @@ follower:
 Purity preserved: `Process` only does name-match; all state lives in the
 follower + the domain-event log.
 
+## Multi-tenancy (multiple apps / workspaces)
+
+- **Multiple global Slack apps:** the auto-router is bound to the *workspace
+  connection*, not the app — it never references the global app. More apps just
+  means more workspace installs, each independent.
+- **Multiple workspaces per org:** each install has its own `connID` →
+  `s-slack-ws-<connID>` Topic → `p-slack-router-<connID>` router → per-router
+  owned route Topics (named by router id) → per-(worker,topic) subscriptions.
+  The reconciler iterates *every* automated router in the org, so a Worker gets
+  a route on each, reachable by name from any connected workspace. Inbound is
+  scoped by `ServiceConnectionID`, so a message only ever hits its own
+  workspace's router (no cross-workspace leakage).
+- **Thread membership is router-scoped:** the domain-event `subject` is
+  `<routerID>/<thread_root>`, so two workspaces can never share thread
+  membership even if Slack reuses a `ts` value across them.
+- **Known shared constraint (pre-existing, not introduced here):** the
+  workspace Topic and the router both carry an org-unique *name*. The existing
+  Slack integration already requires distinct workspace display names per org
+  (the Topic's `(org,name)` index); the router inherits the same. Two installs
+  with an identical display name in one org would collide — unusual, and a
+  property of the existing Topic naming, not this feature.
+
 ## Non-goals (v1)
 
 - No event-sourcing framework: no subscribers, projections engine, or replay

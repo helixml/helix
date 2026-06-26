@@ -61,7 +61,16 @@ func newFollower(t *testing.T) (*store.Store, *slackrouting.ThreadFollower, *rec
 // log.
 func participants(t *testing.T, s *store.Store, threadRoot string) []string {
 	t.Helper()
-	evs, err := s.DomainEvents.ListBySubject(context.Background(), org, domainevent.TypeSlackThreadParticipant, threadRoot, time.Time{})
+	// Membership is keyed by (router, thread) — mirror the production scoping
+	// (router id "p-slack-router" from threadRouter).
+	return participantsFor(t, s, "p-slack-router", threadRoot)
+}
+
+// participantsFor reads membership for a specific router's thread (the
+// production subject scoping is "<routerID>/<threadRoot>").
+func participantsFor(t *testing.T, s *store.Store, routerID, threadRoot string) []string {
+	t.Helper()
+	evs, err := s.DomainEvents.ListBySubject(context.Background(), org, domainevent.TypeSlackThreadParticipant, routerID+"/"+threadRoot, time.Time{})
 	if err != nil {
 		t.Fatalf("list members: %v", err)
 	}
@@ -134,6 +143,29 @@ func TestThreadFollowPullsInNewlyNamedWorkerMidThread(t *testing.T) {
 	f.AfterRoute(ctx, router, streaming.Message{ThreadID: "T1", MessageID: "T3", Body: "thanks"}, nil)
 	if len(pub.calls) != 2 {
 		t.Fatalf("want fan-out to both members, got %v", pub.calls)
+	}
+}
+
+// Two workspaces (two routers) sharing a colliding Slack thread_ts must not
+// share thread membership — subjects are router-scoped.
+func TestThreadFollowIsolatedPerRouter(t *testing.T) {
+	ctx := context.Background()
+	box, f, _ := newFollower(t)
+
+	r1 := threadRouter(true) // p-slack-router, routes alice/bob
+	r2 := r1
+	r2.ID = "p-slack-router-2"
+
+	// Same thread_ts "T1" arrives in both workspaces, each naming a different
+	// worker. Membership must stay separate.
+	f.AfterRoute(ctx, r1, streaming.Message{MessageID: "T1", Body: "hi alice"}, nameMatch("s-alice"))
+	f.AfterRoute(ctx, r2, streaming.Message{MessageID: "T1", Body: "hi bob"}, nameMatch("s-bob"))
+
+	if p := participantsFor(t, box, "p-slack-router", "T1"); len(p) != 1 || p[0] != "w-alice" {
+		t.Fatalf("router 1 thread T1 should have only alice, got %v", p)
+	}
+	if p := participantsFor(t, box, "p-slack-router-2", "T1"); len(p) != 1 || p[0] != "w-bob" {
+		t.Fatalf("router 2 thread T1 should have only bob, got %v", p)
 	}
 }
 
