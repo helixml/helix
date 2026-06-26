@@ -1,28 +1,30 @@
-# Implementation Tasks: Friendly Error When a Project's Agent Is Missing
+# Implementation Tasks: Handle Deleted Agents Gracefully in Projects and Sessions
 
-## Backend — error classification & handling
+## Facet A — friendly error for missing project agent
 
-- [ ] Add `agentNotConfiguredMarkers` and `isAgentNotConfiguredError(errMsg)` in `api/pkg/server/websocket_external_agent_sync.go` (marker: `"is not registered"`).
-- [ ] In `handleThreadLoadError`, branch on `isAgentNotConfiguredError` (checked before crash/transient): set a friendly, stable interaction `Error` (e.g. `AGENT_NOT_CONFIGURED: …`) and mark the prompt terminal via `MarkPromptAsCrashed` to suppress auto-retry.
-- [ ] Ensure this branch does NOT call `maybeAutoRestartCrashedAgent` (restart cannot fix a missing agent).
-- [ ] Confirm existing crash and transient classifications are unchanged.
+- [ ] Add `agentNotConfiguredMarkers` + `isAgentNotConfiguredError(errMsg)` in `api/pkg/server/websocket_external_agent_sync.go` (marker: `"is not registered"`).
+- [ ] In `handleThreadLoadError`, branch on this class first: set a stable friendly interaction `Error` (e.g. `AGENT_NOT_CONFIGURED: …`) and mark the prompt terminal via `MarkPromptAsCrashed` (no auto-retry, no auto-restart).
+- [ ] In `RobustPromptInput.tsx`, add an `AGENT_NOT_CONFIGURED` failure state (mirror the marker) rendered in info/warning style with a "Configure agent" CTA to the project's agent settings (fallback `/orgs/:org_id/agents`).
 
-## Backend — prevent dangling references
+## Facet B — block sessions whose agent was deleted
 
-- [ ] In `deleteApp` (`api/pkg/server/app_handlers.go`), find projects whose `DefaultHelixAppID == id` and clear that field, so no project is left pointing at a deleted agent.
+- [ ] Add a computed `agent_missing` (or `agent_available`) field to the session GET response: in the session handler, resolve the session's agent App (spec-task `HelixAppID` then `ParentApp`); set true when the reference is set but the App no longer exists. Add the field to `types.go` and regenerate the API client (`./stack update_openapi`).
+- [ ] In the session/spec-task chat view (`SpecTaskDetailContent.tsx`, `Session.tsx`), when `agent_missing` is true render the banner ("There is currently no agent assigned to this session. Before we can proceed, please assign one.") and **disable the message input + send**.
+- [ ] In that banner, surface agent assignment by reusing `SwitchAgentControl` / `useSwitchAgent`; on success invalidate the session query so the banner clears and input re-enables.
+- [ ] Handle the paused-session edge case (direct the user to the active descendant instead of offering a switch that 409s).
 
-## Frontend — friendly surfacing
+## Facet E — prevent dangling references on delete
 
-- [ ] In `RobustPromptInput.tsx`, add an `AGENT_NOT_CONFIGURED` detection branch (mirror the backend marker) as a third, mutually-exclusive failure state.
-- [ ] Render it in info/warning style with the friendly message and a "Configure agent" CTA navigating to the project's agent settings (fallback: `/orgs/:org_id/agents`).
+- [ ] In `deleteApp` (`app_handlers.go`), clear `DefaultHelixAppID` on any project that referenced the deleted App.
 
 ## Tests
 
-- [ ] Go unit test: `thread_load_error` with `"is not registered"` → friendly message + terminal (no auto-retry); crash & transient cases keep prior behavior.
+- [ ] Go unit test: `thread_load_error` with `"is not registered"` → friendly terminal message (no auto-retry); crash & transient cases unchanged.
+- [ ] Go test: `GetSession` reports `agent_missing` true when the bound App is deleted, false when it exists.
 - [ ] Go test: deleting an App referenced by a project clears the project's `DefaultHelixAppID`.
-- [ ] End-to-end in inner Helix with a live Zed session: delete the project's agent, send a message, verify friendly message + "Configure agent" CTA (no raw error, no retry loop).
+- [ ] End-to-end in inner Helix with a live Zed session: delete the session's agent → banner + disabled input; assign a new agent inline → banner clears and a follow-up message succeeds on the same session; confirm Facet A friendly message + CTA also appear.
 
 ## Wrap-up
 
 - [ ] `cd frontend && yarn build` and `go build ./pkg/server/...` pass.
-- [ ] Verify final user-facing wording with the team.
+- [ ] Verify final user-facing wording (both banner and Facet A message) with the team.
