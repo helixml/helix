@@ -142,6 +142,31 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	return nil
 }
 
+// GetSpecTaskByExternalNotionPageID finds the most recent non-terminal spec
+// task whose external_trigger_ref.payload.page_id matches. Used by the Notion
+// trigger for idempotency on webhook replay (don't double-create) and for
+// cancellation lookup (find the live task to cancel when Go/NoGo flips to
+// NoGo). Returns (nil, nil) when nothing matches.
+func (s *PostgresStore) GetSpecTaskByExternalNotionPageID(ctx context.Context, pageID string) (*types.SpecTask, error) {
+	if pageID == "" {
+		return nil, fmt.Errorf("page ID is required")
+	}
+	var task types.SpecTask
+	err := s.gdb.WithContext(ctx).
+		Where("external_trigger_ref->>'type' = ?", "notion").
+		Where("external_trigger_ref->'payload'->>'page_id' = ?", pageID).
+		Where("status NOT IN ?", []string{"done", "cancelled", "failed"}).
+		Order("created_at DESC").
+		First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get spec task by notion page id: %w", err)
+	}
+	return &task, nil
+}
+
 // TransitionSpecTaskStatus atomically updates a spec task's status, but only if its
 // current status is in fromStatuses. Returns true if the row was updated (this caller
 // won the race), false if no row matched (another caller already transitioned).

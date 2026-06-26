@@ -260,6 +260,17 @@ CGO_ENABLED=1 go test -v -run TestSuiteName ./pkg/server/ -count=1
 - Check DB state: `docker exec helix-postgres-1 psql -U postgres -d postgres -c "SQL"`
 - Investigate logs yourself — don't tell user to check logs (exception: ask user to verify UI)
 
+### Exposing the inner Helix to public webhooks (Notion, Stripe, GitHub, …)
+When a third-party service needs to POST a webhook into the inner Helix from the public internet, use **cloudflared quick tunnels** — no signup, no auth token, no account. Anonymous, ephemeral.
+```bash
+curl -sSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared && chmod +x /tmp/cloudflared
+/tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+sleep 6 && grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1
+```
+The printed `https://<random>.trycloudflare.com` URL fronts `localhost:8080`. Paste it (plus your `/api/v1/webhooks/{trigger_id}` path) into the third-party's webhook config. Tunnel dies when the cloudflared process does.
+
+Avoid ngrok — it now requires an authtoken even for short tests, which means asking the user for credentials and storing them somewhere. cloudflared's quick-tunnel mode is the same idea with no friction.
+
 ## Verification
 
 ### Testing

@@ -30,6 +30,10 @@ api/pkg/server/org_apikey_handlers_test.go:generic-api-key:356
 # Integration test - test API key (not a real secret)
 integration-test/zed-websocket/enhanced_source_of_truth_test.go:generic-api-key:22
 
+# Notion trigger test fixture - test shared secret (not a real secret)
+api/pkg/trigger/notion/events_test.go:generic-api-key:129
+api/pkg/trigger/notion/testdata/automation_webhook_create.json:generic-api-key:19
+
 # Script comment - example credentials in documentation
 scripts/init-moonlight-web.sh:curl-auth-user:64
 

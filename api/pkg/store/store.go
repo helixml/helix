@@ -582,6 +582,11 @@ type Store interface {
 	// creating a session and spawning a dev container against the same workspace.
 	SetPlanningSessionIDIfEmpty(ctx context.Context, taskID string, sessionID string) (bool, error)
 	DeleteSpecTask(ctx context.Context, id string) error
+	// GetSpecTaskByExternalNotionPageID finds the most recent non-terminal
+	// spec task linked to a given Notion page (via external_trigger_ref's
+	// payload.page_id). Returns (nil, nil) when none exists. Used by the
+	// Notion trigger for idempotency on webhook replay + cancellation lookup.
+	GetSpecTaskByExternalNotionPageID(ctx context.Context, pageID string) (*types.SpecTask, error)
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 	ListProjectLabels(ctx context.Context, projectID string) ([]string, error)
 	AddSpecTaskLabel(ctx context.Context, taskID string, label string) error
