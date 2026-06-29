@@ -38,9 +38,16 @@ func buildACMEChallengeSolver(ws config.WebServer) (*certmagic.DNS01Solver, stri
 		solver := &certmagic.DNS01Solver{
 			DNSManager: certmagic.DNSManager{
 				DNSProvider: &cloudflare.Provider{APIToken: token},
+				// Public resolvers so _acme-challenge CNAME delegation
+				// resolves reliably: a custom domain not in our zone can
+				// CNAME _acme-challenge.<host> into our Cloudflare zone, and
+				// certmagic follows that CNAME to place the TXT where our
+				// token has access. The container's default resolver may be
+				// internal and not see those external records.
+				Resolvers: []string{"1.1.1.1:53", "8.8.8.8:53"},
 			},
 		}
-		return solver, "dns-01 via cloudflare", nil
+		return solver, "dns-01 via cloudflare (with CNAME delegation)", nil
 	default:
 		return nil, "", fmt.Errorf("HELIX_VHOST_ACME_DNS_PROVIDER=%q is not supported (supported: cloudflare)", provider)
 	}
