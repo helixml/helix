@@ -95,11 +95,20 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Customers CNAME their custom domain at this host. Prefer the explicit
+	// grey/DNS-only ingress (HELIX_VHOST_CNAME_TARGET) so the domain resolves
+	// directly to this origin and certmagic can issue via TLS-ALPN-01 without
+	// any DNS-01 fiddling. Fall back to the SERVER_URL host otherwise.
+	cnameTarget := strings.TrimSpace(s.Cfg.WebServer.VHostCNAMETarget)
+	if cnameTarget == "" {
+		cnameTarget = hostnameOf(s.Cfg.WebServer.URL)
+	}
+
 	return &ProjectWebServiceResponse{
 		State:       state,
 		Domains:     domains,
 		Deploys:     deploys,
-		CNAMETarget: hostnameOf(s.Cfg.WebServer.URL),
+		CNAMETarget: cnameTarget,
 	}, nil
 }
 

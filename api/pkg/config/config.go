@@ -900,6 +900,14 @@ type WebServer struct {
 	// keeps working without a separate reverse proxy.
 	ProxyPathPrefix string `envconfig:"HELIX_PROXY_PATH_PREFIX" description:"Path prefix to reverse-proxy to HELIX_PROXY_UPSTREAM (e.g. '/auth/'). Requires HELIX_PROXY_UPSTREAM. Empty disables."`
 	ProxyUpstream   string `envconfig:"HELIX_PROXY_UPSTREAM" description:"Upstream base URL for HELIX_PROXY_PATH_PREFIX (e.g. 'http://keycloak:8080'). Empty disables."`
+
+	// VHostCNAMETarget overrides the hostname customers are told to point
+	// their custom-domain CNAME at. It should be a GREY / DNS-only host that
+	// resolves DIRECTLY to this origin, so a directly-pointed custom domain
+	// gets its cert via TLS-ALPN-01 with no DNS-01 fiddling. Empty falls back
+	// to the canonical hostname parsed from SERVER_URL — which is wrong when
+	// SERVER_URL is Cloudflare-proxied (orange), so set this in that case.
+	VHostCNAMETarget string `envconfig:"HELIX_VHOST_CNAME_TARGET" description:"Grey/DNS-only hostname customers CNAME custom domains to (resolves directly to this origin). Empty = use SERVER_URL host."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
