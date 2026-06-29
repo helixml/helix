@@ -64,9 +64,14 @@ The cert gate already allows any `vhost_routes` hostname; custom-domain verifica
   Set prod `.env`: `HELIX_VHOST_TLS_MODE=auto`, `HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare`,
   `HELIX_VHOST_CLOUDFLARE_API_TOKEN`, `HELIX_VHOST_LETSENCRYPT_EMAIL`, `HELIX_PROXY_PATH_PREFIX=/auth/`,
   `HELIX_PROXY_UPSTREAM=http://keycloak-config-keycloak-1:8080`.
-- **Stage 2 (custom domains):** per-name challenge selection (DNS-01 for `helix.ml`, HTTP-01/ALPN for
-  custom) in `buildACMEChallengeSolver` (`vhost_tls_dns.go`) + re-enable `:80` for HTTP-01; optional
-  CF-for-SaaS edge; optional "add this DNS record" UI for the orange-custom-domain case.
+- **Stage 2 (custom domains) — code SHIPPED:** per-name challenge selection via certmagic issuer
+  fallback in `startCertMagicListener` (`vhost_tls.go`): issuer 1 = DNS-01 (Cloudflare) for
+  `helix.ml` names + custom domains that CNAME `_acme-challenge` into our zone; issuer 2 =
+  TLS-ALPN-01 (over `:443`, no `:80` needed) for custom domains pointed directly at us. The DNS
+  solver gets public `Resolvers` (`vhost_tls_dns.go`) so CNAME delegation resolves from inside the
+  container. Net effect: a custom domain works **with or without** Cloudflare, and the direct case
+  needs **no DNS-record UI** (the A/CNAME to us is the proof). Remaining optional: CF-for-SaaS edge
+  for orange custom domains; a small "add this `_acme-challenge` CNAME" hint UI for that case.
 
 ## Risk
 High blast radius — `:443` carries registry image pulls, the `app.helix.ml` console+auth, and demos.
