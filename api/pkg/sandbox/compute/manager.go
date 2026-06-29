@@ -833,6 +833,25 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		if totalNeed > room {
 			totalNeed = room
 		}
+
+		// Floor is a hard guarantee and NewManager enforces Max >= Floor,
+		// so the ceiling must never starve floor provisioning. `available`
+		// counts Ready+offline rows (deliberately - see isAvailable, it
+		// stops D4-shed churn), but those orphans are NOT healthy capacity
+		// (isAliveForFloor excludes them). When enough of them accumulate
+		// to fill Max while zero Ready+online hosts remain, room hits 0 and
+		// floorNeed>0 is clamped away - the fleet wedges at 0 healthy hosts
+		// indefinitely (D4 can only reap one orphan per cycle and its
+		// in-memory idle timer resets on every API restart, so long-lived
+		// orphans may never be shed). Re-floor here so the operator's
+		// healthy-capacity guarantee is honoured; the dead orphans still
+		// count against Max for the *demand* path above, and D4 reaps them.
+		// This can transiently exceed Max by up to floorNeed, self-correcting
+		// once D4 sheds the orphans (Max >= Floor keeps the steady state in
+		// bounds).
+		if totalNeed < floorNeed {
+			totalNeed = floorNeed
+		}
 	}
 
 	// Per-cycle provisioning fan-out cap (D1/D2 behaviour preserved).
