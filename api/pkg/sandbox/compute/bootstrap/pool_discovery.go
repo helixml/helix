@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -27,18 +28,24 @@ func (d *ydPoolDiscoverer) DiscoverPools(ctx context.Context) ([]compute.Discove
 	if err != nil {
 		return nil, err
 	}
+	return toDiscoveredPools(pools), nil
+}
+
+// toDiscoveredPools maps YD node-pool groups to provider-agnostic
+// DiscoveredPools. Pure (no I/O) so the keying is unit-testable. Key is the
+// raw (workerTag, instanceType) join - the supervisor dedups on it, and
+// poolDeploymentTag derives a collision-free deployment tag from it.
+func toDiscoveredPools(pools []yellowdog.NodePool) []compute.DiscoveredPool {
 	out := make([]compute.DiscoveredPool, 0, len(pools))
 	for _, p := range pools {
 		out = append(out, compute.DiscoveredPool{
-			// Key is unique per (workerTag, instanceType) so the reconcile
-			// diff never collides two pools that share a tag.
 			Key:          p.WorkerTag + "|" + p.InstanceType,
 			WorkerTag:    p.WorkerTag,
 			InstanceType: p.InstanceType,
 			NodeCount:    p.NodeCount,
 		})
 	}
-	return out, nil
+	return out
 }
 
 // ydManagerFactory builds one compute.Manager per discovered pool: a YD
@@ -67,7 +74,7 @@ func (f *ydManagerFactory) NewPoolManager(p compute.DiscoveredPool) (compute.Poo
 		Namespace: f.cfg.Yellowdog.Namespace,
 		// Per-pool deployment tag isolates row ownership: Manager.ownedRows
 		// filters by provider.Name() = "yellowdog-"+DeploymentTag.
-		DeploymentTag:          f.deploymentTagBase + "-" + sanitizeTagSegment(p.Key),
+		DeploymentTag:          poolDeploymentTag(f.deploymentTagBase, p.Key),
 		WorkerTag:              p.WorkerTag,
 		TaskTimeout:            f.cfg.Yellowdog.TaskTimeout,
 		MaxRetries:             f.cfg.Yellowdog.MaxRetries,
@@ -86,9 +93,24 @@ func (f *ydManagerFactory) NewPoolManager(p compute.DiscoveredPool) (compute.Poo
 	}))
 }
 
-// sanitizeTagSegment makes a pool Key safe to embed in a YD deployment tag:
+// poolDeploymentTag derives a per-pool YD deployment tag from the base tag
+// and the pool Key. The Key is hashed (fnv-32a, 8 hex chars) so the result
+// is collision-free even when two distinct Keys would sanitise to the same
+// readable suffix. This matters because the deployment tag IS the
+// row-ownership boundary (provider.Name() = "yellowdog-"+DeploymentTag): a
+// collision would make two pools' Managers share rows and double-count each
+// other's floor. The sanitised Key is kept as a readable prefix for admin
+// tooling.
+func poolDeploymentTag(base, key string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return fmt.Sprintf("%s-%s-%08x", base, sanitizeTagSegment(key), h.Sum32())
+}
+
+// sanitizeTagSegment makes a pool Key readable inside a YD deployment tag:
 // keep [a-zA-Z0-9-], replace everything else (the "|" separator and the "."
-// in e.g. "inf2.8xlarge") with "-".
+// in e.g. "inf2.8xlarge") with "-". Lossy by design - poolDeploymentTag adds
+// a hash for uniqueness; this is just the human-readable part.
 func sanitizeTagSegment(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -102,13 +124,18 @@ func sanitizeTagSegment(s string) string {
 
 // buildSupervisor constructs the discovery-mode PoolSupervisor: a YD pool
 // discoverer + a per-pool Manager factory sharing the global ManagerConfig.
-// Returned to the API server as a compute.Service (same Run contract as a
-// single Manager). Assumes cfg.DeploymentTag has been resolved by Bootstrap.
-func buildSupervisor(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (compute.Service, error) {
-	// Fail fast at boot on missing credentials rather than only when the
-	// supervisor's first reconcile tries to discover/provision.
+// Validates the required YD config eagerly so a misconfigured install fails
+// fast at boot rather than silently doing nothing at reconcile time.
+// Assumes cfg.DeploymentTag has been resolved by Bootstrap.
+func buildSupervisor(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (*compute.PoolSupervisor, error) {
 	if cfg.Yellowdog.APIKeyID == "" || cfg.Yellowdog.APISecret == "" {
 		return nil, errors.New("compute: yellowdog APIKeyID and APISecret are required")
+	}
+	// Namespace is required by every per-pool yellowdog.NewProvider call, but
+	// those happen lazily at reconcile - validate here so an empty namespace
+	// fails boot instead of silently skipping every pool.
+	if cfg.Yellowdog.Namespace == "" {
+		return nil, errors.New("compute: yellowdog Namespace is required")
 	}
 	sandboxImage := cfg.SandboxImage
 	if sandboxImage == "" {

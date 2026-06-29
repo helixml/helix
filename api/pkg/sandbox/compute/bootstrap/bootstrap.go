@@ -1,8 +1,8 @@
 // Package bootstrap wires operator-supplied env-var config into a running
-// compute.Service - a PoolSupervisor that runs one Manager per discovered
-// YD pool. Separated from package compute because compute cannot import a
-// concrete Provider (cyclic), and from package server because the API
-// server should not need to know the catalogue of supported providers.
+// *compute.PoolSupervisor that runs one Manager per discovered YD pool.
+// Separated from package compute because compute cannot import a concrete
+// Provider (cyclic), and from package server because the API server should
+// not need to know the catalogue of supported providers.
 package bootstrap
 
 import (
@@ -44,7 +44,7 @@ import (
 // because the value originates from ServerConfig (used by both
 // Manager-provisioned and legacy auto-register paths) - putting it in
 // config.Compute would suggest it only affects ComputeManager.
-func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (compute.Service, error) {
+func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (*compute.PoolSupervisor, error) {
 	if cfg.Provider == "" {
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil

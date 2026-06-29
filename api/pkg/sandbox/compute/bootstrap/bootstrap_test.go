@@ -9,7 +9,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/sandbox/compute"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -158,7 +157,6 @@ func TestBootstrapDerivesTagFromYellowdogNamespace(t *testing.T) {
 			APISecret:   "s",
 			BaseURL:     "https://portal.yellowdog.co/api",
 			Namespace:   "development",
-			WorkerTag:   "w",
 			TaskTimeout: time.Hour,
 		},
 	}
@@ -241,7 +239,7 @@ func TestBootstrapSandboxImageOverrideBypassesVersionGuard(t *testing.T) {
 		MaxProvisioningAge:      30 * time.Minute,
 		Yellowdog: config.Yellowdog{
 			APIKeyID: "k", APISecret: "s", BaseURL: "https://portal.yellowdog.co/api",
-			Namespace: "development", WorkerTag: "helix-prod", TaskTimeout: 4 * time.Hour,
+			Namespace: "development", TaskTimeout: 4 * time.Hour,
 		},
 	}
 
@@ -276,7 +274,6 @@ func TestBootstrapValidYellowdogConfigBuildsSupervisor(t *testing.T) {
 			APISecret:   "test-secret",
 			BaseURL:     "https://portal.yellowdog.co/api",
 			Namespace:   "development",
-			WorkerTag:   "helix-prod",
 			TaskTimeout: 4 * time.Hour,
 		},
 	}
@@ -284,13 +281,9 @@ func TestBootstrapValidYellowdogConfigBuildsSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
+	// Discovery is the only mode, so Bootstrap returns a *PoolSupervisor.
 	if svc == nil {
-		t.Fatal("expected non-nil Service for valid config")
-	}
-	// Discovery is the only mode, so Bootstrap returns a PoolSupervisor
-	// (declared type is the narrower compute.Service).
-	if _, ok := svc.(*compute.PoolSupervisor); !ok {
-		t.Fatalf("expected *compute.PoolSupervisor, got %T", svc)
+		t.Fatal("expected non-nil PoolSupervisor for valid config")
 	}
 }
 
@@ -493,5 +486,4 @@ func TestHelixSandboxImageFor(t *testing.T) {
 			t.Fatalf("error should not mention a hardcoded registry; got %q", err.Error())
 		}
 	})
-	_ = compute.Manager{} // keep the compute import used even if signature simplifies later
 }

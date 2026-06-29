@@ -192,13 +192,13 @@ type HelixAPIServer struct {
 	webServiceController *webservice.Controller
 
 	// computeManager pre-provisions sandbox HOSTS via a cloud
-	// compute.Provider (currently only yellowdog). Nil when
+	// compute.Provider (currently only yellowdog): a PoolSupervisor that
+	// runs one Manager per discovered YD pool. Nil when
 	// HELIX_COMPUTE_PROVIDER is unset - in that case the legacy
-	// self-registered host path is the only way SandboxInstance rows
-	// get created. Concretely a *compute.Manager, or a
-	// *compute.PoolSupervisor in discovery mode - the server only calls
-	// Run. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
-	computeManager compute.Service
+	// self-registered host path is the only way SandboxInstance rows get
+	// created. The server only nil-checks it and calls Run. See
+	// api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
+	computeManager *compute.PoolSupervisor
 }
 
 func NewServer(

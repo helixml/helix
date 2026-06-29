@@ -142,16 +142,41 @@ point: one policy, N pools.)
   `DiscoveredPool.Key` contract reflects this - it is keyed on
   (workerTag, instanceType) so the reconcile diff never collides two pools.
 - `AcceleratorForInstanceType` is a heuristic: `g4ad` (AMD) would mis-map to
-  nvidia. Out of scope for this POC (only g5 + inf2); add an explicit case if
-  an AMD pool ever appears.
+  nvidia, and an unrecognised family returns "" so the factory errors and the
+  supervisor **skips that pool** (logged). There is no manual vendor override
+  anymore (`HELIX_COMPUTE_GPU_VENDOR` is vestigial). Acceptable for this POC
+  (g5 + inf2); add an explicit case when a new family appears.
+- **Zero online nodes => no pools => nothing provisions.** Discovery only sees
+  RUNNING nodes, so the floor is maintained only on pools that already have a
+  node. This is intended for the model "the operator brings up the YD pool;
+  Helix maintains a sandbox floor on whatever nodes exist" - Helix does not
+  bring the first node up from zero. (Behaviour change from the old
+  single-Manager path, which submitted floor WRs against a derived tag even at
+  zero - those just sat starved.)
+- **Shared API key sees foreign pools.** The old single-Manager path hard-erred
+  on multiple distinct worker tags; the supervisor instead manages *every*
+  discovered pool. If one YD API key's visibility spans another Helix install's
+  pools, this install will manage them too. Scope the API key per install.
+  (`HELIX_YD_WORKER_TAG` was removed, so there is no per-install tag filter.)
+
+## Review fixes applied
+
+- **Injective deployment tag.** `poolDeploymentTag` hashes the raw pool Key
+  (fnv-32a) into the tag, so two Keys that sanitise to the same readable string
+  (`team.a|...` vs `team_a|...`) no longer collide on `provider.Name()` and
+  share row ownership. Unit-tested (`TestPoolDeploymentTagInjective`).
+- **Eager Namespace validation** in `buildSupervisor` - empty namespace fails
+  boot instead of silently skipping every pool at reconcile.
+- **Context cleanup**: the self-remove goroutine calls `run.cancel()` so a
+  Manager that returns for a non-cancel reason doesn't leak its child context.
+- **Dropped the redundant `Service` interface** (identical to `PoolManager`
+  once the single-Manager path was gone); Bootstrap returns `*PoolSupervisor`.
+- Removed the now-dead `DiscoverOnlineWorkerTags`; `config.Yellowdog.WorkerTag`
+  (`HELIX_YD_WORKER_TAG`) deleted; pure `toDiscoveredPools` extracted + tested.
 
 ## Follow-ups (not in this change)
 
-- **Reject a worker tag that spans accelerators** in the factory (the caveat
-  above) - currently relies on the operator using one tag per accelerator.
-- **Drain a stopped pool's rows** when a pool disappears from discovery
-  (currently the Manager is cancelled but its offline rows are left to the
-  reaper).
-- `config.Compute.GPUVendor` (`HELIX_COMPUTE_GPU_VENDOR`) is now vestigial -
-  vendor is derived per pool from the instance type, and the runner also
-  auto-detects. Left in place for now; remove in a follow-up.
+- **Reject a worker tag that spans accelerators** in the factory - currently
+  relies on the operator using one tag per accelerator.
+- **Drain a stopped pool's rows** when a pool disappears from discovery.
+- Remove `config.Compute.GPUVendor` (`HELIX_COMPUTE_GPU_VENDOR`), now vestigial.

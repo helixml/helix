@@ -47,13 +47,6 @@ type PoolManager interface {
 	Run(ctx context.Context) error
 }
 
-// Service is the reconcile loop bootstrap hands to the API server: either a
-// single Manager or a PoolSupervisor (discovery mode). The server only
-// nil-checks it and calls Run, so one interface covers both.
-type Service interface {
-	Run(ctx context.Context) error
-}
-
 // ManagerFactory builds a Manager scoped to a single discovered pool.
 // The factory owns provider construction (per-pool worker tag, an
 // isolated deployment tag so each Manager's Floor/D3/D4 only sees its
@@ -189,6 +182,11 @@ func (s *PoolSupervisor) reconcile(ctx context.Context) {
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Warn().Err(err).Str("pool", p.Key).Msg("compute pool supervisor: manager exited with error")
 			}
+			// Cancel our own context so a Manager that returned for a
+			// non-cancel reason doesn't leave its child context attached to
+			// the parent for the server's lifetime. Idempotent if stopAll
+			// already cancelled it.
+			run.cancel()
 			// Self-remove so a Manager that exited on its own (crash, or
 			// a non-cancel error) is rebuilt next cycle instead of being
 			// stuck "running" forever. Pointer check: only delete if this

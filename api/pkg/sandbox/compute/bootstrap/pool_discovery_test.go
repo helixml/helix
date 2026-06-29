@@ -6,7 +6,48 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
+	"github.com/helixml/helix/api/pkg/sandbox/compute/yellowdog"
 )
+
+func TestToDiscoveredPools(t *testing.T) {
+	in := []yellowdog.NodePool{
+		{WorkerTag: "worker-gpu", InstanceType: "g5.xlarge", NodeCount: 2},
+		{WorkerTag: "worker-inf2", InstanceType: "inf2.8xlarge", NodeCount: 1},
+	}
+	got := toDiscoveredPools(in)
+	want := []compute.DiscoveredPool{
+		{Key: "worker-gpu|g5.xlarge", WorkerTag: "worker-gpu", InstanceType: "g5.xlarge", NodeCount: 2},
+		{Key: "worker-inf2|inf2.8xlarge", WorkerTag: "worker-inf2", InstanceType: "inf2.8xlarge", NodeCount: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("pool[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestPoolDeploymentTagInjective(t *testing.T) {
+	// Two pool Keys that sanitise to the SAME readable string ("." and "_"
+	// both -> "-") must still produce DISTINCT deployment tags - otherwise
+	// the two Managers would share row ownership (provider.Name() collision)
+	// and double-count each other's floor.
+	a := poolDeploymentTag("helix-ns", "team.a|inf2.8xlarge")
+	b := poolDeploymentTag("helix-ns", "team_a|inf2.8xlarge")
+	if a == b {
+		t.Fatalf("distinct pool keys collided on deployment tag: %q", a)
+	}
+	// Same key is stable (deterministic).
+	if poolDeploymentTag("helix-ns", "team.a|inf2.8xlarge") != a {
+		t.Fatal("poolDeploymentTag is not deterministic for the same key")
+	}
+	// Tag carries the base prefix.
+	if got := poolDeploymentTag("base", "worker-gpu|g5.xlarge"); got[:5] != "base-" {
+		t.Fatalf("tag %q does not start with the base prefix", got)
+	}
+}
 
 func testFactory() *ydManagerFactory {
 	return &ydManagerFactory{

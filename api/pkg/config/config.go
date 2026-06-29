@@ -400,25 +400,9 @@ type Yellowdog struct {
 	// Helix install.
 	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
 
-	// WorkerTag is the tag the operator-provisioned YD worker pool
-	// advertises. Tasks include this in their RunSpecification so
-	// the YD scheduler only assigns them to matching workers.
-	//
-	// Auto-derived from Namespace when unset:
-	//   WorkerTag = "worker-" + Namespace
-	//
-	// Matches the yd-provision POC convention (`worker_tag =
-	// "worker-{{tag}}"`), so an operator who set up their pool
-	// per the POC docs gets working defaults. Override via
-	// HELIX_YD_WORKER_TAG when the pool was created with a
-	// different naming scheme.
-	//
-	// Mismatch between this value and the pool's advertised tag
-	// produces silent "tasks starved" failures rather than a
-	// clear error - the YD scheduler simply finds no eligible
-	// workers and leaves the task pending. Boot logs the resolved
-	// tag so the operator can spot a mismatch quickly.
-	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+	// Worker tags are no longer configured: the pool supervisor discovers
+	// the worker tag of every online pool from the YD nodes and runs one
+	// Manager per pool. HELIX_YD_WORKER_TAG was removed.
 
 	// TaskTimeout bounds individual task runtime upstream-side. The
 	// platform aborts the task and records TaskError type=TIMED_OUT
