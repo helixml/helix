@@ -301,6 +301,12 @@ func (s *PostgresStore) FindAvailableSandboxInstance(ctx context.Context, deskto
 
 	// Find one with the required desktop version
 	for _, instance := range instances {
+		// Sandboxes only run on render-capable hosts. A neuron/inf2 host
+		// (no /dev/dri render node) would otherwise be picked on load
+		// alone, then the desktop container FATALs at startup.
+		if !instance.CanHostSandbox() {
+			continue
+		}
 		if len(instance.DesktopVersions) > 0 {
 			var versions map[string]string
 			if err := json.Unmarshal(instance.DesktopVersions, &versions); err != nil {

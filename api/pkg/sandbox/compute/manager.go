@@ -414,8 +414,11 @@ func (m *Manager) demandPressureExists(rows []*types.SandboxInstance) bool {
 	for _, r := range rows {
 		// Capacity math uses only REACHABLE hosts. A Ready+offline
 		// row contributes no live sandbox slots, so counting it would
-		// hide real demand pressure.
-		if !isReadyAndOnline(r) {
+		// hide real demand pressure. Non-render-capable hosts (neuron)
+		// can't run sandboxes at all, so they never contribute sandbox
+		// capacity or absorb demand - exclude them so a neuron fleet
+		// never masks real desktop demand nor scales up to "meet" it.
+		if !isReadyAndOnline(r) || !r.CanHostSandbox() {
 			continue
 		}
 		readyAny = true
@@ -482,7 +485,7 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		}
 		readyByID[r.ID] = r
 		readyCount++
-		if isReadyAndOnline(r) && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+		if isReadyAndOnline(r) && r.CanHostSandbox() && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
 			fleetAtCap = true
 		}
 	}
@@ -751,7 +754,12 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		if isAliveForFloor(r) {
 			aliveForFloor++
 		}
-		if isReadyAndOnline(r) {
+		// Sandbox demand (D3) is satisfied only by render-capable hosts;
+		// a neuron host has no sandbox slots, so it must not count toward
+		// capacity/demand or it would suppress real scale-up. Floor
+		// counting above (isAliveForFloor) stays vendor-blind so a neuron
+		// floor runner is still kept alive.
+		if isReadyAndOnline(r) && r.CanHostSandbox() {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
