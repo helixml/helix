@@ -11,12 +11,12 @@ import (
 
 func TestBuildACMEChallengeSolver(t *testing.T) {
 	cases := []struct {
-		name        string
-		provider    string
-		token       string
-		wantSolver  bool
-		wantDesc    string
-		wantErrSub  string // substring of error message; "" means no error
+		name       string
+		provider   string
+		token      string
+		wantSolver bool
+		wantDesc   string
+		wantErrSub string // substring of error message; "" means no error
 	}{
 		{
 			name:       "empty provider falls back to HTTP-01",
