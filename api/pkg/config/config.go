@@ -889,6 +889,17 @@ type WebServer struct {
 	// legacy global API key) with Zone:Zone:Read + Zone:DNS:Edit
 	// permissions on the zones Helix issues certs for.
 	VHostCloudflareAPIToken string `envconfig:"HELIX_VHOST_CLOUDFLARE_API_TOKEN" description:"Cloudflare API token (Zone:Zone:Read + Zone:DNS:Edit) used when HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare."`
+
+	// ProxyPathPrefix + ProxyUpstream configure a single generic reverse
+	// proxy: requests whose path starts with ProxyPathPrefix are forwarded
+	// to ProxyUpstream (the original Host and X-Forwarded-* headers are
+	// preserved). Both must be set for the route to mount; empty = disabled.
+	// This is deliberately generic (not tied to any one service) — its first
+	// use is fronting an external OIDC IdP (e.g. Keycloak at /auth/) when
+	// Helix terminates TLS for the canonical host itself, so the IdP path
+	// keeps working without a separate reverse proxy.
+	ProxyPathPrefix string `envconfig:"HELIX_PROXY_PATH_PREFIX" description:"Path prefix to reverse-proxy to HELIX_PROXY_UPSTREAM (e.g. '/auth/'). Requires HELIX_PROXY_UPSTREAM. Empty disables."`
+	ProxyUpstream   string `envconfig:"HELIX_PROXY_UPSTREAM" description:"Upstream base URL for HELIX_PROXY_PATH_PREFIX (e.g. 'http://keycloak:8080'). Empty disables."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins
