@@ -847,6 +847,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
 	router.Use(ErrorLoggingMiddleware)
 
+	// Optional generic reverse proxy (HELIX_PROXY_PATH_PREFIX → HELIX_PROXY_UPSTREAM).
+	// Registered on the bare router (no auth/CSRF) and before the SPA catch-all so
+	// the prefix wins — e.g. /auth/ → external IdP when Helix terminates TLS itself.
+	if err := apiServer.mountConfiguredProxy(router); err != nil {
+		return nil, err
+	}
+
 	// insecure router is under /api/v1 but not protected by auth
 	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
