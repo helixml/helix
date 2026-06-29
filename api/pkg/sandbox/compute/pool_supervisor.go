@@ -38,10 +38,19 @@ type PoolDiscoverer interface {
 	DiscoverPools(ctx context.Context) ([]DiscoveredPool, error)
 }
 
-// poolManager is the slice of *Manager the supervisor drives. An
+// PoolManager is the slice of *Manager the supervisor drives. An
 // interface (not the concrete *Manager) so the supervisor is testable
-// without constructing a real Provider + store.
-type poolManager interface {
+// without a real Provider + store, and so the ManagerFactory - implemented
+// outside this package (bootstrap, which builds the per-pool provider) -
+// can name the return type. *Manager satisfies it.
+type PoolManager interface {
+	Run(ctx context.Context) error
+}
+
+// Service is the reconcile loop bootstrap hands to the API server: either a
+// single Manager or a PoolSupervisor (discovery mode). The server only
+// nil-checks it and calls Run, so one interface covers both.
+type Service interface {
 	Run(ctx context.Context) error
 }
 
@@ -52,7 +61,7 @@ type poolManager interface {
 // and applies the ONE global ManagerConfig. The supervisor never sees
 // per-pool policy because there is none - Floor/Max/Idle are global.
 type ManagerFactory interface {
-	NewPoolManager(p DiscoveredPool) (poolManager, error)
+	NewPoolManager(p DiscoveredPool) (PoolManager, error)
 }
 
 // PoolSupervisor keeps one running Manager per discovered pool. Each

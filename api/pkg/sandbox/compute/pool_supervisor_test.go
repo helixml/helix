@@ -47,7 +47,7 @@ type fakeFactory struct {
 
 func newFakeFactory() *fakeFactory { return &fakeFactory{managers: map[string]*fakeManager{}} }
 
-func (f *fakeFactory) NewPoolManager(p DiscoveredPool) (poolManager, error) {
+func (f *fakeFactory) NewPoolManager(p DiscoveredPool) (PoolManager, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++

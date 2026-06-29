@@ -1,7 +1,7 @@
 # Compute Floor per Node Pool (discovery-driven)
 
 Date: 2026-06-29
-Status: Partial implementation (discovery + supervisor landed; wiring pending)
+Status: Implemented. Discovery is the only mode - the single-Manager / single-worker-tag path has been removed.
 Scope: control-plane compute provisioning (`api/pkg/sandbox/compute`)
 
 ## Summary
@@ -12,10 +12,10 @@ Scope: control-plane compute provisioning (`api/pkg/sandbox/compute`)
 - Approach: the ComputeManager DISCOVERS pools at runtime from the YD API
   (the operator's `yd-provision` is the only declaration), and one unchanged
   Manager runs per discovered pool under ONE global scaling policy.
-- Status: the discovery primitive and the per-pool supervisor are implemented
-  and unit-tested. End-to-end wiring is gated on one prerequisite: the YD
-  provider is NVIDIA-only today (no GPU-vendor / device flags), so the inf2
-  half cannot run until that lands.
+- Status: discovery primitive, per-pool supervisor, AND the bootstrap/serve
+  wiring are implemented and unit-tested. Discovery is the ONLY mode - there is
+  no flag and no single-Manager fallback (that path, incl. worker-tag
+  resolution, was deleted). The neuron device plumbing it depends on is in main.
 
 ## Why discovery, not a config pool list
 
@@ -98,25 +98,31 @@ of this change:
 - `config.Compute.GPUVendor` (`HELIX_COMPUTE_GPU_VENDOR`) is an optional
   override, not the switch.
 
-This PR carries only the discovery primitive + the per-pool supervisor. When
-the factory (below) is wired, it sets `Spec.GPUVendor` per pool from the
-instance type, reusing that existing plumbing.
+The factory (below) sets `Spec.GPUVendor` per pool from the instance type,
+reusing that existing plumbing.
 
-## Not implemented - remaining wiring
+## Wiring (implemented)
 
-1. **The factory + supervisor wiring in `bootstrap` / `serve`.**
-   `bootstrap.Bootstrap` builds one Manager today. A discovery-mode branch
-   would instead build a `PoolDiscoverer` (adapting `DiscoverNodePools`) and a
-   `ManagerFactory` (per-pool provider: worker tag from the pool, isolated
-   DeploymentTag, accelerator-derived image/vendor; global `ManagerConfig`),
-   then return a `PoolSupervisor` for `serve.go` to `go Run`. Gated behind a
-   new `HELIX_COMPUTE_DISCOVER_POOLS` (or similar) so the single-Manager path
-   stays the default.
+The supervisor is the production path whenever the compute subsystem is enabled
+(`HELIX_COMPUTE_PROVIDER=yellowdog`). No flag, no single-Manager fallback:
 
-2. **Global config knobs.** Floor/Max/idle already exist on `config.Compute`
-   and stay global - they are copied verbatim into every pool's Manager. No
-   per-pool config is added. (This is the whole point of the supervisor: one
-   policy, N pools.)
+- `bootstrap.Bootstrap` returns a `compute.Service` (the shared `Run` contract;
+  here always a `*PoolSupervisor`). The old single-Manager construction and the
+  `buildProvider`/`resolveWorkerTag`/`discoverFn` worker-tag machinery were
+  deleted. `server.go`'s `computeManager` field is now `compute.Service`; the
+  boot site is unchanged (`go computeManager.Run(ctx)`).
+- `bootstrap/pool_discovery.go`: `ydPoolDiscoverer` adapts `DiscoverNodePools`
+  to `[]compute.DiscoveredPool` (Key = `workerTag|instanceType`);
+  `ydManagerFactory` builds one Manager per pool with the pool's worker tag, an
+  isolated `DeploymentTag` (`<base>-<sanitised key>`) for row-ownership, and
+  `Spec.GPUVendor` from `AcceleratorForInstanceType`. An unclassifiable
+  instance type errors and the supervisor skips that pool.
+- `managerConfig(cfg, spec)` is shared by the single and per-pool paths, so
+  Floor/Max/idle are identical everywhere - only the Spec (GPU vendor) differs.
+
+**Global config knobs.** Floor/Max/idle stay on `config.Compute` and are
+copied verbatim into every pool's Manager. No per-pool config. (The whole
+point: one policy, N pools.)
 
 ## Edge cases / caveats
 
@@ -139,11 +145,13 @@ instance type, reusing that existing plumbing.
   nvidia. Out of scope for this POC (only g5 + inf2); add an explicit case if
   an AMD pool ever appears.
 
-## Recommendation
+## Follow-ups (not in this change)
 
-The discovery primitive and supervisor are the reusable core and are landed +
-tested. Do NOT wire the bootstrap discovery branch until the provider learns
-the neuron device-flag path - otherwise the feature can only floor NVIDIA
-pools, which the single-Manager path already does. Sequence: (1) provider
-GPU-vendor support, (2) bootstrap factory + supervisor wiring behind a flag,
-(3) flip the demo to it.
+- **Reject a worker tag that spans accelerators** in the factory (the caveat
+  above) - currently relies on the operator using one tag per accelerator.
+- **Drain a stopped pool's rows** when a pool disappears from discovery
+  (currently the Manager is cancelled but its offline rows are left to the
+  reaper).
+- `config.Compute.GPUVendor` (`HELIX_COMPUTE_GPU_VENDOR`) is now vestigial -
+  vendor is derived per pool from the instance type, and the runner also
+  auto-detects. Left in place for now; remove in a follow-up.

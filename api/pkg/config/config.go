@@ -178,13 +178,11 @@ type Compute struct {
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
 
-	// GPUVendor is the accelerator family of the hosts this Manager
-	// provisions ("nvidia", "amd", "neuron", or "" for the provider's
-	// default). It flows onto every provisioned host's task environment as
-	// GPU_VENDOR, which the runner launch script uses to pick the right
-	// docker device flags (e.g. neuron -> mount /dev/neuron* instead of
-	// --gpus all). A pool is single-vendor; set this to match the compute
-	// requirement's instance type (e.g. "neuron" for an inf2 pool).
+	// GPUVendor is vestigial. The pool supervisor now derives each pool's
+	// GPU vendor from its instance type, and the runner launch script also
+	// auto-detects the accelerator on the host - so this install-wide value
+	// is no longer consumed. Kept to avoid breaking an existing
+	// HELIX_COMPUTE_GPU_VENDOR setting; remove in a follow-up.
 	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
 
 	// DeploymentTag distinguishes work requirements created by this

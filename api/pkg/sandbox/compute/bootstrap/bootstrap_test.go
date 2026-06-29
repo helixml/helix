@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -11,41 +10,20 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
-	"github.com/helixml/helix/api/pkg/sandbox/compute/yellowdog"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // TestMain sets a plausible release version on the data package
-// global so tests that construct a Manager via Bootstrap don't trip
+// global so tests that construct a supervisor via Bootstrap don't trip
 // the helixSandboxImage sentinel-rejection. Tests of the rejection
 // itself call helixSandboxImageFor directly with their own values.
-//
-// Also stubs discoverFn so unit tests never reach out to the real YD
-// portal during boot. The default stub returns no tags (zero-online-nodes
-// branch), which causes resolveWorkerTag to fall back to the namespace
-// derivation - the same shape the original tests assumed.
-// Tests that want to exercise the discovery branches override
-// discoverFn locally via withDiscoverFn.
 func TestMain(m *testing.M) {
 	origVersion := data.Version
 	data.Version = "0.0.0-test"
-	origDiscover := discoverFn
-	discoverFn = func(context.Context, yellowdog.Config) ([]string, error) {
-		return nil, nil
-	}
 	defer func() {
 		data.Version = origVersion
-		discoverFn = origDiscover
 	}()
 	os.Exit(m.Run())
-}
-
-// withDiscoverFn temporarily replaces the package's discoverFn for the
-// scope of a single test. Returns a cleanup func tests should defer.
-func withDiscoverFn(stub func(context.Context, yellowdog.Config) ([]string, error)) func() {
-	prev := discoverFn
-	discoverFn = stub
-	return func() { discoverFn = prev }
 }
 
 // nullStore is a no-op SandboxStore so we can construct Bootstrap
@@ -214,187 +192,6 @@ func TestBootstrapUnknownProviderErrors(t *testing.T) {
 	}
 }
 
-func TestBootstrapDerivesWorkerTagFromNamespace(t *testing.T) {
-	// 0-tags branch: discovery returns no online nodes (the TestMain
-	// default stub), so resolveWorkerTag falls back to the
-	// namespace-derived default `worker-<namespace>`. Bootstrap
-	// completes without error.
-	cfg := config.Compute{
-		Provider:                "yellowdog",
-		ReconcileInterval:       time.Second,
-		HealthCheckTimeout:      time.Second,
-		MaxConcurrentProvisions: 1,
-		MaxProvisioningAge:      time.Minute,
-		Yellowdog: config.Yellowdog{
-			APIKeyID:    "k",
-			APISecret:   "s",
-			BaseURL:     "https://portal.yellowdog.co/api",
-			Namespace:   "development",
-			WorkerTag:   "", // intentionally empty
-			TaskTimeout: time.Hour,
-		},
-	}
-	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
-	if err != nil {
-		t.Fatalf("Bootstrap with empty WorkerTag should auto-derive, got error: %v", err)
-	}
-	if mgr == nil {
-		t.Fatal("expected non-nil Manager")
-	}
-}
-
-func TestResolveWorkerTagExplicitWins(t *testing.T) {
-	// Explicit-tag branch: HELIX_YD_WORKER_TAG set -> discoverFn is
-	// never called and the operator's value passes through verbatim.
-	called := false
-	defer withDiscoverFn(func(context.Context, yellowdog.Config) ([]string, error) {
-		called = true
-		return []string{"unrelated-tag"}, nil
-	})()
-
-	got, err := resolveWorkerTag(config.Yellowdog{
-		APIKeyID:  "k",
-		APISecret: "s",
-		Namespace: "development",
-		WorkerTag: "operator-override",
-	})
-	if err != nil {
-		t.Fatalf("resolveWorkerTag returned error: %v", err)
-	}
-	if got != "operator-override" {
-		t.Fatalf("explicit tag should win; got %q", got)
-	}
-	if called {
-		t.Fatal("discoverFn should NOT be called when WorkerTag is explicit")
-	}
-}
-
-func TestResolveWorkerTagOneTagDiscoveredUsedAsIs(t *testing.T) {
-	// 1-tag branch: discovery returns exactly one tag -> use it
-	// verbatim. This is the happy path that fixes the POC
-	// `worker-<username>` vs `worker-<namespace>` mismatch.
-	defer withDiscoverFn(func(context.Context, yellowdog.Config) ([]string, error) {
-		return []string{"worker-psamuel"}, nil
-	})()
-
-	got, err := resolveWorkerTag(config.Yellowdog{
-		APIKeyID:  "k",
-		APISecret: "s",
-		Namespace: "development",
-	})
-	if err != nil {
-		t.Fatalf("resolveWorkerTag returned error: %v", err)
-	}
-	if got != "worker-psamuel" {
-		t.Fatalf("discovered tag should pass through; got %q", got)
-	}
-}
-
-func TestResolveWorkerTagMultipleTagsRefusesToStart(t *testing.T) {
-	// N-tags branch: discovery finds >1 distinct tag in scope ->
-	// fail fast with an actionable error. Silent picking of one
-	// would route WRs to an arbitrary pool.
-	defer withDiscoverFn(func(context.Context, yellowdog.Config) ([]string, error) {
-		return []string{"worker-prod", "worker-staging"}, nil
-	})()
-
-	_, err := resolveWorkerTag(config.Yellowdog{
-		APIKeyID:  "k",
-		APISecret: "s",
-		Namespace: "development",
-	})
-	if err == nil {
-		t.Fatal("expected error when discovery returns multiple distinct tags")
-	}
-	if !strings.Contains(err.Error(), "multiple distinct") {
-		t.Fatalf("error should mention ambiguity, got %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "HELIX_YD_WORKER_TAG") {
-		t.Fatalf("error should name the env var to set, got %q", err.Error())
-	}
-	for _, tag := range []string{"worker-prod", "worker-staging"} {
-		if !strings.Contains(err.Error(), tag) {
-			t.Fatalf("error should list each candidate tag (missing %q): %q", tag, err.Error())
-		}
-	}
-}
-
-func TestResolveWorkerTagDiscoveryErrorFallsBack(t *testing.T) {
-	// Transport-error branch: a network or auth blip during discovery
-	// should NOT block Helix boot. Fall back to the namespace-derived
-	// default and warn; the WR-PENDING diagnostic will surface a real
-	// mismatch later if the default was wrong.
-	defer withDiscoverFn(func(context.Context, yellowdog.Config) ([]string, error) {
-		return nil, errors.New("yellowdog: HTTP 503")
-	})()
-
-	got, err := resolveWorkerTag(config.Yellowdog{
-		APIKeyID:  "k",
-		APISecret: "s",
-		Namespace: "development",
-	})
-	if err != nil {
-		t.Fatalf("transport error in discovery should not fail boot, got: %v", err)
-	}
-	if got != "worker-development" {
-		t.Fatalf("expected fallback worker-development, got %q", got)
-	}
-}
-
-func TestResolveWorkerTagNamespaceRequiredWhenNoExplicitTag(t *testing.T) {
-	// Without explicit WorkerTag AND without Namespace, there's no
-	// way to compute even the fallback. resolveWorkerTag returns an
-	// actionable error rather than calling discovery with no
-	// fall-back basis.
-	defer withDiscoverFn(func(context.Context, yellowdog.Config) ([]string, error) {
-		t.Fatal("discoverFn should not be reached when Namespace is empty")
-		return nil, nil
-	})()
-
-	_, err := resolveWorkerTag(config.Yellowdog{
-		APIKeyID:  "k",
-		APISecret: "s",
-		Namespace: "",
-		WorkerTag: "",
-	})
-	if err == nil {
-		t.Fatal("expected error when both Namespace and WorkerTag are empty")
-	}
-	if !strings.Contains(err.Error(), "HELIX_YD_NAMESPACE") {
-		t.Fatalf("error should name HELIX_YD_NAMESPACE, got %q", err.Error())
-	}
-}
-
-func TestBootstrapErrorsWhenWorkerTagAndNamespaceBothEmpty(t *testing.T) {
-	// With BOTH WorkerTag AND Namespace empty, derivation can't
-	// produce a default and yellowdog.NewProvider rejects the
-	// empty WorkerTag (existing validation in provider.go).
-	cfg := config.Compute{
-		Provider:                "yellowdog",
-		DeploymentTag:           "explicit-tag", // skip the namespace-derived DeploymentTag path
-		ReconcileInterval:       time.Second,
-		HealthCheckTimeout:      time.Second,
-		MaxConcurrentProvisions: 1,
-		MaxProvisioningAge:      time.Minute,
-		Yellowdog: config.Yellowdog{
-			APIKeyID:    "k",
-			APISecret:   "s",
-			BaseURL:     "https://portal.yellowdog.co/api",
-			Namespace:   "", // intentionally empty - blocks the derivation
-			WorkerTag:   "",
-			TaskTimeout: time.Hour,
-		},
-	}
-	// Bootstrap should fail at the Namespace validation in
-	// yellowdog.NewProvider, since Namespace is required for the
-	// provider itself; WorkerTag derivation never gets a chance to
-	// run with no namespace input.
-	_, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
-	if err == nil {
-		t.Fatal("expected error when Namespace is empty (which blocks both Namespace validation and WorkerTag derivation)")
-	}
-}
-
 func TestBootstrapYellowdogRequiresCredentials(t *testing.T) {
 	// Bootstrap delegates field validation to yellowdog.NewProvider,
 	// so this test mostly proves the wiring is plumbed correctly.
@@ -465,7 +262,7 @@ func TestBootstrapSandboxImageOverrideBypassesVersionGuard(t *testing.T) {
 	}
 }
 
-func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
+func TestBootstrapValidYellowdogConfigBuildsSupervisor(t *testing.T) {
 	cfg := config.Compute{
 		Provider:                "yellowdog",
 		DeploymentTag:           "prod",
@@ -483,20 +280,18 @@ func TestBootstrapValidYellowdogConfigBuildsManager(t *testing.T) {
 			TaskTimeout: 4 * time.Hour,
 		},
 	}
-	mgr, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
+	svc, err := Bootstrap(cfg, 20, "https://helix.example.com", "test-token", nullStore{})
 	if err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	if mgr == nil {
-		t.Fatal("expected non-nil Manager for valid config")
+	if svc == nil {
+		t.Fatal("expected non-nil Service for valid config")
 	}
-	// Compile-time check: returned value satisfies the public Manager
-	// surface (Run + Reconcile). If the bootstrap accidentally
-	// returns something else, this won't compile.
-	var _ interface {
-		Run(context.Context) error
-		Reconcile(context.Context) error
-	} = mgr
+	// Discovery is the only mode, so Bootstrap returns a PoolSupervisor
+	// (declared type is the narrower compute.Service).
+	if _, ok := svc.(*compute.PoolSupervisor); !ok {
+		t.Fatalf("expected *compute.PoolSupervisor, got %T", svc)
+	}
 }
 
 func TestHelixSandboxImageFor(t *testing.T) {

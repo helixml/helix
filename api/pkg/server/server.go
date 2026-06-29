@@ -195,8 +195,10 @@ type HelixAPIServer struct {
 	// compute.Provider (currently only yellowdog). Nil when
 	// HELIX_COMPUTE_PROVIDER is unset - in that case the legacy
 	// self-registered host path is the only way SandboxInstance rows
-	// get created. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
-	computeManager *compute.Manager
+	// get created. Concretely a *compute.Manager, or a
+	// *compute.PoolSupervisor in discovery mode - the server only calls
+	// Run. See api/pkg/sandbox/compute and api/pkg/sandbox/compute/bootstrap.
+	computeManager compute.Service
 }
 
 func NewServer(

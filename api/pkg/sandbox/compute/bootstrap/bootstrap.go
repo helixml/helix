@@ -1,21 +1,18 @@
-// Package bootstrap wires operator-supplied env-var config into a
-// concrete compute.Manager + Provider. Separated from package compute
-// because compute itself cannot import a concrete Provider (cyclic),
-// and from package server because the API server should not need to
-// know the catalogue of supported providers.
+// Package bootstrap wires operator-supplied env-var config into a running
+// compute.Service - a PoolSupervisor that runs one Manager per discovered
+// YD pool. Separated from package compute because compute cannot import a
+// concrete Provider (cyclic), and from package server because the API
+// server should not need to know the catalogue of supported providers.
 package bootstrap
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/sandbox/compute"
-	"github.com/helixml/helix/api/pkg/sandbox/compute/yellowdog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -47,7 +44,7 @@ import (
 // because the value originates from ServerConfig (used by both
 // Manager-provisioned and legacy auto-register paths) - putting it in
 // config.Compute would suggest it only affects ComputeManager.
-func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (*compute.Manager, error) {
+func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerToken string, store compute.SandboxStore) (compute.Service, error) {
 	if cfg.Provider == "" {
 		log.Info().Msg("HELIX_COMPUTE_PROVIDER unset; compute subsystem disabled (no Provider, no Manager, no reconcile)")
 		return nil, nil
@@ -80,18 +77,23 @@ func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerTok
 			Msg("compute: HELIX_COMPUTE_DEPLOYMENT_TAG auto-derived from provider namespace; set explicitly if multiple Helix installs share this YD namespace")
 	}
 
-	provider, err := buildProvider(cfg, serverURL, runnerToken)
-	if err != nil {
-		return nil, fmt.Errorf("build %q provider: %w", cfg.Provider, err)
+	// Discovery is the only mode: a PoolSupervisor enumerates the live YD
+	// pools (grouped by worker tag + instance type) and runs one Manager per
+	// pool under the same global Floor/Max/idle policy, with each pool's GPU
+	// vendor derived from its instance type. (The older single-Manager /
+	// single-worker-tag path has been removed.)
+	if cfg.Provider != "yellowdog" {
+		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
 	}
+	return buildSupervisor(cfg, maxSandboxesPerHost, serverURL, runnerToken, store)
+}
 
-	// SpecTemplate.MaxSandboxes is what Manager-provisioned Runner rows
-	// get written with (manager.go:892 reads m.cfg.SpecTemplate via
-	// defaultMaxSandboxes). Threading maxSandboxesPerHost in here ensures
-	// YD-provisioned and legacy auto-registered Runners share the same
-	// ceiling — without this, YD Runners would silently fall back to the
-	// hardcoded 20 in defaultMaxSandboxes regardless of operator config.
-	mgr, err := compute.NewManager(provider, store, compute.ManagerConfig{
+// managerConfig builds the shared ManagerConfig from operator config,
+// plugging in the given per-host Spec. Used by the per-pool factory
+// (pool_discovery.go) so every pool's Manager gets identical Floor/Max/idle
+// policy - only the Spec (GPU vendor) differs per pool.
+func managerConfig(cfg config.Compute, spec compute.Spec) compute.ManagerConfig {
+	return compute.ManagerConfig{
 		Floor:                   cfg.Floor,
 		ReconcileInterval:       cfg.ReconcileInterval,
 		HealthCheckTimeout:      cfg.HealthCheckTimeout,
@@ -101,37 +103,17 @@ func Bootstrap(cfg config.Compute, maxSandboxesPerHost int, serverURL, runnerTok
 		ScaleUpHeadroomMin:      cfg.ScaleUpHeadroomMin,
 		IdleTimeout:             cfg.IdleTimeout,
 		HardIdleTimeout:         cfg.HardIdleTimeout,
-		SpecTemplate: compute.Spec{
-			MaxSandboxes: maxSandboxesPerHost,
-			GPUVendor:    cfg.GPUVendor,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("construct compute manager: %w", err)
+		SpecTemplate:            spec,
 	}
-
-	log.Info().
-		Str("provider", provider.Name()).
-		Int("floor", cfg.Floor).
-		Int("max", cfg.Max).
-		Int("scaleup_headroom_min", cfg.ScaleUpHeadroomMin).
-		Dur("idle_timeout", cfg.IdleTimeout).
-		Dur("hard_idle_timeout", cfg.HardIdleTimeout).
-		Dur("reconcile_interval", cfg.ReconcileInterval).
-		Dur("max_provisioning_age", cfg.MaxProvisioningAge).
-		Int("max_concurrent_provisions", cfg.MaxConcurrentProvisions).
-		Msg("compute subsystem enabled; Manager will start at boot")
-	return mgr, nil
 }
 
 // deriveDeploymentTag computes the default DeploymentTag from the
 // provider-specific config when no operator override is set. Returns
 // empty string if no derivation is possible.
 //
-// One arm per supported provider, mirroring buildProvider. Each
-// provider exposes a namespace concept; we prefix with "helix-" so
-// the tag is recognisable in admin UIs and operator tooling that
-// inspects the upstream system directly.
+// One arm per supported provider. Each provider exposes a namespace
+// concept; we prefix with "helix-" so the tag is recognisable in admin
+// UIs and operator tooling that inspects the upstream system directly.
 func deriveDeploymentTag(cfg config.Compute) string {
 	switch cfg.Provider {
 	case "yellowdog":
@@ -140,69 +122,6 @@ func deriveDeploymentTag(cfg config.Compute) string {
 		}
 	}
 	return ""
-}
-
-// buildProvider dispatches on cfg.Provider to construct the
-// appropriate concrete Provider. Add new providers here as
-// implementations land.
-func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.Provider, error) {
-	switch cfg.Provider {
-	case "yellowdog":
-		// WorkerTag resolution order:
-		//   1. HELIX_YD_WORKER_TAG explicit  -> use verbatim
-		//   2. Discover from YD nodes        -> query GET /workerPools/nodes,
-		//                                       use the unique tag if there
-		//                                       is exactly one across all
-		//                                       online nodes
-		//   3. Namespace-derived fallback    -> "worker-<namespace>"
-		//
-		// (2) replaces blind (3) as the primary path. The 2026-06-10 E2E
-		// run showed that the POC's `worker_tag = "worker-{{username}}"`
-		// convention is incompatible with naive namespace derivation: a
-		// pool registered as `worker-psamuel` would silently never accept
-		// WRs Helix submitted with `worker-development`. Discovery reads
-		// the truth from the running pool.
-		workerTag, err := resolveWorkerTag(cfg.Yellowdog)
-		if err != nil {
-			return nil, err
-		}
-		// HELIX_COMPUTE_SANDBOX_IMAGE pins the full image verbatim and
-		// bypasses version derivation — the escape hatch for dev/source
-		// builds (placeholder data.Version) and for pinning an in-flight
-		// sandbox SHA. Falls back to the version-derived tag when unset.
-		sandboxImage := cfg.SandboxImage
-		if sandboxImage == "" {
-			var err error
-			sandboxImage, err = helixSandboxImage(cfg.SandboxRegistry)
-			if err != nil {
-				return nil, err
-			}
-		}
-		// Log the resolved image at boot so operators can diagnose
-		// pull failures (typo'd hostname, mistyped account ID) by
-		// reading the api startup logs - matches the visibility of
-		// WorkerTag (resolveWorkerTag) and DeploymentTag (Bootstrap).
-		log.Info().
-			Str("sandbox_image", sandboxImage).
-			Msg("compute: resolved helix-sandbox image for YD task dispatch")
-		return yellowdog.NewProvider(yellowdog.Config{
-			APIKeyID:      cfg.Yellowdog.APIKeyID,
-			APISecret:     cfg.Yellowdog.APISecret,
-			BaseURL:       cfg.Yellowdog.BaseURL,
-			Namespace:     cfg.Yellowdog.Namespace,
-			DeploymentTag: cfg.DeploymentTag,
-			WorkerTag:     workerTag,
-			TaskTimeout:   cfg.Yellowdog.TaskTimeout,
-			MaxRetries:    cfg.Yellowdog.MaxRetries,
-			HelixURL:               serverURL,
-			RunnerToken:            runnerToken,
-			HelixImage:             sandboxImage,
-			NeuronCompileCacheURL:  cfg.NeuronCompileCacheURL,
-			RunnerReadinessTimeout: cfg.RunnerReadinessTimeout,
-		})
-	default:
-		return nil, fmt.Errorf("unknown HELIX_COMPUTE_PROVIDER %q (supported: \"yellowdog\")", cfg.Provider)
-	}
 }
 
 // helixSandboxImage returns the helix-sandbox image tag the YD task
@@ -225,81 +144,15 @@ func buildProvider(cfg config.Compute, serverURL, runnerToken string) (compute.P
 // fixes the build rather than discovering the mismatch later when
 // YD tasks ERROR on docker pull.
 var sentinelVersions = map[string]bool{
-	"":          true,
-	"<unknown>": true,
-	"v0.0.0":    true,
-	"0.0.0":     true,
+	"":           true,
+	"<unknown>":  true,
+	"v0.0.0":     true,
+	"0.0.0":      true,
 	"v0.0.0+dev": true,
 }
 
 func helixSandboxImage(registry string) (string, error) {
 	return helixSandboxImageFor(data.GetHelixVersion(), registry)
-}
-
-// resolveWorkerTag picks the YD WorkerTag for the Provider, preferring
-// an explicit operator override, then discovery from online nodes, then
-// a namespace-derived fallback.
-//
-// Returns (tag, err). err is non-nil only when the operator MUST act:
-// either Namespace is missing (no possible default) or discovery saw
-// multiple distinct tags in scope (ambiguous - pick one).
-//
-// Discovery transport errors fall through to the namespace-derived
-// fallback rather than failing boot: a transient YD outage shouldn't
-// prevent Helix from starting, and if the fallback turns out wrong the
-// operator will see WRs sit PENDING and can fix it.
-//
-// The discoverFn parameter is injectable for tests.
-var discoverFn = yellowdog.DiscoverOnlineWorkerTags
-
-func resolveWorkerTag(yd config.Yellowdog) (string, error) {
-	if yd.WorkerTag != "" {
-		log.Info().
-			Str("worker_tag", yd.WorkerTag).
-			Msg("compute: HELIX_YD_WORKER_TAG provided by operator")
-		return yd.WorkerTag, nil
-	}
-	if yd.Namespace == "" {
-		return "", errors.New(
-			"compute: HELIX_YD_NAMESPACE is required (cannot derive WorkerTag without it; alternatively set HELIX_YD_WORKER_TAG explicitly)",
-		)
-	}
-
-	// Discovery: query YD for the unique workerTag(s) currently visible
-	// to this API key. Bounded timeout so a hung YD doesn't pin boot.
-	discoverCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	tags, err := discoverFn(discoverCtx, yellowdog.Config{
-		APIKeyID:  yd.APIKeyID,
-		APISecret: yd.APISecret,
-		BaseURL:   yd.BaseURL,
-	})
-
-	fallback := "worker-" + yd.Namespace
-
-	switch {
-	case err != nil:
-		log.Warn().
-			Err(err).
-			Str("worker_tag", fallback).
-			Msg("compute: WorkerTag discovery failed; falling back to namespace-derived default. Set HELIX_YD_WORKER_TAG explicitly to override if WRs sit PENDING.")
-		return fallback, nil
-	case len(tags) == 1:
-		log.Info().
-			Str("worker_tag", tags[0]).
-			Msg("compute: WorkerTag auto-discovered from online YD nodes")
-		return tags[0], nil
-	case len(tags) == 0:
-		log.Warn().
-			Str("worker_tag", fallback).
-			Msg("compute: no online YD nodes visible for discovery; falling back to namespace-derived default. If your pool advertises a different tag and is currently offline, set HELIX_YD_WORKER_TAG explicitly.")
-		return fallback, nil
-	default:
-		return "", fmt.Errorf(
-			"compute: discovery found multiple distinct YD workerTags %v - cannot pick one automatically. Set HELIX_YD_WORKER_TAG explicitly to disambiguate.",
-			tags,
-		)
-	}
 }
 
 // defaultRegistryHost is the registry hostname helix-sandbox is published
@@ -332,26 +185,26 @@ const (
 // through to fail opaquely at docker pull on a worker):
 //
 //   - Internal whitespace:        "mirror.corp\nbaz", "foo bar"
-//                                 - TrimSpace only strips edges, the
-//                                   shell consumer would receive the
-//                                   embedded whitespace too.
+//   - TrimSpace only strips edges, the
+//     shell consumer would receive the
+//     embedded whitespace too.
 //   - URL form ("://"):           "https://mirror.corp"
-//                                 - shell consumer would produce
-//                                   "https://mirror.corp/..." which
-//                                   docker pull rejects.
+//   - shell consumer would produce
+//     "https://mirror.corp/..." which
+//     docker pull rejects.
 //   - Leading slash:              "/mirror.corp", "/ghcr.io"
-//                                 - Go side could strip it but the
-//                                   shell consumer (sed) would not,
-//                                   producing "/mirror.corp/...".
-//                                   Reject so the two consumers stay
-//                                   consistent.
+//   - Go side could strip it but the
+//     shell consumer (sed) would not,
+//     producing "/mirror.corp/...".
+//     Reject so the two consumers stay
+//     consistent.
 //   - Embedded path ("/" in middle): "mirror.corp/helixml"
-//                                    - would produce double-org path
-//                                      on YD side (helixml/helixml/...)
-//                                      and different garbage on shell.
+//   - would produce double-org path
+//     on YD side (helixml/helixml/...)
+//     and different garbage on shell.
 //   - Empty after trim:           "/", "  /  ", "   "
-//                                 - silent fallback to GHCR is wrong
-//                                   for an air-gapped deployment.
+//   - silent fallback to GHCR is wrong
+//     for an air-gapped deployment.
 //
 // Order of checks below: whitespace first (most-fundamental
 // corruption), then URL form, then leading-slash, then embedded path.
