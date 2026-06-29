@@ -3,7 +3,7 @@
 # Debian is required for CGo (hugot tokenizers link against glibc)
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Go version.
-FROM golang:1.25-bookworm@sha256:e3a54b77385b4f8a31c1db4d12429ffb3718ea76865731a787c497755d409547 AS api-base
+FROM golang:1.25-bookworm@sha256:b96f24a8d7d010ea0acb9c3ba99064740f02b6b984612b28bd3c9c5ab9453e38 AS api-base
 WORKDIR /app
 # Install build dependencies for CGo (hugot/tokenizers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -124,7 +124,7 @@ RUN yarn build
 #-----------------------
 # Pin to specific digest for stable layer caching.
 # Update digest when intentionally upgrading Debian version.
-FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git git-daemon-sysvinit \
     && rm -rf /var/lib/apt/lists/*
