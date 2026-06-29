@@ -1,9 +1,17 @@
 #!/bin/bash
 set -e
 
+# Default-expand every env var below (${VAR:-...}). This script is SOURCED by
+# entrypoint.sh into the same shell as the other cont-init scripts, and a
+# sibling (05-start-dns-proxy.sh) runs `set -u` at top level - which leaks in
+# and makes any bare unset reference here a fatal "unbound variable". Only
+# install.sh-launched runners set HYDRA_PRIVILEGED_MODE_ENABLED; YD-launched
+# runners do not, so a bare reference aborted container init on them. Defaulting
+# keeps the script correct regardless of which caller set which var.
+
 # Skip if Hydra is not enabled
 # NOTE: Use "return" not "exit" - this script is sourced by entrypoint.sh!
-if [ "$HYDRA_ENABLED" != "true" ]; then
+if [ "${HYDRA_ENABLED:-false}" != "true" ]; then
     echo "ℹ️  Hydra not enabled (HYDRA_ENABLED != true), skipping multi-Docker isolation"
     return 0
 fi
@@ -51,7 +59,7 @@ done
 echo "✅ Hydra socket ready at /var/run/hydra/hydra.sock"
 
 # Log privileged mode status
-if [ "$HYDRA_PRIVILEGED_MODE_ENABLED" = "true" ]; then
+if [ "${HYDRA_PRIVILEGED_MODE_ENABLED:-false}" = "true" ]; then
     echo "⚠️  Hydra PRIVILEGED MODE ENABLED - host Docker access available for Helix development"
 else
     echo "ℹ️  Hydra running in normal mode (isolated Docker instances per scope)"
