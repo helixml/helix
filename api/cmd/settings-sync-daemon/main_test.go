@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -659,5 +661,49 @@ func TestComputeEffectiveTheme(t *testing.T) {
 			assert.Equal(t, tt.wantBranch, gotBranch, "branch label")
 			assert.Contains(t, gotOnDiskRepr, tt.wantOnDiskHint, "on-disk repr")
 		})
+	}
+}
+
+// TestWriteSettingsPreservesInode is the regression test for the dark<->light
+// "doesn't change back" bug. Zed watches settings.json by inode; the daemon used
+// to write via temp-file + rename, which replaces the inode on every write and
+// kills Zed's inotify watch after the first change. writeSettings must now keep
+// the inode stable across repeated writes so Zed keeps reloading on every toggle.
+func TestWriteSettingsPreservesInode(t *testing.T) {
+	origSettingsPath := SettingsPath
+	t.Cleanup(func() { SettingsPath = origSettingsPath })
+
+	dir := t.TempDir()
+	SettingsPath = filepath.Join(dir, "settings.json")
+
+	inodeOf := func(path string) uint64 {
+		info, err := os.Stat(path)
+		assert.NoError(t, err)
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			t.Fatalf("Sys() is not *syscall.Stat_t")
+		}
+		return st.Ino
+	}
+
+	d := &SettingsDaemon{}
+
+	// First write creates the file.
+	assert.NoError(t, d.writeSettings(map[string]interface{}{"theme": "Ayu Dark"}))
+	firstInode := inodeOf(SettingsPath)
+
+	// Repeated writes (simulating dark<->light<->dark toggles) must keep the SAME
+	// inode and write the correct contents each time.
+	for _, theme := range []string{"One Light", "Ayu Dark", "One Light"} {
+		assert.NoError(t, d.writeSettings(map[string]interface{}{"theme": theme}))
+
+		assert.Equal(t, firstInode, inodeOf(SettingsPath),
+			"settings.json inode must stay stable across writes (theme=%s)", theme)
+
+		data, err := os.ReadFile(SettingsPath)
+		assert.NoError(t, err)
+		var got map[string]interface{}
+		assert.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, theme, got["theme"], "written theme should be readable")
 	}
 }
