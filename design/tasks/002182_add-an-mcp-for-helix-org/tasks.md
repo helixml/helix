@@ -33,8 +33,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 5 — MCP tools
 
-- [ ] RED: per-tool tests (fake application service, following `configure_worker_project_test.go`) for name, input schema, and happy/error `Invoke` — for each of `create_spectask`, `list_spectasks`, `get_spectask`, `start_spectask_planning`, `review_spectask_spec`, `approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs` (one PR per attached repo; result lists all PRs).
-- [ ] GREEN: implement the tool files in `api/pkg/org/interfaces/mcptools/`, delegating to `deps.SpecTasks`, scoped to `inv.Caller`.
+- [x] RED: per-tool tests (fake application service, following `configure_worker_project_test.go`) for name, input schema, and happy/error `Invoke` — for each of `create_spectask`, `list_spectasks`, `get_spectask`, `start_spectask_planning`, `review_spectask_spec`, `approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs` (one PR per attached repo; result lists all PRs).
+- [x] GREEN: implement the tools in `api/pkg/org/interfaces/mcptools/spec_tasks.go`, delegating to `deps.SpecTasks`, scoped to `inv.Caller`. (Eight small adapters kept in one file for cohesion.)
 - [ ] RED: test that all new tools are registered by `RegisterBuiltins` and that the mutating/approving ones are absent from `BaseReadTools`.
 - [ ] GREEN: register the tools in `RegisterBuiltins`.
 
