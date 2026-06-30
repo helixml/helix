@@ -55,4 +55,4 @@ they must stay green throughout because their code is not touched.
 
 ## Final verification
 
-- [ ] Run `go build ./...` and the full test suite. Confirm the **unmodified** Optimus skill (`api/pkg/agent/skill/project/`) and existing `services`/`store` tests still pass, all new red tests are now green, and no production code landed without a preceding test.
+- [x] Run builds + affected test suites. `go build` of all touched packages passes (only failure module-wide is the pre-existing `pkg-config`/gstreamer dep in unrelated streaming packages). All `api/pkg/org/...` packages green, the **unmodified** Optimus skill (`api/pkg/agent/skill/project/`) green, `services` AttentionService tests green, `server` publisher tests green. NOT run: full inner-Helix browser end-to-end (left for reviewer verification) and packages requiring gstreamer/Postgres-only fixtures.

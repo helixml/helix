@@ -287,7 +287,34 @@ Named to read like the actions a human reviewer takes:
   (`api/pkg/agent/skill/project/`) is untouched.
 - **Build/test note:** org persistence tests use `orggorm.GetOrgTestDB(t)`
   (see `project_config_test.go`); pure tool/service tests use fakes and need no
-  DB.
+  DB. Local Go tests need `CGO_ENABLED=1` + gcc (tree-sitter); install with
+  `sudo apt-get install -y gcc libc6-dev`.
+
+### Final implementation map (what landed)
+
+- `runtime.SpecTasks` port + `NoopSpecTasks` + DTOs — `runtime/runtime.go`.
+- `runtimehelix.SpecTasks` impl over narrow `SpecTaskStore` (satisfied by
+  `*helixstore.Store`) + `SpecTaskWorkflow` — `runtime/helix/spectasks.go`.
+- `spectasks.Service` application service — `application/spectasks/`.
+- 8 MCP tools in one file — `interfaces/mcptools/spec_tasks.go`; registered in
+  `RegisterBuiltins`; `Deps.SpecTasks`/`Config.SpecTasks` wired in `builtins.go`.
+- `transport.KindSpecTask` — `domain/transport/spectask.go`.
+- `AttentionService` optional `AttentionEventSink` + `SetEventSink` —
+  `services/attention_service.go` (only edit to existing code, additive).
+- Bridge `attentionTopicPublisher` (helix→org) — `server/spec_task_attention_publisher.go`.
+- Composition: `runtimehelix.NewSpecTasks` + `specTaskWorkflow` adapter +
+  `SetEventSink(attentionTopicPublisher)` — `server/helix_org.go`,
+  `server/spec_tasks_org_wiring.go`.
+
+### Deviations from the plan (all documented in tasks.md)
+
+1. 8 tools in one file (cohesion) rather than one file per verb.
+2. The attention→topic publisher lives in `server`, not
+   `org/infrastructure/transports/spectask/` — org transports import only the
+   org domain store; the helix↔org bridge belongs with the other server-side
+   adapters (keeps org core generic, per CLAUDE.md).
+3. `RequestChanges` makes the `spec_revision` status transition; the full
+   design-review-comment thread remains the REST/UI path (deferred).
 
 ## Follow-on (out of scope, noted): unify the two notification paths
 
