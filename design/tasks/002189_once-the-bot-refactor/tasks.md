@@ -3,7 +3,7 @@
 > The bot refactor (spectask `002185_i-need-to-merge-the`) is already
 > merged into `main` (verified 2026-06-30). Build on the Bot symbols.
 
-- [ ] Domain: add `PreserveContext bool` to `orgchart.Bot` + `WithPreserveContext` builder; extend `bot_test.go`.
+- [~] Domain: add `PreserveContext bool` to `orgchart.Bot` + `WithPreserveContext` builder; extend `bot_test.go`.
 - [ ] Gorm persistence: add `preserve_context` column to the bot row, map in `ToRow`/`ToDomain`, add to the `Update` `WithUpdates` map.
 - [ ] Memory store: carry `PreserveContext` in the in-memory bot mapper/copy.
 - [ ] Verify AutoMigrate adds the column and existing rows default to `false` (no SQL migration needed).
