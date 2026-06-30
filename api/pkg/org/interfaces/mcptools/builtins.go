@@ -280,6 +280,13 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Publish{deps: deps},
 		&DM{deps: deps},
 		&ConfigureWorkerProject{deps: deps},
+		// Spec-task management — a Worker managing the spec tasks in its
+		// own Helix project. Granted per-Role (not in BaseReadTools).
+		NewCreateSpecTask(deps),
+		NewStartSpecTaskPlanning(deps),
+		NewApproveSpecTaskSpec(deps),
+		NewRequestSpecTaskChanges(deps),
+		NewCreateSpecTaskPRs(deps),
 		// Reads. Each is a thin wrapper around a store call; together
 		// they replace the jsonapi GET handlers the server used to expose.
 		&ListRoles{deps: deps},
@@ -289,6 +296,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetWorkerProject{deps: deps},
+		NewListSpecTasks(deps),
+		NewGetSpecTask(deps),
+		NewReviewSpecTaskSpec(deps),
 		&ListTopics{deps: deps},
 		&GetTopic{deps: deps},
 		&ListTopicEvents{deps: deps},
