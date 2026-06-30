@@ -431,10 +431,8 @@ const Layout: FC<{
 
       case "helix_org_root":
       case "helix_org_chart":
-      case "helix_org_roles":
-      case "helix_org_role_detail":
-      case "helix_org_workers":
-      case "helix_org_worker_detail":
+      case "helix_org_bots":
+      case "helix_org_bot_detail":
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_topic_detail":

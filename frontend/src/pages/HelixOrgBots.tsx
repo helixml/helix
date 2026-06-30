@@ -1,11 +1,12 @@
-// HelixOrgRoles lists every role defined in the current org and is
-// the entry point for the standalone "Roles" page in the helix-org
-// middle-nav. Clicking a row navigates to /helix-org/roles/:role_id,
-// which shows the full role markdown + per-role actions.
+// HelixOrgBots lists every bot defined in the current org and is the
+// entry point for the standalone "Bots" page in the helix-org middle-nav.
+// Clicking a row navigates to /helix-org/bots/:bot_id, which shows the
+// bot's content, tools, subscriptions, reporting lines and an inline chat
+// transcript. The chart's bot nodes navigate to the same detail page.
 //
-// The chart page (/helix-org/chart) still exists in parallel; the two
-// surfaces both read the same backend `GET /roles` / `GET /roles/{id}`
-// endpoints, so they stay in sync without extra plumbing.
+// A Bot is the merge of the former Role and Worker concepts: it carries
+// its own markdown content (its identity/prompt), an MCP tools list, a
+// topics manifest, and the bots it reports to (parent_ids).
 
 import { FC, MouseEvent, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
@@ -23,7 +24,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import Page from '../components/system/Page'
-import NewRoleDialog from '../components/helix-org/NewRoleDialog'
+import NewBotDialog from '../components/helix-org/NewBotDialog'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
@@ -33,12 +34,12 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
-  RoleDTO,
-  useDeleteHelixOrgRole,
-  useListHelixOrgRoles,
+  BotDTO,
+  useDeleteBot,
+  useListHelixOrgBots,
 } from '../services/helixOrgService'
 
-const HelixOrgRoles: FC = () => {
+const HelixOrgBots: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const breadcrumbs = useHelixOrgBreadcrumbs()
@@ -46,39 +47,39 @@ const HelixOrgRoles: FC = () => {
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
 
-  const { data, isLoading } = useListHelixOrgRoles()
-  const deleteRole = useDeleteHelixOrgRole()
+  const { data, isLoading } = useListHelixOrgBots()
+  const deleteBot = useDeleteBot()
 
-  const roles = data ?? []
-  const [deleting, setDeleting] = useState<RoleDTO | undefined>()
+  const bots = data ?? []
+  const [deleting, setDeleting] = useState<BotDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [currentRole, setCurrentRole] = useState<RoleDTO | null>(null)
-  const [newRoleOpen, setNewRoleOpen] = useState(false)
+  const [currentBot, setCurrentBot] = useState<BotDTO | null>(null)
+  const [newBotOpen, setNewBotOpen] = useState(false)
 
-  const openRole = (roleId: string) => {
+  const openBot = (botId: string) => {
     if (!orgSlug) return
-    router.navigate('helix_org_role_detail', { org_id: orgSlug, role_id: roleId })
+    router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
   }
 
-  const handleMenuOpen = (e: MouseEvent<HTMLElement>, role: RoleDTO) => {
+  const handleMenuOpen = (e: MouseEvent<HTMLElement>, bot: BotDTO) => {
     e.stopPropagation()
     setAnchorEl(e.currentTarget)
-    setCurrentRole(role)
+    setCurrentBot(bot)
   }
   const handleMenuClose = () => {
     setAnchorEl(null)
-    setCurrentRole(null)
+    setCurrentBot(null)
   }
 
   const handleDelete = async () => {
     if (!deleting) return
     try {
-      await deleteRole.mutateAsync(deleting.id)
-      snackbar.success(`deleted role ${deleting.id}`)
+      await deleteBot.mutateAsync(deleting.id ?? '')
+      snackbar.success(`deleted bot ${deleting.id}`)
     } catch (e: any) {
       const status = e?.response?.status
       if (status === 409) {
-        snackbar.error('owner role is protected and cannot be deleted')
+        snackbar.error('owner bot is protected and cannot be deleted')
       } else {
         snackbar.error(e?.response?.data?.error ?? e?.message ?? 'delete failed')
       }
@@ -87,9 +88,9 @@ const HelixOrgRoles: FC = () => {
     }
   }
 
-  const tableData = useMemo(() => roles.map((r) => ({
-    id: r.id,
-    _data: r,
+  const tableData = useMemo(() => bots.map((b) => ({
+    id: b.id,
+    _data: b,
     name: (
       <Typography variant="body1">
         <a
@@ -100,9 +101,9 @@ const HelixOrgRoles: FC = () => {
             fontFamily: 'monospace',
           }}
           href="#"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRole(r.id) }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openBot(b.id ?? '') }}
         >
-          {r.id}
+          {b.id}
         </a>
       </Typography>
     ),
@@ -117,30 +118,30 @@ const HelixOrgRoles: FC = () => {
           maxWidth: 360,
         }}
       >
-        {(r.content || '').split('\n')[0].slice(0, 80) || '—'}
+        {(b.content || '').split('\n').find((l) => l.trim() !== '')?.replace(/^#+\s*/, '').slice(0, 80) || '—'}
       </Typography>
     ),
     tools: (
       <Typography variant="body2" color="text.secondary">
-        {r.tools?.length ?? 0}
+        {b.tools?.length ?? 0}
       </Typography>
     ),
-    topics: (
-      <Typography variant="body2" color="text.secondary">
-        {r.topics?.length ?? 0}
+    reportsTo: (
+      <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+        {(b.parent_ids ?? []).join(', ') || '—'}
       </Typography>
     ),
     updated: (
       <Typography variant="body2" color="text.secondary">
-        {r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}
+        {b.updated_at ? new Date(b.updated_at).toLocaleString() : '—'}
       </Typography>
     ),
-  })), [roles, theme])
+  })), [bots, theme])
 
   const getActions = (row: any) => {
-    const role = row._data as RoleDTO
+    const bot = row._data as BotDTO
     return (
-      <IconButton size="small" onClick={(e) => handleMenuOpen(e, role)}>
+      <IconButton size="small" onClick={(e) => handleMenuOpen(e, bot)}>
         <MoreVertIcon />
       </IconButton>
     )
@@ -148,7 +149,7 @@ const HelixOrgRoles: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Roles"
+      breadcrumbTitle="Bots"
       breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
     >
@@ -156,37 +157,38 @@ const HelixOrgRoles: FC = () => {
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h5" sx={{ mb: 1 }}>Roles</Typography>
+              <Typography variant="h5" sx={{ mb: 1 }}>Bots</Typography>
               <Typography variant="body2" color="text.secondary">
-                A Role defines a job description: the markdown content tells a Worker what they're for, the
-                tools list is the Worker's MCP tool surface, and the topics list flags which inbound events the Role's
-                prompt expects. Workers hold a Role directly — tools and prompt come from here.
+                A Bot is an agent in the org. Its markdown content is the prompt it reads on
+                activation, its tools list is its MCP tool surface, and it reports to other
+                bots (its managers). Click a bot to open its detail page — chat to it inline,
+                edit its content and tools, and manage its subscriptions.
               </Typography>
             </Box>
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => setNewRoleOpen(true)}
+              onClick={() => setNewBotOpen(true)}
               sx={{ flexShrink: 0, mt: 0.5 }}
             >
-              New Role
+              New bot
             </Button>
           </Stack>
 
           {isLoading ? (
             <LoadingSpinner />
-          ) : roles.length === 0 ? (
+          ) : bots.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <Typography variant="body1" color="text.secondary" gutterBottom>
-                No roles defined yet.
+                No bots defined yet.
               </Typography>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
-                onClick={() => setNewRoleOpen(true)}
+                onClick={() => setNewBotOpen(true)}
                 sx={{ mt: 1 }}
               >
-                New Role
+                New bot
               </Button>
             </Box>
           ) : (
@@ -196,7 +198,7 @@ const HelixOrgRoles: FC = () => {
                 { name: 'name', title: 'ID' },
                 { name: 'contentPreview', title: 'Content' },
                 { name: 'tools', title: 'Tools' },
-                { name: 'topics', title: 'Topics' },
+                { name: 'reportsTo', title: 'Reports to' },
                 { name: 'updated', title: 'Updated' },
               ]}
               data={tableData}
@@ -211,7 +213,7 @@ const HelixOrgRoles: FC = () => {
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
-            if (currentRole) openRole(currentRole.id)
+            if (currentBot) openBot(currentBot.id ?? '')
           }}
         >
           <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
@@ -221,7 +223,7 @@ const HelixOrgRoles: FC = () => {
           onClick={(e) => {
             e.stopPropagation()
             handleMenuClose()
-            if (currentRole) setDeleting(currentRole)
+            if (currentBot) setDeleting(currentBot)
           }}
         >
           <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
@@ -231,22 +233,22 @@ const HelixOrgRoles: FC = () => {
 
       {deleting && (
         <DeleteConfirmWindow
-          title="role"
+          title="bot"
           submitTitle="Delete"
           onSubmit={handleDelete}
           onCancel={() => setDeleting(undefined)}
         >
           <Typography variant="body1">
-            Deleting role <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> cascades: every
-            Worker holding this Role is fired and their per-Worker subscriptions are dropped.
-            This is irreversible.
+            Deleting bot <b style={{ fontFamily: 'monospace' }}>{deleting.id}</b> tears down its
+            per-bot Helix project + agent app, drops its subscriptions, and removes it as a
+            manager from its direct reports. This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}
 
-      <NewRoleDialog open={newRoleOpen} onClose={() => setNewRoleOpen(false)} />
+      <NewBotDialog open={newBotOpen} onClose={() => setNewBotOpen(false)} />
     </Page>
   )
 }
 
-export default HelixOrgRoles
+export default HelixOrgBots
