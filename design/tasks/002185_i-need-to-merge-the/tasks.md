@@ -38,7 +38,7 @@ rippling outward. Build/test after each layer.
 - [~] Full repo builds (non-test). Tests + swagger pending.
 
 ## 6. Database migration
-- [ ] Add `api/pkg/store/migrations/0005_merge_roles_workers_into_bots.{up,down}.sql` — keep it simple: guarded `DROP TABLE` for the changed helix-org tables (`org_roles`, `org_workers`, `org_reporting_lines`, `org_subscriptions`, `org_worker_runtime_state`), AutoMigrate creates the new ones. No re-bootstrap/seeding (operator recreates bots manually); `.down` no-op.
+- [x] Add `api/pkg/store/migrations/0005_merge_roles_workers_into_bots.{up,down}.sql` — keep it simple: guarded `DROP TABLE` for the changed helix-org tables (`org_roles`, `org_workers`, `org_reporting_lines`, `org_subscriptions`, `org_worker_runtime_state`), AutoMigrate creates the new ones. No re-bootstrap/seeding (operator recreates bots manually); `.down` no-op.
 
 ## 7. Frontend (`frontend/src`)
 - [ ] Merge `HelixOrgRoles`+`HelixOrgWorkers` → `HelixOrgBots.tsx`; merge `HelixOrgRoleDetail`+`HelixOrgWorkerDetail` → `HelixOrgBotDetail.tsx`.
