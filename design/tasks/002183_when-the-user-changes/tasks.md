@@ -9,9 +9,9 @@ required. The broader Zed-watcher hardening is recorded as a follow-up.
 
 ## Tasks
 - [x] Confirm root cause from code trace (daemon atomic-rename replaces inode; Zed file-inode watch dies after first replacement).
-- [~] Change `writeSettings` in `helix/api/cmd/settings-sync-daemon/main.go` to truncate-and-write `settings.json` in place (preserve inode) instead of tmp-write + `os.Rename`.
-- [ ] Add a Go unit test asserting the inode (`Ino`) is stable across repeated `writeSettings` calls and the contents are correct.
-- [ ] Build: `./stack build-ubuntu`; start a NEW session (daemon does not hot-reload).
+- [x] Change `writeSettings` in `helix/api/cmd/settings-sync-daemon/main.go` to truncate-and-write `settings.json` in place (preserve inode) instead of tmp-write + `os.Rename`.
+- [x] Add a Go unit test asserting the inode (`Ino`) is stable across repeated `writeSettings` calls and the contents are correct. (`TestWriteSettingsPreservesInode`, passing.)
+- [~] Build: `./stack build-ubuntu`; start a NEW session (daemon does not hot-reload).
 - [ ] End-to-end verify in inner Helix: toggle light/dark ≥ 3 times via the UI button; confirm Zed's theme changes every time with no reload/restart.
 - [ ] Confirm a user-picked custom Zed theme is still preserved (not clobbered) after toggling.
 - [ ] Merge latest `origin/main` into the feature branch; push `feature/002183-fix-zed-theme-not`.
