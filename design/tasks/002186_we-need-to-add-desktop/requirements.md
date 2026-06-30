@@ -15,8 +15,11 @@ spec-task page.
 
 The Bot view referenced is, e.g.,
 `/orgs/helix/helix-org/bots/w-docs-engineer`. Note: the Role/Worker → **Bot**
-merge is in flight in task **002185**; this feature lands on the merged
-`HelixOrgBotDetail.tsx` (see Design for the dependency/conflict note).
+merge (task **002185**) has **landed in main** — `HelixOrgBotDetail.tsx`,
+`useHelixOrgBot`/`BotDetailDTO`, and the `/bots/:id` route already exist.
+This feature is built directly on that merged page (see Design — the data it
+needs is already there; there is no longer a pending merge to coordinate
+with).
 
 ## Goal
 
@@ -55,9 +58,8 @@ As an operator, when the bot has no running desktop yet, I want a clear empty
 state instead of a broken viewer.
 - **AC1** When no session is resolved, the Desktop view shows an empty/idle
   message (parity with the existing "No conversation yet" chat empty state),
-  not an error.
-- **AC2** A human-kind participant (if still applicable post-002185) with no
-  agent desktop does not show a Desktop view.
+  not an error. (Bots are singular and have no human/ai `kind` post-002185, so
+  there is no kind-based gating — every bot may have a desktop.)
 
 ## Out of Scope
 - No new backend endpoints — the existing external-agent WS stream/input

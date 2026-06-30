@@ -30,13 +30,16 @@ Reference call (from `SpecTaskDetailContent.tsx` ~line 2429):
 
 ## Where it goes
 
-The Bot detail page already (in the current Worker detail,
-`HelixOrgWorkerDetail.tsx`) resolves the bot's session and renders an inline
-**chat** panel:
-- `projectID = data.project_id`, `agentAppID = data.agent_app_id`
+The Bot detail page (`frontend/src/pages/HelixOrgBotDetail.tsx`, the merged
+page from landed task 002185) already resolves the bot's session and renders
+an inline **chat** panel (verified in main):
+- `const { data } = useHelixOrgBot(botId)` (returns `BotDetailDTO`);
+  `projectID = data.project_id`, `agentAppID = data.agent_app_id`
 - `chatSessionId` resolved by `fetchExistingWorkerSession(projectID, chatApi)`
-  → `v1ProjectsExploratorySessionDetail(projectID)` (GET-only; 204 → null)
+  → `v1ProjectsExploratorySessionDetail(projectID)` (GET-only; 204 → null) —
+  the bot's long-lived "Project Desktop" exploratory session
 - the resolved session also feeds `streaming.setCurrentSessionId(...)`
+- project/agent links + `useRestartBotAgent` already live in the right rail
 
 Add a **Chat | Desktop** toggle (MUI `ToggleButtonGroup`) at the top of that
 session panel. Both views share the **same `chatSessionId`**:
@@ -88,44 +91,33 @@ BotDetail page
 All streaming/input endpoints, RevDial proxying, and authorization already
 exist and are reused unchanged.
 
-## Coordination with task 002185 (Role/Worker → Bot merge)
+## Relationship to task 002185 (Role/Worker → Bot merge) — LANDED
 
-002185 merges `HelixOrgWorkerDetail.tsx` + `HelixOrgRoleDetail.tsx` into
-`HelixOrgBotDetail.tsx` and renames worker DTO fields onto the Bot DTO
-(`project_id`, `agent_app_id` are retained on `BotDTO`). To minimise conflict:
+002185 has **merged into main**. Verified against the current code:
+- `frontend/src/pages/HelixOrgBotDetail.tsx` exists (renamed from
+  `HelixOrgWorkerDetail.tsx`); `HelixOrgWorkerDetail.tsx`/`...RoleDetail.tsx`
+  are gone.
+- `useHelixOrgBot(botId)` returns `BotDetailDTO` (`ApiBotDetailDTO`) and the
+  page already reads `data.project_id` + `data.agent_app_id` (the **data
+  dependency this feature needs is satisfied** — no API work required).
+- The inline chat panel (`EmbeddedSessionView` + `RobustPromptInput`),
+  `fetchExistingWorkerSession`, project/agent links, and `useRestartBotAgent`
+  are all present.
+- Bots have **no `kind`** — the old `worker.kind === 'ai'` gating is gone, so
+  there is no AI/human branch to worry about.
 
-1. **Land after 002185** where possible — apply this change to the merged
-   `HelixOrgBotDetail.tsx`. The session-resolution code (`projectID`,
-   `agentAppID`, `chatSessionId`, the chat panel) moves into that file
-   verbatim, so this feature only *adds a toggle + a viewer branch* beside it.
-
-   **Data dependency:** this feature needs `project_id` + `agent_app_id` on
-   the bot **detail** response. 002185's *flat* `BotDTO`
-   (`{id, content, tools, topics, parent_ids, timestamps}`) does not list
-   them, but its bot detail endpoint must still surface them — 002185's own
-   merged `HelixOrgBotDetail.tsx` keeps the project/agent links and inline
-   chat, which already depend on those re-anchored runtime fields
-   (`project_id`/`agent_app_id`/`session_id`, design §"Re-anchored onto the
-   Bot"). No extra API work for us *provided* the bot detail DTO carries them
-   as the old `WorkerDetailDTO` did; if 002185 drops them from the detail
-   response, that must be restored (small, and 002185 needs it regardless).
-2. Keep the change **additive and localized** to the session-panel region so
-   it rebases cleanly regardless of merge order.
-3. If this must land before 002185, implement on `HelixOrgWorkerDetail.tsx`
-   (AI workers only) and the 002185 merge carries it across — call this out
-   in the PR.
+There is therefore **no pending merge to coordinate with**. This is a clean
+additive change to one existing file plus one new helper.
 
 ## Files touched (frontend only)
-- `frontend/src/pages/HelixOrgBotDetail.tsx` (post-002185) — add Chat|Desktop
-  toggle + `ExternalAgentDesktopViewer` branch.
+- `frontend/src/pages/HelixOrgBotDetail.tsx` — add Chat|Desktop toggle +
+  `ExternalAgentDesktopViewer` branch beside the existing chat panel.
 - `frontend/src/services/externalAgentDisplay.ts` — **new** shared
   `deriveDisplaySettings` helper.
 - `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — refactor to use
   the shared helper (optional but recommended).
 
 ## Risks
-- **Merge timing** with 002185 — mitigated by the additive/localized approach
-  above.
 - **Display-settings divergence** — mitigated by sharing one helper.
 - **Session not yet provisioned** — handled by the existing GET-only resolve +
   empty state; never provision on page open.
