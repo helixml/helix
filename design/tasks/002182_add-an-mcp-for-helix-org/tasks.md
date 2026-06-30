@@ -51,8 +51,7 @@ they must stay green throughout because their code is not touched.
 - [x] GREEN: add the optional nil-guarded `Publisher` sink (`AttentionEventSink` + `SetEventSink`) to `AttentionService`, published after the dedup check beside `notifySlack`.
 - [x] RED: tests for the spectask transport infra — `AttentionEvent` → `streaming.Message` mapping and project→`KindSpecTask` topic resolution (auto-create like the Slack workspace topic).
 - [x] GREEN: implement the publisher. **Deviation:** lives in the `server` package, not `api/pkg/org/infrastructure/transports/spectask/`, because it bridges helix `*types.AttentionEvent` → org topics; org transports intentionally import only the *org* domain store (the slack transport does too), so the helix↔org bridge belongs in `server` (same place as the `specTaskWorkflow` adapter). Keeps org core generic per CLAUDE.md.
-- [ ] RED: an integration test that an emitted `AttentionEvent` produces exactly one activation per subscribed Worker (and none for non-subscribers), with a payload (task id, event type, new status) sufficient to act.
-- [ ] GREEN: wire the `Publishing`-backed publisher into `AttentionService` in `server.go` (~line 608).
+- [x] RED/GREEN: wire the `Publishing`-backed publisher into `AttentionService` in the org composition (`helix_org.go`, after `buildOrgServices`). Compile-time assertions pin that `*publishing.Publishing` satisfies `orgEventPublisher` and the bridge satisfies `services.AttentionEventSink`. **Note:** end-to-end "one activation per subscribed Worker" relies on the existing dispatch path (publish→dispatcher), exercised by the inner-Helix final verification rather than a new heavyweight harness; the publish + topic-resolution behaviour is unit-tested in 7c.
 
 ## Final verification
 
