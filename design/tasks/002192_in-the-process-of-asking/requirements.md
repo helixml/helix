@@ -18,55 +18,60 @@ step, and failed on two counts:
    read baseline. And `subscribe` only ever subscribes the *caller*, so the manager could
    not subscribe `b-dewey` on its behalf either.
 
-The fix is to (a) make bot creation do one thing — create the bot — and push stream
-subscription to a separate, explicit follow-up call, and (b) make array arguments accept
-the shapes models actually produce.
+The fix is to make bot creation do exactly one thing — create the bot from its markdown —
+and push **both** tool assignment and stream subscription to separate, explicit follow-up
+calls, then make those array arguments accept the shapes models actually produce.
 
-Note: the "separate follow-up tool to subscribe a bot to streams" already exists —
-`invite_bots` subscribes one or more *other* bots to a topic, and `subscribe` subscribes
-the caller. No new tool is required; the blocker was purely the schema bug preventing the
-manager from granting `subscribe`/`dm` and the misleading `topics`-at-create parameter.
+Two things to note:
+- The "separate follow-up tools" already exist. `update_bot` grants/edits tools;
+  `invite_bots` subscribes one or more *other* bots to a topic; `subscribe` subscribes the
+  caller. No new tool is required.
+- The chart UI already follows this pattern — `NewBotDialog` sends only `id`, `content`,
+  and `parent_id`; it has no tools or topics picker. The create path merely carries unused
+  `tools`/`topics` fields today.
 
 ## User Stories
 
-### US-1: Bot creation does not pretend to subscribe
-As a manager bot, I want `create_bot` to only create the bot (no `topics`/streams
-parameter), so I am not misled into thinking creation subscribes the bot, and creation
-stays simple and predictable.
+### US-1: Bot creation does exactly one thing
+As a manager bot, I want `create_bot` to only create the bot from its markdown (with an
+optional manager), with no `tools` and no `topics`/streams parameters, so creation is
+simple and never misleads me into thinking it grants tools or subscriptions.
 
 **Acceptance Criteria**
-- `create_bot` no longer accepts a `topics` parameter; its schema and description make no
-  mention of subscribing to topics/streams at creation time.
-- The bot is created successfully with `content`, optional `tools`, optional `parentId`.
-- The `create_bot` description points the caller to the explicit follow-up:
-  `invite_bots` (to subscribe the new bot) and/or `subscribe` (self).
+- `create_bot` accepts only `id` (optional), `content` (required), and `parentId`
+  (optional). It no longer accepts `tools` or `topics`.
+- A newly created bot automatically receives the universal read baseline
+  (`BaseReadTools`), so it always has a usable MCP surface.
+- The `create_bot` description points the caller to the explicit follow-ups: `update_bot`
+  (to grant tools) and `invite_bots`/`subscribe` (to subscribe to streams).
 
-### US-2: Grant tools to a bot without hitting the array bug
-As a manager bot, I want to grant tools to a bot via `create_bot`/`update_bot` whether I
-pass a single tool as a string or several as an array, so granting `subscribe`/`dm`
-actually works.
+### US-2: Grant tools after creation without hitting the array bug
+As a manager bot, I want to grant tools to an existing bot via `update_bot` whether I pass
+a single tool as a string or several as an array, so granting `subscribe`/`dm` actually
+works.
 
 **Acceptance Criteria**
-- `"tools": "subscribe"` (bare string) and `"tools": ["subscribe","dm"]` (array) are both
-  accepted and produce the same result; no `cannot unmarshal string into …[]string` error.
+- In `update_bot`, `"tools": "subscribe"` (bare string) and `"tools": ["subscribe","dm"]`
+  (array) are both accepted and produce the same result; no
+  `cannot unmarshal string into …[]string` error.
 - `update_bot` preserves existing tools when `tools` is omitted, and clears them when
   `tools` is `[]` (unchanged nil-vs-empty semantics).
 - The advertised input schema explicitly permits both shapes (string or array of strings),
   so strict-schema clients/models accept the call before it reaches the server.
-- The granted tool set (after the base-read-tool union) is correct and order-stable.
+- The resulting tool set (after the base-read-tool union) is correct and order-stable.
 
 ### US-3: Subscribe a bot to streams as a separate step
 As a manager bot, after creating a bot I want to subscribe it to the streams of interest
 with a separate, explicit tool call, so subscription is decoupled from creation.
 
 **Acceptance Criteria**
-- `invite_bots` subscribes the named bot(s) to a topic and works with both a single
-  `botIds` string and an array (same lenient handling as `tools`).
+- `invite_bots` subscribes the named bot(s) to a topic and accepts both a single `botIds`
+  string and an array (same lenient handling as `update_bot`'s `tools`).
 - Documentation/tool descriptions make the create → grant-tools → subscribe flow clear.
 
 ## Out of Scope
-- Any new subscription mechanism (the `subscribe`/`invite_bots` tools already cover it).
+- Any new subscription/tool-granting mechanism (`update_bot`, `subscribe`, `invite_bots`
+  already cover the follow-ups).
 - Changes to topic/stream creation (`create_topic`).
-- Frontend changes (this is an MCP/REST + domain change).
+- Frontend changes (the UI already creates bots with content/parent only).
 </content>
-</invoke>
