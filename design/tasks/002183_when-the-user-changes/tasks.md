@@ -1,27 +1,21 @@
 # Implementation Tasks: Fix Zed Theme Not Updating on Repeated Light/Dark Toggle
 
-## Confirm the root cause
-- [ ] In the inner Helix, open a live spec-task Zed session and click the light/dark toggle twice; confirm the theme changes on click 1 but not click 2.
-- [ ] Tail the settings-sync-daemon log; confirm `theme sync: branch=managed_overwrite ...` and `Updated settings.json` appear on BOTH clicks (daemon writes correctly twice).
-- [ ] Run `ls -i ~/.config/zed/settings.json` before and after a toggle; confirm the inode number changes (atomic-rename replacement).
-- [ ] Confirm Zed re-reads settings.json on click 1 but not click 2 (the watcher is the break).
+## Implementation decision (see design.md "Implementation Notes")
+Chosen fix: **daemon-side inode-preserving write** in the settings-sync-daemon
+(primary repo `helix`). It is the correct root-cause fix for the Helix-driven
+theme sync (Zed watches the settings.json inode; the daemon must stop replacing
+that inode) and is end-to-end testable in helix-in-helix as the reviewer
+required. The broader Zed-watcher hardening is recorded as a follow-up.
 
-## Primary fix — make Zed's settings watcher survive atomic-rename replacement
-- [ ] In `crates/fs/src/fs.rs` `RealFs::watch`, also register a watch on the parent directory for regular files (today only symlinks get it, lines ~1088-1104), filtering delivered events to the target path.
-- [ ] Alternatively/additionally route user + global settings through directory-based watching using the existing `watch_config_dir` (`crates/settings/src/settings_file.rs:200`), which already filters per-file.
-- [ ] Verify keymap and global-settings watchers still work and there is no duplicate-reload storm.
-
-## Regression test (required)
-- [ ] Add a Zed test next to the existing watcher tests in `crates/settings/src/settings_file.rs` using `RealFs` + a tempdir: start `watch_config_file`, then replace the file via tmp-write + rename three times, asserting a reload is delivered after EACH replacement (not just the first).
-
-## Alternative (only if the Zed change is rejected) — daemon-side inode-preserving write
-- [ ] Change `writeSettings` in `helix/api/cmd/settings-sync-daemon/main.go` to truncate-and-write `settings.json` in place (preserve inode) instead of tmp-write + `os.Rename`.
-- [ ] Add a Go test asserting the inode is stable across repeated `writeSettings` calls.
-
-## Build, verify, ship
-- [ ] Build Zed: `./stack build-zed release`, then `./stack build-ubuntu`; start a NEW session.
-- [ ] End-to-end verify in the inner Helix: toggle light/dark ≥ 3 times and confirm Zed's theme changes every time with no reload/restart.
+## Tasks
+- [x] Confirm root cause from code trace (daemon atomic-rename replaces inode; Zed file-inode watch dies after first replacement).
+- [~] Change `writeSettings` in `helix/api/cmd/settings-sync-daemon/main.go` to truncate-and-write `settings.json` in place (preserve inode) instead of tmp-write + `os.Rename`.
+- [ ] Add a Go unit test asserting the inode (`Ino`) is stable across repeated `writeSettings` calls and the contents are correct.
+- [ ] Build: `./stack build-ubuntu`; start a NEW session (daemon does not hot-reload).
+- [ ] End-to-end verify in inner Helix: toggle light/dark ≥ 3 times via the UI button; confirm Zed's theme changes every time with no reload/restart.
 - [ ] Confirm a user-picked custom Zed theme is still preserved (not clobbered) after toggling.
-- [ ] If Zed changed: commit Zed, capture `git rev-parse HEAD`, bump `ZED_COMMIT` in `sandbox-versions.txt`, and follow the CLAUDE.md PR ordering (open Helix PR before pushing Zed branch).
-- [ ] Record any modified upstream Zed files in `portingguide.md`.
-- [ ] Check CI (Drone) green after pushing.
+- [ ] Merge latest `origin/main` into the feature branch; push `feature/002183-fix-zed-theme-not`.
+- [ ] Write per-repo PR description (`pull_request_helix.md`).
+
+## Follow-up (not in this PR)
+- [ ] Harden Zed's settings watcher (`crates/fs`/`crates/settings`) to survive atomic-rename inode replacement (watch parent dir / re-arm), so manual external edits and any future atomic-rename writer are also covered. Upstream candidate.

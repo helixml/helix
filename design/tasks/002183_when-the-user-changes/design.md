@@ -122,6 +122,32 @@ tempdir) that:
 If the chosen fix is daemon-side instead, add a Go test asserting `writeSettings`
 keeps the inode stable across writes.
 
+## Implementation Notes (decision at build time)
+
+**Chosen fix: daemon-side inode-preserving write (Step 3), not the Zed watcher
+change (Step 2).** Rationale:
+- The reviewer requires end-to-end verification in helix-in-helix. The daemon fix
+  needs only `./stack build-ubuntu` + a new session; the Zed fix additionally
+  needs `./stack build-zed release` (~12 min on ARM) and a `sandbox-versions.txt`
+  `ZED_COMMIT` bump — far more failure-prone to verify.
+- It lives in the primary repo (`helix`) and is a correct root-cause fix for the
+  reported path: the daemon is the sole Helix-side writer of `settings.json`, and
+  the bug is that it *replaces the inode Zed is watching*. Not replacing the inode
+  fixes it at the source.
+- Partial-read safety: Zed debounces file events by 100ms before reading
+  (`fs.watch(path, 100ms)` + the `executor.timer(latency)` in `RealFs::watch`),
+  and the daemon writes the small JSON in a single `Write` + `Sync`, so a reader
+  never observes a half-written file. Zed also tolerates a transient parse error
+  and re-reads on the next event.
+
+Implementation: replace the `os.WriteFile(tmp)` + `os.Rename(tmp, settings.json)`
+in `writeSettings` with `os.OpenFile(SettingsPath, O_WRONLY|O_CREATE|O_TRUNC)` +
+`Write` + `Sync` + `Close`. This keeps the file's inode stable across every write,
+so Zed's inotify watch keeps firing for every toggle.
+
+The Zed-side watcher hardening (Step 2) remains the right broader fix (it also
+covers manual external edits by atomic-saving editors) and is left as a follow-up.
+
 ## Files in scope
 
 | File | Role |
