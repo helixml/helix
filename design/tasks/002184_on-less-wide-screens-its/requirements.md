@@ -53,8 +53,9 @@ so I don't have to guess.
 - AC-6: The comment bubble (and therefore the Resolve control) is reachable
   **without horizontal scrolling** at all viewport widths. The stacked in-flow
   layout must engage before the side-positioned bubble would overflow the right
-  edge of the viewport — i.e. the `isNarrowViewport` threshold is raised so there
-  is no medium-width band where the bubble is pushed off-screen.
+  edge of the document area, so there is no medium-width band where the bubble is
+  pushed off-screen. (Implemented by measuring the real document-area width
+  rather than the window — see design.md Implementation Notes.)
 
 ## Out of Scope
 

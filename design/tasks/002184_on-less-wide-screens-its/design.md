@@ -132,3 +132,55 @@ unconditionally; we will not add new props.
   stacking logic.
 - Keep `e`-handlers identical — no `stopPropagation` is currently used here and
   none is needed; the bubble has no row-click behaviour.
+
+## Implementation Notes (post-implementation)
+
+What actually shipped, and what changed from the plan:
+
+1. **Resolve control → labeled button (as planned).** `InlineCommentBubble.tsx`
+   and `CommentLogSidebar.tsx` now render a `Tooltip`-wrapped MUI `Button`
+   (`size="small"`, `color="success"`, `startIcon={<CheckCircleIcon/>}`, label
+   "Resolve", `textTransform: none`, `flexShrink: 0`) instead of a bare
+   `IconButton`. The now-unused `IconButton` import was removed from both files.
+
+2. **Narrow/wide decision: container measurement, NOT a window breakpoint
+   (changed from the plan).** The plan said "raise the `useMediaQuery` breakpoint
+   to ~1280". During implementation, live testing showed that was still wrong:
+   - The wide bubble is `position:absolute; left:820px; width:300px` relative to
+     the **centred** 800px document column. Its right edge is
+     `(docAreaWidth - 800)/2 + 1120`, so it only stops overflowing once the
+     document area is ~1440px wide (empirically confirmed: overflow at doc-area
+     ~1336px, no overflow at 1440/1536). At a 1400px *window* it still overflowed.
+   - More importantly, `DesignReviewContent` renders in **two** places —
+     `SpecTaskReviewPage` (standalone) and the workspace `TabsView` (embedded) —
+     which have different chrome widths at the same window size. A window-based
+     media query cannot be correct for both.
+   - Fix: a `ResizeObserver` on `documentRef` tracks the real document-area
+     `clientWidth`; `isNarrowViewport = width < 1460` (≈1440 overflow boundary +
+     small gutter). Defaults to stacked until measured to avoid an off-screen
+     flash. This also correctly stacks when the comment-log sidebar (400px) is
+     open, which the window query missed. Removed `useMediaQuery` and `useTheme`.
+
+3. **Gotcha for future agents — testing the review UI in inner Helix.** The
+   planning agent / LLM is NOT needed to see a design review. Seed it directly:
+   - Register + onboard (creates user + org). The pre-existing `default` project
+     has empty `organization_id` AND empty `user_id`, so spec-task auth
+     (`authorizeUserToProjectByID` → `authorizeUserToProject`) returns **403**
+     and the review page hangs on a spinner. Set the project's `user_id` to your
+     user id (old-style user-owned project passes auth).
+   - Insert a `spec_tasks` row (only `id` is NOT NULL; set `project_id`,
+     `user_id`, `organization_id`, `status='spec_review'`), then a
+     `spec_task_design_reviews` row (`status='in_review'`, fill
+     `requirements_spec` etc. with `E'...\n...'` for real newlines), then a
+     `spec_task_design_review_comments` row with a `quoted_text` that is a
+     substring of `requirements_spec` so the bubble anchors.
+   - Route: `/orgs/{orgId}/projects/{projectId}/tasks/{taskId}/review/{reviewId}`.
+
+## Verification (done)
+
+Verified live in inner Helix at `localhost:8080` (dev mode, Vite HMR). Screenshots
+in `screenshots/`: `02-narrow-stacked.png` (1300px — stacked, no scroll, labeled
+Resolve), `03-wide-side-panel.png` (1600px — side panel, no overflow),
+`04-after-resolve.png` (after clicking Resolve — POST `.../resolve` 200, bubble
+removed, unresolved count cleared). `tsc --noEmit` clean; full `vite build`
+succeeds (in-repo `dist` is a root-owned prod bind-mount, so built to a temp dir).
