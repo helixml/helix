@@ -477,21 +477,21 @@ const SpecTasksPage: FC = () => {
     }
   };
 
-  const handleResumeExploratorySession = async (e: React.MouseEvent) => {
+  const handleResumeExploratorySession = (_e: React.MouseEvent) => {
     if (!exploratorySessionData) return;
 
-    try {
-      // Use the mutation hook which properly invalidates the cache
-      const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success("Project Desktop resumed");
-      // Navigate to the Project Desktop page
-      account.orgNavigate("project-team-desktop", {
-        id: projectId,
-        sessionId: session.id,
-      });
-    } catch (err) {
-      snackbar.error("Failed to resume Project Desktop");
-    }
+    // Jump straight to the Project Desktop page — it renders its own connecting
+    // state while the container restarts. We already know the session id, so we
+    // navigate immediately and fire the resume in the background. This gives the
+    // click instant feedback instead of waiting for the container to come back
+    // up before anything happens on screen.
+    account.orgNavigate("project-team-desktop", {
+      id: projectId,
+      sessionId: exploratorySessionData.id,
+    });
+    resumeExploratorySessionMutation.mutate(undefined, {
+      onError: () => snackbar.error("Failed to resume Project Desktop"),
+    });
   };
 
   const handleStopExploratorySession = async () => {
