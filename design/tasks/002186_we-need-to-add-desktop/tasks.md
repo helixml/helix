@@ -6,10 +6,10 @@ WS endpoints — no backend changes. Task 002185 (Role/Worker → Bot merge) has
 (`useHelixOrgBot`/`BotDetailDTO` already expose `project_id`/`agent_app_id`).
 Bots have no `kind`, so there is no AI/human gating.
 
-## 1. Shared display-settings helper [~]
-- [~] Add `frontend/src/services/externalAgentDisplay.ts` exporting `deriveDisplaySettings(app?)` → `{ width, height, fps }` (resolution presets 1080p/4k/5k, `display_width`/`display_height`/`display_refresh_rate`, fallback 1920×1080×60), extracted from `SpecTaskDetailContent.tsx` (~lines 260–290).
-- [ ] Refactor `SpecTaskDetailContent.tsx` to use the helper (behaviour unchanged).
-- [ ] Add a unit test for `deriveDisplaySettings` (presets + fallback).
+## 1. Shared display-settings helper [x]
+- [x] Add `frontend/src/services/externalAgentDisplay.ts` exporting `deriveDisplaySettings(app?)` → `{ width, height, fps }` (resolution presets 1080p/4k/5k, `display_width`/`display_height`/`display_refresh_rate`, fallback 1920×1080×60), extracted from `SpecTaskDetailContent.tsx` (~lines 260–290).
+- [x] Refactor `SpecTaskDetailContent.tsx` to use the helper (behaviour unchanged).
+- [x] Add a unit test for `deriveDisplaySettings` (presets + fallback) — 6 cases, all green.
 
 ## 2. Desktop view on the Bot detail page (`HelixOrgBotDetail.tsx`)
 - [ ] Add a `ToggleButtonGroup` (Chat | Desktop) at the top of the existing session panel.
