@@ -61,7 +61,7 @@ type SpecTasks interface {
     ReviewSpec(ctx, orgID, workerID, taskID) (SpecReviewView, error)            // read generated requirements/design/tasks
     ApproveSpec(ctx, orgID, workerID, taskID) (SpecTaskView, error)             // spec_review -> spec_approved -> implementation
     RequestChanges(ctx, orgID, workerID, taskID, comment string) (SpecTaskView, error) // -> spec_revision
-    ApprovePullRequest(ctx, orgID, workerID, taskID) (SpecTaskView, error)      // approve implementation / PR creation
+    CreatePullRequests(ctx, orgID, workerID, taskID) (SpecTaskView, error)      // happy with the code → tell the system to open PR(s)
 }
 ```
 The port resolves the project internally from worker state, so neither the
@@ -84,7 +84,14 @@ delegation, not a reimplemented state machine:
 | `ReviewSpec` | `getTaskSpecs` read logic (`/spec-tasks/{id}/specs`) + `listDesignReviews` |
 | `ApproveSpec` | `SpecDrivenTaskService.ApproveSpecs` (`approveSpecs` handler) |
 | `RequestChanges` | `submitDesignReview` with `Decision: "request_changes"` → `spec_revision` |
-| `ApprovePullRequest` | `approveImplementation` handler logic |
+| `CreatePullRequests` | `approveImplementation` handler logic + the `EnsurePRsFunc` callback |
+
+`CreatePullRequests` is the "I'm happy with the code, open the PR(s)" step —
+it does **not** approve/merge on GitHub (that happens on GitHub itself). It
+authorizes the system to open pull requests, and via `EnsurePRsFunc` it opens
+**one PR per external repo attached to the project**, so a single call can
+produce multiple PRs. The result view therefore lists all created PRs
+(`RepoPullRequests`).
 
 Wire it in `helix_org.go` next to `NewProjectConfig` (~line 427), inject it
 into `spectasks.New(...)`, and set `deps.SpecTasks` (the application service)
@@ -130,7 +137,7 @@ Named to read like the actions a human reviewer takes:
 | `review_spectask_spec` | task_id | Read the generated requirements/design/tasks for review |
 | `approve_spectask_spec` | task_id | Approve the spec → advances to implementation |
 | `request_spectask_changes` | task_id, comment | Send the spec back for revision (`spec_revision`) |
-| `approve_spectask_pr` | task_id | Approve implementation / PR creation |
+| `create_spectask_prs` | task_id | Happy with the code → tell the system to open PR(s); one per attached repo (GitHub merge-approval still happens on GitHub) |
 
 ## Files Touched
 
@@ -169,5 +176,8 @@ Named to read like the actions a human reviewer takes:
   identity. The port must decide whose credentials are used when a Worker
   approves — most likely the Worker's hiring user (already persisted on the
   Worker's runtime state via `SaveHiringUser`) or the task creator. Resolve
-  this before implementing `ApproveSpec` / `ApprovePullRequest`; do not let an
+  this before implementing `ApproveSpec` / `CreatePullRequests`; do not let an
   approval silently fall back to the wrong identity.
+- **Multiple PRs:** `CreatePullRequests` opens one PR per external repo
+  attached to the project (`EnsurePRsFunc`), so a single call can create
+  several PRs. The tool's response must list every PR created, not assume one.

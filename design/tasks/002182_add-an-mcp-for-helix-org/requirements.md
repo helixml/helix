@@ -43,8 +43,10 @@ generic CRUD (per design review feedback).
 3. **As a reviewing Worker**, I want to review a generated spec, then either
    **approve** it or **request changes**, so I can act as the human-in-the-loop
    on the specification.
-4. **As a reviewing Worker**, I want to approve PR creation (implementation),
-   so I can move an approved task forward to a pull request.
+4. **As a reviewing Worker**, when I'm happy with the implemented code, I want
+   to tell the system to create pull request(s), so the work is opened for
+   review on GitHub. (One PR per repo attached to the project; the actual
+   merge-approval happens on GitHub, not here.)
 5. **As an org owner**, I want these spec-task tools to be opt-in per Role, so
    only Workers I grant them to can mutate or approve project tasks.
 
@@ -53,7 +55,10 @@ generic CRUD (per design review feedback).
 - New org MCP tools exist and are registered in `RegisterBuiltins`, named for
   the reviewer action they perform: `create_spectask`, `list_spectasks`,
   `get_spectask`, `start_spectask_planning`, `review_spectask_spec`,
-  `approve_spectask_spec`, `request_spectask_changes`, `approve_spectask_pr`.
+  `approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs`.
+- `create_spectask_prs` authorizes the system to open pull requests (it does
+  not merge/approve on GitHub) and creates one PR per attached repo; its
+  response lists every PR created.
 - The tools depend on a dedicated org application service
   (`org/application/spectasks`), which depends on an infrastructure port
   (`runtime.SpecTasks`) whose `runtimehelix` impl calls the core helix code —
