@@ -12,9 +12,9 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
@@ -59,7 +59,7 @@ type Deps struct {
 	// drift on read semantics.
 	Queries       *queries.Queries
 	Roles         *roles.Roles
-	Topics       *topics.Topics
+	Topics        *topics.Topics
 	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
@@ -95,15 +95,15 @@ type Deps struct {
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 // Workspace defaults to a no-op for tests.
 type Config struct {
-	Store               *store.Store
-	Queries             *queries.Queries
-	Now                 Clock
-	NewID               IDGen
-	Hub                 *wakebus.Bus
-	Dispatcher          EventDispatcher
-	Workspace           runtime.WorkspaceSync
-	HireHook            runtime.HireHook
-	ProjectConfig       runtime.ProjectConfig
+	Store         *store.Store
+	Queries       *queries.Queries
+	Now           Clock
+	NewID         IDGen
+	Hub           *wakebus.Bus
+	Dispatcher    EventDispatcher
+	Workspace     runtime.WorkspaceSync
+	HireHook      runtime.HireHook
+	ProjectConfig runtime.ProjectConfig
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -118,7 +118,7 @@ func (c Config) Build() Deps {
 	return Deps{
 		Queries:             c.Queries,
 		Roles:               c.rolesService(),
-		Topics:             c.topicsService(),
+		Topics:              c.topicsService(),
 		Workers:             c.workersService(),
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.publishingService(),
@@ -147,7 +147,7 @@ func (c Config) specTasksService() *spectasks.Service {
 func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
 		Subscriptions: c.Store.Subscriptions,
-		Topics:       c.Store.Topics,
+		Topics:        c.Store.Topics,
 		Workers:       c.Store.Workers,
 		Now:           c.Now,
 	})
@@ -160,9 +160,9 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 func (c Config) publishingService() *publishing.Publishing {
 	pd := publishing.Deps{
 		Topics: c.Store.Topics,
-		Events:  c.Store.Events,
-		Now:     c.Now,
-		NewID:   c.NewID,
+		Events: c.Store.Events,
+		Now:    c.Now,
+		NewID:  c.NewID,
 	}
 	if c.Hub != nil {
 		pd.Hub = c.Hub
@@ -222,8 +222,8 @@ func (c Config) rolesService() *roles.Roles {
 func (c Config) topicsService() *topics.Topics {
 	return topics.New(topics.Deps{
 		Topics: c.Store.Topics,
-		Now:     c.Now,
-		NewID:   c.NewID,
+		Now:    c.Now,
+		NewID:  c.NewID,
 	})
 }
 
@@ -246,7 +246,7 @@ func DefaultDeps(s *store.Store) Config {
 	c.Reconciler = reconcile.New(reconcile.Deps{
 		Workers:        s.Workers,
 		ReportingLines: s.ReportingLines,
-		Topics:        s.Topics,
+		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Now:            c.Now,
 	})

@@ -241,8 +241,10 @@ type requestChangesArgs struct {
 
 var requestSpecTaskChangesSchema = mustSchema[requestChangesArgs]()
 
-func (t *RequestSpecTaskChanges) Name() tool.Name                 { return RequestSpecTaskChangesName }
-func (t *RequestSpecTaskChanges) InputSchema() *jsonschema.Schema { return requestSpecTaskChangesSchema }
+func (t *RequestSpecTaskChanges) Name() tool.Name { return RequestSpecTaskChangesName }
+func (t *RequestSpecTaskChanges) InputSchema() *jsonschema.Schema {
+	return requestSpecTaskChangesSchema
+}
 func (t *RequestSpecTaskChanges) Description() string {
 	return "Send a spec task's specification back for revision with a comment explaining what " +
 		"needs to change. The task returns to revision and the agent regenerates the spec."
