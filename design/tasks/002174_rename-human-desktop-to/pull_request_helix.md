@@ -29,3 +29,15 @@ identifiers, routes, API fields, or behaviour change.
 Verified live in the inner Helix — the project board toolbar shows "Open Project Desktop":
 
 ![Open Project Desktop button](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002174_rename-human-desktop-to/screenshots/02-open-project-desktop-button.png)
+
+## Also: instant Project Desktop navigation
+Fixes the lack of UI feedback when opening/resuming the Project Desktop. The
+exploratory-session POST blocked on the full container launch before returning;
+it now provisions the desktop in a background goroutine and returns the session
+row immediately (matching the spec-task pattern). Endpoint latency dropped from
+multi-second to ~9ms, and the UI jumps straight to the desktop page (which shows
+its own connecting state). Resume navigates optimistically using the known
+session id.
+
+- `api/pkg/server/project_handlers.go`: async `StartDesktop` via `detachContext` for both new and restart paths.
+- `frontend/src/pages/SpecTasksPage.tsx`: resume navigates first, resumes in background.
