@@ -54,4 +54,4 @@ rippling outward. Build/test after each layer.
 ## 9. End-to-end verification (local Helix UI)
 - [x] Built/ran in-sandbox Helix (HELIX_ORG_ENABLED=true + alpha flag); registered test@helix.ml.
 - [~] Verified core flows via UI: empty-org seed, create bot (chart+dialog), Bots list, bot detail (chat/tools/subscriptions/project+agent links), reporting reconcile (transcript/team/DM topics + subscriptions confirmed in DB). Remaining QA scenarios (cycle/reparent-unsubscribe, multi-tenancy §16) pending.
-- [ ] Fix any defect surfaced and re-run the affected scenario.
+- [x] Verified delete-bot cascade (project teardown + reporting/subscription/topic cleanup) via UI; no defects surfaced. Feature branch pushed.
