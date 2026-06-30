@@ -24,8 +24,10 @@ import {
   Autocomplete,
   Tooltip,
   IconButton,
+  Fade,
 } from "@mui/material";
-import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from "@mui/icons-material";
+import { Add as AddIcon, AttachFile as AttachFileIcon, Close as CloseIcon, CloudUpload as CloudUploadIcon } from "@mui/icons-material";
+import { useDropzone } from "react-dropzone";
 import { ChevronDown, UserCircle2, X } from "lucide-react";
 import AssigneeSelector from "./AssigneeSelector";
 import GooseRecipeSelector from "./GooseRecipeSelector";
@@ -160,6 +162,45 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   const attachmentInput = useRef<HTMLInputElement | null>(null);
   const uploadAttachments = useUploadSpecTaskAttachments();
+
+  // Shared by both the file picker and the drag-and-drop zone so they apply
+  // identical validation (remaining-slot count + per-file size limit).
+  const handleAddFiles = useCallback(
+    (files: File[]) => {
+      if (!files.length) return;
+      setPendingAttachments((prev) => {
+        const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - prev.length;
+        if (files.length > remaining) {
+          snackbar.error(
+            `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
+          );
+          return prev;
+        }
+        const accepted: File[] = [];
+        for (const f of files) {
+          if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
+            snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
+            continue;
+          }
+          accepted.push(f);
+        }
+        return accepted.length ? [...prev, ...accepted] : prev;
+      });
+    },
+    [snackbar],
+  );
+
+  const attachmentsFull = pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK;
+  const {
+    getRootProps: getAttachmentRootProps,
+    isDragActive: isAttachmentDragActive,
+  } = useDropzone({
+    onDrop: handleAddFiles,
+    accept: SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+    noClick: true,
+    noKeyboard: true,
+    disabled: attachmentsFull,
+  });
 
   // Empty string = "Unassigned". Pre-filled with the current user below.
   const [assigneeId, setAssigneeId] = useState<string>("");
@@ -778,7 +819,7 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               the dialog reliably with no JS involvement.
 
               Uploads happen after task creation in handleCreateTask. */}
-          <Box>
+          <Box {...getAttachmentRootProps()} sx={{ position: "relative" }}>
             <input
               ref={attachmentInput}
               id="new-spectask-attach-input"
@@ -789,28 +830,33 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 e.target.value = "";
-                if (!files.length) return;
-
-                const remaining = SPEC_TASK_ATTACHMENT_MAX_PER_TASK - pendingAttachments.length;
-                if (files.length > remaining) {
-                  snackbar.error(
-                    `Can only attach ${remaining} more file(s) — limit is ${SPEC_TASK_ATTACHMENT_MAX_PER_TASK}.`,
-                  );
-                  return;
-                }
-                const accepted: File[] = [];
-                for (const f of files) {
-                  if (f.size > SPEC_TASK_ATTACHMENT_MAX_BYTES) {
-                    snackbar.error(`${f.name} is too large (max ${humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)}).`);
-                    continue;
-                  }
-                  accepted.push(f);
-                }
-                if (accepted.length) {
-                  setPendingAttachments((prev) => [...prev, ...accepted]);
-                }
+                handleAddFiles(files);
               }}
             />
+            <Fade in={isAttachmentDragActive}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  m: -1,
+                  borderRadius: 1,
+                  border: "2px dashed",
+                  borderColor: "primary.main",
+                  backgroundColor: "rgba(25, 118, 210, 0.12)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 1,
+                  zIndex: 2,
+                  pointerEvents: "none",
+                }}
+              >
+                <CloudUploadIcon sx={{ color: "primary.main" }} />
+                <Typography variant="body2" color="primary">
+                  Drop files to attach
+                </Typography>
+              </Box>
+            </Fade>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
               <Box
                 component="label"
@@ -851,8 +897,9 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
               ))}
               {pendingAttachments.length === 0 && (
                 <Typography variant="caption" color="text.secondary">
-                  Optional — screenshots / PDFs / text the agent should look at.
-                  Max {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
+                  Optional — drag &amp; drop or click to add screenshots / PDFs /
+                  text the agent should look at. Max{" "}
+                  {SPEC_TASK_ATTACHMENT_MAX_PER_TASK} files,{" "}
                   {humanAttachmentSize(SPEC_TASK_ATTACHMENT_MAX_BYTES)} each.
                 </Typography>
               )}
