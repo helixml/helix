@@ -38,6 +38,11 @@ for every existing bot.
 - MCP `create_bot`/`update_bot` intentionally do NOT expose this — keeping
   the MCP surface to org-graph primitives (helix-org philosophy); a bot
   shouldn't toggle its own context policy.
-- NOT yet verified end-to-end in a live inner-Helix Slack flow — unit +
-  package tests pass and `tsc` is clean; the live two-trigger check is the
-  remaining validation.
+- Verified live in the inner Helix (helix-org enabled): the
+  `preserve_context` field round-trips through `POST`/`GET`/`PATCH /bots`
+  (create true→true, patch false→false with content untouched, patch
+  true→true) and persists in the `org_bots.preserve_context` column. The
+  spawner's skip-clear branch itself is proven by
+  `TestSpawnerPreservesContextWhenBotOptsIn` (real Spawner + real store);
+  capturing it in a live re-activation is timing-gated by per-worker
+  activation serialization, so it was not observed in the live log.
