@@ -14,16 +14,16 @@ rippling outward. Build/test after each layer.
 - [ ] Update domain `_test.go` suites; `go test ./api/pkg/org/domain/...` green.
 
 ## 2. Application (`api/pkg/org/application`)
-- [ ] Merge `application/roles` + `application/workers` into one `application/bots` service (create/get/list/update/delete).
-- [ ] Collapse `application/lifecycle`: `Hire`+`DeleteRole` → `CreateBot`; `Fire` → `DeleteBot` (merge teardown); keep reconciler/dispatcher/runtime seams.
-- [ ] Update `application/reconcile`, `dispatch`, `subscriptions`, `transcript`, `prompts` (role.go/templates/role.md), `slackrouting` to bot ids/types.
+- [x] Merge `application/roles` + `application/workers` into one `application/bots` service (create/get/list/update/delete).
+- [x] Collapse `application/lifecycle`: `Hire`+`DeleteRole` → `CreateBot`; `Fire` → `DeleteBot` (merge teardown); keep reconciler/dispatcher/runtime seams.
+- [x] Update `application/reconcile`, `dispatch`, `subscriptions`, `transcript`, `prompts` (role.go/templates/role.md), `slackrouting` to bot ids/types.
 - [ ] Update application `_test.go`; `go test ./api/pkg/org/application/...` green.
 
 ## 3. Infrastructure (`api/pkg/org/infrastructure`)
 - [x] Replace `gorm/role.go` + `gorm/worker.go` with `gorm/bot.go` (`org_bots`, composite PK, json tools/topics); update `gorm/reporting_line.go`, `gorm/subscription.go`, `worker_runtime.go`→`bot_runtime.go` to `bot_id`.
 - [x] Update `gorm/gorm.go`: `orgRowTypes`, FK-install loop (reporting lines → `org_bots` ON DELETE CASCADE), and removed-table drop loop.
 - [x] Update the `memory` store to the `Bots` port + bot-anchored maps.
-- [ ] Update `infrastructure/runtime/helix` (spawner, identity→content projection, hire, project, mcp, mirror, state) to bots; keep `role.md` on-disk filename.
+- [x] Update `infrastructure/runtime/helix` (spawner, identity→content projection, hire, project, mcp, mirror, state) to bots; keep `role.md` on-disk filename.
 - [ ] Update infra `_test.go`; `go test ./api/pkg/org/infrastructure/...` green.
 
 ## 4. Interfaces — MCP tools (`api/pkg/org/interfaces/mcptools`)
