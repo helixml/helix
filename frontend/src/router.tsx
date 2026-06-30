@@ -248,7 +248,7 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/projects/:id/desktop/:sessionId',
   meta: {
     drawer: false,
-    title: 'Human Desktop',
+    title: 'Project Desktop',
   },
   render: () => (
     <TeamDesktopPage />

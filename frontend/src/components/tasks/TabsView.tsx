@@ -377,7 +377,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
           ? tab.reviewTitle
           : `Review: ${tab.reviewTitle || "Spec"}`
         : tab.type === "desktop"
-          ? tab.desktopTitle || "Human Desktop"
+          ? tab.desktopTitle || "Project Desktop"
           : displayTask?.user_short_title ||
             displayTask?.short_title ||
             displayTask?.name ||
@@ -394,7 +394,7 @@ const PanelTab: React.FC<PanelTabProps> = ({
     }
     // Desktop tabs
     if (tab.type === "desktop") {
-      return tab.desktopTitle || "Human Desktop";
+      return tab.desktopTitle || "Project Desktop";
     }
     if (!hasSession) {
       return (
@@ -1308,7 +1308,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             </>
           )}
 
-          {/* Human Desktop - the exploratory session for the project */}
+          {/* Project Desktop - the exploratory session for the project */}
           {exploratorySessionId &&
             (() => {
               const desktopTabId = `desktop-${exploratorySessionId}`;
@@ -1321,7 +1321,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                         onAddDesktop(
                           panel.id,
                           exploratorySessionId,
-                          "Human Desktop",
+                          "Project Desktop",
                         );
                       }
                       setMenuAnchor(null);
@@ -1337,7 +1337,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
                       />
                     </ListItemIcon>
                     <ListItemText
-                      primary="Human Desktop"
+                      primary="Project Desktop"
                       secondary={alreadyOpen ? "Already open" : undefined}
                       primaryTypographyProps={{ fontSize: "0.875rem" }}
                       secondaryTypographyProps={{ fontSize: "0.7rem" }}
@@ -1592,7 +1592,7 @@ interface TabsViewProps {
   initialTaskId?: string; // Task ID to open initially (from "Split Screen" button)
   initialDesktopId?: string; // Desktop session ID to open initially (from "Split Screen" button)
   initialReviewId?: string; // Review ID to open initially (requires initialTaskId)
-  exploratorySessionId?: string; // Human Desktop session ID (one per project)
+  exploratorySessionId?: string; // Project Desktop session ID (one per project)
 }
 
 // localStorage key prefix for workspace state (per-project)
@@ -1849,7 +1849,7 @@ const TabsView: React.FC<TabsViewProps> = ({
         ? tasks.find((t) => t.planning_session_id === initialDesktopId)
         : null;
       const desktopTitle = isTeamDesktop
-        ? "Human Desktop"
+        ? "Project Desktop"
         : ownerTask
           ? ownerTask.user_short_title ||
             ownerTask.short_title ||
@@ -1995,7 +1995,7 @@ const TabsView: React.FC<TabsViewProps> = ({
       ? tasks.find((t) => t.planning_session_id === initialDesktopId)
       : null;
     const desktopTitle = isTeamDesktop
-      ? "Human Desktop"
+      ? "Project Desktop"
       : ownerTask
         ? ownerTask.user_short_title ||
           ownerTask.short_title ||
@@ -2405,7 +2405,7 @@ const TabsView: React.FC<TabsViewProps> = ({
     [],
   );
 
-  // Handle adding a Human Desktop tab to a panel
+  // Handle adding a Project Desktop tab to a panel
   const handleAddDesktop = useCallback(
     (panelId: string, sessionId: string, title?: string) => {
       const desktopTabId = `desktop-${sessionId}`;
@@ -2426,7 +2426,7 @@ const TabsView: React.FC<TabsViewProps> = ({
                 id: desktopTabId,
                 type: "desktop" as const,
                 sessionId,
-                desktopTitle: title || "Human Desktop",
+                desktopTitle: title || "Project Desktop",
               },
             ],
             activeTabId: desktopTabId,

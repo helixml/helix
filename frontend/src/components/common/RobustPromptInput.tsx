@@ -621,7 +621,7 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
   // Backend queue processing only kicks in for spec-task composers: that path
   // persists prompts via usePromptHistory and the server dispatches them once
   // synced (keyed on spec_task_id). Plain external-agent sessions — the
-  // project "Human Desktop" (TeamDesktopPage) and org-worker chat — have no
+  // project "Project Desktop" (TeamDesktopPage) and org-worker chat — have no
   // spec_task_id, so the composer must pump the queue itself by calling
   // onSend, which the parent routes to streaming.NewInference → the running
   // Zed agent. Without this fallback every queued message just sits forever as
