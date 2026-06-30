@@ -19,16 +19,18 @@ through the "HelixProjects" skill at `api/pkg/agent/skill/project/`
 `store.Store` spec-task methods plus design-doc-path generation, task-number
 assignment, and status transitions.
 
-**Reuse answer:** Yes — but not by importing the skill tools verbatim. They
-implement the `agent.Tool` interface and depend directly on `store.Store`,
-while org MCP tools implement `tool.Tool` and reach the helix world only
-through **infrastructure ports** (the `runtime.ProjectConfig` pattern). We
-reuse the code by extracting the shared spec-task logic into one helix-core
-helper that both the existing skill tools and the new org port impl call, so
-behaviour cannot drift. On the org side the tools go through a dedicated
-**org application service** (front-of-house) that depends on an infrastructure
-port whose impl calls out to that core — the same layering the helix project
-runtime uses today.
+**Reuse answer:** Yes — by reusing the **canonical `services` layer** the
+Optimus skill itself sits on top of, **without touching the skill code**. The
+skill tools (`agent.Tool`, depend on `store.Store`) stay exactly as-is. The new
+org MCP tools (`tool.Tool`) reach the helix world through an **infrastructure
+port** (the `runtime.ProjectConfig` pattern) whose impl delegates to the
+already-tested `services.SpecDrivenTaskService` + `services.GenerateDesignDocPath`
++ `store.Store` — the same code the REST UI drives. On the org side the tools
+go through a dedicated **org application service** (front-of-house) over that
+port — the same layering the helix project runtime uses today. Nothing in
+`api/pkg/agent/skill/project/` or existing `services`/`store` behaviour is
+modified, so current functionality cannot regress; the new layers are built
+test-first.
 
 ## User Stories
 
@@ -115,12 +117,16 @@ Acceptance criteria for the eventing path:
   use a defined identity (hiring user or task creator), not a silent fallback.
 - If the calling Worker has no project assigned, tools return a clear error
   (mirroring `ErrProjectConfigUnsupported`).
-- `create_spectask` produces a task identical in shape to one created by the
-  Optimus skill (task number, design-doc path, status `backlog`), proving the
-  shared logic is reused, not reimplemented.
-- The five existing Optimus skill tools continue to behave identically after
-  the shared logic is extracted (existing tests in
-  `api/pkg/agent/skill/project/` still pass).
+- `create_spectask` produces a task identical in shape to one created via the
+  REST API (task number, design-doc path, status `backlog`), because it calls
+  the same `SpecDrivenTaskService.CreateTaskFromPrompt` — reused, not
+  reimplemented.
+- **No existing code is modified for reuse:** `api/pkg/agent/skill/project/*`
+  and existing `api/pkg/services/spec_*` / `api/pkg/store` behaviour are
+  untouched, so their tests pass unchanged. The only additive edit to existing
+  code is the nil-guarded `Publisher` sink on `AttentionService` (eventing).
+- New layers (port impl, application service, tools, eventing hook) are
+  developed **test-first (TDD)**.
 - The mutating tools are **not** added to `BaseReadTools` (the universal
   baseline); they are granted to a Worker only when listed in its Role.
 - Unit tests cover each new tool (fake port) and the in-proc port

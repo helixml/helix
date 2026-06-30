@@ -69,18 +69,20 @@ application service nor the tools handle a `projectID`. Plus `NoopSpecTasks`
 (returns `ErrSpecTasksUnsupported`) and the view/input structs, all defined in
 the `runtime` package so the application service and the impl share them.
 
-### 3. In-proc impl `runtimehelix.SpecTasks` — calls out to the core
+### 3. In-proc impl `runtimehelix.SpecTasks` — reuse the canonical services, touch nothing
 New file `api/pkg/org/infrastructure/runtime/helix/spectasks.go`. Mirrors
-`project_config.go`: holds `*store.Store` + the shared helix spectask service +
-`*services.SpecDrivenTaskService`, loads worker state to get `ProjectID`
-(error if empty), enforces that any referenced task belongs to that project,
-then delegates each verb to the existing core code — so each is a thin
-delegation, not a reimplemented state machine:
+`project_config.go`: holds `*store.Store` + `*services.SpecDrivenTaskService`,
+loads worker state to get `ProjectID` (error if empty), enforces that any
+referenced task belongs to that project, then delegates each verb to the
+**already-tested canonical `services` layer the REST UI uses** — so each is a
+thin delegation, not a reimplemented state machine, and no existing code is
+modified:
 
-| Port method | Reuses (core helix code) |
-|-------------|--------------------------|
-| `Create` | shared spectask authoring service / `SpecDrivenTaskService.CreateTaskFromPrompt` |
+| Port method | Reuses (existing, unmodified helix code) |
+|-------------|------------------------------------------|
+| `Create` | `SpecDrivenTaskService.CreateTaskFromPrompt` (assigns task number + `services.GenerateDesignDocPath`) |
 | `StartPlanning` | `SpecDrivenTaskService.StartSpecGeneration` / `StartJustDoItMode` (`startPlanning` handler) |
+| `List` / `Get` | `store.Store` read methods (`ListSpecTasks` / `GetSpecTask`) directly |
 | `ReviewSpec` | `getTaskSpecs` read logic (`/spec-tasks/{id}/specs`) + `listDesignReviews` |
 | `ApproveSpec` | `SpecDrivenTaskService.ApproveSpecs` (`approveSpecs` handler) |
 | `RequestChanges` | `submitDesignReview` with `Decision: "request_changes"` → `spec_revision` |
@@ -97,14 +99,31 @@ Wire it in `helix_org.go` next to `NewProjectConfig` (~line 427), inject it
 into `spectasks.New(...)`, and set `deps.SpecTasks` (the application service)
 before `RegisterBuiltins` (~line 590).
 
-### 4. Reuse the Optimus skill logic without drift
-The create/list/get authoring logic currently inlined in
-`api/pkg/agent/skill/project/` (`generateDesignDocPath`, task-number
-assignment, project-ownership check) is extracted into a small shared helix
-spectask service (`api/pkg/spectask/`). The existing Optimus skill tools and
-the `runtimehelix.SpecTasks` impl both call it, so the two surfaces cannot
-drift. The org layers above (application service, port) never see this
-package — they only see the `runtime.SpecTasks` port.
+### 4. Do NOT touch the Optimus skill or the helix `spectask` code; TDD the new path
+Earlier drafts proposed extracting the skill's create/list/get logic into a
+shared package and refactoring `api/pkg/agent/skill/project/` to call it. We
+**drop that** — it edits working code for no functional gain and risks
+regressing the Optimus agent. Instead:
+
+- The org port impl reuses the **already-canonical** `services` layer
+  (`SpecDrivenTaskService`, `services.GenerateDesignDocPath`, `store.Store`) —
+  the same code the REST UI drives. The Optimus skill package keeps its
+  existing local copy of `generateDesignDocPath` (it deliberately duplicates it
+  "to avoid import cycles" today); we leave it exactly as-is.
+- **Zero edits** to `api/pkg/agent/skill/project/*` and **zero edits** to
+  `api/pkg/services/spec_*`/`api/pkg/store` behaviour. The only allowed
+  additive change to existing code is the optional `Publisher` sink on
+  `AttentionService` (decision 7), which is purely additive and nil-guarded.
+- **TDD:** write tests first at every new layer — the `runtimehelix.SpecTasks`
+  impl (against the canonical services/store), the `spectasks.Service`
+  application layer (fake port), and each tool (fake service). The acceptance
+  bar is that existing helix/Optimus tests are untouched and still green
+  because their code is untouched.
+
+The minor cost is that the skill's local `generateDesignDocPath` copy and
+`services.GenerateDesignDocPath` remain two copies — but that duplication
+already exists by design and is not made worse by this work. Consolidating it
+is a separate, optional cleanup, not a prerequisite here.
 
 ### 5. Org MCP tools
 One file per verb in `api/pkg/org/interfaces/mcptools/`, each implementing
@@ -190,19 +209,16 @@ Named to read like the actions a human reviewer takes:
   front-of-house application service the tools consume; depends only on the
   `runtime.SpecTasks` port.
 - New: `api/pkg/org/infrastructure/runtime/helix/spectasks.go` (+ test) — port
-  impl that calls out to the core helix spectask code.
-- New: `api/pkg/spectask/` (+ test) — shared authoring core
-  (`generateDesignDocPath`, task-number, create/list/get) reused by the
-  Optimus skill tools and the port impl. Workflow verbs in the impl delegate
-  to `services.SpecDrivenTaskService` + the design-review path rather than
-  duplicating them.
+  impl that reuses the canonical `services.SpecDrivenTaskService` + `store.Store`
+  (no existing code changed). Workflow verbs delegate to that service + the
+  design-review / approve-implementation paths.
 - New: one tool file per verb in `api/pkg/org/interfaces/mcptools/` (+ tests).
 - Edit: `runtime.go` (port + Noop + structs), `builtins.go` (`Deps.SpecTasks`
   application service + `Config.Build()` + RegisterBuiltins), `helix_org.go`
   (composition: build impl, inject into the application service).
-- Edit: `api/pkg/agent/skill/project/*_tool.go` — refactor the
-  create/list/get tools to call the shared authoring core
-  (behaviour-preserving).
+- **Not touched:** `api/pkg/agent/skill/project/*` (the Optimus skill) and the
+  existing `api/pkg/services/spec_*` / `api/pkg/store` behaviour — reused as-is,
+  not refactored. No new `api/pkg/spectask/` extraction package.
 - New (eventing): `api/pkg/org/domain/transport/spectask.go`
   (`KindSpecTask` + strategy/`kindOrder` entry) and
   `api/pkg/org/infrastructure/transports/spectask/` (maps `AttentionEvent` →
@@ -215,9 +231,11 @@ Named to read like the actions a human reviewer takes:
 
 ## Risks / Gotchas
 
-- **Behaviour parity:** keep `generateDesignDocPath` and task-number logic
-  byte-for-byte when extracting, or the design-doc directory naming (which
-  feeds branch names) changes. Cover with the existing skill tests.
+- **No regression by construction:** existing helix/Optimus code is reused
+  unmodified (canonical `services` + `store`), so the design-doc/task-number
+  behaviour cannot drift — there is no second implementation to keep in sync.
+  New layers are TDD'd; existing tests stay green because their code is
+  untouched.
 - **Typed-nil ports:** `Config.Build()` must construct the `spectasks.Service`
   over a non-nil port, defaulting to `runtime.NoopSpecTasks{}` to avoid
   nil-interface panics (same care taken for `ProjectConfig`/`Dispatcher`).
