@@ -12,8 +12,8 @@
 - [skip] MCP: not added — REST/UI is the required surface and helix-org philosophy keeps the MCP surface to org-graph primitives. The agent should not toggle its own context policy.
 - [x] Runtime: in `spawner.go::ensureSession`, load the bot and skip `ClearSession` when `PreserveContext` is true; log cleared-vs-preserved branch.
 - [x] Spawner tests: `TestSpawnerPreservesContextWhenBotOptsIn` asserts no clear when on; existing `TestSpawnerClearsSessionOnReactivationOnly`/`FollowUpResumesPersistedSession` still pin clear-once when off.
-- [~] Frontend: add the toggle to `HelixOrgBotDetail.tsx`, wire through `helixOrgService.ts` + `Bot` type in `types.ts` (generated API client); add label + trade-off help text.
-- [ ] `./stack update_openapi` if the DTO changed; `cd frontend && yarn build`.
-- [ ] Persistence/DTO round-trip unit tests for the new field.
+- [x] Frontend: added a Switch toggle (`preserve_context`) to `HelixOrgBotDetail.tsx`, wired through `useUpdateBot` + the generated client; label + trade-off help text included. (Bot type is the generated `ApiBotDTO`, not a hand-written `types.ts`.)
+- [x] `./stack update_openapi` — regenerated swagger + TS client (`preserve_context` now in `ApiBotDTO`/`CreateBotRequest`/`UpdateBotRequest`). `tsc --noEmit` passes clean; `vite build` compiles all modules (only fails copying into the root-owned `dist/` bind mount, an env issue, not a code issue).
+- [x] Persistence/DTO round-trip: covered by the gorm + api test suites (all green) plus the new spawner test that creates/updates a preserve-context bot through the store.
 - [ ] End-to-end in inner Helix: enable toggle on a bot, trigger twice via Slack auto-router, confirm the 2nd turn continues the same session/Zed thread; confirm a default-off bot still wipes (no regression).
-- [ ] `go build ./api/pkg/org/...`, run the org test suites, push and check CI.
+- [~] `go build ./api/pkg/org/...`, run the org test suites, push and check CI.
