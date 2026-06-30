@@ -52,6 +52,6 @@ rippling outward. Build/test after each layer.
 - [ ] Grep the whole tree for leftover helix-org `role`/`worker`/`kind`/`identity` symbols outside `api/pkg/org` and fix.
 
 ## 9. End-to-end verification (local Helix UI)
-- [ ] Build + run the in-sandbox Helix instance; sign in with the `helix-org` alpha flag.
-- [ ] Walk every rewritten QA.md scenario via the UI: empty-org seed, create bot + tool editor, chart drag (reporting/subscription/cycle/reparent-unsubscribe), bot-chat dispatch (§10), managers/reports/dm (§13), and the multi-tenancy read+write isolation gate (§16).
+- [x] Built/ran in-sandbox Helix (HELIX_ORG_ENABLED=true + alpha flag); registered test@helix.ml.
+- [~] Verified core flows via UI: empty-org seed, create bot (chart+dialog), Bots list, bot detail (chat/tools/subscriptions/project+agent links), reporting reconcile (transcript/team/DM topics + subscriptions confirmed in DB). Remaining QA scenarios (cycle/reparent-unsubscribe, multi-tenancy §16) pending.
 - [ ] Fix any defect surfaced and re-run the affected scenario.
