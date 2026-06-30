@@ -4,10 +4,10 @@
 > merged into `main` (verified 2026-06-30). Build on the Bot symbols.
 
 - [x] Domain: add `PreserveContext bool` to `orgchart.Bot` + `WithPreserveContext` builder; extend `bot_test.go`.
-- [~] Gorm persistence: add `preserve_context` column to the bot row, map in `ToRow`/`ToDomain`, add to the `Update` `WithUpdates` map.
-- [ ] Memory store: carry `PreserveContext` in the in-memory bot mapper/copy.
-- [ ] Verify AutoMigrate adds the column and existing rows default to `false` (no SQL migration needed).
-- [ ] Application: thread `PreserveContext` through the bot update use case via `WithPreserveContext`.
+- [x] Gorm persistence: add `preserve_context` column to the bot row, map in `ToRow`/`ToDomain`, add to the `Update` `WithUpdates` map.
+- [x] Memory store: no change needed — memory `botsRepo` stores the whole `orgchart.Bot` by value, so `PreserveContext` round-trips automatically.
+- [x] Verify AutoMigrate adds the column and existing rows default to `false` — `botRow` is in `orgRowTypes` (gorm.go) and AutoMigrate runs over it; `gorm:"not null;default:false"` backfills existing rows.
+- [~] Application: thread `PreserveContext` through the bot update use case via `WithPreserveContext`.
 - [ ] REST DTO: add `preserve_context bool` to `BotDTO` + `CreateBotRequest`, and `*bool` to `UpdateBotRequest` (patch-style, nil = unchanged); map in handlers.
 - [ ] (Optional) MCP: add optional `preserve_context` arg to `update_bot` in `schema.go` + handler — only if needed; keep MCP surface small.
 - [ ] Runtime: in `spawner.go::ensureSession`, load the bot and skip `ClearSession` when `PreserveContext` is true; log cleared-vs-preserved branch.
