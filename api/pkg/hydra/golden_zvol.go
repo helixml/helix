@@ -918,6 +918,86 @@ func ReconcileOrphanZvols(liveSet map[string]bool, grace time.Duration, dryRun b
 	return reaped, skipped
 }
 
+// ReconcileOrphanFileCopyDirs reaps per-session file-copy docker-data dirs
+// (sessionsBaseDir/docker-data-<id>) whose session is NOT in the DB-derived
+// liveSet and whose on-disk age has passed the grace period.
+//
+// These dirs hold the inner docker storage on hosts where ZFS is unavailable
+// (the file-copy fallback in resolveDockerDataDir), and stale marker dirs on
+// ZFS hosts. The durable reaper previously ignored them entirely — only the
+// legacy in-memory GCOrphanedSessionDirs touched them, and that path skips any
+// dir without a .last-active marker forever (age == 0). Ended-session docker
+// data therefore leaked indefinitely (this is what accumulated ~1T of dead
+// docker-data dirs on a file-copy host). This closes the gap using the same
+// durable, DB-derived live-set the zvol reaper uses.
+func ReconcileOrphanFileCopyDirs(liveSet map[string]bool, grace time.Duration, dryRun bool) (reaped []string, skipped []GCSkip) {
+	entries, err := os.ReadDir(sessionsBaseDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warn().Err(err).Msg("ReconcileOrphanFileCopyDirs: failed to read sessions dir")
+		}
+		return nil, nil
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "docker-data-") {
+			continue
+		}
+		sessionID := strings.TrimPrefix(entry.Name(), "docker-data-")
+		dir := filepath.Join(sessionsBaseDir, entry.Name())
+
+		if liveSet[sessionID] {
+			// Live per the DB — keep, and refresh the marker so the legacy
+			// 7-day GC also keeps treating it as fresh.
+			TouchSessionLastActive(dir)
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "live"})
+			continue
+		}
+
+		// Not live. Apply the grace period using fileCopyDirAge (dir mtime or
+		// marker, whichever is newer) — never the marker alone, so a dir
+		// lacking a .last-active marker is still reapable.
+		if fileCopyDirAge(dir) < grace {
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "grace"})
+			continue
+		}
+
+		if dryRun {
+			reaped = append(reaped, dir)
+			continue
+		}
+
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("ReconcileOrphanFileCopyDirs: failed to remove orphan docker-data dir")
+			skipped = append(skipped, GCSkip{Name: dir, Reason: "error: " + err.Error()})
+			continue
+		}
+		reaped = append(reaped, dir)
+	}
+
+	return reaped, skipped
+}
+
+// fileCopyDirAge returns how long since a session docker-data dir was last
+// active, using the newer of the dir's own mtime and its .last-active marker.
+// Unlike sessionLastActiveAge it never returns 0 for a marker-less dir: a
+// missing marker falls back to the dir mtime, so pre-marker / crashed dirs are
+// still reapable. Returns 0 only when the dir can't be stat'd at all (treated
+// as fresh — conservative, won't reap).
+func fileCopyDirAge(dir string) time.Duration {
+	var newest time.Time
+	if fi, err := os.Stat(dir); err == nil {
+		newest = fi.ModTime()
+	}
+	if fi, err := os.Stat(filepath.Join(dir, ".last-active")); err == nil && fi.ModTime().After(newest) {
+		newest = fi.ModTime()
+	}
+	if newest.IsZero() {
+		return 0
+	}
+	return time.Since(newest)
+}
+
 // GCStaleSnapshots destroys golden snapshots older than 7 days that have no
 // remaining clones. Keeps recent snapshots so the user can see cache progression.
 // Snapshots with active session clones can't be destroyed (ZFS refuses) — that's
