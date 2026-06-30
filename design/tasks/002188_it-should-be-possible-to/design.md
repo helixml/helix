@@ -99,3 +99,43 @@ No backend, API, or constants changes. No new dependencies.
   drag a screenshot onto the attachment area → chip appears; verify overlay on
   drag-over; verify oversize/too-many/wrong-type rejection; verify the button
   still opens the picker; create the task and confirm the attachment uploads.
+
+## Implementation Notes (as built)
+
+Implemented exactly as designed. One file changed:
+`frontend/src/components/tasks/NewSpecTaskForm.tsx`.
+
+- Added imports: `Fade` (MUI), `CloudUpload as CloudUploadIcon`
+  (`@mui/icons-material`), `useDropzone` (`react-dropzone`).
+- Extracted the inline `<input onChange>` validation into
+  `handleAddFiles = useCallback((files: File[]) => {...}, [snackbar])`. It does
+  the remaining-slot check and per-file size check inside the
+  `setPendingAttachments` updater (using `prev.length` so the count is always
+  current — avoids a stale-closure bug). The `<input onChange>` now just calls
+  `handleAddFiles(Array.from(e.target.files || []))` after clearing the value.
+- `useDropzone({ onDrop: handleAddFiles, accept: SPEC_TASK_ATTACHMENT_ACCEPTED_MIME,
+  noClick: true, noKeyboard: true, disabled: attachmentsFull })`.
+  `attachmentsFull = pendingAttachments.length >= SPEC_TASK_ATTACHMENT_MAX_PER_TASK`.
+- Wrapped the attachment `Box` with `{...getAttachmentRootProps()}` +
+  `position: relative`; added a `Fade in={isAttachmentDragActive}` overlay
+  (dashed primary border, translucent fill, cloud icon + "Drop files to attach",
+  `pointerEvents: none`, `m: -1` so the highlight extends slightly past the row).
+- Updated the empty-state hint to "drag & drop or click to add …".
+
+### Verified end-to-end (inner Helix, Vite HMR)
+- Drag-over → overlay appears (screenshot 02); drop a valid `image/png` → chip
+  added (03); overlay clears after drop.
+- Wrong type (`.exe`) → rejected by react-dropzone `accept` (no chip).
+- Oversize (11 MB png) → rejected with snackbar "huge.png is too large
+  (max 10.0 MB)." (04).
+- Only one `<input type=file>` in the dropzone root + label `htmlFor` intact →
+  no double file-dialog; the "Attach files" button still opens the picker.
+
+### Gotchas
+- `frontend/dist/` is root-owned (prod bind mount per CLAUDE.md), so the
+  repo-local `yarn build` fails at the final copy step with EACCES. The code
+  itself compiles: `tsc --noEmit` is clean and `vite build --outDir /tmp/...`
+  exits 0. Don't `rm -rf frontend/dist`.
+- Native file drops can't be done via the chrome-devtools click/drag tools;
+  simulate by dispatching `DragEvent`s with a constructed `DataTransfer` via
+  `evaluate_script` (React's delegated listeners pick them up).
