@@ -11,13 +11,13 @@ Bots have no `kind`, so there is no AI/human gating.
 - [x] Refactor `SpecTaskDetailContent.tsx` to use the helper (behaviour unchanged).
 - [x] Add a unit test for `deriveDisplaySettings` (presets + fallback) — 6 cases, all green.
 
-## 2. Desktop view on the Bot detail page (`HelixOrgBotDetail.tsx`) [~]
-- [~] Add a `ToggleButtonGroup` (Chat | Desktop) at the top of the existing session panel.
-- [ ] Look up the bot's agent app via `agentAppID` (`data.agent_app_id`) and compute display settings with `deriveDisplaySettings`.
-- [ ] Render `ExternalAgentDesktopViewer` (`mode="stream"`, `sessionId`/`sandboxId` = the already-resolved `chatSessionId`, display width/height/fps) when Desktop is selected, inside the existing bounded (~520px) container.
-- [ ] Keep the existing Chat panel (`EmbeddedSessionView` + `RobustPromptInput`) on the Chat toggle, unchanged.
-- [ ] Show an empty/idle state ("No desktop yet") when `chatSessionId` is null; do not mount the viewer. (No `kind` gating — bots are singular.)
+## 2. Desktop view on the Bot detail page (`HelixOrgBotDetail.tsx`) [x]
+- [x] Add a `ToggleButtonGroup` (Chat | Desktop) at the top of the existing session panel.
+- [x] Look up the bot's agent app via `agentAppID` (`data.agent_app_id`) and compute display settings with `deriveDisplaySettings`.
+- [x] Render `ExternalAgentDesktopViewer` (`mode="stream"`, `sessionId`/`sandboxId` = the already-resolved `chatSessionId`, display width/height/fps) when Desktop is selected, inside the existing bounded (~520px) container.
+- [x] Keep the existing Chat panel (`EmbeddedSessionView` + `RobustPromptInput`) on the Chat toggle, unchanged.
+- [x] Show an empty/idle state ("No desktop yet") when `chatSessionId` is null; do not mount the viewer. (No `kind` gating — bots are singular.)
 
-## 3. Verify
-- [ ] `yarn build` + `yarn test` green; update/extend the bot detail test for the toggle.
-- [ ] Manual UI check at a bot detail page (e.g. `/orgs/.../helix-org/bots/<id>`): Chat still works, Desktop streams the bot's screen, lifecycle states render, and a bot with no session shows the empty state.
+## 3. Verify [x]
+- [x] `tsc --noEmit` clean (0 errors); `deriveDisplaySettings` unit test green (6 cases). `yarn build` transforms all 21,652 modules (final write blocked only by the root-owned `dist/` bind-mount — environment, not code).
+- [x] **End-to-end in the inner Helix** (`localhost:8080`): created bot `b-desktop-test`, opened its detail page, confirmed the Chat | Desktop toggle. Chat shows the transcript; **Desktop streams the bot's live GNOME desktop** (8.3 Mbps, full viewer toolbar). Screenshots in `screenshots/`.

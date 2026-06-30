@@ -121,3 +121,43 @@ additive change to one existing file plus one new helper.
 - **Display-settings divergence** — mitigated by sharing one helper.
 - **Session not yet provisioned** — handled by the existing GET-only resolve +
   empty state; never provision on page open.
+
+## Implementation Notes (as built)
+
+The plan held end-to-end — no surprises. As built:
+
+- **`deriveDisplaySettings(app?: IApp)`** (`services/externalAgentDisplay.ts`).
+  Gotcha: `useApps()` returns the frontend domain type **`IApp`** (from
+  `types.ts`), NOT the generated `TypesApp` from `api/api.ts`. The helper and
+  its test had to import `IApp` or `tsc` fails with
+  `IApp is not assignable to TypesApp`. `SpecTaskDetailContent` was refactored
+  to call the helper (its `apps.apps.find(...)` already yields `IApp`).
+- **Bot detail** (`pages/HelixOrgBotDetail.tsx`): added a `sessionTab`
+  state (`'chat' | 'desktop'`) and a `ToggleButtonGroup` in the panel header.
+  Both branches reuse the same bounded 520px flex container; Desktop renders
+  `<ExternalAgentDesktopViewer mode="stream" sessionId={chatSessionId}
+  sandboxId={chatSessionId} displayWidth/Height/Fps={…} />`. `displaySettings`
+  is `useMemo`'d over `agentAppID` + `apps.apps`. Same pattern as
+  `TeamDesktopPage.tsx` (the standalone "Project Desktop" page), which is the
+  closest existing precedent.
+- **No backend changes.** `useHelixOrgBot` → `BotDetailDTO` already carries
+  `project_id` + `agent_app_id`; the desktop stream reuses the existing
+  `/api/v1/external-agents/{sessionID}/ws/stream` + `/ws/input` endpoints.
+
+### Testing gotcha — helix-org is gated, off by default
+To exercise the bot detail page in the inner Helix you must:
+1. `HELIX_ORG_ENABLED=true` in `.env` (default false; deployment kill-switch,
+   `config.go:132`) then recreate the API container
+   (`docker compose -f docker-compose.dev.yaml up -d api`). Without it,
+   `/api/v1/orgs/{org}/bots` 404s (routes never mounted).
+2. Grant the per-user **`helix-org`** alpha feature (otherwise the routes 403):
+   `UPDATE users SET alpha_features = '{helix-org}' WHERE email='…';`
+   (gated by `requireFeature(helixorg.AlphaFeature)`, `auth_utils.go:57`).
+
+Creating a bot auto-provisions its per-bot project + agent + exploratory
+("Project Desktop") session, so the desktop stream is available almost
+immediately — no manual activation step needed.
+
+Verified live: Chat shows the transcript, Desktop streams the bot's real
+GNOME desktop. Screenshots in `screenshots/` (01 chat, 02 initializing,
+03 live desktop).
