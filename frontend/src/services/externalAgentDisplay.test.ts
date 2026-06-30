@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 
 import { deriveDisplaySettings } from './externalAgentDisplay'
-import { TypesApp } from '../api/api'
+import { IApp } from '../types'
 
-const appWith = (cfg: Record<string, unknown>): TypesApp =>
-  ({ config: { helix: { external_agent_config: cfg } } } as unknown as TypesApp)
+const appWith = (cfg: Record<string, unknown>): IApp =>
+  ({ config: { helix: { external_agent_config: cfg } } } as unknown as IApp)
 
 describe('deriveDisplaySettings', () => {
   it('falls back to 1920x1080x60 when app is undefined', () => {
@@ -12,7 +12,7 @@ describe('deriveDisplaySettings', () => {
   })
 
   it('falls back when there is no external_agent_config', () => {
-    expect(deriveDisplaySettings({ config: { helix: {} } } as unknown as TypesApp)).toEqual({
+    expect(deriveDisplaySettings({ config: { helix: {} } } as unknown as IApp)).toEqual({
       width: 1920,
       height: 1080,
       fps: 60,

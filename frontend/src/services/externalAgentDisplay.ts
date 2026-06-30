@@ -1,4 +1,4 @@
-import { TypesApp } from '../api/api'
+import { IApp } from '../types'
 
 export interface DisplaySettings {
   width: number
@@ -13,7 +13,7 @@ const DEFAULT_DISPLAY: DisplaySettings = { width: 1920, height: 1080, fps: 60 }
 // resolution presets and falling back to 1920x1080x60 when the app or config
 // is missing. Shared by the spec-task detail page and the bot detail page so
 // both feed ExternalAgentDesktopViewer identical settings.
-export function deriveDisplaySettings(app?: TypesApp): DisplaySettings {
+export function deriveDisplaySettings(app?: IApp): DisplaySettings {
   const config = app?.config?.helix?.external_agent_config
   if (!config) {
     return { ...DEFAULT_DISPLAY }
