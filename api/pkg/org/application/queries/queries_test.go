@@ -13,20 +13,16 @@ import (
 )
 
 // TestQueries_ReadsAcrossAggregates exercises the read facade end to end
-// against the in-memory store: seed a role, worker, topic, subscription,
-// and event, then read each back through Queries.
+// against the in-memory store: seed a bot, topic, subscription, and
+// event, then read each back through Queries.
 func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	ctx := context.Background()
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, now, "org-test")
-	if err := st.Roles.Create(ctx, role); err != nil {
-		t.Fatal(err)
-	}
-	wk, _ := orgchart.NewAIWorker("w-mark", "r-eng", "id", "org-test")
-	if err := st.Workers.Create(ctx, wk); err != nil {
+	b, _ := orgchart.NewBot("w-mark", "# Eng", []tool.Name{"publish"}, nil, now, "org-test")
+	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatal(err)
 	}
 	topic, _ := streaming.NewTopic("s-1", "s-1", "", "w-owner", now, transport.LocalTransport(), "org-test")
@@ -43,15 +39,15 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	}
 
 	q := New(Deps{
-		Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines,
+		Bots: st.Bots, ReportingLines: st.ReportingLines,
 		Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events,
 	})
 
-	if roles, err := q.ListRoles(ctx, "org-test"); err != nil || len(roles) != 1 {
-		t.Fatalf("ListRoles = %v, %v", roles, err)
+	if bots, err := q.ListBots(ctx, "org-test"); err != nil || len(bots) != 1 {
+		t.Fatalf("ListBots = %v, %v", bots, err)
 	}
-	if got, err := q.GetWorker(ctx, "org-test", "w-mark"); err != nil || got.ID() != "w-mark" {
-		t.Fatalf("GetWorker = %v, %v", got, err)
+	if got, err := q.GetBot(ctx, "org-test", "w-mark"); err != nil || got.ID != "w-mark" {
+		t.Fatalf("GetBot = %v, %v", got, err)
 	}
 	if topics, err := q.ListTopics(ctx, "org-test"); err != nil || len(topics) != 1 {
 		t.Fatalf("ListTopics = %v, %v", topics, err)
@@ -59,8 +55,8 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	if subs, err := q.TopicSubscribers(ctx, "org-test", "s-1"); err != nil || len(subs) != 1 {
 		t.Fatalf("TopicSubscribers = %v, %v", subs, err)
 	}
-	if subs, err := q.WorkerSubscriptions(ctx, "org-test", "w-mark"); err != nil || len(subs) != 1 {
-		t.Fatalf("WorkerSubscriptions = %v, %v", subs, err)
+	if subs, err := q.BotSubscriptions(ctx, "org-test", "w-mark"); err != nil || len(subs) != 1 {
+		t.Fatalf("BotSubscriptions = %v, %v", subs, err)
 	}
 	if events, err := q.TopicEvents(ctx, "org-test", "s-1", 10); err != nil || len(events) != 1 {
 		t.Fatalf("TopicEvents = %v, %v", events, err)

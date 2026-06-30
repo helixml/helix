@@ -1,17 +1,17 @@
-// HelixOrgWorkerDetail shows a single worker and lets the operator
-// watch and drive its conversation inline — the same transcript view
-// the spec-task page uses (EmbeddedSessionView), reading the worker's
-// per-Worker project "Project Desktop" session. The point is to avoid
-// forcing the operator to click out to the external desktop tab just
-// to see what the worker is doing.
+// HelixOrgBotDetail shows a single bot and lets the operator edit it
+// end-to-end and watch / drive its conversation inline.
 //
-// The inline transcript (EmbeddedSessionView + RobustPromptInput) is
-// auto-shown when the worker's project already has an exploratory
-// session. GET-only on load — never spins up infra by itself; sessions
-// are provisioned by the worker's activation flow.
+// A Bot is the merge of the former Role and Worker: its markdown
+// `content` is its identity/prompt, its `tools` list is its MCP tool
+// surface, it carries topic subscriptions, and it reports to other bots
+// (parent_ids). Content + tools are edited here via Monaco + a tools
+// multi-select and saved in one step through useUpdateBot (there is no
+// separate identity field). Subscriptions are managed in the panel below.
 //
-// The worker's identity markdown is editable here (Monaco + Save),
-// persisted via the workers/{id}/identity endpoint.
+// The inline transcript (EmbeddedSessionView + RobustPromptInput) is the
+// same view the spec-task page uses — it auto-shows when the bot's project
+// already has an exploratory session. GET-only on load — never spins up
+// infra by itself; sessions are provisioned by the bot's activation flow.
 
 import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
 import Accordion from '@mui/material/Accordion'
@@ -31,10 +31,11 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import CheckBoxIcon from '@mui/icons-material/CheckBox'
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
-import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SaveIcon from '@mui/icons-material/Save'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
@@ -57,79 +58,104 @@ import useSnackbar from '../hooks/useSnackbar'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
-  useFireHelixOrgWorker,
-  useHelixOrgWorker,
+  ToolDTO,
+  useDeleteBot,
+  useHelixOrgBot,
+  useListBotSubscriptions,
+  useListHelixOrgTools,
   useListHelixOrgTopics,
-  useListWorkerSubscriptions,
-  useRestartWorkerAgent,
-  useSubscribeWorker,
-  useUnsubscribeWorker,
-  useUpdateWorkerIdentity,
+  useRestartBotAgent,
+  useSubscribeBot,
+  useUnsubscribeBot,
+  useUpdateBot,
 } from '../services/helixOrgService'
 import {
   WorkerChatReader,
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
 
-const HelixOrgWorkerDetail: FC = () => {
+const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const snackbar = useSnackbar()
   const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
-  const workerId = router.params.worker_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Workers', routeName: 'helix_org_workers' })
+  const botId = router.params.bot_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
 
-  const fire = useFireHelixOrgWorker()
-  // Stop polling/refetching this worker once a fire is in flight or
-  // done — the row is being torn down, so a refetch would only hit a
-  // 404 (QA F3). The page navigates to the workers list on success.
-  const { data, isLoading } = useHelixOrgWorker(workerId, {
-    enabled: !fire.isPending && !fire.isSuccess,
+  const del = useDeleteBot()
+  // Stop polling/refetching this bot once a delete is in flight or done —
+  // the row is being torn down, so a refetch would only hit a 404. The
+  // page navigates to the bots list on success.
+  const { data, isLoading } = useHelixOrgBot(botId, {
+    enabled: !del.isPending && !del.isSuccess,
   })
   const streaming = useStreaming()
-  const updateIdentity = useUpdateWorkerIdentity()
-  const restartAgent = useRestartWorkerAgent()
-  const [confirmingFire, setConfirmingFire] = useState(false)
+  const updateBot = useUpdateBot()
+  const restartAgent = useRestartBotAgent()
+  const { data: toolCatalogue } = useListHelixOrgTools()
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
-  const worker = data?.worker
+  const bot = data?.bot
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
 
-  // Editable identity markdown. Seeded from the worker every time it
+  // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
-  const [identityContent, setIdentityContent] = useState('')
+  const [content, setContent] = useState('')
+  const [tools, setTools] = useState<string[]>([])
   useEffect(() => {
-    setIdentityContent(worker?.identity_content ?? '')
-  }, [worker?.identity_content])
-  const identityDirty = identityContent !== (worker?.identity_content ?? '')
+    setContent(bot?.content ?? '')
+    setTools(bot?.tools ?? [])
+  }, [bot?.content, bot?.tools])
 
-  const handleSaveIdentity = async () => {
-    if (!workerId) return
+  // The Autocomplete needs Option objects, but the bot's tool list is
+  // just a string[] of names. Render every catalogue entry plus any
+  // bot-listed names the catalogue didn't return (defensive — if a tool
+  // was unregistered but the bot still lists it, keep showing it as
+  // selected so the operator can explicitly remove it).
+  const toolOptions = useMemo<ToolDTO[]>(() => {
+    const cat = toolCatalogue ?? []
+    const known = new Set(cat.map((t) => t.name))
+    const extras = tools
+      .filter((name) => !known.has(name))
+      .map<ToolDTO>((name) => ({ name, description: '(not in current catalogue)' }))
+    return [...cat, ...extras]
+  }, [toolCatalogue, tools])
+
+  const dirty = useMemo(() => {
+    if (!bot) return false
+    if ((bot.content ?? '') !== content) return true
+    if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
+    return false
+  }, [bot, content, tools])
+
+  const handleSave = async () => {
+    if (!botId) return
     try {
-      await updateIdentity.mutateAsync({ workerId, identity: identityContent })
-      snackbar.success('identity saved')
+      await updateBot.mutateAsync({ id: botId, content, tools })
+      snackbar.success(`bot ${botId} saved`)
     } catch (err: any) {
-      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save identity failed')
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
     }
   }
 
-  // handleRestartSession recreates the Worker's desktop container from
-  // scratch via the dedicated worker restart endpoint, which recovers a
-  // stuck container (not just a SendMessage continuation). Destructive to
+  // handleRestartSession recreates the Bot's desktop container from
+  // scratch via the dedicated restart endpoint, which recovers a stuck
+  // container (not just a SendMessage continuation). Destructive to
   // in-flight work, so it's tucked behind the Advanced accordion with an
   // explicit warning.
   const handleRestartSession = async () => {
-    if (!workerId || restartAgent.isPending) return
+    if (!botId || restartAgent.isPending) return
     try {
-      await restartAgent.mutateAsync(workerId)
+      await restartAgent.mutateAsync(botId)
       snackbar.success('Agent session restart queued — it will come back up shortly')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
   }
 
-  // chatSessionId is the worker's long-lived "Project Desktop" exploratory
+  // chatSessionId is the bot's long-lived "Project Desktop" exploratory
   // session — the transcript we render inline. Null until we've resolved
   // one (or there isn't one yet).
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
@@ -137,7 +163,7 @@ const HelixOrgWorkerDetail: FC = () => {
 
   // chatApi adapts the generated client to the read-only shape the
   // workerChatSession helper expects (we only GET the existing session
-  // here — provisioning is owned by the worker's activation flow). The
+  // here — provisioning is owned by the bot's activation flow). The
   // exploratory-session GET returns 204 No Content when the project has
   // no session yet — map that to null rather than surfacing an error.
   const chatApi: WorkerChatReader = useMemo(() => ({
@@ -152,9 +178,9 @@ const HelixOrgWorkerDetail: FC = () => {
     },
   }), [api])
 
-  // Auto-load the inline transcript when the worker already has a project.
+  // Auto-load the inline transcript when the bot already has a project.
   // GET-only — we never create a session just because the operator opened
-  // this page; sessions are provisioned by the worker's activation flow.
+  // this page; sessions are provisioned by the bot's activation flow.
   useEffect(() => {
     let cancelled = false
     if (!projectID) {
@@ -169,42 +195,55 @@ const HelixOrgWorkerDetail: FC = () => {
     // projectID alone follows the "only primitives in deps" rule.
   }, [projectID])
 
-  // Subscribe the WebSocket to the inline session so in-flight turns topic
-  // live (mirrors SpecTaskDetailContent, which likewise omits the streaming
+  // Subscribe the WebSocket to the inline session so in-flight turns live
+  // (mirrors SpecTaskDetailContent, which likewise omits the streaming
   // context object from deps). Clear on unmount / session change.
   useEffect(() => {
     streaming.setCurrentSessionId(chatSessionId)
     return () => { streaming.setCurrentSessionId(null) }
   }, [chatSessionId])
 
-  const handleFire = async () => {
-    if (!workerId) return
+  const handleDelete = async () => {
+    if (!botId) return
     try {
-      await fire.mutateAsync(workerId)
-      snackbar.success(`fired ${workerId}`)
+      await del.mutateAsync(botId)
+      snackbar.success(`deleted ${botId}`)
       if (orgSlug) {
-        router.navigate('helix_org_workers', { org_id: orgSlug })
+        router.navigate('helix_org_bots', { org_id: orgSlug })
       }
     } catch (err: any) {
       const status = err?.response?.status
       if (status === 409) {
-        snackbar.error('owner worker is protected and cannot be fired')
+        snackbar.error('owner bot is protected and cannot be deleted')
       } else {
-        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'fire failed')
+        snackbar.error(err?.response?.data?.error ?? err?.message ?? 'delete failed')
       }
     } finally {
-      setConfirmingFire(false)
+      setConfirmingDelete(false)
     }
   }
 
   return (
     <Page
-      breadcrumbTitle={workerId ?? 'Worker'}
+      breadcrumbTitle={botId ?? 'Bot'}
       breadcrumbs={breadcrumbs}
       organizationId={account.organizationTools.organization?.id}
+      topbarContent={(
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={<SaveIcon />}
+            disabled={!dirty || updateBot.isPending}
+            onClick={handleSave}
+          >
+            {updateBot.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </Stack>
+      )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
-        {isLoading || !worker ? (
+        {isLoading || !bot ? (
           <LoadingSpinner />
         ) : (
           <>
@@ -213,36 +252,28 @@ const HelixOrgWorkerDetail: FC = () => {
               <Stack spacing={3}>
                 <Box>
                   <Stack direction="row" alignItems="center" spacing={1}>
-                    {worker.kind === 'ai' ? (
-                      <SmartToyOutlinedIcon />
-                    ) : (
-                      <PersonOutlineIcon />
-                    )}
+                    <SmartToyOutlinedIcon />
                     <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>
-                      {worker.id}
+                      {bot.id}
                     </Typography>
-                    <Chip size="small" label={worker.kind} />
                   </Stack>
                 </Box>
 
                 {/* Chat panel — inline transcript (same view the spec-task
-                    page uses). The transcript auto-loads when the worker
-                    already has a session; otherwise it shows an empty state.
-                    AI workers only: a human worker has no agent desktop /
-                    Project Desktop session to chat with, so the panel is hidden
-                    entirely for kind === 'human'. */}
-                {worker.kind === 'ai' && (
+                    page uses). The transcript auto-loads when the bot
+                    already has a session; otherwise it shows an empty
+                    state. */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
-                    <Typography variant="subtitle1">Chat with this worker</Typography>
+                    <Typography variant="subtitle1">Chat with this bot</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      The conversation below is the worker's Project Desktop session —
+                      The conversation below is the bot's Project Desktop session —
                       the same transcript you'd see in the desktop tab, including its
                       MCP tool calls. Send a message to drive it from here.
                     </Typography>
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches
-                        the session + interactions and live-topics in-flight
+                        the session + interactions and live-tails in-flight
                         turns; it needs a bounded, flex-column container to
                         scroll within. RobustPromptInput drives the same
                         session via streaming.NewInference. */}
@@ -284,35 +315,22 @@ const HelixOrgWorkerDetail: FC = () => {
                       </Box>
                     ) : (
                       <Typography variant="body2" color="text.secondary">
-                        No conversation yet for this worker.
+                        No conversation yet for this bot.
                       </Typography>
                     )}
                   </Stack>
                 </Paper>
-                )}
 
                 <Box>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Typography variant="subtitle2">Identity</Typography>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="secondary"
-                      startIcon={<SaveIcon />}
-                      disabled={!identityDirty || updateIdentity.isPending}
-                      onClick={handleSaveIdentity}
-                    >
-                      {updateIdentity.isPending ? 'Saving…' : 'Save'}
-                    </Button>
-                  </Stack>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Content (markdown)</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    The worker's persona markdown. Projected into its identity.md on the next
-                    activation. Cmd/Ctrl+S inside the editor saves.
+                    The bot's prompt / identity markdown. Read on every activation.
+                    Cmd/Ctrl+S inside the editor saves.
                   </Typography>
                   <MonacoEditor
-                    value={identityContent}
-                    onChange={setIdentityContent}
-                    onSave={handleSaveIdentity}
+                    value={content}
+                    onChange={setContent}
+                    onSave={handleSave}
                     language="markdown"
                     minHeight={240}
                     maxHeight={600}
@@ -321,66 +339,96 @@ const HelixOrgWorkerDetail: FC = () => {
                   />
                 </Box>
 
-                {worker.tools && worker.tools.length > 0 && (
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                      Tools ({worker.tools.length})
-                    </Typography>
-                    <Stack direction="row" flexWrap="wrap" gap={0.5}>
-                      {worker.tools.map((t) => (
-                        <Chip key={t} label={t} size="small" sx={{ fontFamily: 'monospace' }} />
-                      ))}
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                      Derived from the Role's Tools list. Edit the Role to change what this
-                      Worker can call.
-                    </Typography>
-                  </Box>
-                )}
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Tools</Typography>
+                  <Autocomplete
+                    multiple
+                    disableCloseOnSelect
+                    options={toolOptions}
+                    value={toolOptions.filter((o) => tools.includes(o.name))}
+                    onChange={(_e, value) => setTools(value.map((v) => v.name))}
+                    getOptionLabel={(o) => o.name}
+                    isOptionEqualToValue={(a, b) => a.name === b.name}
+                    renderOption={(props, option, { selected }) => {
+                      // Pass key explicitly rather than via the props
+                      // spread — React 18.3 warns when a spread object
+                      // carries a key.
+                      const { key, ...liProps } = props as typeof props & { key?: Key }
+                      return (
+                        <li key={key ?? option.name} {...liProps}>
+                          <Checkbox
+                            icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                            checkedIcon={<CheckBoxIcon fontSize="small" />}
+                            style={{ marginRight: 8 }}
+                            checked={selected}
+                          />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {option.name}
+                            </Typography>
+                            {option.description && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                {option.description}
+                              </Typography>
+                            )}
+                          </Box>
+                        </li>
+                      )
+                    }}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => {
+                        const { key, ...tagProps } = getTagProps({ index })
+                        return (
+                          <Chip
+                            key={key ?? option.name}
+                            {...tagProps}
+                            label={option.name}
+                            size="small"
+                            sx={{ fontFamily: 'monospace' }}
+                          />
+                        )
+                      })
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder={tools.length === 0 ? 'Pick the tools this bot can call' : ''}
+                        helperText="MCP tools this bot can call. Empty = no tools (the bot can still receive owner-chat)."
+                      />
+                    )}
+                  />
+                </Box>
 
-                <SubscriptionsPanel workerID={worker?.id} />
+                <SubscriptionsPanel botID={bot?.id} />
               </Stack>
             </Grid>
 
-            {/* Right rail: role / position context + Fire action */}
+            {/* Right rail: identity context + delete action */}
             <Grid item xs={12} md={3}>
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack spacing={2}>
                   <Box>
                     <Typography variant="caption" color="text.secondary">ID</Typography>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{worker.id}</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{bot.id}</Typography>
                   </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Kind</Typography>
-                    <Typography variant="body2">{worker.kind}</Typography>
-                  </Box>
-                  {(worker?.parent_ids ?? []).length > 0 && (
+                  {(bot?.parent_ids ?? []).length > 0 && (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Reports to</Typography>
                       <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                        {(worker?.parent_ids ?? []).join(', ')}
+                        {(bot?.parent_ids ?? []).join(', ')}
                       </Typography>
                     </Box>
                   )}
-                  {data?.role && (
+                  {bot?.created_at && (
                     <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        Role
-                      </Typography>
-                      {orgSlug ? (
-                        <Link
-                          href={router5.buildPath('helix_org_role_detail', { org_id: orgSlug, role_id: data.role.id })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          underline="hover"
-                          sx={{ fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
-                        >
-                          {data.role.id}
-                          <OpenInNewIcon sx={{ fontSize: 14 }} />
-                        </Link>
-                      ) : (
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{data.role.id}</Typography>
-                      )}
+                      <Typography variant="caption" color="text.secondary">Created</Typography>
+                      <Typography variant="body2">{new Date(bot.created_at).toLocaleString()}</Typography>
+                    </Box>
+                  )}
+                  {bot?.updated_at && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Updated</Typography>
+                      <Typography variant="body2">{new Date(bot.updated_at).toLocaleString()}</Typography>
                     </Box>
                   )}
                   {projectID && (
@@ -426,15 +474,15 @@ const HelixOrgWorkerDetail: FC = () => {
                     variant="outlined"
                     color="error"
                     startIcon={<DeleteOutlineIcon />}
-                    onClick={() => setConfirmingFire(true)}
-                    disabled={fire.isPending}
+                    onClick={() => setConfirmingDelete(true)}
+                    disabled={del.isPending}
                     fullWidth
                   >
-                    Fire worker
+                    Delete bot
                   </Button>
                   <Typography variant="caption" color="text.secondary">
-                    Tears down the worker's per-Worker Helix project and deletes the
-                    row. Tool capability comes from the Role, so nothing extra to revoke.
+                    Tears down the bot's per-bot Helix project and deletes the row,
+                    dropping its subscriptions and reporting lines.
                   </Typography>
                 </Stack>
               </Paper>
@@ -469,7 +517,7 @@ const HelixOrgWorkerDetail: FC = () => {
                   {restartAgent.isPending ? 'Restarting…' : 'Restart agent session'}
                 </Button>
                 <Typography variant="caption" color="text.secondary">
-                  Restarts the worker's agent session from scratch. Any in-progress work in
+                  Restarts the bot's agent session from scratch. Any in-progress work in
                   the current session will be lost.
                 </Typography>
               </Stack>
@@ -479,16 +527,16 @@ const HelixOrgWorkerDetail: FC = () => {
         )}
       </Container>
 
-      {confirmingFire && workerId && (
+      {confirmingDelete && botId && (
         <DeleteConfirmWindow
-          title="worker"
-          submitTitle="Fire"
-          onSubmit={handleFire}
-          onCancel={() => setConfirmingFire(false)}
+          title="bot"
+          submitTitle="Delete"
+          onSubmit={handleDelete}
+          onCancel={() => setConfirmingDelete(false)}
         >
           <Typography variant="body1">
-            Firing worker <b style={{ fontFamily: 'monospace' }}>{workerId}</b> tears down its
-            per-worker Helix project + agent app and clears its runtime state. This is irreversible.
+            Deleting bot <b style={{ fontFamily: 'monospace' }}>{botId}</b> tears down its
+            per-bot Helix project + agent app and clears its runtime state. This is irreversible.
           </Typography>
         </DeleteConfirmWindow>
       )}
@@ -496,20 +544,18 @@ const HelixOrgWorkerDetail: FC = () => {
   )
 }
 
-// SubscriptionsPanel surfaces the topics this Worker consumes — and
-// the multi-select to change that set. Subscriptions are
-// worker-anchored: firing the worker drops them; a new hire into the
-// same Role does NOT inherit.
+// SubscriptionsPanel surfaces the topics this Bot consumes — and the
+// multi-select to change that set. Subscriptions are bot-anchored:
+// deleting the bot drops them.
 //
-// Patterned after the role editor's tools multi-select:
-// disableCloseOnSelect so toggling several topics in one pass
-// doesn't bounce the popper closed.
-const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
+// disableCloseOnSelect so toggling several topics in one pass doesn't
+// bounce the popper closed.
+const SubscriptionsPanel: FC<{ botID?: string }> = ({ botID }) => {
   const snackbar = useSnackbar()
   const { data: streamsData, isLoading: streamsLoading } = useListHelixOrgTopics()
-  const { data: subsData, isLoading: subsLoading } = useListWorkerSubscriptions(workerID)
-  const subscribe = useSubscribeWorker(workerID)
-  const unsubscribe = useUnsubscribeWorker(workerID)
+  const { data: subsData, isLoading: subsLoading } = useListBotSubscriptions(botID)
+  const subscribe = useSubscribeBot(botID)
+  const unsubscribe = useUnsubscribeBot(botID)
 
   const allTopics = streamsData?.topics ?? []
   const subscribedIDs = useMemo(
@@ -521,7 +567,7 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
     [allTopics, subscribedIDs],
   )
 
-  if (!workerID) {
+  if (!botID) {
     return null
   }
 
@@ -575,7 +621,7 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
         renderInput={(params) => (
           <TextField
             {...params}
-            placeholder={subscribedTopics.length === 0 ? 'Subscribe this worker to a topic…' : ''}
+            placeholder={subscribedTopics.length === 0 ? 'Subscribe this bot to a topic…' : ''}
             variant="outlined"
             size="small"
           />
@@ -596,11 +642,10 @@ const SubscriptionsPanel: FC<{ workerID?: string }> = ({ workerID }) => {
         }
       />
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-        Subscriptions are per-Worker — they die when this Worker is fired. A
-        new hire into the same Role won't inherit them.
+        Subscriptions are per-Bot — they die when this Bot is deleted.
       </Typography>
     </Box>
   )
 }
 
-export default HelixOrgWorkerDetail
+export default HelixOrgBotDetail

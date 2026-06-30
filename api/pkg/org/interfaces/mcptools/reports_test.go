@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/org/domain/channels"
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -16,10 +15,9 @@ import (
 // per-report teamTopicId is shown.
 func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 	deps := seedReportingGraph(t)
-	caller, _ := orgchart.NewAIWorker("w-jane", "r-x", "#", "org-test")
 	tl := &Reports{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-jane"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -27,11 +25,11 @@ func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.TeamTopicID == nil || *got.TeamTopicID != channels.TeamTopicID("w-jane") {
-		t.Fatalf("teamTopicId = %v, want s-team-w-jane", got.TeamTopicID)
+	if got.TeamTopicID == nil || *got.TeamTopicID != channels.TeamTopicID("b-jane") {
+		t.Fatalf("teamTopicId = %v, want s-team-b-jane", got.TeamTopicID)
 	}
 	if len(got.Reports) != 2 {
-		t.Fatalf("reports = %+v, want 2 (w-li, w-sam)", got.Reports)
+		t.Fatalf("reports = %+v, want 2 (b-li, b-sam)", got.Reports)
 	}
 	for _, r := range got.Reports {
 		if r.Manages {
@@ -40,7 +38,7 @@ func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 		if r.TeamTopicID != nil {
 			t.Fatalf("non-managing report %s must not carry a teamTopicId", r.ID)
 		}
-		wantDM := channels.DMTopicID("w-jane", r.ID)
+		wantDM := channels.DMTopicID("b-jane", r.ID)
 		if r.DMTopicID != wantDM {
 			t.Fatalf("report %s dmTopicId = %q, want %q", r.ID, r.DMTopicID, wantDM)
 		}
@@ -51,11 +49,10 @@ func TestReports_TeamTopicAndDMTopics(t *testing.T) {
 // sub-team is flagged manages:true and carries its sub-team topic id.
 func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	deps := seedReportingGraph(t)
-	// w-owner's only report is w-jane, who manages li + sam.
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-x", "#", "org-test")
+	// b-owner's only report is b-jane, who manages li + sam.
 	tl := &Reports{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-owner"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -63,29 +60,28 @@ func TestReports_ManagesFlagSurfacesSubTeam(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.Reports) != 1 || got.Reports[0].ID != "w-jane" {
-		t.Fatalf("reports = %+v, want [w-jane]", got.Reports)
+	if len(got.Reports) != 1 || got.Reports[0].ID != "b-jane" {
+		t.Fatalf("reports = %+v, want [b-jane]", got.Reports)
 	}
 	jane := got.Reports[0]
 	if !jane.Manages {
-		t.Fatalf("w-jane should be flagged manages:true")
+		t.Fatalf("b-jane should be flagged manages:true")
 	}
-	if jane.TeamTopicID == nil || *jane.TeamTopicID != channels.TeamTopicID("w-jane") {
-		t.Fatalf("w-jane teamTopicId = %v, want s-team-w-jane", jane.TeamTopicID)
+	if jane.TeamTopicID == nil || *jane.TeamTopicID != channels.TeamTopicID("b-jane") {
+		t.Fatalf("b-jane teamTopicId = %v, want s-team-b-jane", jane.TeamTopicID)
 	}
-	if jane.DMTopicID != channels.DMTopicID("w-owner", "w-jane") {
-		t.Fatalf("w-jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("w-owner", "w-jane"))
+	if jane.DMTopicID != channels.DMTopicID("b-owner", "b-jane") {
+		t.Fatalf("b-jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("b-owner", "b-jane"))
 	}
 }
 
-// TestReports_NoReportsNullTeamTopic: a leaf worker has no reports —
+// TestReports_NoReportsNullTeamTopic: a leaf bot has no reports —
 // teamTopicId is null and reports is an empty array.
 func TestReports_NoReportsNullTeamTopic(t *testing.T) {
 	deps := seedReportingGraph(t)
-	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
 	tl := &Reports{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-sam"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}

@@ -8,15 +8,14 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
-	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/workers"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -44,19 +43,19 @@ func resolveOrgID(r *http.Request) (string, error) {
 type Dispatcher interface {
 	Dispatch(ctx context.Context, ev streaming.Event)
 	// DispatchManual enqueues an operator-driven activation for the
-	// given Worker. Called by activateWorker after the synchronous
+	// given Bot. Called by activateBot after the synchronous
 	// ensureProject step. activationID is the pre-allocated audit-row
 	// ID; empty means the Spawner mints its own.
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
 }
 
-// ProjectEnsurer provisions (or fast-paths) the per-Worker Helix
-// project + agent app for a Worker. Mirrors
-// runtimehelix.WorkerProject.Ensure. The chart UI's worker detail
-// page calls POST /workers/{id}/chat which routes through this to
-// guarantee an agent_app_id exists before redirecting to /agent/.
+// ProjectEnsurer provisions (or fast-paths) the per-Bot Helix project +
+// agent app for a Bot. Mirrors runtimehelix.BotProject.Ensure. The
+// chart UI's bot detail page calls POST /bots/{id}/chat which routes
+// through this to guarantee an agent_app_id exists before redirecting to
+// /agent/.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, orgID string, botID orgchart.BotID) (projectID, agentAppID, repoID string, err error)
 }
 
 // Deps is the JSON API's wiring.
@@ -70,9 +69,11 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Topics       *topics.Topics
-	Roles         *roles.Roles
-	Workers       *workers.Workers
+	Topics *topics.Topics
+	// Bots is the merged role+worker mutation service: content/tools
+	// updates (PATCH /bots/{id}) and reporting-line edges
+	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.
+	Bots          *bots.Bots
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Activations   *activations.Activations
@@ -88,17 +89,17 @@ type Deps struct {
 	Hub        *wakebus.Bus
 	Dispatcher Dispatcher
 
-	// WorkerRuntime reads a Worker's runtime-state sidecar (project /
-	// agent-app / session ids). A small port so the worker-detail and
+	// BotRuntime reads a Bot's runtime-state sidecar (project /
+	// agent-app / session ids). A small port so the bot-detail and
 	// activate handlers don't touch the store; implemented at the
 	// composition root over runtimehelix.LoadState. nil → those fields
 	// render empty.
-	WorkerRuntime WorkerRuntime
+	BotRuntime BotRuntime
 
-	// SessionRestarter recreates a worker's desktop container — the
+	// SessionRestarter recreates a bot's desktop container — the
 	// backend "restart the agent" primitive shared with the in-chat
-	// restart button. nil → restartWorkerAgent falls back to a fresh
-	// activation when the worker has a live session it can't restart.
+	// restart button. nil → restartBotAgent falls back to a fresh
+	// activation when the bot has a live session it can't restart.
 	SessionRestarter SessionRestarter
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
@@ -111,24 +112,24 @@ type Deps struct {
 	DBPath    string
 
 	// Tools is the same tools registry the MCP server exposes — used
-	// by GET /tools so the chart UI's role-editor multi-select can
+	// by GET /tools so the chart UI's bot-editor multi-select can
 	// render the catalogue of available tools. nil = endpoint
 	// returns an empty list (degrade gracefully on test wirings that
 	// don't bother building a registry).
 	Tools *mcptools.Registry
 
-	// ProjectEnsurer provisions (or fast-paths) a per-Worker Helix
-	// project + agent app so the worker detail page's "Start new
+	// ProjectEnsurer provisions (or fast-paths) a per-Bot Helix
+	// project + agent app so the bot detail page's "Start new
 	// chat" button can land on /agent/{agent_app_id}. Bootstrap
-	// doesn't run this — first activation does — so the owner worker
-	// has no agent app until someone calls Ensure. The chart's
-	// POST /workers/{id}/chat endpoint exposes the call. nil disables
+	// doesn't run this — first activation does. The chart's
+	// POST /bots/{id}/chat endpoint exposes the call. nil disables
 	// the endpoint (returns 501).
 	ProjectEnsurer ProjectEnsurer
 
-	// Lifecycle owns the cross-cutting Fire cascade (Helix project +
-	// app teardown, store cleanup, env-dir removal). nil disables
-	// DELETE /workers/{id} (returns 501).
+	// Lifecycle owns the cross-cutting Create + Delete cascades (bot
+	// row, reporting lines, Helix project + app teardown, store
+	// cleanup, topology reconcile). nil disables POST /bots and
+	// DELETE /bots/{id} (returns 501).
 	Lifecycle *lifecycle.Service
 
 	// GitHubTokenResolver is the production hook for "reinstate the
@@ -184,27 +185,27 @@ type Deps struct {
 	PublicServerURL string
 }
 
-// WorkerRuntimeInfo is the subset of a Worker's runtime-state sidecar
-// the REST adapter surfaces: the per-project deep-link ids and the
-// current desktop session id.
-type WorkerRuntimeInfo struct {
+// BotRuntimeInfo is the subset of a Bot's runtime-state sidecar the
+// REST adapter surfaces: the per-project deep-link ids and the current
+// desktop session id.
+type BotRuntimeInfo struct {
 	ProjectID  string
 	AgentAppID string
 	SessionID  string
 }
 
-// WorkerRuntime resolves a Worker's runtime-state sidecar. Declared here
+// BotRuntime resolves a Bot's runtime-state sidecar. Declared here
 // (implemented at the composition root over runtimehelix.LoadState) so
-// the worker-detail and activate handlers read project/agent/session ids
+// the bot-detail and activate handlers read project/agent/session ids
 // without the api adapter touching the store.
-type WorkerRuntime interface {
-	State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (WorkerRuntimeInfo, error)
+type BotRuntime interface {
+	State(ctx context.Context, orgID string, botID orgchart.BotID) (BotRuntimeInfo, error)
 }
 
 // SessionRestarter recreates the desktop container backing a session —
 // the single canonical "restart the agent" backend operation
-// (StopDesktop → recreate → reset crashed prompts). The worker-page
-// "Restart agent session" button routes through restartWorkerAgent into
+// (StopDesktop → recreate → reset crashed prompts). The bot-page
+// "Restart agent session" button routes through restartBotAgent into
 // this port so it shares one implementation with the in-chat
 // /sessions/{id}/restart-agent endpoint. Wired at the composition root
 // over the in-proc helix client; nil → the handler falls back to a fresh
@@ -242,29 +243,27 @@ func Routes(deps Deps) []Route {
 	a := &apiHandler{deps: deps}
 	return []Route{
 		{Pattern: "GET /overview", Handler: http.HandlerFunc(a.getOverview)},
-		{Pattern: "GET /roles", Handler: http.HandlerFunc(a.listRoles)},
-		{Pattern: "POST /roles", Handler: http.HandlerFunc(a.createRole)},
-		{Pattern: "GET /roles/{id}", Handler: http.HandlerFunc(a.getRole)},
-		{Pattern: "PUT /roles/{id}", Handler: http.HandlerFunc(a.updateRole)},
-		{Pattern: "DELETE /roles/{id}", Handler: http.HandlerFunc(a.deleteRole)},
-		{Pattern: "GET /workers", Handler: http.HandlerFunc(a.listWorkers)},
-		{Pattern: "POST /workers", Handler: http.HandlerFunc(a.hireWorker)},
-		{Pattern: "GET /workers/{id}", Handler: http.HandlerFunc(a.getWorker)},
-		{Pattern: "DELETE /workers/{id}", Handler: http.HandlerFunc(a.fireWorker)},
-		// Subscriptions are worker-anchored — the Worker Detail page
-		// edits the worker's subscription set through these endpoints.
-		{Pattern: "GET /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.listWorkerSubscriptions)},
-		{Pattern: "POST /workers/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeWorker)},
-		{Pattern: "DELETE /workers/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeWorker)},
-		{Pattern: "POST /workers/{id}/chat", Handler: http.HandlerFunc(a.ensureWorkerChat)},
-		{Pattern: "POST /workers/{id}/activate", Handler: http.HandlerFunc(a.activateWorker)},
-		{Pattern: "POST /workers/{id}/restart-agent", Handler: http.HandlerFunc(a.restartWorkerAgent)},
-		{Pattern: "POST /workers/{id}/role", Handler: http.HandlerFunc(a.updateWorkerRole)},
-		{Pattern: "POST /workers/{id}/identity", Handler: http.HandlerFunc(a.updateWorkerIdentity)},
+		// Bots are the single org-chart aggregate (the merged Role +
+		// Worker). Create/Delete go through the lifecycle cascade;
+		// content/tools edits and reporting-line edges go through the
+		// bots service.
+		{Pattern: "GET /bots", Handler: http.HandlerFunc(a.listBots)},
+		{Pattern: "POST /bots", Handler: http.HandlerFunc(a.createBot)},
+		{Pattern: "GET /bots/{id}", Handler: http.HandlerFunc(a.getBot)},
+		{Pattern: "PATCH /bots/{id}", Handler: http.HandlerFunc(a.updateBot)},
+		{Pattern: "DELETE /bots/{id}", Handler: http.HandlerFunc(a.deleteBot)},
+		// Subscriptions are bot-anchored — the Bot Detail page edits the
+		// bot's subscription set through these endpoints.
+		{Pattern: "GET /bots/{id}/subscriptions", Handler: http.HandlerFunc(a.listBotSubscriptions)},
+		{Pattern: "POST /bots/{id}/subscriptions", Handler: http.HandlerFunc(a.subscribeBot)},
+		{Pattern: "DELETE /bots/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeBot)},
+		{Pattern: "POST /bots/{id}/chat", Handler: http.HandlerFunc(a.ensureBotChat)},
+		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
+		{Pattern: "POST /bots/{id}/restart-agent", Handler: http.HandlerFunc(a.restartBotAgent)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
-		{Pattern: "POST /workers/{id}/parents", Handler: http.HandlerFunc(a.addWorkerParent)},
-		{Pattern: "DELETE /workers/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeWorkerParent)},
+		{Pattern: "POST /bots/{id}/parents", Handler: http.HandlerFunc(a.addBotParent)},
+		{Pattern: "DELETE /bots/{id}/parents/{parent_id}", Handler: http.HandlerFunc(a.removeBotParent)},
 		{Pattern: "GET /tools", Handler: http.HandlerFunc(a.listTools)},
 		{Pattern: "GET /settings", Handler: http.HandlerFunc(a.listSettings)},
 		{Pattern: "PUT /settings/{key}", Handler: http.HandlerFunc(a.setSetting)},

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -38,14 +37,14 @@ func TestPublishRejectsGitHubTopic(t *testing.T) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
+	caller := botCaller{id: "b-owner", orgID: "org-test"}
 
 	deps := DefaultDeps(st)
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
 		"topicId": "s-github",
-		"body":     "this should be rejected",
+		"body":    "this should be rejected",
 	})
 
 	_, err = tl.Invoke(ctx, tool.Invocation{Caller: caller, Args: args})
@@ -82,14 +81,14 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
+	caller := botCaller{id: "b-owner", orgID: "org-test"}
 
 	deps := DefaultDeps(st)
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
 		"topicId": "s-general",
-		"body":     "hello",
+		"body":    "hello",
 	})
 	if _, err := tl.Invoke(ctx, tool.Invocation{Caller: caller, Args: args}); err != nil {
 		t.Fatalf("Invoke = %v, want nil for local topic", err)

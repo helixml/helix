@@ -40,7 +40,7 @@ func (t *Publish) Description() string {
 func (t *Publish) InputSchema() *jsonschema.Schema { return publishSchema }
 
 type publishArgs struct {
-	TopicID        string                 `json:"topicId"`
+	TopicID         string                 `json:"topicId"`
 	Body            string                 `json:"body"`
 	To              []string               `json:"to,omitempty"`
 	Subject         string                 `json:"subject,omitempty"`

@@ -10,21 +10,19 @@ import (
 // TestBaseReadToolsGolden pins the exact contents of the universal
 // read baseline. Anyone adding/removing entries has to update this
 // list in the same commit — forcing a deliberate review of what every
-// Role in the system will expose by default.
+// Bot in the system will expose by default.
 func TestBaseReadToolsGolden(t *testing.T) {
 	t.Parallel()
 	want := []tool.Name{
 		ManagersName,
 		ReportsName,
-		ListWorkersName,
-		GetWorkerName,
-		ListRolesName,
-		GetRoleName,
+		ListBotsName,
+		GetBotName,
 		ListTopicsName,
 		GetTopicName,
 		ListTopicEventsName,
 		ReadEventsName,
-		WorkerLogName,
+		BotLogName,
 		MintCredentialName,
 	}
 	if !reflect.DeepEqual(BaseReadTools, want) {
@@ -46,18 +44,16 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 	// added to BaseReadTools without a matching entry here, the test
 	// fails — same failure mode RegisterBuiltins would produce at boot.
 	baselineImpls := map[tool.Name]tool.Tool{
-		ManagersName:             &Managers{deps: deps},
-		ReportsName:              &Reports{deps: deps},
-		ListWorkersName:          &ListWorkers{deps: deps},
-		GetWorkerName:            &GetWorker{deps: deps},
-		ListRolesName:            &ListRoles{deps: deps},
-		GetRoleName:              &GetRole{deps: deps},
-		ListTopicsName:          &ListTopics{deps: deps},
-		GetTopicName:            &GetTopic{deps: deps},
-		ListTopicEventsName:     &ListTopicEvents{deps: deps},
-		ReadEventsName:           &ReadEvents{deps: deps},
-		WorkerLogName:            &WorkerLog{deps: deps},
-		MintCredentialName:       &MintCredential{deps: deps},
+		ManagersName:        &Managers{deps: deps},
+		ReportsName:         &Reports{deps: deps},
+		ListBotsName:        &ListBots{deps: deps},
+		GetBotName:          &GetBot{deps: deps},
+		ListTopicsName:      &ListTopics{deps: deps},
+		GetTopicName:        &GetTopic{deps: deps},
+		ListTopicEventsName: &ListTopicEvents{deps: deps},
+		ReadEventsName:      &ReadEvents{deps: deps},
+		BotLogName:          &BotLog{deps: deps},
+		MintCredentialName:  &MintCredential{deps: deps},
 	}
 	for _, name := range BaseReadTools {
 		impl, ok := baselineImpls[name]
@@ -97,15 +93,13 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 		ManagersName,
 		// rest of baseline, in BaseReadTools order, minus managers:
 		ReportsName,
-		ListWorkersName,
-		GetWorkerName,
-		ListRolesName,
-		GetRoleName,
+		ListBotsName,
+		GetBotName,
 		ListTopicsName,
 		GetTopicName,
 		ListTopicEventsName,
 		ReadEventsName,
-		WorkerLogName,
+		BotLogName,
 		MintCredentialName,
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -116,7 +110,7 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 // TestMergeBaseReadToolsIdempotent ensures a second pass on an
 // already-merged list is a no-op. The reconciler relies on this for
 // idempotency — if merge re-ordered the list on every call, Reconcile
-// would rewrite every Role on every run.
+// would rewrite every Bot on every run.
 func TestMergeBaseReadToolsIdempotent(t *testing.T) {
 	t.Parallel()
 	in := []tool.Name{PublishName, DMName}

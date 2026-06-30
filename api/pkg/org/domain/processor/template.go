@@ -31,9 +31,9 @@ type templateConfig struct {
 // templates. No arbitrary user funcs in v1 (design Open Question 4):
 // stateless, no access to prior messages or accumulator state.
 var templateFuncs = txttemplate.FuncMap{
-	"upper":   strings.ToUpper,
-	"lower":   strings.ToLower,
-	"trunc":   func(n int, s string) string { return runeSafeTruncate(s, n) },
+	"upper": strings.ToUpper,
+	"lower": strings.ToLower,
+	"trunc": func(n int, s string) string { return runeSafeTruncate(s, n) },
 	"default": func(def, val string) string {
 		if val == "" {
 			return def

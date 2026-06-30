@@ -41,4 +41,4 @@ func TestValidateWorkspaceName(t *testing.T) {
 	}
 }
 
-var _ orgchart.WorkerID = orgchart.WorkerID("w-test") // import-pin
+var _ orgchart.BotID = orgchart.BotID("w-test") // import-pin

@@ -1,6 +1,9 @@
 package orgchart
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidID(t *testing.T) {
 	t.Parallel()
@@ -18,15 +21,16 @@ func TestValidID(t *testing.T) {
 	}
 }
 
-// TestNewWorkerRejectsTraversalID pins that the domain constructors
-// refuse a path-traversal id, so a malicious id can never be stored and
-// later fed to os.MkdirAll / os.RemoveAll on the worker's env dir.
-func TestNewWorkerRejectsTraversalID(t *testing.T) {
+// TestNewBotRejectsTraversalID pins that the domain constructor refuses
+// a path-traversal id, so a malicious id can never be stored and later
+// fed to os.MkdirAll / os.RemoveAll on the bot's env dir.
+func TestNewBotRejectsTraversalID(t *testing.T) {
 	t.Parallel()
-	if _, err := NewAIWorker("../../etc/cron.d/x", "r-eng", "", "org-test"); err == nil {
-		t.Fatal("NewAIWorker with traversal id: want error")
+	now := time.Now()
+	if _, err := NewBot("../../etc/cron.d/x", "content", nil, nil, now, "org-test"); err == nil {
+		t.Fatal("NewBot with traversal id: want error")
 	}
-	if _, err := NewHumanWorker("a/b", "r-eng", "", "org-test"); err == nil {
-		t.Fatal("NewHumanWorker with separator id: want error")
+	if _, err := NewBot("a/b", "content", nil, nil, now, "org-test"); err == nil {
+		t.Fatal("NewBot with separator id: want error")
 	}
 }

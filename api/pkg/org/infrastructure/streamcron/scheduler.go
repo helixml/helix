@@ -277,8 +277,8 @@ func (c *Scheduler) fireFn(orgID string, topicID streaming.TopicID) func() {
 // treat it as opaque markdown. Stable shape — downstream tooling can
 // match on `"kind":"scheduled"`.
 type scheduledBody struct {
-	Kind     string `json:"kind"`
-	FiredAt  string `json:"firedAt"`
+	Kind    string `json:"kind"`
+	FiredAt string `json:"firedAt"`
 	TopicID string `json:"topicId"`
 }
 
@@ -287,8 +287,8 @@ type scheduledBody struct {
 func (c *Scheduler) fire(ctx context.Context, orgID string, topicID streaming.TopicID) error {
 	firedAt := c.now()
 	body, err := json.Marshal(scheduledBody{
-		Kind:     "scheduled",
-		FiredAt:  firedAt.UTC().Format(time.RFC3339),
+		Kind:    "scheduled",
+		FiredAt: firedAt.UTC().Format(time.RFC3339),
 		TopicID: string(topicID),
 	})
 	if err != nil {

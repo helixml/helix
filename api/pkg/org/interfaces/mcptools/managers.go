@@ -18,8 +18,8 @@ import (
 // Managers is the upward, escalation-direction read: who you report to,
 // and the DM topic you escalate on. Computed live from the reporting
 // graph at call time, so it stays correct as the org is reshaped — the
-// fixed worker-policy prompt can refer to "your managers" abstractly and
-// let a blocked Worker resolve the concrete people only when it needs
+// fixed bot-policy prompt can refer to "your managers" abstractly and
+// let a blocked Bot resolve the concrete people only when it needs
 // them.
 type Managers struct {
 	deps Deps
@@ -32,8 +32,7 @@ var managersSchema = mustSchema[managersArgs]()
 type managersArgs struct{}
 
 type managerView struct {
-	ID         orgchart.WorkerID  `json:"id"`
-	Role       orgchart.RoleID    `json:"role"`
+	ID        orgchart.BotID    `json:"id"`
 	DMTopicID streaming.TopicID `json:"dmTopicId"`
 }
 
@@ -58,7 +57,7 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if orgID == "" {
 		return nil, fmt.Errorf("managers: caller has no OrgID")
 	}
-	caller := orgchart.WorkerID(inv.Caller.ID())
+	caller := orgchart.BotID(inv.Caller.ID())
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(managersResult{Managers: []managerView{}})
 	}
@@ -68,19 +67,17 @@ func (t *Managers) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	}
 	out := make([]managerView, 0, len(managerIDs))
 	for _, m := range managerIDs {
-		w, err := t.deps.Queries.GetWorker(ctx, orgID, m)
+		b, err := t.deps.Queries.GetBot(ctx, orgID, m)
 		if err != nil {
-			// A line pointing at a worker that no longer exists is a
-			// dangling row, not a manager — skip it rather than report a
-			// phantom.
+			// A line pointing at a bot that no longer exists is a dangling
+			// row, not a manager — skip it rather than report a phantom.
 			if errors.Is(err, store.ErrNotFound) {
 				continue
 			}
 			return nil, fmt.Errorf("get manager %q: %w", m, err)
 		}
 		out = append(out, managerView{
-			ID:         w.ID(),
-			Role:       w.RoleID(),
+			ID:        b.ID,
 			DMTopicID: channels.DMTopicID(caller, m),
 		})
 	}

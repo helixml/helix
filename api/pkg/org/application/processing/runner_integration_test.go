@@ -40,7 +40,7 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	r := &rig{store: memory.New(), gotAct: make(chan struct{}, 64)}
 
-	spawner := func(_ context.Context, _ string, _ orgchart.WorkerID, triggers []activation.Trigger) error {
+	spawner := func(_ context.Context, _ string, _ orgchart.BotID, triggers []activation.Trigger) error {
 		r.mu.Lock()
 		r.activations = append(r.activations, triggers...)
 		r.mu.Unlock()
@@ -96,12 +96,12 @@ func (r *rig) mkTopic(t *testing.T, id, name string) streaming.TopicID {
 
 func (r *rig) mkAIWorker(t *testing.T, id, subTopic streaming.TopicID) {
 	t.Helper()
-	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), "r-x", "# "+string(id), org)
+	w, err := orgchart.NewBot(orgchart.BotID(id), "# "+string(id), nil, nil, time.Now().UTC(), org)
 	if err != nil {
-		t.Fatalf("new worker: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := r.store.Workers.Create(context.Background(), w); err != nil {
-		t.Fatalf("create worker: %v", err)
+	if err := r.store.Bots.Create(context.Background(), w); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
 	sub, err := streaming.NewSubscription(string(id), subTopic, time.Now().UTC(), org)
 	if err != nil {

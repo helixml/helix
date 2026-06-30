@@ -42,11 +42,11 @@ var dmSchema = mustSchema[dmArgs]()
 
 func (t *DM) Name() tool.Name { return DMName }
 func (t *DM) Description() string {
-	return "Send a direct message (DM/PM/private message) to a single other Worker. " +
-		"You can only DM workers you share a reporting line with — your managers " +
+	return "Send a direct message (DM/PM/private message) to a single other Bot. " +
+		"You can only DM bots you share a reporting line with — your managers " +
 		"(call `managers` to find them and escalate up) or your direct reports (call " +
 		"`reports` to message one 1:1). There is NO implicit DM channel to an " +
-		"arbitrary peer or a skip-level worker: those have no channel and the call is " +
+		"arbitrary peer or a skip-level bot: those have no channel and the call is " +
 		"refused. The channel is provisioned automatically when the reporting line " +
 		"exists. Publishes the body and returns the topicId — read_events on it " +
 		"(with wait) to catch the reply."
@@ -54,8 +54,8 @@ func (t *DM) Description() string {
 func (t *DM) InputSchema() *jsonschema.Schema { return dmSchema }
 
 type dmArgs struct {
-	ToWorkerID string `json:"toWorkerId"`
-	Body       string `json:"body"`
+	ToBotID string `json:"toBotId"`
+	Body    string `json:"body"`
 }
 
 func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -63,19 +63,19 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.ToWorkerID == "" || args.Body == "" {
-		return nil, fmt.Errorf("toWorkerId and body are required")
+	if args.ToBotID == "" || args.Body == "" {
+		return nil, fmt.Errorf("toBotId and body are required")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("dm: caller has no OrgID")
 	}
 	sender := inv.Caller.ID()
-	recipient := orgchart.WorkerID(args.ToWorkerID)
+	recipient := orgchart.BotID(args.ToBotID)
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
 	}
-	if _, err := t.deps.Queries.GetWorker(ctx, orgID, recipient); err != nil {
+	if _, err := t.deps.Queries.GetBot(ctx, orgID, recipient); err != nil {
 		return nil, fmt.Errorf("recipient %q: %w", recipient, err)
 	}
 
@@ -88,7 +88,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	if _, err := t.deps.Queries.GetTopic(ctx, orgID, topicID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf(
-				"no DM channel with %q: you can only DM workers you share a reporting line with — "+
+				"no DM channel with %q: you can only DM bots you share a reporting line with — "+
 					"your managers (call `managers`) or your direct reports (call `reports`). "+
 					"To reach %q directly, a reporting line must be wired between you; "+
 					"otherwise escalate to a manager or brief via your team topic",
@@ -111,8 +111,8 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	}
 
 	return json.Marshal(map[string]string{
-		"id":       string(event.ID),
+		"id":      string(event.ID),
 		"topicId": string(topicID),
-		"to":       string(recipient),
+		"to":      string(recipient),
 	})
 }

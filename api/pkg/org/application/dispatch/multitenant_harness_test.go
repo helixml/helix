@@ -57,30 +57,23 @@ import (
 // dispatcher_test.go deliberately drops orgID).
 type orgActivation struct {
 	OrgID    string
-	WorkerID orgchart.WorkerID
+	WorkerID orgchart.BotID
 }
 
 // seedTenant provisions one org with a worker + topic + subscription,
 // all using caller-supplied ids. Call it twice with the SAME ids and
 // different orgs to set up a collision.
-func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) {
+func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	role, err := orgchart.NewRole("r-shared", "# Role: shared\nIdentical id across orgs.", nil, nil, now, orgID)
+	w, err := orgchart.NewBot(workerID, "# "+string(workerID), nil, nil, now, orgID)
 	if err != nil {
-		t.Fatalf("[%s] new role: %v", orgID, err)
+		t.Fatalf("[%s] new bot: %v", orgID, err)
 	}
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("[%s] create role: %v", orgID, err)
-	}
-	w, err := orgchart.NewAIWorker(workerID, "r-shared", "# "+string(workerID), orgID)
-	if err != nil {
-		t.Fatalf("[%s] new worker: %v", orgID, err)
-	}
-	if err := s.Workers.Create(ctx, w); err != nil {
-		t.Fatalf("[%s] create worker: %v", orgID, err)
+	if err := s.Bots.Create(ctx, w); err != nil {
+		t.Fatalf("[%s] create bot: %v", orgID, err)
 	}
 	// A local topic (no outbound) so Dispatch's only effect is the
 	// subscriber activation we're asserting on.
@@ -113,14 +106,14 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.WorkerID("w-owner")    // identical across orgs
-		topicID = streaming.TopicID("s-general") // identical across orgs
+		workerID = orgchart.BotID("w-owner")      // identical across orgs
+		topicID  = streaming.TopicID("s-general") // identical across orgs
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
 	seedTenant(t, s, "org-b", workerID, topicID)
 
 	rec := make(chan orgActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.BotID, _ []activation.Trigger) error {
 		rec <- orgActivation{OrgID: orgID, WorkerID: wid}
 		return nil
 	})
@@ -191,15 +184,15 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.WorkerID("w-owner")
-		topicID = streaming.TopicID("s-general")
+		workerID = orgchart.BotID("w-owner")
+		topicID  = streaming.TopicID("s-general")
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
 	seedTenant(t, s, "org-b", workerID, topicID)
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.BotID, _ []activation.Trigger) error {
 		entered <- orgID
 		<-release
 		return nil

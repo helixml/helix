@@ -20,19 +20,19 @@ import (
 func seedTopicAndOwner(t *testing.T, st *store.Store, clock func() time.Time) {
 	t.Helper()
 	ctx := context.Background()
-	s, _ := streaming.NewTopic("s-1", "s-1", "", "w-owner", clock(), transport.LocalTransport(), "org-test")
+	s, _ := streaming.NewTopic("s-1", "s-1", "", "b-owner", clock(), transport.LocalTransport(), "org-test")
 	if err := st.Topics.Create(ctx, s); err != nil {
 		t.Fatalf("seed topic: %v", err)
 	}
-	wk, _ := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
-	if err := st.Workers.Create(ctx, wk); err != nil {
+	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, nil, clock(), "org-test")
+	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
 }
 
-// TestSubscribeParity_RESTvsMCP: REST POST /workers/{id}/subscriptions
-// and MCP subscribe share application/subscriptions — both leave the
-// same (worker, topic) row.
+// TestSubscribeParity_RESTvsMCP: REST POST /bots/{id}/subscriptions and
+// MCP subscribe share application/subscriptions — both leave the same
+// (bot, topic) row.
 func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
@@ -41,7 +41,7 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seedTopicAndOwner(t, restStore, clock)
 	h := orgapi.Handler(restDeps)
-	rec := do(t, h, "POST", "/workers/w-owner/subscriptions", orgapi.SubscribeWorkerRequest{TopicID: "s-1"})
+	rec := do(t, h, "POST", "/bots/b-owner/subscriptions", orgapi.SubscribeBotRequest{TopicID: "s-1"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST subscribe: %d body=%s", rec.Code, rec.Body)
 	}
@@ -55,15 +55,15 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 		t.Fatalf("MCP subscribe: %v", err)
 	}
 
-	restSub, err := restStore.Subscriptions.Find(ctx, "org-test", "w-owner", "s-1")
+	restSub, err := restStore.Subscriptions.Find(ctx, "org-test", "b-owner", "s-1")
 	if err != nil {
 		t.Fatalf("REST sub find: %v", err)
 	}
-	mcpSub, err := mcpStore.Subscriptions.Find(ctx, "org-test", "w-owner", "s-1")
+	mcpSub, err := mcpStore.Subscriptions.Find(ctx, "org-test", "b-owner", "s-1")
 	if err != nil {
 		t.Fatalf("MCP sub find: %v", err)
 	}
-	if restSub.WorkerID != mcpSub.WorkerID || restSub.TopicID != mcpSub.TopicID {
+	if restSub.BotID != mcpSub.BotID || restSub.TopicID != mcpSub.TopicID {
 		t.Errorf("sub differs: REST=%+v MCP=%+v", restSub, mcpSub)
 	}
 	if !restSub.CreatedAt.Equal(mcpSub.CreatedAt) {
@@ -81,7 +81,7 @@ func TestPublishParity_RESTvsMCP(t *testing.T) {
 	restDeps, restStore, _ := newDepsClock(t, clock, newID)
 	seedTopicAndOwner(t, restStore, clock)
 	h := orgapi.Handler(restDeps)
-	rec := do(t, h, "POST", "/topics/s-1/publish", orgapi.PublishRequest{Body: "hello world", Subject: "hi", As: "w-owner"})
+	rec := do(t, h, "POST", "/topics/s-1/publish", orgapi.PublishRequest{Body: "hello world", Subject: "hi", As: "b-owner"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST publish: %d body=%s", rec.Code, rec.Body)
 	}
@@ -108,7 +108,7 @@ func TestPublishParity_RESTvsMCP(t *testing.T) {
 	if restEvents[0].Source != mcpEvents[0].Source {
 		t.Errorf("source differs: REST=%q MCP=%q", restEvents[0].Source, mcpEvents[0].Source)
 	}
-	if rm.From != "w-owner" {
-		t.Errorf("From = %q, want w-owner", rm.From)
+	if rm.From != "b-owner" {
+		t.Errorf("From = %q, want b-owner", rm.From)
 	}
 }

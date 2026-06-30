@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -31,7 +30,7 @@ func TestCreateTopicParity_RESTvsMCP(t *testing.T) {
 		ID:          "s-parity",
 		Name:        "parity",
 		Description: "shared-service parity",
-		As:          "w-owner", // the worker the human is acting as (matches the MCP caller below)
+		As:          "b-owner", // the bot the human is acting as (matches the MCP caller below)
 		Transport: &orgapi.TransportRequestField{
 			Kind:   "webhook",
 			Config: map[string]interface{}{"outbound_url": "https://example.com/in"},
@@ -55,10 +54,7 @@ func TestCreateTopicParity_RESTvsMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get create_topic tool: %v", err)
 	}
-	caller, err := orgchart.NewHumanWorker("w-owner", "r-owner", "", "org-test")
-	if err != nil {
-		t.Fatalf("new caller: %v", err)
-	}
+	caller := ownerCaller(t)
 	args, _ := json.Marshal(map[string]any{
 		"id":          "s-parity",
 		"name":        "parity",

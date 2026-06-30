@@ -13,7 +13,7 @@ import (
 
 // ProjectConfig is the helix-runtime implementation of
 // runtime.ProjectConfig. It resolves a workerID → Helix projectID
-// via the WorkerRuntimeState sidecar (where the spawner persists
+// via the BotRuntimeState sidecar (where the spawner persists
 // the per-Worker pointers on hire), then reads / writes the
 // underlying Helix project through ProjectService.
 //
@@ -30,7 +30,7 @@ type ProjectConfig struct {
 
 // NewProjectConfig builds a ProjectConfig that uses the given
 // helix store + ProjectService. backend overrides the
-// WorkerRuntimeState namespace label — default ("") is the
+// BotRuntimeState namespace label — default ("") is the
 // production `helix` backend. Test fakes can pass an alternate
 // label when they share a single store across multiple runtimes.
 func NewProjectConfig(st *store.Store, svc ProjectService) (*ProjectConfig, error) {
@@ -51,7 +51,7 @@ func NewProjectConfig(st *store.Store, svc ProjectService) (*ProjectConfig, erro
 //     activated yet).
 //   - project lookup fails → wrapped error returned verbatim;
 //     callers translate to a friendly message.
-func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)
@@ -78,7 +78,7 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 // extra read.
 //
 // Failure modes match GetWorkerProjectConfig.
-func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)

@@ -42,7 +42,7 @@ type Dispatcher interface {
 
 // Publishing owns the publish use case.
 type Publishing struct {
-	topics    store.Topics
+	topics     store.Topics
 	events     store.Events
 	hub        Notifier
 	dispatcher Dispatcher
@@ -54,7 +54,7 @@ type Publishing struct {
 // Dispatcher are optional — leave them nil and the corresponding step
 // is skipped (tests / runtimes without a hub or dispatcher).
 type Deps struct {
-	Topics    store.Topics
+	Topics     store.Topics
 	Events     store.Events
 	Hub        Notifier
 	Dispatcher Dispatcher
@@ -69,7 +69,7 @@ func New(deps Deps) *Publishing {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Publishing{
-		topics:    deps.Topics,
+		topics:     deps.Topics,
 		events:     deps.Events,
 		hub:        deps.Hub,
 		dispatcher: deps.Dispatcher,

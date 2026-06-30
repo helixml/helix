@@ -21,11 +21,14 @@ const org = "org-1"
 func setup(t *testing.T) (*store.Store, *processors.Processors, *slackrouting.Reconciler) {
 	t.Helper()
 	var n int
-	id := func() string { n++; return time.Now().Format("150405.000000") + "-" + string(rune('a'+n%26)) + string(rune('a'+n/26%26)) }
+	id := func() string {
+		n++
+		return time.Now().Format("150405.000000") + "-" + string(rune('a'+n%26)) + string(rune('a'+n/26%26))
+	}
 	s := memory.New()
 	top := topics.New(topics.Deps{Topics: s.Topics, NewID: id})
 	procs := processors.New(processors.Deps{Processors: s.Processors, Topics: top, NewID: id})
-	rec := slackrouting.New(slackrouting.Deps{Workers: s.Workers, Subscriptions: s.Subscriptions, Processors: procs})
+	rec := slackrouting.New(slackrouting.Deps{Bots: s.Bots, Subscriptions: s.Subscriptions, Processors: procs})
 	return s, procs, rec
 }
 
@@ -49,13 +52,14 @@ func makeRouter(t *testing.T, ctx context.Context, s *store.Store, procs *proces
 	return p
 }
 
-func addAIWorker(t *testing.T, ctx context.Context, s *store.Store, id string) {
+func addBot(t *testing.T, ctx context.Context, s *store.Store, id string) {
 	t.Helper()
-	w, err := orgchart.NewAIWorker(id, "r-x", "", org)
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	b, err := orgchart.NewBot(id, "content", nil, nil, now, org)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Workers.Create(ctx, w); err != nil {
+	if err := s.Bots.Create(ctx, b); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -74,8 +78,8 @@ func TestReconcileAddsRoutePerAIWorkerAndSubscribes(t *testing.T) {
 	ctx := context.Background()
 	s, procs, rec := setup(t)
 	makeRouter(t, ctx, s, procs)
-	addAIWorker(t, ctx, s, "w-alice")
-	addAIWorker(t, ctx, s, "w-bob")
+	addBot(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-bob")
 
 	if err := rec.Reconcile(ctx, org); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -96,7 +100,7 @@ func TestReconcileAddsRoutePerAIWorkerAndSubscribes(t *testing.T) {
 			t.Errorf("%s route predicate = %q, want %q", wid, o.Match, want)
 		}
 		// Worker subscribed to the route's output topic.
-		if _, err := s.Subscriptions.Find(ctx, org, orgchart.WorkerID(wid), o.TopicID); err != nil {
+		if _, err := s.Subscriptions.Find(ctx, org, orgchart.BotID(wid), o.TopicID); err != nil {
 			t.Errorf("%s not subscribed to %s: %v", wid, o.TopicID, err)
 		}
 	}
@@ -110,7 +114,7 @@ func TestReconcileIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s, procs, rec := setup(t)
 	makeRouter(t, ctx, s, procs)
-	addAIWorker(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-alice")
 
 	_ = rec.Reconcile(ctx, org)
 	_ = rec.Reconcile(ctx, org)
@@ -124,12 +128,12 @@ func TestReconcileRemovesRouteForDepartedWorker(t *testing.T) {
 	ctx := context.Background()
 	s, procs, rec := setup(t)
 	makeRouter(t, ctx, s, procs)
-	addAIWorker(t, ctx, s, "w-alice")
-	addAIWorker(t, ctx, s, "w-bob")
+	addBot(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-bob")
 	_ = rec.Reconcile(ctx, org)
 
 	// Bob leaves.
-	if err := s.Workers.Delete(ctx, org, "w-bob"); err != nil {
+	if err := s.Bots.Delete(ctx, org, "w-bob"); err != nil {
 		t.Fatal(err)
 	}
 	if err := rec.Reconcile(ctx, org); err != nil {
@@ -149,7 +153,7 @@ func TestReconcilePreservesManualRoutesAndEdits(t *testing.T) {
 	ctx := context.Background()
 	s, procs, rec := setup(t)
 	makeRouter(t, ctx, s, procs)
-	addAIWorker(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-alice")
 	_ = rec.Reconcile(ctx, org)
 
 	// User adds a manual route (empty ManagedFor) and edits alice's predicate.
@@ -202,7 +206,7 @@ func TestReconcileMaintainsEveryRouterInOrg(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	addAIWorker(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-alice")
 
 	if err := rec.Reconcile(ctx, org); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -222,7 +226,7 @@ func TestReconcileMaintainsEveryRouterInOrg(t *testing.T) {
 func TestReconcileNoRouterIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	s, _, rec := setup(t)
-	addAIWorker(t, ctx, s, "w-alice")
+	addBot(t, ctx, s, "w-alice")
 	if err := rec.Reconcile(ctx, org); err != nil {
 		t.Fatalf("reconcile with no router should be no-op, got %v", err)
 	}

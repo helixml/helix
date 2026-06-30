@@ -30,8 +30,8 @@ import (
 // noun (CLAUDE.md §5.0: name by what it is, not what it does).
 type Topics struct {
 	topics store.Topics
-	now     func() time.Time
-	newID   func() string
+	now    func() time.Time
+	newID  func() string
 	// provisioners is the per-transport-Kind inbound-webhook registry the
 	// InstallInbound / InboundStatus seam dispatches on. nil/empty → those
 	// endpoints report the transport as unsupported.
@@ -42,8 +42,8 @@ type Topics struct {
 // them in a struct keeps the call site reading as named fields.
 type Deps struct {
 	Topics store.Topics
-	Now     func() time.Time
-	NewID   func() string
+	Now    func() time.Time
+	NewID  func() string
 	// Provisioners maps a transport Kind to its inbound-webhook
 	// provisioner (GitHub today, Slack next). Each impl lives in that
 	// transport's infrastructure package; the composition root registers

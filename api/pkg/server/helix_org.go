@@ -17,19 +17,18 @@ import (
 
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
-	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
-	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
-	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -142,12 +141,12 @@ type helixOrgHandlers struct {
 // the store.
 type orgWorkerRuntime struct{ st *helixorgstore.Store }
 
-func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (helixorgapi.WorkerRuntimeInfo, error) {
+func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.BotID) (helixorgapi.BotRuntimeInfo, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
-		return helixorgapi.WorkerRuntimeInfo{}, err
+		return helixorgapi.BotRuntimeInfo{}, err
 	}
-	return helixorgapi.WorkerRuntimeInfo{
+	return helixorgapi.BotRuntimeInfo{
 		ProjectID:  s.ProjectID,
 		AgentAppID: s.AgentAppID,
 		SessionID:  s.SessionID,
@@ -157,7 +156,7 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
 // manual-activate use case can populate the response's session id without
 // the activations service touching the store.
-func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID orgchart.WorkerID) (string, error) {
+func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
 		return "", err
@@ -170,9 +169,8 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 // the composition root — the "Module struct holds the assembled
 // services" shape from design §5.4.
 type orgServices struct {
-	Roles         *roles.Roles
+	Bots          *bots.Bots
 	Topics        *topics.Topics
-	Workers       *workers.Workers
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Queries       *queries.Queries
@@ -186,20 +184,17 @@ type orgServices struct {
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
 func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
-	rolesSvc := roles.New(roles.Deps{Roles: st.Roles, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
+	botsSvc := bots.New(bots.Deps{Bots: st.Bots, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	return orgServices{
-		Roles:  rolesSvc,
+		Bots:   botsSvc,
 		Topics: topicsSvc,
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
 		}),
-		Workers: workers.New(workers.Deps{
-			Workers: st.Workers, Roles: rolesSvc, Lines: st.ReportingLines, Reconciler: deps.Reconciler,
-		}),
-		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Workers: st.Workers, Now: deps.Now}),
+		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Bots: st.Bots, Now: deps.Now}),
 		Publishing:    publishing.New(publishing.Deps{Topics: st.Topics, Events: st.Events, Hub: bc, Dispatcher: dispatcher, Now: deps.Now, NewID: deps.NewID}),
-		Queries:       queries.New(queries.Deps{Roles: st.Roles, Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
+		Queries:       queries.New(queries.Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Events: st.Events, Activations: st.Activations}),
 		// Activations is built at the composition root (not here) because
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
@@ -618,10 +613,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Store:  st,
 		Helix:  inProcClient,
 		Logger: logger,
-		// Worker-scoped reconcilers: the single topology reconciler (one owner
-		// of activation/team Topic lifecycle across hire, reparent, and fire).
-		WorkerReconcilers: []lifecycle.WorkerReconciler{deps.Reconciler},
-		Mirror:            mirror, // Fire stops the fired worker's subscription
+		// Bot-scoped reconcilers: the single topology reconciler (one owner
+		// of activation/team Topic lifecycle across create, reparent, and delete).
+		BotReconcilers: []lifecycle.BotReconciler{deps.Reconciler},
+		Mirror:         mirror, // Delete stops the deleted bot's subscription
 		// Hire collaborators (the create half of the lifecycle). REST POST
 		// /workers and the MCP hire_worker tool both drive Hire through
 		// this service, so the hire semantics live in one place.
@@ -656,6 +651,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
+	// Create (the lifecycle's create half) delegates the bot-row creation to
+	// the bots service so the base-tool union + id minting are shared with
+	// the REST/MCP update path.
+	lifecycleSvc.Bots = svc.Bots
 
 	// Slack inbound: one shared ingest serves both ingress sources. It
 	// resolves a delivery's team_id to the owning org (a slack_workspace
@@ -687,7 +686,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// router. Wired into hire/fire via the lifecycle service, and invoked on
 	// workspace-connect via slackAutoRouter below.
 	slackRouteReconciler := slackrouting.New(slackrouting.Deps{
-		Workers:       st.Workers,
+		Bots:          st.Bots,
 		Subscriptions: st.Subscriptions,
 		Processors:    svc.Processors,
 		Now:           deps.Now,
@@ -720,14 +719,13 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	})
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
-		Roles:         svc.Roles,
-		Workers:       svc.Workers,
+		Bots:          svc.Bots,
 		Subscriptions: svc.Subscriptions,
 		Publishing:    svc.Publishing,
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
-		WorkerRuntime: orgWorkerRuntime{st: st},
+		BotRuntime:    orgWorkerRuntime{st: st},
 		// SessionRestarter recreates a worker's desktop container through
 		// the same backend primitive the in-chat restart button uses, so
 		// the worker-page "Restart agent session" button genuinely
@@ -930,7 +928,7 @@ type dynamicProjectApplier struct {
 // previously are wiped — we re-attach here to keep the MCP present.
 // The Spawner does the same on its own activations; owner-chat goes
 // through this path only.
-func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error) {
 	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.workspace, d.logger)
 	if err != nil {
 		return "", "", "", err
@@ -1184,7 +1182,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
+	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating.
 		if d.Applier != nil {

@@ -21,9 +21,9 @@ const maxWebhookBody = 1 << 20
 // must exist and have transport.kind == webhook; otherwise 404.
 //
 // Source attribution on the resulting Event is empty (system-emitted,
-// per streaming.NewEvent's contract). The dispatcher is invoked so AI
-// Workers subscribed to the Topic are activated; the broadcaster is
-// notified so any long-poll observer wakes.
+// per streaming.NewEvent's contract). The dispatcher is invoked so Bots
+// subscribed to the Topic are activated; the broadcaster is notified so
+// any long-poll observer wakes.
 func (s *Server) webhookHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		topicID := streaming.TopicID(r.PathValue("topicID"))
@@ -75,8 +75,8 @@ func (s *Server) webhookHandler() http.Handler {
 		}
 		// Append → notify → dispatch through the publishing service.
 		// From is empty — webhook callers are arbitrary external systems
-		// with no helix Worker identity; routing decisions about "who
-		// sent this" belong in the receiving Role's prompt.
+		// with no helix Bot identity; routing decisions about "who
+		// sent this" belong in the receiving Bot's prompt.
 		event, err := s.publishing.Publish(r.Context(), orgID, topicID, "", streaming.Message{Body: string(body)})
 		if err != nil {
 			s.logger.Error("webhook: publish event", "topic", topicID, "err", err)
@@ -85,7 +85,7 @@ func (s *Server) webhookHandler() http.Handler {
 		}
 
 		ack, _ := json.Marshal(map[string]string{
-			"id":       string(event.ID),
+			"id":      string(event.ID),
 			"topicId": string(topicID),
 		})
 		w.Header().Set("Content-Type", "application/json")

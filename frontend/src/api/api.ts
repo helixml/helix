@@ -9,20 +9,70 @@
  * ---------------------------------------------------------------
  */
 
-export interface ApiAddWorkerParentRequest {
+export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
 
-export interface ApiCreateRoleRequest {
+export interface ApiBotActivateDTO {
+  activation_id?: string;
+  agent_app_id?: string;
+  project_id?: string;
+  session_id?: string;
+}
+
+export interface ApiBotBadge {
+  id?: string;
+}
+
+export interface ApiBotChatDTO {
+  agent_app_id?: string;
+  project_id?: string;
+}
+
+export interface ApiBotDTO {
+  content?: string;
+  created_at?: string;
+  id?: string;
+  organization_id?: string;
+  parent_ids?: string[];
+  tools?: string[];
+  topics?: string[];
+  updated_at?: string;
+}
+
+export interface ApiBotDetailDTO {
+  /** AgentAppID + ProjectID — see BotChatDTO comments. */
+  agent_app_id?: string;
+  bot?: ApiBotDTO;
+  project_id?: string;
+}
+
+export interface ApiBotSubscriptionDTO {
+  created_at?: string;
+  topic_id?: string;
+}
+
+export interface ApiBotSubscriptionsResponse {
+  bot_id?: string;
+  subscriptions?: ApiBotSubscriptionDTO[];
+}
+
+export interface ApiCreateBotRequest {
   content?: string;
   id?: string;
+  parent_id?: string;
   tools?: string[];
   topics?: string[];
 }
 
+export interface ApiCreateBotResponse {
+  activation_id?: string;
+  id?: string;
+}
+
 export interface ApiCreateTopicRequest {
   /**
-   * As is the Worker that creates the topic — the worker whose chat
+   * As is the Bot that creates the topic — the bot whose chat
    * the human is in. Empty leaves the topic unattributed (CreatedBy is
    * cosmetic: it only anchors the node on the chart).
    */
@@ -114,19 +164,6 @@ export interface ApiGitHubWebhookStatusResponse {
   webhook_id?: number;
 }
 
-export interface ApiHireWorkerRequest {
-  id?: string;
-  identity_content?: string;
-  kind?: string;
-  parent_id?: string;
-  role_id?: string;
-}
-
-export interface ApiHireWorkerResponse {
-  activation_id?: string;
-  id?: string;
-}
-
 export interface ApiInstallGitHubWebhookResponse {
   payload_url?: string;
   /**
@@ -179,12 +216,17 @@ export interface ApiMessagesMeta {
 }
 
 export interface ApiOrgOverview {
-  groups?: ApiRoleGroup[];
-  roles?: ApiRoleBadge[];
+  bots?: ApiBotBadge[];
 }
 
 export interface ApiProcessorOutputDTO {
   label?: string;
+  /**
+   * ManagedFor is set when this route is auto-managed by a reconciler for
+   * the named Worker (the Slack auto-router). Empty for human-authored
+   * routes. Read-only — the UI surfaces it; reconcilers own these routes.
+   */
+  managed_for?: string;
   match?: string;
   owned?: boolean;
   topic_id?: string;
@@ -206,7 +248,7 @@ export interface ApiProcessorWriteRequest {
 
 export interface ApiPublishRequest {
   /**
-   * As is the Worker the message is sent as — the worker whose chat the
+   * As is the Bot the message is sent as — the bot whose chat the
    * human is in. Empty means human/system-origin (the dispatcher treats
    * it as such). There is no global "owner" sender any more.
    */
@@ -218,24 +260,6 @@ export interface ApiPublishRequest {
 
 export interface ApiPublishResponse {
   event_id?: string;
-}
-
-export interface ApiRoleBadge {
-  id?: string;
-}
-
-export interface ApiRoleDTO {
-  content?: string;
-  created_at?: string;
-  id?: string;
-  tools?: string[];
-  topics?: string[];
-  updated_at?: string;
-}
-
-export interface ApiRoleGroup {
-  role_id?: string;
-  workers?: ApiWorkerBadge[];
 }
 
 export interface ApiSetSettingRequest {
@@ -257,7 +281,7 @@ export interface ApiSettingsSpecDTO {
   value?: string;
 }
 
-export interface ApiSubscribeWorkerRequest {
+export interface ApiSubscribeBotRequest {
   topic_id?: string;
 }
 
@@ -291,7 +315,7 @@ export interface ApiTransportRequestField {
   kind?: string;
 }
 
-export interface ApiUpdateRoleRequest {
+export interface ApiUpdateBotRequest {
   content?: string;
   tools?: string[];
   topics?: string[];
@@ -301,60 +325,6 @@ export interface ApiUpdateTopicRequest {
   description?: string;
   name?: string;
   transport?: ApiTransportRequestField;
-}
-
-export interface ApiUpdateWorkerIdentityRequest {
-  identity?: string;
-}
-
-export interface ApiUpdateWorkerRoleRequest {
-  content?: string;
-}
-
-export interface ApiWorkerActivateDTO {
-  activation_id?: string;
-  agent_app_id?: string;
-  project_id?: string;
-  session_id?: string;
-}
-
-export interface ApiWorkerBadge {
-  id?: string;
-  kind?: string;
-}
-
-export interface ApiWorkerChatDTO {
-  agent_app_id?: string;
-  project_id?: string;
-}
-
-export interface ApiWorkerDTO {
-  id?: string;
-  identity_content?: string;
-  kind?: string;
-  organization_id?: string;
-  parent_ids?: string[];
-  role_id?: string;
-  tools?: string[];
-}
-
-export interface ApiWorkerDetailDTO {
-  /** AgentAppID + ProjectID — see WorkerChatDTO comments. */
-  agent_app_id?: string;
-  project_id?: string;
-  /** Role this Worker holds (nil if the role row is gone). */
-  role?: ApiRoleDTO;
-  worker?: ApiWorkerDTO;
-}
-
-export interface ApiWorkerSubscriptionDTO {
-  created_at?: string;
-  topic_id?: string;
-}
-
-export interface ApiWorkerSubscriptionsResponse {
-  subscriptions?: ApiWorkerSubscriptionDTO[];
-  worker_id?: string;
 }
 
 export interface FilestoreConfig {
@@ -12051,6 +12021,245 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsDetail
+     * @summary Helix-org: list bots
+     * @request GET:/api/v1/orgs/{org}/bots
+     * @secure
+     */
+    v1OrgsBotsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiBotDTO[], any>({
+        path: `/api/v1/orgs/${org}/bots`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a Bot. Wraps the lifecycle Create so REST + chat creates share semantics (base-tool union, reporting line, transcript topics, create dispatch).
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsCreate
+     * @summary Helix-org: create a bot
+     * @request POST:/api/v1/orgs/{org}/bots
+     * @secure
+     */
+    v1OrgsBotsCreate: (org: string, payload: ApiCreateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiCreateBotResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a Bot. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, drops subscriptions + reporting lines, then the bot row. Activations are preserved as audit.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsDelete
+     * @summary Helix-org: delete a bot
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}
+     * @secure
+     */
+    v1OrgsBotsDelete: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsDetail2
+     * @summary Helix-org: get bot detail
+     * @request GET:/api/v1/orgs/{org}/bots/{id}
+     * @originalName v1OrgsBotsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsBotsDetail2: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotDetailDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsPartialUpdate
+     * @summary Helix-org: update a bot
+     * @request PATCH:/api/v1/orgs/{org}/bots/{id}
+     * @secure
+     */
+    v1OrgsBotsPartialUpdate: (org: string, id: string, payload: ApiUpdateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiBotDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsActivateCreate
+     * @summary Helix-org: manually trigger a bot activation
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/activate
+     * @secure
+     */
+    v1OrgsBotsActivateCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/activate`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsChatCreate
+     * @summary Helix-org: provision a per-bot chat app
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/chat
+     * @secure
+     */
+    v1OrgsBotsChatCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotChatDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/chat`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsParentsCreate
+     * @summary Helix-org: add a bot reporting line (manager)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/parents
+     * @secure
+     */
+    v1OrgsBotsParentsCreate: (id: string, org: string, payload: ApiAddBotParentRequest, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/parents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsParentsDelete
+     * @summary Helix-org: remove a bot reporting line (manager)
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/parents/{parent_id}
+     * @secure
+     */
+    v1OrgsBotsParentsDelete: (id: string, parentId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/parents/${parentId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsRestartAgentCreate
+     * @summary Helix-org: restart a bot's agent session (recreate desktop container)
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsBotsRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSubscriptionsDetail
+     * @summary Helix-org: list a bot's subscriptions
+     * @request GET:/api/v1/orgs/{org}/bots/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsBotsSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSubscriptionsCreate
+     * @summary Helix-org: subscribe a bot to a topic
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsBotsSubscriptionsCreate: (
+      id: string,
+      org: string,
+      payload: ApiSubscribeBotRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsBotsSubscriptionsDelete
+     * @summary Helix-org: unsubscribe a bot from a topic
+     * @request DELETE:/api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}
+     * @secure
+     */
+    v1OrgsBotsSubscriptionsDelete: (id: string, topicId: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/subscriptions/${topicId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsGithubAppInstallationDetail
      * @summary Helix-org: GitHub App install status for the org
      * @request GET:/api/v1/orgs/{org}/github/app-installation
@@ -12120,7 +12329,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Returns roles + workers grouped by role for the helix-org React Overview page.
+     * @description Returns the flat set of Bots in the org for the helix-org React Overview page.
      *
      * @tags HelixOrg
      * @name V1OrgsOverviewDetail
@@ -12219,100 +12428,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: payload,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsRolesDetail
-     * @summary Helix-org: list roles
-     * @request GET:/api/v1/orgs/{org}/roles
-     * @secure
-     */
-    v1OrgsRolesDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiRoleDTO[], any>({
-        path: `/api/v1/orgs/${org}/roles`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsRolesCreate
-     * @summary Helix-org: create a role
-     * @request POST:/api/v1/orgs/{org}/roles
-     * @secure
-     */
-    v1OrgsRolesCreate: (org: string, payload: ApiCreateRoleRequest, params: RequestParams = {}) =>
-      this.request<ApiRoleDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/roles`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsRolesDelete
-     * @summary Helix-org: delete a role (cascade-fires its workers)
-     * @request DELETE:/api/v1/orgs/{org}/roles/{id}
-     * @secure
-     */
-    v1OrgsRolesDelete: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/roles/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsRolesDetail2
-     * @summary Helix-org: get a role
-     * @request GET:/api/v1/orgs/{org}/roles/{id}
-     * @originalName v1OrgsRolesDetail
-     * @duplicate
-     * @secure
-     */
-    v1OrgsRolesDetail2: (org: string, id: string, params: RequestParams = {}) =>
-      this.request<ApiRoleDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/roles/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsRolesUpdate
-     * @summary Helix-org: update a role
-     * @request PUT:/api/v1/orgs/{org}/roles/{id}
-     * @secure
-     */
-    v1OrgsRolesUpdate: (org: string, id: string, payload: ApiUpdateRoleRequest, params: RequestParams = {}) =>
-      this.request<ApiRoleDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/roles/${id}`,
-        method: "PUT",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
@@ -12685,279 +12800,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersDetail
-     * @summary Helix-org: list workers
-     * @request GET:/api/v1/orgs/{org}/workers
-     * @secure
-     */
-    v1OrgsWorkersDetail: (org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerDTO[], any>({
-        path: `/api/v1/orgs/${org}/workers`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a Worker in the given Position. Wraps the hire_worker MCP tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersCreate
-     * @summary Helix-org: hire worker
-     * @request POST:/api/v1/orgs/{org}/workers
-     * @secure
-     */
-    v1OrgsWorkersCreate: (org: string, payload: ApiHireWorkerRequest, params: RequestParams = {}) =>
-      this.request<ApiHireWorkerResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a Worker. Cascades: stops sessions, deletes the Helix project + agent app, clears runtime state, deletes subscriptions + env dir + env row, then the worker row. Activations are preserved as audit.
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersDelete
-     * @summary Helix-org: fire worker
-     * @request DELETE:/api/v1/orgs/{org}/workers/{id}
-     * @secure
-     */
-    v1OrgsWorkersDelete: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersDetail2
-     * @summary Helix-org: get worker detail
-     * @request GET:/api/v1/orgs/{org}/workers/{id}
-     * @originalName v1OrgsWorkersDetail
-     * @duplicate
-     * @secure
-     */
-    v1OrgsWorkersDetail2: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerDetailDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersActivateCreate
-     * @summary Helix-org: manually trigger a worker activation
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/activate
-     * @secure
-     */
-    v1OrgsWorkersActivateCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/activate`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersChatCreate
-     * @summary Helix-org: provision a per-worker chat app
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/chat
-     * @secure
-     */
-    v1OrgsWorkersChatCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerChatDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/chat`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersIdentityCreate
-     * @summary Helix-org: update worker identity
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/identity
-     * @secure
-     */
-    v1OrgsWorkersIdentityCreate: (
-      id: string,
-      org: string,
-      payload: ApiUpdateWorkerIdentityRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/identity`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersParentsCreate
-     * @summary Helix-org: add a worker reporting line (manager)
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/parents
-     * @secure
-     */
-    v1OrgsWorkersParentsCreate: (
-      id: string,
-      org: string,
-      payload: ApiAddWorkerParentRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/parents`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersParentsDelete
-     * @summary Helix-org: remove a worker reporting line (manager)
-     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/parents/{parent_id}
-     * @secure
-     */
-    v1OrgsWorkersParentsDelete: (id: string, parentId: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/parents/${parentId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersRestartAgentCreate
-     * @summary Helix-org: restart a worker's agent session (recreate desktop container)
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/restart-agent
-     * @secure
-     */
-    v1OrgsWorkersRestartAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerActivateDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/restart-agent`,
-        method: "POST",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersRoleCreate
-     * @summary Helix-org: update worker role
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/role
-     * @secure
-     */
-    v1OrgsWorkersRoleCreate: (
-      id: string,
-      org: string,
-      payload: ApiUpdateWorkerRoleRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/role`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersSubscriptionsDetail
-     * @summary Helix-org: list a worker's subscriptions
-     * @request GET:/api/v1/orgs/{org}/workers/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsWorkersSubscriptionsDetail: (id: string, org: string, params: RequestParams = {}) =>
-      this.request<ApiWorkerSubscriptionsResponse, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersSubscriptionsCreate
-     * @summary Helix-org: subscribe a worker to a topic
-     * @request POST:/api/v1/orgs/{org}/workers/{id}/subscriptions
-     * @secure
-     */
-    v1OrgsWorkersSubscriptionsCreate: (
-      id: string,
-      org: string,
-      payload: ApiSubscribeWorkerRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ApiWorkerSubscriptionDTO, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions`,
-        method: "POST",
-        body: payload,
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @tags HelixOrg
-     * @name V1OrgsWorkersSubscriptionsDelete
-     * @summary Helix-org: unsubscribe a worker from a topic
-     * @request DELETE:/api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}
-     * @secure
-     */
-    v1OrgsWorkersSubscriptionsDelete: (id: string, topicId: string, org: string, params: RequestParams = {}) =>
-      this.request<void, ApiErrorResponse>({
-        path: `/api/v1/orgs/${org}/workers/${id}/subscriptions/${topicId}`,
-        method: "DELETE",
-        secure: true,
         ...params,
       }),
 

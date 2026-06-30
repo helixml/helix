@@ -17,21 +17,21 @@ func newStore(t *testing.T) *store.Store {
 	return s
 }
 
-func TestRolesRoundTripAndUpdate(t *testing.T) {
+func TestBotsRoundTripAndUpdate(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
 	created := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	r, err := orgchart.NewRole("r-ceo", "# CEO\nTop of the org.", nil, nil, created, "org-test")
+	b, err := orgchart.NewBot("b-ceo", "# CEO\nTop of the org.", nil, nil, created, "org-test")
 	if err != nil {
-		t.Fatalf("NewRole: %v", err)
+		t.Fatalf("NewBot: %v", err)
 	}
-	if err := s.Roles.Create(ctx, r); err != nil {
+	if err := s.Bots.Create(ctx, b); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := s.Roles.Get(ctx, "org-test", "r-ceo")
+	got, err := s.Bots.Get(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -42,17 +42,11 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("timestamps not persisted: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
 	}
 
-	updated := orgchart.Role{
-		ID:             got.ID,
-		OrganizationID: "org-test",
-		Content:        "# CEO\nNow with more verve.",
-		CreatedAt:      got.CreatedAt,
-		UpdatedAt:      created.Add(time.Hour),
-	}
-	if err := s.Roles.Update(ctx, updated); err != nil {
+	updated := got.WithContent("# CEO\nNow with more verve.").WithUpdatedAt(created.Add(time.Hour))
+	if err := s.Bots.Update(ctx, updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got, err = s.Roles.Get(ctx, "org-test", "r-ceo")
+	got, err = s.Bots.Get(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("Get after update: %v", err)
 	}
@@ -63,7 +57,7 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 		t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, created.Add(time.Hour))
 	}
 
-	list, err := s.Roles.List(ctx, "org-test")
+	list, err := s.Bots.List(ctx, "org-test")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -72,39 +66,38 @@ func TestRolesRoundTripAndUpdate(t *testing.T) {
 	}
 }
 
-func TestRolesNotFound(t *testing.T) {
+func TestBotsNotFound(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
-	_, err := s.Roles.Get(context.Background(), "org-test", "missing")
+	_, err := s.Bots.Get(context.Background(), "org-test", "missing")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
 }
 
-// TestWorkerReportingHierarchy round-trips a reporting line through the
+// TestBotReportingHierarchy round-trips a reporting line through the
 // store and confirms deleting the manager cascades the line away.
-func TestWorkerReportingHierarchy(t *testing.T) {
+func TestBotReportingHierarchy(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
 	now := time.Now().UTC()
-	role, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, now, "org-test")
+	owner, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, now, "org-test")
 	if err != nil {
-		t.Fatalf("NewRole: %v", err)
+		t.Fatalf("NewBot owner: %v", err)
 	}
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("Create role: %v", err)
-	}
-	owner, _ := orgchart.NewHumanWorker("w-owner", role.ID, "", "org-test")
-	if err := s.Workers.Create(ctx, owner); err != nil {
+	if err := s.Bots.Create(ctx, owner); err != nil {
 		t.Fatalf("Create owner: %v", err)
 	}
-	child, _ := orgchart.NewAIWorker("w-ceo", role.ID, "", "org-test")
-	if err := s.Workers.Create(ctx, child); err != nil {
+	child, err := orgchart.NewBot("b-ceo", "# CEO", nil, nil, now, "org-test")
+	if err != nil {
+		t.Fatalf("NewBot child: %v", err)
+	}
+	if err := s.Bots.Create(ctx, child); err != nil {
 		t.Fatalf("Create child: %v", err)
 	}
-	line, err := orgchart.NewReportingLine("org-test", "w-owner", "w-ceo")
+	line, err := orgchart.NewReportingLine("org-test", "b-owner", "b-ceo")
 	if err != nil {
 		t.Fatalf("NewReportingLine: %v", err)
 	}
@@ -112,19 +105,19 @@ func TestWorkerReportingHierarchy(t *testing.T) {
 		t.Fatalf("Add reporting line: %v", err)
 	}
 
-	managers, err := s.ReportingLines.ListManagers(ctx, "org-test", "w-ceo")
+	managers, err := s.ReportingLines.ListManagers(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("ListManagers: %v", err)
 	}
-	if len(managers) != 1 || managers[0] != "w-owner" {
-		t.Fatalf("managers = %v, want [w-owner]", managers)
+	if len(managers) != 1 || managers[0] != "b-owner" {
+		t.Fatalf("managers = %v, want [b-owner]", managers)
 	}
 
 	// Deleting the manager cascades the line away.
-	if err := s.Workers.Delete(ctx, "org-test", "w-owner"); err != nil {
+	if err := s.Bots.Delete(ctx, "org-test", "b-owner"); err != nil {
 		t.Fatalf("Delete owner: %v", err)
 	}
-	managers, err = s.ReportingLines.ListManagers(ctx, "org-test", "w-ceo")
+	managers, err = s.ReportingLines.ListManagers(ctx, "org-test", "b-ceo")
 	if err != nil {
 		t.Fatalf("ListManagers after delete: %v", err)
 	}
@@ -133,73 +126,26 @@ func TestWorkerReportingHierarchy(t *testing.T) {
 	}
 }
 
-func TestWorkersHumanAndAI(t *testing.T) {
-	t.Parallel()
-	s := newStore(t)
-	ctx := context.Background()
-
-	human, err := orgchart.NewHumanWorker("w-owner", "r-owner", "i am the owner", "org-test")
-	if err != nil {
-		t.Fatalf("NewHumanWorker: %v", err)
-	}
-	if err := s.Workers.Create(ctx, human); err != nil {
-		t.Fatalf("Create human: %v", err)
-	}
-
-	ownerRole, _ := orgchart.NewRole("r-ceo", "# CEO", nil, nil, time.Now().UTC(), "org-test")
-	if err := s.Roles.Create(ctx, ownerRole); err != nil {
-		t.Fatalf("Create ceo role: %v", err)
-	}
-	ai, err := orgchart.NewAIWorker("w-ceo", "r-ceo", "you are the ceo", "org-test")
-	if err != nil {
-		t.Fatalf("NewAIWorker: %v", err)
-	}
-	if err := s.Workers.Create(ctx, ai); err != nil {
-		t.Fatalf("Create ai: %v", err)
-	}
-
-	gotHuman, err := s.Workers.Get(ctx, "org-test", "w-owner")
-	if err != nil {
-		t.Fatalf("Get human: %v", err)
-	}
-	if gotHuman.Kind() != orgchart.WorkerKindHuman {
-		t.Fatalf("kind = %q, want human", gotHuman.Kind())
-	}
-	if _, ok := gotHuman.(*orgchart.HumanWorker); !ok {
-		t.Fatalf("want *HumanWorker, got %T", gotHuman)
-	}
-
-	gotAI, err := s.Workers.Get(ctx, "org-test", "w-ceo")
-	if err != nil {
-		t.Fatalf("Get ai: %v", err)
-	}
-	if gotAI.Kind() != orgchart.WorkerKindAI {
-		t.Fatalf("kind = %q, want ai", gotAI.Kind())
-	}
-
-}
-
-// TestWorkerOrganizationIDRoundTrip: a Worker created with an OrgID
+// TestBotOrganizationIDRoundTrip: a Bot created with an OrgID
 // round-trips through Create → Get with the OrgID preserved (composite
 // (id, org_id) PK means lookups are scoped to the creating org).
-func TestWorkerOrganizationIDRoundTrip(t *testing.T) {
+func TestBotOrganizationIDRoundTrip(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
-	scoped, err := orgchart.NewAIWorker("w-acme-bot", "r-eng", "# bot", "org-acme")
+	scoped, err := orgchart.NewBot("b-acme-bot", "# bot", nil, nil, time.Now().UTC(), "org-acme")
 	if err != nil {
-		t.Fatalf("NewAIWorker: %v", err)
+		t.Fatalf("NewBot: %v", err)
 	}
-	if err := s.Workers.Create(ctx, scoped); err != nil {
+	if err := s.Bots.Create(ctx, scoped); err != nil {
 		t.Fatalf("Create scoped: %v", err)
 	}
-	got, err := s.Workers.Get(ctx, "org-acme", "w-acme-bot")
+	got, err := s.Bots.Get(ctx, "org-acme", "b-acme-bot")
 	if err != nil {
 		t.Fatalf("Get scoped: %v", err)
 	}
-	if got.OrganizationID() != "org-acme" {
-		t.Errorf("round-tripped OrgID = %q, want org-acme", got.OrganizationID())
+	if got.OrganizationID != "org-acme" {
+		t.Errorf("round-tripped OrgID = %q, want org-acme", got.OrganizationID)
 	}
 }
-

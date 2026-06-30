@@ -16,7 +16,7 @@ import (
 // subscribed AI Workers. Other transports (Slack, email, webhook,
 // RSS, tick…) compose external I/O over the same local mechanism.
 //
-// CreatedBy is an orgchart.WorkerID stored as a plain string; the
+// CreatedBy is an orgchart.BotID stored as a plain string; the
 // streaming aggregate intentionally does not import orgchart to keep
 // the dependency DAG one-way.
 type Topic struct {
@@ -24,7 +24,7 @@ type Topic struct {
 	OrganizationID string
 	Name           string
 	Description    string
-	CreatedBy      string // orgchart.WorkerID (or processor.SystemActor for automation)
+	CreatedBy      string // orgchart.BotID (or processor.SystemActor for automation)
 	CreatedAt      time.Time
 	Transport      transport.Transport
 }

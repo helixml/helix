@@ -1,0 +1,6 @@
+-- No-op rollback. The Role and Worker concepts have been merged into
+-- Bot in the code; restoring the old schema without restoring the
+-- application logic would leave the system unusable. AutoMigrate
+-- recreates the new-shape org_bots / org_subscriptions /
+-- org_reporting_lines / org_bot_runtime_state on next boot regardless of
+-- which direction this migration is pointed.

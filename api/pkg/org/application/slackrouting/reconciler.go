@@ -47,25 +47,25 @@ type ProcessorService interface {
 }
 
 // Reconciler converges Automated Slack routers' managed routes onto the
-// org's AI Workers. Construct with New.
+// org's Bots. Construct with New.
 type Reconciler struct {
-	workers store.Workers
-	subs    store.Subscriptions
-	procs   ProcessorService
-	now     func() time.Time
-	logger  *slog.Logger
+	bots   store.Bots
+	subs   store.Subscriptions
+	procs  ProcessorService
+	now    func() time.Time
+	logger *slog.Logger
 }
 
 // Deps are the constructor-injected collaborators.
 type Deps struct {
-	Workers       store.Workers
+	Bots          store.Bots
 	Subscriptions store.Subscriptions
 	Processors    ProcessorService
 	Now           func() time.Time
 	Logger        *slog.Logger
 }
 
-// New builds a Reconciler. A nil Workers or Processors repo yields a
+// New builds a Reconciler. A nil Bots or Processors repo yields a
 // Reconciler whose Reconcile no-ops, so runtimes/tests that don't wire
 // Slack routing degrade gracefully.
 func New(deps Deps) *Reconciler {
@@ -78,11 +78,11 @@ func New(deps Deps) *Reconciler {
 		logger = slog.Default()
 	}
 	return &Reconciler{
-		workers: deps.Workers,
-		subs:    deps.Subscriptions,
-		procs:   deps.Processors,
-		now:     now,
-		logger:  logger,
+		bots:   deps.Bots,
+		subs:   deps.Subscriptions,
+		procs:  deps.Processors,
+		now:    now,
+		logger: logger,
 	}
 }
 
@@ -90,7 +90,7 @@ func New(deps Deps) *Reconciler {
 // on every hire/fire and at startup; idempotent. A nil/unwired Reconciler,
 // or an org with no Automated router, is a no-op.
 func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
-	if r == nil || r.workers == nil || r.procs == nil {
+	if r == nil || r.bots == nil || r.procs == nil {
 		return nil
 	}
 
@@ -108,100 +108,98 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
 		return nil // nothing to maintain — router never created or deleted
 	}
 
-	workers, err := r.workers.List(ctx, orgID)
+	bots, err := r.bots.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("slackrouting: list workers: %w", err)
+		return fmt.Errorf("slackrouting: list bots: %w", err)
 	}
-	// The Workers the router should route to: AI Workers only (only they
-	// activate). Keyed by id for diffing against ManagedFor.
-	aiWorkers := map[orgchart.WorkerID]struct{}{}
-	for _, w := range workers {
-		if w.Kind() == orgchart.WorkerKindAI {
-			aiWorkers[w.ID()] = struct{}{}
-		}
+	// The Bots the router should route to: every bot activates. Keyed by
+	// id for diffing against ManagedFor.
+	botIDs := map[orgchart.BotID]struct{}{}
+	for _, b := range bots {
+		botIDs[b.ID] = struct{}{}
 	}
 
 	for _, router := range routers {
-		if err := r.reconcileRouter(ctx, orgID, router, aiWorkers); err != nil {
+		if err := r.reconcileRouter(ctx, orgID, router, botIDs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// reconcileRouter brings one router's managed routes to match aiWorkers.
-func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, aiWorkers map[orgchart.WorkerID]struct{}) error {
-	managed := map[orgchart.WorkerID]processor.Output{} // ManagedFor → route
+// reconcileRouter brings one router's managed routes to match botIDs.
+func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, botIDs map[orgchart.BotID]struct{}) error {
+	managed := map[orgchart.BotID]processor.Output{} // ManagedFor → route
 	for _, o := range router.Outputs {
 		if o.ManagedFor != "" {
-			managed[orgchart.WorkerID(o.ManagedFor)] = o
+			managed[orgchart.BotID(o.ManagedFor)] = o
 		}
 	}
 
-	// Remove managed routes whose Worker is gone (or no longer AI).
-	for workerID, out := range managed {
-		if _, ok := aiWorkers[workerID]; ok {
+	// Remove managed routes whose Bot is gone.
+	for botID, out := range managed {
+		if _, ok := botIDs[botID]; ok {
 			continue
 		}
 		if err := r.procs.RemoveOutput(ctx, orgID, router.ID, out.TopicID); err != nil {
-			return fmt.Errorf("slackrouting: remove route for %q: %w", workerID, err)
+			return fmt.Errorf("slackrouting: remove route for %q: %w", botID, err)
 		}
-		r.logger.Info("slackrouting: removed route for departed worker", "router", router.ID, "worker", workerID)
+		r.logger.Info("slackrouting: removed route for departed bot", "router", router.ID, "bot", botID)
 	}
 
-	// Add a managed route for every AI Worker that lacks one; self-heal the
+	// Add a managed route for every Bot that lacks one; self-heal the
 	// subscription for those that already have one.
-	for workerID := range aiWorkers {
-		if out, ok := managed[workerID]; ok {
-			if err := r.ensureSubscribed(ctx, orgID, workerID, out.TopicID); err != nil {
+	for botID := range botIDs {
+		if out, ok := managed[botID]; ok {
+			if err := r.ensureSubscribed(ctx, orgID, botID, out.TopicID); err != nil {
 				return err
 			}
 			continue
 		}
 		out, err := r.procs.AddOutput(ctx, orgID, router.ID, processors.OutputSpec{
-			Label:      string(workerID),
-			Match:      matchPredicate(workerID),
-			ManagedFor: string(workerID),
+			Label:      string(botID),
+			Match:      matchPredicate(botID),
+			ManagedFor: string(botID),
 		})
 		if err != nil {
-			return fmt.Errorf("slackrouting: add route for %q: %w", workerID, err)
+			return fmt.Errorf("slackrouting: add route for %q: %w", botID, err)
 		}
-		if err := r.ensureSubscribed(ctx, orgID, workerID, out.TopicID); err != nil {
+		if err := r.ensureSubscribed(ctx, orgID, botID, out.TopicID); err != nil {
 			return err
 		}
-		r.logger.Info("slackrouting: added route for worker", "router", router.ID, "worker", workerID, "topic", out.TopicID)
+		r.logger.Info("slackrouting: added route for bot", "router", router.ID, "bot", botID, "topic", out.TopicID)
 	}
 	return nil
 }
 
-// ensureSubscribed idempotently subscribes the Worker to the route's output
+// ensureSubscribed idempotently subscribes the Bot to the route's output
 // Topic, so a managed route always delivers even if the subscription was
 // dropped out-of-band.
-func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error {
 	if r.subs == nil {
 		return nil
 	}
-	if _, err := r.subs.Find(ctx, orgID, workerID, topicID); err == nil {
+	if _, err := r.subs.Find(ctx, orgID, botID, topicID); err == nil {
 		return nil // already subscribed
 	}
-	sub, err := streaming.NewSubscription(string(workerID), topicID, r.now(), orgID)
+	sub, err := streaming.NewSubscription(string(botID), topicID, r.now(), orgID)
 	if err != nil {
-		return fmt.Errorf("slackrouting: build subscription %q→%q: %w", workerID, topicID, err)
+		return fmt.Errorf("slackrouting: build subscription %q→%q: %w", botID, topicID, err)
 	}
 	if err := r.subs.Create(ctx, sub); err != nil {
 		// Lost a create race? A now-present row means success.
-		if _, findErr := r.subs.Find(ctx, orgID, workerID, topicID); findErr != nil {
-			return fmt.Errorf("slackrouting: subscribe %q→%q: %w", workerID, topicID, err)
+		if _, findErr := r.subs.Find(ctx, orgID, botID, topicID); findErr != nil {
+			return fmt.Errorf("slackrouting: subscribe %q→%q: %w", botID, topicID, err)
 		}
 	}
 	return nil
 }
 
 // matchPredicate builds the filter predicate for a managed route — a
-// word-boundary, case-insensitive mention of the Worker's FULL id in the body
-// (`w-jokebot`, not `jokebot`). The id is the Worker's canonical name and is
+// word-boundary, case-insensitive mention of the Bot's FULL id in the body
+// (`b-jokebot`, not `jokebot`). The id is the Bot's canonical name and is
 // what the org refers to it by; matching the bare slug would over-trigger on
 // common words. `mentions`'s `\b…\b` handles the internal hyphen fine.
-func matchPredicate(workerID orgchart.WorkerID) string {
-	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, string(workerID))
+func matchPredicate(botID orgchart.BotID) string {
+	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, string(botID))
 }
