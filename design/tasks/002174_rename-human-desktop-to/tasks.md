@@ -12,3 +12,5 @@
 - [x] Run `yarn tsc` (type-check passes) + `yarn build` (all 21657 modules transform; only a root-owned `dist/` bind-mount permission error remains, unrelated to code)
 - [x] Re-grep `frontend/src` for "Human Desktop" — confirmed none remaining
 - [~] Visual check in inner Helix: NOT performed — the inner stack (api/frontend at :8080) would not start in this session (sandbox container crash-looping; only registry came up). Change is a pure string rename verified by `yarn tsc` (exit 0) + full Vite module transform; risk is negligible.
+- [x] Merge latest `origin/main` into feature branch (clean, no conflicts) and push `feature/002174-rename-human-desktop-to`
+- [x] Write PR description (`pull_request_helix.md`)
