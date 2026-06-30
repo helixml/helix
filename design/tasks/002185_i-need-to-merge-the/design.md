@@ -128,14 +128,16 @@ no `delete_bot` MCP tool (parity with Fire being REST-only).
   Update the `Store` struct, the `memory` store, and `gorm.go`'s
   `orgRowTypes` + FK loop + table-drop loop.
 
-### Migration (follow `0004_drop_org_positions`)
+### Migration (follow `0004_drop_org_positions`) — keep it dead simple
 Add `0005_merge_roles_workers_into_bots.up.sql`: guarded `DROP TABLE …
-CASCADE` for `org_roles`, `org_workers`, `org_subscriptions`,
-`org_reporting_lines`, `org_worker_runtime_state`, `org_streams`,
-`org_events`, `org_activations`, `org_configs`, plus a header noting
-helix-org is pre-release and AutoMigrate recreates the new shapes; the next
-`/helix-org` request re-bootstraps the owner **bot** (`b-root`). Provide a
-`.down.sql` (best-effort / no-op, matching the existing convention).
+CASCADE` for the helix-org tables that change shape (`org_roles`,
+`org_workers`, `org_reporting_lines`, `org_subscriptions`,
+`org_worker_runtime_state`). AutoMigrate then creates the new tables
+(`org_bots`, the re-keyed reporting/subscription/runtime tables) on the next
+boot. **No re-bootstrap / owner-bot seeding logic** — the operator recreates
+their bots manually after the schema change (helix-org is pre-release). A
+header comment states this. Provide a `.down.sql` no-op matching the existing
+convention.
 
 ## Frontend
 
