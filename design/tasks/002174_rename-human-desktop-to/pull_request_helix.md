@@ -24,3 +24,8 @@ identifiers, routes, API fields, or behaviour change.
 - `api/.../api.ts` generated swagger comment left untouched (regenerates via
   `./stack update_openapi`).
 - Verified: `yarn tsc` passes; `vite build` transforms all modules cleanly.
+
+## Screenshots
+Verified live in the inner Helix — the project board toolbar shows "Open Project Desktop":
+
+![Open Project Desktop button](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002174_rename-human-desktop-to/screenshots/02-open-project-desktop-button.png)

@@ -11,6 +11,6 @@
 - [x] (Optional) Update frontend inline comments mentioning "Human Desktop" for coherence (incl. RobustPromptInput + test files)
 - [x] Run `yarn tsc` (type-check passes) + `yarn build` (all 21657 modules transform; only a root-owned `dist/` bind-mount permission error remains, unrelated to code)
 - [x] Re-grep `frontend/src` for "Human Desktop" — confirmed none remaining
-- [~] Visual check in inner Helix: NOT performed — the inner stack (api/frontend at :8080) would not start in this session (sandbox container crash-looping; only registry came up). Change is a pure string rename verified by `yarn tsc` (exit 0) + full Vite module transform; risk is negligible.
+- [x] Visual check in inner Helix (stack came up after waiting): registered → testorg → testproj → created a task → on the project board confirmed live DOM has **0 "Human Desktop"** and renders "Open Project Desktop" + "Resume Project Desktop" buttons and the kanban tooltip "…The Project Desktop is for exploring the codebase and testing your app." Screenshot in `screenshots/02-open-project-desktop-button.png`.
 - [x] Merge latest `origin/main` into feature branch (clean, no conflicts) and push `feature/002174-rename-human-desktop-to`
 - [x] Write PR description (`pull_request_helix.md`)
