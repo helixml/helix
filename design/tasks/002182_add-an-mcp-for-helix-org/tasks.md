@@ -28,8 +28,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 4 — Deps wiring
 
-- [ ] RED: test that `Config.Build()` constructs `SpecTasks` over a non-nil port and `DefaultDeps` defaults to `NoopSpecTasks{}` (no nil-interface panic).
-- [ ] GREEN: add `SpecTasks *spectasks.Service` to `mcptools.Deps` and build it in `Config.Build()`.
+- [x] RED: test that `Config.Build()` constructs `SpecTasks` over a non-nil port and `DefaultDeps` defaults to `NoopSpecTasks{}` (no nil-interface panic).
+- [x] GREEN: add `SpecTasks *spectasks.Service` to `mcptools.Deps` and build it in `Config.Build()`.
 
 ## Layer 5 — MCP tools
 
