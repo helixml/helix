@@ -124,6 +124,43 @@ resolves the project from that Worker's own state, so a Worker can only manage
 tasks in the project it is assigned to. Mutating/approving tools stay out of
 `BaseReadTools`; owners grant them per-Role via `create_role` / `update_role`.
 
+### 7. Spec-task event transport → topic → worker trigger
+The tools above are the Worker's *hands*; this is its *ears*. Workers must be
+triggered when spec tasks change state, reusing the existing eventing
+machinery rather than inventing a new path.
+
+**Event source (reuse the notification system).** Spec tasks already fan out
+state changes via `store.SubscribeForTasks(ctx, filter{ProjectID}, handler)` —
+the same stream the Slack project-updates trigger
+(`trigger/slack/slack_project_updates.go`) consumes. We tap this, so we do not
+re-detect state transitions.
+
+**New transport `KindSpecTask`.** Add `transport.KindSpecTask = "spectask"`
+to `org/domain/transport/` (strategy map + `kindOrder`), inbound-only,
+project-scoped. New infra package
+`api/pkg/org/infrastructure/transports/spectask/` modelled on the Slack
+transport, which is the closest precedent (a topic whose events come from a
+long-lived server-side subscription, not a per-topic external webhook).
+
+**Ingest → publish → dispatch.** Mirrors `slacktransport.Ingest`: a shared
+ingest opens a `SubscribeForTasks` subscription for each `KindSpecTask` topic's
+project; each task callback maps the `*types.SpecTask` change to a
+`streaming.Message` and calls `Publishing.Publish(orgID, topicID, "", msg)`.
+`Publishing` persists the `streaming.Event` and hands it to the
+`dispatch.Dispatcher`, which fans out **one activation per subscribed Worker**
+— the identical trigger path Slack/GitHub topics use. No new dispatch code.
+
+**Wiring.** Register the provisioner in the `inboundProvisioners` map in
+`helix_org.go` (~line 643, beside `KindGitHub`) and start the shared
+subscriber in `buildOrgServices` next to `slackIngest`. The event payload
+carries task id + new status + change summary so the activated Worker can act
+through the spec-task MCP tools.
+
+**Connecting a Worker.** A Worker subscribes to the project's spec-task topic
+through the existing `subscribe` tool / `Subscriptions` service — no new
+subscription mechanism. Owners (or a hire-time default) subscribe the Worker;
+from then on every state change triggers it.
+
 ## Tool Surface (summary)
 
 Named to read like the actions a human reviewer takes:
@@ -158,6 +195,12 @@ Named to read like the actions a human reviewer takes:
 - Edit: `api/pkg/agent/skill/project/*_tool.go` — refactor the
   create/list/get tools to call the shared authoring core
   (behaviour-preserving).
+- New (eventing): `api/pkg/org/domain/transport/spectask.go`
+  (`KindSpecTask` + strategy/`kindOrder` entry) and
+  `api/pkg/org/infrastructure/transports/spectask/` (ingest that bridges
+  `store.SubscribeForTasks` → `Publishing.Publish`).
+- Edit (eventing): `helix_org.go` — register the `KindSpecTask` provisioner in
+  `inboundProvisioners` and start the shared subscriber in `buildOrgServices`.
 
 ## Risks / Gotchas
 
@@ -181,3 +224,12 @@ Named to read like the actions a human reviewer takes:
 - **Multiple PRs:** `CreatePullRequests` opens one PR per external repo
   attached to the project (`EnsurePRsFunc`), so a single call can create
   several PRs. The tool's response must list every PR created, not assume one.
+- **Trigger loops:** a Worker triggered by a spec-task event may itself mutate
+  the task (e.g. `request_spectask_changes`), emitting another event. Ensure
+  the event payload / Worker prompt distinguishes "act" vs "no-op" states so a
+  Worker doesn't ping-pong. The dispatcher already serialises one activation
+  per Worker, but the trigger semantics must avoid self-perpetuating cycles.
+- **Subscription lifecycle:** the `SubscribeForTasks` subscription is
+  server-side and long-lived (like the Slack socket manager); it must be
+  started for existing `KindSpecTask` topics on API boot and torn down
+  cleanly, or events are silently missed.

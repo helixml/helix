@@ -49,6 +49,34 @@ generic CRUD (per design review feedback).
    merge-approval happens on GitHub, not here.)
 5. **As an org owner**, I want these spec-task tools to be opt-in per Role, so
    only Workers I grant them to can mutate or approve project tasks.
+6. **As a Worker subscribed to a project**, I want to be **triggered when a
+   spec task changes state** (e.g. spec ready for review, changes requested,
+   PR opened), so I can react without polling. The spec-task event stream
+   should arrive as an org **topic** my subscription feeds off, the same way I
+   react to Slack/GitHub topics today.
+
+## Eventing Requirement (new transport + worker trigger)
+
+Spec tasks already emit change events: `store.SubscribeForTasks(projectID, …)`
+fires a callback on every state transition, and the Slack project-updates
+trigger already consumes exactly this stream. We must surface that same stream
+into the org eventing system so Workers can be triggered off it.
+
+Acceptance criteria for the eventing path:
+
+- A new **inbound transport kind** (`transport.KindSpecTask`) exists and is
+  registered in the transport strategy map / `kindOrder`.
+- A project-scoped **topic** of that kind carries a project's spec-task
+  state-change events. Its ingest source is `store.SubscribeForTasks` — we
+  reuse the existing notification fan-out, not a new event detector.
+- Each spec-task change is published onto the topic as a `streaming.Event`
+  (via the `Publishing` service), so the existing `dispatch.Dispatcher` fans
+  it out as **one activation per subscribed Worker** — the standard trigger
+  path used by Slack/GitHub topics.
+- A Worker subscribed to the topic (existing `subscribe` tool /
+  `Subscriptions` service) is activated when an event lands, with enough
+  payload (task id, new status, what changed) to act via the spec-task MCP
+  tools.
 
 ## Acceptance Criteria
 
