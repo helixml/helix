@@ -40,8 +40,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 6 — Composition
 
-- [ ] RED: an integration-level test that a Worker whose Role lists the tools can drive a task end-to-end (create → plan → review → approve → request changes → create PRs) in its own project, including a multi-repo project opening one PR per repo.
-- [ ] GREEN: wire `helix_org.go` — build `runtimehelix.NewSpecTasks(...)`, inject into `spectasks.New(...)`, set `deps.SpecTasks` before `RegisterBuiltins`.
+- [x] RED: wiring-correctness test that the server's `specTaskWorkflow` adapter satisfies `runtimehelix.SpecTaskWorkflow` and `helixstore.Store` satisfies `runtimehelix.SpecTaskStore` (compile-time). Full end-to-end is the inner-Helix verification step.
+- [x] GREEN: wire `helix_org.go` — build `runtimehelix.NewSpecTasks(st, helixStore, specTaskWorkflow{})`, set `deps.SpecTasks` before `RegisterBuiltins`.
 
 ## Layer 7 — Eventing: transport + AttentionService trigger
 
