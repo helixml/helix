@@ -28,23 +28,37 @@ existing skill tools and the new org port call, so behaviour cannot drift.
 
 ## User Stories
 
+The tools model the actions a human project manager performs in the UI, not
+generic CRUD (per design review feedback).
+
 1. **As a Helix-Org Worker**, I want to create a spec task in my own project
-   via MCP, so I can turn work I've been asked to do into a tracked task.
+   and start its planning, so I can turn work I've been asked to do into a
+   tracked, spec-driven task.
 2. **As a Worker**, I want to list and read spec tasks in my project, so I can
    see what already exists before creating duplicates.
-3. **As a Worker**, I want to update a task (status, priority, name,
-   description) and start a task, so I can drive it through the workflow.
-4. **As an org owner**, I want these spec-task tools to be opt-in per Role, so
-   only Workers I grant them to can mutate project tasks.
+3. **As a reviewing Worker**, I want to review a generated spec, then either
+   **approve** it or **request changes**, so I can act as the human-in-the-loop
+   on the specification.
+4. **As a reviewing Worker**, I want to approve PR creation (implementation),
+   so I can move an approved task forward to a pull request.
+5. **As an org owner**, I want these spec-task tools to be opt-in per Role, so
+   only Workers I grant them to can mutate or approve project tasks.
 
 ## Acceptance Criteria
 
-- New org MCP tools exist and are registered in `RegisterBuiltins`:
-  `create_spectask`, `list_spectasks`, `get_spectask`, `update_spectask`,
-  `start_spectask`.
+- New org MCP tools exist and are registered in `RegisterBuiltins`, named for
+  the reviewer action they perform: `create_spectask`, `list_spectasks`,
+  `get_spectask`, `start_spectask_planning`, `review_spectask_spec`,
+  `approve_spectask_spec`, `request_spectask_changes`, `approve_spectask_pr`.
+- The approve/request-changes tools delegate to the same workflow code the UI
+  uses (`SpecDrivenTaskService.ApproveSpecs`, the `submitDesignReview`
+  `request_changes` path, and the `approveImplementation` logic) — they do not
+  reimplement the status machine.
 - Each tool resolves the project from the **calling Worker's** runtime state
   (`LoadState(...).ProjectID`). A Worker can only touch spec tasks in its own
   project — no `projectID` is accepted from the LLM.
+- The approver-identity question is resolved: when a Worker approves, commits
+  use a defined identity (hiring user or task creator), not a silent fallback.
 - If the calling Worker has no project assigned, tools return a clear error
   (mirroring `ErrProjectConfigUnsupported`).
 - `create_spectask` produces a task identical in shape to one created by the
