@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -74,6 +75,10 @@ type Deps struct {
 	// ProjectConfig backs get_bot_project + configure_bot_project
 	// (owner-only read/patch of a Bot's helix project config).
 	ProjectConfig runtime.ProjectConfig
+	// SpecTasks is the front-of-house application service backing the
+	// spec-task tools (create/list/get/start/review/approve/request-changes/
+	// create-PRs) scoped to the calling Worker's own project.
+	SpecTasks *spectasks.Service
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
@@ -90,15 +95,19 @@ type Deps struct {
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 // Workspace defaults to a no-op for tests.
 type Config struct {
-	Store               *store.Store
-	Queries             *queries.Queries
-	Now                 Clock
-	NewID               IDGen
-	Hub                 *wakebus.Bus
-	Dispatcher          EventDispatcher
-	Workspace           runtime.WorkspaceSync
-	HireHook            runtime.HireHook
-	ProjectConfig       runtime.ProjectConfig
+	Store         *store.Store
+	Queries       *queries.Queries
+	Now           Clock
+	NewID         IDGen
+	Hub           *wakebus.Bus
+	Dispatcher    EventDispatcher
+	Workspace     runtime.WorkspaceSync
+	HireHook      runtime.HireHook
+	ProjectConfig runtime.ProjectConfig
+	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
+	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
+	// clear "not wired" error instead of nil-derefing.
+	SpecTasks           runtime.SpecTasks
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
 }
@@ -115,9 +124,22 @@ func (c Config) Build() Deps {
 		Lifecycle:           c.lifecycleService(),
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
+		SpecTasks:           c.specTasksService(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
 	}
+}
+
+// specTasksService builds the spec-task application service over the
+// configured runtime port, defaulting to NoopSpecTasks when none is
+// wired so the tools surface ErrSpecTasksUnsupported rather than
+// nil-derefing on a typed-nil interface.
+func (c Config) specTasksService() *spectasks.Service {
+	port := c.SpecTasks
+	if port == nil {
+		port = runtime.NoopSpecTasks{}
+	}
+	return spectasks.New(port)
 }
 
 // subscriptionsService builds the subscription application service.
@@ -208,6 +230,7 @@ func DefaultDeps(s *store.Store) Config {
 		Workspace:           runtime.NoopWorkspaceSync{},
 		HireHook:            runtime.NoopHireHook{},
 		ProjectConfig:       runtime.NoopProjectConfig{},
+		SpecTasks:           runtime.NoopSpecTasks{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
@@ -245,6 +268,13 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Publish{deps: deps},
 		&DM{deps: deps},
 		&ConfigureBotProject{deps: deps},
+		// Spec-task management — a Bot managing the spec tasks in its own
+		// Helix project. Granted per-Role (not in BaseReadTools).
+		NewCreateSpecTask(deps),
+		NewStartSpecTaskPlanning(deps),
+		NewApproveSpecTaskSpec(deps),
+		NewRequestSpecTaskChanges(deps),
+		NewCreateSpecTaskPRs(deps),
 		// Reads. Each is a thin wrapper around a store call; together they
 		// replace the jsonapi GET handlers the server used to expose.
 		&ListBots{deps: deps},
@@ -252,6 +282,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetBotProject{deps: deps},
+		NewListSpecTasks(deps),
+		NewGetSpecTask(deps),
+		NewReviewSpecTaskSpec(deps),
 		&ListTopics{deps: deps},
 		&GetTopic{deps: deps},
 		&ListTopicEvents{deps: deps},

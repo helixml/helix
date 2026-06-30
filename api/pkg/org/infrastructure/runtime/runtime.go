@@ -184,3 +184,123 @@ func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, 
 // ErrProjectConfigUnsupported is what the noop impl returns. Tools
 // translate it into a friendly snackbar / MCP error.
 var ErrProjectConfigUnsupported = errors.New("project config access not wired on this runtime")
+
+// SpecTasks is the port the org MCP spec-task tools use to manage the
+// spec tasks in a Worker's own Helix project. Its verbs mirror the
+// actions a human project manager performs in the UI — create, review,
+// approve, request changes, open PRs — rather than generic CRUD.
+//
+// Implementations key by orgID + workerID; the helix runtime impl
+// resolves worker→projectID via WorkerRuntimeState internally so MCP
+// tool callers never see (or supply) a project ID — a Worker can only
+// act on tasks in the project it is assigned to. Other runtimes plug in
+// NoopSpecTasks, and the tools surface ErrSpecTasksUnsupported.
+type SpecTasks interface {
+	// Create makes a new spec task in the caller's project (status
+	// backlog). Mirrors the REST create-from-prompt path.
+	Create(ctx context.Context, orgID string, workerID orgchart.BotID, in CreateSpecTaskInput) (SpecTaskView, error)
+	// List returns the caller's project's spec tasks, optionally filtered.
+	List(ctx context.Context, orgID string, workerID orgchart.BotID, filter ListSpecTasksFilter) ([]SpecTaskView, error)
+	// Get returns one spec task; it must belong to the caller's project.
+	Get(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	// StartPlanning begins spec generation (or queues implementation
+	// when the task is in skip-planning / just-do-it mode).
+	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	// ReviewSpec returns the generated requirements/design/tasks for the
+	// caller to review before approving or requesting changes.
+	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecReviewView, error)
+	// ApproveSpec approves the generated spec, advancing the task toward
+	// implementation.
+	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	// RequestChanges sends the spec back for revision with a comment.
+	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, taskID, comment string) (SpecTaskView, error)
+	// CreatePullRequests tells the system the code is good and to open
+	// the pull request(s) — one per repo attached to the project. It
+	// does NOT merge/approve on GitHub.
+	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+}
+
+// CreateSpecTaskInput is the create shape. Only Name and Description are
+// required; the rest mirror the optional fields the Optimus skill /
+// REST create accept.
+type CreateSpecTaskInput struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Type           string   `json:"type,omitempty"`     // feature | bug | refactor (default feature)
+	Priority       string   `json:"priority,omitempty"` // low | medium | high | critical (default medium)
+	OriginalPrompt string   `json:"original_prompt,omitempty"`
+	SkipPlanning   bool     `json:"skip_planning,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+}
+
+// ListSpecTasksFilter narrows a List call. Empty fields = no filter.
+type ListSpecTasksFilter struct {
+	Status   string `json:"status,omitempty"`
+	Priority string `json:"priority,omitempty"`
+	Type     string `json:"type,omitempty"`
+}
+
+// SpecTaskView is the tool-facing projection of a spec task. Append-only
+// from the JSON wire format so existing tool clients keep working.
+type SpecTaskView struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	Status       string            `json:"status"`
+	Priority     string            `json:"priority,omitempty"`
+	Type         string            `json:"type,omitempty"`
+	BranchName   string            `json:"branch_name,omitempty"`
+	PullRequests []PullRequestView `json:"pull_requests,omitempty"`
+}
+
+// PullRequestView is one PR opened for a task's repo. CreatePullRequests
+// can produce several (one per attached repo).
+type PullRequestView struct {
+	RepositoryName string `json:"repository_name,omitempty"`
+	URL            string `json:"url,omitempty"`
+	State          string `json:"state,omitempty"`
+}
+
+// SpecReviewView is the read shape for ReviewSpec — the generated spec
+// documents plus the task's current status so the reviewer has context.
+type SpecReviewView struct {
+	TaskID       string `json:"task_id"`
+	Status       string `json:"status"`
+	Requirements string `json:"requirements,omitempty"`
+	Design       string `json:"design,omitempty"`
+	Tasks        string `json:"tasks,omitempty"`
+}
+
+// NoopSpecTasks satisfies SpecTasks without doing anything — the default
+// for tools.Deps so production paths that don't wire a real impl don't
+// crash. Every verb returns ErrSpecTasksUnsupported.
+type NoopSpecTasks struct{}
+
+func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ CreateSpecTaskInput) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
+	return nil, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecReviewView, error) {
+	return SpecReviewView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+
+// ErrSpecTasksUnsupported is what the noop impl returns. Tools translate
+// it into a friendly MCP error.
+var ErrSpecTasksUnsupported = errors.New("spec task access not wired on this runtime")

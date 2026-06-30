@@ -425,6 +425,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.ProjectConfig = projectConfig
 
+	// SpecTasks backs the spec-task MCP tools — a Worker managing the
+	// spec tasks in its own Helix project. The helix store satisfies the
+	// read/write port directly; specTaskWorkflow wraps the canonical
+	// SpecDrivenTaskService (ApproveSpecs) + the server's PR-creation
+	// method so the approve / open-PR verbs reuse the exact REST code.
+	specTasks, err := runtimehelix.NewSpecTasks(st, helixStore, specTaskWorkflow{apiServer: cfg.APIServer})
+	if err != nil {
+		return nil, fmt.Errorf("init spec tasks: %w", err)
+	}
+	deps.SpecTasks = specTasks
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
@@ -655,6 +666,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// the bots service so the base-tool union + id minting are shared with
 	// the REST/MCP update path.
 	lifecycleSvc.Bots = svc.Bots
+
+	// Wire the spec-task attention-event sink: each AttentionEvent the
+	// Helix UI shows is also published onto the project's KindSpecTask
+	// topic, so subscribed Workers are triggered via the normal dispatch
+	// path. Reuses the configured id/clock seams.
+	cfg.APIServer.attentionService.SetEventSink(&attentionTopicPublisher{
+		topics:    st.Topics,
+		publisher: svc.Publishing,
+		newID:     deps.NewID,
+		now:       deps.Now,
+	})
 
 	// Slack inbound: one shared ingest serves both ingress sources. It
 	// resolves a delivery's team_id to the owning org (a slack_workspace
