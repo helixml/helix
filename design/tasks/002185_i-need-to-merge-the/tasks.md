@@ -5,12 +5,12 @@ Work layer-by-layer (DDD), TDD where possible: update each layer's
 rippling outward. Build/test after each layer.
 
 ## 1. Domain (`api/pkg/org/domain`) [~]
-- [ ] Add `orgchart/bot.go`: `Bot` value + `NewBot` + `With*` builders (fields: ID, OrganizationID, Content, Tools, Topics, timestamps); add `BotID` alias to `ids.go`.
-- [ ] Delete `orgchart/worker.go`, `orgchart/kind.go` (and their tests); remove the `Worker` interface, `HumanWorker`/`AIWorker`, `WorkerKind`.
-- [ ] Delete `orgchart/role.go` (folded into `bot.go`); update `validate.go`/`ids.go` package docs and any `RoleID`/`WorkerID` references.
-- [ ] Repoint `reporting.go` (`ManagerID`/`ReportID` → `BotID`); keep DAG/self-report rules.
-- [ ] Update `domain/channels`, `domain/activation`, `domain/streaming` (subscription principal) to bot ids; keep `s-transcript-/s-team-/s-dm-` derivation identical.
-- [ ] Update `domain/store/store.go`: replace `Roles` + `Workers` ports with a single `Bots` port; rename `WorkerRuntimeState` → `BotRuntimeState`; retarget `ReportingLines`/`Subscriptions`/`Events` signatures to `BotID`.
+- [x] Add `orgchart/bot.go`: `Bot` value + `NewBot` + `With*` builders (fields: ID, OrganizationID, Content, Tools, Topics, timestamps); add `BotID` alias to `ids.go`.
+- [x] Delete `orgchart/worker.go`, `orgchart/kind.go` (and their tests); remove the `Worker` interface, `HumanWorker`/`AIWorker`, `WorkerKind`.
+- [x] Delete `orgchart/role.go` (folded into `bot.go`); update `validate.go`/`ids.go` package docs and any `RoleID`/`WorkerID` references.
+- [x] Repoint `reporting.go` (`ManagerID`/`ReportID` → `BotID`); keep DAG/self-report rules.
+- [x] Update `domain/channels`, `domain/activation`, `domain/streaming` (subscription principal) to bot ids; keep `s-transcript-/s-team-/s-dm-` derivation identical.
+- [x] Update `domain/store/store.go`: replace `Roles` + `Workers` ports with a single `Bots` port; rename `WorkerRuntimeState` → `BotRuntimeState`; retarget `ReportingLines`/`Subscriptions`/`Events` signatures to `BotID`.
 - [ ] Update domain `_test.go` suites; `go test ./api/pkg/org/domain/...` green.
 
 ## 2. Application (`api/pkg/org/application`)
@@ -20,9 +20,9 @@ rippling outward. Build/test after each layer.
 - [ ] Update application `_test.go`; `go test ./api/pkg/org/application/...` green.
 
 ## 3. Infrastructure (`api/pkg/org/infrastructure`)
-- [ ] Replace `gorm/role.go` + `gorm/worker.go` with `gorm/bot.go` (`org_bots`, composite PK, json tools/topics); update `gorm/reporting_line.go`, `gorm/subscription.go`, `worker_runtime.go`→`bot_runtime.go` to `bot_id`.
-- [ ] Update `gorm/gorm.go`: `orgRowTypes`, FK-install loop (reporting lines → `org_bots` ON DELETE CASCADE), and removed-table drop loop.
-- [ ] Update the `memory` store to the `Bots` port + bot-anchored maps.
+- [x] Replace `gorm/role.go` + `gorm/worker.go` with `gorm/bot.go` (`org_bots`, composite PK, json tools/topics); update `gorm/reporting_line.go`, `gorm/subscription.go`, `worker_runtime.go`→`bot_runtime.go` to `bot_id`.
+- [x] Update `gorm/gorm.go`: `orgRowTypes`, FK-install loop (reporting lines → `org_bots` ON DELETE CASCADE), and removed-table drop loop.
+- [x] Update the `memory` store to the `Bots` port + bot-anchored maps.
 - [ ] Update `infrastructure/runtime/helix` (spawner, identity→content projection, hire, project, mcp, mirror, state) to bots; keep `role.md` on-disk filename.
 - [ ] Update infra `_test.go`; `go test ./api/pkg/org/infrastructure/...` green.
 
