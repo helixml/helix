@@ -57,25 +57,37 @@ generic CRUD (per design review feedback).
 
 ## Eventing Requirement (new transport + worker trigger)
 
-Spec tasks already emit change events: `store.SubscribeForTasks(projectID, …)`
-fires a callback on every state transition, and the Slack project-updates
-trigger already consumes exactly this stream. We must surface that same stream
-into the org eventing system so Workers can be triggered off it.
+The event source is the **Helix UI notification system** — the
+`AttentionService` (`api/pkg/services/attention_service.go`), which emits an
+`AttentionEvent` whenever a spec task reaches a "human action needed" moment.
+Its typed event set is exactly the trigger set we want:
+`specs_pushed`, `pr_ready`, `spec_failed`, `implementation_failed`,
+`ci_passed`, `ci_failed`, `agent_interaction_completed`. The UI reads these via
+`/attention-events` (`GlobalNotifications.tsx`).
+
+This is **not** the same as the raw `store.SubscribeForTasks` pubsub that the
+Slack *project-updates* trigger consumes (that fires on every field change).
+`AttentionService` is a curated, idempotent layer on top; it does separately
+also post Slack thread replies, so the two surfaces partly converge there —
+but the UI's source of truth is the `AttentionEvent` set. We feed *that* set in
+as Worker triggers, so Workers react to the same curated moments a human sees.
 
 Acceptance criteria for the eventing path:
 
 - A new **inbound transport kind** (`transport.KindSpecTask`) exists and is
   registered in the transport strategy map / `kindOrder`.
-- A project-scoped **topic** of that kind carries a project's spec-task
-  state-change events. Its ingest source is `store.SubscribeForTasks` — we
-  reuse the existing notification fan-out, not a new event detector.
-- Each spec-task change is published onto the topic as a `streaming.Event`
-  (via the `Publishing` service), so the existing `dispatch.Dispatcher` fans
-  it out as **one activation per subscribed Worker** — the standard trigger
-  path used by Slack/GitHub topics.
+- A project-scoped **topic** of that kind carries a project's `AttentionEvent`
+  stream. The source is `AttentionService` — we hook its emit fan-out (beside
+  the existing UI-row + Slack side-effects), not a new event detector.
+- Each emitted `AttentionEvent` is published onto the topic as a
+  `streaming.Event` (via the `Publishing` service), so the existing
+  `dispatch.Dispatcher` fans it out as **one activation per subscribed
+  Worker** — the standard trigger path used by Slack/GitHub topics.
+- Curation/idempotency is preserved: a deduplicated AttentionEvent does not
+  produce a duplicate trigger (mirror the existing idempotency-skip).
 - A Worker subscribed to the topic (existing `subscribe` tool /
   `Subscriptions` service) is activated when an event lands, with enough
-  payload (task id, new status, what changed) to act via the spec-task MCP
+  payload (task id, event type, new status) to act via the spec-task MCP
   tools.
 
 ## Acceptance Criteria

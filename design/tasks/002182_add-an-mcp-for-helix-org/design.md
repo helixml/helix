@@ -129,31 +129,39 @@ The tools above are the Worker's *hands*; this is its *ears*. Workers must be
 triggered when spec tasks change state, reusing the existing eventing
 machinery rather than inventing a new path.
 
-**Event source (reuse the notification system).** Spec tasks already fan out
-state changes via `store.SubscribeForTasks(ctx, filter{ProjectID}, handler)` —
-the same stream the Slack project-updates trigger
-(`trigger/slack/slack_project_updates.go`) consumes. We tap this, so we do not
-re-detect state transitions.
+**Event source = the UI notification system (`AttentionService`).** The
+Helix UI's notifications are driven by `services.AttentionService`, which emits
+a curated, idempotent `AttentionEvent` on each "human action needed" moment
+(`specs_pushed`, `pr_ready`, `spec_failed`, `implementation_failed`,
+`ci_passed`, `ci_failed`, `agent_interaction_completed`). These are exactly the
+moments we want to trigger Workers on. We hook `AttentionService` rather than
+the raw `store.SubscribeForTasks` pubsub (which fires on every field change and
+is what the Slack *project-updates* trigger uses). Note `AttentionService`
+already does a fire-and-forget Slack thread reply via `notifySlack`, so we add
+the topic publish as a **third side-effect of the same emit**, alongside the
+UI-row write and the Slack reply.
 
 **New transport `KindSpecTask`.** Add `transport.KindSpecTask = "spectask"`
 to `org/domain/transport/` (strategy map + `kindOrder`), inbound-only,
 project-scoped. New infra package
 `api/pkg/org/infrastructure/transports/spectask/` modelled on the Slack
-transport, which is the closest precedent (a topic whose events come from a
-long-lived server-side subscription, not a per-topic external webhook).
+transport (a topic whose events come from a long-lived server-side source, not
+a per-topic external webhook).
 
-**Ingest → publish → dispatch.** Mirrors `slacktransport.Ingest`: a shared
-ingest opens a `SubscribeForTasks` subscription for each `KindSpecTask` topic's
-project; each task callback maps the `*types.SpecTask` change to a
-`streaming.Message` and calls `Publishing.Publish(orgID, topicID, "", msg)`.
-`Publishing` persists the `streaming.Event` and hands it to the
+**Emit → publish → dispatch.** Add a publish hook to `AttentionService` (a
+narrow `Publisher`/sink interface, optional like its Slack dependency) so each
+newly-created `AttentionEvent` is mapped to a `streaming.Message` and sent via
+`Publishing.Publish(orgID, topicID, "", msg)` to the project's `KindSpecTask`
+topic. Skip the publish on the idempotency-dedup path (same guard that already
+skips Slack). `Publishing` persists the `streaming.Event` and hands it to the
 `dispatch.Dispatcher`, which fans out **one activation per subscribed Worker**
 — the identical trigger path Slack/GitHub topics use. No new dispatch code.
 
-**Wiring.** Register the provisioner in the `inboundProvisioners` map in
-`helix_org.go` (~line 643, beside `KindGitHub`) and start the shared
-subscriber in `buildOrgServices` next to `slackIngest`. The event payload
-carries task id + new status + change summary so the activated Worker can act
+**Wiring.** Resolve `project → KindSpecTask topic` in the hook (auto-create the
+topic with the project, as Slack auto-creates its workspace topic). Inject the
+publisher into `AttentionService` in `server.go` where it is constructed
+(~line 608), pointing at the org `Publishing` service. The event payload
+carries task id + event type + new status so the activated Worker can act
 through the spec-task MCP tools.
 
 **Connecting a Worker.** A Worker subscribes to the project's spec-task topic
@@ -197,10 +205,13 @@ Named to read like the actions a human reviewer takes:
   (behaviour-preserving).
 - New (eventing): `api/pkg/org/domain/transport/spectask.go`
   (`KindSpecTask` + strategy/`kindOrder` entry) and
-  `api/pkg/org/infrastructure/transports/spectask/` (ingest that bridges
-  `store.SubscribeForTasks` → `Publishing.Publish`).
-- Edit (eventing): `helix_org.go` — register the `KindSpecTask` provisioner in
-  `inboundProvisioners` and start the shared subscriber in `buildOrgServices`.
+  `api/pkg/org/infrastructure/transports/spectask/` (maps `AttentionEvent` →
+  `streaming.Message` and resolves the project's topic).
+- Edit (eventing): `api/pkg/services/attention_service.go` — add an optional
+  `Publisher` sink, published from `EmitEvent` after the idempotency check
+  (beside `notifySlack`).
+- Edit (eventing): `server.go` — inject the org `Publishing`-backed publisher
+  into `AttentionService` at construction (~line 608).
 
 ## Risks / Gotchas
 
@@ -229,7 +240,11 @@ Named to read like the actions a human reviewer takes:
   the event payload / Worker prompt distinguishes "act" vs "no-op" states so a
   Worker doesn't ping-pong. The dispatcher already serialises one activation
   per Worker, but the trigger semantics must avoid self-perpetuating cycles.
-- **Subscription lifecycle:** the `SubscribeForTasks` subscription is
-  server-side and long-lived (like the Slack socket manager); it must be
-  started for existing `KindSpecTask` topics on API boot and torn down
-  cleanly, or events are silently missed.
+- **Source choice:** trigger off `AttentionService` (curated, idempotent,
+  typed event set), **not** the raw `store.SubscribeForTasks` pubsub. The
+  latter fires on every field write — noisy and loop-prone. AttentionService
+  already gates on idempotency and represents "needs attention" moments, which
+  is precisely the trigger semantics we want.
+- **Optional dependency wiring:** the `AttentionService` publisher must be
+  optional (nil → skip publish), matching how its Slack dependency is handled,
+  so non-org deployments and tests don't require the org `Publishing` service.
