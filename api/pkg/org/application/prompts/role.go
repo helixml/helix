@@ -44,14 +44,14 @@ func (Role) Arguments() []Argument {
 	}}
 }
 
-// RequiresTool gates the prompt on the create_role tool: a Bot whose
+// RequiresTool gates the prompt on the create_bot tool: a Bot whose
 // tools don't list it can't save the result, so surfacing the slash
 // command would only produce a dead-end at the very last step.
 // The literal (not the tools-package constant) keeps this application
 // package free of a dependency on the MCP-tool adapter package;
-// "create_role" is a stable public tool name and RegisterBuiltins fails
+// "create_bot" is a stable public tool name and RegisterBuiltins fails
 // fast at boot if the registered tool name ever drifts from it.
-func (Role) RequiresTool() tool.Name { return "create_role" }
+func (Role) RequiresTool() tool.Name { return "create_bot" }
 
 func (Role) Render(_ context.Context, args map[string]string) ([]Message, error) {
 	body := roleTemplate

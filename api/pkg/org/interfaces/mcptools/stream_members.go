@@ -59,7 +59,7 @@ func (t *TopicMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.Ra
 	}
 	members := make([]orgchart.BotID, 0, len(subs))
 	for _, sub := range subs {
-		members = append(members, orgchart.BotID(sub.WorkerID))
+		members = append(members, orgchart.BotID(sub.BotID))
 	}
 	return json.Marshal(map[string]any{
 		"topicId": string(topicID),

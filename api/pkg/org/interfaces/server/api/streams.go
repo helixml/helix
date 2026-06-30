@@ -53,7 +53,7 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 		}
 		dto.CanPublish = s.Transport.Kind != transport.KindGitHub
 		if !dto.CanPublish {
-			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
 			dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 		}
 		if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -65,9 +65,9 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, sub := range subs {
-			// Subscriptions are worker-anchored — return worker ids
+			// Subscriptions are bot-anchored — return bot ids
 			// directly. The Topics page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
 		}
 		events, err := a.deps.Queries.TopicEvents(ctx, orgID, s.ID, 50)
 		if err != nil {
@@ -93,10 +93,10 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 
 // createTopic creates a new Topic. Mirrors the MCP create_topic
 // tool — same Transport shape, same "id auto-falls-back-to-s-<uuid>"
-// behaviour. CreatedBy comes from req.As (the Worker the human is acting
+// behaviour. CreatedBy comes from req.As (the Bot the human is acting
 // as) and is optional — it is cosmetic, anchoring the topic's chart node
-// to a Worker. An operator creating a topic from the Topics tab (no
-// worker context) leaves it empty and the topic is unanchored.
+// to a Bot. An operator creating a topic from the Topics tab (no
+// bot context) leaves it empty and the topic is unanchored.
 //
 // @Summary Helix-org: create a topic
 // @Tags HelixOrg
@@ -194,7 +194,7 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	dto.CanPublish = s.Transport.Kind != transport.KindGitHub
 	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -202,9 +202,9 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Queries.TopicSubscribers(ctx, orgID, s.ID); err == nil {
 		for _, sub := range subs {
-			// Subscriptions are worker-anchored — return worker ids
+			// Subscriptions are bot-anchored — return bot ids
 			// directly. The Topics page renders them as chips.
-			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
 		}
 	}
 	if events, err := a.deps.Queries.TopicEvents(ctx, orgID, s.ID, 50); err == nil {
@@ -312,7 +312,7 @@ func (a *apiHandler) updateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	dto.CanPublish = updated.Transport.Kind != transport.KindGitHub
 	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the worker's environment"
+		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(updated.Transport); err == nil {
@@ -320,7 +320,7 @@ func (a *apiHandler) updateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	if subs, err := a.deps.Queries.TopicSubscribers(ctx, orgID, updated.ID); err == nil {
 		for _, sub := range subs {
-			dto.Subscribers = append(dto.Subscribers, string(sub.WorkerID))
+			dto.Subscribers = append(dto.Subscribers, string(sub.BotID))
 		}
 	}
 	if events, err := a.deps.Queries.TopicEvents(ctx, orgID, updated.ID, 50); err == nil {

@@ -63,11 +63,11 @@ Default tools: pick from what the org has — typically `subscribe`,
 `reports` let the bot resolve its reporting lines live — escalate up
 to a manager (`managers` + `dm`), brief down to its reports (`reports` +
 `publish` to the team topic). List both on any bot that sits in a
-hierarchy. Don't list `create_role` unless the title implies seniority.
+hierarchy. Don't list `create_bot` unless the title implies seniority.
 
 ## Step 2 — Save it. **Don't ask permission.**
 
-Immediately call **`create_role`** with:
+Immediately call **`create_bot`** with:
 - `id`: kebab-case from the title, prefixed `b-`
   (e.g. `b-marketing-director`)
 - `content`: the markdown above
@@ -79,7 +79,7 @@ Just do it. The owner can edit or delete after.
 
 ## Step 3 — Show me what landed and offer changes
 
-After `create_role` returns, post the saved markdown back to me in
+After `create_bot` returns, post the saved markdown back to me in
 a code block, then ask **one** focused question — pick the
 direction most likely to want a tweak:
 

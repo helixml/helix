@@ -31,8 +31,7 @@ var reportsSchema = mustSchema[reportsArgs]()
 type reportsArgs struct{}
 
 type reportView struct {
-	ID         orgchart.BotID  `json:"id"`
-	Role       orgchart.BotID    `json:"role"`
+	ID        orgchart.BotID    `json:"id"`
 	DMTopicID streaming.TopicID `json:"dmTopicId"`
 	// Manages is true when this report leads their own sub-team. When
 	// true, TeamTopicID is shown for context — but you delegate the
@@ -76,7 +75,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
 	for _, r := range reportIDs {
-		w, err := t.deps.Queries.GetWorker(ctx, orgID, r)
+		b, err := t.deps.Queries.GetBot(ctx, orgID, r)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				continue
@@ -88,10 +87,9 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 			return nil, fmt.Errorf("list sub-reports of %q: %w", r, err)
 		}
 		view := reportView{
-			ID:         w.ID(),
-			Role:       w.RoleID(),
+			ID:        b.ID,
 			DMTopicID: channels.DMTopicID(caller, r),
-			Manages:    len(subReports) > 0,
+			Manages:   len(subReports) > 0,
 		}
 		if view.Manages {
 			ts := channels.TeamTopicID(r)

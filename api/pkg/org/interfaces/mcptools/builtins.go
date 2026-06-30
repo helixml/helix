@@ -7,14 +7,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
-	"github.com/helixml/helix/api/pkg/org/application/roles"
-	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
-	"github.com/helixml/helix/api/pkg/org/application/workers"
+	"github.com/helixml/helix/api/pkg/org/application/topics"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/credential"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
@@ -31,20 +30,20 @@ type Clock func() time.Time
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
 
-// EventDispatcher fans a freshly-published Event out to every
-// subscribed AI Worker as a separate Spawner activation. Tools call it
-// after persisting an Event. The interface keeps tools.Deps free of a
-// dependency on the dispatch package (avoiding an import cycle: the
-// dispatcher itself imports tools).
+// EventDispatcher fans a freshly-published Event out to every subscribed
+// Bot as a separate Spawner activation. Tools call it after persisting
+// an Event. The interface keeps tools.Deps free of a dependency on the
+// dispatch package (avoiding an import cycle: the dispatcher itself
+// imports tools).
 type EventDispatcher interface {
 	Dispatch(ctx context.Context, event streaming.Event)
-	// DispatchHire fires a TriggerHire activation. activationID is the
-	// pre-allocated audit-row ID hire_worker created before calling
-	// DispatchHire — it travels through the trigger so the Spawner
-	// reuses the existing row instead of writing a sibling. Empty
-	// activationID is allowed for callers that don't pre-allocate
-	// (legacy code paths, tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
+	// DispatchHire fires a create activation. activationID is the
+	// pre-allocated audit-row ID create_bot created before calling
+	// DispatchHire — it travels through the trigger so the Spawner reuses
+	// the existing row instead of writing a sibling. Empty activationID
+	// is allowed for callers that don't pre-allocate (legacy code paths,
+	// tests that don't wire activation.Repository).
+	DispatchHire(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
 }
 
 // Deps is the MCP tool surface — the pre-built application services and
@@ -53,30 +52,32 @@ type EventDispatcher interface {
 // Queries, writes through the aggregate services. Built once by
 // Config.Build() at the composition root and handed to RegisterBuiltins.
 type Deps struct {
-	// Queries is the read facade every read tool projects from — the
-	// same one the REST read handlers use, so the two surfaces can't
-	// drift on read semantics.
-	Queries       *queries.Queries
-	Roles         *roles.Roles
-	Topics       *topics.Topics
-	Workers       *workers.Workers
+	// Queries is the read facade every read tool projects from — the same
+	// one the REST read handlers use, so the two surfaces can't drift on
+	// read semantics.
+	Queries *queries.Queries
+	// Bots is the bot-mutation service (the merge of the former roles +
+	// workers services) — update_bot delegates here; create_bot goes
+	// through Lifecycle, which itself drives Bots.
+	Bots          *bots.Bots
+	Topics        *topics.Topics
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
-	// Lifecycle owns Hire (the MCP hire_worker tool delegates here, the
-	// same service the REST POST /workers handler drives).
+	// Lifecycle owns Create (the MCP create_bot tool delegates here, the
+	// same service the REST POST /bots handler drives).
 	Lifecycle *lifecycle.Service
 
-	// Workspace is the per-runtime file-mirror port: update_role /
-	// update_identity call MirrorFile after the service persists, so the
-	// running session sees the change before the next activation.
+	// Workspace is the per-runtime file-mirror port: update_bot calls
+	// MirrorFile after the service persists, so the running session sees
+	// the change before the next activation.
 	Workspace runtime.WorkspaceSync
-	// ProjectConfig backs get_worker_project + configure_worker_project
-	// (owner-only read/patch of a Worker's helix project config).
+	// ProjectConfig backs get_bot_project + configure_bot_project
+	// (owner-only read/patch of a Bot's helix project config).
 	ProjectConfig runtime.ProjectConfig
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
-	// Hub lets the long-poll read tools (read_events, worker_log) block
-	// on new events. It is a broadcaster, not a store.
+	// Hub lets the long-poll read tools (read_events, bot_log) block on
+	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
 }
 
@@ -86,7 +87,6 @@ type Deps struct {
 // place store repositories are read — a composition convenience (the
 // same shape as server.NewFromStore), never reached from a tool.
 //
-// EnvsDir is the directory under which each Worker's Environment lives.
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 // Workspace defaults to a no-op for tests.
 type Config struct {
@@ -108,9 +108,8 @@ type Config struct {
 func (c Config) Build() Deps {
 	return Deps{
 		Queries:             c.Queries,
-		Roles:               c.rolesService(),
-		Topics:             c.topicsService(),
-		Workers:             c.workersService(),
+		Bots:                c.botsService(),
+		Topics:              c.topicsService(),
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.publishingService(),
 		Lifecycle:           c.lifecycleService(),
@@ -125,8 +124,8 @@ func (c Config) Build() Deps {
 func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 	return subscriptions.New(subscriptions.Deps{
 		Subscriptions: c.Store.Subscriptions,
-		Topics:       c.Store.Topics,
-		Workers:       c.Store.Workers,
+		Topics:        c.Store.Topics,
+		Bots:          c.Store.Bots,
 		Now:           c.Now,
 	})
 }
@@ -138,9 +137,9 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 func (c Config) publishingService() *publishing.Publishing {
 	pd := publishing.Deps{
 		Topics: c.Store.Topics,
-		Events:  c.Store.Events,
-		Now:     c.Now,
-		NewID:   c.NewID,
+		Events: c.Store.Events,
+		Now:    c.Now,
+		NewID:  c.NewID,
 	}
 	if c.Hub != nil {
 		pd.Hub = c.Hub
@@ -151,32 +150,21 @@ func (c Config) publishingService() *publishing.Publishing {
 	return publishing.New(pd)
 }
 
-// workersService builds the worker-mutation application service. UpdateRole
-// delegates to the roles service so the held-Role content rewrite preserves
-// tools/topics.
-func (c Config) workersService() *workers.Workers {
-	return workers.New(workers.Deps{
-		Workers:    c.Store.Workers,
-		Roles:      c.rolesService(),
-		Lines:      c.Store.ReportingLines,
-		Reconciler: c.Reconciler,
-	})
-}
-
-// lifecycleService builds the worker-lifecycle service (Hire) for the MCP
-// surface. The hire semantics (env dir, reporting line, topology reconcile,
-// hire dispatch) live in exactly one place — shared with the REST POST
-// /workers handler. Only the Hire-relevant fields are wired (the MCP
-// surface never fires Workers, so Helix/Mirror/Owner stay nil).
+// lifecycleService builds the bot-lifecycle service (Create/Delete) for
+// the MCP surface. The create semantics (reporting line, topology
+// reconcile, create dispatch) live in exactly one place — shared with
+// the REST POST /bots handler. The bots service is wired so the row
+// creation applies the base-read-tool union.
 func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
-		Store:             c.Store,
-		WorkerReconcilers: []lifecycle.WorkerReconciler{c.Reconciler},
-		HireHook:          c.HireHook,
-		Now:               c.Now,
-		NewID:             c.NewID,
+		Store:          c.Store,
+		Bots:           c.botsService(),
+		BotReconcilers: []lifecycle.BotReconciler{c.Reconciler},
+		HireHook:       c.HireHook,
+		Now:            c.Now,
+		NewID:          c.NewID,
 	}
-	// c.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
+	// c.Dispatcher (EventDispatcher) satisfies lifecycle.CreateDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.
 	if c.Dispatcher != nil {
 		svc.Dispatcher = c.Dispatcher
@@ -184,15 +172,17 @@ func (c Config) lifecycleService() *lifecycle.Service {
 	return svc
 }
 
-// rolesService builds the role-mutation application service, injecting
-// BaseReadTools as the universal baseline so the MCP create_role tool and
-// the REST role handlers union the same set.
-func (c Config) rolesService() *roles.Roles {
-	return roles.New(roles.Deps{
-		Roles:     c.Store.Roles,
-		Now:       c.Now,
-		NewID:     c.NewID,
-		BaseTools: BaseReadTools,
+// botsService builds the bot-mutation application service, injecting
+// BaseReadTools as the universal baseline so the MCP create_bot tool and
+// the REST bot handlers union the same set.
+func (c Config) botsService() *bots.Bots {
+	return bots.New(bots.Deps{
+		Bots:       c.Store.Bots,
+		Lines:      c.Store.ReportingLines,
+		Reconciler: c.Reconciler,
+		Now:        c.Now,
+		NewID:      c.NewID,
+		BaseTools:  BaseReadTools,
 	})
 }
 
@@ -200,16 +190,16 @@ func (c Config) rolesService() *roles.Roles {
 func (c Config) topicsService() *topics.Topics {
 	return topics.New(topics.Deps{
 		Topics: c.Store.Topics,
-		Now:     c.Now,
-		NewID:   c.NewID,
+		Now:    c.Now,
+		NewID:  c.NewID,
 	})
 }
 
 // DefaultDeps wires production defaults into a Config: real UUIDs and
 // wall-clock time, a no-op WorkspaceSync that callers replace with the
 // runtime-specific implementation, and the Queries facade + Reconciler
-// built off the store. EnvsDir, Hub, and Dispatcher are left zero —
-// composition callers wire them in before calling Build().
+// built off the store. Hub and Dispatcher are left zero — composition
+// callers wire them in before calling Build().
 func DefaultDeps(s *store.Store) Config {
 	c := Config{
 		Store:               s,
@@ -221,14 +211,14 @@ func DefaultDeps(s *store.Store) Config {
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
-		Workers:        s.Workers,
+		Bots:           s.Bots,
 		ReportingLines: s.ReportingLines,
-		Topics:        s.Topics,
+		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Now:            c.Now,
 	})
 	c.Queries = queries.New(queries.Deps{
-		Roles: s.Roles, Workers: s.Workers, ReportingLines: s.ReportingLines,
+		Bots: s.Bots, ReportingLines: s.ReportingLines,
 		Topics: s.Topics, Subscriptions: s.Subscriptions, Events: s.Events,
 		Activations: s.Activations,
 	})
@@ -244,33 +234,29 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 	}
 	builtins := []tool.Tool{
 		// Mutations.
-		&CreateRole{deps: deps},
-		&UpdateRole{deps: deps},
-		&UpdateIdentity{deps: deps},
-		&HireWorker{deps: deps},
+		&CreateBot{deps: deps},
+		&UpdateBot{deps: deps},
 		&CreateTopic{deps: deps},
 		&MintCredential{deps: deps, providers: deps.CredentialProviders},
 		&TopicMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
-		&InviteWorkers{deps: deps},
+		&InviteBots{deps: deps},
 		&Publish{deps: deps},
 		&DM{deps: deps},
-		&ConfigureWorkerProject{deps: deps},
-		// Reads. Each is a thin wrapper around a store call; together
-		// they replace the jsonapi GET handlers the server used to expose.
-		&ListRoles{deps: deps},
-		&GetRole{deps: deps},
-		&ListWorkers{deps: deps},
-		&GetWorker{deps: deps},
+		&ConfigureBotProject{deps: deps},
+		// Reads. Each is a thin wrapper around a store call; together they
+		// replace the jsonapi GET handlers the server used to expose.
+		&ListBots{deps: deps},
+		&GetBot{deps: deps},
 		&Managers{deps: deps},
 		&Reports{deps: deps},
-		&GetWorkerProject{deps: deps},
+		&GetBotProject{deps: deps},
 		&ListTopics{deps: deps},
 		&GetTopic{deps: deps},
 		&ListTopicEvents{deps: deps},
 		&ReadEvents{deps: deps},
-		&WorkerLog{deps: deps},
+		&BotLog{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {
@@ -279,7 +265,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 	}
 	// Fail fast if BaseReadTools references a name that isn't registered
 	// — a typo in defaults.go would otherwise produce silently-broken
-	// Roles whose reconciled tool list is missing one of the baseline
+	// Bots whose reconciled tool list is missing one of the baseline
 	// entries.
 	for _, name := range BaseReadTools {
 		if _, err := reg.Get(name); err != nil {

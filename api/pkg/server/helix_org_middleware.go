@@ -12,7 +12,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
-	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
@@ -109,7 +109,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// (e.g. orgs upgraded from an older server version that
 		// lacked team-stream auto-creation).
 		rec := reconcile.New(reconcile.Deps{
-			Workers:        s.orgStore.Workers,
+			Bots:           s.orgStore.Bots,
 			ReportingLines: s.orgStore.ReportingLines,
 			Topics:         s.orgStore.Topics,
 			Subscriptions:  s.orgStore.Subscriptions,
@@ -134,8 +134,8 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// `reports` (issue #2546). Best-effort like the topology
 		// reconcile above: a failure logs and continues so a transient
 		// DB error doesn't lock users out of the org.
-		rolesSvc := roles.New(roles.Deps{Roles: s.orgStore.Roles, BaseTools: mcptools.BaseReadTools})
-		if err := rolesSvc.Reconcile(ctx, orgID); err != nil {
+		botsSvc := bots.New(bots.Deps{Bots: s.orgStore.Bots, BaseTools: mcptools.BaseReadTools})
+		if err := botsSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 

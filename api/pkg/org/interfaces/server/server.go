@@ -1,11 +1,13 @@
-// Package server exposes the HTTP surface: the per-Worker MCP endpoint
-// (/orgs/{org}/workers/{id}/mcp — every Worker is its own MCP server,
-// scoped to the tools in its Role) and the inbound webhook endpoint
-// (/webhooks/{org}/{topicID}). Neither handler touches a store
-// repository: caller/role resolution and topic reads go through the
-// queries read facade, and inbound events go through the publishing
-// service (append → notify → dispatch). The store stays in the
-// composition root, behind those services.
+// Package server exposes the HTTP surface: the per-Bot MCP endpoint
+// (/orgs/{org}/workers/{id}/mcp — every Bot is its own MCP server,
+// scoped to the tools in its Bot.Tools) and the inbound webhook
+// endpoint (/webhooks/{org}/{topicID}). The URL still uses the
+// `/workers/` path segment for backward compatibility with the helix
+// MCP backend; the {id} is a Bot ID. Neither handler touches a store
+// repository: caller resolution and topic reads go through the queries
+// read facade, and inbound events go through the publishing service
+// (append → notify → dispatch). The store stays in the composition
+// root, behind those services.
 package server
 
 import (
@@ -51,10 +53,9 @@ func New(q *queries.Queries, pub *publishing.Publishing, registry *mcptools.Regi
 // the corresponding step).
 func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wakebus.Bus, dispatcher publishing.Dispatcher, logger *slog.Logger) *Server {
 	q := queries.New(queries.Deps{
-		Roles:          s.Roles,
-		Workers:        s.Workers,
+		Bots:           s.Bots,
 		ReportingLines: s.ReportingLines,
-		Topics:        s.Topics,
+		Topics:         s.Topics,
 		Subscriptions:  s.Subscriptions,
 		Events:         s.Events,
 		Activations:    s.Activations,
@@ -74,7 +75,7 @@ func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wake
 	return New(q, publishing.New(pd), registry, logger)
 }
 
-// WithPrompts attaches a prompts.Registry so the per-worker MCP server
+// WithPrompts attaches a prompts.Registry so the per-bot MCP server
 // will surface MCP prompts (slash commands) alongside tools. Returns
 // the same Server so the call can be chained off New. Passing nil is
 // equivalent to no prompts registered — the MCP server just answers
@@ -93,15 +94,16 @@ type Route struct {
 }
 
 // Handler returns an http.Handler with all built-in routes registered
-// (MCP per-worker, /webhooks/{topicID}) plus any extras passed in by
+// (MCP per-bot, /webhooks/{topicID}) plus any extras passed in by
 // the wiring layer. The request-logging middleware wraps the lot.
 func (s *Server) Handler(extras ...Route) http.Handler {
 	mux := http.NewServeMux()
-	// Per-org MCP per Worker. The {org} segment is required: composite
-	// (id, org_id) PKs mean the worker handle ("w-owner") repeats
-	// across tenants. The MCP handler reads orgID from
-	// OrgIDFromContext, so this route wraps the inner handler in a
-	// middleware that lifts {org} into the request context.
+	// Per-org MCP per Bot. The {org} segment is required: composite
+	// (id, org_id) PKs mean the bot handle repeats across tenants. The
+	// MCP handler reads orgID from OrgIDFromContext, so this route wraps
+	// the inner handler in a middleware that lifts {org} into the
+	// request context. The path keeps the `/workers/` segment for
+	// compatibility with the helix MCP backend rewrite; {id} is a Bot ID.
 	mux.Handle("/orgs/{org}/workers/{id}/mcp", withMCPOrgScope(s.mcpHandler()))
 	mux.Handle("POST /webhooks/{org}/{topicID}", s.webhookHandler())
 	for _, r := range extras {
@@ -111,7 +113,7 @@ func (s *Server) Handler(extras ...Route) http.Handler {
 }
 
 // withMCPOrgScope lifts the {org} URL segment into the context via
-// WithOrgID so the per-Worker MCP handler can scope its store lookups
+// WithOrgID so the per-Bot MCP handler can scope its store lookups
 // to the right helix tenant. Used by the standalone helix-org server
 // only — the helix-embedded MCP backend (mcp_backend_helix_org.go in
 // the helix package) does its own resolution because it needs to

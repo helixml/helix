@@ -14,39 +14,38 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// WorkerLog reads a single AI Worker's activation transcript — assistant
-// text, tool calls, tool results — newest first. It's a shortcut over
-// the underlying primitives: resolves the deterministic activation
-// Topic (s-transcript-<workerID>), auto-subscribes the caller (so
-// the agent doesn't have to chain subscribe + read_events), then
-// returns the events scoped to that one Worker.
+// BotLog reads a single Bot's activation transcript — assistant text,
+// tool calls, tool results — newest first. It's a shortcut over the
+// underlying primitives: resolves the deterministic activation Topic
+// (s-transcript-<botID>), auto-subscribes the caller (so the agent
+// doesn't have to chain subscribe + read_events), then returns the
+// events scoped to that one Bot.
 //
 // Same pagination/long-poll semantics as read_events: pass since=<eventId>
 // to skip what you've already seen, wait=<seconds> (0..60) to block for
 // new events.
-type WorkerLog struct {
+type BotLog struct {
 	deps Deps
 }
 
-const WorkerLogName tool.Name = "worker_log"
+const BotLogName tool.Name = "bot_log"
 
-var workerLogSchema = mustSchema[workerLogArgs]()
+var botLogSchema = mustSchema[botLogArgs]()
 
-func (t *WorkerLog) Name() tool.Name                 { return WorkerLogName }
-func (t *WorkerLog) InputSchema() *jsonschema.Schema { return workerLogSchema }
-func (t *WorkerLog) Description() string {
-	return "Read a Worker's activation log — assistant text, tool calls, tool results — " +
+func (t *BotLog) Name() tool.Name                 { return BotLogName }
+func (t *BotLog) InputSchema() *jsonschema.Schema { return botLogSchema }
+func (t *BotLog) Description() string {
+	return "Read a Bot's activation log — assistant text, tool calls, tool results — " +
 		"newest first. Reach for this whenever the user wants to watch/audit/tail/" +
-		"observe what a named Worker is doing or did. Auto-subscribes the caller to " +
-		"the Worker's transcript on first call; subsequent calls reuse the " +
+		"observe what a named Bot is doing or did. Auto-subscribes the caller to " +
+		"the Bot's transcript on first call; subsequent calls reuse the " +
 		"subscription. Same since/wait/limit semantics as read_events but scoped to " +
-		"one Worker. Pass activationId to narrow further to a single activation's " +
-		"transcript (the time window between that activation's start and end). " +
-		"AI Workers only — Human Workers don't have activation logs."
+		"one Bot. Pass activationId to narrow further to a single activation's " +
+		"transcript (the time window between that activation's start and end)."
 }
 
-type workerLogArgs struct {
-	WorkerID     string `json:"workerId"`
+type botLogArgs struct {
+	BotID        string `json:"botId"`
 	Limit        int    `json:"limit,omitempty"`
 	Since        string `json:"since,omitempty"`
 	Wait         int    `json:"wait,omitempty"`
@@ -55,8 +54,8 @@ type workerLogArgs struct {
 
 // UnmarshalJSON tolerates string-encoded ints for limit and wait —
 // same LLM-quirk fix as read_events. See decodeFlexInt comment.
-func (a *workerLogArgs) UnmarshalJSON(data []byte) error {
-	type plain workerLogArgs
+func (a *botLogArgs) UnmarshalJSON(data []byte) error {
+	type plain botLogArgs
 	type tolerant struct {
 		*plain
 		Limit json.RawMessage `json:"limit,omitempty"`
@@ -79,27 +78,22 @@ func (a *workerLogArgs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	var args workerLogArgs
+func (t *BotLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args botLogArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.WorkerID == "" {
-		return nil, fmt.Errorf("workerId is required")
+	if args.BotID == "" {
+		return nil, fmt.Errorf("botId is required")
 	}
 
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
-		return nil, fmt.Errorf("worker_log: caller has no OrgID")
+		return nil, fmt.Errorf("bot_log: caller has no OrgID")
 	}
-	target := orgchart.BotID(args.WorkerID)
-	wkr, err := t.deps.Queries.GetWorker(ctx, orgID, target)
-	if err != nil {
-		return nil, fmt.Errorf("worker %q: %w", target, err)
-	}
-	if wkr.Kind() != orgchart.WorkerKindAI {
-		return nil, fmt.Errorf("worker %q is %s; only AI workers have activation logs",
-			target, wkr.Kind())
+	target := orgchart.BotID(args.BotID)
+	if _, err := t.deps.Queries.GetBot(ctx, orgID, target); err != nil {
+		return nil, fmt.Errorf("bot %q: %w", target, err)
 	}
 
 	topicID := activation.TranscriptID(target)
@@ -118,7 +112,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 			return nil, fmt.Errorf("activation %q: %w", args.ActivationID, err)
 		}
 		if a.WorkerID != target {
-			return nil, fmt.Errorf("activation %q belongs to worker %q, not %q", args.ActivationID, a.WorkerID, target)
+			return nil, fmt.Errorf("activation %q belongs to bot %q, not %q", args.ActivationID, a.WorkerID, target)
 		}
 		w := struct {
 			started time.Time
@@ -135,10 +129,10 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 
 	// Auto-subscribe the caller via the subscriptions service (validates
 	// the caller + topic exist, idempotent get-or-create). After this,
-	// plain read_events also includes this Worker's transcript.
+	// plain read_events also includes this Bot's transcript.
 	caller := inv.Caller.ID()
 	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, caller, topicID); err != nil {
-		return nil, fmt.Errorf("subscribe worker %q to %q: %w", caller, topicID, err)
+		return nil, fmt.Errorf("subscribe bot %q to %q: %w", caller, topicID, err)
 	}
 
 	limit := args.Limit
@@ -194,9 +188,9 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 // filterToActivationWindow keeps only events whose CreatedAt falls
 // inside the activation's [startedAt, endedAt] window. When open is
 // true, the upper bound is "still running" — no clamp; events after
-// startedAt are accepted. Bounds are inclusive on both sides because
-// the activation's start/exit marker events are written at exactly
-// those timestamps and are part of the activation's transcript.
+// startedAt are accepted. Bounds are inclusive on both sides because the
+// activation's start/exit marker events are written at exactly those
+// timestamps and are part of the activation's transcript.
 func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.Time, open bool) []streaming.Event {
 	out := events[:0]
 	for _, e := range events {
@@ -212,9 +206,9 @@ func filterToActivationWindow(events []streaming.Event, startedAt, endedAt time.
 }
 
 // fresh returns events on the transcript newer than `since`
-// (exclusive), newest-first, up to `limit`. Empty `since` means
-// "return everything up to limit".
-func (t *WorkerLog) fresh(ctx context.Context, orgID string, topicID streaming.TopicID, limit int, since streaming.EventID) ([]streaming.Event, error) {
+// (exclusive), newest-first, up to `limit`. Empty `since` means "return
+// everything up to limit".
+func (t *BotLog) fresh(ctx context.Context, orgID string, topicID streaming.TopicID, limit int, since streaming.EventID) ([]streaming.Event, error) {
 	events, err := t.deps.Queries.TopicEvents(ctx, orgID, topicID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events on %q: %w", topicID, err)

@@ -14,10 +14,19 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 )
 
+// botCaller adapts an orgchart.Bot's identity to the tool.Caller
+// interface. The Bot aggregate is a plain struct (no ID()/OrganizationID()
+// methods), so this tiny value carries the two fields a tool invocation
+// needs to attribute the caller.
+type botCaller struct{ id, orgID string }
+
+func (c botCaller) ID() string             { return c.id }
+func (c botCaller) OrganizationID() string { return c.orgID }
+
 // mcpHandler returns an http.Handler that speaks MCP over the Streamable
-// HTTP transport. It is mounted at /workers/{id}/mcp; the worker ID in
+// HTTP transport. It is mounted at /workers/{id}/mcp; the bot ID in
 // the URL identifies the caller, and the server exposes only the tools
-// listed in that worker's Role.
+// listed in that bot's Tools.
 //
 // Stateless mode is used: each request stands on its own. The server has
 // no need to push notifications to clients, so session state buys us
@@ -32,8 +41,8 @@ func (s *Server) mcpHandler() http.Handler {
 	// tools (and anything they call into via the in-proc Helix
 	// adapter) can use runtimehelix.BearerFromContext to discover
 	// the caller's identity. In the embedded SaaS this is the picking user's
-	// own api_key; tools like hire_worker persist it onto the new
-	// Worker so subsequent activations run as the same user. In
+	// own api_key; tools like create_bot persist it onto the new
+	// Bot so subsequent activations run as the same user. In
 	// standalone helix-org the request carries no Authorization
 	// header and this is a no-op.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +54,7 @@ func (s *Server) mcpHandler() http.Handler {
 		}
 		// Embedding hosts (e.g. the SaaS alpha) forward the calling
 		// user's stable identifier in this header so tools like
-		// hire_worker can persist it onto a Worker's runtime state
+		// create_bot can persist it onto a Bot's runtime state
 		// — letting the Spawner mint a fresh per-user api_key at
 		// activation time instead of stashing a token at rest.
 		if uid := strings.TrimSpace(r.Header.Get("X-Helix-Org-User-Id")); uid != "" {
@@ -58,34 +67,28 @@ func (s *Server) mcpHandler() http.Handler {
 	})
 }
 
-// buildMCPServer assembles a fresh *mcp.Server tailored to the worker in
-// the request URL. The advertised tools are derived live from the
-// Worker's Role.Tools: changing the Role updates every Worker filling
-// it. There is no per-Worker tool record — the Role's tool list is the
-// whole story.
+// buildMCPServer assembles a fresh *mcp.Server tailored to the bot in
+// the request URL. The advertised tools are derived live from the Bot's
+// Tools: editing a Bot's Tools changes its capability on the next MCP
+// request. There is no separate role record — the Bot IS its own job
+// description, and Bot.Tools is the whole story.
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
-	workerID := orgchart.BotID(r.PathValue("id"))
-	if workerID == "" {
+	botID := orgchart.BotID(r.PathValue("id"))
+	if botID == "" {
 		return nil
 	}
 
 	ctx := r.Context()
 	orgID := OrgIDFromContext(ctx)
 	if orgID == "" {
-		s.logger.Info("mcp.missing_org_scope", "worker", workerID)
+		s.logger.Info("mcp.missing_org_scope", "bot", botID)
 		return nil
 	}
-	worker, err := s.queries.GetWorker(ctx, orgID, workerID)
+	bot, err := s.queries.GetBot(ctx, orgID, botID)
 	if err != nil {
-		s.logger.Info("mcp.unknown_worker", "worker", workerID, "err", err.Error())
-		return nil
-	}
-
-	role, err := s.queries.GetRole(ctx, orgID, worker.RoleID())
-	if err != nil {
-		s.logger.Info("mcp.role_lookup_failed", "worker", workerID, "role", worker.RoleID(), "err", err.Error())
+		s.logger.Info("mcp.unknown_bot", "bot", botID, "err", err.Error())
 		return nil
 	}
 
@@ -94,37 +97,38 @@ func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
 		Version: "0.1.0",
 	}, nil)
 
-	roleTools := make(map[tool.Name]bool, len(role.Tools))
-	for _, toolName := range role.Tools {
-		roleTools[toolName] = true
+	caller := botCaller{id: string(bot.ID), orgID: bot.OrganizationID}
+	botTools := make(map[tool.Name]bool, len(bot.Tools))
+	for _, toolName := range bot.Tools {
+		botTools[toolName] = true
 		t, err := s.registry.Get(toolName)
 		if err != nil {
-			// Role lists a tool the server doesn't know about. Skip
-			// silently; removing it is the owner's job (update_role).
-			s.logger.Info("mcp.unknown_tool_in_role", "worker", workerID, "role", role.ID, "tool", toolName)
+			// Bot lists a tool the server doesn't know about. Skip
+			// silently; removing it is the owner's job (PATCH /bots/{id}).
+			s.logger.Info("mcp.unknown_tool_on_bot", "bot", botID, "tool", toolName)
 			continue
 		}
-		registerToolForWorker(srv, t, worker, s.logger.With("worker", workerID, "tool", toolName))
+		registerToolForBot(srv, t, caller, s.logger.With("bot", botID, "tool", toolName))
 	}
 
 	if s.prompts != nil {
 		for _, p := range s.prompts.All() {
-			if req := p.RequiresTool(); req != "" && !roleTools[req] {
+			if req := p.RequiresTool(); req != "" && !botTools[req] {
 				continue
 			}
-			registerPromptForWorker(srv, p, s.logger.With("worker", workerID, "prompt", p.Name()))
+			registerPromptForBot(srv, p, s.logger.With("bot", botID, "prompt", p.Name()))
 		}
 	}
 
 	return srv
 }
 
-// registerToolForWorker binds a single tool onto the per-Worker MCP
-// server. The handler closes over the caller so each invocation
-// dispatches with the right Invocation without re-querying the store.
-// Authorisation is by virtue of the tool appearing in the Worker's
-// Role.Tools; there is no per-Worker tool record to consult at call time.
-func registerToolForWorker(srv *mcp.Server, t tool.Tool, caller orgchart.Worker, logger interface {
+// registerToolForBot binds a single tool onto the per-Bot MCP server.
+// The handler closes over the caller so each invocation dispatches with
+// the right Invocation without re-querying the store. Authorisation is
+// by virtue of the tool appearing in the Bot's Tools; there is no
+// separate tool record to consult at call time.
+func registerToolForBot(srv *mcp.Server, t tool.Tool, caller tool.Caller, logger interface {
 	Info(msg string, args ...any)
 }) {
 	srv.AddTool(&mcp.Tool{
@@ -152,14 +156,14 @@ func registerToolForWorker(srv *mcp.Server, t tool.Tool, caller orgchart.Worker,
 	})
 }
 
-// registerPromptForWorker binds a single prompt onto the per-worker
-// MCP server. The handler renders the prompt's template into seed
-// messages; the LLM consumes those and drives the conversation,
-// usually ending in a tool call (create_role, update_identity, …).
+// registerPromptForBot binds a single prompt onto the per-bot MCP
+// server. The handler renders the prompt's template into seed messages;
+// the LLM consumes those and drives the conversation, usually ending in
+// a tool call (create_bot, create_topic, …).
 //
 // Visibility is decided in buildMCPServer; by the time we get here the
-// prompt is already in the worker's allowed set.
-func registerPromptForWorker(srv *mcp.Server, p prompts.Prompt, logger interface {
+// prompt is already in the bot's allowed set.
+func registerPromptForBot(srv *mcp.Server, p prompts.Prompt, logger interface {
 	Info(msg string, args ...any)
 }) {
 	args := p.Arguments()
