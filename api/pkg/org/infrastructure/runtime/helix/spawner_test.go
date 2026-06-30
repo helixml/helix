@@ -331,6 +331,48 @@ func TestSpawnerFollowUpResumesPersistedSession(t *testing.T) {
 	}
 }
 
+// TestSpawnerPreservesContextWhenBotOptsIn pins the opt-out: a Bot with
+// PreserveContext=true must NOT have its session wiped on re-activation,
+// so its conversation accumulates across triggers. The follow-up still
+// targets the persisted session (no churn), it just isn't cleared first.
+func TestSpawnerPreservesContextWhenBotOptsIn(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	// Flip the bot to preserve context across triggers.
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithPreserveContext(true)); err != nil {
+		t.Fatalf("update bot: %v", err)
+	}
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj_test", "app_test", "repo_test"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_existing",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-1"}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if got := atomic.LoadInt32(&fc.clearCalls); got != 0 {
+		t.Errorf("ClearSession called %d times; a PreserveContext bot must keep its context across triggers", got)
+	}
+	if fc.lastSendSID != "ses_existing" {
+		t.Errorf("SendMessage sessionID = %q (want ses_existing) — follow-up must still target the persisted session", fc.lastSendSID)
+	}
+	if got := atomic.LoadInt32(&fc.startCalls); got != 0 {
+		t.Errorf("StartSession called %d times; a preserve-context follow-up must reuse the warm session", got)
+	}
+}
+
 // TestSpawnerClearsSessionOnReactivationOnly drives two activations of
 // the same Worker through the real Spawner closure and pins the
 // context-hygiene contract end to end: the first activation opens a
