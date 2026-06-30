@@ -39,3 +39,9 @@ not the OS appearance toggle. No OS/portal appearance path is touched.
 - Harden Zed's settings watcher to survive atomic-rename inode replacement (watch
   parent dir / re-arm) so manual external edits by atomic-saving editors are also
   covered. Upstream candidate.
+
+## Screenshots
+Live helix-in-helix verification — same session, after repeated light/dark toggles via the Helix UI button. Zed re-applies the theme every time (the inode stays stable so its inotify watch survives):
+
+![Zed dark (Ayu Dark)](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002183_when-the-user-changes/screenshots/01-zed-dark.png)
+![Zed light (One Light)](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002183_when-the-user-changes/screenshots/02-zed-light.png)
