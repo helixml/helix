@@ -14,7 +14,7 @@ required. The broader Zed-watcher hardening is recorded as a follow-up.
 - [x] Build: `./stack build-ubuntu` (helix-ubuntu:551562, pushed to local registry).
 - [x] End-to-end verify in inner Helix (new session ran helix-ubuntu:551562). Clicked the Helix UI light/dark button repeatedly (dark→light→dark→light). EVERY toggle: settings.json inode stayed 1111958328 (fix working) and the theme value changed correctly (Ayu Dark↔One Light). Zed visibly re-applied each time — screenshots `01-zed-dark.png` (Ayu Dark) and `02-zed-light.png` (One Light) captured after several back-and-forth toggles.
 - [x] Confirm a user-picked custom Zed theme is still preserved (not clobbered): the `preserve_custom` branch in `effectiveTheme`/`computeEffectiveTheme` is unchanged by this fix and covered by `TestComputeEffectiveTheme` (passing).
-- [~] Merge latest `origin/main` into the feature branch; push `feature/002183-fix-zed-theme-not`.
+- [x] Merge latest `origin/main` into the feature branch (already up to date); pushed `feature/002183-fix-zed-theme-not`.
 - [x] Write per-repo PR description (`pull_request_helix.md`).
 
 ## Follow-up (not in this PR)
