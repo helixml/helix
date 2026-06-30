@@ -77,7 +77,7 @@ func New(deps Deps) *Recorder {
 // segments with the originating activation. A nil events repo / clock /
 // id-source or a blank body short-circuits to ("", nil) — useful in
 // tests that don't wire the full org-graph dependencies.
-func (r *Recorder) Record(ctx context.Context, orgID string, workerID orgchart.WorkerID, body string) (streaming.EventID, error) {
+func (r *Recorder) Record(ctx context.Context, orgID string, workerID orgchart.BotID, body string) (streaming.EventID, error) {
 	if r == nil || r.events == nil || r.newID == nil || r.now == nil || strings.TrimSpace(body) == "" {
 		return "", nil
 	}

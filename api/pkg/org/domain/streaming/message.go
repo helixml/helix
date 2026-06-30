@@ -11,7 +11,7 @@ import (
 //
 // Identity convention:
 //   - From / To carry transport-native identifiers verbatim.
-//     orgchart.WorkerID ("w-alice") when the originator is a known
+//     orgchart.BotID ("w-alice") when the originator is a known
 //     internal Worker; transport-native otherwise
 //     ("alice@example.com", "U0123ABCD", "+15551234567", "thermo-3").
 //   - Empty From means "no human or named originator" — typical for

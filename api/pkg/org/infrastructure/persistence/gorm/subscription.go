@@ -48,7 +48,7 @@ func newSubscriptionsRepo(db *gorm.DB) *subscriptionsRepo {
 	return &subscriptionsRepo{Repository: NewRepository[streaming.Subscription, subscriptionRow](db, subscriptionMapper{}, "subscription")}
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) error {
 	return r.Repository.Delete(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),
@@ -56,7 +56,7 @@ func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID o
 	)
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return r.FindOne(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),
@@ -64,7 +64,7 @@ func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID org
 	)
 }
 
-func (r *subscriptionsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
+func (r *subscriptionsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.BotID) ([]streaming.Subscription, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("worker_id", string(workerID)),

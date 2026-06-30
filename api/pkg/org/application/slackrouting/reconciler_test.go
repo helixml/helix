@@ -96,7 +96,7 @@ func TestReconcileAddsRoutePerAIWorkerAndSubscribes(t *testing.T) {
 			t.Errorf("%s route predicate = %q, want %q", wid, o.Match, want)
 		}
 		// Worker subscribed to the route's output topic.
-		if _, err := s.Subscriptions.Find(ctx, org, orgchart.WorkerID(wid), o.TopicID); err != nil {
+		if _, err := s.Subscriptions.Find(ctx, org, orgchart.BotID(wid), o.TopicID); err != nil {
 			t.Errorf("%s not subscribed to %s: %v", wid, o.TopicID, err)
 		}
 	}

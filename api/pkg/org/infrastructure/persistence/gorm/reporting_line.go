@@ -51,7 +51,7 @@ func (r *reportingLinesRepo) Add(ctx context.Context, line orgchart.ReportingLin
 	return nil
 }
 
-func (r *reportingLinesRepo) Remove(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
+func (r *reportingLinesRepo) Remove(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error {
 	res := r.db.WithContext(ctx).
 		Where("org_id = ? AND manager_id = ? AND report_id = ?", orgID, string(managerID), string(reportID)).
 		Delete(&reportingLineRow{})
@@ -76,14 +76,14 @@ func (r *reportingLinesRepo) List(ctx context.Context, orgID string) ([]orgchart
 	for _, row := range rows {
 		out = append(out, orgchart.ReportingLine{
 			OrgID:     row.OrgID,
-			ManagerID: orgchart.WorkerID(row.ManagerID),
-			ReportID:  orgchart.WorkerID(row.ReportID),
+			ManagerID: orgchart.BotID(row.ManagerID),
+			ReportID:  orgchart.BotID(row.ReportID),
 		})
 	}
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListManagers(ctx context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (r *reportingLinesRepo) ListManagers(ctx context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error) {
 	var rows []reportingLineRow
 	if err := r.db.WithContext(ctx).
 		Where("org_id = ? AND report_id = ?", orgID, string(reportID)).
@@ -91,14 +91,14 @@ func (r *reportingLinesRepo) ListManagers(ctx context.Context, orgID string, rep
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list managers: %w", err)
 	}
-	out := make([]orgchart.WorkerID, 0, len(rows))
+	out := make([]orgchart.BotID, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, orgchart.WorkerID(row.ManagerID))
+		out = append(out, orgchart.BotID(row.ManagerID))
 	}
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (r *reportingLinesRepo) ListReports(ctx context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error) {
 	var rows []reportingLineRow
 	if err := r.db.WithContext(ctx).
 		Where("org_id = ? AND manager_id = ?", orgID, string(managerID)).
@@ -106,9 +106,9 @@ func (r *reportingLinesRepo) ListReports(ctx context.Context, orgID string, mana
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
-	out := make([]orgchart.WorkerID, 0, len(rows))
+	out := make([]orgchart.BotID, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, orgchart.WorkerID(row.ReportID))
+		out = append(out, orgchart.BotID(row.ReportID))
 	}
 	return out, nil
 }

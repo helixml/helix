@@ -69,9 +69,9 @@ type CreateParams struct {
 // aggregate. The caller's tools are unioned with the base read tools
 // (caller order preserved, baseline appended, deduped).
 func (r *Roles) Create(ctx context.Context, orgID string, p CreateParams) (orgchart.Role, error) {
-	id := orgchart.RoleID(strings.TrimSpace(p.ID))
+	id := orgchart.BotID(strings.TrimSpace(p.ID))
 	if id == "" {
-		id = orgchart.RoleID("r-" + r.newID())
+		id = orgchart.BotID("r-" + r.newID())
 	}
 	role, err := orgchart.NewRole(id, p.Content, MergeTools(p.Tools, r.baseTools), p.Topics, r.now(), orgID)
 	if err != nil {
@@ -95,7 +95,7 @@ type UpdateParams struct {
 // Update reads the existing Role, applies the patch via the domain's
 // With* builders, bumps UpdatedAt, and persists. Returns
 // store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
-func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.RoleID, p UpdateParams) (orgchart.Role, error) {
+func (r *Roles) Update(ctx context.Context, orgID string, id orgchart.BotID, p UpdateParams) (orgchart.Role, error) {
 	existing, err := r.roles.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Role{}, err

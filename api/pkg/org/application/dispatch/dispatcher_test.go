@@ -102,7 +102,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
-	WorkerID orgchart.WorkerID
+	WorkerID orgchart.BotID
 	Triggers []activation.Trigger
 }
 
@@ -113,7 +113,7 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.BotID, triggers []activation.Trigger) error {
 		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
 		return nil
 	})
@@ -145,11 +145,11 @@ func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.D
 
 // seedAIWorker creates an AIWorker holding a shared per-test role and
 // persists it.
-func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
+func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.BotID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
-	roleID := orgchart.RoleID("r-test")
+	roleID := orgchart.BotID("r-test")
 	if _, err := s.Roles.Get(ctx, "org-test", roleID); err != nil {
 		role, err := orgchart.NewRole(roleID, "# Role: Test\nTest role.", nil, nil, now, "org-test")
 		if err != nil {
@@ -169,7 +169,7 @@ func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.WorkerID) {
 }
 
 // seedSubscription persists a Worker→Topic subscription.
-func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.WorkerID, topicID streaming.TopicID) {
+func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.BotID, topicID streaming.TopicID) {
 	t.Helper()
 	if _, err := s.Workers.Get(context.Background(), "org-test", workerID); err != nil {
 		t.Fatalf("get worker %q for subscription: %v", workerID, err)
@@ -597,7 +597,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.BotID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)

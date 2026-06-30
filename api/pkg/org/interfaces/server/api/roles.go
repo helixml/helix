@@ -77,7 +77,7 @@ func (a *apiHandler) getRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.RoleID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("role id is required"))
 		return
@@ -108,7 +108,7 @@ func (a *apiHandler) updateRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.RoleID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("role id is required"))
 		return
@@ -162,7 +162,7 @@ func (a *apiHandler) deleteRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.RoleID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("role id is required"))
 		return

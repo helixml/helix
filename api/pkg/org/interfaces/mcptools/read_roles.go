@@ -13,7 +13,7 @@ import (
 )
 
 type roleView struct {
-	ID        orgchart.RoleID `json:"id"`
+	ID        orgchart.BotID `json:"id"`
 	Content   string          `json:"content"`
 	CreatedAt time.Time       `json:"createdAt"`
 	UpdatedAt time.Time       `json:"updatedAt"`
@@ -88,7 +88,7 @@ func (t *GetRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if orgID == "" {
 		return nil, fmt.Errorf("get_role: caller has no OrgID")
 	}
-	got, err := t.deps.Queries.GetRole(ctx, orgID, orgchart.RoleID(args.ID))
+	got, err := t.deps.Queries.GetRole(ctx, orgID, orgchart.BotID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get role %q: %w", args.ID, err)
 	}

@@ -68,7 +68,7 @@ func (t *GetWorkerProject) Invoke(ctx context.Context, inv tool.Invocation) (jso
 		// than a nil-deref.
 		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	snap, err := cfg.GetWorkerProjectConfig(ctx, orgID, orgchart.WorkerID(args.WorkerID))
+	snap, err := cfg.GetWorkerProjectConfig(ctx, orgID, orgchart.BotID(args.WorkerID))
 	if err != nil {
 		return nil, fmt.Errorf("get worker project: %w", err)
 	}

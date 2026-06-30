@@ -42,16 +42,14 @@ const (
 	TriggerManual TriggerKind = "manual"
 )
 
-// Trigger is the per-activation context the runtime gives to the
-// AI Worker's process. The mandate (entry-point file contents) is
-// the static Role; Trigger is what just happened that woke this
-// Worker up.
+// Trigger is the per-activation context the runtime gives to the Bot's
+// process. The mandate (entry-point file contents) is the static Bot
+// content; Trigger is what just happened that woke this Bot up.
 //
 // Fields are populated according to Kind:
 //   - TriggerHire: Kind only (plus optional ActivationID below).
-//   - TriggerEvent: Kind, EventID, TopicID, Source, SourceKind,
-//     Message, CreatedAt all populated by the dispatcher at fan-out
-//     time.
+//   - TriggerEvent: Kind, EventID, TopicID, Source, Message, CreatedAt
+//     all populated by the dispatcher at fan-out time.
 type Trigger struct {
 	Kind TriggerKind
 
@@ -66,19 +64,11 @@ type Trigger struct {
 	// Event fields, set when Kind == TriggerEvent.
 	EventID  streaming.EventID
 	TopicID streaming.TopicID
-	Source   orgchart.WorkerID
-
-	// SourceKind is the orgchart.WorkerKind ("human" / "ai") of Source —
-	// looked up by the dispatcher at fan-out time and rendered into
-	// the activation prompt so the recipient can apply the org-wide
-	// policy of de-prioritising AI-origin events.
-	// Empty when the event has no internal Source (system-emitted,
-	// or inbound from an external transport with no resolved Worker).
-	SourceKind orgchart.WorkerKind
+	Source   orgchart.BotID
 
 	// Message is the canonical envelope parsed from the event body.
 	// Every populated field (From, Subject, ThreadID, MessageID,
-	// Extra, …) is rendered into the activation prompt so the Worker
+	// Extra, …) is rendered into the activation prompt so the Bot
 	// can branch on transport-shaped metadata directly, without a
 	// separate read_events round-trip.
 	Message streaming.Message

@@ -153,7 +153,7 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 		}
 		// Re-set WorkerID directly because the constructor enforces non-empty;
 		// keeping the parameterised id avoids per-test boilerplate.
-		a.WorkerID = orgchart.WorkerID(w)
+		a.WorkerID = orgchart.BotID(w)
 		a.TranscriptID = activation.TranscriptID(a.WorkerID)
 		if err := s.Activations.Create(ctx, a); err != nil {
 			t.Fatalf("create: %v", err)

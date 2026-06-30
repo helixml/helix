@@ -34,7 +34,7 @@ const TypeSlackThreadParticipant Type = "slack.thread_participant"
 //
 //   - Subject is the entity the event is keyed and queried on (for a Slack
 //     thread-participant fact: the thread root id).
-//   - Worker is the orgchart.WorkerID the decision concerns (the
+//   - Worker is the orgchart.BotID the decision concerns (the
 //     participant). Stored as a plain string — the aggregate does not import
 //     orgchart, mirroring streaming.Topic.CreatedBy.
 //   - Source is what made the decision (the router's processor id).

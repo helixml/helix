@@ -109,7 +109,7 @@ func (d *Dispatcher) RegisterProcessorRunner(r ProcessorRunner) {
 // case.
 //
 // No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
+func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID) {
 	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerHire,
 		ActivationID: activationID,
@@ -129,7 +129,7 @@ func (d *Dispatcher) DispatchHire(_ context.Context, orgID string, workerID orgc
 // goroutine. activationID semantics match DispatchHire — callers that
 // pre-allocate the audit row pass its ID through; empty means the
 // Spawner mints its own. No-op if the Spawner is nil.
-func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
+func (d *Dispatcher) DispatchManual(_ context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID) {
 	d.queue.Enqueue(orgID, workerID, activation.Trigger{
 		Kind:         activation.TriggerManual,
 		ActivationID: activationID,
@@ -182,7 +182,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 	// fired worker silently dispatches to nobody (the row is dropped
 	// on fire — see lifecycle.Fire).
 	for _, sub := range subs {
-		workerID := orgchart.WorkerID(sub.WorkerID)
+		workerID := orgchart.BotID(sub.WorkerID)
 		if string(workerID) == string(e.Source) {
 			continue // do not deliver the event back to its publisher
 		}

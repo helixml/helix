@@ -57,7 +57,7 @@ func (t *UpdateRole) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	if orgID == "" {
 		return nil, fmt.Errorf("update_role: caller has no OrgID")
 	}
-	roleID := orgchart.RoleID(args.RoleID)
+	roleID := orgchart.BotID(args.RoleID)
 
 	// Content-only patch: the service preserves Tools and Topics (the
 	// old inline path here rebuilt the Role with only Content and

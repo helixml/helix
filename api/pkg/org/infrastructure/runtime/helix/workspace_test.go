@@ -38,7 +38,7 @@ func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, pa
 
 func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 
-func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.WorkerID) {
+func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()

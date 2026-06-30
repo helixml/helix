@@ -40,7 +40,7 @@ func AttachHelixOrgMCP(
 	svc ProjectService,
 	appID string,
 	helixOrgURL string,
-	workerID orgchart.WorkerID,
+	workerID orgchart.BotID,
 	fallbackBearer string,
 ) error {
 	if svc == nil {

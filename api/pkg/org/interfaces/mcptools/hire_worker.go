@@ -94,8 +94,8 @@ func (t *HireWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 	}
 	res, err := t.deps.Lifecycle.Hire(ctx, orgID, lifecycle.HireParams{
 		ID:              args.ID,
-		RoleID:          orgchart.RoleID(args.RoleID),
-		ParentID:        orgchart.WorkerID(args.ParentID),
+		RoleID:          orgchart.BotID(args.RoleID),
+		ParentID:        orgchart.BotID(args.ParentID),
 		Kind:            args.Kind,
 		IdentityContent: args.IdentityContent,
 	})

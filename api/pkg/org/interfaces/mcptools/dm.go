@@ -71,7 +71,7 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 		return nil, fmt.Errorf("dm: caller has no OrgID")
 	}
 	sender := inv.Caller.ID()
-	recipient := orgchart.WorkerID(args.ToWorkerID)
+	recipient := orgchart.BotID(args.ToWorkerID)
 	if sender == recipient {
 		return nil, fmt.Errorf("cannot DM yourself")
 	}

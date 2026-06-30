@@ -44,7 +44,7 @@ type EventDispatcher interface {
 	// reuses the existing row instead of writing a sibling. Empty
 	// activationID is allowed for callers that don't pre-allocate
 	// (legacy code paths, tests that don't wire activation.Repository).
-	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
 }
 
 // Deps is the MCP tool surface — the pre-built application services and

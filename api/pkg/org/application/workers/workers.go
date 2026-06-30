@@ -75,7 +75,7 @@ func New(deps Deps) *Workers {
 // WithIdentityContent builder and persists it, returning the updated
 // Worker. Returns store.ErrNotFound (wrapped) when the (orgID, id) row
 // is absent, including cross-tenant id guesses.
-func (s *Workers) UpdateIdentity(ctx context.Context, orgID string, id orgchart.WorkerID, content string) (orgchart.Worker, error) {
+func (s *Workers) UpdateIdentity(ctx context.Context, orgID string, id orgchart.BotID, content string) (orgchart.Worker, error) {
 	existing, err := s.workers.Get(ctx, orgID, id)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (s *Workers) UpdateIdentity(ctx context.Context, orgID string, id orgchart.
 // worker's role" maps to a content update on the held Role — delegated
 // to the roles service so Tools/Topics are preserved. Returns
 // store.ErrNotFound when the Worker (or its Role) is absent.
-func (s *Workers) UpdateRole(ctx context.Context, orgID string, id orgchart.WorkerID, content string) (orgchart.Role, error) {
+func (s *Workers) UpdateRole(ctx context.Context, orgID string, id orgchart.BotID, content string) (orgchart.Role, error) {
 	wk, err := s.workers.Get(ctx, orgID, id)
 	if err != nil {
 		return orgchart.Role{}, err
@@ -110,7 +110,7 @@ func (s *Workers) UpdateRole(ctx context.Context, orgID string, id orgchart.Work
 // re-adding an existing line is a no-op (the repo's Add is idempotent).
 // Returns ErrReportingCycle (→409), ErrReportingLinesUnavailable (→501),
 // or store.ErrNotFound (→404) for the adapter to map.
-func (s *Workers) AddParent(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
+func (s *Workers) AddParent(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error {
 	if s.lines == nil {
 		return ErrReportingLinesUnavailable
 	}
@@ -139,17 +139,17 @@ func (s *Workers) AddParent(ctx context.Context, orgID string, reportID, manager
 
 // guardCycle walks up the DAG from managerID; if reportID is reachable,
 // adding (manager → report) would close a loop.
-func (s *Workers) guardCycle(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
+func (s *Workers) guardCycle(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error {
 	lines, err := s.lines.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("list reporting lines: %w", err)
 	}
-	managersOf := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	managersOf := map[orgchart.BotID][]orgchart.BotID{}
 	for _, l := range lines {
 		managersOf[l.ReportID] = append(managersOf[l.ReportID], l.ManagerID)
 	}
-	seen := map[orgchart.WorkerID]bool{}
-	queue := []orgchart.WorkerID{managerID}
+	seen := map[orgchart.BotID]bool{}
+	queue := []orgchart.BotID{managerID}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -168,7 +168,7 @@ func (s *Workers) guardCycle(ctx context.Context, orgID string, reportID, manage
 // RemoveParent drops the (reportID → managerID) reporting line, then
 // reconciles the Topics the dropped edge implies. Returns
 // ErrReportingLinesUnavailable (→501) or store.ErrNotFound (→404).
-func (s *Workers) RemoveParent(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
+func (s *Workers) RemoveParent(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error {
 	if s.lines == nil {
 		return ErrReportingLinesUnavailable
 	}

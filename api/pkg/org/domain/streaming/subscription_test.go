@@ -14,7 +14,7 @@ func TestNewSubscription(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name    string
-		worker  orgchart.WorkerID
+		worker  orgchart.BotID
 		topic  streaming.TopicID
 		ts      time.Time
 		wantErr bool

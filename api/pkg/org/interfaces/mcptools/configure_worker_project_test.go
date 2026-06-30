@@ -33,13 +33,13 @@ import (
 // calls. Every test below threads exactly the responses it needs.
 type fakeProjectConfig struct {
 	mu     sync.Mutex
-	get    func(orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error)
-	patch  func(orgID string, workerID orgchart.WorkerID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error)
+	get    func(orgID string, workerID orgchart.BotID) (runtime.ProjectConfigSnapshot, error)
+	patch  func(orgID string, workerID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error)
 	getN   int
 	patchN int
 }
 
-func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error) {
+func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID string, workerID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
 	f.mu.Lock()
 	f.getN++
 	f.mu.Unlock()
@@ -49,7 +49,7 @@ func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID stri
 	return f.get(orgID, workerID)
 }
 
-func (f *fakeProjectConfig) UpdateWorkerProjectConfig(_ context.Context, orgID string, workerID orgchart.WorkerID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+func (f *fakeProjectConfig) UpdateWorkerProjectConfig(_ context.Context, orgID string, workerID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 	f.mu.Lock()
 	f.patchN++
 	f.mu.Unlock()
@@ -91,7 +91,7 @@ func (fakeOwnerCaller) OrganizationID() string { return "org-test" }
 func TestGetWorkerProject_HappyPath(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		get: func(orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error) {
+		get: func(orgID string, workerID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
 			if orgID != "org-test" {
 				t.Errorf("orgID = %q, want org-test", orgID)
 			}
@@ -172,7 +172,7 @@ func TestConfigureWorkerProject_PatchStartupScript(t *testing.T) {
 	t.Parallel()
 	var gotPatch runtime.ProjectConfigPatch
 	fc := &fakeProjectConfig{
-		patch: func(orgID string, workerID orgchart.WorkerID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(orgID string, workerID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			if orgID != "org-test" {
 				t.Errorf("orgID = %q", orgID)
 			}
@@ -234,7 +234,7 @@ func TestConfigureWorkerProject_EmptyStringStartupScriptAccepted(t *testing.T) {
 	t.Parallel()
 	var gotPatch runtime.ProjectConfigPatch
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.WorkerID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			gotPatch = p
 			return runtime.ProjectConfigSnapshot{StartupScript: ""}, nil
 		},
@@ -263,7 +263,7 @@ func TestConfigureWorkerProject_PropagatesRuntimeErrors(t *testing.T) {
 	t.Parallel()
 	boom := errors.New("helix project update returned 500")
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.WorkerID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.BotID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			return runtime.ProjectConfigSnapshot{}, boom
 		},
 	}
@@ -282,7 +282,7 @@ func TestConfigureWorkerProject_PropagatesRuntimeErrors(t *testing.T) {
 func TestConfigureWorkerProject_NoFieldsDoesNotCallPort(t *testing.T) {
 	t.Parallel()
 	fc := &fakeProjectConfig{
-		patch: func(_ string, _ orgchart.WorkerID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+		patch: func(_ string, _ orgchart.BotID, _ runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 			t.Fatal("port should NOT be called on empty patch")
 			return runtime.ProjectConfigSnapshot{}, nil
 		},

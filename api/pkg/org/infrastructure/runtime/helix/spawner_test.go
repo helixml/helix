@@ -127,7 +127,7 @@ func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) 
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
 }
 
-func newHelixTestStore(t *testing.T) (*store.Store, orgchart.WorkerID) {
+func newHelixTestStore(t *testing.T) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()

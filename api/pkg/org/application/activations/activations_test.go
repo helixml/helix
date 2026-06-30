@@ -15,13 +15,13 @@ import (
 // public Activate command rather than a standalone helper.
 type fakeEnsurer struct{}
 
-func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.WorkerID) (string, string, string, error) {
+func (fakeEnsurer) Ensure(_ context.Context, _ string, _ orgchart.BotID) (string, string, string, error) {
 	return "prj-1", "app-1", "repo-1", nil
 }
 
 type fakeDispatcher struct{ gotID activation.ID }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.WorkerID, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, _ string, _ orgchart.BotID, activationID activation.ID) {
 	f.gotID = activationID
 }
 

@@ -9,7 +9,7 @@ import (
 )
 
 // TestEventSourcePrincipalLiftsWorkerSource pins B6.3 on the Event
-// side: today Event.Source is a orgchart.WorkerID typed string (the
+// side: today Event.Source is a orgchart.BotID typed string (the
 // publishing Worker, or empty for system-emitted). SourcePrincipal
 // lifts that into a typed streaming.Principal so downstream code
 // (dispatcher, worker_log, /ui/topics) can read a Principal without
@@ -33,7 +33,7 @@ func TestEventSourcePrincipalLiftsWorkerSource(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e, err := streaming.NewEvent("e-1", "s-x", orgchart.WorkerID(tc.source), "body", time.Now(), "org-test")
+			e, err := streaming.NewEvent("e-1", "s-x", orgchart.BotID(tc.source), "body", time.Now(), "org-test")
 			if err != nil {
 				t.Fatalf("new event: %v", err)
 			}

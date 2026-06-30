@@ -73,7 +73,7 @@ func TestDM_DeliversOverExistingChannel(t *testing.T) {
 		t.Fatalf("events = %d, want 1", len(events))
 	}
 	// Both parties are subscribers (provisioned by topology, not by dm).
-	for _, id := range []orgchart.WorkerID{"w-mgr", "w-rep"} {
+	for _, id := range []orgchart.BotID{"w-mgr", "w-rep"} {
 		if _, err := deps.Store.Subscriptions.Find(ctx, "org-test", id, channels.DMTopicID("w-rep", "w-mgr")); err != nil {
 			t.Fatalf("%s not subscribed to DM channel: %v", id, err)
 		}

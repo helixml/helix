@@ -36,7 +36,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	}
 	// One List call builds the report → managers index so each worker's
 	// parent_ids don't cost a query.
-	managersByReport := map[orgchart.WorkerID][]string{}
+	managersByReport := map[orgchart.BotID][]string{}
 	if a.deps.Queries.ReportingLinesWired() {
 		lines, err := a.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
@@ -50,7 +50,7 @@ func (a *apiHandler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	// Resolve each worker's tools via Role.Tools. Cache by role so a
 	// org with many workers in the same role only pays for the
 	// lookup once.
-	roleCache := map[orgchart.RoleID][]string{}
+	roleCache := map[orgchart.BotID][]string{}
 	out := make([]WorkerDTO, 0, len(workers))
 	for _, wk := range workers {
 		rid := wk.RoleID()
@@ -121,8 +121,8 @@ func (a *apiHandler) hireWorker(w http.ResponseWriter, r *http.Request) {
 	// (when present) is read off ctx by Hire's hire-hook.
 	res, err := a.deps.Lifecycle.Hire(ctx, orgID, lifecycle.HireParams{
 		ID:              strings.TrimSpace(req.ID),
-		RoleID:          orgchart.RoleID(strings.TrimSpace(req.RoleID)),
-		ParentID:        orgchart.WorkerID(strings.TrimSpace(req.ParentID)),
+		RoleID:          orgchart.BotID(strings.TrimSpace(req.RoleID)),
+		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
 		Kind:            orgchart.WorkerKind(strings.TrimSpace(req.Kind)),
 		IdentityContent: req.IdentityContent,
 	})
@@ -156,7 +156,7 @@ func (a *apiHandler) fireWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -189,7 +189,7 @@ func workerDTO(wk orgchart.Worker, tools []string, parentIDs []string) WorkerDTO
 // to, as strings, for embedding in a WorkerDTO. Returns nil on any
 // store error — the reporting graph is best-effort context, never a
 // reason to fail the whole worker read.
-func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.WorkerID) []string {
+func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.BotID) []string {
 	if !a.deps.Queries.ReportingLinesWired() {
 		return nil
 	}
@@ -221,7 +221,7 @@ func (a *apiHandler) getWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -295,7 +295,7 @@ func (a *apiHandler) ensureWorkerChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -346,7 +346,7 @@ func (a *apiHandler) activateWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -402,7 +402,7 @@ func (a *apiHandler) restartWorkerAgent(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -475,7 +475,7 @@ func (a *apiHandler) updateWorkerIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -523,7 +523,7 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -533,7 +533,7 @@ func (a *apiHandler) addWorkerParent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	managerID := orgchart.WorkerID(strings.TrimSpace(req.ParentID))
+	managerID := orgchart.BotID(strings.TrimSpace(req.ParentID))
 	if managerID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("parent_id is required"))
 		return
@@ -573,8 +573,8 @@ func (a *apiHandler) removeWorkerParent(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
-	managerID := orgchart.WorkerID(r.PathValue("parent_id"))
+	id := orgchart.BotID(r.PathValue("id"))
+	managerID := orgchart.BotID(r.PathValue("parent_id"))
 	if id == "" || managerID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id and parent_id are required"))
 		return
@@ -617,7 +617,7 @@ func (a *apiHandler) updateWorkerRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id := orgchart.WorkerID(r.PathValue("id"))
+	id := orgchart.BotID(r.PathValue("id"))
 	if id == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return

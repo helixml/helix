@@ -1,7 +1,7 @@
 // Package tool owns the Tool concept: an MCP tool the gateway exposes
-// to a calling Worker. Which tools a Worker sees is derived live from
-// their Role.Tools list; there is no per-Worker permission record. The
-// package carries the Name typed identifier (used both in Role.Tools and
+// to a calling Bot. Which tools a Bot sees is derived live from its
+// Bot.Tools list; there is no separate per-Bot permission record. The
+// package carries the Name typed identifier (used both in Bot.Tools and
 // as the MCP tool name advertised to LLM callers), the Tool interface
 // every implementation satisfies, and the Invocation envelope passed to
 // Tool.Invoke.
@@ -10,12 +10,12 @@
 // DDD restructure.
 //
 // Cycle break: this package intentionally does NOT import
-// api/pkg/org/domain/orgchart. Invocation.Caller is typed as the
-// local Worker interface (a minimal subset of the orgchart.Worker
-// surface — ID and OrganizationID) so orgchart.Worker satisfies it
-// structurally without orgchart having to import tool. This pattern
-// keeps the dependency DAG one-way (orgchart -> tool, never back),
-// which matters because orgchart.Role.Tools is []tool.Name.
+// api/pkg/org/domain/orgchart. Invocation.Caller is typed as the local
+// Caller interface (a minimal subset — ID and OrganizationID) so a thin
+// adapter over orgchart.Bot satisfies it structurally without orgchart
+// having to import tool. This pattern keeps the dependency DAG one-way
+// (orgchart -> tool, never back), which matters because orgchart.Bot.Tools
+// is []tool.Name.
 package tool
 
 import (
@@ -25,17 +25,16 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Name is the stable identifier for a Tool — used both in Role.Tools
+// Name is the stable identifier for a Tool — used both in Bot.Tools
 // and as the MCP tool name advertised to LLM callers. Convention
-// is snake_case (e.g. `hire_worker`, `read_events`, `publish`).
+// is snake_case (e.g. `create_bot`, `read_events`, `publish`).
 type Name = string
 
-// Worker is the minimal Caller surface a Tool depends on. The
-// orgchart.Worker interface satisfies this implicitly (its ID method
-// returns orgchart.WorkerID, which is a type alias for string, so
-// `ID() string` matches); defining it locally here keeps the tool
-// package free of an orgchart import.
-type Worker interface {
+// Caller is the minimal caller surface a Tool depends on. A thin
+// adapter over orgchart.Bot (exposing the bot's ID and OrganizationID)
+// satisfies this; defining it locally here keeps the tool package free
+// of an orgchart import.
+type Caller interface {
 	ID() string
 	OrganizationID() string
 }
@@ -44,7 +43,7 @@ type Worker interface {
 // pipeline populates Caller from the MCP request; tools parse Args
 // according to their own input schema.
 type Invocation struct {
-	Caller Worker
+	Caller Caller
 	Args   json.RawMessage
 }
 
@@ -54,7 +53,7 @@ type Invocation struct {
 // owner-defined tools, and any future MCP-shaped tools all implement
 // this interface.
 type Tool interface {
-	// Name is the stable identifier used in Role.Tools and MCP tool calls.
+	// Name is the stable identifier used in Bot.Tools and MCP tool calls.
 	Name() Name
 
 	// Description is a human-readable summary the LLM sees when
@@ -66,7 +65,7 @@ type Tool interface {
 	InputSchema() *jsonschema.Schema
 
 	// Invoke executes the tool. The tool appearing in the caller's
-	// Role.Tools is the entire authorisation — the tool does not
+	// Bot.Tools is the entire authorisation — the tool does not
 	// re-check the caller's scope because there is no scope.
 	Invoke(ctx context.Context, inv Invocation) (json.RawMessage, error)
 }

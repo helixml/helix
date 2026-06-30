@@ -390,7 +390,7 @@ func seedOwnerPosition(t *testing.T, st *store.Store, ctx context.Context) {
 
 func mustCreateAIWorker(t *testing.T, st *store.Store, ctx context.Context, id, role, identity string) {
 	t.Helper()
-	w, err := orgchart.NewAIWorker(orgchart.WorkerID(id), orgchart.RoleID(role), identity, "org-test")
+	w, err := orgchart.NewAIWorker(orgchart.BotID(id), orgchart.BotID(role), identity, "org-test")
 	if err != nil {
 		t.Fatalf("NewAIWorker: %v", err)
 	}

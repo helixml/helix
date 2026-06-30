@@ -70,7 +70,7 @@ func (roleMapper) ToDomain(row roleRow) (orgchart.Role, error) {
 		}
 	}
 	return orgchart.Role{
-		ID:             orgchart.RoleID(row.ID),
+		ID:             orgchart.BotID(row.ID),
 		OrganizationID: row.OrgID,
 		Content:        row.Content,
 		Tools:          tools,
@@ -88,7 +88,7 @@ func newRolesRepo(db *gorm.DB) *rolesRepo {
 	return &rolesRepo{Repository: NewRepository[orgchart.Role, roleRow](db, roleMapper{}, "role")}
 }
 
-func (r *rolesRepo) Get(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error) {
+func (r *rolesRepo) Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Role, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
@@ -127,6 +127,6 @@ func (r *rolesRepo) Update(ctx context.Context, ro orgchart.Role) error {
 
 // Delete removes one Role row. Cascading to positions + workers is
 // the lifecycle service's responsibility, not the store layer.
-func (r *rolesRepo) Delete(ctx context.Context, orgID string, id orgchart.RoleID) error {
+func (r *rolesRepo) Delete(ctx context.Context, orgID string, id orgchart.BotID) error {
 	return r.Repository.Delete(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }

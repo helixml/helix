@@ -76,7 +76,7 @@ func newWorkerRuntimeStateRepo(db *gorm.DB) *workerRuntimeStateRepo {
 	}
 }
 
-func (r *workerRuntimeStateRepo) Get(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) (map[string]string, error) {
+func (r *workerRuntimeStateRepo) Get(ctx context.Context, orgID string, workerID orgchart.BotID, backend string) (map[string]string, error) {
 	if orgID == "" || workerID == "" || backend == "" {
 		return nil, errors.New("worker_runtime_state: orgID, workerID, and backend are required")
 	}
@@ -95,7 +95,7 @@ func (r *workerRuntimeStateRepo) Get(ctx context.Context, orgID string, workerID
 	return out, nil
 }
 
-func (r *workerRuntimeStateRepo) Set(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend, key, value string) error {
+func (r *workerRuntimeStateRepo) Set(ctx context.Context, orgID string, workerID orgchart.BotID, backend, key, value string) error {
 	return r.SetMany(ctx, orgID, workerID, backend, map[string]string{key: value})
 }
 
@@ -103,7 +103,7 @@ func (r *workerRuntimeStateRepo) Set(ctx context.Context, orgID string, workerID
 // raw gorm path here (rather than going through Repository.Save in
 // a loop) avoids N round-trips on hot calls — see
 // activation-time multi-key writes in the runtime/helix adapter.
-func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string, kv map[string]string) error {
+func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, orgID string, workerID orgchart.BotID, backend string, kv map[string]string) error {
 	if orgID == "" || workerID == "" || backend == "" {
 		return errors.New("worker_runtime_state: orgID, workerID, and backend are required")
 	}
@@ -135,7 +135,7 @@ func (r *workerRuntimeStateRepo) SetMany(ctx context.Context, orgID string, work
 	return nil
 }
 
-func (r *workerRuntimeStateRepo) Clear(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) error {
+func (r *workerRuntimeStateRepo) Clear(ctx context.Context, orgID string, workerID orgchart.BotID, backend string) error {
 	if orgID == "" || workerID == "" || backend == "" {
 		return errors.New("worker_runtime_state: orgID, workerID, and backend are required")
 	}

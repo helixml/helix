@@ -114,7 +114,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
 	}
 	// The Workers the router should route to: AI Workers only (only they
 	// activate). Keyed by id for diffing against ManagedFor.
-	aiWorkers := map[orgchart.WorkerID]struct{}{}
+	aiWorkers := map[orgchart.BotID]struct{}{}
 	for _, w := range workers {
 		if w.Kind() == orgchart.WorkerKindAI {
 			aiWorkers[w.ID()] = struct{}{}
@@ -130,11 +130,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string) error {
 }
 
 // reconcileRouter brings one router's managed routes to match aiWorkers.
-func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, aiWorkers map[orgchart.WorkerID]struct{}) error {
-	managed := map[orgchart.WorkerID]processor.Output{} // ManagedFor → route
+func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router processor.Processor, aiWorkers map[orgchart.BotID]struct{}) error {
+	managed := map[orgchart.BotID]processor.Output{} // ManagedFor → route
 	for _, o := range router.Outputs {
 		if o.ManagedFor != "" {
-			managed[orgchart.WorkerID(o.ManagedFor)] = o
+			managed[orgchart.BotID(o.ManagedFor)] = o
 		}
 	}
 
@@ -177,7 +177,7 @@ func (r *Reconciler) reconcileRouter(ctx context.Context, orgID string, router p
 // ensureSubscribed idempotently subscribes the Worker to the route's output
 // Topic, so a managed route always delivers even if the subscription was
 // dropped out-of-band.
-func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) error {
 	if r.subs == nil {
 		return nil
 	}
@@ -202,6 +202,6 @@ func (r *Reconciler) ensureSubscribed(ctx context.Context, orgID string, workerI
 // (`w-jokebot`, not `jokebot`). The id is the Worker's canonical name and is
 // what the org refers to it by; matching the bare slug would over-trigger on
 // common words. `mentions`'s `\b…\b` handles the internal hyphen fine.
-func matchPredicate(workerID orgchart.WorkerID) string {
+func matchPredicate(workerID orgchart.BotID) string {
 	return fmt.Sprintf(`{{ mentions %q .Message.body }}`, string(workerID))
 }

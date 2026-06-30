@@ -1,6 +1,6 @@
 // Package store defines the persistence contracts for the org-graph
-// subsystem (workers, positions, roles, topics, events,
-// subscriptions, activations, environments, configs). The concrete
+// subsystem (bots, topics, events,
+// subscriptions, activations, configs). The concrete
 // implementation lives in the sibling gorm sub-package — dialect-
 // portable GORM, wired against helix's Postgres connection.
 package store
@@ -35,41 +35,29 @@ var ErrConflict = errors.New("already exists")
 // tenants. ErrNotFound is returned when the (orgID, id) pair doesn't
 // exist — even if the bare id exists under another org.
 
-// Roles persists job descriptions.
-type Roles interface {
-	Create(ctx context.Context, role orgchart.Role) error
-	Get(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Role, error)
-	Update(ctx context.Context, role orgchart.Role) error
-	// Delete removes the role row. Caller is expected to have torn
-	// down dependent workers; the lifecycle service in
-	// application/lifecycle owns the cascade.
-	Delete(ctx context.Context, orgID string, id orgchart.RoleID) error
-}
-
-// Workers persists humans and AIs. Update mutates fields the system
-// allows changing in place — currently just IdentityContent (set at
-// hire by the caller, replaced wholesale by update_identity). Identity
-// is the per-Worker description; the system holds it in the domain
-// rather than on disk so it survives any change in env layout.
+// Bots persists the org's bots — the single org-chart aggregate (the
+// merge of the former Role and Worker). A Bot carries its own content
+// and tool list (its capability) and is the live participant in the
+// reporting graph. Update replaces the mutable fields (content, tools,
+// topics) wholesale.
 //
-// Delete removes the worker row and structurally cascades the rows
-// that reference it: its subscriptions (worker-anchored) and every
-// reporting line where it is the manager or the report. See the gorm
-// and memory implementations.
-type Workers interface {
-	Create(ctx context.Context, worker orgchart.Worker) error
-	Get(ctx context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error)
-	List(ctx context.Context, orgID string) ([]orgchart.Worker, error)
-	Update(ctx context.Context, worker orgchart.Worker) error
-	Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error
+// Delete removes the bot row and structurally cascades the rows that
+// reference it: its subscriptions (bot-anchored) and every reporting
+// line where it is the manager or the report. See the gorm and memory
+// implementations.
+type Bots interface {
+	Create(ctx context.Context, bot orgchart.Bot) error
+	Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error)
+	List(ctx context.Context, orgID string) ([]orgchart.Bot, error)
+	Update(ctx context.Context, bot orgchart.Bot) error
+	Delete(ctx context.Context, orgID string, id orgchart.BotID) error
 }
 
 // ReportingLines persists the org's many-to-many reporting graph:
-// each row says ReportID reports to ManagerID. Worker-anchored on both
-// ends — deleting either endpoint Worker drops the line (the gorm
-// store enforces this with ON DELETE CASCADE foreign keys; the memory
-// store mirrors it). The graph is a DAG; cycle prevention lives in the
+// each row says ReportID reports to ManagerID. Bot-anchored on both
+// ends — deleting either endpoint Bot drops the line (the gorm store
+// enforces this with ON DELETE CASCADE foreign keys; the memory store
+// mirrors it). The graph is a DAG; cycle prevention lives in the
 // add-parent handler, not here.
 type ReportingLines interface {
 	// Add inserts a (manager, report) line. Idempotent: re-adding an
@@ -77,29 +65,29 @@ type ReportingLines interface {
 	Add(ctx context.Context, line orgchart.ReportingLine) error
 	// Remove drops the (report → manager) line. Returns ErrNotFound
 	// when no such line exists.
-	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.WorkerID) error
+	Remove(ctx context.Context, orgID string, reportID, managerID orgchart.BotID) error
 	// List returns every reporting line in the org.
 	List(ctx context.Context, orgID string) ([]orgchart.ReportingLine, error)
 	// ListManagers returns the managers the given report reports to.
-	ListManagers(ctx context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error)
+	ListManagers(ctx context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error)
 	// ListReports returns the direct reports of the given manager.
-	ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error)
+	ListReports(ctx context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error)
 }
 
-// WorkerRuntimeState is a sidecar key/value store keyed by
-// (orgID, workerID, backend). Runtime backends (the Helix integration
-// today, future local containers, etc.) write whatever per-Worker
+// BotRuntimeState is a sidecar key/value store keyed by
+// (orgID, botID, backend). Runtime backends (the Helix integration
+// today, future local containers, etc.) write whatever per-Bot
 // pointers they need — Helix uses keys like "session_id", "project_id",
 // "agent_app_id", "repo_id" — without forcing the domain to grow a
 // field every time.
 //
 // The "backend" component is a free-form string the runtime owns
 // (e.g. "helix"); helix-org core never reads or writes it.
-type WorkerRuntimeState interface {
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) (map[string]string, error)
-	Set(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend, key, value string) error
-	SetMany(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string, kv map[string]string) error
-	Clear(ctx context.Context, orgID string, workerID orgchart.WorkerID, backend string) error
+type BotRuntimeState interface {
+	Get(ctx context.Context, orgID string, botID orgchart.BotID, backend string) (map[string]string, error)
+	Set(ctx context.Context, orgID string, botID orgchart.BotID, backend, key, value string) error
+	SetMany(ctx context.Context, orgID string, botID orgchart.BotID, backend string, kv map[string]string) error
+	Clear(ctx context.Context, orgID string, botID orgchart.BotID, backend string) error
 }
 
 // Topics persists named event sources. Topics are created explicitly
@@ -130,18 +118,16 @@ type Topics interface {
 	Delete(ctx context.Context, orgID string, id streaming.TopicID) error
 }
 
-// Subscriptions persists (Worker, Topic) links. The triple
-// (orgID, workerID, topicID) is the key — there is no synthetic ID.
-// Subscriptions are WORKER-anchored: firing a Worker drops its
-// subscriptions. The hiring playbook re-subscribes new hires
-// explicitly, which lets two Workers in the same Role consume
-// different topics (specialisation) or only the on-call subset of a
-// role wake up on a given event (load patterns).
+// Subscriptions persists (Bot, Topic) links. The triple
+// (orgID, botID, topicID) is the key — there is no synthetic ID.
+// Subscriptions are BOT-anchored: deleting a Bot drops its
+// subscriptions. Subscriptions are driven explicitly (subscribe /
+// unsubscribe), letting each Bot consume exactly the topics it should.
 type Subscriptions interface {
 	Create(ctx context.Context, sub streaming.Subscription) error
-	Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error
-	Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error)
+	Delete(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error
+	Find(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error)
 	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) ([]streaming.Subscription, error)
 }
 
@@ -159,7 +145,7 @@ type Events interface {
 	// the total-count meta the paginated messages endpoint surfaces,
 	// independent of any page window.
 	CountForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) (int, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error)
+	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error)
 	ListSince(ctx context.Context, orgID string, topicIDs []streaming.TopicID, since streaming.EventID, limit int) ([]streaming.Event, error)
 	// ListAll returns events across every Topic in the given org,
 	// newest first. Powers the unified "All topics" activity feed in
@@ -213,16 +199,15 @@ type Configs interface {
 // storage boundary is part of the domain package, not a parallel
 // declaration here. Lifted in B5.5.
 type Store struct {
-	Roles              Roles
-	Workers            Workers
-	ReportingLines     ReportingLines
-	WorkerRuntimeState WorkerRuntimeState
-	Topics            Topics
-	Subscriptions      Subscriptions
-	Events             Events
-	Configs            Configs
-	Activations        activation.Repository
-	Processors         Processors
+	Bots            Bots
+	ReportingLines  ReportingLines
+	BotRuntimeState BotRuntimeState
+	Topics          Topics
+	Subscriptions   Subscriptions
+	Events          Events
+	Configs         Configs
+	Activations     activation.Repository
+	Processors      Processors
 	// DomainEvents is the append-only decision/audit log (e.g. Slack
 	// thread participation). Typed port defined beside its aggregate,
 	// like Activations.

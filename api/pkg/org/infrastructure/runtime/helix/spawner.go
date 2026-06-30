@@ -160,7 +160,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if sem == nil {
 		sem = make(chan struct{}, cfg.MaxInflight)
 	}
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -314,7 +314,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // caller (Spawner) skips Create — the row already exists in the
 // store. The Complete path still runs at end-of-activation to set
 // EndedAt/Outcome on the pre-existing row.
-func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) *activation.Activation {
+func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) *activation.Activation {
 	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
 		return nil
 	}
@@ -373,7 +373,7 @@ After meaningful work, persist state on helix-specs:
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
-func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.WorkerID) error {
+func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.BotID) error {
 	a := &WorkerProject{
 		Service:     c.ProjectService,
 		Workspace:   c.Workspace,
@@ -402,7 +402,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 // the agent app already exists, blowing away whatever MCPs were
 // attached on the previous activation. Re-attaching after Ensure
 // returns keeps the MCP present.
-func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.WorkerID) {
+func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.BotID) {
 	if c.ProjectService == nil || c.HelixOrgURL == "" {
 		return
 	}
@@ -444,7 +444,7 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.WorkerID, prompt string, _ func(string)) (string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, _ func(string)) (string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", err
@@ -631,7 +631,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.TopicID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.BotID, _ streaming.TopicID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

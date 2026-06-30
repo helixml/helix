@@ -29,7 +29,7 @@ func findMCP(cfg types.AppConfig, name string) *types.AssistantMCP {
 func TestAttachHelixOrgMCPAppends(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.WorkerID("w-eng"), "k_service")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_service")
 	if err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestAttachHelixOrgMCPUpsertReplacesExisting(t *testing.T) {
 		{Name: HelixOrgMCPName, Transport: "http", URL: "http://old/workers/w-eng/mcp", Headers: map[string]string{"Authorization": "Bearer old"}},
 		{Name: "other", URL: "http://other/mcp"},
 	}
-	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.WorkerID("w-eng"), "k_new"); err != nil {
+	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_new"); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -93,7 +93,7 @@ func TestAttachHelixOrgMCPBearerFromContextOverridesFallback(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
 	ctx := WithBearerToken(context.Background(), "k_user")
-	if err := AttachHelixOrgMCP(ctx, svc, "app_test", "http://helix-org:8081", orgchart.WorkerID("w-eng"), "k_service"); err != nil {
+	if err := AttachHelixOrgMCP(ctx, svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), "k_service"); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -111,7 +111,7 @@ func TestAttachHelixOrgMCPBearerFromContextOverridesFallback(t *testing.T) {
 func TestAttachHelixOrgMCPEmptyBearerOmitsHeader(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
-	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.WorkerID("w-eng"), ""); err != nil {
+	if err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org:8081", orgchart.BotID("w-eng"), ""); err != nil {
 		t.Fatalf("AttachHelixOrgMCP: %v", err)
 	}
 	svc.mu.Lock()
@@ -135,7 +135,7 @@ func TestAttachHelixOrgMCPRejectsMissingInputs(t *testing.T) {
 		svc     ProjectService
 		appID   string
 		url     string
-		worker  orgchart.WorkerID
+		worker  orgchart.BotID
 		errFrag string
 	}{
 		{"nil service", nil, "app_test", "http://helix-org", "w-eng", "ProjectService is nil"},
@@ -164,7 +164,7 @@ func TestAttachHelixOrgMCPRequiresAssistant(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
 	svc.appConfig = types.AppConfig{} // no assistants
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.WorkerID("w-eng"), "")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.BotID("w-eng"), "")
 	if err == nil || !strings.Contains(err.Error(), "no assistants") {
 		t.Errorf("expected 'no assistants' error, got %v", err)
 	}
@@ -176,7 +176,7 @@ func TestAttachHelixOrgMCPRequiresAssistant(t *testing.T) {
 func TestAttachHelixOrgMCPPropagatesGetError(t *testing.T) {
 	t.Parallel()
 	svc := &failingProjectService{getErr: errors.New("boom")}
-	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.WorkerID("w-eng"), "")
+	err := AttachHelixOrgMCP(context.Background(), svc, "app_test", "http://helix-org", orgchart.BotID("w-eng"), "")
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected wrapped GetAppConfig error, got %v", err)
 	}

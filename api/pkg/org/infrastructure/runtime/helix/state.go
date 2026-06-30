@@ -45,7 +45,7 @@ const (
 )
 
 // LoadState returns the Helix-backend state for a Worker.
-func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID) (WorkerState, error) {
+func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID) (WorkerState, error) {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return WorkerState{}, errors.New("helix state: store is nil")
 	}
@@ -63,7 +63,7 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 }
 
 // SaveHiringUser persists the user identifier that called hire_worker.
-func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, userID string) error {
+func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, userID string) error {
 	if userID == "" {
 		return nil
 	}
@@ -74,7 +74,7 @@ func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID
 }
 
 // SaveProject persists the per-Worker project triple.
-func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, projectID, agentAppID, repoID string) error {
+func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, projectID, agentAppID, repoID string) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
@@ -86,7 +86,7 @@ func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID or
 }
 
 // SaveSession persists the live Helix chat session ID.
-func SaveSession(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, sessionID string) error {
+func SaveSession(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, sessionID string) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
@@ -94,7 +94,7 @@ func SaveSession(ctx context.Context, st *store.Store, orgID string, workerID or
 }
 
 // ClearProject nulls the project triple AND the session pointer.
-func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID) error {
+func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID) error {
 	if st == nil || st.WorkerRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}

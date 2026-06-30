@@ -47,9 +47,9 @@ func (workerMapper) ToRow(w orgchart.Worker) (workerRow, error) {
 func (workerMapper) ToDomain(row workerRow) (orgchart.Worker, error) {
 	switch orgchart.WorkerKind(row.Kind) {
 	case orgchart.WorkerKindHuman:
-		return orgchart.NewHumanWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), row.IdentityContent, row.OrgID)
+		return orgchart.NewHumanWorker(orgchart.BotID(row.ID), orgchart.BotID(row.RoleID), row.IdentityContent, row.OrgID)
 	case orgchart.WorkerKindAI:
-		return orgchart.NewAIWorker(orgchart.WorkerID(row.ID), orgchart.RoleID(row.RoleID), row.IdentityContent, row.OrgID)
+		return orgchart.NewAIWorker(orgchart.BotID(row.ID), orgchart.BotID(row.RoleID), row.IdentityContent, row.OrgID)
 	default:
 		return nil, errUnknownWorkerKind(row.Kind)
 	}
@@ -63,7 +63,7 @@ func newWorkersRepo(db *gorm.DB) *workersRepo {
 	return &workersRepo{Repository: NewRepository[orgchart.Worker, workerRow](db, workerMapper{}, "worker")}
 }
 
-func (r *workersRepo) Get(ctx context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error) {
+func (r *workersRepo) Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Worker, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }
 
@@ -77,7 +77,7 @@ func (r *workersRepo) List(ctx context.Context, orgID string) ([]orgchart.Worker
 // ON DELETE CASCADE foreign keys on org_reporting_lines (installed in
 // OpenWithDB), so no app code clears them — that's the whole point of
 // the association table.
-func (r *workersRepo) Delete(ctx context.Context, orgID string, id orgchart.WorkerID) error {
+func (r *workersRepo) Delete(ctx context.Context, orgID string, id orgchart.BotID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("org_id = ? AND worker_id = ?", orgID, string(id)).
 			Delete(&subscriptionRow{}).Error; err != nil {

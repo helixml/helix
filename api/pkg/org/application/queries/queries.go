@@ -64,7 +64,7 @@ func (q *Queries) ListWorkers(ctx context.Context, orgID string) ([]orgchart.Wor
 	return q.workers.List(ctx, orgID)
 }
 
-func (q *Queries) GetWorker(ctx context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error) {
+func (q *Queries) GetWorker(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Worker, error) {
 	return q.workers.Get(ctx, orgID, id)
 }
 
@@ -72,7 +72,7 @@ func (q *Queries) ListRoles(ctx context.Context, orgID string) ([]orgchart.Role,
 	return q.roles.List(ctx, orgID)
 }
 
-func (q *Queries) GetRole(ctx context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error) {
+func (q *Queries) GetRole(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Role, error) {
 	return q.roles.Get(ctx, orgID, id)
 }
 
@@ -84,7 +84,7 @@ func (q *Queries) ListReportingLines(ctx context.Context, orgID string) ([]orgch
 	return q.lines.List(ctx, orgID)
 }
 
-func (q *Queries) ListManagers(ctx context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (q *Queries) ListManagers(ctx context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error) {
 	return q.lines.ListManagers(ctx, orgID, reportID)
 }
 
@@ -100,7 +100,7 @@ func (q *Queries) TopicSubscribers(ctx context.Context, orgID string, topicID st
 	return q.subs.ListForTopic(ctx, orgID, topicID)
 }
 
-func (q *Queries) WorkerSubscriptions(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
+func (q *Queries) WorkerSubscriptions(ctx context.Context, orgID string, workerID orgchart.BotID) ([]streaming.Subscription, error) {
 	return q.subs.ListForWorker(ctx, orgID, workerID)
 }
 
@@ -124,18 +124,18 @@ func (q *Queries) CountTopicEvents(ctx context.Context, orgID string, topicID st
 	return q.events.CountForTopic(ctx, orgID, topicID)
 }
 
-func (q *Queries) WorkerEvents(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
+func (q *Queries) WorkerEvents(ctx context.Context, orgID string, workerID orgchart.BotID, limit int) ([]streaming.Event, error) {
 	return q.events.ListForWorker(ctx, orgID, workerID, limit)
 }
 
 // ListReports returns the direct reports of the given manager.
-func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (q *Queries) ListReports(ctx context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error) {
 	return q.lines.ListReports(ctx, orgID, managerID)
 }
 
 // FindSubscription returns the (worker, topic) subscription row, or
 // store.ErrNotFound (wrapped) when the worker is not subscribed.
-func (q *Queries) FindSubscription(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (q *Queries) FindSubscription(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return q.subs.Find(ctx, orgID, workerID, topicID)
 }
 

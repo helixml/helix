@@ -52,7 +52,7 @@ func invokeCreateRole(t *testing.T, deps Config, caller orgchart.Worker, args st
 	if err := json.Unmarshal(out, &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	role, err := deps.Store.Roles.Get(ctx, caller.OrganizationID(), orgchart.RoleID(resp.ID))
+	role, err := deps.Store.Roles.Get(ctx, caller.OrganizationID(), orgchart.BotID(resp.ID))
 	if err != nil {
 		t.Fatalf("get back role: %v", err)
 	}

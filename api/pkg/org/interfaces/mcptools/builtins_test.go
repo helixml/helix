@@ -476,7 +476,7 @@ func TestDM(t *testing.T) {
 
 	// Both positions are subscribed (the DM tool resolves participants
 	// → their positions); the event landed in the store.
-	for _, pid := range []orgchart.WorkerID{"w-alice", "w-bob"} {
+	for _, pid := range []orgchart.BotID{"w-alice", "w-bob"} {
 		if _, err := s.Subscriptions.Find(ctx, "org-test", pid, streaming.TopicID(out.TopicID)); err != nil {
 			t.Fatalf("%s not subscribed to %s: %v", pid, out.TopicID, err)
 		}
@@ -924,7 +924,7 @@ func seedActingWorker(t *testing.T, s *store.Store, orgID, workerID, roleID stri
 		Create(ctx, orgID, roles.CreateParams{ID: roleID, Content: "# " + roleID, Tools: tools}); err != nil {
 		t.Fatalf("seed role %s: %v", roleID, err)
 	}
-	w, err := orgchart.NewHumanWorker(orgchart.WorkerID(workerID), orgchart.RoleID(roleID), "# "+workerID, orgID)
+	w, err := orgchart.NewHumanWorker(orgchart.BotID(workerID), orgchart.BotID(roleID), "# "+workerID, orgID)
 	if err != nil {
 		t.Fatalf("build worker %s: %v", workerID, err)
 	}
@@ -1038,7 +1038,7 @@ func mustCreate(t *testing.T, err error) {
 	}
 }
 
-func connectMCP(t *testing.T, baseURL string, workerID orgchart.WorkerID) *mcp.ClientSession {
+func connectMCP(t *testing.T, baseURL string, workerID orgchart.BotID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{

@@ -10,13 +10,13 @@ import (
 // emitted the event (empty means a system-emitted event such as a
 // time tick).
 //
-// Source is an orgchart.WorkerID carried as a plain string; the
+// Source is an orgchart.BotID carried as a plain string; the
 // streaming aggregate intentionally does not import orgchart.
 type Event struct {
 	ID             EventID
 	OrganizationID string
 	TopicID       TopicID
-	Source         string // orgchart.WorkerID
+	Source         string // orgchart.BotID
 	Body           string
 	CreatedAt      time.Time
 }

@@ -186,7 +186,7 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.WorkerID) {
+func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()

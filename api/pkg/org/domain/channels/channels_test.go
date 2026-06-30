@@ -11,7 +11,7 @@ import (
 
 const orgID = "org-test"
 
-func ai(id orgchart.WorkerID) orgchart.Worker {
+func ai(id orgchart.BotID) orgchart.Worker {
 	w, err := orgchart.NewAIWorker(id, "r-x", "#", orgID)
 	if err != nil {
 		panic(err)
@@ -19,7 +19,7 @@ func ai(id orgchart.WorkerID) orgchart.Worker {
 	return w
 }
 
-func human(id orgchart.WorkerID) orgchart.Worker {
+func human(id orgchart.BotID) orgchart.Worker {
 	w, err := orgchart.NewHumanWorker(id, "r-x", "#", orgID)
 	if err != nil {
 		panic(err)
@@ -27,7 +27,7 @@ func human(id orgchart.WorkerID) orgchart.Worker {
 	return w
 }
 
-func line(manager, report orgchart.WorkerID) orgchart.ReportingLine {
+func line(manager, report orgchart.BotID) orgchart.ReportingLine {
 	l, err := orgchart.NewReportingLine(orgID, manager, report)
 	if err != nil {
 		panic(err)
@@ -35,8 +35,8 @@ func line(manager, report orgchart.WorkerID) orgchart.ReportingLine {
 	return l
 }
 
-func membersOf(set Set, sid streaming.TopicID) []orgchart.WorkerID {
-	var out []orgchart.WorkerID
+func membersOf(set Set, sid streaming.TopicID) []orgchart.BotID {
+	var out []orgchart.BotID
 	for k := range set.Members {
 		if k.TopicID == sid {
 			out = append(out, k.WorkerID)
@@ -46,7 +46,7 @@ func membersOf(set Set, sid streaming.TopicID) []orgchart.WorkerID {
 	return out
 }
 
-func eq(a, b []orgchart.WorkerID) bool {
+func eq(a, b []orgchart.BotID) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -90,14 +90,14 @@ func TestRequired_AIObservedByManagers(t *testing.T) {
 	set := Required(workers, lines)
 
 	// w-li observed by both jane and bob.
-	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.WorkerID{"w-bob", "w-jane"}) {
+	if got := membersOf(set, activation.TranscriptID("w-li")); !eq(got, []orgchart.BotID{"w-bob", "w-jane"}) {
 		t.Fatalf("w-li activation observers = %v, want [w-bob w-jane]", got)
 	}
 	// w-li is a member of BOTH team topics.
-	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.WorkerID{"w-jane", "w-li"}) {
+	if got := membersOf(set, TeamTopicID("w-jane")); !eq(got, []orgchart.BotID{"w-jane", "w-li"}) {
 		t.Fatalf("s-team-w-jane members = %v, want [w-jane w-li]", got)
 	}
-	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.WorkerID{"w-bob", "w-li"}) {
+	if got := membersOf(set, TeamTopicID("w-bob")); !eq(got, []orgchart.BotID{"w-bob", "w-li"}) {
 		t.Fatalf("s-team-w-bob members = %v, want [w-bob w-li]", got)
 	}
 }
@@ -120,7 +120,7 @@ func TestRequired_HumanWithManagerNoActivation(t *testing.T) {
 		t.Fatalf("managed human must NOT get an transcript")
 	}
 	// And the owner now has a team topic containing renee.
-	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.WorkerID{"w-owner", "w-renee"}) {
+	if got := membersOf(set, TeamTopicID("w-owner")); !eq(got, []orgchart.BotID{"w-owner", "w-renee"}) {
 		t.Fatalf("s-team-w-owner members = %v, want [w-owner w-renee]", got)
 	}
 }

@@ -21,21 +21,21 @@ import (
 // the response carries the project / agent-app ids and the helix-org MCP
 // is (re)attached before the session starts.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error)
 }
 
 // ManualDispatcher enqueues an operator-driven activation on the
 // per-Worker queue. activationID is the pre-allocated audit-row id;
 // empty means the Spawner mints its own.
 type ManualDispatcher interface {
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
 }
 
 // SessionResolver returns a Worker's current desktop session id (empty
 // before the first activation). Used only to populate the Activate
 // response so the UI can deep-link straight to the desktop viewer.
 type SessionResolver interface {
-	SessionID(ctx context.Context, orgID string, workerID orgchart.WorkerID) (string, error)
+	SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error)
 }
 
 // ErrActivateUnavailable is returned by Activate when the project
@@ -109,7 +109,7 @@ type ActivateResult struct {
 // Callers should still confirm the Worker exists (404) before calling —
 // Activate's Ensure will also error on a missing Worker, but a pre-check
 // gives the cleaner status.
-func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.WorkerID) (ActivateResult, error) {
+func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgchart.BotID) (ActivateResult, error) {
 	if a.ensurer == nil || a.dispatcher == nil {
 		return ActivateResult{}, ErrActivateUnavailable
 	}
@@ -142,7 +142,7 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 // when the repository or id-generator is unwired — Activate then treats
 // that as "no pre-allocation; the Spawner mints its own", matching the
 // previous inline behaviour.
-func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.WorkerID) (activation.ID, error) {
+func (a *Activations) prepareManual(ctx context.Context, orgID string, workerID orgchart.BotID) (activation.ID, error) {
 	if a.repo == nil || a.newID == nil {
 		return "", nil
 	}

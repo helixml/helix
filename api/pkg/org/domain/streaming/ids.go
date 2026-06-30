@@ -14,7 +14,7 @@
 // Topic.CreatedBy, Subscription.WorkerID, Principal.ID for
 // KindWorker) are carried as plain string — the IDs in orgchart are
 // declared as type aliases for string, so callers can assign
-// orgchart.WorkerID values directly with no cast. This keeps the DAG
+// orgchart.BotID values directly with no cast. This keeps the DAG
 // one-way: orgchart imports streaming (for TopicID typing on
 // Role.Topics), streaming never imports orgchart back.
 package streaming

@@ -139,7 +139,7 @@ type WorkerProject struct {
 // inside the activation path (project.go:156 in the original
 // crash); now they're checked up front so the failure is a
 // clear error message instead of a panic.
-func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error) {
 	if a == nil {
 		return "", "", "", errors.New("worker project applier is nil")
 	}
@@ -309,7 +309,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 // the on-branch path layout is owned in exactly one place
 // (workspace.go). Best-effort: errors are logged, not returned —
 // a single failed file shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.WorkerID, repoID, roleContent, identityContent string) {
+func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent, identityContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return
 	}

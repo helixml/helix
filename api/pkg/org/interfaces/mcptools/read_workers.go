@@ -12,13 +12,13 @@ import (
 )
 
 type workerView struct {
-	ID        orgchart.WorkerID   `json:"id"`
+	ID        orgchart.BotID   `json:"id"`
 	Kind      orgchart.WorkerKind `json:"kind"`
-	RoleID    orgchart.RoleID     `json:"roleId,omitempty"`
-	ParentIDs []orgchart.WorkerID `json:"parentIds,omitempty"`
+	RoleID    orgchart.BotID     `json:"roleId,omitempty"`
+	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
 }
 
-func workerViewOf(w orgchart.Worker, managers []orgchart.WorkerID) workerView {
+func workerViewOf(w orgchart.Worker, managers []orgchart.BotID) workerView {
 	return workerView{ID: w.ID(), Kind: w.Kind(), RoleID: w.RoleID(), ParentIDs: managers}
 }
 
@@ -50,7 +50,7 @@ func (t *ListWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	}
 	// One List call builds the report → managers index, so we don't
 	// issue a ListManagers per worker.
-	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	managersByReport := map[orgchart.BotID][]orgchart.BotID{}
 	if t.deps.Queries.ReportingLinesWired() {
 		lines, err := t.deps.Queries.ListReportingLines(ctx, orgID)
 		if err != nil {
@@ -98,11 +98,11 @@ func (t *GetWorker) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("get_worker: caller has no OrgID")
 	}
-	w, err := t.deps.Queries.GetWorker(ctx, orgID, orgchart.WorkerID(args.ID))
+	w, err := t.deps.Queries.GetWorker(ctx, orgID, orgchart.BotID(args.ID))
 	if err != nil {
 		return nil, fmt.Errorf("get worker %q: %w", args.ID, err)
 	}
-	var managers []orgchart.WorkerID
+	var managers []orgchart.BotID
 	if t.deps.Queries.ReportingLinesWired() {
 		managers, err = t.deps.Queries.ListManagers(ctx, orgID, w.ID())
 		if err != nil {

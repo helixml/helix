@@ -92,7 +92,7 @@ func (t *WorkerLog) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if orgID == "" {
 		return nil, fmt.Errorf("worker_log: caller has no OrgID")
 	}
-	target := orgchart.WorkerID(args.WorkerID)
+	target := orgchart.BotID(args.WorkerID)
 	wkr, err := t.deps.Queries.GetWorker(ctx, orgID, target)
 	if err != nil {
 		return nil, fmt.Errorf("worker %q: %w", target, err)

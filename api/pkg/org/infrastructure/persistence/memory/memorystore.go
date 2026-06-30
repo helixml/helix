@@ -113,7 +113,7 @@ func (r *rolesRepo) Create(_ context.Context, rl orgchart.Role) error {
 	return nil
 }
 
-func (r *rolesRepo) Get(_ context.Context, orgID string, id orgchart.RoleID) (orgchart.Role, error) {
+func (r *rolesRepo) Get(_ context.Context, orgID string, id orgchart.BotID) (orgchart.Role, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if rl, ok := r.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
@@ -146,7 +146,7 @@ func (r *rolesRepo) Update(_ context.Context, rl orgchart.Role) error {
 	return nil
 }
 
-func (r *rolesRepo) Delete(_ context.Context, orgID string, id orgchart.RoleID) error {
+func (r *rolesRepo) Delete(_ context.Context, orgID string, id orgchart.BotID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
@@ -181,7 +181,7 @@ func (w *workersRepo) Create(_ context.Context, wk orgchart.Worker) error {
 	return nil
 }
 
-func (w *workersRepo) Get(_ context.Context, orgID string, id orgchart.WorkerID) (orgchart.Worker, error) {
+func (w *workersRepo) Get(_ context.Context, orgID string, id orgchart.BotID) (orgchart.Worker, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	if wk, ok := w.rows[orgKey{OrgID: orgID, ID: string(id)}]; ok {
@@ -217,7 +217,7 @@ func (w *workersRepo) Update(_ context.Context, wk orgchart.Worker) error {
 // Delete removes the worker and cascades the rows that reference it,
 // matching the gorm store: the worker's own subscriptions and every
 // reporting line where it is the manager or the report are dropped.
-func (w *workersRepo) Delete(_ context.Context, orgID string, id orgchart.WorkerID) error {
+func (w *workersRepo) Delete(_ context.Context, orgID string, id orgchart.BotID) error {
 	w.mu.Lock()
 	k := orgKey{OrgID: orgID, ID: string(id)}
 	if _, ok := w.rows[k]; !ok {
@@ -260,7 +260,7 @@ func (r *reportingLinesRepo) Add(_ context.Context, line orgchart.ReportingLine)
 	return nil
 }
 
-func (r *reportingLinesRepo) Remove(_ context.Context, orgID string, reportID, managerID orgchart.WorkerID) error {
+func (r *reportingLinesRepo) Remove(_ context.Context, orgID string, reportID, managerID orgchart.BotID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := lineKey{OrgID: orgID, ManagerID: string(managerID), ReportID: string(reportID)}
@@ -277,7 +277,7 @@ func (r *reportingLinesRepo) List(_ context.Context, orgID string) ([]orgchart.R
 	out := make([]orgchart.ReportingLine, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID {
-			out = append(out, orgchart.ReportingLine{OrgID: k.OrgID, ManagerID: orgchart.WorkerID(k.ManagerID), ReportID: orgchart.WorkerID(k.ReportID)})
+			out = append(out, orgchart.ReportingLine{OrgID: k.OrgID, ManagerID: orgchart.BotID(k.ManagerID), ReportID: orgchart.BotID(k.ReportID)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -289,26 +289,26 @@ func (r *reportingLinesRepo) List(_ context.Context, orgID string) ([]orgchart.R
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListManagers(_ context.Context, orgID string, reportID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (r *reportingLinesRepo) ListManagers(_ context.Context, orgID string, reportID orgchart.BotID) ([]orgchart.BotID, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]orgchart.WorkerID, 0)
+	out := make([]orgchart.BotID, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID && k.ReportID == string(reportID) {
-			out = append(out, orgchart.WorkerID(k.ManagerID))
+			out = append(out, orgchart.BotID(k.ManagerID))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out, nil
 }
 
-func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, managerID orgchart.WorkerID) ([]orgchart.WorkerID, error) {
+func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, managerID orgchart.BotID) ([]orgchart.BotID, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]orgchart.WorkerID, 0)
+	out := make([]orgchart.BotID, 0)
 	for k := range r.rows {
 		if k.OrgID == orgID && k.ManagerID == string(managerID) {
-			out = append(out, orgchart.WorkerID(k.ReportID))
+			out = append(out, orgchart.BotID(k.ReportID))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
@@ -318,7 +318,7 @@ func (r *reportingLinesRepo) ListReports(_ context.Context, orgID string, manage
 // deleteAllForWorker drops every reporting line where the worker is the
 // manager or the report. Used by workersRepo.Delete to cascade — the
 // memory-store analogue of the gorm ON DELETE CASCADE foreign keys.
-func (r *reportingLinesRepo) deleteAllForWorker(orgID string, workerID orgchart.WorkerID) {
+func (r *reportingLinesRepo) deleteAllForWorker(orgID string, workerID orgchart.BotID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k := range r.rows {
@@ -342,7 +342,7 @@ type runtimeStateRepo struct {
 	rows map[runtimeKey]string
 }
 
-func (r *runtimeStateRepo) Get(_ context.Context, orgID string, workerID orgchart.WorkerID, backend string) (map[string]string, error) {
+func (r *runtimeStateRepo) Get(_ context.Context, orgID string, workerID orgchart.BotID, backend string) (map[string]string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := map[string]string{}
@@ -354,14 +354,14 @@ func (r *runtimeStateRepo) Get(_ context.Context, orgID string, workerID orgchar
 	return out, nil
 }
 
-func (r *runtimeStateRepo) Set(_ context.Context, orgID string, workerID orgchart.WorkerID, backend, key, value string) error {
+func (r *runtimeStateRepo) Set(_ context.Context, orgID string, workerID orgchart.BotID, backend, key, value string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rows[runtimeKey{OrgID: orgID, WorkerID: string(workerID), Backend: backend, Key: key}] = value
 	return nil
 }
 
-func (r *runtimeStateRepo) SetMany(_ context.Context, orgID string, workerID orgchart.WorkerID, backend string, kv map[string]string) error {
+func (r *runtimeStateRepo) SetMany(_ context.Context, orgID string, workerID orgchart.BotID, backend string, kv map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for key, value := range kv {
@@ -370,7 +370,7 @@ func (r *runtimeStateRepo) SetMany(_ context.Context, orgID string, workerID org
 	return nil
 }
 
-func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, workerID orgchart.WorkerID, backend string) error {
+func (r *runtimeStateRepo) Clear(_ context.Context, orgID string, workerID orgchart.BotID, backend string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k := range r.rows {
@@ -521,7 +521,7 @@ func (s *subscriptionsRepo) Create(_ context.Context, sub streaming.Subscription
 	return nil
 }
 
-func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	k := subKey{OrgID: orgID, WorkerID: string(workerID), TopicID: string(topicID)}
@@ -535,7 +535,7 @@ func (s *subscriptionsRepo) Delete(_ context.Context, orgID string, workerID org
 // deleteAllForWorker drops every subscription held by the given
 // worker. Used by workersRepo.Delete to cascade — idempotent, no error
 // when the worker has none.
-func (s *subscriptionsRepo) deleteAllForWorker(orgID string, workerID orgchart.WorkerID) {
+func (s *subscriptionsRepo) deleteAllForWorker(orgID string, workerID orgchart.BotID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k := range s.rows {
@@ -558,7 +558,7 @@ func (s *subscriptionsRepo) deleteAllForTopic(orgID string, topicID streaming.To
 	}
 }
 
-func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	k := subKey{OrgID: orgID, WorkerID: string(workerID), TopicID: string(topicID)}
@@ -568,7 +568,7 @@ func (s *subscriptionsRepo) Find(_ context.Context, orgID string, workerID orgch
 	return streaming.Subscription{}, fmt.Errorf("subscription %q→%q in org %q: %w", workerID, topicID, orgID, store.ErrNotFound)
 }
 
-func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
+func (s *subscriptionsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.BotID) ([]streaming.Subscription, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]streaming.Subscription, 0)
@@ -668,7 +668,7 @@ func (e *eventsRepo) CountForTopic(_ context.Context, orgID string, topicID stre
 	return count, nil
 }
 
-func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]streaming.Event, error) {
+func (e *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.BotID, limit int) ([]streaming.Event, error) {
 	// Match gorm's join semantics: events on topics the worker is
 	// subscribed to. Subscriptions are worker-anchored.
 	if e.workers == nil {
@@ -859,7 +859,7 @@ func (a *activationsRepo) Get(_ context.Context, orgID string, id activation.ID)
 	return nil, fmt.Errorf("activation %q in org %q: %w", id, orgID, store.ErrNotFound)
 }
 
-func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]*activation.Activation, error) {
+func (a *activationsRepo) ListForWorker(_ context.Context, orgID string, workerID orgchart.BotID, limit int) ([]*activation.Activation, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	out := make([]*activation.Activation, 0)

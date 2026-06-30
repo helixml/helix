@@ -25,7 +25,7 @@ func seedReportingGraph(t *testing.T) Config {
 	if err := st.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	for _, id := range []orgchart.WorkerID{"w-owner", "w-jane", "w-bob", "w-li", "w-sam"} {
+	for _, id := range []orgchart.BotID{"w-owner", "w-jane", "w-bob", "w-li", "w-sam"} {
 		w, _ := orgchart.NewAIWorker(id, "r-x", "#", "org-test")
 		if err := st.Workers.Create(ctx, w); err != nil {
 			t.Fatalf("create %s: %v", id, err)
@@ -39,7 +39,7 @@ func seedReportingGraph(t *testing.T) Config {
 	return DefaultDeps(st)
 }
 
-func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.WorkerID) {
+func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.BotID) {
 	t.Helper()
 	line, err := orgchart.NewReportingLine("org-test", manager, report)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 	if len(got.Managers) != 2 {
 		t.Fatalf("managers = %+v, want 2 (w-bob, w-jane)", got.Managers)
 	}
-	byID := map[orgchart.WorkerID]managerView{}
+	byID := map[orgchart.BotID]managerView{}
 	for _, m := range got.Managers {
 		byID[m.ID] = m
 	}

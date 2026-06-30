@@ -23,14 +23,14 @@ type fakeEnsurer struct {
 	mu        sync.Mutex
 	calls     int
 	lastOrgID string
-	lastWid   orgchart.WorkerID
+	lastWid   orgchart.BotID
 	projectID string
 	agentApp  string
 	repoID    string
 	err       error
 }
 
-func (f *fakeEnsurer) Ensure(_ context.Context, orgID string, wid orgchart.WorkerID) (string, string, string, error) {
+func (f *fakeEnsurer) Ensure(_ context.Context, orgID string, wid orgchart.BotID) (string, string, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -45,7 +45,7 @@ type fakeDispatcher struct {
 	mu              sync.Mutex
 	manualCalls     int
 	lastOrgID       string
-	lastWorkerID    orgchart.WorkerID
+	lastWorkerID    orgchart.BotID
 	lastActivation  activation.ID
 	dispatchedEvent *streaming.Event
 }
@@ -56,7 +56,7 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, ev streaming.Event) {
 	f.dispatchedEvent = &ev
 }
 
-func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, wid orgchart.WorkerID, actID activation.ID) {
+func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, wid orgchart.BotID, actID activation.ID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.manualCalls++

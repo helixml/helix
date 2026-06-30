@@ -17,7 +17,7 @@ type topicView struct {
 	ID            streaming.TopicID `json:"id"`
 	Name          string             `json:"name"`
 	Description   string             `json:"description"`
-	CreatedBy     orgchart.WorkerID  `json:"createdBy"`
+	CreatedBy     orgchart.BotID  `json:"createdBy"`
 	CreatedAt     time.Time          `json:"createdAt"`
 	TransportKind string             `json:"transportKind"`
 }

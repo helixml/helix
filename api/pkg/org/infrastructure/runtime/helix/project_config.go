@@ -51,7 +51,7 @@ func NewProjectConfig(st *store.Store, svc ProjectService) (*ProjectConfig, erro
 //     activated yet).
 //   - project lookup fails → wrapped error returned verbatim;
 //     callers translate to a friendly message.
-func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)
@@ -78,7 +78,7 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 // extra read.
 //
 // Failure modes match GetWorkerProjectConfig.
-func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
+func (c *ProjectConfig) UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID, patch runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error) {
 	state, err := LoadState(ctx, c.store, orgID, workerID)
 	if err != nil {
 		return runtime.ProjectConfigSnapshot{}, fmt.Errorf("load worker state: %w", err)

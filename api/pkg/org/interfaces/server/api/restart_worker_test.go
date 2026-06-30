@@ -17,7 +17,7 @@ type fakeWorkerRuntime struct {
 	sessionID string
 }
 
-func (f fakeWorkerRuntime) State(_ context.Context, _ string, _ orgchart.WorkerID) (orgapi.WorkerRuntimeInfo, error) {
+func (f fakeWorkerRuntime) State(_ context.Context, _ string, _ orgchart.BotID) (orgapi.WorkerRuntimeInfo, error) {
 	return orgapi.WorkerRuntimeInfo{SessionID: f.sessionID}, nil
 }
 

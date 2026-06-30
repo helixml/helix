@@ -23,7 +23,7 @@ import (
 // That lets us assert the MCP surface is the intersection of (a)
 // Role.Tools and (b) tools the server knows. Returns the running
 // httptest.Server and the workerID to act as.
-func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
+func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -56,7 +56,7 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
 
 // connectMCP returns an MCP client session bound to the given worker's
 // /mcp endpoint. The session is closed when the test ends.
-func connectMCP(t *testing.T, baseURL string, workerID orgchart.WorkerID) *mcp.ClientSession {
+func connectMCP(t *testing.T, baseURL string, workerID orgchart.BotID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
@@ -76,7 +76,7 @@ func connectMCP(t *testing.T, baseURL string, workerID orgchart.WorkerID) *mcp.C
 // Asserting that ping appears on the Worker's MCP endpoint pins the
 // "Role.Tools is the live source of truth" contract — see
 // feat/org-role-tools-as-source-of-truth.
-func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.WorkerID) {
+func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -217,7 +217,7 @@ func TestMCPToolNotInRoleHidden(t *testing.T) {
 // prompts registry containing new_role. Whether the worker actually
 // sees the prompt depends on whether their Role.Tools includes the
 // gating tool (create_role); callers exercise both branches.
-func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.Server, orgchart.WorkerID) {
+func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 

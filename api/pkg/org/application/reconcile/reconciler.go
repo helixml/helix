@@ -92,7 +92,7 @@ func New(deps Deps) *Reconciler {
 //
 // A nil or unwired Reconciler is a no-op, so runtimes/tests that don't
 // wire topology degrade gracefully.
-func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...orgchart.WorkerID) error {
+func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...orgchart.BotID) error {
 	if r == nil || r.workers == nil {
 		return nil
 	}
@@ -115,15 +115,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 	required := channels.Required(workers, lines)
 
 	// Bucket required members by topic so each converge is O(members).
-	requiredMembers := map[streaming.TopicID][]orgchart.WorkerID{}
+	requiredMembers := map[streaming.TopicID][]orgchart.BotID{}
 	for k := range required.Members {
 		requiredMembers[k.TopicID] = append(requiredMembers[k.TopicID], k.WorkerID)
 	}
 
 	// Index the (current) graph to find each affected Worker's one-hop
 	// neighbours — their team/transcripts can move too.
-	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
-	reportsByManager := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	managersByReport := map[orgchart.BotID][]orgchart.BotID{}
+	reportsByManager := map[orgchart.BotID][]orgchart.BotID{}
 	for _, l := range lines {
 		managersByReport[l.ReportID] = append(managersByReport[l.ReportID], l.ManagerID)
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
@@ -204,7 +204,7 @@ func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
 	if len(workers) == 0 {
 		return nil
 	}
-	ids := make([]orgchart.WorkerID, len(workers))
+	ids := make([]orgchart.BotID, len(workers))
 	for i, w := range workers {
 		ids[i] = w.ID()
 	}
@@ -225,7 +225,7 @@ func (r *Reconciler) clock() time.Time {
 // old manager stayed subscribed. (The additive half is
 // ensureTopicWithMembers; convergeTopic adds the diff-and-remove pass
 // on top.)
-func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.WorkerID, now time.Time) error {
+func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.BotID, now time.Time) error {
 	topic, err := topicForChannel(ch, now, orgID)
 	if err != nil {
 		return fmt.Errorf("reconcile: build topic %q: %w", ch.ID, err)
@@ -234,7 +234,7 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 		return fmt.Errorf("reconcile: ensure topic %q: %w", ch.ID, err)
 	}
 
-	requiredSet := make(map[orgchart.WorkerID]struct{}, len(members))
+	requiredSet := make(map[orgchart.BotID]struct{}, len(members))
 	for _, m := range members {
 		requiredSet[m] = struct{}{}
 	}
@@ -243,10 +243,10 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 		return fmt.Errorf("reconcile: list subscribers of %q: %w", ch.ID, err)
 	}
 	for _, sub := range actual {
-		if _, ok := requiredSet[orgchart.WorkerID(sub.WorkerID)]; ok {
+		if _, ok := requiredSet[orgchart.BotID(sub.WorkerID)]; ok {
 			continue
 		}
-		if err := r.subs.Delete(ctx, orgID, orgchart.WorkerID(sub.WorkerID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		if err := r.subs.Delete(ctx, orgID, orgchart.BotID(sub.WorkerID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("reconcile: unsubscribe %q from %q: %w", sub.WorkerID, ch.ID, err)
 		}
 	}
@@ -273,7 +273,7 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 // genuine failure worth surfacing. This keeps Topics.Create /
 // Subscriptions.Create strict for every other caller (createTopic,
 // hire_worker) while making *this* get-or-create boundary idempotent.
-func (r *Reconciler) ensureTopicWithMembers(ctx context.Context, topic streaming.Topic, now time.Time, members ...orgchart.WorkerID) error {
+func (r *Reconciler) ensureTopicWithMembers(ctx context.Context, topic streaming.Topic, now time.Time, members ...orgchart.BotID) error {
 	if _, err := r.topics.Get(ctx, topic.OrganizationID, topic.ID); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("lookup topic %q: %w", topic.ID, err)

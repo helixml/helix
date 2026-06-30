@@ -30,7 +30,7 @@ type fakeDispatcher struct {
 
 type dispatchHireCall struct {
 	orgID        string
-	workerID     orgchart.WorkerID
+	workerID     orgchart.BotID
 	activationID activation.ID
 }
 
@@ -40,7 +40,7 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
 	f.mu.Unlock()
 }
 
-func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID) {
+func (f *fakeDispatcher) DispatchHire(_ context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID) {
 	f.mu.Lock()
 	f.hires = append(f.hires, dispatchHireCall{orgID: orgID, workerID: workerID, activationID: activationID})
 	f.mu.Unlock()
@@ -275,11 +275,11 @@ type captureHireHandler struct {
 
 type captureHireCall struct {
 	orgID    string
-	workerID orgchart.WorkerID
+	workerID orgchart.BotID
 	userID   string
 }
 
-func (h *captureHireHandler) OnHire(_ context.Context, orgID string, w orgchart.WorkerID, uid string) error {
+func (h *captureHireHandler) OnHire(_ context.Context, orgID string, w orgchart.BotID, uid string) error {
 	h.calls = append(h.calls, captureHireCall{orgID: orgID, workerID: w, userID: uid})
 	return h.failErr
 }

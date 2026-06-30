@@ -17,7 +17,7 @@ import (
 func TestNewActivationFromHireTrigger(t *testing.T) {
 	t.Parallel()
 	started := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
-	wid := orgchart.WorkerID("w-alice")
+	wid := orgchart.BotID("w-alice")
 	triggers := []activation.Trigger{{Kind: activation.TriggerHire}}
 
 	a, err := activation.New("a-1", wid, triggers, started, "org-test")
@@ -166,6 +166,6 @@ func (fakeRepo) Complete(_ context.Context, _ string, _ activation.ID, _ activat
 func (fakeRepo) Get(_ context.Context, _ string, _ activation.ID) (*activation.Activation, error) {
 	return nil, errors.New("not found")
 }
-func (fakeRepo) ListForWorker(_ context.Context, _ string, _ orgchart.WorkerID, _ int) ([]*activation.Activation, error) {
+func (fakeRepo) ListForWorker(_ context.Context, _ string, _ orgchart.BotID, _ int) ([]*activation.Activation, error) {
 	return nil, nil
 }

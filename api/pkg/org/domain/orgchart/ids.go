@@ -1,31 +1,22 @@
-// Package orgchart owns the org-chart aggregate: Role, Worker
-// (interface plus HumanWorker / AIWorker), and ReportingLine. Role
-// lists Tool names and Topic IDs; Worker carries a RoleID (its
-// capability binding); who reports to whom is a separate many-to-many
-// relation (ReportingLine), not a field on the Worker. Collapsing
-// these entities into one Go package resolves the cycle that
+// Package orgchart owns the org-chart aggregate: Bot and ReportingLine.
+// A Bot is the single entity in the chart — the merge of the former
+// Role and Worker into one concept with no identity beyond its name. A
+// Bot lists Tool names and Topic IDs; who reports to whom is a separate
+// many-to-many relation (ReportingLine), not a field on the Bot.
+// Collapsing these into one Go package resolves the cycle that
 // per-entity packages produced.
 //
-// The ID types are Go type aliases (`type WorkerID = string`) rather
-// than distinct named types. This is deliberate: orgchart's Role
-// references tool.Name and streaming.TopicID (so orgchart imports
-// those packages), and tool.Invocation.Caller needs Worker
-// (which would normally pull tool back to orgchart, closing the
-// cycle). Defining IDs as aliases lets tool's Invocation.Caller be
-// a tiny local interface — `interface{ ID() string;
-// OrganizationID() string }` — that orgchart.Worker satisfies for
-// free through structural typing, without tool importing orgchart.
-// The cost is loss of compile-time distinct typing between
-// WorkerID/RoleID etc.; in practice these are all hyphen-prefixed
-// string IDs and bugs from confusing them have not shown up in the
-// codebase.
+// The ID type is a Go type alias (`type BotID = string`) rather than a
+// distinct named type. This is deliberate: orgchart's Bot references
+// tool.Name and streaming.TopicID (so orgchart imports those packages),
+// and tool.Invocation.Caller needs a caller identity (which would
+// normally pull tool back to orgchart, closing the cycle). Defining the
+// ID as an alias lets tool's Caller be a tiny local interface —
+// `interface{ ID() string; OrganizationID() string }` — satisfied by a
+// thin adapter at the MCP boundary, without tool importing orgchart.
 package orgchart
 
-// RoleID identifies a Role. Convention: `r-<kebab-case>` (e.g.
-// `r-secretary`, `r-software-engineer`).
-type RoleID = string
-
-// WorkerID identifies a Worker. Convention: `w-<lowercase-firstname>`
-// (e.g. `w-mark`, `w-priya`). The owner Worker created at bootstrap
-// is conventionally `w-owner`.
-type WorkerID = string
+// BotID identifies a Bot. Convention: `b-<kebab-case>` (e.g. `b-root`,
+// `b-software-engineer`). The bootstrap owner Bot is conventionally
+// `b-root`.
+type BotID = string

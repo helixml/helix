@@ -30,7 +30,7 @@ import (
 // narrow interface so the lifecycle service doesn't import the tools
 // package. The composition root's dispatcher satisfies it.
 type HireDispatcher interface {
-	DispatchHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+	DispatchHire(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
 }
 
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
@@ -53,7 +53,7 @@ type HelixRuntime interface {
 // (the new Worker's channels weren't set up), Fire as best-effort.
 // *reconcile.Reconciler (activation/team/DM Topics) is the implementer.
 type WorkerReconciler interface {
-	Reconcile(ctx context.Context, orgID string, affected ...orgchart.WorkerID) error
+	Reconcile(ctx context.Context, orgID string, affected ...orgchart.BotID) error
 }
 
 // OrgReconciler converges some derived state for the WHOLE org — it takes no
@@ -112,8 +112,8 @@ type Service struct {
 // the org owner).
 type HireParams struct {
 	ID              string
-	RoleID          orgchart.RoleID
-	ParentID        orgchart.WorkerID
+	RoleID          orgchart.BotID
+	ParentID        orgchart.BotID
 	Kind            orgchart.WorkerKind
 	IdentityContent string
 }
@@ -121,7 +121,7 @@ type HireParams struct {
 // HireResult carries the new Worker id and, for AI hires, the
 // pre-allocated hire-activation id.
 type HireResult struct {
-	WorkerID     orgchart.WorkerID
+	WorkerID     orgchart.BotID
 	ActivationID activation.ID
 }
 
@@ -158,7 +158,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		return HireResult{}, fmt.Errorf("role %q: %w", p.RoleID, err)
 	}
 
-	var parent *orgchart.WorkerID
+	var parent *orgchart.BotID
 	if p.ParentID != "" {
 		if _, err := s.Store.Workers.Get(ctx, orgID, p.ParentID); err != nil {
 			return HireResult{}, fmt.Errorf("parent worker %q: %w", p.ParentID, err)
@@ -166,9 +166,9 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 		parent = &p.ParentID
 	}
 
-	id := orgchart.WorkerID(p.ID)
+	id := orgchart.BotID(p.ID)
 	if id == "" {
-		id = orgchart.WorkerID("w-" + s.NewID())
+		id = orgchart.BotID("w-" + s.NewID())
 	}
 	// The id becomes a path segment in the helix-specs git layout
 	// (workers/<id>/.context/…) and in topic ids — reject any traversal
@@ -286,7 +286,7 @@ func (s *Service) Hire(ctx context.Context, orgID string, p HireParams) (HireRes
 //
 // Activation events themselves are intentionally left behind as an
 // audit trail; only the Topic row is dropped.
-func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) error {
+func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.BotID) error {
 	if id == "" {
 		return errors.New("worker id is empty")
 	}
@@ -307,7 +307,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// affected set — without the reports, firing a manager orphans every
 	// `s-dm-<manager>-<report>` channel (the report stays subscribed to a
 	// DM with a now-deleted worker).
-	var exManagers, exReports []orgchart.WorkerID
+	var exManagers, exReports []orgchart.BotID
 	if s.Store.ReportingLines != nil {
 		exManagers, _ = s.Store.ReportingLines.ListManagers(ctx, orgID, id)
 		exReports, _ = s.Store.ReportingLines.ListReports(ctx, orgID, id)
@@ -350,7 +350,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 	// Worker's own Topics and collapse an ex-manager's team Topic when its
 	// last report just left. Best-effort here (unlike hire): a failure leaves
 	// a dangling Topic row, not a half-deleted worker, so we log and continue.
-	affected := append([]orgchart.WorkerID{id}, exManagers...)
+	affected := append([]orgchart.BotID{id}, exManagers...)
 	affected = append(affected, exReports...)
 	for _, rec := range s.WorkerReconcilers {
 		if rec == nil {
@@ -371,7 +371,7 @@ func (s *Service) Fire(ctx context.Context, orgID string, id orgchart.WorkerID) 
 // runOrgReconcilers runs every whole-org reconciler best-effort, logging (not
 // propagating) failures so one reconciler can't abort the lifecycle mutation
 // or block the others. phase/worker are for the log line only.
-func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, worker orgchart.WorkerID) {
+func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, worker orgchart.BotID) {
 	for _, rec := range s.OrgReconcilers {
 		if rec == nil {
 			continue
@@ -388,7 +388,7 @@ func (s *Service) runOrgReconcilers(ctx context.Context, orgID, phase string, wo
 //     the full Fire cascade — project teardown, env removal,
 //     subscriptions, the worker row).
 //  2. Delete the Role row.
-func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.RoleID) error {
+func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.BotID) error {
 	if id == "" {
 		return errors.New("role id is empty")
 	}
@@ -410,7 +410,7 @@ func (s *Service) DeleteRole(ctx context.Context, orgID string, id orgchart.Role
 }
 
 // fireWorkersWithRole fires every Worker holding the given Role.
-func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID orgchart.RoleID) error {
+func (s *Service) fireWorkersWithRole(ctx context.Context, orgID string, roleID orgchart.BotID) error {
 	workers, err := s.Store.Workers.List(ctx, orgID)
 	if err != nil {
 		return fmt.Errorf("list workers: %w", err)

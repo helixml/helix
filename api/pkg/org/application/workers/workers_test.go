@@ -29,7 +29,7 @@ func newService(st *store.Store) *Workers {
 
 // seedWorker creates a role + AI worker so the update tests have a
 // target. Returns the worker id.
-func seedWorker(t *testing.T, st *store.Store, orgID string) orgchart.WorkerID {
+func seedWorker(t *testing.T, st *store.Store, orgID string) orgchart.BotID {
 	t.Helper()
 	ctx := context.Background()
 	role, err := orgchart.NewRole("r-eng", "# Engineer", []tool.Name{"publish"}, []streaming.TopicID{"s-a"}, fixedClock(), orgID)
@@ -139,7 +139,7 @@ func seedTwoWorkers(t *testing.T, st *store.Store, orgID string) {
 	if err := st.Roles.Create(ctx, role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	for _, id := range []orgchart.WorkerID{"w-boss", "w-report"} {
+	for _, id := range []orgchart.BotID{"w-boss", "w-report"} {
 		wk, _ := orgchart.NewAIWorker(id, "r-eng", "id", orgID)
 		if err := st.Workers.Create(ctx, wk); err != nil {
 			t.Fatalf("create %s: %v", id, err)

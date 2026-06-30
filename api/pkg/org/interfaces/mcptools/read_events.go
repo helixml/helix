@@ -30,7 +30,7 @@ const (
 type eventView struct {
 	ID        streaming.EventID  `json:"id"`
 	TopicID  streaming.TopicID `json:"topicId"`
-	Source    orgchart.WorkerID  `json:"source"`
+	Source    orgchart.BotID  `json:"source"`
 	Body      string             `json:"body"`
 	Message   *streaming.Message `json:"message,omitempty"`
 	CreatedAt time.Time          `json:"createdAt"`
@@ -195,7 +195,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 
 // fresh returns events newer than `since` (exclusive), newest-first, up
 // to `limit`. An empty `since` means "return everything".
-func (t *ReadEvents) fresh(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int, since streaming.EventID) ([]streaming.Event, error) {
+func (t *ReadEvents) fresh(ctx context.Context, orgID string, workerID orgchart.BotID, limit int, since streaming.EventID) ([]streaming.Event, error) {
 	events, err := t.deps.Queries.WorkerEvents(ctx, orgID, workerID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events for %q: %w", workerID, err)

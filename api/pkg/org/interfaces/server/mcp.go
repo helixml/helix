@@ -66,7 +66,7 @@ func (s *Server) mcpHandler() http.Handler {
 //
 // Returning nil causes the SDK to respond 400 Bad Request.
 func (s *Server) buildMCPServer(r *http.Request) *mcp.Server {
-	workerID := orgchart.WorkerID(r.PathValue("id"))
+	workerID := orgchart.BotID(r.PathValue("id"))
 	if workerID == "" {
 		return nil
 	}

@@ -28,7 +28,7 @@ func (a *apiHandler) listWorkerSubscriptions(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	wid := orgchart.WorkerID(r.PathValue("id"))
+	wid := orgchart.BotID(r.PathValue("id"))
 	if wid == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -72,7 +72,7 @@ func (a *apiHandler) subscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	wid := orgchart.WorkerID(r.PathValue("id"))
+	wid := orgchart.BotID(r.PathValue("id"))
 	if wid == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id is required"))
 		return
@@ -119,7 +119,7 @@ func (a *apiHandler) unsubscribeWorker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	wid := orgchart.WorkerID(r.PathValue("id"))
+	wid := orgchart.BotID(r.PathValue("id"))
 	topicID := streaming.TopicID(r.PathValue("topic_id"))
 	if wid == "" || topicID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("worker id and topic id are required"))

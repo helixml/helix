@@ -280,7 +280,7 @@ func TestRolesReconcile_ScopedToOrg(t *testing.T) {
 	created := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
 	for _, spec := range []struct {
 		orgID string
-		id    orgchart.RoleID
+		id    orgchart.BotID
 	}{{"org-a", "r-a"}, {"org-b", "r-b"}} {
 		role, err := orgchart.NewRole(spec.id, "#", []tool.Name{"publish"}, nil, created, spec.orgID)
 		if err != nil {

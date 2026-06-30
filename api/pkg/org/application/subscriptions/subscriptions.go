@@ -52,7 +52,7 @@ func New(deps Deps) *Subscriptions {
 // Idempotent: if the link already exists it returns the existing row
 // with created=false and no error. Returns store.ErrNotFound (wrapped)
 // when the topic or worker is absent.
-func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (sub streaming.Subscription, created bool, err error) {
+func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) (sub streaming.Subscription, created bool, err error) {
 	if _, err := s.topics.Get(ctx, orgID, topicID); err != nil {
 		return streaming.Subscription{}, false, fmt.Errorf("topic %q: %w", topicID, err)
 	}
@@ -76,7 +76,7 @@ func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID or
 
 // Unsubscribe drops the (worker, topic) link. Returns store.ErrNotFound
 // (wrapped) when no such link exists.
-func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) error {
 	return s.subs.Delete(ctx, orgID, workerID, topicID)
 }
 
@@ -84,7 +84,7 @@ func (s *Subscriptions) Unsubscribe(ctx context.Context, orgID string, workerID 
 // topic and every worker up front (so a bad id fails the whole call
 // before any write). Idempotent per worker. Used to open DMs / pull
 // colleagues into a thread.
-func (s *Subscriptions) Invite(ctx context.Context, orgID string, topicID streaming.TopicID, workerIDs []orgchart.WorkerID) error {
+func (s *Subscriptions) Invite(ctx context.Context, orgID string, topicID streaming.TopicID, workerIDs []orgchart.BotID) error {
 	if len(workerIDs) == 0 {
 		return fmt.Errorf("workerIds must contain at least one worker")
 	}

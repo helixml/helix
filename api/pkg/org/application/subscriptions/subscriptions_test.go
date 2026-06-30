@@ -127,11 +127,11 @@ func TestInvite_MultipleIdempotent(t *testing.T) {
 		t.Fatalf("create w2: %v", err)
 	}
 
-	if err := svc.Invite(ctx, "org-test", "s-1", []orgchart.WorkerID{"w-mark", "w-priya"}); err != nil {
+	if err := svc.Invite(ctx, "org-test", "s-1", []orgchart.BotID{"w-mark", "w-priya"}); err != nil {
 		t.Fatalf("Invite: %v", err)
 	}
 	// Re-invite (one already present) is idempotent.
-	if err := svc.Invite(ctx, "org-test", "s-1", []orgchart.WorkerID{"w-mark", "w-priya"}); err != nil {
+	if err := svc.Invite(ctx, "org-test", "s-1", []orgchart.BotID{"w-mark", "w-priya"}); err != nil {
 		t.Fatalf("Invite (repeat): %v", err)
 	}
 	subs, _ := st.Subscriptions.ListForTopic(ctx, "org-test", "s-1")
@@ -146,7 +146,7 @@ func TestInvite_UnknownWorkerRejected(t *testing.T) {
 	svc := newService(st)
 	ctx := context.Background()
 	seed(t, st, "org-test")
-	err := svc.Invite(ctx, "org-test", "s-1", []orgchart.WorkerID{"w-mark", "w-ghost"})
+	err := svc.Invite(ctx, "org-test", "s-1", []orgchart.BotID{"w-mark", "w-ghost"})
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}

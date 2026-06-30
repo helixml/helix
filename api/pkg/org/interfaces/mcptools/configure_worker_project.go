@@ -88,7 +88,7 @@ func (t *ConfigureWorkerProject) Invoke(ctx context.Context, inv tool.Invocation
 	if cfg == nil {
 		return nil, runtime.ErrProjectConfigUnsupported
 	}
-	snap, err := cfg.UpdateWorkerProjectConfig(ctx, orgID, orgchart.WorkerID(args.WorkerID), patch)
+	snap, err := cfg.UpdateWorkerProjectConfig(ctx, orgID, orgchart.BotID(args.WorkerID), patch)
 	if err != nil {
 		return nil, fmt.Errorf("configure worker project: %w", err)
 	}

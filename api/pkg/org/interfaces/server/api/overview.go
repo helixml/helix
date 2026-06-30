@@ -42,7 +42,7 @@ func (a *apiHandler) getOverview(w http.ResponseWriter, r *http.Request) {
 
 // buildOverview groups workers by their RoleID.
 func buildOverview(workers []orgchart.Worker, roles []orgchart.Role) OrgOverview {
-	byRole := make(map[orgchart.RoleID][]WorkerBadge)
+	byRole := make(map[orgchart.BotID][]WorkerBadge)
 	for _, wk := range workers {
 		rid := wk.RoleID()
 		byRole[rid] = append(byRole[rid], WorkerBadge{ID: string(wk.ID()), Kind: string(wk.Kind())})

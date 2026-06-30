@@ -54,9 +54,9 @@ func (t *InviteWorkers) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		return nil, fmt.Errorf("invite_workers: caller has no OrgID")
 	}
 	topicID := streaming.TopicID(args.TopicID)
-	workerIDs := make([]orgchart.WorkerID, 0, len(args.WorkerIDs))
+	workerIDs := make([]orgchart.BotID, 0, len(args.WorkerIDs))
 	for _, raw := range args.WorkerIDs {
-		workerIDs = append(workerIDs, orgchart.WorkerID(raw))
+		workerIDs = append(workerIDs, orgchart.BotID(raw))
 	}
 	// The service validates the topic + every worker up front and
 	// subscribes each (idempotent per worker).

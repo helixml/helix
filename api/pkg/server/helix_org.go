@@ -142,7 +142,7 @@ type helixOrgHandlers struct {
 // the store.
 type orgWorkerRuntime struct{ st *helixorgstore.Store }
 
-func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (helixorgapi.WorkerRuntimeInfo, error) {
+func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.BotID) (helixorgapi.WorkerRuntimeInfo, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
 		return helixorgapi.WorkerRuntimeInfo{}, err
@@ -157,7 +157,7 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
 // manual-activate use case can populate the response's session id without
 // the activations service touching the store.
-func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID orgchart.WorkerID) (string, error) {
+func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
 		return "", err
@@ -930,7 +930,7 @@ type dynamicProjectApplier struct {
 // previously are wiped — we re-attach here to keep the MCP present.
 // The Spawner does the same on its own activations; owner-chat goes
 // through this path only.
-func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error) {
+func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error) {
 	applier, mcpBearer, err := buildHelixOrgProjectApplier(ctx, orgID, d.cfg, d.projectSvc, d.Store, d.workspace, d.logger)
 	if err != nil {
 		return "", "", "", err
@@ -1184,7 +1184,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error {
+	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) error {
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating.
 		if d.Applier != nil {

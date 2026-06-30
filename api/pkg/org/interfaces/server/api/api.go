@@ -47,7 +47,7 @@ type Dispatcher interface {
 	// given Worker. Called by activateWorker after the synchronous
 	// ensureProject step. activationID is the pre-allocated audit-row
 	// ID; empty means the Spawner mints its own.
-	DispatchManual(ctx context.Context, orgID string, workerID orgchart.WorkerID, activationID activation.ID)
+	DispatchManual(ctx context.Context, orgID string, workerID orgchart.BotID, activationID activation.ID)
 }
 
 // ProjectEnsurer provisions (or fast-paths) the per-Worker Helix
@@ -56,7 +56,7 @@ type Dispatcher interface {
 // page calls POST /workers/{id}/chat which routes through this to
 // guarantee an agent_app_id exists before redirecting to /agent/.
 type ProjectEnsurer interface {
-	Ensure(ctx context.Context, orgID string, workerID orgchart.WorkerID) (projectID, agentAppID, repoID string, err error)
+	Ensure(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, agentAppID, repoID string, err error)
 }
 
 // Deps is the JSON API's wiring.
@@ -198,7 +198,7 @@ type WorkerRuntimeInfo struct {
 // the worker-detail and activate handlers read project/agent/session ids
 // without the api adapter touching the store.
 type WorkerRuntime interface {
-	State(ctx context.Context, orgID string, workerID orgchart.WorkerID) (WorkerRuntimeInfo, error)
+	State(ctx context.Context, orgID string, workerID orgchart.BotID) (WorkerRuntimeInfo, error)
 }
 
 // SessionRestarter recreates the desktop container backing a session —

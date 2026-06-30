@@ -57,13 +57,13 @@ import (
 // dispatcher_test.go deliberately drops orgID).
 type orgActivation struct {
 	OrgID    string
-	WorkerID orgchart.WorkerID
+	WorkerID orgchart.BotID
 }
 
 // seedTenant provisions one org with a worker + topic + subscription,
 // all using caller-supplied ids. Call it twice with the SAME ids and
 // different orgs to set up a collision.
-func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) {
+func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.BotID, topicID streaming.TopicID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -113,14 +113,14 @@ func TestDispatch_IsolatesCollidingIDsAcrossOrgs(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.WorkerID("w-owner")    // identical across orgs
+		workerID = orgchart.BotID("w-owner")    // identical across orgs
 		topicID = streaming.TopicID("s-general") // identical across orgs
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
 	seedTenant(t, s, "org-b", workerID, topicID)
 
 	rec := make(chan orgActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.WorkerID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, wid orgchart.BotID, _ []activation.Trigger) error {
 		rec <- orgActivation{OrgID: orgID, WorkerID: wid}
 		return nil
 	})
@@ -191,7 +191,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 
 	const (
-		workerID = orgchart.WorkerID("w-owner")
+		workerID = orgchart.BotID("w-owner")
 		topicID = streaming.TopicID("s-general")
 	)
 	seedTenant(t, s, "org-a", workerID, topicID)
@@ -199,7 +199,7 @@ func TestDispatch_CollidingIDsActivateConcurrently(t *testing.T) {
 
 	entered := make(chan string, 2) // orgID of each activation that started
 	release := make(chan struct{})
-	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.WorkerID, _ []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, orgID string, _ orgchart.BotID, _ []activation.Trigger) error {
 		entered <- orgID
 		<-release
 		return nil
