@@ -33,6 +33,13 @@ for every existing bot.
   triggers" switch wired through `useUpdateBot`, with help text covering the
   speed-vs-compaction trade-off. Regenerated OpenAPI/TS client.
 
+## Screenshots
+
+Bot detail page — the new toggle (default off, left; enabled, right):
+
+![Toggle off](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002189_once-the-bot-refactor/screenshots/01-toggle-off.png)
+![Toggle on](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002189_once-the-bot-refactor/screenshots/02-toggle-on.png)
+
 ## Notes
 
 - MCP `create_bot`/`update_bot` intentionally do NOT expose this — keeping
