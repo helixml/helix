@@ -47,7 +47,7 @@ func BuildPrompt(workerID orgchart.BotID, mandate string, triggers []activation.
 		}
 	}
 
-	return fmt.Sprintf(`You are Worker %s, running inside helix-org. Your environment is
+	return fmt.Sprintf(`You are Bot %s, running inside helix-org. Your environment is
 the current working directory. Each activation is a single turn — do
 the work and exit.
 
