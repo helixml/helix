@@ -178,3 +178,33 @@ verification in US-6.
 - **Hidden `worker`/`role` references** outside `api/pkg/org` (e.g. server
   wiring in `api/pkg/server/helix_org*.go`, sandbox MCP surface): grep the
   whole tree for the helix-org symbols, not just the package.
+
+---
+
+## Implementation Notes (post-implementation)
+
+**Outcome:** Implemented end-to-end and verified live in the inner Helix UI. Full repo builds (`go build ./...`, `yarn build`); all `api/pkg/org/...` tests pass.
+
+**Order that worked (strict layer-by-layer, compile checkpoint each):**
+1. Domain (`orgchart.Bot` struct + `BotID`; deleted role/worker/kind; `channels`/`activation`/`streaming`/`store` retargeted). `tool.Worker`→`tool.Caller`.
+2. Persistence (gorm `botRow`/`org_bots`, `bot_runtime`, `bot_id` columns; memory store merged repos).
+3. Application (merged `roles`+`workers` → `bots`; `lifecycle` Hire/Fire/DeleteRole → Create/Delete; the rest mechanical).
+4. Interfaces (mcptools tool merge; server/api `/bots` + `BotDTO`; `botCaller` adapter at MCP gateway).
+5. Composition root (`helix_org.go`, `helix_org_middleware.go`).
+6. Migration `0005` (drop old tables; AutoMigrate recreates).
+7. Regenerate swagger + TS client (`swag init` + `swagger-typescript-api`), then frontend rewrite.
+8. Tests + QA.md.
+
+**Key decisions / learnings:**
+- **Bot is a struct** (field access), like the old Role. `tool.Invocation.Caller` stays an interface (`tool.Caller`) satisfied by a tiny `botCaller{id,orgID}` adapter built at the MCP gateway (`interfaces/server/mcp.go`) — Bot itself can't have `ID()`/`OrganizationID()` methods because those collide with its fields.
+- **Create is one step now.** `lifecycle.Create` delegates the row creation to the `bots` service (base-tool union + id minting), then wires the reporting line, reconciles topology, and dispatches the create-activation. Old `create_role`+`hire_worker` collapse to `create_bot`; `update_role`+`update_identity` → `update_bot`.
+- **Every bot gets a transcript** (the old "AI-worker-or-root" rule is gone) — simplified `channels.Required`. `WorkerKind`/`SourceKind`/AI-deprioritisation removed.
+- **MCP endpoint URL kept `/.../workers/<id>/mcp`** and the on-disk `workers/<id>/.context/` git layout + `HELIX_WORKER_ID` env + internal `WorkerProject` type were intentionally left (deep runtime/sandbox plumbing, orthogonal to the domain merge; renaming risks the sandbox integration). The agent-facing prompt text was changed to "You are Bot …".
+- **Migration is wipe-and-recreate** (helix-org pre-release): `0005` drops `org_roles`/`org_workers`/`org_subscriptions`/`org_reporting_lines`/`org_worker_runtime_state`; GORM AutoMigrate creates `org_bots` + bot-keyed tables on boot. Operator recreates bots manually (no auto re-bootstrap).
+- **Generated client regen is required** — the org REST handlers carry swagger annotations; `./stack update_openapi` (or `swag init` + `swagger-typescript-api` directly with `PATH=$PATH:~/go/bin`) regenerates `frontend/src/api/api.ts` with the `v1OrgsBots*` methods + `ApiBotDTO`.
+
+**Enabling helix-org for testing:** set `HELIX_ORG_ENABLED=true` in `.env` + recreate the api container (`docker compose -f docker-compose.dev.yaml up -d api`), AND grant the user the alpha flag: `UPDATE users SET alpha_features = array_append(coalesce(alpha_features,'{}'),'helix-org') WHERE email='…';`.
+
+**E2E verified live (localhost:8080):** create bot (chart + dialog) → `org_bots` row with merged base tools + auto transcript topic + provisioned project/agent app; Bots list + merged detail page (inline chat, tools, subscriptions, project/agent links); child bot → reporting reconcile produces `s-transcript`/`s-team`/`s-dm` + correct subscriptions; delete bot → full cascade teardown. DB confirmed `org_roles`/`org_workers` gone.
+
+**Known follow-ups (not done):** broader QA scenarios not hand-walked in UI (cycle-guard, reparent-unsubscribe §12.3a, multi-tenancy §16) — covered by the passing Go unit/integration tests; internal runtime "Worker" naming (`WorkerProject`, `HELIX_WORKER_ID`, `workers/<id>/` path) left as plumbing.
