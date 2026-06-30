@@ -1,0 +1,107 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	"github.com/helixml/helix/api/pkg/types"
+)
+
+// attentionTopicPublisher implements services.AttentionEventSink: it
+// forwards each spec-task attention event onto a per-project org topic
+// (transport.KindSpecTask) so subscribed Workers are triggered via the
+// normal dispatch path. This is the helix↔org bridge — it lives in the
+// server package (not org infra) because it consumes helix's
+// *types.AttentionEvent; org transports import only the org domain.
+type attentionTopicPublisher struct {
+	topics    orgstore.Topics
+	publisher orgEventPublisher
+	newID     func() string
+	now       func() time.Time
+}
+
+// orgEventPublisher is the narrow publish surface — satisfied by the org
+// application Publishing service.
+type orgEventPublisher interface {
+	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+}
+
+// specTaskEventExtra is the structured payload carried on the topic event
+// so an activated Worker knows what changed without an extra lookup.
+type specTaskEventExtra struct {
+	SpecTaskID string `json:"spec_task_id"`
+	EventType  string `json:"event_type"`
+	ProjectID  string `json:"project_id"`
+}
+
+// PublishAttentionEvent resolves (or creates) the project's spec-task
+// topic and publishes the event. A missing org/project scope is a no-op
+// — there's nothing to route to.
+func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev *types.AttentionEvent) error {
+	if ev == nil || ev.OrganizationID == "" || ev.ProjectID == "" {
+		return nil
+	}
+	topicID, err := p.ensureTopic(ctx, ev.OrganizationID, ev.ProjectID)
+	if err != nil {
+		return fmt.Errorf("ensure spectask topic: %w", err)
+	}
+	extra, _ := json.Marshal(specTaskEventExtra{
+		SpecTaskID: ev.SpecTaskID,
+		EventType:  string(ev.EventType),
+		ProjectID:  ev.ProjectID,
+	})
+	msg := streaming.Message{
+		Subject:         ev.Title,
+		Body:            ev.Description,
+		BodyContentType: "text/plain",
+		Extra:           extra,
+	}
+	if _, err := p.publisher.Publish(ctx, ev.OrganizationID, topicID, "", msg); err != nil {
+		return fmt.Errorf("publish spectask event: %w", err)
+	}
+	return nil
+}
+
+// ensureTopic returns the project's KindSpecTask topic, creating it on
+// first use (mirrors how Slack auto-creates its workspace topic).
+func (p *attentionTopicPublisher) ensureTopic(ctx context.Context, orgID, projectID string) (streaming.TopicID, error) {
+	existing, err := p.topics.List(ctx, orgID)
+	if err != nil {
+		return "", fmt.Errorf("list topics: %w", err)
+	}
+	for _, t := range existing {
+		if t.Transport.Kind != transport.KindSpecTask {
+			continue
+		}
+		cfg, cfgErr := t.Transport.SpecTaskConfig()
+		if cfgErr == nil && cfg.ProjectID == projectID {
+			return t.ID, nil
+		}
+	}
+	cfgJSON, err := json.Marshal(transport.SpecTaskConfig{ProjectID: projectID})
+	if err != nil {
+		return "", fmt.Errorf("marshal topic config: %w", err)
+	}
+	id := streaming.TopicID(p.newID())
+	topic, err := streaming.NewTopic(
+		id,
+		"Spec tasks: "+projectID,
+		"Spec-task state changes for project "+projectID,
+		"", // createdBy is optional (no worker context for automation)
+		p.now(),
+		transport.Transport{Kind: transport.KindSpecTask, Config: cfgJSON},
+		orgID,
+	)
+	if err != nil {
+		return "", fmt.Errorf("build topic: %w", err)
+	}
+	if err := p.topics.Create(ctx, topic); err != nil {
+		return "", fmt.Errorf("create topic: %w", err)
+	}
+	return id, nil
+}
