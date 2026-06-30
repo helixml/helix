@@ -11,8 +11,8 @@ Bots have no `kind`, so there is no AI/human gating.
 - [x] Refactor `SpecTaskDetailContent.tsx` to use the helper (behaviour unchanged).
 - [x] Add a unit test for `deriveDisplaySettings` (presets + fallback) — 6 cases, all green.
 
-## 2. Desktop view on the Bot detail page (`HelixOrgBotDetail.tsx`)
-- [ ] Add a `ToggleButtonGroup` (Chat | Desktop) at the top of the existing session panel.
+## 2. Desktop view on the Bot detail page (`HelixOrgBotDetail.tsx`) [~]
+- [~] Add a `ToggleButtonGroup` (Chat | Desktop) at the top of the existing session panel.
 - [ ] Look up the bot's agent app via `agentAppID` (`data.agent_app_id`) and compute display settings with `deriveDisplaySettings`.
 - [ ] Render `ExternalAgentDesktopViewer` (`mode="stream"`, `sessionId`/`sandboxId` = the already-resolved `chatSessionId`, display width/height/fps) when Desktop is selected, inside the existing bounded (~520px) container.
 - [ ] Keep the existing Chat panel (`EmbeddedSessionView` + `RobustPromptInput`) on the Chat toggle, unchanged.
