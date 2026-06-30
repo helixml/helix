@@ -18,8 +18,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 2 — In-proc impl (`runtimehelix.SpecTasks`)
 
-- [ ] RED: tests (following `project_config_test.go`) for no-project error, task-ownership enforcement, each verb's status transition, and created-task shape parity with the REST path — all failing against an empty impl.
-- [ ] GREEN: implement `api/pkg/org/infrastructure/runtime/helix/spectasks.go` delegating to `SpecDrivenTaskService` / the `submitDesignReview` request_changes path / the `approveImplementation` logic / `store` reads, resolving worker→projectID via `LoadState`.
+- [x] RED: tests (following `project_config_test.go`) for no-project error, task-ownership enforcement, each verb's status transition, and created-task shape parity with the REST path — all failing against an empty impl.
+- [x] GREEN: implement `api/pkg/org/infrastructure/runtime/helix/spectasks.go` via narrow `SpecTaskStore` (satisfied by `*helixstore.Store`) + `SpecTaskWorkflow` (`ApproveSpecs` + `EnsurePullRequests`), resolving worker→projectID via `LoadState`. **Note:** `RequestChanges` makes the `spec_revision` status transition (full design-review-comment thread is the REST path, deferred).
 
 ## Layer 3 — Application service (`spectasks.Service`)
 
