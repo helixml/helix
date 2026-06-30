@@ -8,7 +8,7 @@ they must stay green throughout because their code is not touched.
 
 ## Pre-work (no code)
 
-- [ ] Confirm (read-only) the org port can reuse the canonical `services` layer as-is: `SpecDrivenTaskService.CreateTaskFromPrompt`, `StartSpecGeneration`/`StartJustDoItMode`, `ApproveSpecs`, `services.GenerateDesignDocPath`, `store.Store` reads. No edits to `api/pkg/agent/skill/project/*` or existing `services`/`store`.
+- [~] Confirm (read-only) the org port can reuse the canonical `services` layer as-is: `SpecDrivenTaskService.CreateTaskFromPrompt`, `StartSpecGeneration`/`StartJustDoItMode`, `ApproveSpecs`, `services.GenerateDesignDocPath`, `store.Store` reads. No edits to `api/pkg/agent/skill/project/*` or existing `services`/`store`.
 - [ ] Decide and document the approver identity for Worker approvals (hiring user vs task creator) and how GitHub OAuth / commit credentials are sourced (`ValidateUserGitHubOAuth`). Must be settled before the `ApproveSpec` / `CreatePullRequests` cycles.
 
 ## Layer 1 — Infrastructure port (`runtime.SpecTasks`)
