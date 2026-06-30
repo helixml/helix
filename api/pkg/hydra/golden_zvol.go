@@ -439,8 +439,10 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 			return mountPath, nil
 		}
 		// Clone exists but not mounted (e.g. after reboot) — mount with nouuid
-		// because the clone shares the golden's XFS UUID.
-		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
+		// because the clone shares the golden's XFS UUID. discard so freed
+		// blocks are TRIMmed back to the pool (XFS-on-zvol doesn't reclaim
+		// otherwise — see mountZvolWithOptions).
+		if err := mountZvolWithOptions(cloneName, mountPath, "nouuid,discard"); err != nil {
 			return "", fmt.Errorf("failed to mount existing clone %s: %w", cloneName, err)
 		}
 		log.Info().
@@ -473,7 +475,7 @@ func SetupGoldenClone(projectID, sessionID string) (string, error) {
 	// entries from the golden build, which xfs_admin refuses to modify.
 	// nouuid skips the UUID check entirely — safe because each clone is on
 	// its own separate block device (zvol).
-	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid"); err != nil {
+	if err := mountZvolWithOptions(cloneName, mountPath, "nouuid,discard"); err != nil {
 		// Cleanup the clone on mount failure
 		_ = runCmd("zfs", "destroy", cloneName)
 		return "", fmt.Errorf("failed to mount clone %s at %s: %w", cloneName, mountPath, err)
@@ -1292,12 +1294,17 @@ func seedZvolFromGoldenDir(projectID, zvolMountPath string) error {
 	return nil
 }
 
-// mountZvol mounts a zvol at the given path.
+// mountZvol mounts a zvol at the given path. Mounts with "discard" so that
+// blocks freed inside the XFS filesystem are TRIMmed back to the ZFS pool —
+// without it, XFS-on-zvol never returns deleted space and the zvol grows
+// unboundedly (this is what leaked ~858G onto the container-docker zvol).
 func mountZvol(zvolName, mountPath string) error {
-	return mountZvolWithOptions(zvolName, mountPath, "")
+	return mountZvolWithOptions(zvolName, mountPath, "discard")
 }
 
-// mountZvolWithOptions mounts a zvol with optional mount options (e.g. "nouuid" for XFS).
+// mountZvolWithOptions mounts a zvol with optional mount options (e.g.
+// "nouuid" for XFS clones). Callers should include "discard" so freed blocks
+// are reclaimed (see mountZvol).
 func mountZvolWithOptions(zvolName, mountPath, options string) error {
 	if err := osMkdirAll(mountPath, 0755); err != nil {
 		return fmt.Errorf("failed to create mount point %s: %w", mountPath, err)
