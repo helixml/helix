@@ -1,60 +1,62 @@
-# Requirements: Fix Zed Theme Not Reverting on OS Dark/Light Mode Toggle
+# Requirements: Fix Zed Theme Not Updating on Repeated Light/Dark Toggle
 
 ## Background
 
-Zed (this Helix fork) follows the OS light/dark appearance when the user's theme
-is configured in `System` mode. When the OS appearance changes, Zed should swap
-between the configured light theme and dark theme automatically.
+The Helix web UI has a light/dark mode toggle button (the moon/sun icon in the
+page header). Clicking it switches the embedded Zed editor's theme. The first
+click works (e.g. dark → light), but clicking again to go back (light → dark)
+does **not** update Zed's theme. Only the first transition per Zed session takes
+effect. This has been attempted multiple times — all prior attempts were on the
+Helix settings-sync-daemon side and did not fix it, because the actual fault is
+that **Zed stops noticing changes to `settings.json` after the first one**, not
+that the daemon writes the wrong value.
 
-Today the swap works on the **first** transition (e.g. light → dark) but does
-**not** swap back on the **reverse** transition (dark → light). The theme stays
-stuck on the first-switched appearance until Zed is restarted. This has been
-attempted multiple times without a durable fix, partly because there is no
-regression test covering OS appearance changes (the test platform stubs the
-appearance-change callback as a no-op).
+Root cause (confirmed by code trace): the daemon writes `settings.json` with an
+atomic rename, which replaces the file's inode on every write. Zed's user-settings
+file watcher watches the *file inode* (only symlinks get a parent-directory
+watch), and the native inotify watch is removed when that inode is replaced and
+is never re-armed. So the first write is observed; every write after it is
+silently missed.
+
+NOTE: This is NOT the OS-level appearance toggle. It is the in-UI button driving
+the user's `color_scheme` preference through the Helix pipeline to Zed.
 
 ## User Stories
 
-### US-1: Theme follows OS appearance in both directions
-As a user with my theme set to `System` mode,
-I want Zed to switch themes every time my OS toggles between light and dark,
-so that Zed always matches my system appearance no matter how many times I toggle.
+### US-1: Theme follows the UI toggle in both directions
+As a Helix user clicking the light/dark toggle button,
+I want Zed's theme to switch every time I click it,
+so that the editor always matches the mode I selected — not just the first time.
 
 ### US-2: Reliable repeated toggling
 As a user,
-I want light→dark→light→dark (and back) to keep working indefinitely within a
-single Zed session,
-so that I never have to restart Zed to recover correct theming.
+I want light→dark→light→dark (repeated any number of times) to keep working
+within a single session,
+so that I never have to reload or restart to recover correct theming.
 
-### US-3: Icon theme follows too
-As a user,
-I want the icon theme (when set to `System`/dynamic mode) to follow the same
-appearance changes as the color theme, in both directions.
-
-### US-4: Protected by a regression test
+### US-3: Protected by a regression test
 As a maintainer,
-I want an automated test that simulates repeated OS appearance changes,
-so that this bug cannot silently regress again on future rebases from upstream.
+I want an automated test proving the settings watcher survives atomic-rename
+replacement of `settings.json`,
+so that this class of bug (which also affects agent-switch settings reloads and
+manual external edits) cannot silently regress.
 
 ## Acceptance Criteria
 
-- [ ] With theme mode = `System`: toggling OS appearance light → dark switches Zed
-      to the configured dark theme.
-- [ ] Toggling OS appearance dark → light **then** switches Zed back to the
-      configured light theme (the bug under repair).
-- [ ] Repeating the toggle ≥ 3 times in a row continues to switch correctly each
-      time, with no restart required.
-- [ ] The icon theme follows the same transitions when configured as dynamic
-      `System` mode.
-- [ ] Themes explicitly set to `Static` (not `System`) are unaffected — they do
-      not change when the OS appearance changes.
-- [ ] A regression test simulates ≥ 2 full appearance transitions (light→dark→light)
-      and asserts the active theme is correct after each one.
-- [ ] No regression to startup theme selection (the initial appearance is still
-      respected on launch).
+- [ ] Clicking the Helix light/dark toggle changes Zed's theme on the first click.
+- [ ] Clicking it again changes Zed's theme back (the bug under repair).
+- [ ] Repeating the toggle ≥ 3 times in a row switches correctly every time, with
+      no Zed reload/restart and no manual settings edit.
+- [ ] A user-picked custom Zed theme (set in Zed's own UI) is still preserved and
+      not clobbered by the toggle (existing `HELIX_MANAGED_THEMES` behaviour).
+- [ ] A regression test exercises the watcher against repeated atomic-rename
+      replacement of the watched file and asserts a reload is delivered for the
+      2nd and 3rd replacement, not just the 1st.
+- [ ] No regression to the initial theme applied when a session first opens.
 
 ## Out of Scope
 
-- Adding new theme-selection UI or settings.
-- Changing the default light/dark theme names.
-- Reworking the theme registry or theme override system.
+- The OS-level appearance / portal `color-scheme` observation path in Zed.
+- Adding new theme settings or changing the managed light/dark theme names.
+- Reworking the Helix color-scheme API or the daemon's merge logic (it already
+  computes and writes the correct value).

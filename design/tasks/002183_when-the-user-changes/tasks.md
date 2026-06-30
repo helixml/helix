@@ -1,27 +1,27 @@
-# Implementation Tasks: Fix Zed Theme Not Reverting on OS Dark/Light Mode Toggle
+# Implementation Tasks: Fix Zed Theme Not Updating on Repeated Light/Dark Toggle
 
-## Reproduce & localize
-- [ ] In the full Zed repo, reproduce: set theme mode = `System`, toggle OS appearance light→dark→light, confirm it sticks on dark.
-- [ ] Add temporary `log::info!` at the four chain points: `Window::appearance_changed` (gpui/src/window.rs:2274), the workspace `observe_window_appearance` closure (workspace.rs:1781), `configured_theme` after computing `theme_name` (theme_settings.rs:155), and `GlobalTheme::update_theme` (theme.rs:329).
-- [ ] Toggle light→dark→light and read the logs; identify the exact step where the reverse transition diverges (callback not firing, stale `window.appearance()`, or correct value but no visible change).
+## Confirm the root cause
+- [ ] In the inner Helix, open a live spec-task Zed session and click the light/dark toggle twice; confirm the theme changes on click 1 but not click 2.
+- [ ] Tail the settings-sync-daemon log; confirm `theme sync: branch=managed_overwrite ...` and `Updated settings.json` appear on BOTH clicks (daemon writes correctly twice).
+- [ ] Run `ls -i ~/.config/zed/settings.json` before and after a toggle; confirm the inode number changes (atomic-rename replacement).
+- [ ] Confirm Zed re-reads settings.json on click 1 but not click 2 (the watcher is the break).
 
-## Fix the localized break
-- [ ] If the platform callback does not fire / reports a stale value on reverse: fix the Linux appearance watcher in `crates/gpui/src/platform/linux/**` (XDG `org.freedesktop.appearance` `color-scheme` portal handler + the window's cached `WindowAppearance`) so every OS change updates the cache and re-dispatches `appearance_changed`.
-- [ ] Verify the fix dispatches to all live windows, not just the focused one.
-- [ ] Remove the temporary logging once the break is fixed.
+## Primary fix — make Zed's settings watcher survive atomic-rename replacement
+- [ ] In `crates/fs/src/fs.rs` `RealFs::watch`, also register a watch on the parent directory for regular files (today only symlinks get it, lines ~1088-1104), filtering delivered events to the target path.
+- [ ] Alternatively/additionally route user + global settings through directory-based watching using the existing `watch_config_dir` (`crates/settings/src/settings_file.rs:200`), which already filters per-file.
+- [ ] Verify keymap and global-settings watchers still work and there is no duplicate-reload storm.
 
-## Defensive consistency (latent dedup desync)
-- [ ] Make the appearance-driven reload path and the `observe_global::<SettingsStore>` dedup caches (`prev_theme_name`/`prev_icon_theme_name`, theme_settings.rs ~70-152) share one source of truth so they cannot desync after a direct `reload_theme()`.
+## Regression test (required)
+- [ ] Add a Zed test next to the existing watcher tests in `crates/settings/src/settings_file.rs` using `RealFs` + a tempdir: start `watch_config_file`, then replace the file via tmp-write + rename three times, asserting a reload is delivered after EACH replacement (not just the first).
 
-## Regression test (required — this is why prior fixes regressed)
-- [ ] Extend `TestWindow`/`TestPlatform` to store the `on_appearance_changed` callback (currently a no-op at platform/test/window.rs:293) and add a `set_appearance(WindowAppearance)` test helper that invokes it.
-- [ ] Add a test: mode=`System` with distinct light/dark themes; simulate light→dark→light and assert the active theme is correct after each transition (including the final revert to light).
-- [ ] Add an assertion that a `Static` theme is NOT changed by simulated OS toggles.
+## Alternative (only if the Zed change is rejected) — daemon-side inode-preserving write
+- [ ] Change `writeSettings` in `helix/api/cmd/settings-sync-daemon/main.go` to truncate-and-write `settings.json` in place (preserve inode) instead of tmp-write + `os.Rename`.
+- [ ] Add a Go test asserting the inode is stable across repeated `writeSettings` calls.
 
-## Verify & document
-- [ ] Build: `cargo build --features external_websocket_sync -p zed`.
-- [ ] Run the new test and the existing theme/gpui tests; confirm all pass.
-- [ ] Manually verify light→dark→light→dark works repeatedly in a running build with no restart.
-- [ ] Confirm icon theme (dynamic `System` mode) also follows both directions.
-- [ ] Record any modified upstream files in `portingguide.md` per fork rebase convention.
-- [ ] Open PR following CLAUDE.md hygiene (imperative title, `Release Notes:` section).
+## Build, verify, ship
+- [ ] Build Zed: `./stack build-zed release`, then `./stack build-ubuntu`; start a NEW session.
+- [ ] End-to-end verify in the inner Helix: toggle light/dark ≥ 3 times and confirm Zed's theme changes every time with no reload/restart.
+- [ ] Confirm a user-picked custom Zed theme is still preserved (not clobbered) after toggling.
+- [ ] If Zed changed: commit Zed, capture `git rev-parse HEAD`, bump `ZED_COMMIT` in `sandbox-versions.txt`, and follow the CLAUDE.md PR ordering (open Helix PR before pushing Zed branch).
+- [ ] Record any modified upstream Zed files in `portingguide.md`.
+- [ ] Check CI (Drone) green after pushing.
