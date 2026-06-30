@@ -22,9 +22,13 @@ assignment, and status transitions.
 **Reuse answer:** Yes — but not by importing the skill tools verbatim. They
 implement the `agent.Tool` interface and depend directly on `store.Store`,
 while org MCP tools implement `tool.Tool` and reach the helix world only
-through **runtime ports** (the `runtime.ProjectConfig` pattern). We reuse the
-code by extracting the shared spec-task logic into one helper that both the
-existing skill tools and the new org port call, so behaviour cannot drift.
+through **infrastructure ports** (the `runtime.ProjectConfig` pattern). We
+reuse the code by extracting the shared spec-task logic into one helix-core
+helper that both the existing skill tools and the new org port impl call, so
+behaviour cannot drift. On the org side the tools go through a dedicated
+**org application service** (front-of-house) that depends on an infrastructure
+port whose impl calls out to that core — the same layering the helix project
+runtime uses today.
 
 ## User Stories
 
@@ -50,7 +54,12 @@ generic CRUD (per design review feedback).
   the reviewer action they perform: `create_spectask`, `list_spectasks`,
   `get_spectask`, `start_spectask_planning`, `review_spectask_spec`,
   `approve_spectask_spec`, `request_spectask_changes`, `approve_spectask_pr`.
-- The approve/request-changes tools delegate to the same workflow code the UI
+- The tools depend on a dedicated org application service
+  (`org/application/spectasks`), which depends on an infrastructure port
+  (`runtime.SpecTasks`) whose `runtimehelix` impl calls the core helix code —
+  matching the existing project-runtime layering. Tools never touch
+  `store.Store` or the helix services directly.
+- The approve/request-changes verbs delegate to the same workflow code the UI
   uses (`SpecDrivenTaskService.ApproveSpecs`, the `submitDesignReview`
   `request_changes` path, and the `approveImplementation` logic) — they do not
   reimplement the status machine.
