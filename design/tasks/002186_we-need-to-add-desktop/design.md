@@ -98,6 +98,17 @@ exist and are reused unchanged.
    `HelixOrgBotDetail.tsx`. The session-resolution code (`projectID`,
    `agentAppID`, `chatSessionId`, the chat panel) moves into that file
    verbatim, so this feature only *adds a toggle + a viewer branch* beside it.
+
+   **Data dependency:** this feature needs `project_id` + `agent_app_id` on
+   the bot **detail** response. 002185's *flat* `BotDTO`
+   (`{id, content, tools, topics, parent_ids, timestamps}`) does not list
+   them, but its bot detail endpoint must still surface them — 002185's own
+   merged `HelixOrgBotDetail.tsx` keeps the project/agent links and inline
+   chat, which already depend on those re-anchored runtime fields
+   (`project_id`/`agent_app_id`/`session_id`, design §"Re-anchored onto the
+   Bot"). No extra API work for us *provided* the bot detail DTO carries them
+   as the old `WorkerDetailDTO` did; if 002185 drops them from the detail
+   response, that must be restored (small, and 002185 needs it regardless).
 2. Keep the change **additive and localized** to the session-panel region so
    it rebases cleanly regardless of merge order.
 3. If this must land before 002185, implement on `HelixOrgWorkerDetail.tsx`
