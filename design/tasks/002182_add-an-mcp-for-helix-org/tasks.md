@@ -45,8 +45,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 7 — Eventing: transport + AttentionService trigger
 
-- [ ] RED: tests for `transport.KindSpecTask` (strategy lookup + `kindOrder` membership + project-scoped config parse).
-- [ ] GREEN: add `transport.KindSpecTask = "spectask"` and its strategy/`kindOrder`/config to `api/pkg/org/domain/transport/`.
+- [x] RED: tests for `transport.KindSpecTask` (strategy lookup + `kindOrder` membership + project-scoped config parse).
+- [x] GREEN: add `transport.KindSpecTask = "spectask"` and its strategy/`kindOrder`/config to `api/pkg/org/domain/transport/` (golden order test updated for the new kind).
 - [ ] RED: a test on `services.AttentionService` (fake `Publisher`) asserting `EmitEvent` publishes a new `AttentionEvent`, skips publish on the idempotency-dedup path, and is nil-safe when no publisher is wired. (This is the only change to existing code — gated behind a red test first.)
 - [ ] GREEN: add the optional nil-guarded `Publisher` sink to `AttentionService`, published after the dedup check beside `notifySlack`.
 - [ ] RED: tests for the spectask transport infra — `AttentionEvent` → `streaming.Message` mapping and project→`KindSpecTask` topic resolution (auto-create like the Slack workspace topic).
