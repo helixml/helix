@@ -653,6 +653,16 @@ func PromoteSessionToGoldenZvol(projectID, sessionID string) error {
 	_ = runCmd("umount", goldenMount)
 	_ = os.Remove(goldenMount)
 
+	// Ensure golden ends up a true root dataset. `zfs promote` above only
+	// detaches one level, so without this golden stays a clone of the original
+	// session's zvol, which then becomes an unreapable clone-origin and leaks
+	// old snapshots forever. Metadata-only; the project lock is already held.
+	if n, err := flattenGoldenToRootLocked(goldenName); err != nil {
+		log.Warn().Err(err).Str("golden", goldenName).Msg("Failed to flatten golden to root after promote")
+	} else if n > 0 {
+		log.Info().Str("golden", goldenName).Int("promotes", n).Msg("Flattened golden to root after promote")
+	}
+
 	log.Info().
 		Str("project_id", projectID).
 		Str("golden", goldenName).
@@ -981,6 +991,99 @@ func GCStaleSnapshots() int {
 	}
 
 	return cleaned
+}
+
+// zfsOrigin returns the origin snapshot of a dataset, or "" when it has none
+// (a root dataset; ZFS reports "-"). "" is also returned on error.
+func zfsOrigin(dataset string) string {
+	out, err := execCmdOutput("zfs", "get", "-H", "-o", "value", "origin", dataset)
+	if err != nil {
+		return ""
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "-" {
+		return ""
+	}
+	return v
+}
+
+// flattenGoldenToRootLocked promotes a golden zvol until it is a true root
+// dataset (origin == "-"). golden is built by promoting/cloning a running
+// session, and `zfs promote` only detaches ONE level — so without this, golden
+// stays a clone of the *first* session's zvol, which then becomes an
+// unreapable clone-origin holding old snapshots forever (the GC leak).
+//
+// `zfs promote` is metadata-only: it re-parents the shared snapshots onto
+// golden without copying or deleting any data, and live session clones keep
+// working throughout. Once golden is a root, the former origin session zvols
+// become ordinary leaf clones the orphan reaper can destroy, and their
+// now-absorbed old snapshots are pruned by GCStaleSnapshots. Safe + reversible.
+//
+// The caller MUST hold the project's golden lock.
+func flattenGoldenToRootLocked(goldenName string) (promotes int, err error) {
+	if !zfsDatasetExists(goldenName) {
+		return 0, nil
+	}
+	// Chains are short (golden ← session ← golden …); guard against an
+	// unexpected cycle so we can never spin forever.
+	const maxPromotes = 50
+	for promotes < maxPromotes {
+		if zfsOrigin(goldenName) == "" {
+			return promotes, nil // already a root
+		}
+		if err := runCmd("zfs", "promote", goldenName); err != nil {
+			return promotes, fmt.Errorf("zfs promote %s failed: %w", goldenName, err)
+		}
+		promotes++
+	}
+	return promotes, fmt.Errorf("golden %s still has an origin after %d promotes (possible clone cycle)", goldenName, maxPromotes)
+}
+
+// FlattenGoldenToRoot is the locked, public per-project entry point.
+func FlattenGoldenToRoot(projectID string) (int, error) {
+	lock := getGoldenLock(projectID)
+	lock.Lock()
+	defer lock.Unlock()
+	return flattenGoldenToRootLocked(goldenZvolName(projectID))
+}
+
+// FlattenInvertedGoldens finds golden zvols that are still clones of another
+// dataset (origin != "-") — the legacy topology where golden hangs off an
+// ended session's zvol — and promotes each to a true root, detaching the dead
+// session origin so the orphan reaper can reclaim it. Metadata-only and safe;
+// returns the goldens it flattened (or, in dryRun, would flatten).
+func FlattenInvertedGoldens(dryRun bool) (flattened []string) {
+	if !ZFSAvailable() {
+		return nil
+	}
+	out, err := execCmdOutput("zfs", "list", "-H", "-o", "name", "-t", "volume", "-r", zfsParentDataset)
+	if err != nil {
+		log.Warn().Err(err).Msg("FlattenInvertedGoldens: failed to list zvols")
+		return nil
+	}
+	goldenPrefix := zfsParentDataset + "/golden-"
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if !strings.HasPrefix(name, goldenPrefix) {
+			continue
+		}
+		if zfsOrigin(name) == "" {
+			continue // already a root — nothing to do
+		}
+		if dryRun {
+			flattened = append(flattened, name)
+			continue
+		}
+		projectID := strings.TrimPrefix(name, goldenPrefix)
+		promotes, err := FlattenGoldenToRoot(projectID)
+		if err != nil {
+			log.Warn().Err(err).Str("golden", name).Msg("FlattenInvertedGoldens: failed to flatten golden to root")
+			continue
+		}
+		log.Info().Str("golden", name).Int("promotes", promotes).
+			Msg("Flattened inverted golden to root (detached dead session origin)")
+		flattened = append(flattened, name)
+	}
+	return flattened
 }
 
 // effectiveGoldenBaseDir returns the golden base directory, respecting test overrides.
