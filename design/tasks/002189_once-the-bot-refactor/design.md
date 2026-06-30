@@ -138,6 +138,30 @@ the chat history. This is an opt-in experiment, hence default-off.
   than a reset one. Compare against a default-off bot to confirm no
   regression.
 
+## Implementation Notes (as built)
+
+- **Create routes through `lifecycle.Create`, not `bots.Create`.** The REST
+  `POST /bots` handler builds `lifecycle.CreateParams`, which then calls
+  `bots.CreateParams`. So `PreserveContext` had to be threaded through BOTH
+  param structs (`application/lifecycle/lifecycle.go` and
+  `application/bots/bots.go`), not just one.
+- **Memory store needed no change.** `infrastructure/persistence/memory`'s
+  `botsRepo` stores the whole `orgchart.Bot` value in a map, so the new
+  field round-trips for free. Only the gorm row needed columns/mapping.
+- **Spawner reads the bot via `c.Store.Bots.Get`** inside `ensureSession`,
+  guarded by `state.SessionID != ""` so first activations (nothing to clear)
+  skip the extra read. `workerID` is already typed `orgchart.BotID`.
+- **Frontend Bot type is the generated `ApiBotDTO`** (in
+  `frontend/src/api/api.ts`), aliased as `BotDTO` in `helixOrgService.ts` —
+  there is no hand-written `types.ts` Bot. `./stack update_openapi`
+  regenerates it; `useUpdateBot` already forwards the request body, so only
+  the detail page + a `preserve_context` arg were needed.
+- **Gotcha: `swag` must be on PATH** for `./stack update_openapi` —
+  `export PATH="$PATH:$HOME/go/bin"` after the first run installs it.
+- **Gotcha: `vite build` fails copying into `frontend/dist/`** in this
+  sandbox (root-owned bind mount). The transform/type-check succeeds; use
+  `npx tsc --noEmit` to verify the TS instead of relying on the full build.
+
 ## Risks
 
 - **Context-limit blowups:** a busy preserved-context bot will eventually
