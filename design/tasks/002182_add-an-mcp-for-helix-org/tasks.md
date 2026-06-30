@@ -23,8 +23,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 3 — Application service (`spectasks.Service`)
 
-- [ ] RED: tests with a fake `runtime.SpecTasks` port covering caller→orgID/workerID extraction, project scoping, infra-error mapping, and view shaping.
-- [ ] GREEN: implement `api/pkg/org/application/spectasks/spectasks.go` depending only on the port.
+- [x] RED: tests with a fake `runtime.SpecTasks` port covering caller→orgID/workerID extraction, project scoping, infra-error mapping, and view shaping.
+- [x] GREEN: implement `api/pkg/org/application/spectasks/spectasks.go` depending only on the port.
 
 ## Layer 4 — Deps wiring
 
