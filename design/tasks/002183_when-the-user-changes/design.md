@@ -1,5 +1,10 @@
 # Design: Fix Zed Theme Not Updating on Repeated Light/Dark Toggle
 
+> **Trigger clarification:** This is driven by clicking the **moon/sun button in
+> the Helix web UI**, NOT by the operating-system dark/light toggle. The fix is in
+> the Helix→Zed settings pipeline and Zed's settings-file watcher; it does not
+> touch any OS/portal appearance path.
+
 ## Summary
 
 The Helix UI light/dark button drives the user's `color_scheme` preference all
