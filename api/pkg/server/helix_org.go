@@ -668,6 +668,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// package holds these services, never the store (Phase-D seam).
 	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
 
+	// Wire the spec-task attention-event sink: each AttentionEvent the
+	// Helix UI shows is also published onto the project's KindSpecTask
+	// topic, so subscribed Workers are triggered via the normal dispatch
+	// path. Reuses the configured id/clock seams.
+	cfg.APIServer.attentionService.SetEventSink(&attentionTopicPublisher{
+		topics:    st.Topics,
+		publisher: svc.Publishing,
+		newID:     deps.NewID,
+		now:       deps.Now,
+	})
+
 	// Slack inbound: one shared ingest serves both ingress sources. It
 	// resolves a delivery's team_id to the owning org (a slack_workspace
 	// ServiceConnection), then publishes onto matching KindSlack topics —
