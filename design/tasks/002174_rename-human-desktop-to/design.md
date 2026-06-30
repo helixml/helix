@@ -133,3 +133,48 @@ The container is up and GNOME ScreenCast is healthy; only the API hostname
 resolution from within the DinD network is failing. The UI reconnect loop is the
 bridge correctly retrying. This is a dev-environment infra problem, not a Helix
 code bug, and not fixable in the frontend.
+
+## ROOT CAUSE + FIX: nested desktop streaming "Reconnecting" loop (regression)
+
+The earlier "environment/DNS issue" note was only half right — it IS a DNS
+failure, but the cause is a **code regression**, now root-caused and fixed.
+
+**Mechanism.** Desktop containers run inside the sandbox's nested dockerd. To
+reach the outer `api`, they are handed a DNS server = the bridge gateway, served
+by `sandbox/dns-proxy`. Three places must agree on that gateway IP:
+- `sandbox/04-start-dockerd.sh`: bridge pool `10.(212+DEPTH).0.0/16`, gw `…0.1`.
+- Go `DevContainerManager.sandboxDNSGateway()`: `10.(212+DEPTH).0.1` (set as the
+  container's DNS since #2641).
+- `sandbox/05-start-dns-proxy.sh`: where the proxy actually *binds*.
+
+The first two are depth-aware. The third **hard-coded `10.213.0.1`** (depth 1).
+
+**Regression trigger.** PR #2641 (`b856c8def`, 2026-06-22) switched desktop `api`
+resolution from a static `ExtraHosts` IP pin (depth-agnostic, always worked) to
+the depth-aware dns-proxy gateway. At depth 1 (`10.213.0.1`) everything still
+matched, so prod/normal use was fine — which is why it "used to work". But in
+nested helix-in-helix (depth 2), dockerd's bridge is `10.214.0.1`, desktops were
+told DNS=`10.214.0.1`, while the proxy still tried to bind `10.213.0.1` →
+`bind: cannot assign requested address` (fatal, supervisor loops forever) →
+desktops get `connection refused` on every `api` lookup → RevDial never connects
+→ endless "Reconnecting" stream (and `git clone` of the repo inside the desktop
+also failed with "Could not resolve host: api").
+
+**Evidence (live).** `HELIX_DOCKER_DEPTH=2`; `docker0` gw `10.214.0.1`; no
+`10.213.0.1` iface; dns-proxy log `listen=10.213.0.1:53 … FTL … bind: cannot
+assign requested address`.
+
+**Fix.** `sandbox/05-start-dns-proxy.sh` now computes
+`GATEWAY=10.$((212+${HELIX_DOCKER_DEPTH:-1})).0.1` (with >255 clamp), identical to
+the dockerd script and the Go side.
+
+**Verified live** by starting `dns-proxy -listen 10.214.0.1:53` in the running
+sandbox: desktop immediately resolved `api` (`getent hosts api` → `10.214.1.6`),
+desktop-bridge logged "✅ RevDial control connection established", the API logged
+"Handling revdial CONTROL connection", and the desktop **streamed** in the
+browser (screenshot `04-desktop-stream-fixed.png`) — reconnect loop gone.
+
+**Deployment note.** This is a sandbox cont-init script → requires
+`./stack build-sandbox` to bake into the image (and a new session) to take effect
+permanently. The live validation above was a manual `dns-proxy` start inside the
+existing container; the committed source change is what the rebuilt image will run.
