@@ -19,8 +19,8 @@ import (
 // no app is flagged and the database is never touched (the mock store does not
 // implement GormDB, so any query would panic). This guards the no-regression
 // guarantee for the default (feature-off) configuration. The positive path
-// (flagging an app that backs an org-chart Worker) requires a live Postgres
-// org_worker_runtime_state table and is verified end-to-end, not here.
+// (flagging an app that backs an org-chart Bot) requires a live Postgres
+// org_bot_runtime_state table and is verified end-to-end, not here.
 func Test_markHelixOrgAgents_FeatureDisabled_NoOp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -387,12 +387,12 @@ func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, a
 		return nil
 	}
 
-	// org_worker_runtime_state holds one row per (org, worker, backend, key).
+	// org_bot_runtime_state holds one row per (org, bot, backend, key).
 	// The "helix" backend's "agent_app_id" value is the App backing that
-	// Worker — see api/pkg/org/infrastructure/runtime/helix/state.go.
+	// Bot — see api/pkg/org/infrastructure/runtime/helix/state.go.
 	var agentAppIDs []string
 	if err := accessor.GormDB().WithContext(ctx).
-		Table("org_worker_runtime_state").
+		Table("org_bot_runtime_state").
 		Where("org_id = ? AND backend = ? AND key = ? AND value <> ?", orgID, "helix", "agent_app_id", "").
 		Distinct("value").
 		Pluck("value", &agentAppIDs).Error; err != nil {
