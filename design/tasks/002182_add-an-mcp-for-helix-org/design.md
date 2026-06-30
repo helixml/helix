@@ -306,6 +306,16 @@ Named to read like the actions a human reviewer takes:
   `SetEventSink(attentionTopicPublisher)` — `server/helix_org.go`,
   `server/spec_tasks_org_wiring.go`.
 
+### Runtime smoke check
+
+The inner-Helix dev API (`localhost:8080`) runs cleanly with this branch
+checked out (Air-rebuilt): no panic from `RegisterBuiltins` (a duplicate
+tool-name would crash org init) and no spec-task/org init errors in the API
+logs. NOT performed: a live MCP tool call from a hired Worker — that needs the
+helix-org alpha flag plus worker-hire + role-grant setup; the tool exposure and
+behaviour are instead covered by the integration-level registration test and
+the per-layer unit tests.
+
 ### Deviations from the plan (all documented in tasks.md)
 
 1. 8 tools in one file (cohesion) rather than one file per verb.
