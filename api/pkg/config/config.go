@@ -178,13 +178,11 @@ type Compute struct {
 	// value is "yellowdog".
 	Provider string `envconfig:"HELIX_COMPUTE_PROVIDER" default:""`
 
-	// GPUVendor is the accelerator family of the hosts this Manager
-	// provisions ("nvidia", "amd", "neuron", or "" for the provider's
-	// default). It flows onto every provisioned host's task environment as
-	// GPU_VENDOR, which the runner launch script uses to pick the right
-	// docker device flags (e.g. neuron -> mount /dev/neuron* instead of
-	// --gpus all). A pool is single-vendor; set this to match the compute
-	// requirement's instance type (e.g. "neuron" for an inf2 pool).
+	// GPUVendor is vestigial. The pool supervisor now derives each pool's
+	// GPU vendor from its instance type, and the runner launch script also
+	// auto-detects the accelerator on the host - so this install-wide value
+	// is no longer consumed. Kept to avoid breaking an existing
+	// HELIX_COMPUTE_GPU_VENDOR setting; remove in a follow-up.
 	GPUVendor string `envconfig:"HELIX_COMPUTE_GPU_VENDOR" default:""`
 
 	// DeploymentTag distinguishes work requirements created by this
@@ -402,25 +400,9 @@ type Yellowdog struct {
 	// Helix install.
 	Namespace string `envconfig:"HELIX_YD_NAMESPACE" default:""`
 
-	// WorkerTag is the tag the operator-provisioned YD worker pool
-	// advertises. Tasks include this in their RunSpecification so
-	// the YD scheduler only assigns them to matching workers.
-	//
-	// Auto-derived from Namespace when unset:
-	//   WorkerTag = "worker-" + Namespace
-	//
-	// Matches the yd-provision POC convention (`worker_tag =
-	// "worker-{{tag}}"`), so an operator who set up their pool
-	// per the POC docs gets working defaults. Override via
-	// HELIX_YD_WORKER_TAG when the pool was created with a
-	// different naming scheme.
-	//
-	// Mismatch between this value and the pool's advertised tag
-	// produces silent "tasks starved" failures rather than a
-	// clear error - the YD scheduler simply finds no eligible
-	// workers and leaves the task pending. Boot logs the resolved
-	// tag so the operator can spot a mismatch quickly.
-	WorkerTag string `envconfig:"HELIX_YD_WORKER_TAG" default:""`
+	// Worker tags are no longer configured: the pool supervisor discovers
+	// the worker tag of every online pool from the YD nodes and runs one
+	// Manager per pool. HELIX_YD_WORKER_TAG was removed.
 
 	// TaskTimeout bounds individual task runtime upstream-side. The
 	// platform aborts the task and records TaskError type=TIMED_OUT

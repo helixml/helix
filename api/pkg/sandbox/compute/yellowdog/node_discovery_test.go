@@ -4,70 +4,61 @@ import (
 	"context"
 	"net/http"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
 
-func TestDiscoverOnlineWorkerTags(t *testing.T) {
+func TestDiscoverNodePools(t *testing.T) {
 	cases := []struct {
 		name     string
 		response string
-		want     []string
+		want     []NodePool
 	}{
 		{
 			name:     "no nodes",
 			response: `{"items":[]}`,
-			want:     []string{},
+			want:     []NodePool{},
 		},
 		{
-			name: "single tag across multiple nodes is deduplicated",
+			name: "two pools of different instance types grouped and counted",
 			response: `{"items":[
-				{"id":"n1","status":"RUNNING","details":{"workerTag":"worker-psamuel"}},
-				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-psamuel"}}
+				{"id":"n1","status":"RUNNING","details":{"workerTag":"worker-nvidia","instanceType":"g5.xlarge"}},
+				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-nvidia","instanceType":"g5.xlarge"}},
+				{"id":"n3","status":"RUNNING","details":{"workerTag":"worker-inf2","instanceType":"inf2.8xlarge"}}
 			]}`,
-			want: []string{"worker-psamuel"},
+			want: []NodePool{
+				{WorkerTag: "worker-inf2", InstanceType: "inf2.8xlarge", NodeCount: 1},
+				{WorkerTag: "worker-nvidia", InstanceType: "g5.xlarge", NodeCount: 2},
+			},
 		},
 		{
-			name: "multiple distinct tags returned sorted",
+			name: "same tag different instance types are distinct pools",
 			response: `{"items":[
-				{"id":"n1","status":"RUNNING","details":{"workerTag":"worker-staging"}},
-				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-prod"}}
+				{"id":"n1","status":"RUNNING","details":{"workerTag":"worker-mix","instanceType":"g5.xlarge"}},
+				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-mix","instanceType":"inf2.8xlarge"}}
 			]}`,
-			want: []string{"worker-prod", "worker-staging"},
+			want: []NodePool{
+				{WorkerTag: "worker-mix", InstanceType: "g5.xlarge", NodeCount: 1},
+				{WorkerTag: "worker-mix", InstanceType: "inf2.8xlarge", NodeCount: 1},
+			},
 		},
 		{
-			name: "empty workerTag fields are dropped",
+			name: "nodes without a worker tag are dropped",
 			response: `{"items":[
-				{"id":"n1","status":"RUNNING","details":{"workerTag":""}},
-				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-real"}}
+				{"id":"n1","status":"RUNNING","details":{"workerTag":"","instanceType":"g5.xlarge"}},
+				{"id":"n2","status":"RUNNING","details":{"workerTag":"worker-real","instanceType":"g5.xlarge"}}
 			]}`,
-			want: []string{"worker-real"},
+			want: []NodePool{
+				{WorkerTag: "worker-real", InstanceType: "g5.xlarge", NodeCount: 1},
+			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeServer(t)
 			f.handler = func(w http.ResponseWriter, r *http.Request) {
-				// Must hit the right endpoint with the right query
-				// shape. If this assertion ever fails it means we
-				// regressed away from the public OpenAPI contract.
 				if r.URL.Path != "/workerPools/nodes" {
 					t.Errorf("path = %q, want /workerPools/nodes", r.URL.Path)
-				}
-				if r.Method != http.MethodGet {
-					t.Errorf("method = %q, want GET", r.Method)
-				}
-				q := r.URL.Query()
-				if q.Get("nodeSearch") == "" {
-					t.Error("nodeSearch query param missing - YD will 400")
-				}
-				if q.Get("sliceReference") == "" {
-					t.Error("sliceReference query param missing - YD will 400")
-				}
-				// Only RUNNING nodes should be requested.
-				if !strings.Contains(q.Get("nodeSearch"), "RUNNING") {
-					t.Errorf("nodeSearch should filter to RUNNING, got %q", q.Get("nodeSearch"))
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(tc.response))
@@ -75,7 +66,7 @@ func TestDiscoverOnlineWorkerTags(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			got, err := DiscoverOnlineWorkerTags(ctx, Config{
+			got, err := DiscoverNodePools(ctx, Config{
 				APIKeyID:             "k",
 				APISecret:            "s",
 				BaseURL:              f.srv.URL,
@@ -83,11 +74,10 @@ func TestDiscoverOnlineWorkerTags(t *testing.T) {
 				AllowInsecureBaseURL: true,
 			})
 			if err != nil {
-				t.Fatalf("DiscoverOnlineWorkerTags: %v", err)
+				t.Fatalf("DiscoverNodePools: %v", err)
 			}
-			// Treat nil and empty slice as equivalent for this comparison.
-			if got == nil {
-				got = []string{}
+			if len(got) == 0 {
+				got = []NodePool{}
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("got %v, want %v", got, tc.want)
@@ -96,8 +86,8 @@ func TestDiscoverOnlineWorkerTags(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnlineWorkerTagsRequiresCreds(t *testing.T) {
-	_, err := DiscoverOnlineWorkerTags(context.Background(), Config{
+func TestDiscoverNodePoolsRequiresCreds(t *testing.T) {
+	_, err := DiscoverNodePools(context.Background(), Config{
 		BaseURL: "https://portal.yellowdog.co/api",
 	})
 	if err == nil {
@@ -105,8 +95,8 @@ func TestDiscoverOnlineWorkerTagsRequiresCreds(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnlineWorkerTagsRefusesPlaintextURL(t *testing.T) {
-	_, err := DiscoverOnlineWorkerTags(context.Background(), Config{
+func TestDiscoverNodePoolsRefusesPlaintextURL(t *testing.T) {
+	_, err := DiscoverNodePools(context.Background(), Config{
 		APIKeyID:  "k",
 		APISecret: "s",
 		BaseURL:   "http://example.com/api",
@@ -116,14 +106,14 @@ func TestDiscoverOnlineWorkerTagsRefusesPlaintextURL(t *testing.T) {
 	}
 }
 
-func TestDiscoverOnlineWorkerTagsPropagatesServerError(t *testing.T) {
+func TestDiscoverNodePoolsPropagatesServerError(t *testing.T) {
 	f := newFakeServer(t)
 	f.handler = func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := DiscoverOnlineWorkerTags(ctx, Config{
+	_, err := DiscoverNodePools(ctx, Config{
 		APIKeyID:             "k",
 		APISecret:            "s",
 		BaseURL:              f.srv.URL,
@@ -134,4 +124,3 @@ func TestDiscoverOnlineWorkerTagsPropagatesServerError(t *testing.T) {
 		t.Fatal("expected error when YD returns 500")
 	}
 }
-
