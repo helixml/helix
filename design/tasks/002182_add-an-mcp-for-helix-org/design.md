@@ -269,6 +269,26 @@ Named to read like the actions a human reviewer takes:
   optional (nil → skip publish), matching how its Slack dependency is handled,
   so non-org deployments and tests don't require the org `Publishing` service.
 
+## Implementation Notes (filled in during build)
+
+- **In-proc impl depends on a narrow `SpecTaskService` interface, not the
+  concrete heavy `*services.SpecDrivenTaskService`.** This mirrors the
+  `ProjectConfig` → `ProjectService` precedent exactly: the org runtime impl
+  declares the slim slice of helix's spec-task API it needs, and the server
+  wires an in-proc adapter. Keeps the impl unit-testable with a fake and avoids
+  dragging the full SpecDrivenTaskService dependency graph into org code.
+- **Approver identity resolved:** use `WorkerState.HiringUserID` (already
+  persisted on hire via `SaveHiringUser`, returned by `LoadState`), falling
+  back to the task creator. No new state needed.
+- **Canonical reuse confirmed (no edits to existing code):**
+  `SpecDrivenTaskService.CreateTaskFromPrompt(ctx, *types.CreateTaskRequest)`,
+  `services.GenerateDesignDocPath`, `store.ListSpecTasks(*types.SpecTaskFilters)`,
+  `store.GetSpecTask`, `store.UpdateSpecTask`. The Optimus skill
+  (`api/pkg/agent/skill/project/`) is untouched.
+- **Build/test note:** org persistence tests use `orggorm.GetOrgTestDB(t)`
+  (see `project_config_test.go`); pure tool/service tests use fakes and need no
+  DB.
+
 ## Follow-on (out of scope, noted): unify the two notification paths
 
 There are currently **two independent spec-task notification systems** that
