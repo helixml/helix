@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import HelixOrgWorkerDetail from './HelixOrgWorkerDetail'
 
 // Verifies the inline-transcript wiring added to the worker detail page:
-// when the worker's project already has an exploratory ("Human Desktop")
+// when the worker's project already has an exploratory ("Project Desktop")
 // session, the page mounts EmbeddedSessionView against it and subscribes
 // the WebSocket via streaming.setCurrentSessionId — so the operator sees
 // the worker's conversation without clicking out to the desktop tab.

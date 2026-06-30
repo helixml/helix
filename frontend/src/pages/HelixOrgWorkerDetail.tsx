@@ -1,7 +1,7 @@
 // HelixOrgWorkerDetail shows a single worker and lets the operator
 // watch and drive its conversation inline — the same transcript view
 // the spec-task page uses (EmbeddedSessionView), reading the worker's
-// per-Worker project "Human Desktop" session. The point is to avoid
+// per-Worker project "Project Desktop" session. The point is to avoid
 // forcing the operator to click out to the external desktop tab just
 // to see what the worker is doing.
 //
@@ -129,7 +129,7 @@ const HelixOrgWorkerDetail: FC = () => {
     }
   }
 
-  // chatSessionId is the worker's long-lived "Human Desktop" exploratory
+  // chatSessionId is the worker's long-lived "Project Desktop" exploratory
   // session — the transcript we render inline. Null until we've resolved
   // one (or there isn't one yet).
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
@@ -229,14 +229,14 @@ const HelixOrgWorkerDetail: FC = () => {
                     page uses). The transcript auto-loads when the worker
                     already has a session; otherwise it shows an empty state.
                     AI workers only: a human worker has no agent desktop /
-                    Human Desktop session to chat with, so the panel is hidden
+                    Project Desktop session to chat with, so the panel is hidden
                     entirely for kind === 'human'. */}
                 {worker.kind === 'ai' && (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Typography variant="subtitle1">Chat with this worker</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      The conversation below is the worker's Human Desktop session —
+                      The conversation below is the worker's Project Desktop session —
                       the same transcript you'd see in the desktop tab, including its
                       MCP tool calls. Send a message to drive it from here.
                     </Typography>
