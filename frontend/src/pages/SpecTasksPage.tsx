@@ -461,8 +461,8 @@ const SpecTasksPage: FC = () => {
   const handleStartExploratorySession = async () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
-      snackbar.success("Human Desktop started");
-      // Navigate to the Human Desktop page
+      snackbar.success("Project Desktop started");
+      // Navigate to the Project Desktop page
       account.orgNavigate("project-team-desktop", {
         id: projectId,
         sessionId: session.id,
@@ -472,26 +472,26 @@ const SpecTasksPage: FC = () => {
       const errorMessage =
         err?.response?.data?.error ||
         err?.message ||
-        "Failed to start Human Desktop";
+        "Failed to start Project Desktop";
       snackbar.error(errorMessage);
     }
   };
 
-  const handleResumeExploratorySession = async (e: React.MouseEvent) => {
+  const handleResumeExploratorySession = (_e: React.MouseEvent) => {
     if (!exploratorySessionData) return;
 
-    try {
-      // Use the mutation hook which properly invalidates the cache
-      const session = await resumeExploratorySessionMutation.mutateAsync();
-      snackbar.success("Human Desktop resumed");
-      // Navigate to the Human Desktop page
-      account.orgNavigate("project-team-desktop", {
-        id: projectId,
-        sessionId: session.id,
-      });
-    } catch (err) {
-      snackbar.error("Failed to resume Human Desktop");
-    }
+    // Jump straight to the Project Desktop page — it renders its own connecting
+    // state while the container restarts. We already know the session id, so we
+    // navigate immediately and fire the resume in the background. This gives the
+    // click instant feedback instead of waiting for the container to come back
+    // up before anything happens on screen.
+    account.orgNavigate("project-team-desktop", {
+      id: projectId,
+      sessionId: exploratorySessionData.id,
+    });
+    resumeExploratorySessionMutation.mutate(undefined, {
+      onError: () => snackbar.error("Failed to resume Project Desktop"),
+    });
   };
 
   const handleStopExploratorySession = async () => {
@@ -958,7 +958,7 @@ const SpecTasksPage: FC = () => {
                 >
                   {startExploratorySessionMutation.isPending
                     ? "Starting..."
-                    : "Open Human Desktop"}
+                    : "Open Project Desktop"}
                 </Button>
               </Tooltip>
             ) : exploratorySessionData.config?.external_agent_status ===
@@ -975,7 +975,7 @@ const SpecTasksPage: FC = () => {
                 >
                   {resumeExploratorySessionMutation.isPending
                     ? "Resuming..."
-                    : "Resume Human Desktop"}
+                    : "Resume Project Desktop"}
                 </Button>
               </Tooltip>
             ) : (
@@ -986,7 +986,7 @@ const SpecTasksPage: FC = () => {
                   size="small"
                   startIcon={<Play size={18} />}
                   onClick={() => {
-                    // Navigate to the Human Desktop page
+                    // Navigate to the Project Desktop page
                     account.orgNavigate("project-team-desktop", {
                       id: projectId,
                       sessionId: exploratorySessionData.id,
@@ -994,7 +994,7 @@ const SpecTasksPage: FC = () => {
                   }}
                   sx={{ flexShrink: 0, textTransform: "none", fontWeight: 500 }}
                 >
-                  View Human Desktop
+                  View Project Desktop
                 </Button>
                 <Button
                   variant="text"

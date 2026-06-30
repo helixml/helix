@@ -21,6 +21,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// exploratorySessionStartTimeout bounds the detached context used to launch an
+// exploratory ("Project Desktop") session's desktop container off the request
+// path. Container provisioning is normally a few seconds but can be slower on a
+// cold sandbox; the timeout is generous so a legitimately slow boot is not cut
+// short, while still guaranteeing the goroutine's context is eventually freed.
+const exploratorySessionStartTimeout = 10 * time.Minute
+
 // listProjects godoc
 // @Summary List projects
 // @Description Get all projects for the current user
@@ -1465,29 +1472,31 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 				return s.addUserAPITokenToAgent(hookCtx, a, userID)
 			}
 
-			agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-			if err != nil {
-				log.Error().
-					Err(err).
+			// Launch the desktop asynchronously and return immediately so the
+			// client can jump straight to the Project Desktop page, which shows
+			// its own connecting state while the container boots. Container
+			// launch can take several seconds; blocking the response here is the
+			// reason the button used to give no feedback "until it actually
+			// starts". Mirrors the spec-task provisioning pattern (StartDesktop
+			// runs in a goroutine off the request path). The frontend polls the
+			// exploratory-session endpoint, so it picks up the refreshed
+			// lobby ID/PIN once StartDesktop completes.
+			bgCtx, cancel := detachContext(r.Context(), exploratorySessionStartTimeout)
+			go func() {
+				defer cancel()
+				if _, err := s.externalAgentExecutor.StartDesktop(bgCtx, zedAgent); err != nil {
+					log.Error().
+						Err(err).
+						Str("session_id", existingSession.ID).
+						Msg("Failed to restart exploratory session (async)")
+					return
+				}
+				log.Info().
 					Str("session_id", existingSession.ID).
-					Msg("Failed to restart exploratory session")
-				return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
-			}
+					Msg("Exploratory session lobby restarted successfully (async)")
+			}()
 
-			log.Info().
-				Str("session_id", existingSession.ID).
-				Str("lobby_id", agentResp.DevContainerID).
-				Msg("Exploratory session lobby restarted successfully")
-
-			// Reload session from database to get updated lobby ID/PIN
-			// StartDesktop updates session metadata in DB, so we need fresh data
-			updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
-			if err != nil {
-				log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
-				return existingSession, nil // Return stale session rather than failing
-			}
-
-			return updatedSession, nil
+			return existingSession, nil
 		}
 
 		// Session exists and lobby is running - return as-is
@@ -1622,24 +1631,35 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return s.addUserAPITokenToAgent(hookCtx, a, exploratoryUserID)
 	}
 
-	// Start the desktop agent
-	agentResp, err := s.externalAgentExecutor.StartDesktop(r.Context(), zedAgent)
-	if err != nil {
-		log.Error().
-			Err(err).
+	// Launch the desktop agent asynchronously and return the freshly created
+	// session immediately. Container launch can take several seconds, and
+	// blocking the HTTP response on it is what left the "Open Project Desktop"
+	// button with no feedback until the desktop was fully up. By returning now,
+	// the client can navigate straight to the Project Desktop page, which shows
+	// its own connecting state while the container boots. Mirrors the spec-task
+	// provisioning pattern (StartDesktop runs in a goroutine off the request
+	// path). Activity tracking happens inside StartDesktop.
+	bgCtx, cancel := detachContext(r.Context(), exploratorySessionStartTimeout)
+	go func() {
+		defer cancel()
+		if _, err := s.externalAgentExecutor.StartDesktop(bgCtx, zedAgent); err != nil {
+			log.Error().
+				Err(err).
+				Str("session_id", createdSession.ID).
+				Str("project_id", projectID).
+				Msg("Failed to launch exploratory agent (async)")
+			return
+		}
+		log.Info().
 			Str("session_id", createdSession.ID).
 			Str("project_id", projectID).
-			Msg("Failed to launch exploratory agent")
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to start exploratory agent: %v", err))
-	}
-
-	// Activity tracking now happens in StartDesktop for all desktop agent types
+			Msg("Exploratory session desktop launched (async)")
+	}()
 
 	log.Info().
 		Str("session_id", createdSession.ID).
 		Str("project_id", projectID).
-		Str("dev_container_id", agentResp.DevContainerID).
-		Msg("Exploratory session created successfully")
+		Msg("Exploratory session created successfully (desktop launching asynchronously)")
 
 	return createdSession, nil
 }

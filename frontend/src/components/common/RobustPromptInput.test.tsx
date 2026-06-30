@@ -120,7 +120,7 @@ describe('RobustPromptInput empty-Enter promotes oldest queued to interrupt', ()
 })
 
 // Regression for 53b336e01: the client-side queue pump was deleted, so any
-// composer without a spec_task_id (project Human Desktop, org-worker chat)
+// composer without a spec_task_id (project Project Desktop, org-worker chat)
 // silently parked messages as "saved locally" and never dispatched them. The
 // pump must run when backend queue processing is NOT enabled, and must stay
 // out of the way when it is (spec tasks).
