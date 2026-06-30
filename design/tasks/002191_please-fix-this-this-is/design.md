@@ -68,3 +68,35 @@ In `api/pkg/server/app_handlers.go`:
    `failed to list helix-org agent apps` error.
 3. Confirm no other non-migration Go references to the old table name remain:
    `grep -rn org_worker_runtime_state api/ --include=*.go`.
+
+## Implementation Notes
+
+- **Files changed (helix repo):**
+  - `api/pkg/server/app_handlers.go` — `markHelixOrgAgents` now queries
+    `org_bot_runtime_state` (was `org_worker_runtime_state`); comment updated.
+  - `api/pkg/server/app_handlers_test.go` — fixed a stale doc-comment that still
+    referenced the old table/"Worker" wording (no test logic changed).
+- The query's filter columns (`org_id`, `backend`, `key`, `value`) are identical
+  in the new table, so the table name was the only functional change.
+- `go build ./...` in `api/` passes.
+
+## QA Results (verified end-to-end, local inner Helix at localhost:8080)
+
+The default dev config has `HELIX_ORG_ENABLED=false`, under which
+`markHelixOrgAgents` short-circuits and the org runtime-state table is never
+AutoMigrated (so the bug can't even reproduce). To exercise the real code path:
+
+1. Set `HELIX_ORG_ENABLED=true` in `.env` and recreated the `api` container.
+   On boot, GORM AutoMigrate created `org_bot_runtime_state` (confirmed via
+   `SELECT to_regclass('org_bot_runtime_state')`).
+2. Registered admin user `test@helix.ml`, created org `testorg`
+   (`org_01kwcpx8…`), and created one app in that org via the API.
+3. `GET /api/v1/apps?organization_id=org_01kwcpx8…` → **HTTP 200**, returned the
+   app. Because the org is enabled, an orgID is supplied, and the org has ≥1 app,
+   `markHelixOrgAgents` ran its `org_bot_runtime_state` query. A query failure
+   would have surfaced as HTTPError500; it returned 200.
+4. API logs over the test window: **0** matches for `42P01`,
+   `org_worker_runtime_state`, or `failed to list helix-org agent apps`.
+
+Note: `.env` is gitignored; the `HELIX_ORG_ENABLED=true` flip is local to the QA
+instance and is not part of the committed change.
