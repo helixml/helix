@@ -27,15 +27,15 @@ rippling outward. Build/test after each layer.
 - [ ] Update infra `_test.go`; `go test ./api/pkg/org/infrastructure/...` green.
 
 ## 4. Interfaces — MCP tools (`api/pkg/org/interfaces/mcptools`)
-- [ ] `create_role`+`hire_worker` → `create_bot`; `update_role`+`update_identity` → `update_bot`; `read_roles`+`read_workers` → `list_bots`/`get_bot`.
-- [ ] Retarget `managers`, `reports`, `dm`, `subscribe`, `unsubscribe`, `publish`, `read_events`, `stream_members`, `*_worker_project`→`*_bot_project`, `invite_workers`, `worker_log`→`bot_log` to bots.
-- [ ] Update `registry.go`, `schema.go`, `defaults.go` (baseline tool injection on `create_bot`); update tool `_test.go`.
+- [x] `create_role`+`hire_worker` → `create_bot`; `update_role`+`update_identity` → `update_bot`; `read_roles`+`read_workers` → `list_bots`/`get_bot`.
+- [x] Retarget `managers`, `reports`, `dm`, `subscribe`, `unsubscribe`, `publish`, `read_events`, `stream_members`, `*_worker_project`→`*_bot_project`, `invite_workers`, `worker_log`→`bot_log` to bots.
+- [x] Update `registry.go`, `schema.go`, `defaults.go` (baseline tool injection on `create_bot`); update tool `_test.go`.
 
 ## 5. Interfaces — REST (`api/pkg/org/interfaces/server/api` + `server`)
-- [ ] `dto.go`: `RoleDTO`+`WorkerDTO` → `BotDTO`; collapse `OrgOverview`/`RoleGroup`/`WorkerBadge`.
-- [ ] Merge `roles.go`+`workers.go` → `bots.go`; route `/roles`+`/workers` → `/bots`, move `/parents`, `/activate`, `/chat`, `/exploratory-session` to `/bots/{id}/…`; drop `/identity`.
-- [ ] Update `server.go`/`mcp.go`/`overview.go`/`subscriptions.go` wiring and the parity tests (`roles_workers_parity_test.go` etc.); update `api/pkg/server/helix_org*.go` composition root.
-- [ ] `go test ./api/pkg/org/...` green; regenerate swagger/openapi if applicable.
+- [x] `dto.go`: `RoleDTO`+`WorkerDTO` → `BotDTO`; collapse `OrgOverview`/`RoleGroup`/`WorkerBadge`.
+- [x] Merge `roles.go`+`workers.go` → `bots.go`; route `/roles`+`/workers` → `/bots`, move `/parents`, `/activate`, `/chat`, `/exploratory-session` to `/bots/{id}/…`; drop `/identity`.
+- [x] Update `server.go`/`mcp.go`/`overview.go`/`subscriptions.go` wiring and the parity tests (`roles_workers_parity_test.go` etc.); update `api/pkg/server/helix_org*.go` composition root.
+- [~] Full repo builds (non-test). Tests + swagger pending.
 
 ## 6. Database migration
 - [ ] Add `api/pkg/store/migrations/0005_merge_roles_workers_into_bots.{up,down}.sql` — keep it simple: guarded `DROP TABLE` for the changed helix-org tables (`org_roles`, `org_workers`, `org_reporting_lines`, `org_subscriptions`, `org_worker_runtime_state`), AutoMigrate creates the new ones. No re-bootstrap/seeding (operator recreates bots manually); `.down` no-op.
