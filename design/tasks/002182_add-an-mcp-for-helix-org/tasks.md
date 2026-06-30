@@ -13,8 +13,8 @@ they must stay green throughout because their code is not touched.
 
 ## Layer 1 — Infrastructure port (`runtime.SpecTasks`)
 
-- [ ] RED: tests asserting `NoopSpecTasks` returns `ErrSpecTasksUnsupported` for every verb.
-- [ ] GREEN: add the `SpecTasks` port + reviewer-shaped verbs (`Create`, `List`, `Get`, `StartPlanning`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests`), input/view structs, `NoopSpecTasks`, `ErrSpecTasksUnsupported` to `runtime.go`.
+- [x] RED: tests asserting `NoopSpecTasks` returns `ErrSpecTasksUnsupported` for every verb.
+- [x] GREEN: add the `SpecTasks` port + reviewer-shaped verbs (`Create`, `List`, `Get`, `StartPlanning`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests`), input/view structs, `NoopSpecTasks`, `ErrSpecTasksUnsupported` to `runtime.go`.
 
 ## Layer 2 — In-proc impl (`runtimehelix.SpecTasks`)
 
