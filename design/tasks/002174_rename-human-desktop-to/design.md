@@ -61,3 +61,26 @@ underlying concept ("a human is present, no auto-restart") is still accurate.
 - `yarn build` passes.
 - Manual/visual check (inner Helix): the desktop breadcrumb, the spec-tasks page
   buttons, and the kanban tooltip all read "Project Desktop".
+
+## Implementation Notes
+
+- Implemented as a straight string replace `Human Desktop` → `Project Desktop`
+  across the affected frontend files. All occurrences in `frontend/src` were
+  identical, so a single `sed` per file covered both JSX/string literals and
+  inline comments — leaving the codebase fully consistent (zero "Human Desktop"
+  remaining in `frontend/src`).
+- Files touched (10): `router.tsx`, `pages/TeamDesktopPage.tsx`,
+  `pages/SpecTasksPage.tsx`, `components/tasks/TabsView.tsx`,
+  `components/tasks/SpecTaskKanbanBoard.tsx`, `pages/HelixOrgWorkerDetail.tsx`,
+  `services/workerChatSession.ts`, plus comment-only updates in
+  `components/common/RobustPromptInput.tsx`, `RobustPromptInput.test.tsx`,
+  `pages/HelixOrgWorkerDetail.test.tsx`.
+- `frontend/src/api/api.ts` has a generated swagger comment ("Human desktop",
+  lowercase d) — left untouched; it regenerates from backend via
+  `./stack update_openapi`. Not user-facing.
+- No functional identifiers changed (route names, component names, `desktopTitle`/
+  `exploratorySessionId` fields stay) — confirmed none contained "human".
+- Verification: `yarn tsc` exits 0; `vite build` transformed all 21,657 modules
+  successfully (the only failure was an EACCES writing to the root-owned `dist/`
+  bind mount — a sandbox FS artifact, not a code error). Live UI check was not
+  possible: the inner Helix stack (:8080) would not boot in this session.
