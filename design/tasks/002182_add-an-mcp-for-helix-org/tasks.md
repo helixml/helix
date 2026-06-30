@@ -1,19 +1,59 @@
 # Implementation Tasks: Add Helix-Org MCP Tools for Workers to Manage Spec Tasks
 
-- [ ] Confirm (do not change) that the org port can reuse the canonical `services` layer as-is: `SpecDrivenTaskService.CreateTaskFromPrompt`, `StartSpecGeneration`/`StartJustDoItMode`, `ApproveSpecs`, `services.GenerateDesignDocPath`, and `store.Store` reads. **No edits** to `api/pkg/agent/skill/project/*` or existing `services`/`store` behaviour.
-- [ ] Decide and document the approver identity for Worker approvals (hiring user vs task creator) and how GitHub OAuth / commit credentials are sourced, since the human approve handlers validate `ValidateUserGitHubOAuth`.
-- [ ] Add the `SpecTasks` infrastructure port to `api/pkg/org/infrastructure/runtime/runtime.go` with reviewer-shaped verbs (`Create`, `List`, `Get`, `StartPlanning`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests`), input/view structs, `NoopSpecTasks`, and `ErrSpecTasksUnsupported`. `CreatePullRequests` opens one PR per attached repo and returns all created PRs.
-- [ ] (TDD) Write `runtimehelix.SpecTasks` tests first (against the canonical services/store: no-project error, ownership enforcement, each verb's transition, created-task shape parity with the REST path), then implement `api/pkg/org/infrastructure/runtime/helix/spectasks.go`: resolve worker→projectID via `LoadState`, enforce task ownership, delegate each verb to `SpecDrivenTaskService` / the `submitDesignReview` request_changes path / the `approveImplementation` logic / `store` reads.
-- [ ] Create the dedicated org application service `api/pkg/org/application/spectasks/spectasks.go` (front-of-house): depends only on the `runtime.SpecTasks` port; extracts `orgID`/`workerID` from the caller, owns scoping/error-mapping/view shaping.
-- [ ] Add `SpecTasks *spectasks.Service` to `mcptools.Deps`; build it in `Config.Build()` over the injected port, defaulting to `NoopSpecTasks{}` in `DefaultDeps`.
-- [ ] Create the org MCP tools in `api/pkg/org/interfaces/mcptools/` (`create_spectask`, `list_spectasks`, `get_spectask`, `start_spectask_planning`, `review_spectask_spec`, `approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs`) implementing `tool.Tool` and delegating to `deps.SpecTasks` (the application service), scoped to `inv.Caller`.
-- [ ] Register the tools in `RegisterBuiltins`; keep the mutating/approving tools out of `BaseReadTools`.
-- [ ] Wire composition in `helix_org.go`: build `runtimehelix.NewSpecTasks(...)`, inject into `spectasks.New(...)`, set `deps.SpecTasks` before `RegisterBuiltins`.
-- [ ] (TDD) Test-first then implement: the application service (fake port) and each tool (fake service), following `configure_worker_project_test.go`. (The `runtimehelix.SpecTasks` tests are covered above.)
-- [ ] (Eventing) Add `transport.KindSpecTask = "spectask"` to `api/pkg/org/domain/transport/` with its strategy + `kindOrder` entry and a project-scoped config (project ID).
-- [ ] (Eventing) Add an optional `Publisher` sink to `services.AttentionService` and publish each newly-created `AttentionEvent` from `EmitEvent` (after the idempotency-dedup check, beside `notifySlack`); nil publisher = skip.
-- [ ] (Eventing) Create `api/pkg/org/infrastructure/transports/spectask/`: map an `AttentionEvent` → `streaming.Message`, resolve the project's `KindSpecTask` topic (auto-create with the project, like the Slack workspace topic), and publish via the org `Publishing` service so the dispatcher fans out to subscribed Workers.
-- [ ] (Eventing) Wire it in `server.go`: inject the `Publishing`-backed publisher into `AttentionService` at construction (~line 608).
-- [ ] (Eventing) Confirm a Worker subscribed via the existing `subscribe` tool is activated on an `AttentionEvent`, with a payload (task id, event type, new status) sufficient to act; rely on AttentionService idempotency to avoid duplicate/looping triggers.
-- [ ] (Eventing) Add tests for the AttentionService publish hook (fake publisher, idempotency-skip) and an integration check that an emitted event produces one activation per subscribed Worker.
-- [ ] Run `go build ./...` and the full test suite; confirm the **unmodified** Optimus skill (`api/pkg/agent/skill/project/`) and existing `services`/`store` tests still pass, then verify a Worker whose Role lists the tools can create, plan, review, approve, request changes, and create PR(s) for a task in its own project (multi-repo project opens one PR per repo), and that an `AttentionEvent` triggers a subscribed Worker.
+**TDD is mandatory.** Every step below is a red→green cycle: write the failing
+test(s) first, watch them fail (red), then write the minimum code to pass
+(green), then refactor under green. No production code — new or changed — lands
+without a preceding red test. Existing helix/Optimus tests are never edited;
+they must stay green throughout because their code is not touched.
+
+## Pre-work (no code)
+
+- [ ] Confirm (read-only) the org port can reuse the canonical `services` layer as-is: `SpecDrivenTaskService.CreateTaskFromPrompt`, `StartSpecGeneration`/`StartJustDoItMode`, `ApproveSpecs`, `services.GenerateDesignDocPath`, `store.Store` reads. No edits to `api/pkg/agent/skill/project/*` or existing `services`/`store`.
+- [ ] Decide and document the approver identity for Worker approvals (hiring user vs task creator) and how GitHub OAuth / commit credentials are sourced (`ValidateUserGitHubOAuth`). Must be settled before the `ApproveSpec` / `CreatePullRequests` cycles.
+
+## Layer 1 — Infrastructure port (`runtime.SpecTasks`)
+
+- [ ] RED: tests asserting `NoopSpecTasks` returns `ErrSpecTasksUnsupported` for every verb.
+- [ ] GREEN: add the `SpecTasks` port + reviewer-shaped verbs (`Create`, `List`, `Get`, `StartPlanning`, `ReviewSpec`, `ApproveSpec`, `RequestChanges`, `CreatePullRequests`), input/view structs, `NoopSpecTasks`, `ErrSpecTasksUnsupported` to `runtime.go`.
+
+## Layer 2 — In-proc impl (`runtimehelix.SpecTasks`)
+
+- [ ] RED: tests (following `project_config_test.go`) for no-project error, task-ownership enforcement, each verb's status transition, and created-task shape parity with the REST path — all failing against an empty impl.
+- [ ] GREEN: implement `api/pkg/org/infrastructure/runtime/helix/spectasks.go` delegating to `SpecDrivenTaskService` / the `submitDesignReview` request_changes path / the `approveImplementation` logic / `store` reads, resolving worker→projectID via `LoadState`.
+
+## Layer 3 — Application service (`spectasks.Service`)
+
+- [ ] RED: tests with a fake `runtime.SpecTasks` port covering caller→orgID/workerID extraction, project scoping, infra-error mapping, and view shaping.
+- [ ] GREEN: implement `api/pkg/org/application/spectasks/spectasks.go` depending only on the port.
+
+## Layer 4 — Deps wiring
+
+- [ ] RED: test that `Config.Build()` constructs `SpecTasks` over a non-nil port and `DefaultDeps` defaults to `NoopSpecTasks{}` (no nil-interface panic).
+- [ ] GREEN: add `SpecTasks *spectasks.Service` to `mcptools.Deps` and build it in `Config.Build()`.
+
+## Layer 5 — MCP tools
+
+- [ ] RED: per-tool tests (fake application service, following `configure_worker_project_test.go`) for name, input schema, and happy/error `Invoke` — for each of `create_spectask`, `list_spectasks`, `get_spectask`, `start_spectask_planning`, `review_spectask_spec`, `approve_spectask_spec`, `request_spectask_changes`, `create_spectask_prs` (one PR per attached repo; result lists all PRs).
+- [ ] GREEN: implement the tool files in `api/pkg/org/interfaces/mcptools/`, delegating to `deps.SpecTasks`, scoped to `inv.Caller`.
+- [ ] RED: test that all new tools are registered by `RegisterBuiltins` and that the mutating/approving ones are absent from `BaseReadTools`.
+- [ ] GREEN: register the tools in `RegisterBuiltins`.
+
+## Layer 6 — Composition
+
+- [ ] RED: an integration-level test that a Worker whose Role lists the tools can drive a task end-to-end (create → plan → review → approve → request changes → create PRs) in its own project, including a multi-repo project opening one PR per repo.
+- [ ] GREEN: wire `helix_org.go` — build `runtimehelix.NewSpecTasks(...)`, inject into `spectasks.New(...)`, set `deps.SpecTasks` before `RegisterBuiltins`.
+
+## Layer 7 — Eventing: transport + AttentionService trigger
+
+- [ ] RED: tests for `transport.KindSpecTask` (strategy lookup + `kindOrder` membership + project-scoped config parse).
+- [ ] GREEN: add `transport.KindSpecTask = "spectask"` and its strategy/`kindOrder`/config to `api/pkg/org/domain/transport/`.
+- [ ] RED: a test on `services.AttentionService` (fake `Publisher`) asserting `EmitEvent` publishes a new `AttentionEvent`, skips publish on the idempotency-dedup path, and is nil-safe when no publisher is wired. (This is the only change to existing code — gated behind a red test first.)
+- [ ] GREEN: add the optional nil-guarded `Publisher` sink to `AttentionService`, published after the dedup check beside `notifySlack`.
+- [ ] RED: tests for the spectask transport infra — `AttentionEvent` → `streaming.Message` mapping and project→`KindSpecTask` topic resolution (auto-create like the Slack workspace topic).
+- [ ] GREEN: implement `api/pkg/org/infrastructure/transports/spectask/`.
+- [ ] RED: an integration test that an emitted `AttentionEvent` produces exactly one activation per subscribed Worker (and none for non-subscribers), with a payload (task id, event type, new status) sufficient to act.
+- [ ] GREEN: wire the `Publishing`-backed publisher into `AttentionService` in `server.go` (~line 608).
+
+## Final verification
+
+- [ ] Run `go build ./...` and the full test suite. Confirm the **unmodified** Optimus skill (`api/pkg/agent/skill/project/`) and existing `services`/`store` tests still pass, all new red tests are now green, and no production code landed without a preceding test.

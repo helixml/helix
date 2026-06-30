@@ -114,11 +114,13 @@ regressing the Optimus agent. Instead:
   `api/pkg/services/spec_*`/`api/pkg/store` behaviour. The only allowed
   additive change to existing code is the optional `Publisher` sink on
   `AttentionService` (decision 7), which is purely additive and nil-guarded.
-- **TDD:** write tests first at every new layer — the `runtimehelix.SpecTasks`
-  impl (against the canonical services/store), the `spectasks.Service`
-  application layer (fake port), and each tool (fake service). The acceptance
-  bar is that existing helix/Optimus tests are untouched and still green
-  because their code is untouched.
+- **TDD (strict red→green):** every layer is built test-first — write the
+  failing test, see it red, then write the minimum code to make it green, then
+  refactor under green. This holds for *new* code (port, impl, service, tools,
+  transport) **and** for the one additive change to existing code (the
+  `AttentionService` `Publisher` sink, decision 7): its red test lands before
+  the sink. Existing helix/Optimus tests are never edited and stay green
+  because their code is not touched. See tasks.md for the ordered cycles.
 
 The minor cost is that the skill's local `generateDesignDocPath` copy and
 `services.GenerateDesignDocPath` remain two copies — but that duplication
