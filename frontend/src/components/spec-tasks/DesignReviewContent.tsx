@@ -27,12 +27,10 @@ import {
   Paper,
   Tooltip,
   Badge,
-  useMediaQuery,
   ToggleButtonGroup,
   ToggleButton,
   GlobalStyles,
 } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -105,15 +103,30 @@ export default function DesignReviewContent({
 }: DesignReviewContentProps) {
   const snackbar = useSnackbar();
   const api = useApi();
-  const theme = useTheme();
-  // Narrow viewport: comment panels should not overlay the document.
-  // The side-positioned bubble is absolutely placed at left:820px with
-  // width:300px (right edge ~1120px) relative to the centred 800px document
-  // column, so once centring margins are added it needs well over 1120px of
-  // viewport to fit. Below this threshold we switch to the stacked in-flow
-  // layout so the bubble (and its Resolve button) never overflows off-screen,
-  // which previously forced a horizontal scroll to reach it.
-  const isNarrowViewport = useMediaQuery(theme.breakpoints.down(1280));
+
+  // Narrow layout: comment bubbles stack in-flow below the document instead of
+  // floating in the document column's right gutter.
+  //
+  // The side-positioned bubble is absolutely placed at left:820px (width 300px)
+  // relative to the 800px document column, which is centred (mx:auto) inside the
+  // document area. Its right edge therefore lands at
+  // (contentWidth - 800) / 2 + 1120, which only stays within bounds when the
+  // document content area is at least ~1440px wide. Below that the bubble — and
+  // the Resolve button in its header — is pushed off the right edge, forcing a
+  // horizontal scroll to reach it.
+  //
+  // We measure the *actual* document-area width (documentRef.clientWidth), not
+  // the window, because this component renders both standalone
+  // (SpecTaskReviewPage) and embedded (workspace TabsView), where the
+  // surrounding chrome differs at the same window size. Empirically the side
+  // bubble stops overflowing once the document area is ~1440px wide; we add a
+  // small gutter margin on top of that.
+  const SIDE_PANEL_MIN_DOC_AREA_WIDTH = 1460;
+  const [docAreaWidth, setDocAreaWidth] = useState<number | null>(null);
+  // Default to the stacked layout until measured, so the bubble never flashes
+  // off-screen on first paint.
+  const isNarrowViewport =
+    docAreaWidth === null || docAreaWidth < SIDE_PANEL_MIN_DOC_AREA_WIDTH;
 
   // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>(initialTab);
@@ -155,6 +168,20 @@ export default function DesignReviewContent({
   // Bump to force re-stacking after the form mounts/unmounts and we have its
   // measured height (offsetHeight isn't reactive on its own).
   const [commentFormMeasureTick, setCommentFormMeasureTick] = useState(0);
+
+  // Track the rendered width of the scrollable document area so we can decide
+  // between the side-gutter (wide) and stacked (narrow) comment layouts based
+  // on real available space rather than the window size. Re-attached whenever
+  // the main content (re)mounts.
+  useEffect(() => {
+    const el = documentRef.current;
+    if (!el) return;
+    const measure = () => setDocAreaWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   // Refs and state for highlight preservation and hover button
   const savedRangeRef = useRef<Range | null>(null);
