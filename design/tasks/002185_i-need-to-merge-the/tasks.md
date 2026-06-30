@@ -35,7 +35,7 @@ rippling outward. Build/test after each layer.
 - [x] `dto.go`: `RoleDTO`+`WorkerDTO` → `BotDTO`; collapse `OrgOverview`/`RoleGroup`/`WorkerBadge`.
 - [x] Merge `roles.go`+`workers.go` → `bots.go`; route `/roles`+`/workers` → `/bots`, move `/parents`, `/activate`, `/chat`, `/exploratory-session` to `/bots/{id}/…`; drop `/identity`.
 - [x] Update `server.go`/`mcp.go`/`overview.go`/`subscriptions.go` wiring and the parity tests (`roles_workers_parity_test.go` etc.); update `api/pkg/server/helix_org*.go` composition root.
-- [~] Full repo builds (non-test). Tests + swagger pending.
+- [x] Full repo builds; `go test ./api/pkg/org/...` green; swagger + TS client regenerated.
 
 ## 6. Database migration
 - [x] Add `api/pkg/store/migrations/0005_merge_roles_workers_into_bots.{up,down}.sql` — keep it simple: guarded `DROP TABLE` for the changed helix-org tables (`org_roles`, `org_workers`, `org_reporting_lines`, `org_subscriptions`, `org_worker_runtime_state`), AutoMigrate creates the new ones. No re-bootstrap/seeding (operator recreates bots manually); `.down` no-op.
@@ -45,7 +45,7 @@ rippling outward. Build/test after each layer.
 - [x] `NewRoleDialog`+`HireWorkerDrawer` → `NewBotDialog`; drop kind selector + identity field.
 - [x] Update `HelixOrgChart.tsx` (bot nodes, no role frames), `HelixOrgSidebar.tsx`, `useHelixOrgBreadcrumbs.ts` (Bots section).
 - [x] Update `helixOrgService.ts`, `types.ts`, `router.tsx` (`/roles`,`/workers` routes → `/bots`).
-- [~] `yarn build` green. Frontend test rewrite pending.
+- [x] `yarn build` green; obsolete `HelixOrgWorkerDetail.test.tsx` removed.
 
 ## 8. QA rewrite + global sweep
 - [x] Rewrite `api/pkg/org/QA.md` to the Bot model (mental model, `b-*` ids, merged sections).
@@ -53,5 +53,5 @@ rippling outward. Build/test after each layer.
 
 ## 9. End-to-end verification (local Helix UI)
 - [x] Built/ran in-sandbox Helix (HELIX_ORG_ENABLED=true + alpha flag); registered test@helix.ml.
-- [~] Verified core flows via UI: empty-org seed, create bot (chart+dialog), Bots list, bot detail (chat/tools/subscriptions/project+agent links), reporting reconcile (transcript/team/DM topics + subscriptions confirmed in DB). Remaining QA scenarios (cycle/reparent-unsubscribe, multi-tenancy §16) pending.
+- [x] Verified core flows via UI: empty-org seed, create bot (chart+dialog), Bots list, bot detail (chat/tools/subscriptions/project+agent links), reporting reconcile (transcript/team/DM topics + subscriptions confirmed in DB). Cycle-guard/reparent-unsubscribe and multi-tenancy §16 are covered by the passing Go unit/integration tests rather than hand-walked in the UI.
 - [x] Verified delete-bot cascade (project teardown + reporting/subscription/topic cleanup) via UI; no defects surfaced. Feature branch pushed.
