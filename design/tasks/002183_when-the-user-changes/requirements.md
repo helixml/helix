@@ -18,8 +18,10 @@ watch), and the native inotify watch is removed when that inode is replaced and
 is never re-armed. So the first write is observed; every write after it is
 silently missed.
 
-NOTE: This is NOT the OS-level appearance toggle. It is the in-UI button driving
-the user's `color_scheme` preference through the Helix pipeline to Zed.
+NOTE: The trigger is the **moon/sun button in the Helix web UI**, which drives the
+user's `color_scheme` preference through the Helix pipeline to Zed. It is not the
+operating-system appearance toggle, and the fix does not touch any OS/portal
+appearance path.
 
 ## User Stories
 
@@ -56,7 +58,8 @@ manual external edits) cannot silently regress.
 
 ## Out of Scope
 
-- The OS-level appearance / portal `color-scheme` observation path in Zed.
+- Zed's operating-system appearance / portal `color-scheme` observation path
+  (not involved — the trigger is the Helix UI button, not the OS).
 - Adding new theme settings or changing the managed light/dark theme names.
 - Reworking the Helix color-scheme API or the daemon's merge logic (it already
   computes and writes the correct value).
