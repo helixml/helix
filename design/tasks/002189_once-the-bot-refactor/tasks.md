@@ -7,10 +7,10 @@
 - [x] Gorm persistence: add `preserve_context` column to the bot row, map in `ToRow`/`ToDomain`, add to the `Update` `WithUpdates` map.
 - [x] Memory store: no change needed — memory `botsRepo` stores the whole `orgchart.Bot` by value, so `PreserveContext` round-trips automatically.
 - [x] Verify AutoMigrate adds the column and existing rows default to `false` — `botRow` is in `orgRowTypes` (gorm.go) and AutoMigrate runs over it; `gorm:"not null;default:false"` backfills existing rows.
-- [~] Application: thread `PreserveContext` through the bot update use case via `WithPreserveContext`.
-- [ ] REST DTO: add `preserve_context bool` to `BotDTO` + `CreateBotRequest`, and `*bool` to `UpdateBotRequest` (patch-style, nil = unchanged); map in handlers.
-- [ ] (Optional) MCP: add optional `preserve_context` arg to `update_bot` in `schema.go` + handler — only if needed; keep MCP surface small.
-- [ ] Runtime: in `spawner.go::ensureSession`, load the bot and skip `ClearSession` when `PreserveContext` is true; log cleared-vs-preserved branch.
+- [x] Application: thread `PreserveContext` through the bot create + update use cases (`bots.CreateParams`/`UpdateParams` and `lifecycle.CreateParams`).
+- [x] REST DTO: add `preserve_context bool` to `BotDTO` + `CreateBotRequest`, and `*bool` to `UpdateBotRequest` (patch-style, nil = unchanged); mapped in create/update handlers + `botDTO`.
+- [skip] MCP: not added — REST/UI is the required surface and helix-org philosophy keeps the MCP surface to org-graph primitives. The agent should not toggle its own context policy.
+- [~] Runtime: in `spawner.go::ensureSession`, load the bot and skip `ClearSession` when `PreserveContext` is true; log cleared-vs-preserved branch.
 - [ ] Spawner tests: assert `ClearSession` is skipped when `PreserveContext=true` and still runs once (before `SendMessage`) when false.
 - [ ] Frontend: add the toggle to `HelixOrgBotDetail.tsx`, wire through `helixOrgService.ts` + `Bot` type in `types.ts` (generated API client); add label + trade-off help text.
 - [ ] `./stack update_openapi` if the DTO changed; `cd frontend && yarn build`.
