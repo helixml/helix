@@ -208,3 +208,5 @@ verification in US-6.
 **E2E verified live (localhost:8080):** create bot (chart + dialog) → `org_bots` row with merged base tools + auto transcript topic + provisioned project/agent app; Bots list + merged detail page (inline chat, tools, subscriptions, project/agent links); child bot → reporting reconcile produces `s-transcript`/`s-team`/`s-dm` + correct subscriptions; delete bot → full cascade teardown. DB confirmed `org_roles`/`org_workers` gone.
 
 **Known follow-ups (not done):** broader QA scenarios not hand-walked in UI (cycle-guard, reparent-unsubscribe §12.3a, multi-tenancy §16) — covered by the passing Go unit/integration tests; internal runtime "Worker" naming (`WorkerProject`, `HELIX_WORKER_ID`, `workers/<id>/` path) left as plumbing.
+
+**Final test verification (CGo + DB):** `go test ./api/pkg/org/...`, `./api/pkg/server/helixorg/...`, and the helix-org server tests in `api/pkg/server` (spawner/middleware/inproc/slack-cascade/restart, run with `CGO_ENABLED=1` after `apt-get install gcc libc6-dev`) all pass.
