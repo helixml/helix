@@ -4,7 +4,7 @@ Work layer-by-layer (DDD), TDD where possible: update each layer's
 `_test.go` to the new shape first, then make it compile and pass before
 rippling outward. Build/test after each layer.
 
-## 1. Domain (`api/pkg/org/domain`)
+## 1. Domain (`api/pkg/org/domain`) [~]
 - [ ] Add `orgchart/bot.go`: `Bot` value + `NewBot` + `With*` builders (fields: ID, OrganizationID, Content, Tools, Topics, timestamps); add `BotID` alias to `ids.go`.
 - [ ] Delete `orgchart/worker.go`, `orgchart/kind.go` (and their tests); remove the `Worker` interface, `HumanWorker`/`AIWorker`, `WorkerKind`.
 - [ ] Delete `orgchart/role.go` (folded into `bot.go`); update `validate.go`/`ids.go` package docs and any `RoleID`/`WorkerID` references.
