@@ -50,13 +50,13 @@ func (eventMapper) ToDomain(row eventRow) (streaming.Event, error) {
 
 type eventsRepo struct {
 	*Repository[streaming.Event, eventRow]
-	workers *workersRepo
+	bots *botsRepo
 }
 
-func newEventsRepo(db *gorm.DB, workers *workersRepo) *eventsRepo {
+func newEventsRepo(db *gorm.DB, bots *botsRepo) *eventsRepo {
 	return &eventsRepo{
 		Repository: NewRepository[streaming.Event, eventRow](db, eventMapper{}, "event"),
-		workers:    workers,
+		bots:       bots,
 	}
 }
 
@@ -101,24 +101,24 @@ func (r *eventsRepo) ListAll(ctx context.Context, orgID string, limit int) ([]st
 	)
 }
 
-func (r *eventsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.BotID, limit int) ([]streaming.Event, error) {
-	// Subscriptions are worker-anchored. Join events against
-	// subscriptions for this worker directly.
-	if r.workers == nil {
-		return nil, fmt.Errorf("eventsRepo: workers repo not wired")
+func (r *eventsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID, limit int) ([]streaming.Event, error) {
+	// Subscriptions are bot-anchored. Join events against
+	// subscriptions for this bot directly.
+	if r.bots == nil {
+		return nil, fmt.Errorf("eventsRepo: bots repo not wired")
 	}
-	if _, err := r.workers.Get(ctx, orgID, workerID); err != nil {
+	if _, err := r.bots.Get(ctx, orgID, botID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("resolve worker for event listing: %w", err)
+		return nil, fmt.Errorf("resolve bot for event listing: %w", err)
 	}
 	return r.Repository.Find(ctx,
 		store.WithTable("org_events AS e"),
 		store.WithJoin("JOIN org_subscriptions AS s ON s.topic_id = e.topic_id AND s.org_id = e.org_id"),
 		store.WithSelect("e.*"),
 		store.WithCondition("e.org_id", orgID),
-		store.WithCondition("s.worker_id", string(workerID)),
+		store.WithCondition("s.bot_id", string(botID)),
 		store.WithOrderDesc("e.created_at"),
 		store.WithOrderDesc("e.id"),
 		store.WithLimit(limit),

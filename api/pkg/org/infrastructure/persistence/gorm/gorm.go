@@ -18,10 +18,9 @@ import (
 // orgRowTypes is the canonical list of org-* tables. Kept in one
 // place so the FK installation loop stays in sync with AutoMigrate.
 var orgRowTypes = []any{
-	&roleRow{},
-	&workerRow{},
+	&botRow{},
 	&reportingLineRow{},
-	&workerRuntimeStateRow{},
+	&botRuntimeStateRow{},
 	&topicRow{},
 	&subscriptionRow{},
 	&eventRow{},
@@ -32,16 +31,16 @@ var orgRowTypes = []any{
 }
 
 // orgTableNames returns the SQL table names for orgRowTypes. Used by
-// the FK installer. The legacy `org_grants` and `org_positions`
-// tables are intentionally absent — capability is derived from
-// Role.Tools, and reporting is its own org_reporting_lines relation.
-// Those tables are no longer migrated; any pre-existing rows are
-// simply orphaned (left in place, never read).
+// the FK installer. The legacy `org_grants`, `org_positions`,
+// `org_roles` and `org_workers` tables are intentionally absent — the
+// former Role and Worker collapsed into the single `org_bots` table,
+// capability is derived from Bot.Tools, and reporting is its own
+// org_reporting_lines relation. Those tables are no longer migrated;
+// they are dropped by migration 0005.
 var orgTableNames = []string{
-	"org_roles",
-	"org_workers",
+	"org_bots",
 	"org_reporting_lines",
-	"org_worker_runtime_state",
+	"org_bot_runtime_state",
 	"org_topics",
 	"org_subscriptions",
 	"org_events",
@@ -102,27 +101,26 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		}
 	}
 
-	// The reporting-line cascade FKs reference org_workers (always
+	// The reporting-line cascade FKs reference org_bots (always
 	// migrated above), not organizations, so they install regardless of
-	// InstallOrganizationFK — they're what make worker deletion drop
+	// InstallOrganizationFK — they're what make bot deletion drop
 	// reporting lines structurally instead of via app code.
 	if err := installReportingLineFKs(db); err != nil {
 		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
 	}
 
-	workers := newWorkersRepo(db)
+	bots := newBotsRepo(db)
 	return &store.Store{
-		Roles:              newRolesRepo(db),
-		Workers:            workers,
-		ReportingLines:     newReportingLinesRepo(db),
-		WorkerRuntimeState: newWorkerRuntimeStateRepo(db),
-		Topics:            newTopicsRepo(db),
-		Subscriptions:      newSubscriptionsRepo(db),
-		Events:             newEventsRepo(db, workers),
-		Configs:            newConfigsRepo(db),
-		Activations:        newActivationsRepo(db),
-		Processors:         newProcessorsRepo(db),
-		DomainEvents:       newDomainEventsRepo(db),
+		Bots:            bots,
+		ReportingLines:  newReportingLinesRepo(db),
+		BotRuntimeState: newBotRuntimeStateRepo(db),
+		Topics:          newTopicsRepo(db),
+		Subscriptions:   newSubscriptionsRepo(db),
+		Events:          newEventsRepo(db, bots),
+		Configs:         newConfigsRepo(db),
+		Activations:     newActivationsRepo(db),
+		Processors:      newProcessorsRepo(db),
+		DomainEvents:    newDomainEventsRepo(db),
 	}, nil
 }
 
@@ -198,13 +196,13 @@ func dropRemovedTables(db *gorm.DB) error {
 }
 
 // installReportingLineFKs adds the two ON DELETE CASCADE foreign keys
-// that make org_reporting_lines self-clean when a Worker is deleted:
+// that make org_reporting_lines self-clean when a Bot is deleted:
 // (org_id, manager_id) and (org_id, report_id) both reference
-// org_workers(org_id, id). Idempotent — re-adding an existing
-// constraint is a no-op. Postgres-specific (our production target);
-// unit tests run against the in-memory store and never reach here.
+// org_bots(org_id, id). Idempotent — re-adding an existing constraint
+// is a no-op. Postgres-specific (our production target); unit tests run
+// against the in-memory store and never reach here.
 func installReportingLineFKs(db *gorm.DB) error {
-	if !db.Migrator().HasTable("org_reporting_lines") || !db.Migrator().HasTable("org_workers") {
+	if !db.Migrator().HasTable("org_reporting_lines") || !db.Migrator().HasTable("org_bots") {
 		return nil
 	}
 	type fk struct{ name, cols string }
@@ -220,7 +218,7 @@ func installReportingLineFKs(db *gorm.DB) error {
 					ALTER TABLE org_reporting_lines
 						ADD CONSTRAINT %s
 						FOREIGN KEY (%s)
-						REFERENCES org_workers(org_id, id)
+						REFERENCES org_bots(org_id, id)
 						ON DELETE CASCADE;
 				END IF;
 			END $$;`,
