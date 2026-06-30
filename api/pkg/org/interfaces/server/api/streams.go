@@ -384,7 +384,7 @@ func (a *apiHandler) deleteTopic(w http.ResponseWriter, r *http.Request) {
 func eventCard(ev streaming.Event) EventCard {
 	card := EventCard{
 		ID:        string(ev.ID),
-		TopicID:  string(ev.TopicID),
+		TopicID:   string(ev.TopicID),
 		Source:    string(ev.Source),
 		CreatedAt: ev.CreatedAt.Format(time.RFC3339),
 		Body:      ev.Body,
@@ -406,7 +406,7 @@ func eventCard(ev streaming.Event) EventCard {
 // body holds Message JSON, the raw body otherwise.
 func messageResource(ev streaming.Event) jsonapi.Resource {
 	attrs := MessageAttributes{
-		TopicID:  string(ev.TopicID),
+		TopicID:   string(ev.TopicID),
 		Source:    string(ev.Source),
 		CreatedAt: ev.CreatedAt.Format(time.RFC3339),
 		Body:      ev.Body,

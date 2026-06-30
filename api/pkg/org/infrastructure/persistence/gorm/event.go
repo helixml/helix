@@ -16,7 +16,7 @@ import (
 type eventRow struct {
 	ID        string    `gorm:"primaryKey;type:text"`
 	OrgID     string    `gorm:"primaryKey;type:text;index"`
-	TopicID  string    `gorm:"not null;index"`
+	TopicID   string    `gorm:"not null;index"`
 	Source    string    `gorm:"index"` // empty for system-emitted
 	Body      string    `gorm:"not null"`
 	CreatedAt time.Time `gorm:"index"`
@@ -30,7 +30,7 @@ func (eventMapper) ToRow(e streaming.Event) (eventRow, error) {
 	return eventRow{
 		ID:        string(e.ID),
 		OrgID:     e.OrganizationID,
-		TopicID:  string(e.TopicID),
+		TopicID:   string(e.TopicID),
 		Source:    string(e.Source),
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,

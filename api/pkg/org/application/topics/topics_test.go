@@ -20,7 +20,7 @@ func newService(st *store.Store) *Topics {
 	seq := 0
 	return New(Deps{
 		Topics: st.Topics,
-		Now:     fixedClock,
+		Now:    fixedClock,
 		NewID: func() string {
 			seq++
 			return "id" // deterministic so tests can assert the generated id

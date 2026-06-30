@@ -15,7 +15,7 @@ import (
 type Event struct {
 	ID             EventID
 	OrganizationID string
-	TopicID       TopicID
+	TopicID        TopicID
 	Source         string // orgchart.BotID
 	Body           string
 	CreatedAt      time.Time
@@ -42,7 +42,7 @@ func NewEvent(id EventID, topicID TopicID, source string, body string, createdAt
 	return Event{
 		ID:             id,
 		OrganizationID: orgID,
-		TopicID:       topicID,
+		TopicID:        topicID,
 		Source:         source,
 		Body:           body,
 		CreatedAt:      createdAt.UTC(),

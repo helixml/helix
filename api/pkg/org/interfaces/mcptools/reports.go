@@ -37,7 +37,7 @@ type reportView struct {
 	// true, TeamTopicID is shown for context — but you delegate the
 	// workstream to the report and let them cascade rather than posting
 	// into their sub-team yourself (one-hop rule).
-	Manages      bool                `json:"manages"`
+	Manages     bool               `json:"manages"`
 	TeamTopicID *streaming.TopicID `json:"teamTopicId,omitempty"`
 }
 
@@ -45,7 +45,7 @@ type reportsResult struct {
 	// TeamTopicID is the broadcast channel for all your direct reports;
 	// null until you have at least one report.
 	TeamTopicID *streaming.TopicID `json:"teamTopicId"`
-	Reports      []reportView        `json:"reports"`
+	Reports     []reportView       `json:"reports"`
 }
 
 func (t *Reports) Name() tool.Name                 { return ReportsName }

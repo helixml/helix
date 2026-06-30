@@ -16,8 +16,8 @@ import (
 func TestReconcile_DMChannelCreatedPerEdge(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -37,8 +37,8 @@ func TestReconcile_DMChannelCreatedPerEdge(t *testing.T) {
 func TestReconcile_DMChannelTornDownOnEdgeRemoval(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile add: %v", err)
@@ -65,8 +65,8 @@ func TestReconcile_DMChannelTornDownOnEdgeRemoval(t *testing.T) {
 func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-jane"); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -74,7 +74,7 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 	dm := channels.DMTopicID("w-jane", "w-li")
 
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
-	if err := st.Workers.Delete(ctx, orgID, "w-li"); err != nil {
+	if err := st.Bots.Delete(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("delete worker: %v", err)
 	}
 	affected := append([]orgchart.BotID{"w-li"}, managers...)
@@ -94,9 +94,9 @@ func TestReconcile_DMChannelTornDownOnFire(t *testing.T) {
 func TestReconcile_LeavesForeignTopicsUntouched(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
-	seedWorker(t, st, ai("w-outsider"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
+	seedBot(t, st, bot("w-outsider"))
 
 	// An operator-created topic with its own membership — nothing to do
 	// with the reporting graph.
@@ -136,9 +136,9 @@ func TestReconcileAll_CatchesUpMissingTeamTopic(t *testing.T) {
 
 	// Seed the org graph directly (bypassing hire_worker) to simulate
 	// Workers hired before the reconciler was wired — no topics exist.
-	seedWorker(t, st, human("w-owner"))
-	seedWorker(t, st, ai("w-alice"))
-	seedWorker(t, st, ai("w-qa-1"))
+	seedBot(t, st, bot("w-owner"))
+	seedBot(t, st, bot("w-alice"))
+	seedBot(t, st, bot("w-qa-1"))
 	addLine(t, st, "w-owner", "w-alice")
 	addLine(t, st, "w-owner", "w-qa-1")
 
@@ -163,10 +163,10 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 	ctx := context.Background()
 	// Two independent subtrees: jane→li and bob→sam.
 	for _, id := range []orgchart.BotID{"w-jane", "w-bob"} {
-		seedWorker(t, st, human(id))
+		seedBot(t, st, bot(id))
 	}
 	for _, id := range []orgchart.BotID{"w-li", "w-sam"} {
-		seedWorker(t, st, ai(id))
+		seedBot(t, st, bot(id))
 	}
 	addLine(t, st, "w-jane", "w-li")
 	addLine(t, st, "w-bob", "w-sam")
@@ -180,7 +180,7 @@ func TestReconcile_ScopedToAffectedSubtree(t *testing.T) {
 
 	// Now mutate jane's subtree only (fire li) and reconcile just it.
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-li")
-	if err := st.Workers.Delete(ctx, orgID, "w-li"); err != nil {
+	if err := st.Bots.Delete(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if err := rec.Reconcile(ctx, orgID, append([]orgchart.BotID{"w-li"}, managers...)...); err != nil {

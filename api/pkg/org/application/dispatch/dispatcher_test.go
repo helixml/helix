@@ -102,7 +102,7 @@ func newDispatcher(t *testing.T) (*dispatch.Dispatcher, *store.Store) {
 
 // recordedActivation captures one Spawner invocation for assertions.
 type recordedActivation struct {
-	WorkerID orgchart.BotID
+	BotID    orgchart.BotID
 	Triggers []activation.Trigger
 }
 
@@ -113,8 +113,8 @@ func newDispatcherWithSpawner(t *testing.T) (*dispatch.Dispatcher, *store.Store,
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	rec := make(chan recordedActivation, 16)
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.BotID, triggers []activation.Trigger) error {
-		rec <- recordedActivation{WorkerID: workerID, Triggers: triggers}
+	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.BotID, triggers []activation.Trigger) error {
+		rec <- recordedActivation{BotID: botID, Triggers: triggers}
 		return nil
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -137,44 +137,33 @@ func drainActivations(t *testing.T, rec <-chan recordedActivation, window time.D
 		case r := <-rec:
 			got = append(got, r)
 		case <-deadline:
-			sort.Slice(got, func(i, j int) bool { return got[i].WorkerID < got[j].WorkerID })
+			sort.Slice(got, func(i, j int) bool { return got[i].BotID < got[j].BotID })
 			return got
 		}
 	}
 }
 
-// seedAIWorker creates an AIWorker holding a shared per-test role and
-// persists it.
-func seedAIWorker(t *testing.T, s *store.Store, workerID orgchart.BotID) {
+// seedBot creates a Bot and persists it.
+func seedBot(t *testing.T, s *store.Store, botID orgchart.BotID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
-	roleID := orgchart.BotID("r-test")
-	if _, err := s.Roles.Get(ctx, "org-test", roleID); err != nil {
-		role, err := orgchart.NewRole(roleID, "# Role: Test\nTest role.", nil, nil, now, "org-test")
-		if err != nil {
-			t.Fatalf("new role: %v", err)
-		}
-		if err := s.Roles.Create(ctx, role); err != nil {
-			t.Fatalf("create role: %v", err)
-		}
-	}
-	w, err := orgchart.NewAIWorker(workerID, roleID, "# "+string(workerID)+"\nTest persona.", "org-test")
+	b, err := orgchart.NewBot(botID, "# "+string(botID)+"\nTest persona.", nil, nil, now, "org-test")
 	if err != nil {
-		t.Fatalf("new worker: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Workers.Create(ctx, w); err != nil {
-		t.Fatalf("create worker: %v", err)
+	if err := s.Bots.Create(ctx, b); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
 }
 
-// seedSubscription persists a Worker→Topic subscription.
-func seedSubscription(t *testing.T, s *store.Store, workerID orgchart.BotID, topicID streaming.TopicID) {
+// seedSubscription persists a Bot→Topic subscription.
+func seedSubscription(t *testing.T, s *store.Store, botID orgchart.BotID, topicID streaming.TopicID) {
 	t.Helper()
-	if _, err := s.Workers.Get(context.Background(), "org-test", workerID); err != nil {
-		t.Fatalf("get worker %q for subscription: %v", workerID, err)
+	if _, err := s.Bots.Get(context.Background(), "org-test", botID); err != nil {
+		t.Fatalf("get bot %q for subscription: %v", botID, err)
 	}
-	sub, err := streaming.NewSubscription(string(workerID), topicID, time.Now().UTC(), "org-test")
+	sub, err := streaming.NewSubscription(string(botID), topicID, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new subscription: %v", err)
 	}
@@ -506,8 +495,8 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
 	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
-	seedAIWorker(t, s, "w-publisher")
-	seedAIWorker(t, s, "w-other")
+	seedBot(t, s, "w-publisher")
+	seedBot(t, s, "w-other")
 	seedSubscription(t, s, "w-publisher", "s-team")
 	seedSubscription(t, s, "w-other", "s-team")
 
@@ -529,47 +518,8 @@ func TestDispatchSkipsPublisher(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("activations = %d, want 1; got %+v", len(got), got)
 	}
-	if got[0].WorkerID != "w-other" {
-		t.Fatalf("activated worker = %q, want w-other", got[0].WorkerID)
-	}
-}
-
-// TestDispatchAttachesSourceKind pins that the dispatcher resolves the
-// Source Worker's WorkerKind and threads it onto the Trigger so the
-// activation prompt (rendered by spawner.renderTrigger) can surface
-// "source_kind: ai" or "source_kind: human". This is the input that
-// agent.md's "treat AI-origin as low priority" rule keys off of.
-func TestDispatchAttachesSourceKind(t *testing.T) {
-	t.Parallel()
-	d, s, rec := newDispatcherWithSpawner(t)
-	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
-	seedAIWorker(t, s, "w-publisher")
-	seedAIWorker(t, s, "w-other")
-	seedSubscription(t, s, "w-other", "s-team")
-
-	e, err := streaming.NewMessageEvent(
-		"e-2", "s-team", "w-publisher",
-		streaming.Message{From: "w-publisher", Body: "ping"},
-		time.Now().UTC(),
-		"org-test",
-	)
-	if err != nil {
-		t.Fatalf("new event: %v", err)
-	}
-	if err := s.Events.Append(context.Background(), e); err != nil {
-		t.Fatalf("append event: %v", err)
-	}
-	d.Dispatch(context.Background(), e)
-
-	got := drainActivations(t, rec, 0)
-	if len(got) != 1 {
-		t.Fatalf("activations = %d, want 1", len(got))
-	}
-	if n := len(got[0].Triggers); n != 1 {
-		t.Fatalf("triggers = %d, want 1", n)
-	}
-	if k := got[0].Triggers[0].SourceKind; k != orgchart.WorkerKindAI {
-		t.Fatalf("SourceKind = %q, want %q", k, orgchart.WorkerKindAI)
+	if got[0].BotID != "w-other" {
+		t.Fatalf("activated bot = %q, want w-other", got[0].BotID)
 	}
 }
 
@@ -597,7 +547,7 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls atomic.Int32
-	spawner := runtime.Spawner(func(_ context.Context, _ string, workerID orgchart.BotID, triggers []activation.Trigger) error {
+	spawner := runtime.Spawner(func(_ context.Context, _ string, botID orgchart.BotID, triggers []activation.Trigger) error {
 		n := calls.Add(1)
 		if n == 1 {
 			close(started)
@@ -607,13 +557,13 @@ func TestDispatchDeliversEventsOneAtATime(t *testing.T) {
 		// today, but defensive) can't race with the assertion read.
 		copied := make([]activation.Trigger, len(triggers))
 		copy(copied, triggers)
-		rec <- recordedActivation{WorkerID: workerID, Triggers: copied}
+		rec <- recordedActivation{BotID: botID, Triggers: copied}
 		return nil
 	})
 	d := dispatch.New(s, spawner, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	seedWebhookTopic(t, s, "s-team", transport.Transport{Kind: transport.KindLocal})
-	seedAIWorker(t, s, "w-eng")
+	seedBot(t, s, "w-eng")
 	seedSubscription(t, s, "w-eng", "s-team")
 
 	publish := func(id, body string) {
@@ -712,7 +662,7 @@ func TestDispatchSkipsFanOutOnBadMessageBody(t *testing.T) {
 	t.Parallel()
 	d, s, rec := newDispatcherWithSpawner(t)
 	seedWebhookTopic(t, s, "s-bad", transport.Transport{Kind: transport.KindLocal})
-	seedAIWorker(t, s, "w-listener")
+	seedBot(t, s, "w-listener")
 	seedSubscription(t, s, "w-listener", "s-bad")
 
 	// Hand-craft an event with non-JSON body — bypasses NewMessageEvent

@@ -13,8 +13,8 @@ import (
 
 type subscriptionRow struct {
 	OrgID     string `gorm:"primaryKey;type:text;index"`
-	BotID  string `gorm:"primaryKey;type:text"`
-	TopicID  string `gorm:"primaryKey;type:text"`
+	BotID     string `gorm:"primaryKey;type:text"`
+	TopicID   string `gorm:"primaryKey;type:text"`
 	CreatedAt time.Time
 }
 
@@ -25,8 +25,8 @@ type subscriptionMapper struct{}
 func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, error) {
 	return subscriptionRow{
 		OrgID:     sub.OrganizationID,
-		BotID:  string(sub.BotID),
-		TopicID:  string(sub.TopicID),
+		BotID:     string(sub.BotID),
+		TopicID:   string(sub.TopicID),
 		CreatedAt: sub.CreatedAt,
 	}, nil
 }

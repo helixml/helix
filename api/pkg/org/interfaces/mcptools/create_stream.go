@@ -58,9 +58,9 @@ func (t *CreateTopic) Description() string {
 func (t *CreateTopic) InputSchema() *jsonschema.Schema { return createTopicSchema }
 
 type createTopicArgs struct {
-	ID          string                 `json:"id,omitempty"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
+	ID          string                `json:"id,omitempty"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
 	Transport   *createTopicTransport `json:"transport,omitempty"`
 }
 

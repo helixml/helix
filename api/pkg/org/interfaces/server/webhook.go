@@ -85,7 +85,7 @@ func (s *Server) webhookHandler() http.Handler {
 		}
 
 		ack, _ := json.Marshal(map[string]string{
-			"id":       string(event.ID),
+			"id":      string(event.ID),
 			"topicId": string(topicID),
 		})
 		w.Header().Set("Content-Type", "application/json")

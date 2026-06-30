@@ -15,11 +15,11 @@ import (
 
 type topicView struct {
 	ID            streaming.TopicID `json:"id"`
-	Name          string             `json:"name"`
-	Description   string             `json:"description"`
-	CreatedBy     orgchart.BotID  `json:"createdBy"`
-	CreatedAt     time.Time          `json:"createdAt"`
-	TransportKind string             `json:"transportKind"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	CreatedBy     orgchart.BotID    `json:"createdBy"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	TransportKind string            `json:"transportKind"`
 }
 
 func topicViewOf(s streaming.Topic) topicView {
@@ -121,7 +121,7 @@ const (
 
 type listTopicEventsArgs struct {
 	TopicID string `json:"topicId"`
-	Limit    int    `json:"limit,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 // UnmarshalJSON tolerates a string-encoded Limit — same LLM-quirk

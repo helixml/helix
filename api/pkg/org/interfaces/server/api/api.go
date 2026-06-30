@@ -69,7 +69,7 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Topics        *topics.Topics
+	Topics *topics.Topics
 	// Bots is the merged role+worker mutation service: content/tools
 	// updates (PATCH /bots/{id}) and reporting-line edges
 	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.

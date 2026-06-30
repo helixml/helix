@@ -10,19 +10,19 @@ import (
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
-// fakeWorkerRuntime returns a fixed session id for the worker so the
-// restart handler can decide between "recreate existing container" and
-// "fall back to a fresh activation".
-type fakeWorkerRuntime struct {
+// fakeBotRuntime returns a fixed session id for the bot so the restart
+// handler can decide between "recreate existing container" and "fall
+// back to a fresh activation".
+type fakeBotRuntime struct {
 	sessionID string
 }
 
-func (f fakeWorkerRuntime) State(_ context.Context, _ string, _ orgchart.BotID) (orgapi.WorkerRuntimeInfo, error) {
-	return orgapi.WorkerRuntimeInfo{SessionID: f.sessionID}, nil
+func (f fakeBotRuntime) State(_ context.Context, _ string, _ orgchart.BotID) (orgapi.BotRuntimeInfo, error) {
+	return orgapi.BotRuntimeInfo{SessionID: f.sessionID}, nil
 }
 
 // fakeRestarter records RestartSession calls so the test can assert the
-// worker-page button funnels into the shared backend restart primitive
+// bot-page button funnels into the shared backend restart primitive
 // rather than the activate → SendMessage path.
 type fakeRestarter struct {
 	mu      sync.Mutex
@@ -39,30 +39,29 @@ func (f *fakeRestarter) RestartSession(_ context.Context, sessionID string) erro
 	return f.err
 }
 
-// TestRestartWorkerAgent_RecreatesExistingSession pins the fix: when the
-// worker has a live session, the worker-page "Restart agent session"
-// button recreates that session's container via the SessionRestarter
-// port (the shared backend primitive) — it does NOT enqueue a normal
-// activation (which would SendMessage to the still-stuck container).
-func TestRestartWorkerAgent_RecreatesExistingSession(t *testing.T) {
+// TestRestartBotAgent_RecreatesExistingSession pins the fix: when the bot
+// has a live session, the bot-page "Restart agent session" button
+// recreates that session's container via the SessionRestarter port (the
+// shared backend primitive) — it does NOT enqueue a normal activation
+// (which would SendMessage to the still-stuck container).
+func TestRestartBotAgent_RecreatesExistingSession(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	seedOwnerPosition(t, st, ctx)
-	mustCreateAIWorker(t, st, ctx, "w-alice", "p-root", "alice identity")
+	seedBot(t, st, ctx, "b-alice", "# Alice")
 
 	restarter := &fakeRestarter{}
 	disp := &fakeDispatcher{}
 	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_alice"}, disp)
-	deps.WorkerRuntime = fakeWorkerRuntime{sessionID: "ses_alice"}
+	deps.BotRuntime = fakeBotRuntime{sessionID: "ses_alice"}
 	deps.SessionRestarter = restarter
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "POST", "/workers/w-alice/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-alice/restart-agent", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
 
-	var resp orgapi.WorkerActivateDTO
+	var resp orgapi.BotActivateDTO
 	decode(t, rec, &resp)
 	if resp.SessionID != "ses_alice" {
 		t.Errorf("SessionID = %q, want ses_alice", resp.SessionID)
@@ -75,24 +74,23 @@ func TestRestartWorkerAgent_RecreatesExistingSession(t *testing.T) {
 	}
 }
 
-// TestRestartWorkerAgent_FallsBackToActivateWhenNoSession pins the
-// first-time path: a worker with no live session can't have its
-// container recreated, so restart falls back to a normal activation
-// (which starts a fresh session). RestartSession is not called.
-func TestRestartWorkerAgent_FallsBackToActivateWhenNoSession(t *testing.T) {
+// TestRestartBotAgent_FallsBackToActivateWhenNoSession pins the
+// first-time path: a bot with no live session can't have its container
+// recreated, so restart falls back to a normal activation (which starts
+// a fresh session). RestartSession is not called.
+func TestRestartBotAgent_FallsBackToActivateWhenNoSession(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	ctx := context.Background()
-	seedOwnerPosition(t, st, ctx)
-	mustCreateAIWorker(t, st, ctx, "w-bob", "p-root", "bob identity")
+	seedBot(t, st, ctx, "b-bob", "# Bob")
 
 	restarter := &fakeRestarter{}
 	disp := &fakeDispatcher{}
 	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_bob", agentApp: "app_bob"}, disp)
-	deps.WorkerRuntime = fakeWorkerRuntime{sessionID: ""} // no live session
+	deps.BotRuntime = fakeBotRuntime{sessionID: ""} // no live session
 	deps.SessionRestarter = restarter
 
 	h := orgapi.Handler(deps)
-	rec := do(t, h, "POST", "/workers/w-bob/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-bob/restart-agent", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body)
 	}
@@ -104,15 +102,15 @@ func TestRestartWorkerAgent_FallsBackToActivateWhenNoSession(t *testing.T) {
 	}
 }
 
-// TestRestartWorkerAgent_404OnUnknownWorker pins the not-found path so a
-// stale UI link returns a clean 404 before any restart side effects.
-func TestRestartWorkerAgent_404OnUnknownWorker(t *testing.T) {
+// TestRestartBotAgent_404OnUnknownBot pins the not-found path so a stale
+// UI link returns a clean 404 before any restart side effects.
+func TestRestartBotAgent_404OnUnknownBot(t *testing.T) {
 	deps, _, _ := newDeps(t)
-	deps.WorkerRuntime = fakeWorkerRuntime{sessionID: "ses_ghost"}
+	deps.BotRuntime = fakeBotRuntime{sessionID: "ses_ghost"}
 	deps.SessionRestarter = &fakeRestarter{}
 	h := orgapi.Handler(deps)
 
-	rec := do(t, h, "POST", "/workers/w-ghost/restart-agent", nil)
+	rec := do(t, h, "POST", "/bots/b-ghost/restart-agent", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body)
 	}

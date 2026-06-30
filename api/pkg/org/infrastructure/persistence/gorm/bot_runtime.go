@@ -15,7 +15,7 @@ import (
 
 type botRuntimeStateRow struct {
 	OrgID     string    `gorm:"primaryKey;type:text;index"`
-	BotID  string    `gorm:"primaryKey;type:text"`
+	BotID     string    `gorm:"primaryKey;type:text"`
 	Backend   string    `gorm:"primaryKey;type:text"`
 	Key       string    `gorm:"primaryKey;type:text"`
 	Value     string    `gorm:"type:text"`
@@ -29,32 +29,32 @@ func (botRuntimeStateRow) TableName() string { return "org_bot_runtime_state" }
 // map[string]string; the entry is internal scaffolding so the generic
 // Repository[D, R] can carry the type-pair around.
 type botRuntimeStateEntry struct {
-	OrgID    string
-	BotID string
-	Backend  string
-	Key      string
-	Value    string
+	OrgID   string
+	BotID   string
+	Backend string
+	Key     string
+	Value   string
 }
 
 type botRuntimeStateMapper struct{}
 
 func (botRuntimeStateMapper) ToRow(e botRuntimeStateEntry) (botRuntimeStateRow, error) {
 	return botRuntimeStateRow{
-		OrgID:    e.OrgID,
-		BotID: e.BotID,
-		Backend:  e.Backend,
-		Key:      e.Key,
-		Value:    e.Value,
+		OrgID:   e.OrgID,
+		BotID:   e.BotID,
+		Backend: e.Backend,
+		Key:     e.Key,
+		Value:   e.Value,
 	}, nil
 }
 
 func (botRuntimeStateMapper) ToDomain(row botRuntimeStateRow) (botRuntimeStateEntry, error) {
 	return botRuntimeStateEntry{
-		OrgID:    row.OrgID,
-		BotID: row.BotID,
-		Backend:  row.Backend,
-		Key:      row.Key,
-		Value:    row.Value,
+		OrgID:   row.OrgID,
+		BotID:   row.BotID,
+		Backend: row.Backend,
+		Key:     row.Key,
+		Value:   row.Value,
 	}, nil
 }
 
@@ -116,11 +116,11 @@ func (r *botRuntimeStateRepo) SetMany(ctx context.Context, orgID string, botID o
 			return errors.New("bot_runtime_state: key is empty")
 		}
 		rows = append(rows, botRuntimeStateRow{
-			OrgID:    orgID,
-			BotID: string(botID),
-			Backend:  backend,
-			Key:      k,
-			Value:    v,
+			OrgID:   orgID,
+			BotID:   string(botID),
+			Backend: backend,
+			Key:     k,
+			Value:   v,
 		})
 	}
 	err := r.db.WithContext(ctx).

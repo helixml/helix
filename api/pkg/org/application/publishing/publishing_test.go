@@ -57,7 +57,7 @@ func TestPublish_AppendNotifyDispatchOrder(t *testing.T) {
 
 	var log []string
 	svc := New(Deps{
-		Topics:    st.Topics,
+		Topics:     st.Topics,
 		Events:     &recEvents{Events: st.Events, log: &log},
 		Hub:        &recNotifier{log: &log},
 		Dispatcher: &recDispatcher{log: &log},
@@ -101,7 +101,7 @@ func TestPublish_GitHubRejected(t *testing.T) {
 
 	var log []string
 	svc := New(Deps{
-		Topics:    st.Topics,
+		Topics:     st.Topics,
 		Events:     &recEvents{Events: st.Events, log: &log},
 		Hub:        &recNotifier{log: &log},
 		Dispatcher: &recDispatcher{log: &log},

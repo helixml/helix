@@ -63,6 +63,6 @@ func (t *TopicMembers) Invoke(ctx context.Context, inv tool.Invocation) (json.Ra
 	}
 	return json.Marshal(map[string]any{
 		"topicId": string(topicID),
-		"members":  members,
+		"members": members,
 	})
 }

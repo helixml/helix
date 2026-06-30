@@ -172,14 +172,14 @@ type UpdateTopicRequest struct {
 
 // TopicsResponse is the body of GET /topics.
 type TopicsResponse struct {
-	Topics []TopicDTO `json:"topics"`
-	Recent  []EventCard `json:"recent,omitempty"`
+	Topics []TopicDTO  `json:"topics"`
+	Recent []EventCard `json:"recent,omitempty"`
 }
 
 // EventCard is one entry in a topic's event feed.
 type EventCard struct {
 	ID          string `json:"id"`
-	TopicID    string `json:"topic_id"`
+	TopicID     string `json:"topic_id"`
 	Source      string `json:"source,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	Body        string `json:"body"`
@@ -195,7 +195,7 @@ type EventCard struct {
 // coordinates. Body is the visible text — the parsed Message.Body when
 // the event carries a Message, otherwise the raw stored body.
 type MessageAttributes struct {
-	TopicID   string   `json:"topic_id"`
+	TopicID    string   `json:"topic_id"`
 	Source     string   `json:"source,omitempty"`
 	CreatedAt  string   `json:"created_at"`
 	From       string   `json:"from,omitempty"`

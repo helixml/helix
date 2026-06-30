@@ -10,9 +10,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
-	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"

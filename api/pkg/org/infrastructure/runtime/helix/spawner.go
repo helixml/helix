@@ -556,7 +556,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
 	publish     func(body string)
-	topic      *EntryTopic
+	topic       *EntryTopic
 	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 

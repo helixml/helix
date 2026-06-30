@@ -62,9 +62,9 @@ type Trigger struct {
 	ActivationID ID
 
 	// Event fields, set when Kind == TriggerEvent.
-	EventID  streaming.EventID
+	EventID streaming.EventID
 	TopicID streaming.TopicID
-	Source   orgchart.BotID
+	Source  orgchart.BotID
 
 	// Message is the canonical envelope parsed from the event body.
 	// Every populated field (From, Subject, ThreadID, MessageID,

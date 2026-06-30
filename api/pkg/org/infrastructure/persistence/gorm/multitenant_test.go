@@ -1,8 +1,7 @@
 // Tests for the org-scoped (multi-tenant) store. The key invariants:
 //
-//   - Short human-readable IDs (`w-owner`, `p-root`, `r-owner`) repeat
-//     across orgs — the composite PK (id, org_id) keeps writes
-//     unambiguous.
+//   - Short human-readable IDs (`b-owner`, `p-root`) repeat across orgs
+//     — the composite PK (id, org_id) keeps writes unambiguous.
 //   - Every List takes orgID and returns only that org's rows.
 //   - Every Get takes orgID and returns store.ErrNotFound when the
 //     pair doesn't exist (even if the same id exists in another org).
@@ -28,54 +27,47 @@ const (
 	orgB = "org-globex"
 )
 
-func TestWorkers_SameIDAcrossOrgs(t *testing.T) {
+func TestBots_SameIDAcrossOrgs(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
 	for _, org := range []string{orgA, orgB} {
-		r, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, time.Now().UTC(), org)
+		b, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, time.Now().UTC(), org)
 		if err != nil {
-			t.Fatalf("orgchart.NewRole(%s): %v", org, err)
+			t.Fatalf("orgchart.NewBot(%s): %v", org, err)
 		}
-		if err := s.Roles.Create(ctx, r); err != nil {
-			t.Fatalf("Roles.Create(%s): %v", org, err)
-		}
-		w, err := orgchart.NewHumanWorker("w-owner", "r-owner", "# Owner identity", org)
-		if err != nil {
-			t.Fatalf("NewHumanWorker(%s): %v", org, err)
-		}
-		if err := s.Workers.Create(ctx, w); err != nil {
-			t.Fatalf("Workers.Create(%s): %v", org, err)
+		if err := s.Bots.Create(ctx, b); err != nil {
+			t.Fatalf("Bots.Create(%s): %v", org, err)
 		}
 	}
 
 	// Same id, different orgs: both Get calls succeed and return the
 	// org-scoped row.
 	for _, org := range []string{orgA, orgB} {
-		got, err := s.Workers.Get(ctx, org, "w-owner")
+		got, err := s.Bots.Get(ctx, org, "b-owner")
 		if err != nil {
-			t.Fatalf("Workers.Get(%s, w-owner): %v", org, err)
+			t.Fatalf("Bots.Get(%s, b-owner): %v", org, err)
 		}
-		if got.OrganizationID() != org {
-			t.Errorf("Workers.Get(%s, w-owner).OrganizationID = %q, want %q", org, got.OrganizationID(), org)
+		if got.OrganizationID != org {
+			t.Errorf("Bots.Get(%s, b-owner).OrganizationID = %q, want %q", org, got.OrganizationID, org)
 		}
 	}
 }
 
-func TestWorkers_GetWrongOrgReturnsNotFound(t *testing.T) {
+func TestBots_GetWrongOrgReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 
 	mustSeedOwner(t, s, orgA)
 
-	if _, err := s.Workers.Get(ctx, orgB, "w-owner"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("Workers.Get(%s, w-owner) wantErr ErrNotFound, got %v", orgB, err)
+	if _, err := s.Bots.Get(ctx, orgB, "b-owner"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Bots.Get(%s, b-owner) wantErr ErrNotFound, got %v", orgB, err)
 	}
 }
 
-func TestWorkers_ListFiltersByOrg(t *testing.T) {
+func TestBots_ListFiltersByOrg(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
@@ -91,22 +83,22 @@ func TestWorkers_ListFiltersByOrg(t *testing.T) {
 		{orgB, 1},
 		{"org-missing", 0},
 	} {
-		got, err := s.Workers.List(ctx, tc.org)
+		got, err := s.Bots.List(ctx, tc.org)
 		if err != nil {
-			t.Fatalf("Workers.List(%s): %v", tc.org, err)
+			t.Fatalf("Bots.List(%s): %v", tc.org, err)
 		}
 		if len(got) != tc.want {
-			t.Errorf("Workers.List(%s) = %d rows, want %d", tc.org, len(got), tc.want)
+			t.Errorf("Bots.List(%s) = %d rows, want %d", tc.org, len(got), tc.want)
 		}
-		for _, w := range got {
-			if w.OrganizationID() != tc.org {
-				t.Errorf("Workers.List(%s) returned worker in org %q", tc.org, w.OrganizationID())
+		for _, b := range got {
+			if b.OrganizationID != tc.org {
+				t.Errorf("Bots.List(%s) returned bot in org %q", tc.org, b.OrganizationID)
 			}
 		}
 	}
 }
 
-func TestWorkers_ListFiltersByOrg_Owner(t *testing.T) {
+func TestBots_ListFiltersByOrg_Owner(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
@@ -114,53 +106,26 @@ func TestWorkers_ListFiltersByOrg_Owner(t *testing.T) {
 	mustSeedOwner(t, s, orgA)
 	mustSeedOwner(t, s, orgB)
 
-	got, err := s.Workers.List(ctx, orgA)
+	got, err := s.Bots.List(ctx, orgA)
 	if err != nil {
-		t.Fatalf("Workers.List(%s): %v", orgA, err)
+		t.Fatalf("Bots.List(%s): %v", orgA, err)
 	}
-	if len(got) != 1 || got[0].OrganizationID() != orgA {
-		t.Errorf("Workers.List(%s) returned %+v, want one worker in %s", orgA, got, orgA)
-	}
-}
-
-func TestRoles_SameIDAcrossOrgs(t *testing.T) {
-	t.Parallel()
-	s := newStore(t)
-	ctx := context.Background()
-
-	mustSeedOwner(t, s, orgA)
-	mustSeedOwner(t, s, orgB)
-
-	for _, org := range []string{orgA, orgB} {
-		got, err := s.Roles.Get(ctx, org, "r-owner")
-		if err != nil {
-			t.Fatalf("Roles.Get(%s, r-owner): %v", org, err)
-		}
-		if got.OrganizationID != org {
-			t.Errorf("Roles.Get(%s) returned OrganizationID = %q", org, got.OrganizationID)
-		}
+	if len(got) != 1 || got[0].OrganizationID != orgA {
+		t.Errorf("Bots.List(%s) returned %+v, want one bot in %s", orgA, got, orgA)
 	}
 }
 
-// mustSeedOwner installs the canonical owner pair (Role + Worker) for
-// the given org. Mirrors what bootstrap.Run would create at the
-// JSON-API entry point.
+// mustSeedOwner installs the canonical owner Bot for the given org.
+// Mirrors what bootstrap.Run would create at the JSON-API entry point.
 func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	r, err := orgchart.NewRole("r-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
+	b, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
 	if err != nil {
-		t.Fatalf("orgchart.NewRole: %v", err)
+		t.Fatalf("orgchart.NewBot: %v", err)
 	}
-	if err := s.Roles.Create(ctx, r); err != nil {
-		t.Fatalf("Roles.Create(%s): %v", orgID, err)
-	}
-	w, err := orgchart.NewHumanWorker("w-owner", "r-owner", "# Owner", orgID)
-	if err != nil {
-		t.Fatalf("NewHumanWorker: %v", err)
-	}
-	if err := s.Workers.Create(ctx, w); err != nil {
-		t.Fatalf("Workers.Create(%s): %v", orgID, err)
+	if err := s.Bots.Create(ctx, b); err != nil {
+		t.Fatalf("Bots.Create(%s): %v", orgID, err)
 	}
 }

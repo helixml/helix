@@ -18,8 +18,8 @@ func fixedClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UT
 func newService(st *store.Store) *Subscriptions {
 	return New(Deps{
 		Subscriptions: st.Subscriptions,
-		Topics:       st.Topics,
-		Workers:       st.Workers,
+		Topics:        st.Topics,
+		Bots:          st.Bots,
 		Now:           fixedClock,
 	})
 }
@@ -36,9 +36,9 @@ func seed(t *testing.T, st *store.Store, orgID string) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
-	wk, _ := orgchart.NewAIWorker("w-mark", "r-eng", "id", orgID)
-	if err := st.Workers.Create(ctx, wk); err != nil {
-		t.Fatalf("create worker: %v", err)
+	b, _ := orgchart.NewBot("w-mark", "content", nil, nil, fixedClock(), orgID)
+	if err := st.Bots.Create(ctx, b); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestSubscribe_Idempotent(t *testing.T) {
 	if !created {
 		t.Fatal("first subscribe should report created=true")
 	}
-	if sub.WorkerID != "w-mark" || sub.TopicID != "s-1" {
+	if sub.BotID != "w-mark" || sub.TopicID != "s-1" {
 		t.Fatalf("unexpected sub: %+v", sub)
 	}
 
@@ -121,9 +121,9 @@ func TestInvite_MultipleIdempotent(t *testing.T) {
 	svc := newService(st)
 	ctx := context.Background()
 	seed(t, st, "org-test")
-	// add a second worker
-	w2, _ := orgchart.NewAIWorker("w-priya", "r-eng", "id", "org-test")
-	if err := st.Workers.Create(ctx, w2); err != nil {
+	// add a second bot
+	w2, _ := orgchart.NewBot("w-priya", "content", nil, nil, fixedClock(), "org-test")
+	if err := st.Bots.Create(ctx, w2); err != nil {
 		t.Fatalf("create w2: %v", err)
 	}
 

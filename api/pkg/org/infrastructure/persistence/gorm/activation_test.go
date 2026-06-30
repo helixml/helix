@@ -31,13 +31,12 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 	triggers := []activation.Trigger{
 		{Kind: activation.TriggerHire},
 		{
-			Kind:       activation.TriggerEvent,
-			EventID:    "e-1",
+			Kind:      activation.TriggerEvent,
+			EventID:   "e-1",
 			TopicID:   "s-test",
-			Source:     "w-bob",
-			SourceKind: "ai",
-			Message:    streaming.Message{From: "w-bob", Body: "hi"},
-			CreatedAt:  started.Add(-time.Minute),
+			Source:    "w-bob",
+			Message:   streaming.Message{From: "w-bob", Body: "hi"},
+			CreatedAt: started.Add(-time.Minute),
 		},
 	}
 	a, err := activation.New("a-1", "w-alice", triggers, started, "org-test")

@@ -62,9 +62,9 @@ func NewFromStore(s *store.Store, registry *mcptools.Registry, broadcaster *wake
 	})
 	pd := publishing.Deps{
 		Topics: s.Topics,
-		Events:  s.Events,
-		Now:     func() time.Time { return time.Now().UTC() },
-		NewID:   uuid.NewString,
+		Events: s.Events,
+		Now:    func() time.Time { return time.Now().UTC() },
+		NewID:  uuid.NewString,
 	}
 	if broadcaster != nil {
 		pd.Hub = broadcaster

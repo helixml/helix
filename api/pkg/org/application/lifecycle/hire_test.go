@@ -2,118 +2,108 @@ package lifecycle_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 )
 
 func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 
-// newHireService builds a lifecycle.Service wired only for Hire (the
-// create half) against the in-memory store. Fire-only collaborators
-// (Helix / Mirror / Owner) stay nil — these tests never fire.
+// newHireService builds a lifecycle.Service wired only for Create (the
+// create half) against the in-memory store. Delete-only collaborators
+// (Helix / Mirror) stay nil — these tests never delete. Create delegates
+// the row creation to a bots.Bots service, so one is wired over the same
+// memory store.
 func newHireService(st *store.Store) *lifecycle.Service {
+	rec := reconcile.New(reconcile.Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})
+	botSvc := bots.New(bots.Deps{
+		Bots:       st.Bots,
+		Lines:      st.ReportingLines,
+		Reconciler: rec,
+		Now:        hireClock,
+		NewID:      func() string { return "id" },
+	})
 	return &lifecycle.Service{
-		Store:             st,
-		WorkerReconcilers: []lifecycle.WorkerReconciler{reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})},
-		Now:               hireClock,
-		NewID:             func() string { return "id" },
+		Store:          st,
+		Bots:           botSvc,
+		BotReconcilers: []lifecycle.BotReconciler{rec},
+		Now:            hireClock,
+		NewID:          func() string { return "id" },
 	}
 }
 
-// TestHire_CreatesWorkerEnvAndReconciles: Hire creates the worker +
-// environment row, wires the reporting line to the parent, and
-// reconciles topology (the hire's transcript materialises with
-// the manager subscribed).
-func TestHire_CreatesWorkerEnvAndReconciles(t *testing.T) {
+// TestCreate_CreatesBotAndReconciles: Create creates the bot row, wires
+// the reporting line to the parent, and reconciles topology (the new
+// bot's transcript materialises with the manager subscribed).
+func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
 	ctx := context.Background()
 
-	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, hireClock(), "org-test")
-	if err := st.Roles.Create(ctx, role); err != nil {
-		t.Fatal(err)
-	}
-	boss, _ := orgchart.NewAIWorker("w-boss", "r-eng", "id", "org-test")
-	if err := st.Workers.Create(ctx, boss); err != nil {
+	boss, _ := orgchart.NewBot("w-boss", "# Eng", nil, nil, hireClock(), "org-test")
+	if err := st.Bots.Create(ctx, boss); err != nil {
 		t.Fatal(err)
 	}
 
-	res, err := svc.Hire(ctx, "org-test", lifecycle.HireParams{
-		ID: "w-new", RoleID: "r-eng", ParentID: "w-boss",
-		Kind: orgchart.WorkerKindAI, IdentityContent: "a new hire",
+	res, err := svc.Create(ctx, "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "a new hire", ParentID: "w-boss",
 	})
 	if err != nil {
-		t.Fatalf("Hire: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
-	if res.WorkerID != "w-new" {
-		t.Fatalf("worker id = %q", res.WorkerID)
+	if res.Bot.ID != "w-new" {
+		t.Fatalf("bot id = %q", res.Bot.ID)
 	}
-	if _, err := st.Workers.Get(ctx, "org-test", "w-new"); err != nil {
-		t.Fatalf("worker not persisted: %v", err)
+	if _, err := st.Bots.Get(ctx, "org-test", "w-new"); err != nil {
+		t.Fatalf("bot not persisted: %v", err)
 	}
 	managers, _ := st.ReportingLines.ListManagers(ctx, "org-test", "w-new")
 	if len(managers) != 1 || managers[0] != "w-boss" {
 		t.Fatalf("reporting line not wired: %v", managers)
 	}
-	// The reconciler created the hire's transcript.
+	// The reconciler created the new bot's transcript.
 	if _, err := st.Topics.Get(ctx, "org-test", "s-transcript-w-new"); err != nil {
 		t.Fatalf("transcript not reconciled: %v", err)
 	}
 }
 
-func TestHire_RejectsUnknownKind(t *testing.T) {
-	t.Parallel()
-	st := memory.New()
-	svc := newHireService(st)
-	_, err := svc.Hire(context.Background(), "org-test", lifecycle.HireParams{
-		RoleID: "r-eng", Kind: "claude", IdentityContent: "x",
-	})
-	if err == nil {
-		t.Fatal("Hire with unknown kind: want error")
-	}
-}
-
-// TestHire_RejectsPathTraversalID pins the path-injection guard: a
-// worker id that would escape the envs directory is rejected before any
+// TestCreate_RejectsPathTraversalID pins the path-injection guard: a bot
+// id that would escape the envs directory is rejected before any
 // os.MkdirAll, and nothing is created under the temp envs root.
-func TestHire_RejectsPathTraversalID(t *testing.T) {
+func TestCreate_RejectsPathTraversalID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
 	ctx := context.Background()
-	role, _ := orgchart.NewRole("r-eng", "# Eng", []tool.Name{"publish"}, nil, hireClock(), "org-test")
-	if err := st.Roles.Create(ctx, role); err != nil {
-		t.Fatal(err)
-	}
-	_, err := svc.Hire(ctx, "org-test", lifecycle.HireParams{
-		ID: "../../escape", RoleID: "r-eng", Kind: orgchart.WorkerKindAI, IdentityContent: "x",
+	_, err := svc.Create(ctx, "org-test", lifecycle.CreateParams{
+		ID: "../../escape", Content: "x",
 	})
 	if err == nil {
-		t.Fatal("Hire with traversal id: want error")
+		t.Fatal("Create with traversal id: want error")
 	}
-	// No worker row persisted.
-	if _, gerr := st.Workers.Get(ctx, "org-test", "../../escape"); gerr == nil {
-		t.Fatal("traversal worker should not have been created")
+	// No bot row persisted.
+	if _, gerr := st.Bots.Get(ctx, "org-test", "../../escape"); gerr == nil {
+		t.Fatal("traversal bot should not have been created")
 	}
 }
 
-func TestHire_UnknownRole(t *testing.T) {
+// TestCreate_UnknownParent: creating a bot whose parent does not exist
+// fails (and does not persist the child).
+func TestCreate_UnknownParent(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
-	_, err := svc.Hire(context.Background(), "org-test", lifecycle.HireParams{
-		RoleID: "r-missing", Kind: orgchart.WorkerKindAI, IdentityContent: "x",
+	_, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "x", ParentID: "w-missing",
 	})
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound", err)
+	if err == nil {
+		t.Fatal("Create with unknown parent: want error")
 	}
 }

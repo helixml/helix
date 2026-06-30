@@ -111,8 +111,8 @@ func (t *DM) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, 
 	}
 
 	return json.Marshal(map[string]string{
-		"id":       string(event.ID),
+		"id":      string(event.ID),
 		"topicId": string(topicID),
-		"to":       string(recipient),
+		"to":      string(recipient),
 	})
 }

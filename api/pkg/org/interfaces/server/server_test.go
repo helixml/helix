@@ -18,11 +18,11 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
 
-// newTestServer seeds a CEO Worker whose Role lists both ping and
-// hire_worker — but only ping is actually registered with the server.
+// newTestServer seeds a CEO Bot whose Tools list both ping and
+// create_bot — but only ping is actually registered with the server.
 // That lets us assert the MCP surface is the intersection of (a)
-// Role.Tools and (b) tools the server knows. Returns the running
-// httptest.Server and the workerID to act as.
+// Bot.Tools and (b) tools the server knows. Returns the running
+// httptest.Server and the botID to act as.
 func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
@@ -36,47 +36,44 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := orgchart.NewRole(
-		"r-ceo",
+	bot, _ := orgchart.NewBot(
+		"b-ceo",
 		"# CEO\nTop of org.",
-		[]tool.Name{mcptools.PingName, "hire_worker"},
+		[]tool.Name{mcptools.PingName, "create_bot"},
 		nil,
 		time.Now().UTC(),
 		"org-test",
 	)
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("seed role: %v", err)
+	if err := s.Bots.Create(ctx, bot); err != nil {
+		t.Fatalf("seed bot: %v", err)
 	}
-	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", "", "org-test")
-	if err := s.Workers.Create(ctx, ai); err != nil {
-		t.Fatalf("seed worker: %v", err)
-	}
-	return srv, "w-ceo"
+	return srv, "b-ceo"
 }
 
-// connectMCP returns an MCP client session bound to the given worker's
-// /mcp endpoint. The session is closed when the test ends.
-func connectMCP(t *testing.T, baseURL string, workerID orgchart.BotID) *mcp.ClientSession {
+// connectMCP returns an MCP client session bound to the given bot's /mcp
+// endpoint. The URL keeps the `/workers/` path segment for compatibility
+// with the helix MCP backend rewrite; {id} is a Bot ID. The session is
+// closed when the test ends.
+func connectMCP(t *testing.T, baseURL string, botID orgchart.BotID) *mcp.ClientSession {
 	t.Helper()
 	c := mcp.NewClient(&mcp.Implementation{Name: "helix-org-test", Version: "v0.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
-		Endpoint:             baseURL + "/orgs/org-test/workers/" + string(workerID) + "/mcp",
+		Endpoint:             baseURL + "/orgs/org-test/workers/" + string(botID) + "/mcp",
 		DisableStandaloneSSE: true,
 	}
 	session, err := c.Connect(context.Background(), transport, nil)
 	if err != nil {
-		t.Fatalf("mcp connect %s: %v", workerID, err)
+		t.Fatalf("mcp connect %s: %v", botID, err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
 	return session
 }
 
-// newTestServerRoleDerived seeds a Worker whose MCP surface comes from
-// Role.Tools rather than a per-Worker tool record. The Role lists ping.
-// Asserting that ping appears on the Worker's MCP endpoint pins the
-// "Role.Tools is the live source of truth" contract — see
-// feat/org-role-tools-as-source-of-truth.
-func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
+// newTestServerToolDerived seeds a Bot whose MCP surface comes from
+// Bot.Tools. The Bot lists ping. Asserting that ping appears on the
+// Bot's MCP endpoint pins the "Bot.Tools is the live source of truth"
+// contract.
+func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -89,32 +86,28 @@ func newTestServerRoleDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	role, _ := orgchart.NewRole(
-		"r-ceo",
+	bot, _ := orgchart.NewBot(
+		"b-ceo",
 		"# CEO\nTop of org.",
 		[]tool.Name{mcptools.PingName},
 		nil,
 		time.Now().UTC(),
 		"org-test",
 	)
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("seed role: %v", err)
+	if err := s.Bots.Create(ctx, bot); err != nil {
+		t.Fatalf("seed bot: %v", err)
 	}
-	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", "", "org-test")
-	if err := s.Workers.Create(ctx, ai); err != nil {
-		t.Fatalf("seed worker: %v", err)
-	}
-	return srv, "w-ceo"
+	return srv, "b-ceo"
 }
 
-// TestMCPListToolsFromRole pins the contract: a Worker's MCP surface
-// is derived live from their Role.Tools, with no per-Worker tool record
-// involved. Hiring a Worker into a Role with `ping` listed must make
-// ping appear on the MCP endpoint without any explicit tool-assignment call.
-func TestMCPListToolsFromRole(t *testing.T) {
+// TestMCPListToolsFromBot pins the contract: a Bot's MCP surface is
+// derived live from their Bot.Tools. Creating a Bot with `ping` listed
+// must make ping appear on the MCP endpoint without any explicit
+// tool-assignment call.
+func TestMCPListToolsFromBot(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServerRoleDerived(t)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServerToolDerived(t)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -125,19 +118,19 @@ func TestMCPListToolsFromRole(t *testing.T) {
 		got[tl.Name] = true
 	}
 	if !got["ping"] {
-		t.Errorf("ping missing from role-derived list: %+v", got)
+		t.Errorf("ping missing from bot-derived list: %+v", got)
 	}
 }
 
-// TestMCPListTools confirms that the MCP tool list a worker sees is the
-// intersection of (a) their Role.Tools and (b) tools the server has
-// actually registered. The CEO's Role lists both ping and hire_worker,
-// but only ping is registered on the test registry — so hire_worker
-// must not appear. create_role is in neither the role nor the registry.
+// TestMCPListTools confirms that the MCP tool list a bot sees is the
+// intersection of (a) their Bot.Tools and (b) tools the server has
+// actually registered. The CEO's Bot lists both ping and create_bot, but
+// only ping is registered on the test registry — so create_bot must not
+// appear. update_bot is in neither the bot nor the registry.
 func TestMCPListTools(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServer(t)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServer(t)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -150,21 +143,21 @@ func TestMCPListTools(t *testing.T) {
 	if !got["ping"] {
 		t.Errorf("ping missing from list: %+v", got)
 	}
-	if got["hire_worker"] {
-		t.Errorf("role-listed-but-unregistered tool hire_worker leaked into list")
+	if got["create_bot"] {
+		t.Errorf("bot-listed-but-unregistered tool create_bot leaked into list")
 	}
-	if got["create_role"] {
-		t.Errorf("role-omitted tool create_role appeared in list")
+	if got["update_bot"] {
+		t.Errorf("bot-omitted tool update_bot appeared in list")
 	}
 }
 
-// TestMCPInvokePing exercises a tool over MCP end-to-end: the CEO's
-// Role lists ping, so calling tools/call should succeed and echo
-// the message back along with the caller ID.
+// TestMCPInvokePing exercises a tool over MCP end-to-end: the CEO's Bot
+// lists ping, so calling tools/call should succeed and echo the message
+// back along with the caller ID.
 func TestMCPInvokePing(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServer(t)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServer(t)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "ping",
@@ -190,34 +183,34 @@ func TestMCPInvokePing(t *testing.T) {
 	if err := json.Unmarshal([]byte(text.Text), &payload); err != nil {
 		t.Fatalf("decode tool result: %v", err)
 	}
-	if payload.Echo != "hello" || payload.Caller != "w-ceo" {
+	if payload.Echo != "hello" || payload.Caller != "b-ceo" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
 
-// TestMCPToolNotInRoleHidden confirms that a tool not listed in the
-// Worker's Role.Tools isn't visible. Calling a hidden tool surfaces as
-// a protocol-level "tool not found", not a 403 — the LLM never sees
-// tools its Role doesn't carry.
-func TestMCPToolNotInRoleHidden(t *testing.T) {
+// TestMCPToolNotInBotHidden confirms that a tool not listed in the Bot's
+// Tools isn't visible. Calling a hidden tool surfaces as a
+// protocol-level "tool not found", not a 403 — the LLM never sees tools
+// its Bot doesn't carry.
+func TestMCPToolNotInBotHidden(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServer(t)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServer(t)
+	session := connectMCP(t, srv.URL, botID)
 
 	_, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "create_role",
-		Arguments: map[string]any{"id": "r-x", "title": "X"},
+		Name:      "update_bot",
+		Arguments: map[string]any{"id": "b-x", "content": "X"},
 	})
 	if err == nil {
-		t.Fatalf("expected error for tool not in Role, got nil")
+		t.Fatalf("expected error for tool not in Bot, got nil")
 	}
 }
 
 // newTestServerWithPrompts mirrors newTestServer but also attaches a
-// prompts registry containing new_role. Whether the worker actually
-// sees the prompt depends on whether their Role.Tools includes the
-// gating tool (create_role); callers exercise both branches.
-func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.Server, orgchart.BotID) {
+// prompts registry containing the role prompt. Whether the bot actually
+// sees the prompt depends on whether their Bot.Tools includes the gating
+// tool (create_bot); callers exercise both branches.
+func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Server, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 
@@ -231,30 +224,28 @@ func newTestServerWithPrompts(t *testing.T, includeCreateRole bool) (*httptest.S
 
 	promptReg := prompts.NewRegistry()
 	if err := promptReg.Register(prompts.Role{}); err != nil {
-		t.Fatalf("register new_role: %v", err)
+		t.Fatalf("register role prompt: %v", err)
 	}
 
 	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).WithPrompts(promptReg).Handler())
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	roleTools := []tool.Name{mcptools.PingName}
-	if includeCreateRole {
-		roleTools = append(roleTools, mcptools.CreateRoleName)
+	botTools := []tool.Name{mcptools.PingName}
+	if includeCreateBot {
+		botTools = append(botTools, mcptools.CreateBotName)
 	}
-	role, _ := orgchart.NewRole("r-ceo", "# CEO", roleTools, nil, time.Now().UTC(), "org-test")
-	_ = s.Roles.Create(ctx, role)
-	ai, _ := orgchart.NewAIWorker("w-ceo", "r-ceo", "", "org-test")
-	_ = s.Workers.Create(ctx, ai)
-	return srv, "w-ceo"
+	bot, _ := orgchart.NewBot("b-ceo", "# CEO", botTools, nil, time.Now().UTC(), "org-test")
+	_ = s.Bots.Create(ctx, bot)
+	return srv, "b-ceo"
 }
 
-// TestMCPListPromptsVisibleWhenRoleHasTool confirms that a prompt gated
-// on a tool shows up exactly when the worker's Role.Tools includes it.
-func TestMCPListPromptsVisibleWhenRoleHasTool(t *testing.T) {
+// TestMCPListPromptsVisibleWhenBotHasTool confirms that a prompt gated on
+// a tool shows up exactly when the bot's Tools includes it.
+func TestMCPListPromptsVisibleWhenBotHasTool(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServerWithPrompts(t, true)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServerWithPrompts(t, true)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.ListPrompts(context.Background(), nil)
 	if err != nil {
@@ -265,17 +256,17 @@ func TestMCPListPromptsVisibleWhenRoleHasTool(t *testing.T) {
 		got[p.Name] = true
 	}
 	if !got[string(prompts.RoleName)] {
-		t.Errorf("new_role missing from list: %+v", got)
+		t.Errorf("role prompt missing from list: %+v", got)
 	}
 }
 
-// TestMCPListPromptsHiddenWhenRoleLacksTool confirms the gating: a worker
-// whose Role doesn't list create_role does NOT see the new_role
-// prompt, because the final tool call would fail anyway.
-func TestMCPListPromptsHiddenWhenRoleLacksTool(t *testing.T) {
+// TestMCPListPromptsHiddenWhenBotLacksTool confirms the gating: a bot
+// whose Tools don't list create_bot does NOT see the role prompt,
+// because the final tool call would fail anyway.
+func TestMCPListPromptsHiddenWhenBotLacksTool(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServerWithPrompts(t, false)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServerWithPrompts(t, false)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.ListPrompts(context.Background(), nil)
 	if err != nil {
@@ -283,7 +274,7 @@ func TestMCPListPromptsHiddenWhenRoleLacksTool(t *testing.T) {
 	}
 	for _, p := range res.Prompts {
 		if p.Name == string(prompts.RoleName) {
-			t.Errorf("new_role visible without create_role tool: %+v", p)
+			t.Errorf("role prompt visible without create_bot tool: %+v", p)
 		}
 	}
 }
@@ -293,8 +284,8 @@ func TestMCPListPromptsHiddenWhenRoleLacksTool(t *testing.T) {
 // in the conversation.
 func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
 	t.Parallel()
-	srv, workerID := newTestServerWithPrompts(t, true)
-	session := connectMCP(t, srv.URL, workerID)
+	srv, botID := newTestServerWithPrompts(t, true)
+	session := connectMCP(t, srv.URL, botID)
 
 	res, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
 		Name:      string(prompts.RoleName),
@@ -317,7 +308,7 @@ func TestMCPGetPromptReturnsSeedMessages(t *testing.T) {
 	if !strings.Contains(text.Text, "VP marketing") {
 		t.Errorf("hint not threaded through: %s", text.Text)
 	}
-	if !strings.Contains(text.Text, "create_role") {
-		t.Errorf("template missing create_role reference")
+	if !strings.Contains(text.Text, "create_bot") {
+		t.Errorf("template missing create_bot reference")
 	}
 }

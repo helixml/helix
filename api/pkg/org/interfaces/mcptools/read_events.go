@@ -29,8 +29,8 @@ const (
 // re-parsing.
 type eventView struct {
 	ID        streaming.EventID  `json:"id"`
-	TopicID  streaming.TopicID `json:"topicId"`
-	Source    orgchart.BotID  `json:"source"`
+	TopicID   streaming.TopicID  `json:"topicId"`
+	Source    orgchart.BotID     `json:"source"`
 	Body      string             `json:"body"`
 	Message   *streaming.Message `json:"message,omitempty"`
 	CreatedAt time.Time          `json:"createdAt"`
@@ -39,7 +39,7 @@ type eventView struct {
 func eventViewOf(e streaming.Event) eventView {
 	view := eventView{
 		ID:        e.ID,
-		TopicID:  e.TopicID,
+		TopicID:   e.TopicID,
 		Source:    e.Source,
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,

@@ -25,20 +25,15 @@ func fixedNow() time.Time { return time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC) 
 // application-layer Reconciler and its ensureTopicWithMembers primitive
 // against the memory store.
 
-func ai(id orgchart.BotID) orgchart.Worker {
-	w, err := orgchart.NewAIWorker(id, "r-x", "#", orgID)
+// bot builds a Bot for tests. The former Role/Worker (AI vs human)
+// distinction is gone: there is one Bot aggregate, so every test fixture
+// is just a Bot with non-empty content.
+func bot(id orgchart.BotID) orgchart.Bot {
+	b, err := orgchart.NewBot(id, "#", nil, nil, fixedNow(), orgID)
 	if err != nil {
 		panic(err)
 	}
-	return w
-}
-
-func human(id orgchart.BotID) orgchart.Worker {
-	w, err := orgchart.NewHumanWorker(id, "r-x", "#", orgID)
-	if err != nil {
-		panic(err)
-	}
-	return w
+	return b
 }
 
 func line(manager, report orgchart.BotID) orgchart.ReportingLine {
@@ -66,13 +61,13 @@ func eq(a, b []orgchart.BotID) bool {
 func newRec(t *testing.T) (*Reconciler, *store.Store) {
 	t.Helper()
 	st := memorystore.New()
-	return New(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow}), st
+	return New(Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow}), st
 }
 
-func seedWorker(t *testing.T, st *store.Store, w orgchart.Worker) {
+func seedBot(t *testing.T, st *store.Store, b orgchart.Bot) {
 	t.Helper()
-	if err := st.Workers.Create(context.Background(), w); err != nil {
-		t.Fatalf("create worker %s: %v", w.ID(), err)
+	if err := st.Bots.Create(context.Background(), b); err != nil {
+		t.Fatalf("create bot %s: %v", b.ID, err)
 	}
 }
 
@@ -91,7 +86,7 @@ func topicMembers(t *testing.T, st *store.Store, sid streaming.TopicID) []orgcha
 	}
 	out := make([]orgchart.BotID, 0, len(subs))
 	for _, s := range subs {
-		out = append(out, orgchart.BotID(s.WorkerID))
+		out = append(out, orgchart.BotID(s.BotID))
 	}
 	sort.Strings(out)
 	return out
@@ -109,10 +104,10 @@ func topicExists(t *testing.T, st *store.Store, sid streaming.TopicID) bool {
 func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
+	seedBot(t, st, bot("w-jane"))
 
 	// First report.
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -126,7 +121,7 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 	}
 
 	// Second report.
-	seedWorker(t, st, ai("w-sam"))
+	seedBot(t, st, bot("w-sam"))
 	addLine(t, st, "w-jane", "w-sam")
 	if err := rec.Reconcile(ctx, orgID, "w-sam"); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -143,9 +138,9 @@ func TestReconcile_HireFirstAndSecondReport(t *testing.T) {
 func TestReconcile_AddSecondManager(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, human("w-bob"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-bob"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile initial: %v", err)
@@ -175,8 +170,8 @@ func TestReconcile_AddSecondManager(t *testing.T) {
 func TestReconcile_RemoveManager(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile initial: %v", err)
@@ -208,9 +203,9 @@ func TestReconcile_RemoveManager(t *testing.T) {
 func TestReconcile_RemoveManager_KeepsTopicWhenOtherReports(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
-	seedWorker(t, st, ai("w-sam"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
+	seedBot(t, st, bot("w-sam"))
 	addLine(t, st, "w-jane", "w-li")
 	addLine(t, st, "w-jane", "w-sam")
 	if err := rec.Reconcile(ctx, orgID, "w-li", "w-sam"); err != nil {
@@ -235,8 +230,8 @@ func TestReconcile_RemoveManager_KeepsTopicWhenOtherReports(t *testing.T) {
 func TestReconcile_FireReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile initial: %v", err)
@@ -247,7 +242,7 @@ func TestReconcile_FireReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list managers: %v", err)
 	}
-	if err := st.Workers.Delete(ctx, orgID, "w-li"); err != nil {
+	if err := st.Bots.Delete(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("delete worker: %v", err)
 	}
 	affected := append([]orgchart.BotID{"w-li"}, managers...)
@@ -269,9 +264,9 @@ func TestReconcile_FireReport(t *testing.T) {
 func TestReconcile_FireManager(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-owner"))
-	seedWorker(t, st, ai("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-owner"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-owner", "w-jane")
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-jane"); err != nil {
@@ -285,7 +280,7 @@ func TestReconcile_FireManager(t *testing.T) {
 	}
 
 	managers, _ := st.ReportingLines.ListManagers(ctx, orgID, "w-jane")
-	if err := st.Workers.Delete(ctx, orgID, "w-jane"); err != nil {
+	if err := st.Bots.Delete(ctx, orgID, "w-jane"); err != nil {
 		t.Fatalf("delete worker: %v", err)
 	}
 	affected := append([]orgchart.BotID{"w-jane"}, managers...)
@@ -307,8 +302,8 @@ func TestReconcile_FireManager(t *testing.T) {
 func TestReconcile_Idempotent(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-jane"))
-	seedWorker(t, st, ai("w-li"))
+	seedBot(t, st, bot("w-jane"))
+	seedBot(t, st, bot("w-li"))
 	addLine(t, st, "w-jane", "w-li")
 	if err := rec.Reconcile(ctx, orgID, "w-li"); err != nil {
 		t.Fatalf("reconcile 1: %v", err)
@@ -335,7 +330,7 @@ func TestReconcile_Idempotent(t *testing.T) {
 // must be exactly one topic with exactly one subscription.
 func TestEnsureTopicWithMembers_ConcurrentCreateRace(t *testing.T) {
 	st := memorystore.New()
-	rec := New(Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow})
+	rec := New(Deps{Bots: st.Bots, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: fixedNow})
 	ctx := context.Background()
 	const sid = streaming.TopicID("s-team-w-race")
 	topic, err := streaming.NewTopic(sid, "Team: race", "", "w-race", fixedNow(), transport.Transport{}, orgID)
@@ -376,7 +371,7 @@ func TestEnsureTopicWithMembers_ConcurrentCreateRace(t *testing.T) {
 func TestReconcile_RootWithReport(t *testing.T) {
 	rec, st := newRec(t)
 	ctx := context.Background()
-	seedWorker(t, st, human("w-root"))
+	seedBot(t, st, bot("w-root"))
 	// The root's first reconcile mints its (unobserved) transcript.
 	if err := rec.Reconcile(ctx, orgID, "w-root"); err != nil {
 		t.Fatalf("reconcile root: %v", err)
@@ -385,7 +380,7 @@ func TestReconcile_RootWithReport(t *testing.T) {
 		t.Fatalf("root transcript observers = %v, want none (no self-subscribe)", got)
 	}
 
-	seedWorker(t, st, ai("w-jane"))
+	seedBot(t, st, bot("w-jane"))
 	addLine(t, st, "w-root", "w-jane")
 	if err := rec.Reconcile(ctx, orgID, "w-jane"); err != nil {
 		t.Fatalf("reconcile jane: %v", err)
