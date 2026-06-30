@@ -49,8 +49,8 @@ they must stay green throughout because their code is not touched.
 - [x] GREEN: add `transport.KindSpecTask = "spectask"` and its strategy/`kindOrder`/config to `api/pkg/org/domain/transport/` (golden order test updated for the new kind).
 - [x] RED: a test on `services.AttentionService` (fake `Publisher`) asserting `EmitEvent` publishes a new `AttentionEvent`, skips publish on the idempotency-dedup path, and is nil-safe when no publisher is wired. (This is the only change to existing code — gated behind a red test first.)
 - [x] GREEN: add the optional nil-guarded `Publisher` sink (`AttentionEventSink` + `SetEventSink`) to `AttentionService`, published after the dedup check beside `notifySlack`.
-- [ ] RED: tests for the spectask transport infra — `AttentionEvent` → `streaming.Message` mapping and project→`KindSpecTask` topic resolution (auto-create like the Slack workspace topic).
-- [ ] GREEN: implement `api/pkg/org/infrastructure/transports/spectask/`.
+- [x] RED: tests for the spectask transport infra — `AttentionEvent` → `streaming.Message` mapping and project→`KindSpecTask` topic resolution (auto-create like the Slack workspace topic).
+- [x] GREEN: implement the publisher. **Deviation:** lives in the `server` package, not `api/pkg/org/infrastructure/transports/spectask/`, because it bridges helix `*types.AttentionEvent` → org topics; org transports intentionally import only the *org* domain store (the slack transport does too), so the helix↔org bridge belongs in `server` (same place as the `specTaskWorkflow` adapter). Keeps org core generic per CLAUDE.md.
 - [ ] RED: an integration test that an emitted `AttentionEvent` produces exactly one activation per subscribed Worker (and none for non-subscribers), with a payload (task id, event type, new status) sufficient to act.
 - [ ] GREEN: wire the `Publishing`-backed publisher into `AttentionService` in `server.go` (~line 608).
 
