@@ -40,8 +40,12 @@ type BotDTO struct {
 	Topics         []string `json:"topics,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
-	CreatedAt      string   `json:"created_at,omitempty"`
-	UpdatedAt      string   `json:"updated_at,omitempty"`
+	// PreserveContext, when true, stops the runtime from wiping this
+	// Bot's chat session before each re-activation, so it accumulates
+	// context across triggers (e.g. Slack). Defaults to false.
+	PreserveContext bool   `json:"preserve_context"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 
 // BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
@@ -76,11 +80,12 @@ type BotDetailDTO struct {
 // create_bot tool's args. ID is optional (a fresh handle is minted when
 // empty). ParentID is the manager the new Bot reports to.
 type CreateBotRequest struct {
-	ID       string   `json:"id,omitempty"`
-	Content  string   `json:"content"`
-	Tools    []string `json:"tools,omitempty"`
-	Topics   []string `json:"topics,omitempty"`
-	ParentID string   `json:"parent_id,omitempty"`
+	ID              string   `json:"id,omitempty"`
+	Content         string   `json:"content"`
+	Tools           []string `json:"tools,omitempty"`
+	Topics          []string `json:"topics,omitempty"`
+	ParentID        string   `json:"parent_id,omitempty"`
+	PreserveContext bool     `json:"preserve_context,omitempty"`
 }
 
 // CreateBotResponse is the body of POST /bots on success.
@@ -90,11 +95,13 @@ type CreateBotResponse struct {
 }
 
 // UpdateBotRequest is the body of PATCH /bots/{id}. A nil field is left
-// unchanged (content-only edit preserves Tools/Topics).
+// unchanged (content-only edit preserves Tools/Topics). PreserveContext
+// is a pointer for the same reason: nil leaves the current setting alone.
 type UpdateBotRequest struct {
-	Content *string  `json:"content,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
-	Topics  []string `json:"topics,omitempty"`
+	Content         *string  `json:"content,omitempty"`
+	Tools           []string `json:"tools,omitempty"`
+	Topics          []string `json:"topics,omitempty"`
+	PreserveContext *bool    `json:"preserve_context,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID

@@ -120,11 +120,12 @@ type Service struct {
 // (empty only for the org root). Content is the bot's prompt; Tools and
 // Topics are its capability/manifest.
 type CreateParams struct {
-	ID       string
-	Content  string
-	Tools    []tool.Name
-	Topics   []streaming.TopicID
-	ParentID orgchart.BotID
+	ID              string
+	Content         string
+	Tools           []tool.Name
+	Topics          []streaming.TopicID
+	ParentID        orgchart.BotID
+	PreserveContext bool
 }
 
 // CreateResult carries the new Bot and the pre-allocated
@@ -165,10 +166,11 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 	}
 
 	bot, err := s.Bots.Create(ctx, orgID, bots.CreateParams{
-		ID:      p.ID,
-		Content: p.Content,
-		Tools:   p.Tools,
-		Topics:  p.Topics,
+		ID:              p.ID,
+		Content:         p.Content,
+		Tools:           p.Tools,
+		Topics:          p.Topics,
+		PreserveContext: p.PreserveContext,
 	})
 	if err != nil {
 		return CreateResult{}, err
