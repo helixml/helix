@@ -3344,6 +3344,21 @@ func (SandboxInstance) TableName() string {
 	return "sandbox_instances"
 }
 
+// CanHostSandbox reports whether this host can run a sandbox (desktop or
+// headless dev container). Sandboxes need display/encode hardware, so we
+// exclude the accelerators that lack it: AWS Inferentia/Trainium
+// (GPUVendor "neuron") has no /dev/dri render node - its desktop startup
+// FATALs - and "none" is a CPU-only host. A SOFTWARE render node has no
+// hardware encoder for streaming. Everything else (nvidia / amd / intel,
+// and not-yet-reported hosts) is treated as capable.
+func (s *SandboxInstance) CanHostSandbox() bool {
+	switch s.GPUVendor {
+	case "neuron", "none":
+		return false
+	}
+	return s.RenderNode != "SOFTWARE"
+}
+
 // SandboxHeartbeatRequest is sent by sandbox-heartbeat daemon every 30 seconds
 type SandboxHeartbeatRequest struct {
 	// Desktop image versions (content-addressable Docker image hashes)

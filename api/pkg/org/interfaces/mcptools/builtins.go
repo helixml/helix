@@ -170,11 +170,11 @@ func (c Config) workersService() *workers.Workers {
 // surface never fires Workers, so Helix/Mirror/Owner stay nil).
 func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
-		Store:      c.Store,
-		Reconciler: c.Reconciler,
-		HireHook:   c.HireHook,
-		Now:        c.Now,
-		NewID:      c.NewID,
+		Store:             c.Store,
+		WorkerReconcilers: []lifecycle.WorkerReconciler{c.Reconciler},
+		HireHook:          c.HireHook,
+		Now:               c.Now,
+		NewID:             c.NewID,
 	}
 	// c.Dispatcher (EventDispatcher) satisfies lifecycle.HireDispatcher
 	// (DispatchHire); guard the typed-nil-in-interface case.

@@ -101,6 +101,9 @@ export interface ProcessorOutput {
   match?: string
   label?: string
   owned?: boolean
+  // Set when this route is auto-managed by a reconciler for the named
+  // Worker (the Slack auto-router); empty for human-authored routes.
+  managed_for?: string
 }
 
 export interface ProcessorDTO {
@@ -112,6 +115,8 @@ export interface ProcessorDTO {
   outputs: ProcessorOutput[]
   created_by?: string
   created_at?: string
+  // True for automation-created processors (the Slack auto-router).
+  automated?: boolean
 }
 
 interface JsonApiResource<T> { id: string; type: string; attributes: T }

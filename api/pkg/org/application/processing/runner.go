@@ -21,6 +21,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 )
@@ -57,18 +58,36 @@ func withHop(ctx context.Context) context.Context {
 	return context.WithValue(ctx, hopCtxKey{}, hopCount(ctx)+1)
 }
 
+// PostRouter is a late-bound observer fired after an Automated processor
+// routes a Message — the seam thread-follow plugs into. It receives the
+// processor, the input Message, and the Results its pure Process produced
+// (the name-matched routes), so it can record/extend routing with state the
+// pure Process must not touch. Defined here (not imported) so processing
+// stays Slack-agnostic; slackrouting.ThreadFollower satisfies it and is
+// registered at the composition root, exactly like the ProcessorRunner /
+// Outbound arms. nil → no post-routing, the default.
+type PostRouter interface {
+	AfterRoute(ctx context.Context, p processor.Processor, msg streaming.Message, results []processor.Result)
+}
+
 // Runner executes the processors that read a topic and publishes their
 // results. Construct with New.
 type Runner struct {
-	procs     store.Processors
-	publisher Publisher
-	logger    *slog.Logger
+	procs      store.Processors
+	publisher  Publisher
+	logger     *slog.Logger
+	postRouter PostRouter
 }
 
 // New constructs a Runner. logger must be non-nil.
 func New(procs store.Processors, publisher Publisher, logger *slog.Logger) *Runner {
 	return &Runner{procs: procs, publisher: publisher, logger: logger}
 }
+
+// RegisterPostRouter wires the post-routing observer (thread-follow).
+// Late-bound for the same reason as the dispatcher's arms: the follower
+// depends on the publishing service built after the Runner.
+func (r *Runner) RegisterPostRouter(pr PostRouter) { r.postRouter = pr }
 
 // Run is the Dispatcher's late-bound fan-out hook. For each processor
 // reading e.TopicID it applies the processor to msg and publishes every
@@ -104,6 +123,13 @@ func (r *Runner) Run(ctx context.Context, e streaming.Event, msg streaming.Messa
 				r.logger.Warn("processing: publish result",
 					"processor", p.ID, "output_topic", res.TopicID, "err", err)
 			}
+		}
+		// Post-routing arm (thread-follow): only Automated processors carry
+		// stateful routing, so the cheap field check gates the hop into the
+		// Slack-aware follower. The follower extends delivery (to thread
+		// members) using state Process is forbidden to read.
+		if r.postRouter != nil && p.Automated() {
+			r.postRouter.AfterRoute(ctx, p, msg, results)
 		}
 	}
 }

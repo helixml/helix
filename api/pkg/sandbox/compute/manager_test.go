@@ -707,6 +707,31 @@ func TestD3DisabledWhenMaxZero(t *testing.T) {
 	}
 }
 
+func TestD3IgnoresNonRenderCapableCapacity(t *testing.T) {
+	// A neuron host at near-full sandbox capacity must NOT trigger D3
+	// scale-up: sandboxes can't run on it, so its slots are not real
+	// demand pressure. The host still satisfies Floor (floor counting is
+	// vendor-blind), so the Manager provisions nothing this cycle.
+	// Contrast with TestD3ScalesUpWhenHeadroomBelowMin (same shape, nvidia).
+	m, _, store := newD3Manager(t, 1, 3, 2)
+	_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+		ID:              "sbx_neuron",
+		Provider:        "stub",
+		ComputeState:    string(StateReady),
+		Status:          "online",
+		ActiveSandboxes: 9,
+		MaxSandboxes:    10,
+		GPUVendor:       "neuron", // inf2: cannot host sandboxes
+	})
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows, _ := store.ListSandboxInstances(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("neuron capacity must not drive D3 scale-up; expected 1 row, got %d", len(rows))
+	}
+}
+
 func TestD3ScalesUpWhenHeadroomBelowMin(t *testing.T) {
 	// Floor=1, Max=3, HeadroomMin=2: a single Ready host using 9/10
 	// slots leaves 1 free, which is below 2. Manager must provision

@@ -150,6 +150,62 @@ func TestReconcileMaxCeilingHonoursOwnedOfflineRows(t *testing.T) {
 	}
 }
 
+// TestReconcileFloorNotStarvedByOfflineOrphansAtMax is the regression
+// test for the yd.helix.ml wedge on 2026-06-29. Ready+offline orphan
+// rows count toward the Max ceiling (isAvailable, anti-churn) but NOT
+// toward the Floor (isAliveForFloor). When enough orphans accumulate to
+// fill Max while zero Ready+online hosts remain, the ceiling clamped
+// floorNeed to 0 and the fleet sat at 0 healthy hosts indefinitely -
+// Reconcile did nothing and logged nothing (computeNeeded=0).
+//
+// Observed in production: Floor=1, Max=3, 8 Ready+offline orphans (days
+// old). Post-fix, the Floor guarantee overrides the ceiling so a
+// replacement is provisioned; the orphans still bound the demand path
+// and D4 reaps them.
+func TestReconcileFloorNotStarvedByOfflineOrphansAtMax(t *testing.T) {
+	store := newFakeStore()
+	stub := NewStubProvider("stub")
+	m, err := NewManager(stub, store, ManagerConfig{
+		Floor:                   1,
+		Max:                     3,
+		MaxConcurrentProvisions: 1,
+		ReconcileInterval:       10 * time.Millisecond,
+		HealthCheckTimeout:      100 * time.Millisecond,
+		IdleTimeout:             time.Hour, // keep D4 out of this cycle
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	// Three Ready+offline orphans == Max. Zero Ready+online hosts.
+	for _, id := range []string{"sbx-orphan-1", "sbx-orphan-2", "sbx-orphan-3"} {
+		_ = store.RegisterSandboxInstance(context.Background(), &types.SandboxInstance{
+			ID:           id,
+			Provider:     "stub",
+			ProviderID:   "wr-" + id,
+			ComputeState: string(StateReady),
+			Status:       "offline",
+		})
+	}
+
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	rows, _ := store.ListSandboxInstances(context.Background())
+	provisioning := 0
+	for _, r := range rows {
+		if r.Provider == "stub" && r.ComputeState == string(StateProvisioning) {
+			provisioning++
+		}
+	}
+	if provisioning != 1 {
+		t.Fatalf("Floor=1 with %d Ready+offline orphans filling Max=3 must still provision "+
+			"1 healthy replacement (Floor is a hard guarantee, Max>=Floor); got %d. all: %+v",
+			3, provisioning, rows)
+	}
+}
+
 // TestReconcileFloor2MixedRows locks in the count math when the input
 // is a mix of Ready+online and Ready+offline rows. Floor=2, one online
 // row, one offline row -> aliveForFloor=1, floorNeed=1, exactly one

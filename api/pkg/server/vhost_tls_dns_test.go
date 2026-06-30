@@ -11,12 +11,12 @@ import (
 
 func TestBuildACMEChallengeSolver(t *testing.T) {
 	cases := []struct {
-		name        string
-		provider    string
-		token       string
-		wantSolver  bool
-		wantDesc    string
-		wantErrSub  string // substring of error message; "" means no error
+		name       string
+		provider   string
+		token      string
+		wantSolver bool
+		wantDesc   string
+		wantErrSub string // substring of error message; "" means no error
 	}{
 		{
 			name:       "empty provider falls back to HTTP-01",
@@ -34,14 +34,14 @@ func TestBuildACMEChallengeSolver(t *testing.T) {
 			provider:   "cloudflare",
 			token:      "topsecret",
 			wantSolver: true,
-			wantDesc:   "dns-01 via cloudflare",
+			wantDesc:   "dns-01 via cloudflare (with CNAME delegation)",
 		},
 		{
 			name:       "cloudflare provider name is case-insensitive",
 			provider:   "Cloudflare",
 			token:      "topsecret",
 			wantSolver: true,
-			wantDesc:   "dns-01 via cloudflare",
+			wantDesc:   "dns-01 via cloudflare (with CNAME delegation)",
 		},
 		{
 			name:       "cloudflare without token errors",
@@ -95,6 +95,9 @@ func TestBuildACMEChallengeSolver(t *testing.T) {
 				}
 				if prov.APIToken != strings.TrimSpace(tc.token) {
 					t.Errorf("APIToken = %q want %q", prov.APIToken, strings.TrimSpace(tc.token))
+				}
+				if len(solver.DNSManager.Resolvers) == 0 {
+					t.Errorf("expected DNSManager.Resolvers to be set (for reliable _acme-challenge CNAME delegation)")
 				}
 			} else if solver != nil {
 				t.Errorf("expected nil solver, got %+v", solver)

@@ -414,8 +414,11 @@ func (m *Manager) demandPressureExists(rows []*types.SandboxInstance) bool {
 	for _, r := range rows {
 		// Capacity math uses only REACHABLE hosts. A Ready+offline
 		// row contributes no live sandbox slots, so counting it would
-		// hide real demand pressure.
-		if !isReadyAndOnline(r) {
+		// hide real demand pressure. Non-render-capable hosts (neuron)
+		// can't run sandboxes at all, so they never contribute sandbox
+		// capacity or absorb demand - exclude them so a neuron fleet
+		// never masks real desktop demand nor scales up to "meet" it.
+		if !isReadyAndOnline(r) || !r.CanHostSandbox() {
 			continue
 		}
 		readyAny = true
@@ -482,7 +485,7 @@ func (m *Manager) tryDeprovisionIdle(ctx context.Context, rows []*types.SandboxI
 		}
 		readyByID[r.ID] = r
 		readyCount++
-		if isReadyAndOnline(r) && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
+		if isReadyAndOnline(r) && r.CanHostSandbox() && r.MaxSandboxes > 0 && r.ActiveSandboxes >= r.MaxSandboxes {
 			fleetAtCap = true
 		}
 	}
@@ -751,7 +754,12 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		if isAliveForFloor(r) {
 			aliveForFloor++
 		}
-		if isReadyAndOnline(r) {
+		// Sandbox demand (D3) is satisfied only by render-capable hosts;
+		// a neuron host has no sandbox slots, so it must not count toward
+		// capacity/demand or it would suppress real scale-up. Floor
+		// counting above (isAliveForFloor) stays vendor-blind so a neuron
+		// floor runner is still kept alive.
+		if isReadyAndOnline(r) && r.CanHostSandbox() {
 			readyOnlineCount++
 			readyCapacity += int(r.MaxSandboxes)
 			readyDemand += int(r.ActiveSandboxes)
@@ -832,6 +840,25 @@ func (m *Manager) computeNeeded(rows []*types.SandboxInstance) int {
 		}
 		if totalNeed > room {
 			totalNeed = room
+		}
+
+		// Floor is a hard guarantee and NewManager enforces Max >= Floor,
+		// so the ceiling must never starve floor provisioning. `available`
+		// counts Ready+offline rows (deliberately - see isAvailable, it
+		// stops D4-shed churn), but those orphans are NOT healthy capacity
+		// (isAliveForFloor excludes them). When enough of them accumulate
+		// to fill Max while zero Ready+online hosts remain, room hits 0 and
+		// floorNeed>0 is clamped away - the fleet wedges at 0 healthy hosts
+		// indefinitely (D4 can only reap one orphan per cycle and its
+		// in-memory idle timer resets on every API restart, so long-lived
+		// orphans may never be shed). Re-floor here so the operator's
+		// healthy-capacity guarantee is honoured; the dead orphans still
+		// count against Max for the *demand* path above, and D4 reaps them.
+		// This can transiently exceed Max by up to floorNeed, self-correcting
+		// once D4 sheds the orphans (Max >= Floor keeps the steady state in
+		// bounds).
+		if totalNeed < floorNeed {
+			totalNeed = floorNeed
 		}
 	}
 

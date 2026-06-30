@@ -21,10 +21,10 @@ func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC
 // (Helix / Mirror / Owner) stay nil — these tests never fire.
 func newHireService(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
-		Store:      st,
-		Reconciler: reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock}),
-		Now:        hireClock,
-		NewID:      func() string { return "id" },
+		Store:             st,
+		WorkerReconcilers: []lifecycle.WorkerReconciler{reconcile.New(reconcile.Deps{Workers: st.Workers, ReportingLines: st.ReportingLines, Topics: st.Topics, Subscriptions: st.Subscriptions, Now: hireClock})},
+		Now:               hireClock,
+		NewID:             func() string { return "id" },
 	}
 }
 

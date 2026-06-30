@@ -14,7 +14,9 @@ import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
 import Drawer from '@mui/material/Drawer'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import IconButton from '@mui/material/IconButton'
+import Switch from '@mui/material/Switch'
 import Link from '@mui/material/Link'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
@@ -148,6 +150,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
   const [maxBytes, setMaxBytes] = useState('500')
   const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
+  const [threadFollow, setThreadFollow] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
   // Most recent real message on the input topic (null = topic has none).
@@ -164,6 +167,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setMaxBytes(String((processor.config?.max_bytes as number) ?? 500))
       const rows = (processor.outputs ?? []).map((o) => ({ label: o.label ?? '', match: o.match ?? '' }))
       setFilterRows(rows.length > 0 ? rows : DEFAULT_FILTER_ROWS)
+      setThreadFollow(Boolean(processor.config?.thread_follow))
     } else {
       setName('')
       setKind('template')
@@ -171,6 +175,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setTemplate(DEFAULT_TEMPLATE)
       setMaxBytes('500')
       setFilterRows(DEFAULT_FILTER_ROWS)
+      setThreadFollow(false)
     }
   }, [open, processor, presetInputTopicId])
 
@@ -178,9 +183,15 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
 
   const config = useMemo<Record<string, unknown>>(() => {
     if (kind === 'truncate') return { max_bytes: parseInt(maxBytes, 10) || 0 }
-    if (kind === 'filter') return {}
+    if (kind === 'filter') return { thread_follow: threadFollow }
     return { template }
-  }, [kind, template, maxBytes])
+  }, [kind, template, maxBytes, threadFollow])
+
+  // Thread-follow is only meaningful for the Slack auto-router (an
+  // automated filter): it routes later messages in a thread to everyone
+  // already participating, not just whoever is named. Hidden for ordinary
+  // hand-built filters, where it has no effect.
+  const showThreadFollow = kind === 'filter' && Boolean(processor?.automated)
 
   // Filter outputs carry the per-branch predicates; transforms have a
   // single auto-provisioned output (undefined → server defaults to one).
@@ -261,6 +272,18 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               onChange={(e) => setMaxBytes(e.target.value.replace(/[^0-9]/g, ''))}
               helperText="Cap the body to this many bytes (rune-safe)."
             />
+          )}
+          {showThreadFollow && (
+            <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.015)' }}>
+              <FormControlLabel
+                control={<Switch size="small" checked={threadFollow} onChange={(e) => setThreadFollow(e.target.checked)} />}
+                label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Follow threads</Typography>}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                When on, once a Worker is pulled into a Slack thread (by being named), every later message
+                in that thread also reaches them — even when their name isn't repeated. On by default.
+              </Typography>
+            </Box>
           )}
           {kind === 'filter' && (
             <Stack spacing={1}>

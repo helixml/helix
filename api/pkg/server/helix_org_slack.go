@@ -16,6 +16,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -49,7 +52,10 @@ func (r *slackWorkspaceTopics) ensure(ctx context.Context, orgID, connID, worksp
 	}
 	name := slacktransport.TopicName(appName, workspaceName)
 	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: connID})
-	topic, err := streaming.NewTopic(id, name, "Messages from the connected Slack workspace.", "", time.Now().UTC(),
+	// CreatedBy = SystemActor marks this as an automation-created stream
+	// (auto-connect, not a hand-made one) — the same marker the auto-router
+	// carries.
+	topic, err := streaming.NewTopic(id, name, "Messages from the connected Slack workspace.", processor.SystemActor, time.Now().UTC(),
 		transport.Transport{Kind: transport.KindSlack, Config: cfg}, orgID)
 	if err != nil {
 		r.logger.Error("slack.reconcile: build topic", "org", orgID, "conn", connID, "err", err)
@@ -66,6 +72,76 @@ func (r *slackWorkspaceTopics) remove(ctx context.Context, orgID, connID string)
 	}
 	if err := r.topics.Delete(ctx, orgID, slackWorkspaceTopicID(connID)); err != nil {
 		r.logger.Warn("slack.reconcile: delete topic", "org", orgID, "conn", connID, "err", err)
+	}
+}
+
+// slackAutoRouter creates the per-workspace auto-router Processor on connect
+// and keeps its per-Worker routes in sync. The router is a filter Processor
+// (Automated=true) on the workspace Topic: it routes Slack messages naming a
+// Worker to that Worker, with thread-follow as an opt-in. Creation is bound
+// to the workspace-connect event so a user-deleted router stays deleted —
+// the reconciler only ever maintains routes inside an existing router.
+type slackAutoRouter struct {
+	procs  *processors.Processors
+	routes *slackrouting.Reconciler
+	logger *slog.Logger
+}
+
+// slackAutoRouterID is the deterministic id of a workspace's auto-router.
+func slackAutoRouterID(connID string) processor.ProcessorID {
+	return processor.ProcessorID("p-slack-router-" + connID)
+}
+
+// createOnConnect creates the auto-router for a freshly-connected workspace
+// (create-once) and populates routes for the org's current Workers. Callers
+// invoke this ONLY from the workspace-create branch, never on re-install, so
+// it never resurrects a deleted router.
+func (r *slackAutoRouter) createOnConnect(ctx context.Context, orgID, connID, topicName string) {
+	if r == nil || r.procs == nil {
+		return
+	}
+	_, err := r.procs.Create(ctx, orgID, processors.CreateParams{
+		ID:           string(slackAutoRouterID(connID)),
+		Name:         "Auto-router · " + topicName,
+		InputTopicID: slackWorkspaceTopicID(connID),
+		Kind:         processor.KindFilter,
+		Config:       slackrouting.DefaultConfig(),
+		// A single unconditional "unmatched" branch: it exists so a user can
+		// wire a catch-all (e.g. subscribe a human), but it has no subscriber
+		// by default, so nothing triggers on un-named messages.
+		Outputs: []processors.OutputSpec{{Label: "unmatched"}},
+		// SystemActor CreatedBy IS the "automated" marker (processor.Automated)
+		// and propagates to the output Topics this router owns.
+		CreatedBy: processor.SystemActor,
+	})
+	if err != nil {
+		r.logger.Error("slack.autorouter: create", "org", orgID, "conn", connID, "err", err)
+		// Fall through: reconcile is still safe and may have a router to fill.
+	}
+	r.reconcile(ctx, orgID)
+}
+
+// removeForWorkspace tears down the workspace's auto-router (and its owned
+// output Topics) when the Slack integration/workspace is disconnected.
+// Keyed by the workspace Topic the router reads, so it also catches a
+// re-created router. Idempotent: no router → no-op.
+func (r *slackAutoRouter) removeForWorkspace(ctx context.Context, orgID, connID string) {
+	if r == nil || r.procs == nil {
+		return
+	}
+	if err := r.procs.DeleteAutomatedByInput(ctx, orgID, slackWorkspaceTopicID(connID)); err != nil {
+		r.logger.Warn("slack.autorouter: remove on disconnect", "org", orgID, "conn", connID, "err", err)
+	}
+}
+
+// reconcile converges the org's Slack auto-routers onto its current Workers.
+// No-op when no router exists (deleted or never created).
+func (r *slackAutoRouter) reconcile(ctx context.Context, orgID string) {
+	if r == nil || r.routes == nil {
+		return
+	}
+	if err := r.routes.Reconcile(ctx, orgID); err != nil {
+		r.logger.Warn("slack.autorouter: reconcile", "org", orgID, "err", err)
 	}
 }
 
@@ -588,6 +664,11 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 				return err
 			}
 			s.helixOrg.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
+			// Re-install of an existing workspace: do NOT (re)create the
+			// router — a user-deleted router must stay deleted. Just reconcile
+			// routes (no-op if the router was deleted; picks up new Workers if
+			// it still exists).
+			s.helixOrg.slackAutoRouter.reconcile(ctx, orgID)
 			return nil
 		}
 	}
@@ -608,6 +689,9 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 		return err
 	}
 	s.helixOrg.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
+	// First install of this workspace: create the auto-router (create-once)
+	// and populate routes for the org's current Workers.
+	s.helixOrg.slackAutoRouter.createOnConnect(ctx, orgID, conn.ID, slacktransport.TopicName(appName, conn.Name))
 	return nil
 }
 
@@ -709,6 +793,10 @@ func (s *HelixAPIServer) deleteSlackWorkspaceAndTopic(ctx context.Context, orgID
 	if err := s.Store.DeleteServiceConnection(ctx, connID); err != nil {
 		return err
 	}
+	// Tear down the auto-router (cascading its owned route Topics) before the
+	// workspace Topic it reads — the router's lifecycle is bound to the
+	// integration.
+	s.helixOrg.slackAutoRouter.removeForWorkspace(ctx, orgID, connID)
 	s.helixOrg.slackTopics.remove(ctx, orgID, connID)
 	return nil
 }

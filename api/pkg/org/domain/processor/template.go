@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"sync"
 	txttemplate "text/template"
 
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
@@ -44,6 +46,46 @@ var templateFuncs = txttemplate.FuncMap{
 	"contains":  func(sub, s string) bool { return strings.Contains(s, sub) },
 	"hasPrefix": func(pre, s string) bool { return strings.HasPrefix(s, pre) },
 	"hasSuffix": func(suf, s string) bool { return strings.HasSuffix(s, suf) },
+	// mentions reports whether name appears in s as a whole token,
+	// case-insensitively. It is what the Slack auto-router's per-Worker routes
+	// match on, so "Sam" fires on "hey Sam" but not on "salmon", and the FULL
+	// worker id "w-jokebot" fires on "w-jokebot" but NOT on "w-jokebot-2".
+	// Reads as a predicate: `mentions "w-jokebot" .Message.body`.
+	"mentions": mentionsWord,
+}
+
+// mentionsWord reports a case-insensitive, whole-token match of name in s. An
+// empty name never matches (a route with no name is inert rather than matching
+// everything). The pattern is cached per distinct name so repeated predicate
+// evaluation on a hot Topic doesn't recompile the regexp.
+func mentionsWord(name, s string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	return wordRegexp(name).MatchString(s)
+}
+
+var (
+	wordRegexpMu    sync.Mutex
+	wordRegexpCache = map[string]*regexp.Regexp{}
+)
+
+// wordRegexp matches name as a whole token. We can't use \b: a hyphen is a
+// non-word char, so \bw-jokebot\b would treat the dash in "w-jokebot-2" as a
+// boundary and over-match. Worker ids ARE hyphenated, so the token alphabet
+// includes `-`; the match must therefore be flanked by start/end of string or
+// a char that is neither a word char nor a hyphen ([^\w-]). RE2 has no
+// lookarounds, so the flanks are matched (and consumed) explicitly — fine for
+// a boolean MatchString, which only needs one occurrence.
+func wordRegexp(name string) *regexp.Regexp {
+	wordRegexpMu.Lock()
+	defer wordRegexpMu.Unlock()
+	if re, ok := wordRegexpCache[name]; ok {
+		return re
+	}
+	re := regexp.MustCompile(`(?i)(^|[^\w-])` + regexp.QuoteMeta(name) + `([^\w-]|$)`)
+	wordRegexpCache[name] = re
+	return re
 }
 
 // Validate enforces: exactly one output, with an empty Match (a

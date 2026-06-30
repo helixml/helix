@@ -70,6 +70,19 @@ func newTopicsRepo(db *gorm.DB) *topicsRepo {
 	return &topicsRepo{Repository: NewRepository[streaming.Topic, topicRow](db, topicMapper{}, "topic")}
 }
 
+// Create maps a unique-constraint violation (the idx_topic_org_name index)
+// to store.ErrConflict so adapters return 409 instead of a leaked driver
+// error — mirroring processorsRepo.Create.
+func (r *topicsRepo) Create(ctx context.Context, t streaming.Topic) error {
+	if err := r.Repository.Create(ctx, t); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("a topic named %q in this org %w", t.Name, store.ErrConflict)
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *topicsRepo) Get(ctx context.Context, orgID string, id streaming.TopicID) (streaming.Topic, error) {
 	return r.FindOne(ctx, store.WithOrg(orgID), store.WithID(string(id)))
 }

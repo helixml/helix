@@ -24,7 +24,7 @@ type Topic struct {
 	OrganizationID string
 	Name           string
 	Description    string
-	CreatedBy      string // orgchart.WorkerID
+	CreatedBy      string // orgchart.WorkerID (or processor.SystemActor for automation)
 	CreatedAt      time.Time
 	Transport      transport.Transport
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
+	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
@@ -32,6 +33,11 @@ type helixOrgScope struct {
 	// inline-chat-only workers are mirrored without an activation first.
 	mirror *runtimehelix.Mirror
 
+	// slackRoutes converges Slack auto-router routes on first request,
+	// catching Workers hired while the server was down. nil when Slack
+	// routing isn't wired.
+	slackRoutes *slackrouting.Reconciler
+
 	mu           sync.Mutex
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
@@ -44,12 +50,13 @@ type helixOrgScope struct {
 
 // newHelixOrgScope wires the data the middleware needs. configs and
 // orgStore are the same instances handed to the helix-org handler.
-func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror) *helixOrgScope {
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror, slackRoutes *slackrouting.Reconciler) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,
 		helixStore:   hs,
 		mirror:       mirror,
+		slackRoutes:  slackRoutes,
 		bootstrapped: map[string]bool{},
 	}
 }
@@ -109,6 +116,16 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		})
 		if err := rec.ReconcileAll(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org topology reconcile-all failed")
+		}
+
+		// Converge Slack auto-router routes for this org too: catches Workers
+		// hired while the server was down (or before this feature shipped).
+		// No-op for orgs without an Automated router. Reuses the
+		// composition-root reconciler so it has the real id-generator.
+		if s.slackRoutes != nil {
+			if err := s.slackRoutes.Reconcile(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org slack route reconcile failed")
+			}
 		}
 
 		// Backfill the universal read baseline on every Role in this

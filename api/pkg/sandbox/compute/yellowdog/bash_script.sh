@@ -16,13 +16,16 @@
 #
 # Hardware-specific bits are parameterised via task Environment so a
 # pool with non-NVIDIA GPUs (or no GPU at all) can override them at
-# task-submit time without forking this script. The defaults match the
-# NVIDIA POC pool so existing deployments keep working unchanged.
+# task-submit time without forking this script. When unset, the vendor is
+# auto-detected from the host (so one install can run mixed nvidia/neuron
+# pools); an nvidia host still resolves to nvidia, so existing deployments
+# are unchanged.
 #
 # Overridable via task Environment (defaults in parens):
-#   GPU_VENDOR     - container env var passed to helix-sandbox (nvidia)
-#   GPU_FLAGS      - docker run hardware flags (--gpus all)
-#   DEVICE_FLAGS   - docker run --device flags (NVIDIA DRI nodes)
+#   GPU_VENDOR     - accelerator family (auto-detected from the host when
+#                    unset; see below). An explicit value always wins.
+#   GPU_FLAGS      - docker run hardware flags (--gpus all on nvidia)
+#   DEVICE_FLAGS   - docker run --device flags (NVIDIA DRI nodes on nvidia)
 #   MAX_SANDBOXES  - per-runner sandbox cap (2)
 #
 # When Helix grows multi-profile support these become first-class
@@ -38,7 +41,22 @@ WORKER_TAG="${YD_WORKER_SLOT:-default}"
 CONTAINER_NAME="yd-helix-runner-${WORKER_TAG}"
 SANDBOX_ID="${SANDBOX_INSTANCE_ID:-yd-inline-$(date -u +%Y%m%d-%H%M%S)-w${WORKER_TAG}}"
 
-GPU_VENDOR="${GPU_VENDOR:-nvidia}"
+# GPU_VENDOR selects the hardware path below. An explicit value (set by the
+# control plane via the task Environment, or by an operator) always wins;
+# otherwise AUTO-DETECT from the host so a single Helix install can provision
+# both nvidia and neuron pools without one global HELIX_COMPUTE_GPU_VENDOR -
+# each runner self-identifies. Probe: any /dev/neuron* node => neuron (AWS
+# Inferentia/Trainium), else nvidia (the prior default, so nvidia hosts are
+# unchanged).
+if [ -z "${GPU_VENDOR:-}" ]; then
+  GPU_VENDOR=nvidia
+  for nd in /dev/neuron*; do
+    if [ -e "$nd" ]; then
+      GPU_VENDOR=neuron
+      break
+    fi
+  done
+fi
 MAX_SANDBOXES="${MAX_SANDBOXES:-2}"
 # GPU_FLAGS / DEVICE_FLAGS are unquoted on use - operator-provided
 # strings are tokenised by the shell to become individual docker run args.

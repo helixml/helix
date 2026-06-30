@@ -62,6 +62,14 @@ type Output struct {
 	// down on delete. False when the branch points at a pre-existing,
 	// shared Topic (explicit output) that outlives the Processor.
 	Owned bool
+	// ManagedFor names the orgchart.WorkerID this route was
+	// auto-generated for by a reconciler (e.g. the Slack auto-router).
+	// Empty means a human-authored ("manual") route: reconcilers must
+	// never rewrite or garbage-collect it. Non-empty makes the route
+	// reconciler-owned, keyed by that Worker — present-while-the-Worker-
+	// exists, removed when the Worker is gone. Stored in the Outputs JSON
+	// blob, so it needs no schema migration.
+	ManagedFor string `json:",omitempty"`
 }
 
 // Result is one (output Topic, Message) pair produced by Process. A
@@ -126,9 +134,24 @@ type Processor struct {
 	Outputs        []Output
 	Kind           Kind
 	Config         json.RawMessage
-	CreatedBy      string // orgchart.WorkerID
+	CreatedBy      string // orgchart.WorkerID, or SystemActor for automation
 	CreatedAt      time.Time
 }
+
+// SystemActor is the CreatedBy value automation stamps on the records it
+// owns (the Slack auto-router and its output Topics) in place of a human
+// Worker id. It is a sentinel orgchart.WorkerID — not a real Worker — so the
+// chart leaves it unanchored. Reusing CreatedBy (rather than a separate
+// boolean column) means a provisioned output Topic inherits the marker for
+// free, since the processors service already copies the processor's
+// CreatedBy onto the Topics it owns.
+const SystemActor = "helix"
+
+// Automated reports whether this Processor was created by Helix automation
+// (the Slack auto-router) rather than by a human — i.e. CreatedBy is the
+// SystemActor sentinel. The route reconciler and the post-routing hook key
+// on it; the API surfaces it so the UI can show the thread-follow toggle.
+func (p Processor) Automated() bool { return p.CreatedBy == SystemActor }
 
 // NewProcessor validates and constructs a Processor. orgID, id, name,
 // inputTopicID and at least one Output are required; the Config is

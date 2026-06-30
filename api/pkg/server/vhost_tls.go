@@ -84,33 +84,52 @@ func (apiServer *HelixAPIServer) startCertMagicListener(ctx context.Context, vho
 		Email:  email,
 		Agreed: true,
 	}
+
 	if dnsSolver != nil {
-		// Setting DNS01Solver on the issuer disables HTTP-01 and
-		// TLS-ALPN-01 for it (per certmagic docs) — DNS-01 is used
-		// exclusively. That's the right behaviour behind Cloudflare,
-		// where the network challenges can't reach the origin.
-		issuerTmpl.DNS01Solver = dnsSolver
-	}
-	magicACME := certmagic.NewACMEIssuer(cfg, issuerTmpl)
-	cfg.Issuers = []certmagic.Issuer{magicACME}
+		// Per-name challenge selection via issuer fallback. certmagic tries
+		// issuers in order and falls through on failure:
+		//   1. DNS-01 (Cloudflare): issues for names in our zone
+		//      (app.helix.ml, *.apps.helix.ml) AND custom domains that
+		//      CNAME _acme-challenge into our zone (delegation). Works behind
+		//      Cloudflare orange-cloud, where network challenges can't reach us.
+		//   2. TLS-ALPN-01 fallback: for custom domains pointed DIRECTLY at us
+		//      (not in our DNS, no CNAME delegation). ALPN-01 runs over the
+		//      :443 listener (through the SNI passthrough), so it needs no :80.
+		//      HTTP is disabled here since we don't bind :80 in DNS-01 mode.
+		// So a custom domain works whether or not it uses Cloudflare, with no
+		// required DNS interface for the direct case.
+		dnsIssuer := issuerTmpl
+		dnsIssuer.DNS01Solver = dnsSolver
 
-	log.Info().
-		Str("email", email).
-		Str("challenge", challengeDesc).
-		Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
+		alpnIssuer := issuerTmpl
+		alpnIssuer.DisableHTTPChallenge = true // no :80; TLS-ALPN-01 only
 
-	if dnsSolver == nil {
-		// HTTP-01 challenges + plaintext redirects on :80. Only useful
-		// when LE can reach the origin directly on :80 — i.e. when
-		// using the HTTP-01 challenge. Skipped in DNS-01 mode where
-		// :80 isn't part of the challenge flow.
+		cfg.Issuers = []certmagic.Issuer{
+			certmagic.NewACMEIssuer(cfg, dnsIssuer),
+			certmagic.NewACMEIssuer(cfg, alpnIssuer),
+		}
+
+		log.Info().
+			Str("email", email).
+			Str("challenge", challengeDesc+" + tls-alpn-01 fallback").
+			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
+		log.Info().Msg("vhost TLS: skipping :80 listener (DNS-01 primary, TLS-ALPN-01 fallback on :443)")
+	} else {
+		// No DNS provider: HTTP-01 + TLS-ALPN-01 for all names, with a :80
+		// challenge listener. Only works when LE can reach the origin directly.
+		magicACME := certmagic.NewACMEIssuer(cfg, issuerTmpl)
+		cfg.Issuers = []certmagic.Issuer{magicACME}
+
+		log.Info().
+			Str("email", email).
+			Str("challenge", challengeDesc).
+			Msg("vhost TLS auto mode enabled (certmagic + Let's Encrypt)")
+
 		go func() {
 			if err := http.ListenAndServe(":80", magicACME.HTTPChallengeHandler(httpToHTTPSRedirect())); err != nil {
 				log.Warn().Err(err).Msg("vhost TLS: :80 challenge listener exited")
 			}
 		}()
-	} else {
-		log.Info().Msg("vhost TLS: skipping :80 listener (DNS-01 mode does not use it)")
 	}
 
 	// HTTPS listener on :443 — same handler as the plain HTTP listener,

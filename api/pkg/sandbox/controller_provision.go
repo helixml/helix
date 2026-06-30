@@ -434,7 +434,10 @@ func (c *Controller) pickHostForSandbox(ctx context.Context, sandbox *types.Sand
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
 	for _, h := range hosts {
-		if h.Status == "online" {
+		// Headless sandboxes are still sandboxes - keep them off
+		// non-render-capable (e.g. neuron/inf2) hosts, which are
+		// inference-only.
+		if h.Status == "online" && h.CanHostSandbox() {
 			return h, nil
 		}
 	}

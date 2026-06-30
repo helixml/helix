@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -95,6 +96,10 @@ type helixOrgHandlers struct {
 	// a workspace is connected/disconnected. An org primitive owned by
 	// this subsystem, not the core server.
 	slackTopics *slackWorkspaceTopics
+	// slackAutoRouter creates the per-workspace auto-router on connect and
+	// keeps its per-Worker routes in sync (composition over the processors
+	// service + slackrouting reconciler). nil when org/Slack is disabled.
+	slackAutoRouter *slackAutoRouter
 	// slackSocket reconciles live Socket Mode connections against the
 	// configured socket-mode apps; Kicked by the admin service-connection
 	// handlers when a slack_app changes so it applies without a restart.
@@ -613,11 +618,10 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Store:  st,
 		Helix:  inProcClient,
 		Logger: logger,
-		// Single topology reconciler shared with the tools registry and
-		// the REST handlers — one owner of activation/team Topic
-		// lifecycle across hire, reparent, and fire.
-		Reconciler: deps.Reconciler,
-		Mirror:     mirror, // Fire stops the fired worker's subscription
+		// Worker-scoped reconcilers: the single topology reconciler (one owner
+		// of activation/team Topic lifecycle across hire, reparent, and fire).
+		WorkerReconcilers: []lifecycle.WorkerReconciler{deps.Reconciler},
+		Mirror:            mirror, // Fire stops the fired worker's subscription
 		// Hire collaborators (the create half of the lifecycle). REST POST
 		// /workers and the MCP hire_worker tool both drive Hire through
 		// this service, so the hire semantics live in one place.
@@ -675,7 +679,33 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// output through svc.Publishing, so it is wired after buildOrgServices
 	// (which builds Publishing) and registered late on the dispatcher,
 	// exactly like the outbound emitters above.
-	dispatcher.RegisterProcessorRunner(processing.New(st.Processors, svc.Publishing, logger))
+	processorRunner := processing.New(st.Processors, svc.Publishing, logger)
+	dispatcher.RegisterProcessorRunner(processorRunner)
+
+	// Slack auto-router: a second reconciler (composition over the processors
+	// service) maintains one route per AI Worker on each Automated Slack
+	// router. Wired into hire/fire via the lifecycle service, and invoked on
+	// workspace-connect via slackAutoRouter below.
+	slackRouteReconciler := slackrouting.New(slackrouting.Deps{
+		Workers:       st.Workers,
+		Subscriptions: st.Subscriptions,
+		Processors:    svc.Processors,
+		Now:           deps.Now,
+		Logger:        logger,
+	})
+	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
+	// Thread-follow: the post-routing arm that records thread participation
+	// in the domain-event log and (when enabled) fans later thread messages
+	// out to existing participants. Registered late on the runner, like the
+	// dispatcher's other arms.
+	processorRunner.RegisterPostRouter(slackrouting.NewThreadFollower(slackrouting.ThreadFollowerDeps{
+		Events:    st.DomainEvents,
+		Publisher: svc.Publishing,
+		NewID:     deps.NewID,
+		Now:       deps.Now,
+		Logger:    logger,
+	}))
+	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	// The activations service owns the manual-activate command (REST
 	// activateWorker delegates to it). Built here because it needs the
 	// project ensurer, the dispatcher's DispatchManual, and a session
@@ -767,7 +797,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Str("root", orgRoot).
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
-	scope := newHelixOrgScope(configReg, st, helixStore, mirror)
+	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler)
 
 	// Public github webhook handler — mounted on the insecure router
 	// because GitHub deliveries authenticate via HMAC, not the helix
@@ -850,6 +880,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		publicSlackEvents:            publicSlackEvents,
 		slackSocketRun:               slackSocketRun,
 		slackTopics:                  slackTopics,
+		slackAutoRouter:              slackAutoRouter,
 		slackSocket:                  slackSocket,
 	}, nil
 }

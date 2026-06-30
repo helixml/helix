@@ -76,7 +76,7 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 		// power Hire; Owner guards Fire. Helix/Mirror stay nil — the REST
 		// tests don't exercise the Helix-side teardown.
 		Lifecycle: &lifecycle.Service{
-			Store: st, Reconciler: topo,
+			Store: st, WorkerReconcilers: []lifecycle.WorkerReconciler{topo},
 			Now: clock, NewID: newID,
 		},
 		Subscriptions: subscriptions.New(subscriptions.Deps{Subscriptions: st.Subscriptions, Topics: st.Topics, Workers: st.Workers, Now: clock}),
