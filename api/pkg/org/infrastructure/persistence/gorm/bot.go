@@ -26,13 +26,14 @@ import (
 // separate many-to-many relation — see reportingLineRow — so a Bot
 // carries no parent column.
 type botRow struct {
-	ID        string   `gorm:"primaryKey;type:text"`
-	OrgID     string   `gorm:"primaryKey;type:text;index"`
-	Content   string   `gorm:"not null"`
-	Tools     []string `gorm:"serializer:json"`
-	Topics    []string `gorm:"serializer:json"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string   `gorm:"primaryKey;type:text"`
+	OrgID           string   `gorm:"primaryKey;type:text;index"`
+	Content         string   `gorm:"not null"`
+	Tools           []string `gorm:"serializer:json"`
+	Topics          []string `gorm:"serializer:json"`
+	PreserveContext bool     `gorm:"not null;default:false"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (botRow) TableName() string { return "org_bots" }
@@ -55,13 +56,14 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 		topics = nil
 	}
 	return botRow{
-		ID:        string(b.ID),
-		OrgID:     b.OrganizationID,
-		Content:   b.Content,
-		Tools:     tools,
-		Topics:    topics,
-		CreatedAt: b.CreatedAt,
-		UpdatedAt: b.UpdatedAt,
+		ID:              string(b.ID),
+		OrgID:           b.OrganizationID,
+		Content:         b.Content,
+		Tools:           tools,
+		Topics:          topics,
+		PreserveContext: b.PreserveContext,
+		CreatedAt:       b.CreatedAt,
+		UpdatedAt:       b.UpdatedAt,
 	}, nil
 }
 
@@ -81,13 +83,14 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 		}
 	}
 	return orgchart.Bot{
-		ID:             orgchart.BotID(row.ID),
-		OrganizationID: row.OrgID,
-		Content:        row.Content,
-		Tools:          tools,
-		Topics:         topics,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		ID:              orgchart.BotID(row.ID),
+		OrganizationID:  row.OrgID,
+		Content:         row.Content,
+		Tools:           tools,
+		Topics:          topics,
+		PreserveContext: row.PreserveContext,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}, nil
 }
 
@@ -132,10 +135,11 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 		store.WithOrg(row.OrgID),
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
-			"content":    row.Content,
-			"tools":      string(toolsJSON),
-			"topics":     string(topicsJSON),
-			"updated_at": row.UpdatedAt,
+			"content":          row.Content,
+			"tools":            string(toolsJSON),
+			"topics":           string(topicsJSON),
+			"preserve_context": row.PreserveContext,
+			"updated_at":       row.UpdatedAt,
 		}),
 	)
 }
