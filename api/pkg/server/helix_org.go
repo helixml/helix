@@ -430,6 +430,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.ProjectConfig = projectConfig
 
+	// SpecTasks backs the spec-task MCP tools — a Worker managing the
+	// spec tasks in its own Helix project. The helix store satisfies the
+	// read/write port directly; specTaskWorkflow wraps the canonical
+	// SpecDrivenTaskService (ApproveSpecs) + the server's PR-creation
+	// method so the approve / open-PR verbs reuse the exact REST code.
+	specTasks, err := runtimehelix.NewSpecTasks(st, helixStore, specTaskWorkflow{apiServer: cfg.APIServer})
+	if err != nil {
+		return nil, fmt.Errorf("init spec tasks: %w", err)
+	}
+	deps.SpecTasks = specTasks
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
