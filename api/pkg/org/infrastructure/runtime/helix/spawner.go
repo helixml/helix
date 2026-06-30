@@ -25,7 +25,7 @@ import (
 //
 // In the per-Worker-project model, the spawner does not hold a
 // ProjectID of its own — every AI Worker gets its own Helix project,
-// applied at hire time and persisted in the WorkerRuntimeState
+// applied at hire time and persisted in the BotRuntimeState
 // sidecar under the "helix" backend.
 // DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
 // doesn't set MaxInflight. The host also uses it to size the shared
@@ -332,23 +332,25 @@ func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotI
 	return act
 }
 
-// DefaultHelixSpecsMandate points the agent at its role + identity
-// files, which the project applier pushes to the per-Worker repo's
-// `helix-specs` branch. Surfaced through SpawnerConfig.SpecsMandate
-// — operators override via the `worker.specs_mandate` config key
-// when the file layout or pull recipe changes (no deploy required).
+// DefaultHelixSpecsMandate points the agent at its role file, which the
+// project applier pushes to the per-Bot repo's `helix-specs` branch.
+// Surfaced through SpawnerConfig.SpecsMandate — operators override via
+// the `worker.specs_mandate` config key when the file layout or pull
+// recipe changes (no deploy required).
+//
+// A Bot has no separate identity file: its Content IS its prompt and
+// lands in role.md. There is no identity.md.
 //
 // Helix's workspace-setup script creates a worktree for the branch
 // at ~/work/helix-specs/ on every boot — but only when the branch
 // exists on the remote at boot time, so if the worktree is missing
 // the agent must materialise it itself.
-const DefaultHelixSpecsMandate = `Your org-wide policy, role, and identity files live on the
-**helix-specs** branch of your per-Worker repo. helix-org pushes them
+const DefaultHelixSpecsMandate = `Your org-wide policy and role files live on the
+**helix-specs** branch of your per-Bot repo. helix-org pushes them
 on hire and re-pushes them on every activation, so the remote always
 has the current owner-edited version. Path inside the branch:
   .context/agent.md                                    (org-wide policy)
   workers/${HELIX_WORKER_ID}/.context/role.md
-  workers/${HELIX_WORKER_ID}/.context/identity.md
 
 ALWAYS pull before reading — your local worktree is stale from prior
 activations and won't reflect owner edits made since:
@@ -362,10 +364,9 @@ activations and won't reflect owner edits made since:
   fi
 
 Then read in this order — agent.md FIRST (it's the entrypoint that
-tells you how to be an agent at all), then role.md, then identity.md:
+tells you how to be an agent at all), then role.md:
   cat ~/work/helix-specs/.context/agent.md
   cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/role.md
-  cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/identity.md
 
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`

@@ -132,7 +132,7 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.BotID, _ stri
 //
 // Implementations key by orgID + workerID (the operator-facing
 // identifier on the org chart); the helix runtime impl resolves
-// worker→projectID via WorkerRuntimeState internally so MCP tool
+// worker→projectID via BotRuntimeState internally so MCP tool
 // callers never see project IDs. Other runtimes (claude, dev) plug
 // in NoopProjectConfig — the configure_worker_project tool reports
 // "not supported on this runtime" when invoked.

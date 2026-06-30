@@ -167,43 +167,29 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 		d.logger.Error("dispatch: list subscriptions", "topic", e.TopicID, "err", err)
 		return
 	}
-	// Resolve the publishing Worker's kind once so every fan-out target
-	// gets the same source_kind on its Trigger. Empty Source (system or
-	// transport inbound) leaves SourceKind empty — agent.md treats that
-	// as human-origin by default.
-	var sourceKind orgchart.WorkerKind
-	if e.Source != "" {
-		if sourceWorker, err := d.store.Workers.Get(ctx, orgID, e.Source); err == nil {
-			sourceKind = sourceWorker.Kind()
-		}
-	}
-	// Subscriptions are worker-anchored: each subscription names the
-	// AI worker to activate directly. A subscription pointing at a
-	// fired worker silently dispatches to nobody (the row is dropped
-	// on fire — see lifecycle.Fire).
+	// Subscriptions are bot-anchored: each subscription names the bot to
+	// activate directly. A subscription pointing at a fired bot silently
+	// dispatches to nobody (the row is dropped on fire — see
+	// lifecycle.Fire).
 	for _, sub := range subs {
-		workerID := orgchart.BotID(sub.WorkerID)
-		if string(workerID) == string(e.Source) {
+		botID := orgchart.BotID(sub.BotID)
+		if string(botID) == string(e.Source) {
 			continue // do not deliver the event back to its publisher
 		}
-		w, err := d.store.Workers.Get(ctx, orgID, workerID)
+		b, err := d.store.Bots.Get(ctx, orgID, botID)
 		if err != nil {
-			d.logger.Warn("dispatch: get worker", "worker", workerID, "err", err)
+			d.logger.Warn("dispatch: get bot", "bot", botID, "err", err)
 			continue
 		}
-		if w.Kind() != orgchart.WorkerKindAI {
-			continue // human Workers are not activated by the runtime
-		}
 		trigger := activation.Trigger{
-			Kind:       activation.TriggerEvent,
-			EventID:    e.ID,
+			Kind:      activation.TriggerEvent,
+			EventID:   e.ID,
 			TopicID:   e.TopicID,
-			Source:     e.Source,
-			SourceKind: sourceKind,
-			Message:    msg, // full canonical envelope; rendered by the spawner into the activation prompt
-			CreatedAt:  e.CreatedAt,
+			Source:    e.Source,
+			Message:   msg, // full canonical envelope; rendered by the spawner into the activation prompt
+			CreatedAt: e.CreatedAt,
 		}
-		d.queue.Enqueue(orgID, w.ID(), trigger)
+		d.queue.Enqueue(orgID, b.ID, trigger)
 	}
 	// Processor fan-out: hand the event + parsed message to the
 	// execution arm, which publishes each processor's output back

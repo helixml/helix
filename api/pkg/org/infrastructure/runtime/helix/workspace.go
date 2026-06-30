@@ -20,8 +20,8 @@ import (
 // *services.GitRepositoryService so workspace tests don't have to
 // build a full GitRepositoryService.
 //
-// All file writes for Worker provisioning (canonical role.md /
-// identity.md / agent.md plus any future per-Worker files) flow
+// All file writes for Bot provisioning (canonical role.md /
+// agent.md plus any future per-Bot files) flow
 // through the Workspace, which is the only place in the helix
 // runtime that knows the on-branch path layout. WorkerProject
 // delegates to Workspace for its first-apply file pushes rather
@@ -32,8 +32,8 @@ type WorkspaceGit interface {
 }
 
 // Workspace is the runtime.WorkspaceSync implementation that pushes
-// canonical role / identity content to the helix-specs branch of a
-// Worker's per-Worker repo. Each call resolves the target repo from
+// canonical role content (role.md) to the helix-specs branch of a
+// Bot's per-Bot repo. Each call resolves the target repo from
 // the Worker's runtime state (set by WorkerProject at first
 // activation) and PUTs one file onto the configured branch at
 // `workers/<workerID>/.context/<name>` — the same path layout
@@ -101,17 +101,17 @@ func (w *Workspace) MirrorFile(ctx context.Context, orgID string, workerID orgch
 	if err := w.WriteWorkerFile(ctx, workerID, state.RepoID, name, content, message); err != nil {
 		return err
 	}
-	// Invalidate the Worker's warm Helix chat session so the next
+	// Invalidate the bot's warm Helix chat session so the next
 	// activation opens a fresh one — which means a fresh Claude Code
-	// context that re-reads role.md / identity.md from scratch rather
-	// than reusing the prior turn's cached content. Warm-session reuse
-	// is what makes routine activations fast, but it's also why a live
-	// role edit otherwise has no effect: Claude keeps acting on the
-	// content it cat'd on the first activation. Only invalidate on
-	// canonical role/identity edits (the two filenames the activation
-	// mandate tells the agent to re-read) — checkpoint pushes or other
-	// in-worker writes keep the session warm.
-	if name == "role.md" || name == "identity.md" {
+	// context that re-reads role.md from scratch rather than reusing the
+	// prior turn's cached content. Warm-session reuse is what makes
+	// routine activations fast, but it's also why a live content edit
+	// otherwise has no effect: Claude keeps acting on the content it
+	// cat'd on the first activation. Only invalidate on canonical
+	// role.md edits (the filename the activation mandate tells the agent
+	// to re-read) — checkpoint pushes or other in-bot writes keep the
+	// session warm.
+	if name == "role.md" {
 		if err := SaveSession(ctx, w.store, orgID, workerID, ""); err != nil {
 			// Non-fatal: the next activation will still pull the new
 			// content; it just won't re-read it from a fresh context.

@@ -111,15 +111,15 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 	if m == nil || m.cfg.PubSub == nil || m.cfg.Store == nil {
 		return
 	}
-	workers, err := m.cfg.Store.Workers.List(ctx, orgID)
+	bots, err := m.cfg.Store.Bots.List(ctx, orgID)
 	if err != nil {
 		if m.cfg.Logger != nil {
-			m.cfg.Logger.Warn("helix mirror: list workers for sweep", "org", orgID, "err", err)
+			m.cfg.Logger.Warn("helix mirror: list bots for sweep", "org", orgID, "err", err)
 		}
 		return
 	}
-	for _, w := range workers {
-		m.Ensure(orgID, w.ID())
+	for _, b := range bots {
+		m.Ensure(orgID, b.ID)
 	}
 }
 

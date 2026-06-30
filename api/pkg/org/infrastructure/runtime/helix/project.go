@@ -95,9 +95,9 @@ type ProjectService interface {
 // needs a per-Worker project so the org-graph MCP server can be wired
 // in via the project's auto-provisioned Agent App.
 //
-// Idempotent: re-applying for a Worker that already has a project is
+// Idempotent: re-applying for a Bot that already has a project is
 // a no-op for the project itself, but always re-pushes the canonical
-// role/identity files so update_role / update_identity changes land.
+// role.md file so update_role changes land.
 //
 // WorkerProject routes the project / git / app calls through the
 // ProjectService interface and the file pushes through ProjectGit
@@ -107,10 +107,10 @@ type ProjectService interface {
 type WorkerProject struct {
 	Service ProjectService
 	// Workspace owns the on-branch file layout — WorkerProject
-	// delegates all file pushes (agent.md / role.md / identity.md
-	// at first apply) through it so there is exactly one place in
-	// the helix runtime that knows the `workers/<id>/.context/`
-	// / `.context/` path convention.
+	// delegates all file pushes (agent.md / role.md at first apply)
+	// through it so there is exactly one place in the helix runtime
+	// that knows the `workers/<id>/.context/` / `.context/` path
+	// convention.
 	Workspace   *Workspace
 	Store       *store.Store
 	HelixOrgURL string
@@ -149,21 +149,18 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if a.Store == nil {
 		return "", "", "", errors.New("worker project applier: Store is nil")
 	}
-	worker, err := a.Store.Workers.Get(ctx, orgID, workerID)
+	bot, err := a.Store.Bots.Get(ctx, orgID, workerID)
 	if err != nil {
-		return "", "", "", fmt.Errorf("get worker: %w", err)
+		return "", "", "", fmt.Errorf("get bot: %w", err)
 	}
 	state, err := LoadState(ctx, a.Store, orgID, workerID)
 	if err != nil {
 		return "", "", "", err
 	}
-	var roleContent, roleName string
-	if rid := worker.RoleID(); rid != "" {
-		if role, err := a.Store.Roles.Get(ctx, orgID, rid); err == nil {
-			roleContent = role.Content
-			roleName = string(role.ID)
-		}
-	}
+	// The Bot IS the role: its Content is the prompt that lands in
+	// role.md, and its ID names the agent app.
+	roleContent := bot.Content
+	roleName := string(bot.ID)
 	runtime := a.Runtime
 	if runtime == "" {
 		runtime = Runtime
@@ -177,7 +174,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		OrganizationID: orgID,
 		Name:           string(workerID),
 		Spec: types.ProjectSpec{
-			Description: worker.IdentityContent(),
+			Description: bot.Content,
 			Agent: &types.ProjectAgentSpec{
 				Name:        roleName,
 				Runtime:     runtime,
@@ -219,12 +216,12 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
 				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
 			}
-			// Re-publish canonical files so DB edits to role / identity /
-			// agent.md propagate to the helix-specs branch on every
-			// activation — that's the contract DefaultHelixSpecsMandate
-			// promises every Worker. Idempotent and cheap: CreateBranch
+			// Re-publish canonical files so DB edits to the bot's content
+			// (role.md) and agent.md propagate to the helix-specs branch on
+			// every activation — that's the contract DefaultHelixSpecsMandate
+			// promises every Bot. Idempotent and cheap: CreateBranch
 			// and CreateOrUpdateFileContents both no-op on unchanged input.
-			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent, worker.IdentityContent())
+			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
 			return state.ProjectID, state.AgentAppID, state.RepoID, nil
 		}
 	}
@@ -248,9 +245,8 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	//   - HELIX_REPOSITORIES is set from the project's attached repos
 	//     when hydra launches the desktop; an empty list means the
 	//     bringup script has nothing for Zed to open.
-	//   - update_role / update_identity write role.md / identity.md
-	//     into the repo on the helix-specs branch — without a repo
-	//     they have nowhere to go.
+	//   - update_role writes role.md into the repo on the helix-specs
+	//     branch — without a repo it has nowhere to go.
 	//
 	// Earlier versions of this code logged a warning on failure and
 	// returned a project with empty RepoID, which surfaced as a 5-min
@@ -268,7 +264,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			OwnerID:        ownerID,
 			OrganizationID: projOrgID,
 			InitialFiles: map[string]string{
-				"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix Worker `" + string(workerID) + "`. Files in `job/` carry the role + identity prompt.\n",
+				"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix bot `" + string(workerID) + "`. Files in `job/` carry the bot's role prompt.\n",
 			},
 		})
 		if err != nil {
@@ -282,7 +278,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
 		}
 	}
-	a.republishWorkerFiles(ctx, workerID, repoID, roleContent, worker.IdentityContent())
+	a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
 	// NB: helix-org MCP attachment is NOT done here. applyProject
 	// (helix project handler) wholesale-replaces agentApp.Config.Helix
 	// on update, so anything we attach now is clobbered on the next
@@ -304,28 +300,24 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
 }
 
-// republishWorkerFiles writes the agent.md / role.md / identity.md
-// files on the Worker's helix-specs branch through the Workspace, so
-// the on-branch path layout is owned in exactly one place
-// (workspace.go). Best-effort: errors are logged, not returned —
-// a single failed file shouldn't block the rest of the apply.
-func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent, identityContent string) {
+// republishWorkerFiles writes the bot's role.md file on the bot's
+// helix-specs branch through the Workspace, so the on-branch path
+// layout is owned in exactly one place (workspace.go). A bot has no
+// separate identity — its Content IS its prompt, written to role.md.
+// Best-effort: errors are logged, not returned — a single failed file
+// shouldn't block the rest of the apply.
+func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return
 	}
 	if err := a.Workspace.EnsureBranch(ctx, repoID, "main"); err != nil {
 		if a.Logger != nil {
-			a.Logger.Warn("republish worker files: create helix-specs branch", "worker", workerID, "err", err)
+			a.Logger.Warn("republish bot files: create helix-specs branch", "bot", workerID, "err", err)
 		}
 	}
 	if roleContent != "" {
 		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "role.md", roleContent, "republish role.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: role.md", "worker", workerID, "err", err)
-		}
-	}
-	if identityContent != "" {
-		if err := a.Workspace.WriteWorkerFile(ctx, workerID, repoID, "identity.md", identityContent, "republish identity.md"); err != nil && a.Logger != nil {
-			a.Logger.Warn("republish worker files: identity.md", "worker", workerID, "err", err)
+			a.Logger.Warn("republish bot files: role.md", "bot", workerID, "err", err)
 		}
 	}
 }

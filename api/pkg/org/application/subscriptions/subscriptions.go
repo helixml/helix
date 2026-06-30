@@ -9,7 +9,7 @@
 // over many. One implementation, three callers.
 //
 // Depends only on the narrow store repositories it touches
-// (Subscriptions/Topics/Workers) plus a clock (CLAUDE.md §5.0).
+// (Subscriptions/Topics/Bots) plus a clock (CLAUDE.md §5.0).
 package subscriptions
 
 import (
@@ -25,17 +25,17 @@ import (
 
 // Subscriptions owns the subscription use cases.
 type Subscriptions struct {
-	subs    store.Subscriptions
+	subs   store.Subscriptions
 	topics store.Topics
-	workers store.Workers
-	now     func() time.Time
+	bots   store.Bots
+	now    func() time.Time
 }
 
 // Deps are the constructor-injected collaborators for New.
 type Deps struct {
 	Subscriptions store.Subscriptions
-	Topics       store.Topics
-	Workers       store.Workers
+	Topics        store.Topics
+	Bots          store.Bots
 	Now           func() time.Time
 }
 
@@ -45,7 +45,7 @@ func New(deps Deps) *Subscriptions {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Subscriptions{subs: deps.Subscriptions, topics: deps.Topics, workers: deps.Workers, now: now}
+	return &Subscriptions{subs: deps.Subscriptions, topics: deps.Topics, bots: deps.Bots, now: now}
 }
 
 // Subscribe links the Worker to the Topic, validating both exist.
@@ -56,8 +56,8 @@ func (s *Subscriptions) Subscribe(ctx context.Context, orgID string, workerID or
 	if _, err := s.topics.Get(ctx, orgID, topicID); err != nil {
 		return streaming.Subscription{}, false, fmt.Errorf("topic %q: %w", topicID, err)
 	}
-	if _, err := s.workers.Get(ctx, orgID, workerID); err != nil {
-		return streaming.Subscription{}, false, fmt.Errorf("worker %q: %w", workerID, err)
+	if _, err := s.bots.Get(ctx, orgID, workerID); err != nil {
+		return streaming.Subscription{}, false, fmt.Errorf("bot %q: %w", workerID, err)
 	}
 	if existing, err := s.subs.Find(ctx, orgID, workerID, topicID); err == nil {
 		return existing, false, nil
@@ -95,8 +95,8 @@ func (s *Subscriptions) Invite(ctx context.Context, orgID string, topicID stream
 		if wid == "" {
 			return fmt.Errorf("workerIds contains an empty entry")
 		}
-		if _, err := s.workers.Get(ctx, orgID, wid); err != nil {
-			return fmt.Errorf("worker %q: %w", wid, err)
+		if _, err := s.bots.Get(ctx, orgID, wid); err != nil {
+			return fmt.Errorf("bot %q: %w", wid, err)
 		}
 	}
 	for _, wid := range workerIDs {
