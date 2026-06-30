@@ -33,10 +33,12 @@ Name: `PreserveContext` (Go field) / `preserve_context` (JSON + DB column).
 
 ## Layer-by-layer changes
 
-Implement against the **merged Bot** model produced by spectask 002185.
-Field names below assume `orgchart.Bot`, `BotDTO`, `org_bots`,
-`store.Bots`, etc. If a name differs after the refactor, follow the actual
-post-refactor symbol.
+The merged Bot model from spectask 002185 is already in `main`. The
+symbols below are **verified present** (2026-06-30): `orgchart.Bot` +
+`With*` builders (`domain/orgchart/bot.go`), `botRow`/`org_bots`
+(`infrastructure/persistence/gorm/bot.go`), `store.Bots` with
+`Get/List/Create/Update` (`domain/store/store.go`), and `BotDTO` /
+`CreateBotRequest` / `UpdateBotRequest` (`interfaces/server/api/dto.go`).
 
 ### 1. Domain — `api/pkg/org/domain/orgchart/bot.go`
 - Add `PreserveContext bool` to the `Bot` struct (zero value `false` =
@@ -68,8 +70,11 @@ post-refactor symbol.
 
 ### 4. Interfaces — REST DTO (required) + MCP (optional)
 - `interfaces/server/api/dto.go`: add `PreserveContext bool
-  \`json:"preserve_context"\`` to `BotDTO` and to the create/update request
-  bodies. Map it in the handler ↔ domain conversions.
+  \`json:"preserve_context"\`` to `BotDTO` and `CreateBotRequest`. On
+  `UpdateBotRequest` use a **pointer** — `PreserveContext *bool
+  \`json:"preserve_context,omitempty"\`` — to match the existing patch
+  style (`Content *string`, "nil = leave unchanged"). Map it in the
+  handler ↔ domain conversions (nil → don't call `WithPreserveContext`).
 - MCP (`interfaces/mcptools`): optional. If exposed, add an optional
   `preserve_context` arg to `update_bot` (and/or `create_bot`) in
   `schema.go` + the handler. Per the requirements this is optional; the
@@ -82,7 +87,8 @@ In `spawner.go::ensureSession`, after `LoadState`, load the bot and gate
 the clear:
 
 ```go
-bot, err := c.Store.Bots.Get(ctx, orgID, orgchart.BotID(workerID)) // post-refactor accessor
+// workerID is already typed orgchart.BotID in the merged code.
+bot, err := c.Store.Bots.Get(ctx, orgID, workerID)
 if err != nil {
     return "", fmt.Errorf("load bot %s: %w", workerID, err)
 }
@@ -93,8 +99,10 @@ if state.SessionID != "" && !bot.PreserveContext {
 ```
 
 Notes:
-- `SpawnerConfig` already holds `Store *store.Store` and the bot id, so no
-  new constructor wiring or interface is required — just one read.
+- `SpawnerConfig` already holds `Store *store.Store` and `workerID` is
+  `orgchart.BotID`, so no new constructor wiring or interface is required —
+  just one `c.Store.Bots.Get` read. The `ensureSession` signature in `main`
+  is `func (c SpawnerConfig) ensureSession(ctx, orgID, workerID orgchart.BotID, prompt string, _ func(string))`.
 - When `PreserveContext` is true we deliberately skip the clear. The
   follow-up `EnsureAndSend` then `SendMessage`s onto the existing session
   and (for Zed/ACP) the **same Zed thread**, which is exactly what removes

@@ -3,10 +3,12 @@
 ## Background
 
 This is an **experiment** for Slack support in the helix-org subsystem
-(`api/pkg/org/`). It **depends on the bot refactor** (spectask
+(`api/pkg/org/`). It builds on the bot refactor (spectask
 `002185_i-need-to-merge-the` — "Merge Role and Worker into a single Bot
-concept") having landed first. Write/implement in terms of the merged
-**Bot** aggregate, not the old Role/Worker split.
+concept"), which **has landed in `main`** (verified 2026-06-30:
+`orgchart.Bot`, `org_bots`, `store.Bots`, `BotDTO` all present). Implement
+in terms of the merged **Bot** aggregate — there is no Role/Worker split
+left.
 
 ### Current behaviour (the thing we want to make optional)
 
