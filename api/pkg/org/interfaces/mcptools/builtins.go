@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/roles"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
+	"github.com/helixml/helix/api/pkg/org/application/spectasks"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/workers"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
@@ -73,6 +74,10 @@ type Deps struct {
 	// ProjectConfig backs get_worker_project + configure_worker_project
 	// (owner-only read/patch of a Worker's helix project config).
 	ProjectConfig runtime.ProjectConfig
+	// SpecTasks is the front-of-house application service backing the
+	// spec-task tools (create/list/get/start/review/approve/request-changes/
+	// create-PRs) scoped to the calling Worker's own project.
+	SpecTasks *spectasks.Service
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, worker_log) block
@@ -99,6 +104,10 @@ type Config struct {
 	Workspace           runtime.WorkspaceSync
 	HireHook            runtime.HireHook
 	ProjectConfig       runtime.ProjectConfig
+	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
+	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
+	// clear "not wired" error instead of nil-derefing.
+	SpecTasks           runtime.SpecTasks
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
 }
@@ -116,9 +125,22 @@ func (c Config) Build() Deps {
 		Lifecycle:           c.lifecycleService(),
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
+		SpecTasks:           c.specTasksService(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
 	}
+}
+
+// specTasksService builds the spec-task application service over the
+// configured runtime port, defaulting to NoopSpecTasks when none is
+// wired so the tools surface ErrSpecTasksUnsupported rather than
+// nil-derefing on a typed-nil interface.
+func (c Config) specTasksService() *spectasks.Service {
+	port := c.SpecTasks
+	if port == nil {
+		port = runtime.NoopSpecTasks{}
+	}
+	return spectasks.New(port)
 }
 
 // subscriptionsService builds the subscription application service.
@@ -218,6 +240,7 @@ func DefaultDeps(s *store.Store) Config {
 		Workspace:           runtime.NoopWorkspaceSync{},
 		HireHook:            runtime.NoopHireHook{},
 		ProjectConfig:       runtime.NoopProjectConfig{},
+		SpecTasks:           runtime.NoopSpecTasks{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
