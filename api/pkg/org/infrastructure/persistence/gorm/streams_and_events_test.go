@@ -58,7 +58,7 @@ func TestSubscriptionsUniquePositionTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find: %v", err)
 	}
-	if found.WorkerID != "p-1" || found.TopicID != "s-1" {
+	if found.BotID != "p-1" || found.TopicID != "s-1" {
 		t.Fatalf("subscription = %+v", found)
 	}
 
@@ -71,27 +71,23 @@ func TestSubscriptionsUniquePositionTopic(t *testing.T) {
 	}
 }
 
-func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
+func TestEventsListForBotViaSubscriptions(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := context.Background()
 	base := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
-	// Subscriptions are worker-anchored. Seed w-1 and subscribe
-	// w-1 → s-a; ListForWorker(w-1) joins events on subscribed
+	// Subscriptions are bot-anchored. Seed b-1 and subscribe
+	// b-1 → s-a; ListForBot(b-1) joins events on subscribed
 	// topics.
-	role, _ := orgchart.NewRole("r-test", "# Test", nil, nil, base, "org-test")
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("Create role: %v", err)
-	}
-	worker, err := orgchart.NewAIWorker("w-1", "r-test", "# w-1", "org-test")
+	bot, err := orgchart.NewBot("b-1", "# b-1", nil, nil, base, "org-test")
 	if err != nil {
-		t.Fatalf("new worker: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := s.Workers.Create(ctx, worker); err != nil {
-		t.Fatalf("create worker: %v", err)
+	if err := s.Bots.Create(ctx, bot); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
-	sub, _ := streaming.NewSubscription("w-1", "s-a", base, "org-test")
+	sub, _ := streaming.NewSubscription("b-1", "s-a", base, "org-test")
 	if err := s.Subscriptions.Create(ctx, sub); err != nil {
 		t.Fatalf("Create subscription: %v", err)
 	}
@@ -105,9 +101,9 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 		}
 	}
 
-	got, err := s.Events.ListForWorker(ctx, "org-test", "w-1", 0)
+	got, err := s.Events.ListForBot(ctx, "org-test", "b-1", 0)
 	if err != nil {
-		t.Fatalf("ListForWorker: %v", err)
+		t.Fatalf("ListForBot: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d events, want 2 (only s-a visible)", len(got))
@@ -116,9 +112,9 @@ func TestEventsListForWorkerViaSubscriptions(t *testing.T) {
 		t.Fatalf("order wrong: %v", []streaming.EventID{got[0].ID, got[1].ID})
 	}
 
-	limited, err := s.Events.ListForWorker(ctx, "org-test", "w-1", 1)
+	limited, err := s.Events.ListForBot(ctx, "org-test", "b-1", 1)
 	if err != nil {
-		t.Fatalf("ListForWorker limit: %v", err)
+		t.Fatalf("ListForBot limit: %v", err)
 	}
 	if len(limited) != 1 || limited[0].ID != "e-3" {
 		t.Fatalf("limit result = %v", limited)

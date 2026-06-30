@@ -30,32 +30,32 @@ import (
 
 // Reconciler converges the persisted Topics/Subscriptions onto the
 // channels the reporting graph requires. It depends only on the four
-// narrow repositories it actually touches — Workers, ReportingLines,
+// narrow repositories it actually touches — Bots, ReportingLines,
 // Topics, Subscriptions — never the whole *store.Store (CLAUDE.md
 // helix-org philosophy: small interfaces, ≤4 collaborators). That is what
 // keeps it table-testable and lets every structural mutation depend on it
 // without pulling in the heavyweight lifecycle service.
 type Reconciler struct {
-	workers store.Workers
-	lines   store.ReportingLines
+	bots   store.Bots
+	lines  store.ReportingLines
 	topics store.Topics
-	subs    store.Subscriptions
-	now     func() time.Time
+	subs   store.Subscriptions
+	now    func() time.Time
 }
 
 // Deps are the constructor-injected collaborators for New.
 // ReportingLines is optional: a store that doesn't wire it yields a graph
 // with no reporting edges (transcripts only).
 type Deps struct {
-	Workers        store.Workers
+	Bots           store.Bots
 	ReportingLines store.ReportingLines
-	Topics        store.Topics
+	Topics         store.Topics
 	Subscriptions  store.Subscriptions
 	// Now seams the clock for tests. Falls back to time.Now().UTC().
 	Now func() time.Time
 }
 
-// New builds a Reconciler from its narrow repositories. A nil Workers
+// New builds a Reconciler from its narrow repositories. A nil Bots
 // repo (the "not wired" case) yields a Reconciler whose methods no-op, so
 // runtimes/tests that don't wire topology degrade gracefully.
 func New(deps Deps) *Reconciler {
@@ -64,11 +64,11 @@ func New(deps Deps) *Reconciler {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Reconciler{
-		workers: deps.Workers,
-		lines:   deps.ReportingLines,
+		bots:   deps.Bots,
+		lines:  deps.ReportingLines,
 		topics: deps.Topics,
-		subs:    deps.Subscriptions,
-		now:     now,
+		subs:   deps.Subscriptions,
+		now:    now,
 	}
 }
 
@@ -92,17 +92,17 @@ func New(deps Deps) *Reconciler {
 //
 // A nil or unwired Reconciler is a no-op, so runtimes/tests that don't
 // wire topology degrade gracefully.
-func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...orgchart.WorkerID) error {
-	if r == nil || r.workers == nil {
+func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...orgchart.BotID) error {
+	if r == nil || r.bots == nil {
 		return nil
 	}
 	if len(affected) == 0 {
 		return nil
 	}
 
-	workers, err := r.workers.List(ctx, orgID)
+	bots, err := r.bots.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("reconcile: list workers: %w", err)
+		return fmt.Errorf("reconcile: list bots: %w", err)
 	}
 	var lines []orgchart.ReportingLine
 	if r.lines != nil {
@@ -112,18 +112,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 		}
 	}
 
-	required := channels.Required(workers, lines)
+	required := channels.Required(bots, lines)
 
 	// Bucket required members by topic so each converge is O(members).
-	requiredMembers := map[streaming.TopicID][]orgchart.WorkerID{}
+	requiredMembers := map[streaming.TopicID][]orgchart.BotID{}
 	for k := range required.Members {
-		requiredMembers[k.TopicID] = append(requiredMembers[k.TopicID], k.WorkerID)
+		requiredMembers[k.TopicID] = append(requiredMembers[k.TopicID], k.BotID)
 	}
 
 	// Index the (current) graph to find each affected Worker's one-hop
 	// neighbours — their team/transcripts can move too.
-	managersByReport := map[orgchart.WorkerID][]orgchart.WorkerID{}
-	reportsByManager := map[orgchart.WorkerID][]orgchart.WorkerID{}
+	managersByReport := map[orgchart.BotID][]orgchart.BotID{}
+	reportsByManager := map[orgchart.BotID][]orgchart.BotID{}
 	for _, l := range lines {
 		managersByReport[l.ReportID] = append(managersByReport[l.ReportID], l.ManagerID)
 		reportsByManager[l.ManagerID] = append(reportsByManager[l.ManagerID], l.ReportID)
@@ -194,19 +194,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, orgID string, affected ...or
 // loads every Worker ID and delegates to Reconcile so the scoping and
 // create/delete/subscribe logic stays in one place.
 func (r *Reconciler) ReconcileAll(ctx context.Context, orgID string) error {
-	if r == nil || r.workers == nil {
+	if r == nil || r.bots == nil {
 		return nil
 	}
-	workers, err := r.workers.List(ctx, orgID)
+	bots, err := r.bots.List(ctx, orgID)
 	if err != nil {
-		return fmt.Errorf("reconcile: ReconcileAll list workers: %w", err)
+		return fmt.Errorf("reconcile: ReconcileAll list bots: %w", err)
 	}
-	if len(workers) == 0 {
+	if len(bots) == 0 {
 		return nil
 	}
-	ids := make([]orgchart.WorkerID, len(workers))
-	for i, w := range workers {
-		ids[i] = w.ID()
+	ids := make([]orgchart.BotID, len(bots))
+	for i, b := range bots {
+		ids[i] = b.ID
 	}
 	return r.Reconcile(ctx, orgID, ids...)
 }
@@ -225,7 +225,7 @@ func (r *Reconciler) clock() time.Time {
 // old manager stayed subscribed. (The additive half is
 // ensureTopicWithMembers; convergeTopic adds the diff-and-remove pass
 // on top.)
-func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.WorkerID, now time.Time) error {
+func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channels.Channel, members []orgchart.BotID, now time.Time) error {
 	topic, err := topicForChannel(ch, now, orgID)
 	if err != nil {
 		return fmt.Errorf("reconcile: build topic %q: %w", ch.ID, err)
@@ -234,7 +234,7 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 		return fmt.Errorf("reconcile: ensure topic %q: %w", ch.ID, err)
 	}
 
-	requiredSet := make(map[orgchart.WorkerID]struct{}, len(members))
+	requiredSet := make(map[orgchart.BotID]struct{}, len(members))
 	for _, m := range members {
 		requiredSet[m] = struct{}{}
 	}
@@ -243,11 +243,11 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 		return fmt.Errorf("reconcile: list subscribers of %q: %w", ch.ID, err)
 	}
 	for _, sub := range actual {
-		if _, ok := requiredSet[orgchart.WorkerID(sub.WorkerID)]; ok {
+		if _, ok := requiredSet[orgchart.BotID(sub.BotID)]; ok {
 			continue
 		}
-		if err := r.subs.Delete(ctx, orgID, orgchart.WorkerID(sub.WorkerID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("reconcile: unsubscribe %q from %q: %w", sub.WorkerID, ch.ID, err)
+		if err := r.subs.Delete(ctx, orgID, orgchart.BotID(sub.BotID), ch.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("reconcile: unsubscribe %q from %q: %w", sub.BotID, ch.ID, err)
 		}
 	}
 	return nil
@@ -273,7 +273,7 @@ func (r *Reconciler) convergeTopic(ctx context.Context, orgID string, ch channel
 // genuine failure worth surfacing. This keeps Topics.Create /
 // Subscriptions.Create strict for every other caller (createTopic,
 // hire_worker) while making *this* get-or-create boundary idempotent.
-func (r *Reconciler) ensureTopicWithMembers(ctx context.Context, topic streaming.Topic, now time.Time, members ...orgchart.WorkerID) error {
+func (r *Reconciler) ensureTopicWithMembers(ctx context.Context, topic streaming.Topic, now time.Time, members ...orgchart.BotID) error {
 	if _, err := r.topics.Get(ctx, topic.OrganizationID, topic.ID); err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("lookup topic %q: %w", topic.ID, err)

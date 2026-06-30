@@ -22,29 +22,29 @@ import (
 type fakeProjectService struct {
 	mu sync.Mutex
 
-	applyCalls         int
-	lastApplyReq       types.ProjectApplyRequest
-	applyResponse      types.ProjectApplyResponse
-	applyErr           error
-	getProjectCalls    int
-	getProjectResp     types.Project
-	getProjectErr      error
+	applyCalls             int
+	lastApplyReq           types.ProjectApplyRequest
+	applyResponse          types.ProjectApplyResponse
+	applyErr               error
+	getProjectCalls        int
+	getProjectResp         types.Project
+	getProjectErr          error
 	updateProjectCalls     int
 	updateProjectPatchLast types.ProjectUpdateRequest
 	updateProjectErr       error
-	putSecretCalls     int
-	putSecretLast      map[string]string
-	createGitRepoCalls int
-	createGitRepoErr   error
-	attachRepoErr      error
-	attachRepoCalls    int
-	getAppCalls        int
-	appConfig          types.AppConfig
-	updateAppCalls     int
-	updateAppLastCfg   types.AppConfig
-	whoAmIResp         string
-	deleteProjectIDs   []string
-	deleteAppIDs       []string
+	putSecretCalls         int
+	putSecretLast          map[string]string
+	createGitRepoCalls     int
+	createGitRepoErr       error
+	attachRepoErr          error
+	attachRepoCalls        int
+	getAppCalls            int
+	appConfig              types.AppConfig
+	updateAppCalls         int
+	updateAppLastCfg       types.AppConfig
+	whoAmIResp             string
+	deleteProjectIDs       []string
+	deleteAppIDs           []string
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -186,25 +186,21 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.WorkerID) {
+func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	st := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	r, err := orgchart.NewRole("r-eng", roleContent, nil, nil, time.Now().UTC(), "org-test")
+	// The Bot IS the role: its Content is the prompt that lands in
+	// role.md. Keep the `w-eng` handle so the on-branch path assertions
+	// (workers/w-eng/.context/role.md) stay meaningful.
+	b, err := orgchart.NewBot("w-eng", roleContent, nil, nil, time.Now().UTC(), "org-test")
 	if err != nil {
-		t.Fatalf("role: %v", err)
+		t.Fatalf("new bot: %v", err)
 	}
-	if err := st.Roles.Create(ctx, r); err != nil {
-		t.Fatalf("create role: %v", err)
+	if err := st.Bots.Create(ctx, b); err != nil {
+		t.Fatalf("create bot: %v", err)
 	}
-	w, err := orgchart.NewAIWorker("w-eng", "r-eng", "# Identity content", "org-test")
-	if err != nil {
-		t.Fatalf("new worker: %v", err)
-	}
-	if err := st.Workers.Create(ctx, w); err != nil {
-		t.Fatalf("create worker: %v", err)
-	}
-	return st, w.ID()
+	return st, b.ID
 }
 
 func newApplier(svc ProjectService, ws *Workspace, st *store.Store) *WorkerProject {
@@ -268,10 +264,8 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	}
 	git.mu.Lock()
 	defer git.mu.Unlock()
-	for _, p := range []string{"workers/w-eng/.context/role.md", "workers/w-eng/.context/identity.md"} {
-		if _, ok := git.putFileByPath[p]; !ok {
-			t.Errorf("path %q not pushed", p)
-		}
+	if _, ok := git.putFileByPath["workers/w-eng/.context/role.md"]; !ok {
+		t.Errorf("path %q not pushed", "workers/w-eng/.context/role.md")
 	}
 	state, err := LoadState(context.Background(), st, "org-test", wid)
 	if err != nil {
@@ -427,9 +421,6 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role v1" {
 		t.Errorf("fast path MUST republish role.md from DB; got %q, want %q", got, "# Role v1")
 	}
-	if got := git.putFileByPath["workers/w-eng/.context/identity.md"]; got != "# Identity content" {
-		t.Errorf("fast path MUST republish identity.md from DB; got %q, want %q", got, "# Identity content")
-	}
 }
 
 // TestEnsureFastPathRefreshesAgentSpec pins the auto-apply behaviour:
@@ -527,14 +518,13 @@ func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
 	// that bypasses update_role/MirrorFile (direct DB edit,
 	// RoleReconciler reseed, restore-from-backup, …). The DB is the
 	// source of truth; the branch must reflect it on next activation.
-	existing, err := st.Roles.Get(ctx, "org-test", "r-eng")
+	existing, err := st.Bots.Get(ctx, "org-test", "w-eng")
 	if err != nil {
-		t.Fatalf("get role: %v", err)
+		t.Fatalf("get bot: %v", err)
 	}
-	existing.Content = "# Role v2"
-	existing.UpdatedAt = time.Now().UTC()
-	if err := st.Roles.Update(ctx, existing); err != nil {
-		t.Fatalf("update role: %v", err)
+	existing = existing.WithContent("# Role v2").WithUpdatedAt(time.Now().UTC())
+	if err := st.Bots.Update(ctx, existing); err != nil {
+		t.Fatalf("update bot: %v", err)
 	}
 
 	// Second activation: must republish v2.
@@ -640,8 +630,9 @@ func TestEnsureDoesNotTouchAgentAppMCPs(t *testing.T) {
 	}
 }
 
-// TestEnsureRolePropagatesFromFirstPosition.
-func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
+// TestEnsureRolePropagatesContent verifies the Bot's Content lands in
+// role.md on the helix-specs branch.
+func TestEnsureRolePropagatesContent(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: ChiefEngineer")
 	svc := newFakeProjectService()
@@ -655,31 +646,6 @@ func TestEnsureRolePropagatesFromFirstPosition(t *testing.T) {
 	defer git.mu.Unlock()
 	if got := git.putFileByPath["workers/w-eng/.context/role.md"]; got != "# Role: ChiefEngineer" {
 		t.Errorf("role.md content = %q", got)
-	}
-}
-
-// TestEnsureSkipsRolePushIfRoleMissing.
-func TestEnsureSkipsRolePushIfRoleMissing(t *testing.T) {
-	t.Parallel()
-	st := orggorm.GetOrgTestDB(t)
-	w, _ := orgchart.NewAIWorker("w-orphan", "r-missing", "# I am alone", "org-test")
-	if err := st.Workers.Create(context.Background(), w); err != nil {
-		t.Fatalf("create worker: %v", err)
-	}
-	svc := newFakeProjectService()
-	git := newFakeGitForProject()
-	a := newApplierGit(svc, git, st)
-
-	if _, _, _, err := a.Ensure(context.Background(), "org-test", w.ID()); err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-	git.mu.Lock()
-	defer git.mu.Unlock()
-	if _, ok := git.putFileByPath["workers/w-orphan/.context/role.md"]; ok {
-		t.Errorf("role.md must not be pushed without a position")
-	}
-	if _, ok := git.putFileByPath["workers/w-orphan/.context/identity.md"]; !ok {
-		t.Errorf("identity.md should still be pushed")
 	}
 }
 

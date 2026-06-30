@@ -127,19 +127,15 @@ func (f *fakeHelixClient) ServerStatus(_ context.Context) (ServerStatus, error) 
 	return ServerStatus{MaxConcurrentDesktops: 0, ActiveConcurrentDesktops: 0}, nil
 }
 
-func newHelixTestStore(t *testing.T) (*store.Store, orgchart.WorkerID) {
+func newHelixTestStore(t *testing.T) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	role, _ := orgchart.NewRole("r-eng", "# Role: Engineer", nil, nil, time.Now().UTC(), "org-test")
-	if err := s.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("role: %v", err)
+	bot, _ := orgchart.NewBot("w-eng", "# Role: Engineer", nil, nil, time.Now().UTC(), "org-test")
+	if err := s.Bots.Create(ctx, bot); err != nil {
+		t.Fatalf("bot: %v", err)
 	}
-	worker, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
-	if err := s.Workers.Create(ctx, worker); err != nil {
-		t.Fatalf("worker: %v", err)
-	}
-	return s, worker.ID()
+	return s, bot.ID
 }
 
 func newHelixCfg(t *testing.T, fc SpawnerClient, s *store.Store) SpawnerConfig {

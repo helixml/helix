@@ -1,5 +1,5 @@
 import { FC } from 'react'
-import { Network, Radio, ScrollText, Settings, Users } from 'lucide-react'
+import { Bot, Network, Radio, Settings } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -7,9 +7,7 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 // HelixOrgSidebar is the secondary navigation column for the
 // helix-org alpha. Sits between the primary org-menu rail and the
-// page body. Today: chart + roles + workers. Future Settings /
-// Topics / Audit pages slot in here without touching the page
-// components.
+// page body. Today: chart + bots + topics + settings.
 const HelixOrgSidebar: FC = () => {
   const router = useRouter()
   const account = useAccount()
@@ -23,10 +21,8 @@ const HelixOrgSidebar: FC = () => {
     account.setMobileMenuOpen(false)
   }
 
-  const isRolesRoute =
-    currentRouteName === 'helix_org_roles' || currentRouteName === 'helix_org_role_detail'
-  const isWorkersRoute =
-    currentRouteName === 'helix_org_workers' || currentRouteName === 'helix_org_worker_detail'
+  const isBotsRoute =
+    currentRouteName === 'helix_org_bots' || currentRouteName === 'helix_org_bot_detail'
 
   const sections: ContextSidebarSection[] = [
     {
@@ -39,18 +35,11 @@ const HelixOrgSidebar: FC = () => {
           onClick: () => navigateTo('helix_org_chart'),
         },
         {
-          id: 'roles',
-          label: 'Roles',
-          icon: <ScrollText size={18} />,
-          isActive: isRolesRoute,
-          onClick: () => navigateTo('helix_org_roles'),
-        },
-        {
-          id: 'workers',
-          label: 'Workers',
-          icon: <Users size={18} />,
-          isActive: isWorkersRoute,
-          onClick: () => navigateTo('helix_org_workers'),
+          id: 'bots',
+          label: 'Bots',
+          icon: <Bot size={18} />,
+          isActive: isBotsRoute,
+          onClick: () => navigateTo('helix_org_bots'),
         },
         {
           id: 'topics',

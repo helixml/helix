@@ -204,7 +204,7 @@ type inboundPayload struct {
 	Headers           []inboundHeader        `json:"Headers"`
 	Attachments       []inboundAttachment    `json:"Attachments"`
 	Date              string                 `json:"Date"`
-	MessageTopic     string                 `json:"MessageTopic"`
+	MessageTopic      string                 `json:"MessageTopic"`
 	Extra             map[string]interface{} `json:"-"`
 }
 

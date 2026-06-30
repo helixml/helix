@@ -31,13 +31,12 @@ func TestActivationCreateGetRoundTrip(t *testing.T) {
 	triggers := []activation.Trigger{
 		{Kind: activation.TriggerHire},
 		{
-			Kind:       activation.TriggerEvent,
-			EventID:    "e-1",
+			Kind:      activation.TriggerEvent,
+			EventID:   "e-1",
 			TopicID:   "s-test",
-			Source:     "w-bob",
-			SourceKind: "ai",
-			Message:    streaming.Message{From: "w-bob", Body: "hi"},
-			CreatedAt:  started.Add(-time.Minute),
+			Source:    "w-bob",
+			Message:   streaming.Message{From: "w-bob", Body: "hi"},
+			CreatedAt: started.Add(-time.Minute),
 		},
 	}
 	a, err := activation.New("a-1", "w-alice", triggers, started, "org-test")
@@ -153,7 +152,7 @@ func TestActivationListForWorkerReturnsNewestFirst(t *testing.T) {
 		}
 		// Re-set WorkerID directly because the constructor enforces non-empty;
 		// keeping the parameterised id avoids per-test boilerplate.
-		a.WorkerID = orgchart.WorkerID(w)
+		a.WorkerID = orgchart.BotID(w)
 		a.TranscriptID = activation.TranscriptID(a.WorkerID)
 		if err := s.Activations.Create(ctx, a); err != nil {
 			t.Fatalf("create: %v", err)

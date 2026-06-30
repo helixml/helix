@@ -46,7 +46,7 @@ type ID string
 type Activation struct {
 	ID             ID
 	OrganizationID string
-	WorkerID       orgchart.WorkerID
+	WorkerID       orgchart.BotID
 	Triggers       []Trigger
 	StartedAt      time.Time
 	EndedAt        *time.Time
@@ -60,7 +60,7 @@ type Activation struct {
 //
 // Triggers is copied defensively so subsequent mutation of the
 // caller's slice cannot mutate the aggregate.
-func New(id ID, workerID orgchart.WorkerID, triggers []Trigger, startedAt time.Time, orgID string) (*Activation, error) {
+func New(id ID, workerID orgchart.BotID, triggers []Trigger, startedAt time.Time, orgID string) (*Activation, error) {
 	if id == "" {
 		return nil, errors.New("activation: ID is empty")
 	}
@@ -132,5 +132,5 @@ type Repository interface {
 	Create(ctx context.Context, a *Activation) error
 	Complete(ctx context.Context, orgID string, id ID, outcome Outcome, endedAt time.Time) error
 	Get(ctx context.Context, orgID string, id ID) (*Activation, error)
-	ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int) ([]*Activation, error)
+	ListForWorker(ctx context.Context, orgID string, workerID orgchart.BotID, limit int) ([]*Activation, error)
 }

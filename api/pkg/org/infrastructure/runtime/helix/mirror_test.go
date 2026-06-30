@@ -39,7 +39,7 @@ func newTestMirror(t *testing.T, s *store.Store, ps *fakePubSub, owner string) (
 	return m, fc
 }
 
-func waitForSegment(t *testing.T, s *store.Store, wid orgchart.WorkerID, want string) bool {
+func waitForSegment(t *testing.T, s *store.Store, wid orgchart.BotID, want string) bool {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

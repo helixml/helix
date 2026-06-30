@@ -38,18 +38,16 @@ func (f *fakeGitWriter) CreateOrUpdateFileContents(_ context.Context, repoID, pa
 
 func (f *fakeGitWriter) CreateBranch(_ context.Context, _, _, _ string) error { return nil }
 
-func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.WorkerID) {
+func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	r, _ := orgchart.NewRole("r-eng", "# Role", nil, nil, time.Now().UTC(), "org-test")
-	_ = s.Roles.Create(ctx, r)
-	w, _ := orgchart.NewAIWorker("w-eng", "r-eng", "# Persona", "org-test")
-	_ = s.Workers.Create(ctx, w)
+	b, _ := orgchart.NewBot("w-eng", "# Role", nil, nil, time.Now().UTC(), "org-test")
+	_ = s.Bots.Create(ctx, b)
 	if repoID != "" {
-		_ = SaveProject(ctx, s, "org-test", w.ID(), "prj_x", "app_x", repoID)
+		_ = SaveProject(ctx, s, "org-test", b.ID, "prj_x", "app_x", repoID)
 	}
-	return s, w.ID()
+	return s, b.ID
 }
 
 func TestWorkspaceWritesToWorkerRepo(t *testing.T) {
@@ -141,26 +139,8 @@ func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 	}
 }
 
-// TestWorkspaceInvalidatesSessionOnIdentityEdit — same for identity.md.
-func TestWorkspaceInvalidatesSessionOnIdentityEdit(t *testing.T) {
-	t.Parallel()
-	s, wid := newSeededStore(t, "repo-1")
-	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_warm"); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-	fc := &fakeGitWriter{}
-	w := NewWorkspace(fc, s, "helix-specs", "", "")
-	if err := w.MirrorFile(context.Background(), "org-test", wid, "identity.md", "# Identity v2", ""); err != nil {
-		t.Fatalf("MirrorFile: %v", err)
-	}
-	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "" {
-		t.Errorf("session must be cleared after identity edit; got %q", state.SessionID)
-	}
-}
-
 // TestWorkspaceDoesNotInvalidateOnOtherFiles — checkpoint pushes leave
-// the warm session alone; only role.md and identity.md invalidate.
+// the warm session alone; only role.md invalidates.
 func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")

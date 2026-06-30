@@ -1,14 +1,90 @@
 definitions:
-  api.AddWorkerParentRequest:
+  api.AddBotParentRequest:
     properties:
       parent_id:
         type: string
     type: object
-  api.CreateRoleRequest:
+  api.BotActivateDTO:
+    properties:
+      activation_id:
+        type: string
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+      session_id:
+        type: string
+    type: object
+  api.BotBadge:
+    properties:
+      id:
+        type: string
+    type: object
+  api.BotChatDTO:
+    properties:
+      agent_app_id:
+        type: string
+      project_id:
+        type: string
+    type: object
+  api.BotDTO:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      organization_id:
+        type: string
+      parent_ids:
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          type: string
+        type: array
+      topics:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
+  api.BotDetailDTO:
+    properties:
+      agent_app_id:
+        description: AgentAppID + ProjectID — see BotChatDTO comments.
+        type: string
+      bot:
+        $ref: '#/definitions/api.BotDTO'
+      project_id:
+        type: string
+    type: object
+  api.BotSubscriptionDTO:
+    properties:
+      created_at:
+        type: string
+      topic_id:
+        type: string
+    type: object
+  api.BotSubscriptionsResponse:
+    properties:
+      bot_id:
+        type: string
+      subscriptions:
+        items:
+          $ref: '#/definitions/api.BotSubscriptionDTO'
+        type: array
+    type: object
+  api.CreateBotRequest:
     properties:
       content:
         type: string
       id:
+        type: string
+      parent_id:
         type: string
       tools:
         items:
@@ -19,11 +95,18 @@ definitions:
           type: string
         type: array
     type: object
+  api.CreateBotResponse:
+    properties:
+      activation_id:
+        type: string
+      id:
+        type: string
+    type: object
   api.CreateTopicRequest:
     properties:
       as:
         description: |-
-          As is the Worker that creates the topic — the worker whose chat
+          As is the Bot that creates the topic — the bot whose chat
           the human is in. Empty leaves the topic unattributed (CreatedBy is
           cosmetic: it only anchors the node on the chart).
         type: string
@@ -141,26 +224,6 @@ definitions:
       webhook_id:
         type: integer
     type: object
-  api.HireWorkerRequest:
-    properties:
-      id:
-        type: string
-      identity_content:
-        type: string
-      kind:
-        type: string
-      parent_id:
-        type: string
-      role_id:
-        type: string
-    type: object
-  api.HireWorkerResponse:
-    properties:
-      activation_id:
-        type: string
-      id:
-        type: string
-    type: object
   api.InstallGitHubWebhookResponse:
     properties:
       payload_url:
@@ -241,18 +304,20 @@ definitions:
     type: object
   api.OrgOverview:
     properties:
-      groups:
+      bots:
         items:
-          $ref: '#/definitions/api.RoleGroup'
-        type: array
-      roles:
-        items:
-          $ref: '#/definitions/api.RoleBadge'
+          $ref: '#/definitions/api.BotBadge'
         type: array
     type: object
   api.ProcessorOutputDTO:
     properties:
       label:
+        type: string
+      managed_for:
+        description: |-
+          ManagedFor is set when this route is auto-managed by a reconciler for
+          the named Worker (the Slack auto-router). Empty for human-authored
+          routes. Read-only — the UI surfaces it; reconcilers own these routes.
         type: string
       match:
         type: string
@@ -291,7 +356,7 @@ definitions:
     properties:
       as:
         description: |-
-          As is the Worker the message is sent as — the worker whose chat the
+          As is the Bot the message is sent as — the bot whose chat the
           human is in. Empty means human/system-origin (the dispatcher treats
           it as such). There is no global "owner" sender any more.
         type: string
@@ -308,39 +373,6 @@ definitions:
     properties:
       event_id:
         type: string
-    type: object
-  api.RoleBadge:
-    properties:
-      id:
-        type: string
-    type: object
-  api.RoleDTO:
-    properties:
-      content:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: string
-      tools:
-        items:
-          type: string
-        type: array
-      topics:
-        items:
-          type: string
-        type: array
-      updated_at:
-        type: string
-    type: object
-  api.RoleGroup:
-    properties:
-      role_id:
-        type: string
-      workers:
-        items:
-          $ref: '#/definitions/api.WorkerBadge'
-        type: array
     type: object
   api.SetSettingRequest:
     properties:
@@ -373,7 +405,7 @@ definitions:
       value:
         type: string
     type: object
-  api.SubscribeWorkerRequest:
+  api.SubscribeBotRequest:
     properties:
       topic_id:
         type: string
@@ -436,7 +468,7 @@ definitions:
       kind:
         type: string
     type: object
-  api.UpdateRoleRequest:
+  api.UpdateBotRequest:
     properties:
       content:
         type: string
@@ -457,92 +489,6 @@ definitions:
         type: string
       transport:
         $ref: '#/definitions/api.TransportRequestField'
-    type: object
-  api.UpdateWorkerIdentityRequest:
-    properties:
-      identity:
-        type: string
-    type: object
-  api.UpdateWorkerRoleRequest:
-    properties:
-      content:
-        type: string
-    type: object
-  api.WorkerActivateDTO:
-    properties:
-      activation_id:
-        type: string
-      agent_app_id:
-        type: string
-      project_id:
-        type: string
-      session_id:
-        type: string
-    type: object
-  api.WorkerBadge:
-    properties:
-      id:
-        type: string
-      kind:
-        type: string
-    type: object
-  api.WorkerChatDTO:
-    properties:
-      agent_app_id:
-        type: string
-      project_id:
-        type: string
-    type: object
-  api.WorkerDTO:
-    properties:
-      id:
-        type: string
-      identity_content:
-        type: string
-      kind:
-        type: string
-      organization_id:
-        type: string
-      parent_ids:
-        items:
-          type: string
-        type: array
-      role_id:
-        type: string
-      tools:
-        items:
-          type: string
-        type: array
-    type: object
-  api.WorkerDetailDTO:
-    properties:
-      agent_app_id:
-        description: AgentAppID + ProjectID — see WorkerChatDTO comments.
-        type: string
-      project_id:
-        type: string
-      role:
-        allOf:
-        - $ref: '#/definitions/api.RoleDTO'
-        description: Role this Worker holds (nil if the role row is gone).
-      worker:
-        $ref: '#/definitions/api.WorkerDTO'
-    type: object
-  api.WorkerSubscriptionDTO:
-    properties:
-      created_at:
-        type: string
-      topic_id:
-        type: string
-    type: object
-  api.WorkerSubscriptionsResponse:
-    properties:
-      subscriptions:
-        items:
-          $ref: '#/definitions/api.WorkerSubscriptionDTO'
-        type: array
-      worker_id:
-        type: string
     type: object
   filestore.Config:
     properties:
@@ -17895,6 +17841,373 @@ paths:
       summary: List sandbox tmux sessions
       tags:
       - Sandboxes
+  /api/v1/orgs/{org}/bots:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api.BotDTO'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list bots'
+      tags:
+      - HelixOrg
+    post:
+      consumes:
+      - application/json
+      description: Create a Bot. Wraps the lifecycle Create so REST + chat creates
+        share semantics (base-tool union, reporting line, transcript topics, create
+        dispatch).
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot spec
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateBotRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.CreateBotResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: create a bot'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}:
+    delete:
+      description: 'Delete a Bot. Cascades: stops sessions, deletes the Helix project
+        + agent app, clears runtime state, drops subscriptions + reporting lines,
+        then the bot row. Activations are preserved as audit.'
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: delete a bot'
+      tags:
+      - HelixOrg
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotDetailDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: get bot detail'
+      tags:
+      - HelixOrg
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Organization slug or id
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Patch fields
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpdateBotRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: update a bot'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/activate:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: manually trigger a bot activation'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/chat:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotChatDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: provision a per-bot chat app'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/parents:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Bot ID (the report)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Manager bot id
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.AddBotParentRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: add a bot reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/parents/{parent_id}:
+    delete:
+      parameters:
+      - description: Bot ID (the report)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Manager bot id
+        in: path
+        name: parent_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: remove a bot reporting line (manager)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/restart-agent:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.BotActivateDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: restart a bot''s agent session (recreate desktop container)'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/subscriptions:
+    get:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotSubscriptionsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list a bot''s subscriptions'
+      tags:
+      - HelixOrg
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: topic to subscribe to
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/api.SubscribeBotRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BotSubscriptionDTO'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.BotSubscriptionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: subscribe a bot to a topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/subscriptions/{topic_id}:
+    delete:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Topic ID
+        in: path
+        name: topic_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: unsubscribe a bot from a topic'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/github/app-installation:
     get:
       produces:
@@ -17974,7 +18287,7 @@ paths:
       - HelixOrg
   /api/v1/orgs/{org}/overview:
     get:
-      description: Returns roles + workers grouped by role for the helix-org React
+      description: Returns the flat set of Bots in the org for the helix-org React
         Overview page.
       produces:
       - application/json
@@ -18104,144 +18417,6 @@ paths:
             additionalProperties: true
             type: object
       summary: 'Helix-org: update a processor'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/roles:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/api.RoleDTO'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list roles'
-      tags:
-      - HelixOrg
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Organization slug or id
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Role spec
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.CreateRoleRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.RoleDTO'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: create a role'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/roles/{id}:
-    delete:
-      parameters:
-      - description: Organization slug or id
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Role ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: delete a role (cascade-fires its workers)'
-      tags:
-      - HelixOrg
-    get:
-      parameters:
-      - description: Organization slug or id
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Role ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.RoleDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: get a role'
-      tags:
-      - HelixOrg
-    put:
-      consumes:
-      - application/json
-      parameters:
-      - description: Organization slug or id
-        in: path
-        name: org
-        required: true
-        type: string
-      - description: Role ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Patch fields
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.UpdateRoleRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.RoleDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update a role'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/settings:
@@ -18711,393 +18886,6 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: publish a message to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/api.WorkerDTO'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list workers'
-      tags:
-      - HelixOrg
-    post:
-      consumes:
-      - application/json
-      description: Create a Worker in the given Position. Wraps the hire_worker MCP
-        tool so REST + chat hires share semantics (env dir, transcript, hire dispatch).
-      parameters:
-      - description: Hire request
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.HireWorkerRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.HireWorkerResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: hire worker'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}:
-    delete:
-      description: 'Delete a Worker. Cascades: stops sessions, deletes the Helix project
-        + agent app, clears runtime state, deletes subscriptions + env dir + env row,
-        then the worker row. Activations are preserved as audit.'
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: fire worker'
-      tags:
-      - HelixOrg
-    get:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.WorkerDetailDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: get worker detail'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/activate:
-    post:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            $ref: '#/definitions/api.WorkerActivateDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: manually trigger a worker activation'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/chat:
-    post:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.WorkerChatDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: provision a per-worker chat app'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/identity:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: New identity content
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.UpdateWorkerIdentityRequest'
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update worker identity'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/parents:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Worker ID (the report)
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Manager worker id
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.AddWorkerParentRequest'
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: add a worker reporting line (manager)'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/parents/{parent_id}:
-    delete:
-      parameters:
-      - description: Worker ID (the report)
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Manager worker id
-        in: path
-        name: parent_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: remove a worker reporting line (manager)'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/restart-agent:
-    post:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            $ref: '#/definitions/api.WorkerActivateDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "501":
-          description: Not Implemented
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: restart a worker''s agent session (recreate desktop container)'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/role:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: New role content
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.UpdateWorkerRoleRequest'
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: update worker role'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/subscriptions:
-    get:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.WorkerSubscriptionsResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: list a worker''s subscriptions'
-      tags:
-      - HelixOrg
-    post:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: topic to subscribe to
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/api.SubscribeWorkerRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.WorkerSubscriptionDTO'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.WorkerSubscriptionDTO'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: subscribe a worker to a topic'
-      tags:
-      - HelixOrg
-  /api/v1/orgs/{org}/workers/{id}/subscriptions/{topic_id}:
-    delete:
-      parameters:
-      - description: Worker ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Topic ID
-        in: path
-        name: topic_id
-        required: true
-        type: string
-      responses:
-        "204":
-          description: No Content
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/api.ErrorResponse'
-      security:
-      - ApiKeyAuth: []
-      summary: 'Helix-org: unsubscribe a worker from a topic'
       tags:
       - HelixOrg
   /api/v1/projects:

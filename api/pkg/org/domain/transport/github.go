@@ -163,4 +163,3 @@ var SuggestedGitHubEvents = []string{
 	"pull_request_review",
 	"pull_request_review_comment",
 }
-

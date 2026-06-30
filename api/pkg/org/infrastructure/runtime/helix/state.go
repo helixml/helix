@@ -3,7 +3,7 @@
 //
 // Per-Worker state — the Helix project ID, the auto-provisioned Agent
 // App ID, the project's primary git repo ID, and the live chat session
-// pointer — lives in the WorkerRuntimeState sidecar store under the
+// pointer — lives in the BotRuntimeState sidecar store under the
 // "helix" backend label, scoped by org. The accessors in state.go give
 // the rest of this package typed access without leaking key strings
 // everywhere.
@@ -18,7 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 )
 
-// Backend is the label used in WorkerRuntimeState to namespace this
+// Backend is the label used in BotRuntimeState to namespace this
 // runtime's per-Worker keys.
 const Backend = "helix"
 
@@ -45,11 +45,11 @@ const (
 )
 
 // LoadState returns the Helix-backend state for a Worker.
-func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID) (WorkerState, error) {
-	if st == nil || st.WorkerRuntimeState == nil {
+func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID) (WorkerState, error) {
+	if st == nil || st.BotRuntimeState == nil {
 		return WorkerState{}, errors.New("helix state: store is nil")
 	}
-	kv, err := st.WorkerRuntimeState.Get(ctx, orgID, workerID, Backend)
+	kv, err := st.BotRuntimeState.Get(ctx, orgID, workerID, Backend)
 	if err != nil {
 		return WorkerState{}, fmt.Errorf("helix state: get %s/%s: %w", orgID, workerID, err)
 	}
@@ -63,22 +63,22 @@ func LoadState(ctx context.Context, st *store.Store, orgID string, workerID orgc
 }
 
 // SaveHiringUser persists the user identifier that called hire_worker.
-func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, userID string) error {
+func SaveHiringUser(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, userID string) error {
 	if userID == "" {
 		return nil
 	}
-	if st == nil || st.WorkerRuntimeState == nil {
+	if st == nil || st.BotRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
-	return st.WorkerRuntimeState.Set(ctx, orgID, workerID, Backend, keyHiringUserID, userID)
+	return st.BotRuntimeState.Set(ctx, orgID, workerID, Backend, keyHiringUserID, userID)
 }
 
 // SaveProject persists the per-Worker project triple.
-func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, projectID, agentAppID, repoID string) error {
-	if st == nil || st.WorkerRuntimeState == nil {
+func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, projectID, agentAppID, repoID string) error {
+	if st == nil || st.BotRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
-	return st.WorkerRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
+	return st.BotRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
 		keyProjectID:  projectID,
 		keyAgentAppID: agentAppID,
 		keyRepoID:     repoID,
@@ -86,19 +86,19 @@ func SaveProject(ctx context.Context, st *store.Store, orgID string, workerID or
 }
 
 // SaveSession persists the live Helix chat session ID.
-func SaveSession(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID, sessionID string) error {
-	if st == nil || st.WorkerRuntimeState == nil {
+func SaveSession(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID, sessionID string) error {
+	if st == nil || st.BotRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
-	return st.WorkerRuntimeState.Set(ctx, orgID, workerID, Backend, keySessionID, sessionID)
+	return st.BotRuntimeState.Set(ctx, orgID, workerID, Backend, keySessionID, sessionID)
 }
 
 // ClearProject nulls the project triple AND the session pointer.
-func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.WorkerID) error {
-	if st == nil || st.WorkerRuntimeState == nil {
+func ClearProject(ctx context.Context, st *store.Store, orgID string, workerID orgchart.BotID) error {
+	if st == nil || st.BotRuntimeState == nil {
 		return errors.New("helix state: store is nil")
 	}
-	return st.WorkerRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
+	return st.BotRuntimeState.SetMany(ctx, orgID, workerID, Backend, map[string]string{
 		keyProjectID:  "",
 		keyAgentAppID: "",
 		keyRepoID:     "",

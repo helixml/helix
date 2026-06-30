@@ -18,7 +18,7 @@ func TestRenderTriggerGitHub(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
-		TopicID:  "s-github",
+		TopicID:   "s-github",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
@@ -66,7 +66,7 @@ func TestRenderTriggerEmail(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
-		TopicID:  "s-support",
+		TopicID:   "s-support",
 		Source:    "",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
@@ -104,7 +104,7 @@ func TestRenderTriggerWorkerPublished(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-1",
-		TopicID:  "s-general",
+		TopicID:   "s-general",
 		Source:    "w-alice",
 		CreatedAt: time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC),
 		Message: streaming.Message{
@@ -135,7 +135,7 @@ func TestBuildPromptIncludesEnvelope(t *testing.T) {
 	tr := activation.Trigger{
 		Kind:      activation.TriggerEvent,
 		EventID:   "e-abc",
-		TopicID:  "s-github",
+		TopicID:   "s-github",
 		CreatedAt: time.Date(2026, 4, 28, 12, 27, 23, 0, time.UTC),
 		Message: streaming.Message{
 			From:    "philwinder",

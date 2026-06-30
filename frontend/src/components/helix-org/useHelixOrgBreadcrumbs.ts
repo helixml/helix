@@ -18,9 +18,9 @@ import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 
 export interface HelixOrgBreadcrumbSection {
-  // Display label, e.g. "Roles".
+  // Display label, e.g. "Bots".
   title: string
-  // Route name of the section's list page, e.g. "helix_org_roles".
+  // Route name of the section's list page, e.g. "helix_org_bots".
   routeName: string
 }
 

@@ -13,8 +13,8 @@ import (
 
 type subscriptionRow struct {
 	OrgID     string `gorm:"primaryKey;type:text;index"`
-	WorkerID  string `gorm:"primaryKey;type:text"`
-	TopicID  string `gorm:"primaryKey;type:text"`
+	BotID     string `gorm:"primaryKey;type:text"`
+	TopicID   string `gorm:"primaryKey;type:text"`
 	CreatedAt time.Time
 }
 
@@ -25,15 +25,15 @@ type subscriptionMapper struct{}
 func (subscriptionMapper) ToRow(sub streaming.Subscription) (subscriptionRow, error) {
 	return subscriptionRow{
 		OrgID:     sub.OrganizationID,
-		WorkerID:  string(sub.WorkerID),
-		TopicID:  string(sub.TopicID),
+		BotID:     string(sub.BotID),
+		TopicID:   string(sub.TopicID),
 		CreatedAt: sub.CreatedAt,
 	}, nil
 }
 
 func (subscriptionMapper) ToDomain(row subscriptionRow) (streaming.Subscription, error) {
 	return streaming.NewSubscription(
-		row.WorkerID,
+		row.BotID,
 		streaming.TopicID(row.TopicID),
 		row.CreatedAt,
 		row.OrgID,
@@ -48,26 +48,26 @@ func newSubscriptionsRepo(db *gorm.DB) *subscriptionsRepo {
 	return &subscriptionsRepo{Repository: NewRepository[streaming.Subscription, subscriptionRow](db, subscriptionMapper{}, "subscription")}
 }
 
-func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) error {
+func (r *subscriptionsRepo) Delete(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) error {
 	return r.Repository.Delete(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("worker_id", string(workerID)),
+		store.WithCondition("bot_id", string(botID)),
 		store.WithCondition("topic_id", string(topicID)),
 	)
 }
 
-func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, workerID orgchart.WorkerID, topicID streaming.TopicID) (streaming.Subscription, error) {
+func (r *subscriptionsRepo) Find(ctx context.Context, orgID string, botID orgchart.BotID, topicID streaming.TopicID) (streaming.Subscription, error) {
 	return r.FindOne(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("worker_id", string(workerID)),
+		store.WithCondition("bot_id", string(botID)),
 		store.WithCondition("topic_id", string(topicID)),
 	)
 }
 
-func (r *subscriptionsRepo) ListForWorker(ctx context.Context, orgID string, workerID orgchart.WorkerID) ([]streaming.Subscription, error) {
+func (r *subscriptionsRepo) ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]streaming.Subscription, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
-		store.WithCondition("worker_id", string(workerID)),
+		store.WithCondition("bot_id", string(botID)),
 		store.WithOrderAsc("topic_id"),
 	)
 }
@@ -76,6 +76,6 @@ func (r *subscriptionsRepo) ListForTopic(ctx context.Context, orgID string, topi
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),
 		store.WithCondition("topic_id", string(topicID)),
-		store.WithOrderAsc("worker_id"),
+		store.WithOrderAsc("bot_id"),
 	)
 }

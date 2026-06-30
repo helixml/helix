@@ -1748,7 +1748,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             >
               Agent Team
             </Typography>
-            <Tooltip title="Each task gets its own Agent Desktop with a dedicated AI agent. The Human Desktop is for exploring the codebase and testing your app.">
+            <Tooltip title="Each task gets its own Agent Desktop with a dedicated AI agent. The Project Desktop is for exploring the codebase and testing your app.">
               <InfoIcon
                 sx={{ fontSize: 16, color: "text.secondary", cursor: "help" }}
               />

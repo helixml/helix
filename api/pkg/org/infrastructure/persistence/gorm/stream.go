@@ -55,7 +55,7 @@ func (topicMapper) ToDomain(row topicRow) (streaming.Topic, error) {
 		streaming.TopicID(row.ID),
 		row.Name,
 		row.Description,
-		orgchart.WorkerID(row.CreatedBy),
+		orgchart.BotID(row.CreatedBy),
 		row.CreatedAt,
 		tp,
 		row.OrgID,

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 

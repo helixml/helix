@@ -17,7 +17,7 @@ func TestNewTopic(t *testing.T) {
 		name      string
 		id        streaming.TopicID
 		stName    string
-		createdBy orgchart.WorkerID
+		createdBy orgchart.BotID
 		createdAt time.Time
 		wantErr   bool
 	}{

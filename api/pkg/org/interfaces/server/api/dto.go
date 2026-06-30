@@ -7,35 +7,20 @@
 // client-side.
 package api
 
-// WorkerBadge is a compact reference to a Worker on the org overview.
-type WorkerBadge struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
-}
-
-// RoleBadge is a compact reference to a Role for the overview payload.
-type RoleBadge struct {
+// BotBadge is a compact reference to a Bot on the org overview.
+type BotBadge struct {
 	ID string `json:"id"`
 }
 
-// RoleGroup is one Role + the Workers currently holding it. The
-// overview page renders these as cards: the Role description (loaded
-// separately) plus a list of Workers under it.
-type RoleGroup struct {
-	RoleID  string        `json:"role_id"`
-	Workers []WorkerBadge `json:"workers,omitempty"`
-}
-
-// OrgOverview is the body of GET /overview. Roles is the full set of
-// Role IDs in the org (so the React overview can render empty
-// groups). Groups lists every Role with its current Workers.
+// OrgOverview is the body of GET /overview — a flat list of every Bot
+// in the org. The React Overview page renders the reporting graph from
+// the bots + their parent_ids (fetched via GET /bots).
 type OrgOverview struct {
-	Roles  []RoleBadge `json:"roles,omitempty"`
-	Groups []RoleGroup `json:"groups"`
+	Bots []BotBadge `json:"bots"`
 }
 
 // ToolDTO is one entry in GET /tools — the catalogue of every tool
-// that can be listed on a Role. Powers the chart-UI role editor's
+// that can be listed on a Bot. Powers the chart-UI bot editor's
 // multi-select. Description is the human-readable one-liner the
 // underlying tool surfaces to LLM callers via MCP.
 type ToolDTO struct {
@@ -43,97 +28,81 @@ type ToolDTO struct {
 	Description string `json:"description,omitempty"`
 }
 
-// RoleDTO is one row in GET /roles. Content is the canonical
-// role.md markdown.
-type RoleDTO struct {
-	ID        string   `json:"id"`
-	Content   string   `json:"content"`
-	Tools     []string `json:"tools,omitempty"`
-	Topics   []string `json:"topics,omitempty"`
-	CreatedAt string   `json:"created_at,omitempty"`
-	UpdatedAt string   `json:"updated_at,omitempty"`
+// BotDTO is one row in GET /bots and the body of GET /bots/{id}. A Bot
+// IS its own job description: Content is the canonical role.md markdown,
+// Tools is its live MCP surface, Topics its subscription manifest.
+// ParentIDs are the Bots this one reports to (empty for the org root).
+// Reporting is many-to-many — a Bot may report to several managers.
+type BotDTO struct {
+	ID             string   `json:"id"`
+	Content        string   `json:"content"`
+	Tools          []string `json:"tools,omitempty"`
+	Topics         []string `json:"topics,omitempty"`
+	ParentIDs      []string `json:"parent_ids,omitempty"`
+	OrganizationID string   `json:"organization_id,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
+	UpdatedAt      string   `json:"updated_at,omitempty"`
 }
 
-// WorkerDTO is one row in GET /workers and the body of GET
-// /workers/{id}. RoleID is the live capability binding; ParentIDs are
-// the Workers this one reports to (empty for the owner). Reporting is
-// many-to-many — a Worker may report to several managers.
-// IdentityContent is the per-Worker persona markdown (the Spawner
-// projects it into identity.md at activation time).
-type WorkerDTO struct {
-	ID              string   `json:"id"`
-	Kind            string   `json:"kind"`
-	RoleID          string   `json:"role_id,omitempty"`
-	ParentIDs       []string `json:"parent_ids,omitempty"`
-	IdentityContent string   `json:"identity_content"`
-	OrganizationID  string   `json:"organization_id,omitempty"`
-	Tools           []string `json:"tools,omitempty"`
-}
-
-// WorkerChatDTO is the POST /workers/{id}/chat response. AgentAppID
-// is the per-Worker Helix agent app id and ProjectID is the Helix
-// project that owns it — the chart UI prefers ProjectID for the
-// "chat via Human Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
+// BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
+// per-Bot Helix agent app id and ProjectID is the Helix project that
+// owns it — the chart UI prefers ProjectID for the "chat via Human
+// Desktop" deep-link (/orgs/<org>/projects/<id>/desktop/<session>),
 // falling back to /agent/<agent_app_id> only when the project's
 // exploratory session can't be reached.
-type WorkerChatDTO struct {
+type BotChatDTO struct {
 	AgentAppID string `json:"agent_app_id"`
 	ProjectID  string `json:"project_id,omitempty"`
 }
 
-// WorkerActivateDTO is the POST /workers/{id}/activate response.
-type WorkerActivateDTO struct {
+// BotActivateDTO is the POST /bots/{id}/activate response.
+type BotActivateDTO struct {
 	ActivationID string `json:"activation_id,omitempty"`
 	ProjectID    string `json:"project_id,omitempty"`
 	AgentAppID   string `json:"agent_app_id,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
 }
 
-// WorkerDetailDTO is the full GET /workers/{id} response — Worker
-// fields plus the surrounding context the UI's detail pane needs.
-type WorkerDetailDTO struct {
-	Worker WorkerDTO `json:"worker"`
-	// Role this Worker holds (nil if the role row is gone).
-	Role *RoleDTO `json:"role,omitempty"`
-	// AgentAppID + ProjectID — see WorkerChatDTO comments.
+// BotDetailDTO is the full GET /bots/{id} response — the Bot plus the
+// surrounding runtime context the UI's detail pane needs.
+type BotDetailDTO struct {
+	Bot BotDTO `json:"bot"`
+	// AgentAppID + ProjectID — see BotChatDTO comments.
 	AgentAppID string `json:"agent_app_id,omitempty"`
 	ProjectID  string `json:"project_id,omitempty"`
 }
 
-// HireWorkerRequest is the body of POST /workers. Mirrors the MCP
-// hire_worker tool's args.
-type HireWorkerRequest struct {
-	ID              string `json:"id,omitempty"`
-	RoleID          string `json:"role_id"`
-	ParentID        string `json:"parent_id,omitempty"`
-	Kind            string `json:"kind"`
-	IdentityContent string `json:"identity_content"`
+// CreateBotRequest is the body of POST /bots. Mirrors the MCP
+// create_bot tool's args. ID is optional (a fresh handle is minted when
+// empty). ParentID is the manager the new Bot reports to.
+type CreateBotRequest struct {
+	ID       string   `json:"id,omitempty"`
+	Content  string   `json:"content"`
+	Tools    []string `json:"tools,omitempty"`
+	Topics   []string `json:"topics,omitempty"`
+	ParentID string   `json:"parent_id,omitempty"`
 }
 
-// HireWorkerResponse is the body of POST /workers on success.
-type HireWorkerResponse struct {
+// CreateBotResponse is the body of POST /bots on success.
+type CreateBotResponse struct {
 	ID           string `json:"id"`
 	ActivationID string `json:"activation_id,omitempty"`
 }
 
-// UpdateWorkerIdentityRequest is the body of POST
-// /workers/{id}/identity.
-type UpdateWorkerIdentityRequest struct {
-	Identity string `json:"identity"`
+// UpdateBotRequest is the body of PATCH /bots/{id}. A nil field is left
+// unchanged (content-only edit preserves Tools/Topics).
+type UpdateBotRequest struct {
+	Content *string  `json:"content,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+	Topics  []string `json:"topics,omitempty"`
 }
 
-// UpdateWorkerRoleRequest is the body of POST /workers/{id}/role.
-// Content replaces the role.md of the Role the Worker holds.
-type UpdateWorkerRoleRequest struct {
-	Content string `json:"content"`
-}
-
-// AddWorkerParentRequest is the body of POST /workers/{id}/parents.
-// ParentID is a manager the Worker should now report to. Reporting is
-// many-to-many, so this ADDS a line rather than replacing — the chart
-// UI posts it when an accountability edge is drawn; deleting an edge
-// hits DELETE /workers/{id}/parents/{parent_id}.
-type AddWorkerParentRequest struct {
+// AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID
+// is a manager the Bot should now report to. Reporting is many-to-many,
+// so this ADDS a line rather than replacing — the chart UI posts it
+// when an accountability edge is drawn; deleting an edge hits DELETE
+// /bots/{id}/parents/{parent_id}.
+type AddBotParentRequest struct {
 	ParentID string `json:"parent_id"`
 }
 
@@ -181,7 +150,7 @@ type CreateTopicRequest struct {
 	ID          string `json:"id,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// As is the Worker that creates the topic — the worker whose chat
+	// As is the Bot that creates the topic — the bot whose chat
 	// the human is in. Empty leaves the topic unattributed (CreatedBy is
 	// cosmetic: it only anchors the node on the chart).
 	As        string                 `json:"as,omitempty"`
@@ -203,14 +172,14 @@ type UpdateTopicRequest struct {
 
 // TopicsResponse is the body of GET /topics.
 type TopicsResponse struct {
-	Topics []TopicDTO `json:"topics"`
-	Recent  []EventCard `json:"recent,omitempty"`
+	Topics []TopicDTO  `json:"topics"`
+	Recent []EventCard `json:"recent,omitempty"`
 }
 
 // EventCard is one entry in a topic's event feed.
 type EventCard struct {
 	ID          string `json:"id"`
-	TopicID    string `json:"topic_id"`
+	TopicID     string `json:"topic_id"`
 	Source      string `json:"source,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	Body        string `json:"body"`
@@ -226,7 +195,7 @@ type EventCard struct {
 // coordinates. Body is the visible text — the parsed Message.Body when
 // the event carries a Message, otherwise the raw stored body.
 type MessageAttributes struct {
-	TopicID   string   `json:"topic_id"`
+	TopicID    string   `json:"topic_id"`
 	Source     string   `json:"source,omitempty"`
 	CreatedAt  string   `json:"created_at"`
 	From       string   `json:"from,omitempty"`
@@ -268,21 +237,21 @@ type MessagesDocument struct {
 	Links map[string]string `json:"links,omitempty"`
 }
 
-// WorkerSubscriptionDTO is one row in a worker's subscription list.
-type WorkerSubscriptionDTO struct {
-	TopicID  string `json:"topic_id"`
+// BotSubscriptionDTO is one row in a bot's subscription list.
+type BotSubscriptionDTO struct {
+	TopicID   string `json:"topic_id"`
 	CreatedAt string `json:"created_at"`
 }
 
-// WorkerSubscriptionsResponse is the GET /workers/{id}/subscriptions
+// BotSubscriptionsResponse is the GET /bots/{id}/subscriptions
 // response body.
-type WorkerSubscriptionsResponse struct {
-	WorkerID      string                  `json:"worker_id"`
-	Subscriptions []WorkerSubscriptionDTO `json:"subscriptions"`
+type BotSubscriptionsResponse struct {
+	BotID         string               `json:"bot_id"`
+	Subscriptions []BotSubscriptionDTO `json:"subscriptions"`
 }
 
-// SubscribeWorkerRequest is the POST /workers/{id}/subscriptions body.
-type SubscribeWorkerRequest struct {
+// SubscribeBotRequest is the POST /bots/{id}/subscriptions body.
+type SubscribeBotRequest struct {
 	TopicID string `json:"topic_id"`
 }
 
@@ -291,7 +260,7 @@ type PublishRequest struct {
 	Body    string   `json:"body"`
 	Subject string   `json:"subject,omitempty"`
 	To      []string `json:"to,omitempty"`
-	// As is the Worker the message is sent as — the worker whose chat the
+	// As is the Bot the message is sent as — the bot whose chat the
 	// human is in. Empty means human/system-origin (the dispatcher treats
 	// it as such). There is no global "owner" sender any more.
 	As string `json:"as,omitempty"`
@@ -305,19 +274,4 @@ type PublishResponse struct {
 // ErrorResponse is the envelope for non-2xx responses.
 type ErrorResponse struct {
 	Error string `json:"error"`
-}
-
-// CreateRoleRequest is the body of POST /roles.
-type CreateRoleRequest struct {
-	ID      string   `json:"id"`
-	Content string   `json:"content"`
-	Tools   []string `json:"tools,omitempty"`
-	Topics []string `json:"topics,omitempty"`
-}
-
-// UpdateRoleRequest is the body of PUT /roles/{id}.
-type UpdateRoleRequest struct {
-	Content *string  `json:"content,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
-	Topics []string `json:"topics,omitempty"`
 }

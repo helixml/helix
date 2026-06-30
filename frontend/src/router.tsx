@@ -46,13 +46,11 @@ import Waitlist from './pages/Waitlist'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
-import HelixOrgRoles from './pages/HelixOrgRoles'
-import HelixOrgRoleDetail from './pages/HelixOrgRoleDetail'
+import HelixOrgBots from './pages/HelixOrgBots'
+import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
 import HelixOrgSettings from './pages/HelixOrgSettings'
 import HelixOrgTopics from './pages/HelixOrgTopics'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
-import HelixOrgWorkers from './pages/HelixOrgWorkers'
-import HelixOrgWorkerDetail from './pages/HelixOrgWorkerDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -250,7 +248,7 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/projects/:id/desktop/:sessionId',
   meta: {
     drawer: false,
-    title: 'Human Desktop',
+    title: 'Project Desktop',
   },
   render: () => (
     <TeamDesktopPage />
@@ -540,9 +538,9 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha — Other resources (workers, roles, topics,
-  // settings) are operated via MCP tools / API; the overview is the
-  // visual entry point.
+  // helix-org alpha — Other resources (bots, topics, settings) are
+  // operated via MCP tools / API; the overview is the visual entry
+  // point.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
   meta: { drawer: true, title: 'Helix Org' },
@@ -559,25 +557,15 @@ const routes: IApplicationRoute[] = [
   meta: { drawer: true, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
 }, {
-  name: 'helix_org_roles',
-  path: '/orgs/:org_id/helix-org/roles',
-  meta: { drawer: true, title: 'Helix Org · Roles' },
-  render: () => <HelixOrgRoles />,
+  name: 'helix_org_bots',
+  path: '/orgs/:org_id/helix-org/bots',
+  meta: { drawer: true, title: 'Helix Org · Bots' },
+  render: () => <HelixOrgBots />,
 }, {
-  name: 'helix_org_role_detail',
-  path: '/orgs/:org_id/helix-org/roles/:role_id',
-  meta: { drawer: true, title: 'Helix Org · Role' },
-  render: () => <HelixOrgRoleDetail />,
-}, {
-  name: 'helix_org_workers',
-  path: '/orgs/:org_id/helix-org/workers',
-  meta: { drawer: true, title: 'Helix Org · Workers' },
-  render: () => <HelixOrgWorkers />,
-}, {
-  name: 'helix_org_worker_detail',
-  path: '/orgs/:org_id/helix-org/workers/:worker_id',
-  meta: { drawer: true, title: 'Helix Org · Worker' },
-  render: () => <HelixOrgWorkerDetail />,
+  name: 'helix_org_bot_detail',
+  path: '/orgs/:org_id/helix-org/bots/:bot_id',
+  meta: { drawer: true, title: 'Helix Org · Bot' },
+  render: () => <HelixOrgBotDetail />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',

@@ -191,11 +191,11 @@ func TestInstall_PreconditionGuards(t *testing.T) {
 	repoCfg := `{"repo":"octo/repo","events":["push"]}`
 
 	cases := []struct {
-		name       string
-		publicURL  string
-		token      TokenResolver
+		name      string
+		publicURL string
+		token     TokenResolver
 		topicJSON string
-		wantKind   streaming.FailKind
+		wantKind  streaming.FailKind
 	}{
 		{"no public url", "", okToken, repoCfg, streaming.FailPrecondition},
 		{"loopback localhost", "http://localhost:8080", okToken, repoCfg, streaming.FailPrecondition},
@@ -230,9 +230,9 @@ func TestStatus_DegradesToUnknown(t *testing.T) {
 	repoCfg := `{"repo":"octo/repo","events":["push"]}`
 
 	cases := []struct {
-		name       string
-		publicURL  string
-		token      TokenResolver
+		name      string
+		publicURL string
+		token     TokenResolver
 		topicJSON string
 	}{
 		{"no repo", "https://meta.helix.ml", okToken, `{}`},

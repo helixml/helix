@@ -25,7 +25,7 @@ import (
 //
 // In the per-Worker-project model, the spawner does not hold a
 // ProjectID of its own — every AI Worker gets its own Helix project,
-// applied at hire time and persisted in the WorkerRuntimeState
+// applied at hire time and persisted in the BotRuntimeState
 // sidecar under the "helix" backend.
 // DefaultMaxInflight bounds concurrent activations when a SpawnerConfig
 // doesn't set MaxInflight. The host also uses it to size the shared
@@ -160,7 +160,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 	if sem == nil {
 		sem = make(chan struct{}, cfg.MaxInflight)
 	}
-	return func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) (retErr error) {
+	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) (retErr error) {
 		if len(triggers) == 0 {
 			return errors.New("spawner invoked with no triggers")
 		}
@@ -314,7 +314,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 // caller (Spawner) skips Create — the row already exists in the
 // store. The Complete path still runs at end-of-activation to set
 // EndedAt/Outcome on the pre-existing row.
-func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) *activation.Activation {
+func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) *activation.Activation {
 	if cfg.NewID == nil || cfg.Now == nil || cfg.Store == nil || cfg.Store.Activations == nil {
 		return nil
 	}
@@ -332,23 +332,25 @@ func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.Work
 	return act
 }
 
-// DefaultHelixSpecsMandate points the agent at its role + identity
-// files, which the project applier pushes to the per-Worker repo's
-// `helix-specs` branch. Surfaced through SpawnerConfig.SpecsMandate
-// — operators override via the `worker.specs_mandate` config key
-// when the file layout or pull recipe changes (no deploy required).
+// DefaultHelixSpecsMandate points the agent at its role file, which the
+// project applier pushes to the per-Bot repo's `helix-specs` branch.
+// Surfaced through SpawnerConfig.SpecsMandate — operators override via
+// the `worker.specs_mandate` config key when the file layout or pull
+// recipe changes (no deploy required).
+//
+// A Bot has no separate identity file: its Content IS its prompt and
+// lands in role.md. There is no identity.md.
 //
 // Helix's workspace-setup script creates a worktree for the branch
 // at ~/work/helix-specs/ on every boot — but only when the branch
 // exists on the remote at boot time, so if the worktree is missing
 // the agent must materialise it itself.
-const DefaultHelixSpecsMandate = `Your org-wide policy, role, and identity files live on the
-**helix-specs** branch of your per-Worker repo. helix-org pushes them
+const DefaultHelixSpecsMandate = `Your org-wide policy and role files live on the
+**helix-specs** branch of your per-Bot repo. helix-org pushes them
 on hire and re-pushes them on every activation, so the remote always
 has the current owner-edited version. Path inside the branch:
   .context/agent.md                                    (org-wide policy)
   workers/${HELIX_WORKER_ID}/.context/role.md
-  workers/${HELIX_WORKER_ID}/.context/identity.md
 
 ALWAYS pull before reading — your local worktree is stale from prior
 activations and won't reflect owner edits made since:
@@ -362,10 +364,9 @@ activations and won't reflect owner edits made since:
   fi
 
 Then read in this order — agent.md FIRST (it's the entrypoint that
-tells you how to be an agent at all), then role.md, then identity.md:
+tells you how to be an agent at all), then role.md:
   cat ~/work/helix-specs/.context/agent.md
   cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/role.md
-  cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/identity.md
 
 After meaningful work, persist state on helix-specs:
   cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
@@ -373,7 +374,7 @@ After meaningful work, persist state on helix-specs:
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
-func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.WorkerID) error {
+func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.BotID) error {
 	a := &WorkerProject{
 		Service:     c.ProjectService,
 		Workspace:   c.Workspace,
@@ -402,7 +403,7 @@ func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID
 // the agent app already exists, blowing away whatever MCPs were
 // attached on the previous activation. Re-attaching after Ensure
 // returns keeps the MCP present.
-func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.WorkerID) {
+func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, workerID orgchart.BotID) {
 	if c.ProjectService == nil || c.HelixOrgURL == "" {
 		return
 	}
@@ -444,7 +445,7 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.WorkerID, prompt string, _ func(string)) (string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, _ func(string)) (string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", err
@@ -555,7 +556,7 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 // (per Index/MessageID) keeps snapshot replay safe across reconnects.
 type bridge struct {
 	publish     func(body string)
-	topic      *EntryTopic
+	topic       *EntryTopic
 	seenPrompts map[string]bool // interaction IDs whose user prompt we've emitted (dedup)
 }
 
@@ -631,7 +632,7 @@ func transcriptSegmentFromEvent(e Event) (activation.TranscriptSegment, bool) {
 // shared transcript.Recorder so the helix spawner's call sites stay
 // terse. The owner-chat bridge records through the same recorder — both
 // paths produce identical event shapes on s-transcript-<workerID>.
-func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.WorkerID, _ streaming.TopicID, body string) {
+func recordTranscript(ctx context.Context, cfg SpawnerConfig, orgID string, workerID orgchart.BotID, _ streaming.TopicID, body string) {
 	_, _ = newTranscriptRecorder(cfg.Store, cfg.Hub, cfg.NewID, cfg.Now, cfg.Logger).Record(ctx, orgID, workerID, body)
 }
 

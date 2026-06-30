@@ -33,7 +33,7 @@ func New(port runtime.SpecTasks) *Service {
 // callerIdentity extracts and validates the caller's org + worker IDs.
 // The worker is the subject of every call — there is no separate worker
 // argument, so a Worker can only manage its own project's tasks.
-func callerIdentity(caller tool.Worker) (string, orgchart.WorkerID, error) {
+func callerIdentity(caller tool.Caller) (string, orgchart.BotID, error) {
 	if caller == nil {
 		return "", "", errors.New("caller missing on invocation")
 	}
@@ -45,10 +45,10 @@ func callerIdentity(caller tool.Worker) (string, orgchart.WorkerID, error) {
 	if workerID == "" {
 		return "", "", errors.New("caller has no worker id")
 	}
-	return orgID, orgchart.WorkerID(workerID), nil
+	return orgID, orgchart.BotID(workerID), nil
 }
 
-func (s *Service) Create(ctx context.Context, caller tool.Worker, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (s *Service) Create(ctx context.Context, caller tool.Caller, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
@@ -56,7 +56,7 @@ func (s *Service) Create(ctx context.Context, caller tool.Worker, in runtime.Cre
 	return s.port.Create(ctx, orgID, workerID, in)
 }
 
-func (s *Service) List(ctx context.Context, caller tool.Worker, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+func (s *Service) List(ctx context.Context, caller tool.Caller, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (s *Service) List(ctx context.Context, caller tool.Worker, filter runtime.L
 	return s.port.List(ctx, orgID, workerID, filter)
 }
 
-func (s *Service) Get(ctx context.Context, caller tool.Worker, taskID string) (runtime.SpecTaskView, error) {
+func (s *Service) Get(ctx context.Context, caller tool.Caller, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
@@ -72,7 +72,7 @@ func (s *Service) Get(ctx context.Context, caller tool.Worker, taskID string) (r
 	return s.port.Get(ctx, orgID, workerID, taskID)
 }
 
-func (s *Service) StartPlanning(ctx context.Context, caller tool.Worker, taskID string) (runtime.SpecTaskView, error) {
+func (s *Service) StartPlanning(ctx context.Context, caller tool.Caller, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
@@ -80,7 +80,7 @@ func (s *Service) StartPlanning(ctx context.Context, caller tool.Worker, taskID 
 	return s.port.StartPlanning(ctx, orgID, workerID, taskID)
 }
 
-func (s *Service) ReviewSpec(ctx context.Context, caller tool.Worker, taskID string) (runtime.SpecReviewView, error) {
+func (s *Service) ReviewSpec(ctx context.Context, caller tool.Caller, taskID string) (runtime.SpecReviewView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecReviewView{}, err
@@ -88,7 +88,7 @@ func (s *Service) ReviewSpec(ctx context.Context, caller tool.Worker, taskID str
 	return s.port.ReviewSpec(ctx, orgID, workerID, taskID)
 }
 
-func (s *Service) ApproveSpec(ctx context.Context, caller tool.Worker, taskID string) (runtime.SpecTaskView, error) {
+func (s *Service) ApproveSpec(ctx context.Context, caller tool.Caller, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
@@ -96,7 +96,7 @@ func (s *Service) ApproveSpec(ctx context.Context, caller tool.Worker, taskID st
 	return s.port.ApproveSpec(ctx, orgID, workerID, taskID)
 }
 
-func (s *Service) RequestChanges(ctx context.Context, caller tool.Worker, taskID, comment string) (runtime.SpecTaskView, error) {
+func (s *Service) RequestChanges(ctx context.Context, caller tool.Caller, taskID, comment string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
@@ -104,7 +104,7 @@ func (s *Service) RequestChanges(ctx context.Context, caller tool.Worker, taskID
 	return s.port.RequestChanges(ctx, orgID, workerID, taskID, comment)
 }
 
-func (s *Service) CreatePullRequests(ctx context.Context, caller tool.Worker, taskID string) (runtime.SpecTaskView, error) {
+func (s *Service) CreatePullRequests(ctx context.Context, caller tool.Caller, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := callerIdentity(caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err

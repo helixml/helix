@@ -22,7 +22,7 @@ func TestQueueSerializesPerWorker(t *testing.T) {
 	released := make(chan struct{})
 	firstStarted := make(chan struct{}, 1)
 
-	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, _ orgchart.BotID, _ []activation.Trigger) error {
 		cur := atomic.AddInt32(&inflight, 1)
 		for {
 			old := atomic.LoadInt32(&peak)
@@ -78,7 +78,7 @@ func TestQueueDrainsTriggersOneAtATime(t *testing.T) {
 	done.Add(3) // hire + e-1 + e-2, each its own activation
 	holdFirst := make(chan struct{})
 
-	spawn := func(_ context.Context, _ string, _ orgchart.WorkerID, triggers []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, _ orgchart.BotID, triggers []activation.Trigger) error {
 		mu.Lock()
 		idx := len(batches)
 		copied := make([]activation.Trigger, len(triggers))
@@ -129,10 +129,10 @@ func TestQueueDrainsTriggersOneAtATime(t *testing.T) {
 // queue is serialised.
 func TestQueueDifferentWorkersRunInParallel(t *testing.T) {
 	t.Parallel()
-	started := make(chan orgchart.WorkerID, 2)
+	started := make(chan orgchart.BotID, 2)
 	release := make(chan struct{})
 
-	spawn := func(_ context.Context, _ string, w orgchart.WorkerID, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, _ string, w orgchart.BotID, _ []activation.Trigger) error {
 		started <- w
 		<-release
 		return nil
@@ -143,7 +143,7 @@ func TestQueueDifferentWorkersRunInParallel(t *testing.T) {
 	c.Enqueue("org-test", "w-b", activation.Trigger{Kind: activation.TriggerHire})
 
 	deadline := time.After(time.Second)
-	got := map[orgchart.WorkerID]struct{}{}
+	got := map[orgchart.BotID]struct{}{}
 	for len(got) < 2 {
 		select {
 		case w := <-started:
@@ -185,12 +185,12 @@ func TestQueueIsolatesSameWorkerIDAcrossOrgs(t *testing.T) {
 	t.Parallel()
 	type call struct {
 		org string
-		w   orgchart.WorkerID
+		w   orgchart.BotID
 	}
 	started := make(chan call, 2)
 	release := make(chan struct{})
 
-	spawn := func(_ context.Context, org string, w orgchart.WorkerID, _ []activation.Trigger) error {
+	spawn := func(_ context.Context, org string, w orgchart.BotID, _ []activation.Trigger) error {
 		started <- call{org: org, w: w}
 		<-release
 		return nil
@@ -201,7 +201,7 @@ func TestQueueIsolatesSameWorkerIDAcrossOrgs(t *testing.T) {
 	q.Enqueue("org-b", "w-owner", activation.Trigger{Kind: activation.TriggerHire})
 
 	deadline := time.After(2 * time.Second)
-	got := map[string]orgchart.WorkerID{}
+	got := map[string]orgchart.BotID{}
 	for len(got) < 2 {
 		select {
 		case c := <-started:

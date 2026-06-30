@@ -21,25 +21,22 @@ func seedReportingGraph(t *testing.T) Config {
 	ctx := context.Background()
 	st := orggorm.GetOrgTestDB(t)
 
-	role, _ := orgchart.NewRole("r-x", "# X", nil, nil, time.Now().UTC(), "org-test")
-	if err := st.Roles.Create(ctx, role); err != nil {
-		t.Fatalf("create role: %v", err)
-	}
-	for _, id := range []orgchart.WorkerID{"w-owner", "w-jane", "w-bob", "w-li", "w-sam"} {
-		w, _ := orgchart.NewAIWorker(id, "r-x", "#", "org-test")
-		if err := st.Workers.Create(ctx, w); err != nil {
+	now := time.Now().UTC()
+	for _, id := range []orgchart.BotID{"b-owner", "b-jane", "b-bob", "b-li", "b-sam"} {
+		b, _ := orgchart.NewBot(id, "# "+string(id), nil, nil, now, "org-test")
+		if err := st.Bots.Create(ctx, b); err != nil {
 			t.Fatalf("create %s: %v", id, err)
 		}
 	}
-	addReportingLine(t, st, "w-owner", "w-jane")
-	addReportingLine(t, st, "w-jane", "w-li")
-	addReportingLine(t, st, "w-jane", "w-sam")
-	addReportingLine(t, st, "w-bob", "w-li") // li has two managers
+	addReportingLine(t, st, "b-owner", "b-jane")
+	addReportingLine(t, st, "b-jane", "b-li")
+	addReportingLine(t, st, "b-jane", "b-sam")
+	addReportingLine(t, st, "b-bob", "b-li") // li has two managers
 
 	return DefaultDeps(st)
 }
 
-func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.WorkerID) {
+func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart.BotID) {
 	t.Helper()
 	line, err := orgchart.NewReportingLine("org-test", manager, report)
 	if err != nil {
@@ -50,15 +47,20 @@ func addReportingLine(t *testing.T, st *orgstore.Store, manager, report orgchart
 	}
 }
 
-// TestManagers_ListsBothManagersWithDMTopics: w-li reports to jane and
+// callerBot builds a tool.Caller for the given bot id (the MCP server
+// builds the real adapter at the boundary).
+func callerBot(id orgchart.BotID) tool.Caller {
+	return botCaller{id: string(id), orgID: "org-test"}
+}
+
+// TestManagers_ListsBothManagersWithDMTopics: b-li reports to jane and
 // bob; the managers tool returns both, each with the deterministic DM
 // topic id.
 func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 	deps := seedReportingGraph(t)
-	caller, _ := orgchart.NewAIWorker("w-li", "r-x", "#", "org-test")
 	tl := &Managers{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-li"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -67,24 +69,21 @@ func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(got.Managers) != 2 {
-		t.Fatalf("managers = %+v, want 2 (w-bob, w-jane)", got.Managers)
+		t.Fatalf("managers = %+v, want 2 (b-bob, b-jane)", got.Managers)
 	}
-	byID := map[orgchart.WorkerID]managerView{}
+	byID := map[orgchart.BotID]managerView{}
 	for _, m := range got.Managers {
 		byID[m.ID] = m
 	}
-	jane, ok := byID["w-jane"]
+	jane, ok := byID["b-jane"]
 	if !ok {
-		t.Fatalf("w-jane missing from managers: %+v", got.Managers)
+		t.Fatalf("b-jane missing from managers: %+v", got.Managers)
 	}
-	if jane.DMTopicID != channels.DMTopicID("w-li", "w-jane") {
-		t.Fatalf("jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("w-li", "w-jane"))
+	if jane.DMTopicID != channels.DMTopicID("b-li", "b-jane") {
+		t.Fatalf("jane dmTopicId = %q, want %q", jane.DMTopicID, channels.DMTopicID("b-li", "b-jane"))
 	}
-	if jane.Role != "r-x" {
-		t.Fatalf("jane role = %q, want r-x", jane.Role)
-	}
-	if _, ok := byID["w-bob"]; !ok {
-		t.Fatalf("w-bob missing from managers: %+v", got.Managers)
+	if _, ok := byID["b-bob"]; !ok {
+		t.Fatalf("b-bob missing from managers: %+v", got.Managers)
 	}
 }
 
@@ -92,10 +91,9 @@ func TestManagers_ListsBothManagersWithDMTopics(t *testing.T) {
 // an empty (non-null) list.
 func TestManagers_OwnerHasNone(t *testing.T) {
 	deps := seedReportingGraph(t)
-	caller, _ := orgchart.NewHumanWorker("w-owner", "r-x", "#", "org-test")
 	tl := &Managers{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-owner"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -116,13 +114,12 @@ func TestManagers_OwnerHasNone(t *testing.T) {
 // phantom (defensive — the line should have cascaded, but tolerate it).
 func TestManagers_SkipsDanglingManager(t *testing.T) {
 	deps := seedReportingGraph(t)
-	// Add a line from a non-existent manager to w-sam directly in the
-	// store (bypassing the worker-existence check a real hire would do).
-	addReportingLine(t, deps.Store, "w-ghost", "w-sam")
-	caller, _ := orgchart.NewAIWorker("w-sam", "r-x", "#", "org-test")
+	// Add a line from a non-existent manager to b-sam directly in the
+	// store (bypassing the bot-existence check a real create would do).
+	addReportingLine(t, deps.Store, "b-ghost", "b-sam")
 	tl := &Managers{deps: deps.Build()}
 
-	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: caller, Args: json.RawMessage(`{}`)})
+	raw, err := tl.Invoke(context.Background(), tool.Invocation{Caller: callerBot("b-sam"), Args: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
@@ -130,9 +127,9 @@ func TestManagers_SkipsDanglingManager(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// w-sam reports to w-jane (real) and w-ghost (dangling) — only jane
+	// b-sam reports to b-jane (real) and b-ghost (dangling) — only jane
 	// comes back.
-	if len(got.Managers) != 1 || got.Managers[0].ID != "w-jane" {
-		t.Fatalf("managers = %+v, want only [w-jane]", got.Managers)
+	if len(got.Managers) != 1 || got.Managers[0].ID != "b-jane" {
+		t.Fatalf("managers = %+v, want only [b-jane]", got.Managers)
 	}
 }

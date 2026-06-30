@@ -31,14 +31,13 @@ var reportsSchema = mustSchema[reportsArgs]()
 type reportsArgs struct{}
 
 type reportView struct {
-	ID         orgchart.WorkerID  `json:"id"`
-	Role       orgchart.RoleID    `json:"role"`
+	ID        orgchart.BotID    `json:"id"`
 	DMTopicID streaming.TopicID `json:"dmTopicId"`
 	// Manages is true when this report leads their own sub-team. When
 	// true, TeamTopicID is shown for context — but you delegate the
 	// workstream to the report and let them cascade rather than posting
 	// into their sub-team yourself (one-hop rule).
-	Manages      bool                `json:"manages"`
+	Manages     bool               `json:"manages"`
 	TeamTopicID *streaming.TopicID `json:"teamTopicId,omitempty"`
 }
 
@@ -46,7 +45,7 @@ type reportsResult struct {
 	// TeamTopicID is the broadcast channel for all your direct reports;
 	// null until you have at least one report.
 	TeamTopicID *streaming.TopicID `json:"teamTopicId"`
-	Reports      []reportView        `json:"reports"`
+	Reports     []reportView       `json:"reports"`
 }
 
 func (t *Reports) Name() tool.Name                 { return ReportsName }
@@ -66,7 +65,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if orgID == "" {
 		return nil, fmt.Errorf("reports: caller has no OrgID")
 	}
-	caller := orgchart.WorkerID(inv.Caller.ID())
+	caller := orgchart.BotID(inv.Caller.ID())
 	result := reportsResult{Reports: []reportView{}}
 	if !t.deps.Queries.ReportingLinesWired() {
 		return json.Marshal(result)
@@ -76,7 +75,7 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		return nil, fmt.Errorf("list reports: %w", err)
 	}
 	for _, r := range reportIDs {
-		w, err := t.deps.Queries.GetWorker(ctx, orgID, r)
+		b, err := t.deps.Queries.GetBot(ctx, orgID, r)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				continue
@@ -88,10 +87,9 @@ func (t *Reports) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 			return nil, fmt.Errorf("list sub-reports of %q: %w", r, err)
 		}
 		view := reportView{
-			ID:         w.ID(),
-			Role:       w.RoleID(),
+			ID:        b.ID,
 			DMTopicID: channels.DMTopicID(caller, r),
-			Manages:    len(subReports) > 0,
+			Manages:   len(subReports) > 0,
 		}
 		if view.Manages {
 			ts := channels.TeamTopicID(r)

@@ -14,8 +14,8 @@ func TestNewSubscription(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name    string
-		worker  orgchart.WorkerID
-		topic  streaming.TopicID
+		worker  orgchart.BotID
+		topic   streaming.TopicID
 		ts      time.Time
 		wantErr bool
 	}{
@@ -33,7 +33,7 @@ func TestNewSubscription(t *testing.T) {
 			if gotErr != tc.wantErr {
 				t.Fatalf("streaming.NewSubscription error = %v, wantErr = %v", err, tc.wantErr)
 			}
-			if !gotErr && (s.WorkerID != string(tc.worker) || s.TopicID != tc.topic) {
+			if !gotErr && (s.BotID != string(tc.worker) || s.TopicID != tc.topic) {
 				t.Fatalf("subscription = %+v", s)
 			}
 		})

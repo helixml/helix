@@ -1,15 +1,15 @@
-You are helping me add a new Role to the org. **Move fast.** Don't
+You are helping me add a new bot to the org. **Move fast.** Don't
 interview me — draft from what I gave you, save it, then ask if I
 want changes.
 
-## Step 1 — Draft the Role
+## Step 1 — Draft the bot
 
-Generate a complete Role markdown in this exact shape (every demo
-Role in this repo follows it; consistency matters more than
-creativity here):
+Generate a complete bot markdown in this exact shape (every demo bot
+in this repo follows it; consistency matters more than creativity
+here):
 
 ```markdown
-# Role: {Title}
+# {Title}
 
 {One-paragraph mission. Plain prose, no bullets. Says what outcome
 they own.}
@@ -41,7 +41,7 @@ would recognise as their request.
 - Before acting on a trigger, name it in one line
   (e.g. `Trigger: researcher posted notes`) so the audit log shows
   which branch fired.
-- Do not modify your own Role.
+- Do not modify your own content.
 
 ## Files
 
@@ -55,65 +55,54 @@ a question.
 
 Every `**On {event}.**` block must end with an explicit output
 channel (`Post to s-…`) or say "no post — internal note only".
-Every Role must include the `**On anything else.** Stay quiet`
+Every bot must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
 Default tools: pick from what the org has — typically `subscribe`,
 `publish`, `read_events`, `dm`, `managers`, `reports`. `managers` and
-`reports` let the Worker resolve its reporting lines live — escalate up
+`reports` let the bot resolve its reporting lines live — escalate up
 to a manager (`managers` + `dm`), brief down to its reports (`reports` +
-`publish` to the team topic). List both on any Role that sits in a
-hierarchy. Don't list `hire_worker` or `create_role` unless the title
-implies seniority.
+`publish` to the team topic). List both on any bot that sits in a
+hierarchy. Don't list `create_bot` unless the title implies seniority.
 
 ## Step 2 — Save it. **Don't ask permission.**
 
-Immediately call **`create_role`** with:
-- `id`: kebab-case from the title, prefixed `r-`
-  (e.g. `r-marketing-director`)
+Immediately call **`create_bot`** with:
+- `id`: kebab-case from the title, prefixed `b-`
+  (e.g. `b-marketing-director`)
 - `content`: the markdown above
 - `tools`: an array of every MCP tool name from the `## Tools (MCP)`
-  section. **This is load-bearing** — the Role's `tools` is the live
-  MCP surface for every Worker holding it. Skip it and your Workers
-  will be mute.
+  section. **This is load-bearing** — the bot's `tools` is its live
+  MCP surface. Skip it and the bot will be mute.
 
 Just do it. The owner can edit or delete after.
 
 ## Step 3 — Show me what landed and offer changes
 
-After `create_role` returns, post the saved markdown back to me in
+After `create_bot` returns, post the saved markdown back to me in
 a code block, then ask **one** focused question — pick the
 direction most likely to want a tweak:
 
-> Saved as `r-…`. Want to change anything? Common edits:
+> Saved as `b-…`. Want to change anything? Common edits:
 > - **Triggers** — different events, or different responses
 > - **Topics** — add/remove which channels they read/write
 > - **Tools** — broader or tighter MCP scope
 > - **Constraints** — what they should never do
 >
-> Say what you'd change, or say **"next"** to hire someone into this
-> Role and I'll set up the Worker too.
+> Say what you'd change, or say **"next"** to stand up this bot's
+> topics.
 
 If I name an edit, call `update_role` and show the new version.
-If I say "next" (or anything indicating I want to hire), drive the
-hire conversationally: ask only for a name + one-line vibe for the
-person, then chain:
-
-1. `hire_worker` — kind `ai`, id `w-<lowercase-firstname>`, `roleId`
-   pointing at the Role you just saved, `parentId` set to the manager
-   Worker (default `w-owner`). The Worker's MCP tools come live from
-   the Role you just saved; no `tools` parameter is needed (or
-   accepted).
-2. **Stand up their topics.** For each topic the Role's Topics
-   section lists:
-   - call `list_topics` first — another Worker may already have
+If I say "next", **stand up the bot's topics.** For each topic the
+bot's Topics section lists:
+   - call `list_topics` first — another bot may already have
      created it
-   - if it exists, `subscribe` the new Worker (subscriptions are
-     per-Worker — they die when the Worker is fired)
+   - if it exists, `subscribe` the bot (subscriptions are
+     per-bot — they die when the bot is deleted)
    - if not, `create_topic` then `subscribe`
 
-   A Worker hired without their topics subscribed is half-hired —
-   they have nothing to listen to.
+A bot whose topics aren't subscribed is half-done — it has nothing
+to listen to.
 
 Don't ask permission for each tool call — chain them.
 

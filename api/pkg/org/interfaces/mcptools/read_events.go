@@ -29,8 +29,8 @@ const (
 // re-parsing.
 type eventView struct {
 	ID        streaming.EventID  `json:"id"`
-	TopicID  streaming.TopicID `json:"topicId"`
-	Source    orgchart.WorkerID  `json:"source"`
+	TopicID   streaming.TopicID  `json:"topicId"`
+	Source    orgchart.BotID     `json:"source"`
 	Body      string             `json:"body"`
 	Message   *streaming.Message `json:"message,omitempty"`
 	CreatedAt time.Time          `json:"createdAt"`
@@ -39,7 +39,7 @@ type eventView struct {
 func eventViewOf(e streaming.Event) eventView {
 	view := eventView{
 		ID:        e.ID,
-		TopicID:  e.TopicID,
+		TopicID:   e.TopicID,
 		Source:    e.Source,
 		Body:      e.Body,
 		CreatedAt: e.CreatedAt,
@@ -147,13 +147,13 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		wait = readEventsMaxWaitSecs
 	}
 	since := streaming.EventID(args.Since)
-	workerID := inv.Caller.ID()
+	botID := inv.Caller.ID()
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("read_events: caller has no OrgID")
 	}
 
-	fresh, err := t.fresh(ctx, orgID, workerID, limit, since)
+	fresh, err := t.fresh(ctx, orgID, botID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -161,13 +161,13 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return marshalEvents(fresh), nil
 	}
 
-	// Resolve worker → subscribed topics.
-	if _, err := t.deps.Queries.GetWorker(ctx, orgID, workerID); err != nil {
-		return nil, fmt.Errorf("get worker %q: %w", workerID, err)
+	// Resolve bot → subscribed topics.
+	if _, err := t.deps.Queries.GetBot(ctx, orgID, botID); err != nil {
+		return nil, fmt.Errorf("get bot %q: %w", botID, err)
 	}
-	subs, err := t.deps.Queries.WorkerSubscriptions(ctx, orgID, workerID)
+	subs, err := t.deps.Queries.BotSubscriptions(ctx, orgID, botID)
 	if err != nil {
-		return nil, fmt.Errorf("list subscriptions for worker %q: %w", workerID, err)
+		return nil, fmt.Errorf("list subscriptions for bot %q: %w", botID, err)
 	}
 	topicIDs := make([]streaming.TopicID, 0, len(subs))
 	for _, sub := range subs {
@@ -186,7 +186,7 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 		return marshalEvents(nil), nil
 	}
 
-	fresh, err = t.fresh(ctx, orgID, workerID, limit, since)
+	fresh, err = t.fresh(ctx, orgID, botID, limit, since)
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +195,10 @@ func (t *ReadEvents) Invoke(ctx context.Context, inv tool.Invocation) (json.RawM
 
 // fresh returns events newer than `since` (exclusive), newest-first, up
 // to `limit`. An empty `since` means "return everything".
-func (t *ReadEvents) fresh(ctx context.Context, orgID string, workerID orgchart.WorkerID, limit int, since streaming.EventID) ([]streaming.Event, error) {
-	events, err := t.deps.Queries.WorkerEvents(ctx, orgID, workerID, limit)
+func (t *ReadEvents) fresh(ctx context.Context, orgID string, botID orgchart.BotID, limit int, since streaming.EventID) ([]streaming.Event, error) {
+	events, err := t.deps.Queries.BotEvents(ctx, orgID, botID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list events for %q: %w", workerID, err)
+		return nil, fmt.Errorf("list events for %q: %w", botID, err)
 	}
 	if since == "" {
 		return events, nil

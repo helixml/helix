@@ -227,6 +227,6 @@ func WithUpdates(set map[string]any) Option {
 func WithOrg(orgID string) Option { return WithCondition("org_id", orgID) }
 
 // WithID matches the entity's `id` column. Wraps string-like IDs
-// (`orgchart.RoleID`, `orgchart.WorkerID`, …) via Stringer-style conversion at the
+// (`orgchart.BotID`, `orgchart.BotID`, …) via Stringer-style conversion at the
 // call site.
 func WithID(id any) Option { return WithCondition("id", id) }

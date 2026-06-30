@@ -22,7 +22,7 @@ type Hire struct {
 
 // OnHire persists hiringUserID via SaveHiringUser. Empty userID is a
 // no-op (preserves SaveHiringUser's existing contract).
-func (h *Hire) OnHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, hiringUserID string) error {
+func (h *Hire) OnHire(ctx context.Context, orgID string, workerID orgchart.BotID, hiringUserID string) error {
 	return SaveHiringUser(ctx, h.Store, orgID, workerID, hiringUserID)
 }
 

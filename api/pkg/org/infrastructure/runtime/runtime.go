@@ -34,7 +34,7 @@ import (
 //
 // The zero value — nil — means "no process will be spawned", which
 // is correct for tests and for HumanWorker activations.
-type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID, triggers []activation.Trigger) error
+type Spawner func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) error
 
 // WorkspaceSync mirrors the canonical Role and Identity content of a
 // Worker into wherever that Worker's runtime reads them at activation
@@ -63,7 +63,7 @@ type Spawner func(ctx context.Context, orgID string, workerID orgchart.WorkerID,
 // Naming: see ADR-0001 §7 — MirrorFile, not PublishFile. "Publish"
 // is reserved for the MCP-tool sense ("append an Event to a Topic").
 type WorkspaceSync interface {
-	MirrorFile(ctx context.Context, orgID string, workerID orgchart.WorkerID, name, content, message string) error
+	MirrorFile(ctx context.Context, orgID string, workerID orgchart.BotID, name, content, message string) error
 }
 
 // NoopWorkspaceSync is a WorkspaceSync that does nothing. Useful for
@@ -71,7 +71,7 @@ type WorkspaceSync interface {
 type NoopWorkspaceSync struct{}
 
 // MirrorFile is the no-op WorkspaceSync: ignore the call and return nil.
-func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ string, _ orgchart.WorkerID, _, _, _ string) error {
+func (NoopWorkspaceSync) MirrorFile(_ context.Context, _ string, _ orgchart.BotID, _, _, _ string) error {
 	return nil
 }
 
@@ -112,7 +112,7 @@ func ValidateWorkspaceName(name string) error {
 // SaveHiringUser call returns a wrapped error). Document the trade-off
 // at the call site.
 type HireHook interface {
-	OnHire(ctx context.Context, orgID string, workerID orgchart.WorkerID, hiringUserID string) error
+	OnHire(ctx context.Context, orgID string, workerID orgchart.BotID, hiringUserID string) error
 }
 
 // NoopHireHook is a HireHook that does nothing. Useful for
@@ -121,7 +121,7 @@ type HireHook interface {
 type NoopHireHook struct{}
 
 // OnHire is the no-op HireHook: ignore the call and return nil.
-func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ string) error {
+func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.BotID, _ string) error {
 	return nil
 }
 
@@ -132,7 +132,7 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ s
 //
 // Implementations key by orgID + workerID (the operator-facing
 // identifier on the org chart); the helix runtime impl resolves
-// worker→projectID via WorkerRuntimeState internally so MCP tool
+// worker→projectID via BotRuntimeState internally so MCP tool
 // callers never see project IDs. Other runtimes (claude, dev) plug
 // in NoopProjectConfig — the configure_worker_project tool reports
 // "not supported on this runtime" when invoked.
@@ -142,8 +142,8 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.WorkerID, _ s
 // configure_worker_project for partial updates from chat
 // ("change the startup script but leave skills alone").
 type ProjectConfig interface {
-	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID) (ProjectConfigSnapshot, error)
-	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.WorkerID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
+	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID) (ProjectConfigSnapshot, error)
+	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
 }
 
 // ProjectConfigSnapshot is the read shape returned by
@@ -173,11 +173,11 @@ type ProjectConfigPatch struct {
 // clear "not configured" error rather than corrupt data.
 type NoopProjectConfig struct{}
 
-func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID) (ProjectConfigSnapshot, error) {
+func (NoopProjectConfig) GetWorkerProjectConfig(_ context.Context, _ string, _ orgchart.BotID) (ProjectConfigSnapshot, error) {
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
 }
 
-func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.WorkerID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
+func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, _ orgchart.BotID, _ ProjectConfigPatch) (ProjectConfigSnapshot, error) {
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
 }
 
@@ -198,26 +198,26 @@ var ErrProjectConfigUnsupported = errors.New("project config access not wired on
 type SpecTasks interface {
 	// Create makes a new spec task in the caller's project (status
 	// backlog). Mirrors the REST create-from-prompt path.
-	Create(ctx context.Context, orgID string, workerID orgchart.WorkerID, in CreateSpecTaskInput) (SpecTaskView, error)
+	Create(ctx context.Context, orgID string, workerID orgchart.BotID, in CreateSpecTaskInput) (SpecTaskView, error)
 	// List returns the caller's project's spec tasks, optionally filtered.
-	List(ctx context.Context, orgID string, workerID orgchart.WorkerID, filter ListSpecTasksFilter) ([]SpecTaskView, error)
+	List(ctx context.Context, orgID string, workerID orgchart.BotID, filter ListSpecTasksFilter) ([]SpecTaskView, error)
 	// Get returns one spec task; it must belong to the caller's project.
-	Get(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID string) (SpecTaskView, error)
+	Get(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
-	StartPlanning(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID string) (SpecTaskView, error)
+	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
-	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID string) (SpecReviewView, error)
+	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecReviewView, error)
 	// ApproveSpec approves the generated spec, advancing the task toward
 	// implementation.
-	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID string) (SpecTaskView, error)
+	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
 	// RequestChanges sends the spec back for revision with a comment.
-	RequestChanges(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID, comment string) (SpecTaskView, error)
+	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, taskID, comment string) (SpecTaskView, error)
 	// CreatePullRequests tells the system the code is good and to open
 	// the pull request(s) — one per repo attached to the project. It
 	// does NOT merge/approve on GitHub.
-	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.WorkerID, taskID string) (SpecTaskView, error)
+	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
 }
 
 // CreateSpecTaskInput is the create shape. Only Name and Description are
@@ -276,28 +276,28 @@ type SpecReviewView struct {
 // crash. Every verb returns ErrSpecTasksUnsupported.
 type NoopSpecTasks struct{}
 
-func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.WorkerID, _ CreateSpecTaskInput) (SpecTaskView, error) {
+func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ CreateSpecTaskInput) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.WorkerID, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
+func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
 	return nil, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.WorkerID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.WorkerID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.WorkerID, _ string) (SpecReviewView, error) {
+func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecReviewView, error) {
 	return SpecReviewView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.WorkerID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.WorkerID, _, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.WorkerID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 

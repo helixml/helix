@@ -21,7 +21,7 @@ import (
 // `mandate` is the static text the agent reads first — for the Helix
 // runtime it's a short pointer at the helix-specs branch, which carries
 // the real policy text the Worker reads before acting.
-func BuildPrompt(workerID orgchart.WorkerID, mandate string, triggers []activation.Trigger) string {
+func BuildPrompt(workerID orgchart.BotID, mandate string, triggers []activation.Trigger) string {
 	var ctx strings.Builder
 
 	if len(triggers) > 1 {
@@ -47,7 +47,7 @@ func BuildPrompt(workerID orgchart.WorkerID, mandate string, triggers []activati
 		}
 	}
 
-	return fmt.Sprintf(`You are Worker %s, running inside helix-org. Your environment is
+	return fmt.Sprintf(`You are Bot %s, running inside helix-org. Your environment is
 the current working directory. Each activation is a single turn — do
 the work and exit.
 
@@ -78,14 +78,6 @@ func renderTrigger(t activation.Trigger) string {
 	fmt.Fprintf(&b, "  time:        %s\n", t.CreatedAt.Format(time.RFC3339))
 	if t.Source != "" {
 		fmt.Fprintf(&b, "  source:      %s\n", t.Source)
-	}
-	// source_kind drives the agent.md priority rule: AI-origin events
-	// are low-priority by default. Always emit when known (even when
-	// Source itself is empty — a future inbound transport that can
-	// classify origin without resolving a Worker still needs to flag
-	// AI vs human here).
-	if t.SourceKind != "" {
-		fmt.Fprintf(&b, "  source_kind: %s\n", t.SourceKind)
 	}
 	m := t.Message
 	if m.From != "" {

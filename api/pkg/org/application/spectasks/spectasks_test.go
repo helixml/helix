@@ -13,48 +13,48 @@ import (
 // canned results, so the service's caller-extraction and pass-through can
 // be asserted without a real runtime.
 type fakePort struct {
-	lastOrg    string
-	lastWorker orgchart.WorkerID
-	createIn   runtime.CreateSpecTaskInput
-	view       runtime.SpecTaskView
-	review     runtime.SpecReviewView
-	err        error
-	lastTaskID string
+	lastOrg     string
+	lastWorker  orgchart.BotID
+	createIn    runtime.CreateSpecTaskInput
+	view        runtime.SpecTaskView
+	review      runtime.SpecReviewView
+	err         error
+	lastTaskID  string
 	lastComment string
 }
 
-func (f *fakePort) Create(_ context.Context, org string, w orgchart.WorkerID, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+func (f *fakePort) Create(_ context.Context, org string, w orgchart.BotID, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.createIn = org, w, in
 	return f.view, f.err
 }
-func (f *fakePort) List(_ context.Context, org string, w orgchart.WorkerID, _ runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+func (f *fakePort) List(_ context.Context, org string, w orgchart.BotID, _ runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker = org, w
 	if f.err != nil {
 		return nil, f.err
 	}
 	return []runtime.SpecTaskView{f.view}, nil
 }
-func (f *fakePort) Get(_ context.Context, org string, w orgchart.WorkerID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) Get(_ context.Context, org string, w orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID = org, w, taskID
 	return f.view, f.err
 }
-func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.WorkerID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID = org, w, taskID
 	return f.view, f.err
 }
-func (f *fakePort) ReviewSpec(_ context.Context, org string, w orgchart.WorkerID, taskID string) (runtime.SpecReviewView, error) {
+func (f *fakePort) ReviewSpec(_ context.Context, org string, w orgchart.BotID, taskID string) (runtime.SpecReviewView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID = org, w, taskID
 	return f.review, f.err
 }
-func (f *fakePort) ApproveSpec(_ context.Context, org string, w orgchart.WorkerID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) ApproveSpec(_ context.Context, org string, w orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID = org, w, taskID
 	return f.view, f.err
 }
-func (f *fakePort) RequestChanges(_ context.Context, org string, w orgchart.WorkerID, taskID, comment string) (runtime.SpecTaskView, error) {
+func (f *fakePort) RequestChanges(_ context.Context, org string, w orgchart.BotID, taskID, comment string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID, f.lastComment = org, w, taskID, comment
 	return f.view, f.err
 }
-func (f *fakePort) CreatePullRequests(_ context.Context, org string, w orgchart.WorkerID, taskID string) (runtime.SpecTaskView, error) {
+func (f *fakePort) CreatePullRequests(_ context.Context, org string, w orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastTaskID = org, w, taskID
 	return f.view, f.err
 }

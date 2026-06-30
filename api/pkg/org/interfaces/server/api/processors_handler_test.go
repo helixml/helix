@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
 
 // jsonapiDoc wraps attributes in a JSON:API request document.
@@ -315,4 +315,3 @@ func TestGetMissingProcessor404(t *testing.T) {
 		t.Errorf("missing processor get = %d, want 404", rec.Code)
 	}
 }
-

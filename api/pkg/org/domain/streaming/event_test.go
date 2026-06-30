@@ -15,8 +15,8 @@ func TestNewEvent(t *testing.T) {
 	cases := []struct {
 		name    string
 		id      streaming.EventID
-		topic  streaming.TopicID
-		source  orgchart.WorkerID
+		topic   streaming.TopicID
+		source  orgchart.BotID
 		body    string
 		ts      time.Time
 		wantErr bool
