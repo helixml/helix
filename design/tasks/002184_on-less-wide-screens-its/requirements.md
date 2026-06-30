@@ -12,6 +12,16 @@ On narrow / less-wide screens the comment bubbles stack below the document
 (`isNarrowViewport` mode), and the small unlabeled icon is easy to miss. Users
 report having to "dig around for ages" before finding the Resolve action.
 
+A key part of the symptom (per review feedback) is that on less-wide screens the
+user **needed a horizontal scroll** to reach the button at all. In the
+side-positioned (wide) layout the bubble is absolutely positioned to the right of
+the 800px document column (`left: 820px`, `width: 300px`), so its right edge sits
+at ~1120px+ relative to the centred column. But the layout only switches to the
+stacked in-flow mode below 1000px (`useMediaQuery(theme.breakpoints.down(1000))`).
+In the medium-width band the bubble — and the Resolve button at its top-right —
+overflows past the right edge of the viewport, hidden until you scroll
+horizontally.
+
 ## User Stories
 
 ### US-1: Find the Resolve action quickly
@@ -40,6 +50,11 @@ so I don't have to guess.
 - AC-5: On wide viewports the header layout is not visually broken — the Resolve
   control remains in the top-right of the comment header and does not overflow
   or push other content.
+- AC-6: The comment bubble (and therefore the Resolve control) is reachable
+  **without horizontal scrolling** at all viewport widths. The stacked in-flow
+  layout must engage before the side-positioned bubble would overflow the right
+  edge of the viewport — i.e. the `isNarrowViewport` threshold is raised so there
+  is no medium-width band where the bubble is pushed off-screen.
 
 ## Out of Scope
 

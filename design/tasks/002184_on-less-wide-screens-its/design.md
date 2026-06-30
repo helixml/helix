@@ -21,10 +21,47 @@ behaviour itself is fine — the problem is purely discoverability of the contro
 `useMediaQuery(theme.breakpoints.down(1000))` and passed into
 `InlineCommentBubble`. `CommentLogSidebar` does not currently receive it.
 
+### Root cause of the horizontal scroll (review feedback)
+
+The wide-layout bubble is absolutely positioned **outside** the document column:
+
+```js
+const wideStyles = { position: "absolute", left: "820px", width: "300px", ... };
+```
+
+`left: 820px` is relative to the markdown column, which is `maxWidth: 800px` and
+horizontally centred (`mx: "auto"`) inside the flex document area. So the bubble's
+right edge is at `columnLeftMargin + 820 + 300`. Because the column is centred,
+`columnLeftMargin` grows as the area widens, which means the bubble needs the
+viewport to be **well above 1120px** (closer to ~1440px once centring margins are
+included) before it fits without overflow. Yet the stacked layout only kicks in
+below **1000px** (`breakpoints.down(1000)`).
+
+The result: across a wide medium band, the side-positioned bubble — and the
+Resolve button at its top-right — sits past the right edge of the viewport and is
+only reachable by scrolling horizontally. The label change improves
+discoverability, but the horizontal-scroll symptom (AC-6) is fixed by making the
+in-flow stacked layout engage earlier so the off-document panel is never shown at
+a width that can't contain it.
+
 ## Approach
 
-Replace the bare icon button with a clearly labeled Resolve control. Keep it
-minimal — match the existing MUI usage already imported in these files.
+Two complementary changes:
+
+**A. Stop the horizontal scroll (the primary symptom).** Raise the
+`isNarrowViewport` threshold in `DesignReviewContent.tsx:111` so the stacked,
+in-flow, full-width layout engages before the side-positioned bubble can overflow
+the viewport. The side layout needs the centred 800px column plus a 300px panel
+offset at `left: 820px` plus centring margins — so a threshold around
+`breakpoints.down(1280)` (up from 1000) keeps the stacked layout active through
+the whole band where the panel would otherwise be pushed off-screen. Pick the
+value to comfortably clear `820 + 300` plus typical centring margin; ~1280px is a
+safe, simple choice. This is a one-line change and removes the "had to scroll
+sideways to find it" problem at its root.
+
+**B. Make the control obvious (discoverability).** Replace the bare icon button
+with a clearly labeled Resolve control. Keep it minimal — match the existing MUI
+usage already imported in these files.
 
 ### Decision: labeled MUI `Button` + tooltip (chosen)
 
@@ -54,6 +91,13 @@ Also wrap with a `Tooltip title="Resolve comment"` for the hover affordance
   the labeled button everywhere for consistency and simplicity.
 
 ## Changes
+
+0. `DesignReviewContent.tsx`
+   - Raise the `isNarrowViewport` breakpoint from `down(1000)` to ~`down(1280)`
+     so the stacked layout engages before the side bubble overflows (fixes the
+     horizontal scroll, AC-6). Update the adjacent comment that explains the
+     1000px figure to reflect the new reasoning (panel offset `820px` + width
+     `300px` + centring margin).
 
 1. `InlineCommentBubble.tsx`
    - Replace the resolve `IconButton`/`CheckCircleIcon` block (lines ~129-131)
