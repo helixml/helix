@@ -21,6 +21,19 @@ import (
 type AttentionService struct {
 	store store.Store
 	cfg   *config.ServerConfig
+	// eventSink, when set, receives every freshly-created attention event
+	// (deduplicated events are skipped). The helix-org wiring points it
+	// at a publisher that fans the event onto the project's spec-task
+	// topic so subscribed Workers are triggered. nil = no forwarding
+	// (non-org deployments, tests).
+	eventSink AttentionEventSink
+}
+
+// AttentionEventSink receives attention events for forwarding beyond the
+// DB queue + Slack — today, the org spec-task topic publisher. Kept a
+// narrow one-method port so AttentionService stays free of an org import.
+type AttentionEventSink interface {
+	PublishAttentionEvent(ctx context.Context, event *types.AttentionEvent) error
 }
 
 // NewAttentionService creates a new AttentionService.
@@ -29,6 +42,12 @@ func NewAttentionService(store store.Store, cfg *config.ServerConfig) *Attention
 		store: store,
 		cfg:   cfg,
 	}
+}
+
+// SetEventSink wires the optional event sink (org spec-task topic
+// publisher). Safe to leave unset; EmitEvent then only persists + Slack.
+func (s *AttentionService) SetEventSink(sink AttentionEventSink) {
+	s.eventSink = sink
 }
 
 // EmitEvent creates an attention event for the owner of the given spectask.
@@ -115,6 +134,18 @@ func (s *AttentionService) EmitEvent(
 
 	// Fire-and-forget Slack notification via the per-project Slack trigger.
 	go s.notifySlack(context.Background(), created, task, project)
+
+	// Forward to the event sink (org spec-task topic publisher) so
+	// subscribed Workers are triggered. Fire-and-forget, like Slack —
+	// a publish failure must never fail the attention event itself.
+	if s.eventSink != nil {
+		if err := s.eventSink.PublishAttentionEvent(ctx, created); err != nil {
+			log.Warn().Err(err).
+				Str("event_id", created.ID).
+				Str("spec_task_id", task.ID).
+				Msg("[AttentionService] Failed to forward attention event to sink")
+		}
+	}
 
 	return created, nil
 }
