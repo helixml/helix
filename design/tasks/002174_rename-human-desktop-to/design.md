@@ -84,3 +84,52 @@ underlying concept ("a human is present, no auto-restart") is still accurate.
   successfully (the only failure was an EACCES writing to the root-owned `dist/`
   bind mount — a sandbox FS artifact, not a code error). Live UI check was not
   possible: the inner Helix stack (:8080) would not boot in this session.
+
+## Follow-up fix: instant Project Desktop navigation (no-feedback bug)
+
+**Symptom:** clicking "Open/Resume Project Desktop" gave no immediate UI feedback
+until the desktop had fully started — the user sat on the board watching only a
+"Starting…" button label.
+
+**Root cause:** `startExploratorySession` (`api/pkg/server/project_handlers.go`)
+called `externalAgentExecutor.StartDesktop()` **synchronously in the HTTP request
+path**. `StartDesktop` does the whole sandbox container launch (sandbox selection
++ hydra RevDial container creation), which takes several seconds, so the POST
+blocked the whole time. This is the outlier — spec tasks already run `StartDesktop`
+in a goroutine off the request path (see `SpecTaskOrchestrator` → `wg.Add(1); go
+StartSpecGeneration`).
+
+**Fix:**
+- Backend: provision the desktop in a detached goroutine
+  (`detachContext(r.Context(), 10m)` — the existing helper that preserves the
+  authed user but drops request cancellation) and return the session row
+  immediately. Applied to both the new-session and existing-session-restart
+  branches. Endpoint latency went from multi-second to **~9ms**.
+- Frontend (`SpecTasksPage.tsx`): `handleResumeExploratorySession` now navigates
+  to the desktop page first (it already has the session id) and fires the resume
+  mutation in the background, so the page transition is instant. The desktop page
+  (`TeamDesktopPage` → `ExternalAgentDesktopViewer`) already renders a
+  connecting/reconnecting state while the container boots.
+
+**Tradeoff:** errors that `StartDesktop` used to surface synchronously (e.g.
+"desktop limit reached") now manifest as the desktop never connecting rather than
+an immediate error snackbar — the same model spec tasks already use. The session
+endpoint is polled every ~5.3s so status still converges.
+
+**Verified:** `go build ./pkg/server/` and `yarn tsc` pass; POST returns in 9ms
+(was blocking); api logs show "Starting dev container via Hydra" firing *after*
+the response returned; in-browser the URL flips to `/desktop/<id>` instantly on
+click. Desktop *streaming* itself was NOT verifiable in this env — see below.
+
+## Note: desktop "Reconnecting…" loop is an environment/DNS issue (not this change)
+
+While testing, the desktop stream sat in "Reconnecting (attempt N)…". Root cause
+is **DNS inside the nested dev sandbox**, unrelated to any code here: the
+`desktop-bridge` in the `ubuntu-external-*` container cannot resolve the `api`
+host — `lookup api on 10.214.0.1:53: i/o timeout / connection refused` — so its
+RevDial control connection back to the API never establishes, and the API logs
+`Failed to connect to sandbox via RevDial for stream WebSocket: "no connection"`.
+The container is up and GNOME ScreenCast is healthy; only the API hostname
+resolution from within the DinD network is failing. The UI reconnect loop is the
+bridge correctly retrying. This is a dev-environment infra problem, not a Helix
+code bug, and not fixable in the frontend.
