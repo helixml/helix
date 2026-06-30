@@ -106,9 +106,14 @@ export default function DesignReviewContent({
   const snackbar = useSnackbar();
   const api = useApi();
   const theme = useTheme();
-  // Narrow viewport: comment panels should not overlay the document
-  // 1000px = document (800px) + panel (300px) + minimal padding
-  const isNarrowViewport = useMediaQuery(theme.breakpoints.down(1000));
+  // Narrow viewport: comment panels should not overlay the document.
+  // The side-positioned bubble is absolutely placed at left:820px with
+  // width:300px (right edge ~1120px) relative to the centred 800px document
+  // column, so once centring margins are added it needs well over 1120px of
+  // viewport to fit. Below this threshold we switch to the stacked in-flow
+  // layout so the bubble (and its Resolve button) never overflows off-screen,
+  // which previously forced a horizontal scroll to reach it.
+  const isNarrowViewport = useMediaQuery(theme.breakpoints.down(1280));
 
   // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>(initialTab);
