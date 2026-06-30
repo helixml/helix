@@ -41,11 +41,11 @@ rippling outward. Build/test after each layer.
 - [x] Add `api/pkg/store/migrations/0005_merge_roles_workers_into_bots.{up,down}.sql` — keep it simple: guarded `DROP TABLE` for the changed helix-org tables (`org_roles`, `org_workers`, `org_reporting_lines`, `org_subscriptions`, `org_worker_runtime_state`), AutoMigrate creates the new ones. No re-bootstrap/seeding (operator recreates bots manually); `.down` no-op.
 
 ## 7. Frontend (`frontend/src`)
-- [ ] Merge `HelixOrgRoles`+`HelixOrgWorkers` → `HelixOrgBots.tsx`; merge `HelixOrgRoleDetail`+`HelixOrgWorkerDetail` → `HelixOrgBotDetail.tsx`.
-- [ ] `NewRoleDialog`+`HireWorkerDrawer` → `NewBotDialog`; drop kind selector + identity field.
-- [ ] Update `HelixOrgChart.tsx` (bot nodes, no role frames), `HelixOrgSidebar.tsx`, `useHelixOrgBreadcrumbs.ts` (Bots section).
-- [ ] Update `helixOrgService.ts`, `types.ts`, `router.tsx` (`/roles`,`/workers` routes → `/bots`).
-- [ ] Update frontend tests (`HelixOrgWorkerDetail.test.tsx` → bot); `yarn build`/`yarn test` green.
+- [x] Merge `HelixOrgRoles`+`HelixOrgWorkers` → `HelixOrgBots.tsx`; merge `HelixOrgRoleDetail`+`HelixOrgWorkerDetail` → `HelixOrgBotDetail.tsx`.
+- [x] `NewRoleDialog`+`HireWorkerDrawer` → `NewBotDialog`; drop kind selector + identity field.
+- [x] Update `HelixOrgChart.tsx` (bot nodes, no role frames), `HelixOrgSidebar.tsx`, `useHelixOrgBreadcrumbs.ts` (Bots section).
+- [x] Update `helixOrgService.ts`, `types.ts`, `router.tsx` (`/roles`,`/workers` routes → `/bots`).
+- [~] `yarn build` green. Frontend test rewrite pending.
 
 ## 8. QA rewrite + global sweep
 - [ ] Rewrite `api/pkg/org/QA.md` to the Bot model (mental model, `b-*` ids, merged sections).
