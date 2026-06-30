@@ -25,10 +25,12 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
@@ -104,10 +106,12 @@ const HelixOrgBotDetail: FC = () => {
   // loads/refreshes so a cancelled edit re-syncs to server state.
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
+  const [preserveContext, setPreserveContext] = useState(false)
   useEffect(() => {
     setContent(bot?.content ?? '')
     setTools(bot?.tools ?? [])
-  }, [bot?.content, bot?.tools])
+    setPreserveContext(bot?.preserve_context ?? false)
+  }, [bot?.content, bot?.tools, bot?.preserve_context])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -127,13 +131,14 @@ const HelixOrgBotDetail: FC = () => {
     if (!bot) return false
     if ((bot.content ?? '') !== content) return true
     if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
+    if ((bot.preserve_context ?? false) !== preserveContext) return true
     return false
-  }, [bot, content, tools])
+  }, [bot, content, tools, preserveContext])
 
   const handleSave = async () => {
     if (!botId) return
     try {
-      await updateBot.mutateAsync({ id: botId, content, tools })
+      await updateBot.mutateAsync({ id: botId, content, tools, preserve_context: preserveContext })
       snackbar.success(`bot ${botId} saved`)
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
@@ -397,6 +402,27 @@ const HelixOrgBotDetail: FC = () => {
                       />
                     )}
                   />
+                </Box>
+
+                <Box>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={preserveContext}
+                        onChange={(_e, checked) => setPreserveContext(checked)}
+                      />
+                    }
+                    label="Preserve context across triggers"
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    By default each trigger wipes the bot's session so every turn
+                    starts on a fresh context window. Enable this to keep the
+                    conversation across triggers — faster, more context-aware
+                    follow-ups (e.g. for Slack), at the cost of the session
+                    growing toward the model's context limit (where compaction
+                    kicks in). Durable state still belongs in the bot's git
+                    workspace, not the chat history.
+                  </Typography>
                 </Box>
 
                 <SubscriptionsPanel botID={bot?.id} />

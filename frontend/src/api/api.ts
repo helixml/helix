@@ -35,6 +35,12 @@ export interface ApiBotDTO {
   id?: string;
   organization_id?: string;
   parent_ids?: string[];
+  /**
+   * PreserveContext, when true, stops the runtime from wiping this
+   * Bot's chat session before each re-activation, so it accumulates
+   * context across triggers (e.g. Slack). Defaults to false.
+   */
+  preserve_context?: boolean;
   tools?: string[];
   topics?: string[];
   updated_at?: string;
@@ -61,6 +67,7 @@ export interface ApiCreateBotRequest {
   content?: string;
   id?: string;
   parent_id?: string;
+  preserve_context?: boolean;
   tools?: string[];
   topics?: string[];
 }
@@ -317,6 +324,7 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  preserve_context?: boolean;
   tools?: string[];
   topics?: string[];
 }
