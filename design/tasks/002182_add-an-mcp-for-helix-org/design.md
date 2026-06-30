@@ -248,3 +248,28 @@ Named to read like the actions a human reviewer takes:
 - **Optional dependency wiring:** the `AttentionService` publisher must be
   optional (nil → skip publish), matching how its Slack dependency is handled,
   so non-org deployments and tests don't require the org `Publishing` service.
+
+## Follow-on (out of scope, noted): unify the two notification paths
+
+There are currently **two independent spec-task notification systems** that
+overlap:
+
+1. The **Slack project-updates trigger** (`slack_project_updates.go`) — a
+   `store.SubscribeForTasks` subscriber that fires on every change, with its
+   own formatting (`buildProjectUpdateAttachment`, `humanizeSpecTaskStatus`)
+   and thread bookkeeping.
+2. The **AttentionService** (UI notifications) — curated `AttentionEvent`s with
+   their own formatting (`buildTitle`, `buildDescription`, `eventEmoji`), which
+   *also* posts Slack thread replies (`notifySlack`) — and in fact depends on
+   the thread the path-1 flow created.
+
+So spec-task changes drive two event sources, two formatting code paths, and
+two interdependent Slack posters. This work adds a *third* consumer
+(worker triggers) but deliberately hangs it off AttentionService so we don't
+add a fourth source.
+
+A worthwhile **follow-on** (separate task) is to make AttentionService the
+single curated source and re-express the Slack project-updates trigger and the
+worker-trigger transport (and the UI) as consumers of the same
+`AttentionEvent` stream — collapsing the duplicated event detection and
+formatting. Not in scope here; flagged so it isn't lost.

@@ -132,3 +132,8 @@ Acceptance criteria for the eventing path:
 - Spec-task attachments, design reviews, work sessions, Zed threads.
 - Changes to the MCP gateway routing or the `helix-org` backend transport.
 - New UI. This is a backend/MCP-tooling change only.
+- **Follow-on (noted, not in scope):** de-duplicating the two existing
+  spec-task notification paths — the Slack project-updates trigger
+  (`SubscribeForTasks`) and `AttentionService` (UI + its own Slack replies).
+  They overlap in event detection and formatting; a future task could make
+  AttentionService the single source both consume. See design.md "Follow-on".
