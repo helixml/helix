@@ -229,5 +229,6 @@ type GCReconcileResponse struct {
 	ZvolsSkipped      []GCSkip `json:"zvols_skipped"`
 	WorkspacesReaped  []string `json:"workspaces_reaped"`
 	WorkspacesSkipped []GCSkip `json:"workspaces_skipped"`
+	GoldensFlattened  []string `json:"goldens_flattened"`
 	BytesFreed        int64    `json:"bytes_freed"`
 }

@@ -795,7 +795,6 @@ func (dm *DevContainerManager) buildEnv(req *CreateDevContainerRequest) []string
 	// Our containers run as root, so without this Claude Code prompts for every tool use.
 	env = append(env, "IS_SANDBOX=1")
 
-
 	// Add GPU-specific environment variables
 	switch req.GPUVendor {
 	case "nvidia":
@@ -1314,13 +1313,13 @@ func enumerateDRMDevices(targetDriver string) []drmDevice {
 // tests can stand up a synthetic /sys/class/drm tree.
 //
 // This is the function with the actual PCI walk:
-//   1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
-//   2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
-//      to get the PCI BDF and driver name.
-//   3. Filter to targetDriver if set.
-//   4. For each matching render node, find the sibling card device by
-//      walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
-//   5. Sort the resulting list by PCI BDF.
+//  1. Glob `<devRoot>/dri/renderD*` to find render nodes (compute path).
+//  2. For each render node, look up `<sysfsRoot>/class/drm/<base>/device`
+//     to get the PCI BDF and driver name.
+//  3. Filter to targetDriver if set.
+//  4. For each matching render node, find the sibling card device by
+//     walking `<sysfsRoot>/class/drm/card*/device` and matching BDF.
+//  5. Sort the resulting list by PCI BDF.
 //
 // A render node with no sibling card device is still returned (cards
 // are display-only nodes; some headless compute GPUs have no card device).
@@ -1978,6 +1977,13 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 		before, _ = poolFreeBytes()
 	}
 
+	// Heal the legacy inverted topology where a golden zvol is itself a clone of
+	// an ended session's zvol (making that session zvol an unreapable
+	// clone-origin that leaks old snapshots forever). Promote such goldens to
+	// true roots FIRST, so the now-detached session roots fall to the orphan
+	// reaper below in the same pass. Metadata-only; in dry-run we only report.
+	resp.GoldensFlattened = FlattenInvertedGoldens(req.DryRun)
+
 	zReaped, zSkipped := ReconcileOrphanZvols(liveSessions, grace, req.DryRun)
 	resp.ZvolsReaped = zReaped
 	resp.ZvolsSkipped = zSkipped
@@ -1987,6 +1993,11 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 	resp.WorkspacesSkipped = wSkipped
 
 	if !req.DryRun {
+		// Prune golden snapshots the flatten just absorbed plus any other stale
+		// no-clone snapshots (>7d). Frees the old generations the dead session
+		// roots used to pin. Safe: never touches snapshots with live clones.
+		GCStaleSnapshots()
+
 		// Ignore measurement errors → 0. Pool free can also move for unrelated
 		// reasons; clamp to a non-negative delta.
 		if after, err := poolFreeBytes(); err == nil {
@@ -2005,6 +2016,7 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 		Int("zvols_skipped", len(resp.ZvolsSkipped)).
 		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
 		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int("goldens_flattened", len(resp.GoldensFlattened)).
 		Int64("bytes_freed", resp.BytesFreed).
 		Msg("GC_RECONCILE completed")
 
