@@ -24,6 +24,7 @@ type HealthMonitor struct {
 	probeTimeout  time.Duration
 	failThreshold int           // consecutive failed probes before recovery fires
 	cooldown      time.Duration // minimum gap between recoveries for one project
+	buildTimeout  time.Duration // a build older than this is treated as stuck/interrupted
 
 	mu        sync.Mutex
 	fails     map[string]int       // projectID -> consecutive probe failures
@@ -42,6 +43,7 @@ func NewHealthMonitor(s store.Store, c *Controller, sb *sandbox.Controller) *Hea
 		probeTimeout:  8 * time.Second,
 		failThreshold: 3,
 		cooldown:      5 * time.Minute,
+		buildTimeout:  15 * time.Minute,
 		fails:         map[string]int{},
 		lastRecov:     map[string]time.Time{},
 	}
@@ -89,15 +91,38 @@ func (m *HealthMonitor) runOnce(ctx context.Context) {
 }
 
 // deployInProgress reports whether the project's most recent web-service deploy
-// is still pending or building. ListWebServiceDeploys returns newest-first.
+// is genuinely still pending or building. ListWebServiceDeploys returns
+// newest-first.
+//
+// A build that has been pending/building for longer than buildTimeout was
+// almost certainly interrupted — e.g. the API or runner restarted during a CD
+// upgrade — and its status was never advanced to failed. Without the timeout
+// such a deploy would be treated as "in progress" forever, so the health
+// monitor would skip the project on every tick and never recover it (this is
+// exactly how a live web service silently stayed down for days after an
+// upgrade). When we see a stale in-flight deploy we mark it failed so it stops
+// blocking recovery and the UI stops reporting a phantom build.
 func (m *HealthMonitor) deployInProgress(ctx context.Context, projectID string) bool {
 	deploys, err := m.store.ListWebServiceDeploys(ctx, projectID, 1)
 	if err != nil || len(deploys) == 0 {
 		return false
 	}
-	switch deploys[0].Status {
+	d := deploys[0]
+	switch d.Status {
 	case types.WebServiceDeployStatusPending, types.WebServiceDeployStatusBuilding:
-		return true
+		if time.Since(d.StartedAt) < m.buildTimeout {
+			return true // genuinely in progress — don't disturb it
+		}
+		log.Warn().Str("project_id", projectID).Str("deploy_id", d.ID).
+			Str("status", string(d.Status)).Dur("age", time.Since(d.StartedAt)).
+			Msg("health-monitor: failing stale web-service deploy (interrupted build) so recovery can proceed")
+		if err := m.store.UpdateWebServiceDeploy(ctx, d.ID, map[string]interface{}{
+			"status": types.WebServiceDeployStatusFailed,
+		}); err != nil {
+			log.Warn().Err(err).Str("deploy_id", d.ID).
+				Msg("health-monitor: could not mark stale deploy failed")
+		}
+		return false
 	default:
 		return false
 	}
