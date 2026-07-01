@@ -91,8 +91,54 @@ export default function LMStudioModels({ endpointId }: Props) {
     );
   }
 
+  const totalOnDisk = llmModels.reduce((sum, m) => sum + m.size_bytes, 0);
+  const loadedModels = llmModels.filter((m) => m.loaded_instances.length > 0);
+  const loadedSize = loadedModels.reduce((sum, m) => sum + m.size_bytes, 0);
+  const estimatedRam = loadedSize * 1.1;
+  const systemRamBytes = 128 * 1024 * 1024 * 1024;
+  const ramPercent = Math.min(100, (estimatedRam / systemRamBytes) * 100);
+
   return (
     <Box>
+      <Box sx={{
+        mb: 3, p: 2, borderRadius: 2,
+        border: "1px solid rgba(255,255,255,0.06)",
+        bgcolor: "rgba(255,255,255,0.02)",
+      }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <MemoryIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+            <Typography sx={{ fontSize: "0.8rem", fontWeight: 600 }}>
+              Memory
+            </Typography>
+          </Box>
+          <Typography sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
+            {loadedModels.length > 0 ? (
+              <>~{formatBytes(estimatedRam)} used of 128 GB</>
+            ) : (
+              <>No models loaded</>
+            )}
+          </Typography>
+        </Box>
+        <Box sx={{ width: "100%", height: 8, borderRadius: 4, bgcolor: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+          <Box sx={{
+            width: `${ramPercent}%`,
+            height: "100%",
+            borderRadius: 4,
+            bgcolor: ramPercent > 85 ? "#f44336" : ramPercent > 60 ? "#ff9800" : "#00e891",
+            transition: "width 0.5s ease",
+          }} />
+        </Box>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.5 }}>
+          <Typography sx={{ fontSize: "0.65rem", color: "text.disabled" }}>
+            {loadedModels.length} model{loadedModels.length !== 1 ? "s" : ""} loaded
+          </Typography>
+          <Typography sx={{ fontSize: "0.65rem", color: "text.disabled" }}>
+            {formatBytes(totalOnDisk)} on disk
+          </Typography>
+        </Box>
+      </Box>
+
       <Typography variant="subtitle2" sx={{ mb: 2, color: "text.secondary", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: 1 }}>
         {llmModels.length} model{llmModels.length !== 1 ? "s" : ""} available
       </Typography>
@@ -216,8 +262,10 @@ function ModelCard({
           <Chip label={model.quantization.name} size="small" variant="outlined"
             sx={{ fontSize: "0.68rem", height: 22, "& .MuiChip-label": { px: 0.75 } }} />
         )}
-        <Chip icon={<StorageIcon sx={{ fontSize: "14px !important" }} />} label={formatBytes(model.size_bytes)} size="small" variant="outlined"
-          sx={{ fontSize: "0.68rem", height: 22, "& .MuiChip-label": { px: 0.75 } }} />
+        <Tooltip title={`~${formatBytes(model.size_bytes * 1.1)} RAM when loaded`}>
+          <Chip icon={<StorageIcon sx={{ fontSize: "14px !important" }} />} label={formatBytes(model.size_bytes)} size="small" variant="outlined"
+            sx={{ fontSize: "0.68rem", height: 22, "& .MuiChip-label": { px: 0.75 } }} />
+        </Tooltip>
         {model.architecture && (
           <Chip label={model.architecture} size="small" variant="outlined"
             sx={{ fontSize: "0.68rem", height: 22, "& .MuiChip-label": { px: 0.75 }, opacity: 0.6 }} />
