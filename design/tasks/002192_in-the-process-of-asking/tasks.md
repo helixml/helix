@@ -15,13 +15,13 @@
 - [ ] Change `unsubscribe.go` args to `{botId, topicId}` and pass `botId` to `subscriptions.Unsubscribe`; update description.
 - [ ] Delete `invite_bots.go` and `InviteBotsName`; remove all references.
 
-## create_bot subscribes at creation; remove update_bot; content editor
-- [ ] Drop `Tools` from `createBotArgs`; keep `Topics` as input; `create_bot` args become `id`/`content`/`topics`/`parentId`; update `CreateBot.Description()` (topics subscribes the new bot at creation; `attach_tool` for tools; `set_bot_content` for content).
-- [ ] Add a `schema.go` helper (e.g. `stringArrayProperty(description)`) for a non-nullable `{"type":"array","items":{"type":"string"}}`; apply to `create_bot`'s `topics` and add `topics` to `required`; drop `omitempty` on the Go field.
-- [ ] In `lifecycle.Create`, subscribe the new bot to each topic in `CreateParams.Topics` via the subscriptions service (inject it into `lifecycle`). Validate all topics exist **before** writing the bot row (no partial creates).
+## create_bot sets tools + subscribes at creation; remove update_bot; content editor
+- [ ] Keep **both** `Tools` and `Topics` on `createBotArgs`; args become `id`/`content`/`tools`/`topics`/`parentId`; update `CreateBot.Description()` (tools grants initial tools unioned with baseline, attach/detach to change later; topics subscribes the new bot at creation; `set_bot_content` for content).
+- [ ] Build `create_bot`'s schema dynamically in `InputSchema()` from the names provider (like attach_tool). Add `schema.go` helpers: `enumStringArrayProperty(names, description)` for `tools` (array of enum items) and `stringArrayProperty(description)` for `topics` (non-nullable string array); add `tools` and `topics` to `required`; drop `omitempty` on the Go fields.
+- [ ] In `lifecycle.Create`, subscribe the new bot to each topic in `CreateParams.Topics` via the shared `subscriptions.Subscribe` use case (inject it into `lifecycle`). Validate all topics exist **before** writing the bot row (no partial creates).
 - [ ] Delete `update_bot.go` and `UpdateBotName`; remove all references.
 - [ ] Create `set_bot_content.go` (`set_bot_content`, args `{botId, content}`) calling `bots.Update` with only `Content` set.
-- [ ] Drop `bots.CreateParams.Tools`; keep `CreateParams.Topics` (drives subscription); `bots.Create` applies `MergeTools(nil, baseTools)` and no longer stores a topics field.
+- [ ] Keep `bots.CreateParams.Tools` and `.Topics`; `bots.Create` applies `MergeTools(p.Tools, baseTools)` and no longer stores a topics field on the bot.
 
 ## Remove Bot.Topics end-to-end (subscriptions are the source of truth)
 - [ ] Remove the `Topics` field and `WithTopics` from `orgchart.Bot`, and the `topics` parameter from `NewBot(...)`; update every call site (production + tests).
@@ -37,9 +37,9 @@
 ## Tests & verification
 - [ ] `attach_tool`/`detach_tool`: add; idempotent re-add; detach non-baseline; detach refuses baseline; unknown tool rejected; order-stable result.
 - [ ] `subscribe`/`unsubscribe`: subscribe another bot; self-subscribe; unsubscribe; unknown bot/topic rejected.
-- [ ] `create_bot`: `topics:["t1","t2"]` (existing) → bot + a subscription row per topic; `topics:[]` → bot, no subs, tools == `BaseReadTools`; unknown topic → error and no bot row created; no `tools` schema field; `topics` is a required non-nullable array.
+- [ ] `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` → tools == `BaseReadTools`, no subs; unknown topic → error and no bot row created; unknown tool name rejected; `tools` a required non-nullable enum array and `topics` a required non-nullable array.
 - [ ] `set_bot_content`: content changes, tools preserved.
-- [ ] Schema tests: `attach_tool.tool` non-nullable `enum`; `create_bot.topics` required non-nullable array; no `["null","array"]` union remains; registry additions appear in the enum.
+- [ ] Schema tests: `attach_tool.tool` non-nullable `enum`; `create_bot.tools` required non-nullable array of enum items; `create_bot.topics` required non-nullable array; no `["null","array"]` union remains; registry additions appear in both enums.
 - [ ] Update `builtins_test.go` / `spec_tasks_registration_test.go`; fix `NewBot` call sites; `go build ./...` for the org packages.
 - [ ] Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])`, publish to a listed topic and confirm the bot receives it → `attach_tool` (`subscribe`/`dm`) → `subscribe(botId, topicId)` for a later topic.
 </content>

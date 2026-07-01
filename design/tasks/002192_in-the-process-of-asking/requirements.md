@@ -63,23 +63,27 @@ creation (or subscribe myself by passing my own id).
 - The old caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are
   removed (superseded).
 
-### US-3: Creating a Bot subscribes it immediately
-As a manager Bot, I want `create_bot` to subscribe the new Bot to the topics I
-name, in one call, so it starts listening without a follow-up step.
+### US-3: Creating a Bot sets its tools and subscribes it — in one call
+As a manager Bot, I want `create_bot` to grant the new Bot its initial tools and
+subscribe it to the topics I name, in one call, so it's ready without follow-up
+steps.
 
 **Acceptance criteria**
-- `create_bot` accepts `id?`, `content`, `topics` (required, non-nullable array
-  of existing topic ids — pass `[]` for none), `parentId?`. It does **not**
-  accept `tools` (use `attach_tool`).
-- `topics` is advertised as `{"type":"array","items":{"type":"string"}}` and is
-  `required` — no `["null","array"]` union.
-- On success, a real subscription `(bot, topic)` row exists for every listed
-  topic; the Bot receives events from them immediately.
-- Every listed topic must already exist; unknown topics fail the call. Topics
-  are validated **before** the Bot row is written, so a failed call leaves no
-  partially-created Bot.
-- A new Bot still receives the universal read baseline; more tools via
-  `attach_tool`.
+- `create_bot` accepts `id?`, `content`, `tools` (required, non-nullable array;
+  each item from the registered-tool-name enum — pass `[]` for baseline only),
+  `topics` (required, non-nullable array of existing topic ids — pass `[]` for
+  none), `parentId?`.
+- `tools` items are advertised as the registered-tool-name `enum` (same source
+  as `attach_tool`), so the model sees valid values; the supplied tools are
+  unioned with the universal read baseline. `attach_tool`/`detach_tool` change
+  a Bot's tools later.
+- `topics` is advertised as `{"type":"array","items":{"type":"string"}}`. Both
+  arrays are `required` and non-nullable — no `["null","array"]` union.
+- On success, the Bot has (supplied tools ∪ baseline) and a real subscription
+  `(bot, topic)` row for every listed topic; it receives events immediately.
+- Every listed topic must already exist; unknown topics (and unknown tool
+  names) fail the call. Topics are validated **before** the Bot row is written,
+  so a failed call leaves no partially-created Bot.
 - No `Bot.Topics` manifest field remains; subscriptions are the source of truth.
 
 ### US-4: Edit a Bot's content after creation
@@ -90,9 +94,10 @@ markdown prompt after it exists (kept — confirmed).
 - `set_bot_content` replaces the Bot's `content`; other fields untouched.
 
 ## Out of Scope
-- Array-valued MCP arguments on the tool-grant/subscription tools (removed by
-  design). `create_bot.topics` is the one retained array, with a fixed
-  non-nullable schema.
+- The standalone tool-grant/subscription tools stay scalar
+  (`attach_tool`/`detach_tool`/`subscribe`/`unsubscribe`). `create_bot` carries
+  two fixed non-nullable arrays (`tools` enum items, `topics`) — the bulk
+  create-time form; per-item edits are the scalar tools.
 - Auto-*creating* topics that don't exist (the manager calls `create_topic`
   first). Possible future enhancement, not this task.
 - Frontend changes (the chart UI already creates Bots with content/parent only).

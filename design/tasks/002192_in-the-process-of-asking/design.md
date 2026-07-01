@@ -34,7 +34,7 @@ stays as the tool for subscribing *after* creation.
 
 | Tool | Args | Backed by |
 |---|---|---|
-| `create_bot` | `id?`, `content`, `topics` (non-nullable array), `parentId?` | `lifecycle.Create` → bot (baseline tools) + a subscription row per topic |
+| `create_bot` | `id?`, `content`, `tools` (enum array), `topics` (array), `parentId?` | `lifecycle.Create` → bot (tools ∪ baseline) + a subscription row per topic |
 | `set_bot_content` | `botId`, `content` | `bots.Update{Content}` |
 | `attach_tool` | `botId`, `tool` (enum) | new `bots.AttachTool` |
 | `detach_tool` | `botId`, `tool` (enum) | new `bots.DetachTool` |
@@ -80,13 +80,20 @@ it.
 
 ## Change C — `create_bot` subscribes immediately; remove `update_bot` and `Bot.Topics`
 
-- `create_bot.go` — drop `Tools` from `createBotArgs`; keep `Topics` as the
-  input list. Args become `id`/`content`/`topics`/`parentId`. Fix the `topics`
-  schema: override the auto-generated union
-  (`{"type":["null","array"],…}`) to a non-nullable array
-  `{"type":"array","items":{"type":"string"}}` and add `topics` to `required`;
-  drop `omitempty` on the Go field. Add a `schema.go` helper
-  (e.g. `stringArrayProperty(description)`). Update the description: `topics`
+- `create_bot.go` — keep **both** `Tools` and `Topics` on `createBotArgs`.
+  Args become `id`/`content`/`tools`/`topics`/`parentId`. Both are required,
+  non-nullable arrays (drop `omitempty`; add both to the schema `required`);
+  override the auto-generated `["null","array"]` unions:
+  - `tools`: an array whose items are the registered-tool-name enum
+    (`{"type":"array","items":{"type":"string","enum":[…]}}`), built from the
+    names provider — so `create_bot`'s schema is **dynamic** (built in
+    `InputSchema()`), like `attach_tool`/`detach_tool`. Add a `schema.go` helper
+    (e.g. `enumStringArrayProperty(names, description)`).
+  - `topics`: a non-nullable string array
+    (`{"type":"array","items":{"type":"string"}}`) via a `stringArrayProperty`
+    helper.
+  Update the description: `tools` grants the Bot's initial tools (unioned with
+  the read baseline; `attach_tool`/`detach_tool` change them later); `topics`
   subscribes the new Bot to each listed (existing) topic at creation.
 - **`lifecycle.Create` performs the subscription, reusing the same use case.**
   After creating the bot row, loop `CreateParams.Topics` and call the **same**
@@ -125,12 +132,11 @@ it.
   silently subscribe existing bots to streams they never received (a behavior
   change). Existing bots keep their current (real) subscriptions unchanged;
   anything that needs a subscription gets one explicitly via `subscribe`.
-- `bots.CreateParams.Topics` and `lifecycle.CreateParams.Topics` **stay** (they
-  now drive subscription, not a stored field). `bots.Create` no longer stores
-  topics on the bot and applies `MergeTools(nil, baseTools)`. Drop
-  `bots.CreateParams.Tools` (create applies baseline only) and
-  `bots.UpdateParams.Topics` (nothing writes a bot topics field anymore);
-  keep `bots.UpdateParams.Tools` (used by attach/detach).
+- `bots.CreateParams.Tools`/`.Topics` and `lifecycle.CreateParams.Topics`
+  **stay**: Tools is unioned with the baseline (`MergeTools(p.Tools,
+  baseTools)`), Topics drives subscription. `bots.Create` no longer stores a
+  topics field on the bot. Drop `bots.UpdateParams.Topics` (nothing writes a bot
+  topics field anymore); keep `bots.UpdateParams.Tools` (used by attach/detach).
 
 ## Registration & authorization
 - `builtins.go` — register `attach_tool`, `detach_tool`, `set_bot_content`;
@@ -143,10 +149,12 @@ it.
 ## Key decisions
 - **Discrete over bulk** for tool-granting/subscription — scalar args kill the
   array-schema bug at the source; `tool` is a discoverable enum.
-- **`create_bot` auto-subscribes** — per the amended "fewest steps" principle;
-  the manager's most common intent is a Bot that's listening immediately.
-  Internally it reuses the one `subscriptions.Subscribe` use case (DRY);
-  externally `create_bot` and `subscribe` remain two separate tools.
+- **`create_bot` sets initial tools and auto-subscribes** — per the amended
+  "fewest steps" principle; the manager's common intent is a Bot that already
+  has its tools and is listening. `tools` is an enum array (discoverable, same
+  source as `attach_tool`); subscription reuses the one `subscriptions.Subscribe`
+  use case (DRY). Externally `create_bot`, `attach_tool`/`detach_tool`, and
+  `subscribe`/`unsubscribe` remain separate tools for later per-item edits.
 - **Remove `Bot.Topics`**, don't rename it — subscriptions already live as rows;
   a parallel field would be a second source of truth that drifts.
 - **Validate topics before writing the bot** — no partial creates.
@@ -157,13 +165,17 @@ it.
   refuses baseline; unknown tool rejected; order-stable (`MergeTools`).
 - `subscribe`/`unsubscribe`: subscribe another bot; self-subscribe; unsubscribe;
   unknown bot/topic rejected.
-- `create_bot`: `topics: ["t1","t2"]` (existing) → bot created + a subscription
-  row per topic; `topics: []` → bot, no subscriptions, tools == `BaseReadTools`;
-  an unknown topic → error and **no** bot row created (atomicity); no `tools`
-  field in the schema; `topics` advertised as a required non-nullable array.
+- `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot
+  with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` →
+  tools == `BaseReadTools`, no subscriptions; an unknown topic → error and
+  **no** bot row created (atomicity); an unknown tool name → rejected; `tools`
+  advertised as a required non-nullable enum array, `topics` as a required
+  non-nullable array.
 - `set_bot_content`: content changes, tools preserved.
-- Schema tests: `attach_tool.tool` is a non-nullable `enum`; `create_bot.topics`
-  is a required non-nullable array; no `["null","array"]` union remains.
+- Schema tests: `attach_tool.tool` is a non-nullable `enum`; `create_bot.tools`
+  is a required non-nullable array of enum items; `create_bot.topics` is a
+  required non-nullable array; no `["null","array"]` union remains; registry
+  additions appear in both enums.
 - `builtins_test.go` / `spec_tasks_registration_test.go`: registered set;
   fix `NewBot` call sites; `go build ./...` for the org packages.
 - Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])` and
