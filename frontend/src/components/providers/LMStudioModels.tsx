@@ -148,6 +148,7 @@ export default function LMStudioModels({ endpointId }: Props) {
           <ModelCard
             key={model.key}
             model={model}
+            availableRam={systemRamBytes - estimatedRam}
             loading={loadModel.isPending && loadModel.variables?.model === model.key}
             unloading={unloadModel.isPending && unloadModel.variables?.model === model.key}
             onLoad={() => handleLoad(model)}
@@ -166,6 +167,7 @@ export default function LMStudioModels({ endpointId }: Props) {
               <ModelCard
                 key={model.key}
                 model={model}
+                availableRam={systemRamBytes - estimatedRam}
                 loading={loadModel.isPending && loadModel.variables?.model === model.key}
                 unloading={unloadModel.isPending && unloadModel.variables?.model === model.key}
                 onLoad={() => handleLoad(model)}
@@ -207,18 +209,21 @@ function ModelCard({
   model,
   loading,
   unloading,
+  availableRam,
   onLoad,
   onUnload,
 }: {
   model: LocalModel;
   loading: boolean;
   unloading: boolean;
+  availableRam: number;
   onLoad: () => void;
   onUnload: () => void;
 }) {
   const isLoaded = model.loaded_instances.length > 0;
   const loadedConfig = isLoaded ? model.loaded_instances[0].config : null;
   const currentContext = loadedConfig?.context_length as number | undefined;
+  const wouldFit = isLoaded || (model.size_bytes * 1.1) <= availableRam;
 
   return (
     <Box
@@ -226,12 +231,26 @@ function ModelCard({
         p: 2,
         borderRadius: 2,
         border: "1px solid",
-        borderColor: isLoaded ? "rgba(0, 232, 145, 0.3)" : "rgba(255,255,255,0.06)",
-        bgcolor: isLoaded ? "rgba(0, 232, 145, 0.04)" : "rgba(255,255,255,0.02)",
+        borderColor: isLoaded
+          ? "rgba(0, 232, 145, 0.4)"
+          : !wouldFit
+            ? "rgba(244, 67, 54, 0.3)"
+            : "rgba(128, 128, 128, 0.2)",
+        bgcolor: isLoaded
+          ? "rgba(0, 232, 145, 0.05)"
+          : !wouldFit
+            ? "rgba(244, 67, 54, 0.03)"
+            : "background.paper",
+        opacity: !wouldFit ? 0.6 : 1,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         transition: "all 0.2s",
         "&:hover": {
-          borderColor: isLoaded ? "rgba(0, 232, 145, 0.5)" : "rgba(255,255,255,0.12)",
-          bgcolor: isLoaded ? "rgba(0, 232, 145, 0.06)" : "rgba(255,255,255,0.04)",
+          borderColor: isLoaded
+            ? "rgba(0, 232, 145, 0.6)"
+            : !wouldFit
+              ? "rgba(244, 67, 54, 0.4)"
+              : "rgba(128, 128, 128, 0.4)",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
         },
       }}
     >
@@ -290,11 +309,17 @@ function ModelCard({
         </Typography>
       )}
 
+      {!wouldFit && !isLoaded && (
+        <Typography sx={{ color: "#f44336", fontSize: "0.7rem", mb: 1, fontWeight: 500 }}>
+          Needs ~{formatBytes(model.size_bytes * 1.1)} — {formatBytes(model.size_bytes * 1.1 - availableRam)} over budget
+        </Typography>
+      )}
+
       <Button
         fullWidth
         size="small"
         variant={isLoaded ? "outlined" : "contained"}
-        disabled={loading || unloading}
+        disabled={loading || unloading || (!isLoaded && !wouldFit)}
         onClick={isLoaded ? onUnload : onLoad}
         startIcon={
           loading || unloading ? (
