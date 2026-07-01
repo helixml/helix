@@ -100,7 +100,37 @@ markdown prompt after it exists (kept — confirmed).
 **Acceptance criteria**
 - `set_bot_content` replaces the Bot's `content`; other fields untouched.
 
+### US-5: List, get, and delete Bots
+As a manager Bot, I want to list Bots, get a Bot's detail, and delete a Bot, so
+I can inspect the org and clean up.
+
+**Acceptance criteria**
+- **Listing and getting already exist** — the baseline read tools `list_bots`
+  and `get_bot` (in `BaseReadTools`) cover this; no new tools. This story just
+  confirms coverage.
+- A **new `delete_bot(botId)`** tool removes a Bot by wrapping the existing
+  `lifecycle.Delete` (the same path as REST `DELETE /bots/{id}`): it stops the
+  Bot's sessions, deletes its Helix project + agent app, clears runtime state,
+  cascades its subscriptions and reporting lines, deletes the bot row, and
+  reconciles team/DM topics. Activations are preserved as audit.
+- `delete_bot` is an owner mutation (in `OwnerBotTools`), not baseline. Deleting
+  an absent Bot returns a clear not-found error.
+- Bots that reported to the deleted Bot lose that reporting line (become
+  parentless) — the existing cascade behavior, not new.
+
+### US-6: List Topics and get Topic detail
+As a manager Bot, I want to list Topics and see a Topic's detail, so I know what
+streams exist before subscribing.
+
+**Acceptance criteria**
+- **Already exists** — the baseline read tools `list_topics` and `get_topic`
+  (in `BaseReadTools`) cover this; no new tools. This story confirms coverage.
+
 ## Out of Scope
+- **`list_tools` / `get_tool` MCP tools — not needed.** The valid tools are
+  already surfaced to the LLM via the system prompt and the MCP tool-list API,
+  and grantable names appear in the `attach_tool`/`detach_tool`/`create_bot`
+  `tools` enum. No read tools for the tool catalogue.
 - All bot-mutation MCP args are fixed non-nullable arrays:
   `attach_tool`/`detach_tool` `tools` (enum items), `subscribe`/`unsubscribe`
   `topicIds` (strings), and `create_bot`'s `tools` + `topics`. No scalar or

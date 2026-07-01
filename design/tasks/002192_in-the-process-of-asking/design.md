@@ -36,12 +36,18 @@ stays as the tool for subscribing *after* creation.
 |---|---|---|
 | `create_bot` | `id?`, `content`, `tools` (enum array), `topics` (array), `parentId?` | `lifecycle.Create` → bot (tools ∪ baseline) + a subscription row per topic |
 | `set_bot_content` | `botId`, `content` | `bots.Update{Content}` |
+| `delete_bot` | `botId` | `lifecycle.Delete` (cascades) |
 | `attach_tool` | `botId`, `tools` (enum array) | new `bots.AttachTools` |
 | `detach_tool` | `botId`, `tools` (enum array) | new `bots.DetachTools` |
 | `subscribe` | `botId`, `topicIds` (array) | new `subscriptions.SubscribeTopics(orgID, botId, topicIds)` |
 | `unsubscribe` | `botId`, `topicIds` (array) | new `subscriptions.UnsubscribeTopics(orgID, botId, topicIds)` |
 
 Removed: `update_bot`, `invite_bots`, the caller-only `subscribe`/`unsubscribe`.
+
+Unchanged (existing baseline read tools, reused as-is): `list_bots`, `get_bot`
+(`read_bots.go`), `list_topics`, `get_topic` (`read_streams.go`). No
+`list_tools`/`get_tool` — the tool catalogue is already in the system prompt and
+the MCP tool-list API.
 
 ## Change A — `attach_tool` / `detach_tool` (tool grants, array + enum)
 
@@ -151,12 +157,27 @@ bots by calling it per bot).
   topics field on the bot. Drop `bots.UpdateParams.Topics` (nothing writes a bot
   topics field anymore); keep `bots.UpdateParams.Tools` (used by attach/detach).
 
+## Change D — `delete_bot`; reads already exist
+
+- **`delete_bot.go`** — new tool, args `{botId}`, wraps `lifecycle.Delete(orgID,
+  botID)` (the same use case REST `DELETE /bots/{id}` calls). `lifecycle.Delete`
+  already stops sessions, deletes the Helix project + agent app, clears runtime
+  state, cascades subscriptions + reporting lines, deletes the bot row, and
+  reconciles team/DM topics; activations are preserved as audit. No service
+  change. Owner mutation.
+- **List/get already exist** — `list_bots`/`get_bot` and `list_topics`/
+  `get_topic` are baseline read tools; reuse as-is. (`read_bots.go` drops the
+  `topics` field per Change C; list/get are otherwise unchanged.)
+- **No `list_tools`/`get_tool`** — the tool catalogue is already provided via the
+  system prompt and the MCP tool-list API.
+
 ## Registration & authorization
-- `builtins.go` — register `attach_tool`, `detach_tool`, `set_bot_content`;
-  unregister `update_bot`, `invite_bots`.
+- `builtins.go` — register `attach_tool`, `detach_tool`, `set_bot_content`,
+  `delete_bot`; unregister `update_bot`, `invite_bots`.
 - `defaults.go` `OwnerBotTools()` — replace `UpdateBotName`/`InviteBotsName`
-  with `AttachToolName`, `DetachToolName`, `SetBotContentName`; keep
-  `SubscribeName`/`UnsubscribeName`. These stay out of `BaseReadTools`.
+  with `AttachToolName`, `DetachToolName`, `SetBotContentName`, `DeleteBotName`;
+  keep `SubscribeName`/`UnsubscribeName`. These stay out of `BaseReadTools`
+  (`list_bots`/`get_bot`/`list_topics`/`get_topic` remain the baseline reads).
   Authorization is by tool possession, as today.
 
 ## Key decisions
@@ -194,6 +215,9 @@ bots by calling it per bot).
   advertised as a required non-nullable enum array, `topics` as a required
   non-nullable array.
 - `set_bot_content`: content changes, tools preserved.
+- `delete_bot`: deletes an existing bot (its subscriptions + reporting lines
+  gone, reports become parentless); deleting an absent bot → not-found error.
+  `list_bots`/`get_bot`/`list_topics`/`get_topic` still work (regression check).
 - Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools`
   are required non-nullable arrays of enum items; `subscribe.topicIds`/
   `unsubscribe.topicIds` and `create_bot.topics` are required non-nullable

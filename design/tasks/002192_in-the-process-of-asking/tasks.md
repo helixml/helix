@@ -24,6 +24,10 @@
 - [ ] Create `set_bot_content.go` (`set_bot_content`, args `{botId, content}`) calling `bots.Update` with only `Content` set.
 - [ ] Keep `bots.CreateParams.Tools` and `.Topics`; `bots.Create` applies `MergeTools(p.Tools, baseTools)` and no longer stores a topics field on the bot.
 
+## delete_bot (list/get already exist)
+- [ ] Create `delete_bot.go` (`delete_bot`, args `{botId}`) wrapping `lifecycle.Delete(orgID, botID)` (same use case as REST `DELETE /bots/{id}`); no service change.
+- [ ] Reuse existing baseline reads `list_bots`/`get_bot` (`read_bots.go`) and `list_topics`/`get_topic` (`read_streams.go`) as-is. Do **not** add `list_tools`/`get_tool` (the catalogue is in the system prompt + MCP tool-list API).
+
 ## Remove Bot.Topics end-to-end (subscriptions are the source of truth)
 - [ ] Remove the `Topics` field and `WithTopics` from `orgchart.Bot`, and the `topics` parameter from `NewBot(...)`; update every call site (production + tests).
 - [ ] Drop `bots.UpdateParams.Topics` and its use in `Update`.
@@ -32,14 +36,15 @@
 - [ ] Remove `Topics` from the read DTO (`read_bots.go`) and the REST DTOs (`dto.go`/`bots.go`); drop `toTopicIDs`/`toToolNames` helpers if now unused.
 
 ## Registration & authorization
-- [ ] In `builtins.go`, register `attach_tool`, `detach_tool`, `set_bot_content`; unregister `update_bot` and `invite_bots`.
-- [ ] In `defaults.go` `OwnerBotTools()`, replace `UpdateBotName`/`InviteBotsName` with `AttachToolName`, `DetachToolName`, `SetBotContentName`; keep `SubscribeName`/`UnsubscribeName`.
+- [ ] In `builtins.go`, register `attach_tool`, `detach_tool`, `set_bot_content`, `delete_bot`; unregister `update_bot` and `invite_bots`.
+- [ ] In `defaults.go` `OwnerBotTools()`, replace `UpdateBotName`/`InviteBotsName` with `AttachToolName`, `DetachToolName`, `SetBotContentName`, `DeleteBotName`; keep `SubscribeName`/`UnsubscribeName`.
 
 ## Tests & verification
 - [ ] `attach_tool`/`detach_tool`: attach a multi-tool array; idempotent re-add; detach a subset; detach refuses if any name is baseline; unknown tool in the array rejected (no partial write); order-stable result.
 - [ ] `subscribe`/`unsubscribe`: subscribe a bot to a topic array; self-subscribe; unsubscribe a subset; unknown bot or any unknown topic in the array rejected (no partial write); idempotent per topic.
 - [ ] `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` → tools == `BaseReadTools`, no subs; unknown topic → error and no bot row created; unknown tool name rejected; `tools` a required non-nullable enum array and `topics` a required non-nullable array.
 - [ ] `set_bot_content`: content changes, tools preserved.
+- [ ] `delete_bot`: deletes an existing bot (subscriptions + reporting lines gone, reports parentless); absent bot → not-found; `list_bots`/`get_bot`/`list_topics`/`get_topic` still work.
 - [ ] Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools` are required non-nullable arrays of enum items; `subscribe.topicIds`/`unsubscribe.topicIds` and `create_bot.topics` are required non-nullable string arrays; no `["null","array"]` union remains; registry additions appear in the enums.
 - [ ] Update `builtins_test.go` / `spec_tasks_registration_test.go`; fix `NewBot` call sites; `go build ./...` for the org packages.
 - [ ] Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])`, publish to a listed topic and confirm the bot receives it → `attach_tool(botId, [subscribe, dm])` → `subscribe(botId, [topicId, …])` for later topics.
