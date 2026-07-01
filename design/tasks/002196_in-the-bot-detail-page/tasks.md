@@ -49,4 +49,22 @@ until a different (fresh) exploratory session is resolvable, then binds to it.
 - [x] Backend unit tests pass (`go test ./pkg/org/interfaces/server/api/`), incl. reset→activate ordering, failure→500, 404, no-reset-first-start.
 - [x] Crash-recovery primitive regression test passes (`TestRestartSessionContainerSuite`, CGO).
 - [x] Frontend `tsc --noEmit` clean; vite transforms all modules.
-- [ ] NOT DONE — live end-to-end in the inner Helix: blocked because `HELIX_ORG_ENABLED=false` in this instance (no bots/activations tables, bot detail page absent). Flipping the operator feature flag + restarting the shared stack was deemed out of scope for a verification step. The reset→activate ordering and failure/first-start paths are covered by unit tests; the integration path (StopExternalAgent → DeleteSession → clear pointer → Activate producing a fresh live desktop) has NOT been exercised against a live Zed session — flag for reviewer/staging verification.
+- [x] Live e2e in inner Helix (HELIX_ORG_ENABLED=true, admin user + `helix-org` alpha feature, org+bot created via browser). **Destructive/reset half fully proven against real infra:**
+  - Before restart: bot had live session `ses_…rnf0` (status `running`) + real desktop container `ubuntu-external-…rnf0`.
+  - Clicked "Restart agent session" (shows updated caption + "RESTARTING…").
+  - After: desktop container **gone** (StopExternalAgent tore it down); old session **soft-deleted** (`deleted_at` set — DeleteSession); runtime `session_id` pointer **cleared** (SaveSession ""); chat window shows **"No conversation yet for this bot."** (old transcript cleared). Screenshot: `screenshots/01-after-restart-chat-cleared.png`.
+  - This directly resolves the original bug: the desktop no longer stays alive and the session/thread is removed.
+- [ ] NOT observed e2e — the **new** session materialising in chat. Blocked by an environment issue: this inner Helix's desktop image fails to register the `claude-acp` agent ("Custom agent server `claude-acp` is not registered"), so the first activation's turn never completes; its `pollUntilDone` holds the per-worker dispatch queue (24h runaway guard), so the queued restart-activation can't run. In a healthy env (turns complete → queue idle) restart→Activate creates the fresh session immediately. Verify in staging.
+
+## Follow-up finding (out of scope for this fix)
+
+Routing the bot-page restart through `Activate` (the per-worker dispatch queue)
+means that if a prior activation is still **in-flight** (e.g. a stuck/booting
+desktop — the "system went down" case), the new activation queues behind it.
+`pollUntilDone` treats a deleted-session `GetOutput` error as *transient* and
+retries up to the 24h `ActivationRunawayGuard`, so a session deleted mid-flight
+leaves the queue blocked. The reset still correctly tears the old desktop +
+session down; only the *new* session creation is delayed. A tight fix would be
+to make `pollUntilDone` treat "session not found" as terminal — but that touches
+shared spawner code (all activations) and the not-found error isn't currently
+typed, so it's flagged for a separate change rather than bundled here.
