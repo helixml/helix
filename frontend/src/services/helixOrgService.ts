@@ -253,12 +253,11 @@ export function useActivateBot(orgIDOverride?: string) {
 
 // useRestartBotAgent recreates the bot's desktop container from scratch.
 // Wired to the bot page's "Restart agent session" button. Unlike
-// useActivateBot (which continues the existing session via SendMessage
-// and so can't recover a stuck container), this hits the dedicated bot
-// restart endpoint, which resolves the bot's session and delegates to the
-// shared backend restart primitive (StopDesktop → recreate → reset
-// crashed prompts), falling back to a fresh activation when the bot has
-// no live session.
+// useActivateBot (which continues the existing session via SendMessage),
+// this hits the dedicated bot restart endpoint, which fully removes the
+// bot's current session (stop desktop → delete session → clear pointer)
+// and then activates a brand-new one — a fresh desktop, thread and MCP
+// surface. When the bot has no live session it just activates.
 export function useRestartBotAgent(orgIDOverride?: string) {
   const api = useApi()
   const { orgID: baseOrgID } = useHelixOrgBase()
