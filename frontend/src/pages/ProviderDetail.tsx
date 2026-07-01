@@ -24,11 +24,10 @@ export default function ProviderDetail() {
   const { data: providers } = useListProviders({
     loadModels: true,
     orgId,
-    all: true,
     enabled: true,
   });
 
-  const provider = providers?.find((p) => p.id === providerId);
+  const provider = providers?.find((p) => p.id === providerId || p.name === providerId);
 
   const handleBack = () => {
     if (orgId) {
