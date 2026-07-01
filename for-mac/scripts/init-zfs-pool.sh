@@ -42,17 +42,16 @@ sudo zpool online -e helix $(sudo zpool status -P helix 2>/dev/null | awk '/\/de
 # Step 2: Create datasets
 # =========================================================================
 
-# Workspaces dataset (lz4 compression; dedup OFF). Dedup was tempting here
-# (user git checkouts dedup well) but its pool-wide DDT is too RAM-costly and
-# hosed performance on production hosts — we pulled dedup entirely, so mirror
-# that here.
+# Workspaces dataset (compression for user workspace data)
 if ! sudo zfs list helix/workspaces 2>/dev/null; then
     echo 'Creating helix/workspaces dataset...'
-    sudo zfs create -o dedup=off -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
+    sudo zfs create -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
 fi
-# Roll-forward: turn dedup off on an existing workspaces dataset. Stops new
-# blocks being deduped; the DDT drains as old session checkouts are GC'd.
-sudo zfs set dedup=off helix/workspaces 2>/dev/null || true
+# Disable dedup if it was enabled on an existing dataset (migration)
+if sudo zfs get -H -o value dedup helix/workspaces 2>/dev/null | grep -q 'on'; then
+    sudo zfs set dedup=off helix/workspaces
+    echo 'Disabled dedup on helix/workspaces'
+fi
 
 # Docker volumes dataset — persists user data (postgres, keycloak, etc.)
 # across root disk upgrades. Mounted at /var/lib/docker/volumes/ so Docker
@@ -70,8 +69,7 @@ fi
 # Container Docker zvol — stores per-session inner dockerd data and BuildKit state.
 # The sandbox's own Docker storage stays on the root disk (default named volume)
 # so desktop images baked during provisioning persist without transfer.
-# This zvol holds (lz4 compression; dedup is off — block sharing comes from
-# hydra's per-session ZFS clones, and dedup's DDT is too RAM-costly here):
+# This zvol is for data that benefits from ZFS dedup+compression:
 #   - Per-session inner dockerd (/helix/container-docker/sessions/{id}/docker/)
 #   - BuildKit state (/helix/container-docker/buildkit/)
 # Hydra bind-mounts these paths into desktop containers and the BuildKit container.
@@ -84,8 +82,8 @@ if ! sudo zfs list helix/container-docker 2>/dev/null; then
         sudo umount /helix/sandbox-docker 2>/dev/null || true
         sudo zfs rename helix/sandbox-docker helix/container-docker
     else
-        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, compression, no dedup)..."
-        sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=off -o compression=lz4 helix/container-docker
+        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, compression)..."
+        sudo zfs create -V "$ZVOL_SIZE" -s -o compression=lz4 helix/container-docker
         # Wait for device node
         for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
         if [ ! -e "$ZVOL_DEV" ]; then
@@ -96,31 +94,13 @@ if ! sudo zfs list helix/container-docker 2>/dev/null; then
         sudo mkfs.ext4 -q -L container-docker "$ZVOL_DEV"
     fi
 fi
-# Disable dedup on the container-docker zvol. It is redundant here — block
-# sharing already comes from ZFS clones (hydra clones the golden snapshot per
-# session) — and dedup carries a large, pool-wide DDT RAM cost that degrades a
-# RAM-constrained VM. On an existing install this stops NEW blocks being
-# deduped; the DDT drains as old deduped data is freed (discard + hydra GC now
-# reclaim session data), so no destructive rewrite is needed. Idempotent.
-sudo zfs set dedup=off helix/container-docker 2>/dev/null || true
-# Mount the zvol WITH discard so blocks freed inside ext4 (deleted session
-# docker-data, buildkit churn) are returned to the ZFS pool. Without discard the
-# zvol grows unboundedly and eventually fills the pool. ext4 supports enabling
-# discard on an already-mounted filesystem via remount, so pre-existing installs
-# (mounted before this change) pick it up on the next boot too.
+# Mount the zvol
 if ! mountpoint -q /helix/container-docker 2>/dev/null; then
     sudo mkdir -p /helix/container-docker
     if [ -e "$ZVOL_DEV" ]; then
-        sudo mount -o discard "$ZVOL_DEV" /helix/container-docker
+        sudo mount "$ZVOL_DEV" /helix/container-docker
     fi
-elif ! grep -q ' /helix/container-docker [^ ]* [^ ]*discard' /proc/mounts 2>/dev/null; then
-    echo 'Enabling discard on existing container-docker mount...'
-    sudo mount -o remount,discard /helix/container-docker 2>/dev/null || true
 fi
-# Reclaim any blocks freed before discard was active (roll-forward for installs
-# that leaked while mounted without discard). Runs each boot; complements the
-# periodic fstrim backstop in hydra. No-op on a clean fs.
-sudo fstrim -v /helix/container-docker 2>/dev/null || true
 # Create subdirectories for Hydra
 sudo mkdir -p /helix/container-docker/sessions
 sudo mkdir -p /helix/container-docker/buildkit
