@@ -20,6 +20,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import { IAppFlatState, ITest, ITestStep } from '../../types';
 import { generateYamlFilename } from '../../utils/format';
 import useSnackbar from '../../hooks/useSnackbar';
+import useLightTheme from '../../hooks/useLightTheme';
 import { useSettingsDialog } from '../../contexts/settingsDialog';
 
 interface TestsEditorProps {
@@ -34,6 +35,19 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
   appId,
 }) => {
   const settingsDialog = useSettingsDialog();
+  const lightTheme = useLightTheme();
+  // Theme-aware backgrounds so the Tests tab is readable in light mode.
+  // Two tones preserve the visual nesting (outer panel > inner box/code).
+  const panelBg = lightTheme.panelColor;
+  const innerBg = lightTheme.backgroundColor;
+  const codeBg = lightTheme.isLight ? '#f0f0f4' : '#0d1117';
+  const iconBtnSx = {
+    color: lightTheme.icon,
+    padding: '4px',
+    '&:hover': {
+      backgroundColor: lightTheme.isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.1)',
+    },
+  } as const;
   const tests = app.tests || [];
   const yamlFilename = generateYamlFilename(app.name || 'app');
   const snackbar = useSnackbar();
@@ -221,7 +235,7 @@ comment_job:
       </Typography>
 
       {tests.map((test, testIndex) => (
-        <Card key={testIndex} sx={{ mb: 3, backgroundColor: '#2a2d3e' }}>
+        <Card key={testIndex} sx={{ mb: 3, backgroundColor: panelBg }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <TextField
@@ -246,7 +260,7 @@ comment_job:
             </Typography>
 
             {(test.steps || []).map((step, stepIndex) => (
-              <Card key={stepIndex} sx={{ mb: 2, backgroundColor: '#1e1e2f' }}>
+              <Card key={stepIndex} sx={{ mb: 2, backgroundColor: innerBg }}>
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
                     <Typography variant="body2" sx={{ mr: 2, mt: 1, minWidth: '60px' }}>
@@ -313,7 +327,7 @@ comment_job:
       </Button>
 
       {/* CLI Instructions */}
-      <Box sx={{ mt: 4, p: 3, backgroundColor: '#2a2d3e', borderRadius: 2 }}>
+      <Box sx={{ mt: 4, p: 3, backgroundColor: panelBg, borderRadius: 2 }}>
         <Typography variant="subtitle1" sx={{ mb: 2 }}>
           Running Tests with CLI
         </Typography>
@@ -323,7 +337,7 @@ comment_job:
         </Typography>
         
         <Box sx={{
-          backgroundColor: '#1e1e2f',
+          backgroundColor: innerBg,
           padding: '10px',
           borderRadius: '4px',
           fontFamily: 'monospace',
@@ -338,13 +352,7 @@ comment_job:
           <Tooltip title={testCopied ? "Copied!" : "Copy command"} placement="top">
             <IconButton
               onClick={() => handleCopyCommand(testCommand)}
-              sx={{
-                color: 'white',
-                padding: '4px',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                },
-              }}
+              sx={iconBtnSx}
               size="small"
             >
               {testCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
@@ -370,7 +378,7 @@ comment_job:
           Integrate testing into your CI/CD pipeline for continuous validation. Start by adding your agent yaml to your git repo, then add configuration to your CI/CD pipeline:
         </Typography>
 
-        <Accordion sx={{ mb: 2, backgroundColor: '#1e1e2f' }}>
+        <Accordion sx={{ mb: 2, backgroundColor: innerBg }}>
           <AccordionSummary
             expandIcon={<ExpandMoreIcon />}
             aria-controls="github-actions-content"
@@ -382,7 +390,7 @@ comment_job:
           </AccordionSummary>
           <AccordionDetails>
             <Box sx={{
-              backgroundColor: '#0d1117',
+              backgroundColor: codeBg,
               padding: '12px',
               borderRadius: '4px',
               fontFamily: 'monospace',
@@ -395,16 +403,7 @@ comment_job:
               <Tooltip title={githubCopied ? "Copied!" : "Copy config"} placement="top">
                 <IconButton
                   onClick={() => handleCopyConfig(githubActionsConfig, setGithubCopied, 'GitHub Actions')}
-                  sx={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    color: 'white',
-                    padding: '4px',
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    },
-                  }}
+                  sx={{ position: 'absolute', top: 8, right: 8, ...iconBtnSx }}
                   size="small"
                 >
                   {githubCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
@@ -415,7 +414,7 @@ comment_job:
           </AccordionDetails>
         </Accordion>
 
-        <Accordion sx={{ mb: 2, backgroundColor: '#1e1e2f' }}>
+        <Accordion sx={{ mb: 2, backgroundColor: innerBg }}>
           <AccordionSummary
             expandIcon={<ExpandMoreIcon />}
             aria-controls="gitlab-ci-content"
@@ -427,7 +426,7 @@ comment_job:
           </AccordionSummary>
           <AccordionDetails>
             <Box sx={{
-              backgroundColor: '#0d1117',
+              backgroundColor: codeBg,
               padding: '12px',
               borderRadius: '4px',
               fontFamily: 'monospace',
@@ -440,16 +439,7 @@ comment_job:
               <Tooltip title={gitlabCopied ? "Copied!" : "Copy config"} placement="top">
                 <IconButton
                   onClick={() => handleCopyConfig(gitlabCiConfig, setGitlabCopied, 'GitLab CI')}
-                  sx={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    color: 'white',
-                    padding: '4px',
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    },
-                  }}
+                  sx={{ position: 'absolute', top: 8, right: 8, ...iconBtnSx }}
                   size="small"
                 >
                   {gitlabCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
