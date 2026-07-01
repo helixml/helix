@@ -320,11 +320,7 @@ export default function Onboarding() {
     if (!providers) return new Set<string>();
     const ids = new Set<string>();
     providers.forEach((p) => {
-      if (
-        p.endpoint_type ===
-          TypesProviderEndpointType.ProviderEndpointTypeUser &&
-        p.name
-      ) {
+      if (p.name) {
         ids.add(p.name);
       }
     });
@@ -1602,9 +1598,8 @@ export default function Onboarding() {
                       Local AI Detected
                     </Typography>
                     {detectedProviders.map((dp) => {
-                      const alreadyConnected = connectedProviderIds.has(
-                        dp.server_type === "lmstudio" ? "user/lmstudio" : dp.server_type === "ollama" ? "user/ollama" : `user/${dp.server_type}`
-                      );
+                      const providerName = dp.server_type === "lmstudio" ? "lmstudio" : dp.server_type === "ollama" ? "ollama" : dp.server_type;
+                      const alreadyConnected = connectedProviderIds.has(providerName) || connectedProviderIds.has(`user/${providerName}`);
                       const isConnecting = connectingProvider === dp.server_type;
                       return (
                         <Box
