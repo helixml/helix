@@ -91,3 +91,26 @@ container.addEventListener("wheel", wheelHandler, { passive: false });
   back, and that scrolling still reaches remote windows.
 - **Regression:** confirm swipe-back still works on other pages (e.g. navigate
   between two Helix pages and two-finger-swipe over normal page content).
+
+## Implementation Notes
+
+- **Change applied** in `frontend/src/components/external-agent/DesktopStreamViewer.tsx`
+  exactly as designed: added `event.preventDefault()` to the wheel handler, changed
+  the registration to `container.addEventListener("wheel", wheelHandler, { passive: false })`,
+  and rewrote the comment. Went with unconditional `preventDefault()` (not narrowed
+  to `deltaX`) — the container has `overflow: hidden`, so there is no local scroll to
+  preserve and the full wheel event is still forwarded to the remote desktop.
+- **Verification done here:**
+  - Production build compiles cleanly — `vite build` transformed all 21652 modules;
+    the only failure was writing into the root-owned `dist/` prod bind mount, so it was
+    re-run with a temp `--outDir` and succeeded (`✓ built in 36.08s`).
+  - The inner-Helix Vite dev server (`helix-frontend-1`, which mounts `frontend/src`)
+    serves the modified handler — confirmed the transformed module at
+    `http://localhost:8080/src/components/external-agent/DesktopStreamViewer.tsx`
+    contains `event.preventDefault()` and `{ passive: false }`.
+- **Verification NOT possible in this environment:** the user-visible outcome (Chrome's
+  two-finger swipe-back no longer firing) is a macOS trackpad compositor gesture. It is
+  not a synthetic wheel event and cannot be reproduced via chrome-devtools on this Linux
+  host. Final confirmation requires a human on macOS Chrome. The fix mechanism
+  (non-passive listener + `preventDefault()`) is the standard, documented way to suppress
+  this gesture.
