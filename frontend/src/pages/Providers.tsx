@@ -85,10 +85,15 @@ const Providers: React.FC = () => {
     return true
   }
 
-  const handleOpenDialog = (provider: Provider) => {
+  const handleOpenDialog = (provider: Provider, existingEndpoint?: any) => {
     if(!checkLoginStatus()) return
-    
-    if (!editAllowed) return;    
+    if (!editAllowed) return;
+
+    if (existingEndpoint?.id && (provider.id === 'user/lmstudio' || provider.id === 'user/ollama' || existingEndpoint.name === 'lmstudio' || existingEndpoint.name === 'ollama')) {
+      router.navigate('org_provider_detail', { org_id: orgName, provider_id: existingEndpoint.id });
+      return;
+    }
+
     setSelectedProvider(provider);
     setDialogOpen(true);
   };
@@ -250,7 +255,7 @@ const Providers: React.FC = () => {
                           size="small"
                           variant={isConfigured ? 'outlined' : 'text'}
                           color={isConfigured ? (existingProvider?.status === 'error' ? 'error' : 'success') : 'secondary'}
-                          onClick={() => handleOpenDialog(provider)}
+                          onClick={() => handleOpenDialog(provider, existingProvider)}
                           startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                           disabled={!editAllowed && !isConfigured}
                         >

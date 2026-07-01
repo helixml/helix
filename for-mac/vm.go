@@ -682,23 +682,19 @@ func (vm *VMManager) runVM(ctx context.Context) {
 	zfsDiskPath := vm.getZFSDiskPath()
 
 	// Generate SSH keypair (per-installation) and cloud-init seed ISO.
-	// In dev mode the VM is pre-provisioned with the user's personal key,
-	// so skip keypair generation and let SSH use the default agent/keys.
-	if os.Getenv("HELIX_DEV_IMAGE") == "" {
-		privKey, pubKey, err := vm.ensureSSHKeypair()
-		if err != nil {
-			vm.setError(fmt.Errorf("failed to generate SSH keypair: %w", err))
-			return
-		}
-		vm.sshPrivKeyPath = privKey
-		vm.sshPubKeyPath = pubKey
+	// Always generate — cloud-init injects the Helix key on every boot,
+	// so even dev images end up needing the Helix keypair for SSH.
+	privKey, pubKey, err := vm.ensureSSHKeypair()
+	if err != nil {
+		vm.setError(fmt.Errorf("failed to generate SSH keypair: %w", err))
+		return
+	}
+	vm.sshPrivKeyPath = privKey
+	vm.sshPubKeyPath = pubKey
 
-		if err := vm.ensureCloudInitSeed(vmDir, pubKey); err != nil {
-			vm.setError(fmt.Errorf("failed to create cloud-init seed: %w", err))
-			return
-		}
-	} else {
-		log.Println("Dev mode: using default SSH keys (skipping keypair generation)")
+	if err := vm.ensureCloudInitSeed(vmDir, pubKey); err != nil {
+		vm.setError(fmt.Errorf("failed to create cloud-init seed: %w", err))
+		return
 	}
 
 	// Find EFI firmware (bundled in app or Homebrew)

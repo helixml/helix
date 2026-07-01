@@ -40,7 +40,7 @@ import { CodeAgentRuntime, generateAgentName } from "../contexts/apps";
 import BrowseProvidersDialog from "../components/project/BrowseProvidersDialog";
 import { SELECTED_ORG_STORAGE_KEY } from "../utils/localStorage";
 import { useCreateOrg } from "../services/orgService";
-import { useListProviders } from "../services/providersService";
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint, DetectedProvider } from "../services/providersService";
 import {
   useGetSystemSettings,
   useUpdateSystemSettings,
@@ -400,6 +400,29 @@ export default function Onboarding() {
     },
     [visibleSteps],
   );
+
+  // Detect local inference servers (LM Studio, Ollama, ds4)
+  const isOnProviderStep = visibleSteps[activeStep]?.type === "provider";
+  const { data: detectedProviders } = useDetectLocalProviders(!!createdOrg?.id && isOnProviderStep);
+  const createProvider = useCreateProviderEndpoint();
+  const [connectingProvider, setConnectingProvider] = useState<string>("");
+
+  const handleConnectDetected = useCallback(async (dp: DetectedProvider) => {
+    if (!createdOrg?.id) return;
+    setConnectingProvider(dp.server_type);
+    try {
+      await createProvider.mutateAsync({
+        name: dp.server_type === "lmstudio" ? "lmstudio" : dp.server_type === "ollama" ? "ollama" : dp.server_type,
+        base_url: dp.base_url,
+        api_key: "",
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        owner: "system",
+        owner_type: "system" as any,
+      });
+    } finally {
+      setConnectingProvider("");
+    }
+  }, [createdOrg?.id, createProvider]);
 
   // Refetch wallet when organization is selected/created
   useEffect(() => {
@@ -1553,6 +1576,100 @@ export default function Onboarding() {
                     orgId={claudeSubOrgId || undefined}
                   />
                 </Box>
+
+                {detectedProviders && detectedProviders.length > 0 && (
+                  <>
+                    <Divider
+                      sx={{
+                        gridColumn: "1 / -1",
+                        borderColor: ACCENT,
+                        my: 0.5,
+                        opacity: 0.3,
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        gridColumn: "1 / -1",
+                        color: ACCENT,
+                        fontSize: "0.72rem",
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.5,
+                      }}
+                    >
+                      <Server size={12} />
+                      Local AI Detected
+                    </Typography>
+                    {detectedProviders.map((dp) => {
+                      const alreadyConnected = connectedProviderIds.has(
+                        dp.server_type === "lmstudio" ? "user/lmstudio" : dp.server_type === "ollama" ? "user/ollama" : `user/${dp.server_type}`
+                      );
+                      const isConnecting = connectingProvider === dp.server_type;
+                      return (
+                        <Box
+                          key={dp.server_type}
+                          sx={{
+                            gridColumn: "1 / -1",
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: `1px solid ${alreadyConnected ? CARD_BORDER_ACTIVE : ACCENT}`,
+                            borderColor: alreadyConnected ? CARD_BORDER_ACTIVE : "rgba(0, 232, 145, 0.3)",
+                            bgcolor: alreadyConnected ? ACCENT_DIM : "rgba(0, 232, 145, 0.04)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
+                          }}
+                        >
+                          <SmartToyIcon sx={{ fontSize: 24, color: ACCENT }} />
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography
+                              sx={{
+                                color: palette.TEXT_PRIMARY,
+                                fontWeight: 600,
+                                fontSize: "0.82rem",
+                              }}
+                            >
+                              {dp.name}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                color: palette.TEXT_SECONDARY,
+                                fontSize: "0.72rem",
+                              }}
+                            >
+                              {dp.models.length} model{dp.models.length !== 1 ? "s" : ""} loaded
+                            </Typography>
+                          </Box>
+                          {alreadyConnected ? (
+                            <CheckCircleIcon
+                              sx={{ fontSize: 20, color: ACCENT, flexShrink: 0 }}
+                            />
+                          ) : (
+                            <Button
+                              size="small"
+                              disabled={isConnecting}
+                              onClick={() => handleConnectDetected(dp)}
+                              sx={{
+                                ...btnSx,
+                                py: 0.4,
+                                px: 1.5,
+                                fontSize: "0.72rem",
+                                minWidth: 0,
+                              }}
+                            >
+                              {isConnecting ? (
+                                <CircularProgress size={14} sx={{ color: "#000" }} />
+                              ) : (
+                                "Connect"
+                              )}
+                            </Button>
+                          )}
+                        </Box>
+                      );
+                    })}
+                  </>
+                )}
 
                 <Divider
                   sx={{
