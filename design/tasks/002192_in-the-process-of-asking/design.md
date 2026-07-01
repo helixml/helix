@@ -1,165 +1,144 @@
-# Design: Decouple Stream Subscription from Bot Creation and Fix Array-Argument Schema
+# Design: Replace Bot-Editing MCP Tools with Discrete Attach/Detach and Subscribe Operations
 
 ## Where the code lives
 
 All in `api/pkg/org/`:
 
-- MCP tools: `interfaces/mcptools/create_bot.go`, `update_bot.go`,
-  `invite_bots.go`, `subscribe.go`, `schema.go` (schema helpers), and
-  `create_stream.go` (the tool named `create_topic` — the precedent for the
-  string-or-object fix).
-- REST + DTO: `interfaces/server/api/dto.go`, `interfaces/server/api/bots.go`.
-- Application: `application/lifecycle/lifecycle.go`, `application/bots/bots.go`.
-- Domain: `domain/orgchart/bot.go` (`Bot.Topics`, `NewBot`, `WithTopics`).
-- Persistence: `infrastructure/persistence/gorm/bot.go` (+ memory store if any).
-- Read DTO: `interfaces/mcptools/read_bots.go`.
-- Types: `domain/tool/tool.go` (`type Name = string`) and
-  `domain/streaming/ids.go` (`type TopicID = string`) are **aliases for
-  `string`**, so `[]tool.Name` is literally `[]string`.
+- MCP tools: `interfaces/mcptools/` — `create_bot.go`, `update_bot.go`
+  (delete), `invite_bots.go` (delete), `subscribe.go`, `unsubscribe.go`,
+  `schema.go`, `builtins.go` (registration), `registry.go`, `defaults.go`
+  (`OwnerBotTools`/`BaseReadTools`).
+- Application: `application/bots/bots.go` (`Create`, `Update`, `MergeTools`),
+  `application/subscriptions/subscriptions.go`
+  (`Subscribe`/`Unsubscribe` already take an explicit `workerID`).
+- Domain: `domain/orgchart/bot.go` (`Bot`, `NewBot`, `WithTopics` — drop
+  `Topics`).
+- Persistence: `infrastructure/persistence/gorm/bot.go`, memory store.
+- Read DTO / REST: `interfaces/mcptools/read_bots.go`,
+  `interfaces/server/api/dto.go`, `interfaces/server/api/bots.go`.
+- Types: `domain/tool/tool.go` (`type Name = string`),
+  `domain/streaming/ids.go` (`type TopicID = string`) — aliases for `string`.
 
-## Change A — Accept string-or-array on the array arguments
+## The new MCP surface (all scalar args — no arrays)
 
-### Root cause (verified)
-The auto-generated schema for a `[]string` field is a *nullable union*, not a
-plain array. Dumping `createBotSchema` confirms:
+| Tool | Args | Backed by |
+|---|---|---|
+| `create_bot` | `id?`, `content`, `parentId?` | `bots.Create` (baseline tools only) |
+| `set_bot_content` *(assumption)* | `botId`, `content` | `bots.Update{Content}` |
+| `attach_tool` | `botId`, `tool` (enum) | new `bots.AttachTool` |
+| `detach_tool` | `botId`, `tool` (enum) | new `bots.DetachTool` |
+| `subscribe` | `botId`, `topicId` | `subscriptions.Subscribe(orgID, botId, topicId)` |
+| `unsubscribe` | `botId`, `topicId` | `subscriptions.Unsubscribe(orgID, botId, topicId)` |
 
-```json
-"tools": { "type": ["null","array"], "items": { "type": "string" } }
-```
+Removed: `update_bot`, `invite_bots`, and the caller-only forms of
+`subscribe`/`unsubscribe`.
 
-Scalar fields (`id`, `content`) get a clean `"type":"string"` and work fine.
-Function-calling schema layers that don't accept a union/array-valued `type`
-treat the field as scalar, so the model emits `"tools":"subscribe"`, and the
-server's `json.Unmarshal` into `[]string` fails.
+## Change A — `attach_tool` / `detach_tool` (discrete tool grants)
 
-This is the exact failure already handled for `create_topic`'s `transport`
-field in `create_stream.go`: its `createTopicTransport.UnmarshalJSON` accepts a
-bare-string shorthand, and `createTopicSchema` rewrites the property to a
-`oneOf` (also stripping the `["object","null"]` union — note the comment there:
-"`Type+Types together is a marshal error`"). We mirror that precedent exactly.
-
-Applies to: `create_bot.tools`, `update_bot.tools`, `invite_bots.botIds`.
-
-### Lenient unmarshalling
-Add one small reusable type in `mcptools` (e.g. `schema.go`):
+New MCP tools with scalar args:
 
 ```go
-// stringList accepts either a JSON array of strings (["a","b"]) or a single
-// bare string ("a" -> ["a"]). Empty string -> empty list. Mirrors the
-// string-shorthand handling on create_topic's transport field.
-type stringList []string
-
-func (l *stringList) UnmarshalJSON(data []byte) error {
-    if len(data) > 0 && data[0] == '"' {        // bare-string shorthand
-        var s string
-        if err := json.Unmarshal(data, &s); err != nil { return err }
-        if s == "" { *l = stringList{} } else { *l = stringList{s} }
-        return nil
-    }
-    var arr []string
-    if err := json.Unmarshal(data, &arr); err != nil { return err }
-    *l = arr
-    return nil
+type attachToolArgs struct {
+    BotID string `json:"botId"`
+    Tool  string `json:"tool"`
 }
 ```
 
-Use `stringList` for `createBotArgs.Tools`, `updateBotArgs.Tools`, and
-`inviteBotsArgs.BotIDs`. Convert to `[]tool.Name` / `[]orgchart.BotID` when
-calling the service (trivial — the element types are `string` aliases).
+Service methods on `bots.Bots` (keep the read-modify-write in the service, its
+single home):
+- `AttachTool(ctx, orgID, id, name)` — Get the Bot; if `name` already in
+  `Tools`, no-op; else append and persist via the existing `Update` path.
+  Validate `name` is a registered tool (see enum source below).
+- `DetachTool(ctx, orgID, id, name)` — Get the Bot; if `name` is in
+  `BaseReadTools`, refuse (mandatory baseline); if absent, no-op; else remove
+  and persist.
 
-`update_bot`'s nil-vs-empty semantics are preserved: an absent `tools` key
-never invokes `UnmarshalJSON`, so the field stays `nil` → "preserve"; `[]` or
-`""` → empty → "clear".
+### Enum of valid tool names (from the registry)
+The `tool` argument is advertised as a required, non-nullable string enum of
+registered tool names. Those names live in the `Registry` (populated by
+`RegisterBuiltins`), not at package-init time — so the schema **cannot** be a
+static `mustSchema` var.
 
-### Schema override
-Add a helper in `schema.go` (e.g. `stringOrStringArray(description)`) that
-builds:
+- Add a names provider to `Deps` (e.g. `ToolNames func() []tool.Name`) wired in
+  `RegisterBuiltins` to return `reg.List()` names.
+- Build the enum in `InputSchema()` at serve time (called per ListTools
+  request), so it always reflects the current registry and no registration-order
+  problem exists (all tools are registered by the time any schema is served).
+- Add a `schema.go` helper (e.g. `enumStringProperty(names, description)`)
+  reusing the existing `enumSchema` shape.
 
-```json
-{
-  "description": "...",
-  "oneOf": [
-    { "type": "string" },
-    { "type": "array", "items": { "type": "string" } }
-  ]
-}
-```
+This directly satisfies the earlier "make tools a discoverable enum" requirement
+and keeps the core generic (new tools appear automatically).
 
-Apply it (the way `createTopicSchema` rewrites `transport`) to:
-`create_bot`'s `tools`, `update_bot`'s `tools`, and `invite_bots`'s `botIds`.
+## Change B — `subscribe` / `unsubscribe` target a Bot
 
-## Change B — Bot creation does not take streams (remove `topics`)
+Change both args from `{topicId}` (caller-only) to `{botId, topicId}` and pass
+`orgchart.BotID(args.BotID)` as the worker id. `subscriptions.Subscribe` and
+`Unsubscribe` already accept an explicit `workerID` and validate the Topic and
+Bot exist, so this is a straight signature change in the MCP adapter — no
+service change. A Bot self-subscribes by passing its own id.
 
-`create_bot`'s `topics` argument feeds `Bot.Topics`, a no-op manifest that is
-stored verbatim and never produces a subscription (confirmed by the domain
-comment on `bot.go` and by tracing `lifecycle.Create` → `bots.Create`). Per
-CLAUDE.md ("clean up dead code") and the helix-org philosophy (streams stay
-prompt-driven, subscription is explicit), remove it end-to-end rather than just
-hiding it from the schema:
+Delete `invite_bots.go` (the bulk many-bots form) — one `subscribe` call per bot
+replaces it. Update `OwnerBotTools` and any tests that referenced
+`InviteBotsName`.
 
-- `interfaces/mcptools/create_bot.go` — drop the `Topics` field from
-  `createBotArgs`; update `CreateBot.Description()` to drop topics/streams
-  wording and point to the follow-up (`create_topic` + `invite_bots`, or the
-  Bot self-subscribes via `subscribe`). **Keep the `Tools` field** (now a
-  `stringList`, per Change A).
-- `domain/orgchart/bot.go` — drop the `Topics` field and `WithTopics`, and
-  remove the `topics` parameter from `NewBot(...)`.
-- `application/lifecycle/lifecycle.go` + `application/bots/bots.go` — drop
-  `Topics` from `CreateParams`/`UpdateParams` and their uses. `bots.Create`
-  keeps building the bot with `MergeTools(p.Tools, baseTools)` so new bots
-  still get the baseline unioned with any supplied tools.
-- `infrastructure/persistence/gorm/bot.go` (+ memory store) — drop the
-  `Topics` column/field and its marshal/unmarshal. GORM AutoMigrate does not
-  drop the existing DB column; an orphaned unread column is harmless — note it,
-  no migration needed.
-- `interfaces/mcptools/read_bots.go` + REST `dto.go`/`bots.go` — drop `Topics`
-  from the read DTO and from the create/update request DTOs, and the
-  `toTopicIDs` helper if now unused.
+## Change C — `create_bot` is bare; remove `update_bot`; remove `Bot.Topics`
 
-Net: `create_bot` (MCP + REST) takes `id`/`content`/`tools`/`parentId`; no
-topics anywhere on the bot create/update path; subscription is only ever the
-explicit (worker, topic) link created by `subscribe` / `invite_bots`.
+- `create_bot.go` — drop `Tools` and `Topics` from `createBotArgs`; args become
+  `id`/`content`/`parentId`. Update the description to point at the follow-ups
+  (`attach_tool` for tools, `subscribe` for streams, `set_bot_content` for
+  content). `bots.Create` builds the Bot with `MergeTools(nil, baseTools)` so
+  the baseline is always present.
+- Delete `update_bot.go` and `UpdateBotName`; remove from `OwnerBotTools`,
+  `builtins.go`, and tests.
+- `set_bot_content.go` *(assumption)* — new tool, args `{botId, content}`,
+  calls `bots.Update` with only `Content` set (preserves tools).
+- Remove `Bot.Topics` end-to-end: the field + `WithTopics` in
+  `domain/orgchart/bot.go`, the `topics` parameter of `NewBot`, `Topics` in
+  `bots.CreateParams`/`UpdateParams` and `lifecycle.CreateParams`, the GORM
+  column/mapping (+ memory store), and `Topics` in the read DTO and REST DTOs
+  (drop `toTopicIDs` if unused). GORM AutoMigrate won't drop the DB column — an
+  orphaned unread column is harmless; note it, no migration.
 
-## Change C — The follow-up subscription path (no code, documentation only)
+`bots.UpdateParams.Tools` stays (used by `AttachTool`/`DetachTool` via the
+`Update` path). `create_bot` no longer takes tools, so `CreateParams.Tools` can
+also be dropped (create always applies baseline only).
 
-`invite_bots` already subscribes other Bots to a Topic (`subscriptions.Invite`
-validates the Topic and each Bot exist; no ownership check). The intended flow
-becomes:
-
-1. `create_bot` (content + tools, including `subscribe`/`dm` if wanted)
-2. `create_topic` (if the Topic doesn't exist yet)
-3. `invite_bots` (manager subscribes the new Bot) — or the Bot calls
-   `subscribe` itself once it holds the tool.
-
-Make this explicit in the `create_bot` description so the model reaches for the
-follow-up instead of expecting creation to subscribe.
+## Registration & authorization
+- `builtins.go` — register `attach_tool`, `detach_tool`, `set_bot_content`;
+  unregister `update_bot`, `invite_bots`.
+- `defaults.go` `OwnerBotTools()` — replace `UpdateBotName`/`InviteBotsName`
+  with `AttachToolName`, `DetachToolName`, `SetBotContentName`; keep
+  `SubscribeName`/`UnsubscribeName`. These stay out of `BaseReadTools`
+  (they are mutations). Authorization is by tool possession, as today.
 
 ## Key decisions
-- **Fix the array bug by reusing the `create_topic` precedent** (custom
-  `UnmarshalJSON` + `oneOf` schema), not by changing the `jsonschema.For` /
-  `mustSchema` machinery. One new `stringList` type + one schema helper, applied
-  to three properties.
-- **Keep `tools` on `create_bot`.** Tools are part of a Bot's definition (the
-  Role *is* the capability); once the array bug is fixed, granting tools at
-  creation works in one call. The user asked to decouple *streams*, not tools.
-- **Remove `topics`/`Bot.Topics` fully** — it is a misleading no-op, so it is
-  dead code, not a feature to relocate.
-- **No new MCP tool** — `invite_bots` / `subscribe` already cover the follow-up.
+- **Discrete over bulk.** Scalar-only args eliminate the array-schema interop
+  bug at the source and make each op trivially describable.
+- **Enum from the registry**, built dynamically in `InputSchema()`, not a
+  hand-maintained list — honors "new tools addable without editing the core."
+- **`subscribe`/`unsubscribe` target a Bot** — the service already supports an
+  explicit worker id, so `invite_bots` is redundant and removed.
+- **Keep a content editor** (`set_bot_content`) so removing `update_bot` doesn't
+  silently make content immutable. Drop it only if content is meant to be
+  immutable.
+- **Remove `Bot.Topics`** — a stored no-op that never subscribed anything.
 
 ## Testing
-- Unit (`create_bot_test.go`, `update_bot` tests, `invite_bots` tests,
-  `schema_test.go`, `builtins_test.go`):
-  - `create_bot` with `"tools":"subscribe"` and `"tools":["subscribe","dm"]`
-    both succeed and union with `BaseReadTools` identically; a `topics` key is
-    no longer part of the schema.
-  - `update_bot`: bare-string and array `tools` both work; omitted preserves;
-    `[]` clears.
-  - `invite_bots`: single-string and array `botIds` both work.
-  - Schema assertions: `tools`/`botIds` advertise the `oneOf` shape; no
-    `["null","array"]` union remains.
-- `go build ./...` for the org packages; fix all `NewBot` call sites from the
-  signature change.
-- Manual MCP smoke (inner Helix): the original failing flow —
-  `create_bot` granting `subscribe`/`dm` via a bare string → `create_topic` →
-  `invite_bots` to subscribe the new Bot.
+- `attach_tool`/`detach_tool`: add a tool; idempotent re-add; detach a
+  non-baseline tool; detach refuses a baseline tool; unknown tool rejected;
+  resulting tool set order-stable (`MergeTools`).
+- `subscribe`/`unsubscribe`: subscribe another Bot; self-subscribe; unsubscribe;
+  unknown bot/topic rejected.
+- `create_bot`: content-only create yields tools == `BaseReadTools`; no
+  `tools`/`topics` in the schema.
+- `set_bot_content`: changes content, preserves tools.
+- Schema tests: `attach_tool.tool` advertises a non-nullable `enum`; no
+  `["null","array"]` union anywhere on these tools; registry additions surface
+  in the enum.
+- `builtins_test.go` / `spec_tasks_registration_test.go`: reflect the
+  registered/unregistered set; fix all `NewBot` call sites after the signature
+  change; `go build ./...` for the org packages.
+- Manual MCP smoke (inner Helix): `create_bot` → `attach_tool` `subscribe`/`dm`
+  → `create_topic` → `subscribe(botId, topicId)` — the original failing flow.
 </content>
