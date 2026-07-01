@@ -56,6 +56,29 @@ Two possibilities, to be disambiguated by Task 1:
 We must **capture the actual wire bytes before writing the fix** — fixing
 blind risks patching the wrong layer.
 
+## Investigation result (confirmed empirically during implementation)
+
+A throwaway repro (go-sdk `tools/list` round-trip + mark3labs client parse +
+`buildParameters`) established:
+
+- **The org MCP server is correct at HEAD.** `create_bot` (and the other four
+  bulk tools) publish `tools`/`topics` as `{type:"array", items:{type:"string"},
+  ...}` — verified both as raw `InputSchema()` and after a full go-sdk
+  `tools/list` round-trip, and again after the mark3labs client re-parses the
+  wire JSON. No union, no `string`.
+- **The defect is `convertMapToDefinition`** (`mcp_skill.go:194`). Feeding it a
+  param whose `type` is the nullable union `["array","null"]` produces
+  `type:"string"` — the exact reported symptom (description preserved, type
+  collapsed). This is the `else` branch at lines 215-218: `data["type"]` is a
+  `[]any`, the `.(string)` assertion fails, and it defaults to `String`.
+
+So the reported `type:"string"` is introduced by the **MCP client-consumption
+converter**, not the server. The union form is what reflection-based schema
+generators emit for Go slice/pointer fields; any upstream MCP server (or an
+older/reflected variant of these tools) that emits it triggers the collapse.
+The robust fix therefore belongs in the converter, with a server-side wire
+guard test to prevent the org tools from ever regressing into the union form.
+
 ## Approach
 
 ### Step 1 — Reproduce at the wire (mandatory, before any code change)
