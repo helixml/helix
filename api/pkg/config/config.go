@@ -60,9 +60,14 @@ type ServerConfig struct {
 	OrphanReaperGracePeriod time.Duration `envconfig:"HELIX_ORPHAN_REAPER_GRACE_PERIOD" default:"6h"`
 
 	// OrphanReaperDryRun, when true, makes the reaper report what it WOULD reap
-	// without destroying anything. Defaults to true so the safety-critical zvol
-	// destroys are opt-in until an operator has reviewed the dry-run logs.
-	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"true"`
+	// without destroying anything. Defaults to FALSE so garbage collection
+	// actually runs out of the box — the previous true default meant any
+	// deployment that didn't explicitly opt in never reclaimed leaked zvols, so
+	// pools filled up (the recurring prod ~95%-full / fragmentation incidents).
+	// Safety is provided by the DB-driven live-set + the grace period
+	// (OrphanReaperGracePeriod), not by withholding the destroy. Set to true to
+	// audit what would be reaped without deleting.
+	OrphanReaperDryRun bool `envconfig:"HELIX_ORPHAN_REAPER_DRY_RUN" default:"false"`
 
 	// SandboxReaperInterval is how often the sandbox-instance reaper scans
 	// the sandbox_instances table for stale rows and flips their status to
