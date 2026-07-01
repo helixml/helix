@@ -60,7 +60,7 @@ export default function ProviderDetail() {
   const hasError = provider.status === "error";
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 2, md: 4 } }}>
+    <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 2, md: 4 }, overflow: "auto", height: "100%" }}>
       <Button startIcon={<ArrowBackIcon />} onClick={handleBack} size="small"
         sx={{ mb: 3, color: "text.secondary", textTransform: "none", fontSize: "0.8rem" }}>
         Providers
