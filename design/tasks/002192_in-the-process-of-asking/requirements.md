@@ -9,11 +9,14 @@ advertised with a nullable *union* schema (`"type":["null","array"]`) that
 small models mishandle — they send a bare string, which the server rejects
 (`cannot unmarshal string into …[]string`).
 
-Rather than patch the array schema, we **remove the arrays entirely** and make
-each mutation a discrete, scalar operation. This both fixes the interop failure
-(no array params left to misrepresent) and makes valid values discoverable: the
-tool argument on `attach_tool`/`detach_tool` is a JSON-Schema `enum` of the
-registered tool names, so the model sees exactly what it may pass.
+Rather than patch the array schema everywhere, we make tool-granting and
+subscription discrete, scalar operations, and fix the one array we keep. Tool
+granting/subscription become scalar (no array to misrepresent), and valid tool
+values are discoverable: the `tool` argument on `attach_tool`/`detach_tool` is a
+JSON-Schema `enum` of the registered tool names. `create_bot` keeps its
+`topics` argument (a declarative manifest of the streams the Bot's prompt is
+expected to operate on); its schema is fixed to a **non-nullable, required
+array** so models pass `[]`, not `null` or a bare string.
 
 `update_bot` (bulk content+tools edit) does not work and is removed. The
 caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are replaced by
@@ -52,18 +55,23 @@ only myself) to the streams of interest as a separate step.
 - The old caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are
   removed (superseded by these).
 
-### US-3: Bot creation is bare
-As a manager Bot, I want `create_bot` to take only `id` (optional), `content`
-(required), and `parentId` (optional), so creation does one thing and there are
-no array/stream arguments to misuse.
+### US-3: Bot creation takes content and a topics manifest
+As a manager Bot, I want `create_bot` to take `id` (optional), `content`
+(required), `topics` (a required, non-nullable array — declarative manifest,
+pass `[]` for none), and `parentId` (optional). Tools are added afterward via
+`attach_tool`.
 
 **Acceptance criteria**
-- `create_bot` no longer accepts `tools` or `topics`.
-- A new Bot automatically receives the universal read baseline, so it has a
-  usable MCP surface immediately; further tools are added via `attach_tool`.
-- No vestigial `topics`/manifest field remains anywhere on the bot
-  (`Bot.Topics` removed end-to-end — it was a stored no-op that never
-  subscribed anything).
+- `create_bot` accepts `id?`, `content`, `topics`, `parentId?`; it does **not**
+  accept `tools` (use `attach_tool`).
+- `topics` is advertised as a required, non-nullable array of topic-id strings
+  (`{"type":"array","items":{"type":"string"}}`) — no `["null","array"]`
+  union; the model must pass `[]` for none.
+- `topics` sets the Bot's `Topics` manifest (`Bot.Topics`). It is declarative
+  and does not itself subscribe the Bot — actual subscription is a separate
+  `subscribe(botId, topicId)` call.
+- A new Bot automatically receives the universal read baseline; further tools
+  are added via `attach_tool`.
 
 ### US-4: Edit a Bot's content after creation *(assumption — confirm)*
 As a manager Bot, I want `set_bot_content(botId, content)` so I can revise a
@@ -75,7 +83,11 @@ provide besides tools).
 - If content should instead be immutable after creation, this tool is dropped.
 
 ## Out of Scope
-- Any array-valued MCP argument on these tools (removed by design).
+- Array-valued MCP arguments on the tool-grant/subscription tools (removed by
+  design); `create_bot.topics` is the one retained array, with a fixed
+  non-nullable schema.
+- Making `topics` actually subscribe the Bot (it stays a declarative manifest;
+  subscription is `subscribe(botId, topicId)`).
 - Changes to subscription authorization rules beyond the signature change
   (`subscribe`/`unsubscribe` become Bot-targeted owner mutations, granted via
   `OwnerBotTools`, not the read baseline).

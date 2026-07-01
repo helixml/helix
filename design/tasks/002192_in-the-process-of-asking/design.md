@@ -11,8 +11,8 @@ All in `api/pkg/org/`:
 - Application: `application/bots/bots.go` (`Create`, `Update`, `MergeTools`),
   `application/subscriptions/subscriptions.go`
   (`Subscribe`/`Unsubscribe` already take an explicit `workerID`).
-- Domain: `domain/orgchart/bot.go` (`Bot`, `NewBot`, `WithTopics` — drop
-  `Topics`).
+- Domain: `domain/orgchart/bot.go` (`Bot`, `NewBot`, `WithTopics` — `Topics`
+  retained).
 - Persistence: `infrastructure/persistence/gorm/bot.go`, memory store.
 - Read DTO / REST: `interfaces/mcptools/read_bots.go`,
   `interfaces/server/api/dto.go`, `interfaces/server/api/bots.go`.
@@ -23,7 +23,7 @@ All in `api/pkg/org/`:
 
 | Tool | Args | Backed by |
 |---|---|---|
-| `create_bot` | `id?`, `content`, `parentId?` | `bots.Create` (baseline tools only) |
+| `create_bot` | `id?`, `content`, `topics` (non-nullable array), `parentId?` | `bots.Create` (baseline tools + topics manifest) |
 | `set_bot_content` *(assumption)* | `botId`, `content` | `bots.Update{Content}` |
 | `attach_tool` | `botId`, `tool` (enum) | new `bots.AttachTool` |
 | `detach_tool` | `botId`, `tool` (enum) | new `bots.DetachTool` |
@@ -82,27 +82,37 @@ Delete `invite_bots.go` (the bulk many-bots form) — one `subscribe` call per b
 replaces it. Update `OwnerBotTools` and any tests that referenced
 `InviteBotsName`.
 
-## Change C — `create_bot` is bare; remove `update_bot`; remove `Bot.Topics`
+## Change C — `create_bot` keeps `topics` (fixed schema); remove `update_bot`
 
-- `create_bot.go` — drop `Tools` and `Topics` from `createBotArgs`; args become
-  `id`/`content`/`parentId`. Update the description to point at the follow-ups
-  (`attach_tool` for tools, `subscribe` for streams, `set_bot_content` for
-  content). `bots.Create` builds the Bot with `MergeTools(nil, baseTools)` so
-  the baseline is always present.
+- `create_bot.go` — drop only `Tools` from `createBotArgs`; **keep `Topics`**.
+  Args become `id`/`content`/`topics`/`parentId`. Update the description to
+  point at the follow-ups (`attach_tool` for tools, `subscribe` for actual
+  stream subscription, `set_bot_content` for content) and to explain that
+  `topics` is a declarative manifest that does not itself subscribe.
+  `bots.Create` builds the Bot with `MergeTools(nil, baseTools)` (baseline) plus
+  the supplied topics manifest.
+- **Fix the `topics` schema.** The auto-generated schema is the nullable union
+  `{"type":["null","array"],"items":{"type":"string"}}`. Override the `topics`
+  property to a non-nullable array `{"type":"array","items":{"type":"string"}}`
+  and add `topics` to the schema's `required` list (so the model must pass `[]`
+  for none). Add a `schema.go` helper (e.g. `stringArrayProperty(description)`)
+  for the non-nullable array shape; set it on the property and append `topics`
+  to `Required`. Drop `omitempty` on the Go field to match "always present".
+  The `Invoke` may treat a nil slice as empty (forgiving) while the schema
+  advertises it required.
 - Delete `update_bot.go` and `UpdateBotName`; remove from `OwnerBotTools`,
   `builtins.go`, and tests.
 - `set_bot_content.go` *(assumption)* — new tool, args `{botId, content}`,
-  calls `bots.Update` with only `Content` set (preserves tools).
-- Remove `Bot.Topics` end-to-end: the field + `WithTopics` in
-  `domain/orgchart/bot.go`, the `topics` parameter of `NewBot`, `Topics` in
-  `bots.CreateParams`/`UpdateParams` and `lifecycle.CreateParams`, the GORM
-  column/mapping (+ memory store), and `Topics` in the read DTO and REST DTOs
-  (drop `toTopicIDs` if unused). GORM AutoMigrate won't drop the DB column — an
-  orphaned unread column is harmless; note it, no migration.
+  calls `bots.Update` with only `Content` set (preserves tools and topics).
+- **Keep `Bot.Topics`** end-to-end (field, `WithTopics`, `NewBot` topics param,
+  `bots.CreateParams.Topics`, `lifecycle.CreateParams.Topics`, GORM
+  column/mapping, read DTO, REST DTOs). Note it stays a stored no-op manifest by
+  design decision (not a subscription).
 
-`bots.UpdateParams.Tools` stays (used by `AttachTool`/`DetachTool` via the
-`Update` path). `create_bot` no longer takes tools, so `CreateParams.Tools` can
-also be dropped (create always applies baseline only).
+`bots.UpdateParams.Tools`/`.Topics` stay (Tools used by
+`AttachTool`/`DetachTool` via the `Update` path). `create_bot` no longer takes
+tools, so `bots.CreateParams.Tools` can be dropped (create applies baseline
+only); `CreateParams.Topics` stays.
 
 ## Registration & authorization
 - `builtins.go` — register `attach_tool`, `detach_tool`, `set_bot_content`;
@@ -122,7 +132,9 @@ also be dropped (create always applies baseline only).
 - **Keep a content editor** (`set_bot_content`) so removing `update_bot` doesn't
   silently make content immutable. Drop it only if content is meant to be
   immutable.
-- **Remove `Bot.Topics`** — a stored no-op that never subscribed anything.
+- **Keep `topics` on `create_bot`** as a declarative manifest (per request),
+  with its schema fixed to a non-nullable, required array. It remains a stored
+  no-op (does not subscribe) by design; subscription is `subscribe`.
 
 ## Testing
 - `attach_tool`/`detach_tool`: add a tool; idempotent re-add; detach a
@@ -130,12 +142,13 @@ also be dropped (create always applies baseline only).
   resulting tool set order-stable (`MergeTools`).
 - `subscribe`/`unsubscribe`: subscribe another Bot; self-subscribe; unsubscribe;
   unknown bot/topic rejected.
-- `create_bot`: content-only create yields tools == `BaseReadTools`; no
-  `tools`/`topics` in the schema.
-- `set_bot_content`: changes content, preserves tools.
-- Schema tests: `attach_tool.tool` advertises a non-nullable `enum`; no
-  `["null","array"]` union anywhere on these tools; registry additions surface
-  in the enum.
+- `create_bot`: create with `topics: []` yields tools == `BaseReadTools` and an
+  empty manifest; create with `topics: ["t1"]` stores that manifest; no `tools`
+  field in the schema.
+- `set_bot_content`: changes content, preserves tools and topics.
+- Schema tests: `attach_tool.tool` advertises a non-nullable `enum`;
+  `create_bot.topics` advertises a non-nullable, required array (no
+  `["null","array"]` union); registry additions surface in the enum.
 - `builtins_test.go` / `spec_tasks_registration_test.go`: reflect the
   registered/unregistered set; fix all `NewBot` call sites after the signature
   change; `go build ./...` for the org packages.
