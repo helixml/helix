@@ -22,7 +22,7 @@ schema verbatim. Follow TDD.
 
 ## GREEN — verbatim schema passthrough
 
-- [ ] Apply `red_test/production_fix.patch` (or hand-apply): `buildProxyTool`
+- [~] Apply `red_test/production_fix.patch` (or hand-apply): `buildProxyTool`
       forwards the upstream schema verbatim via
       `mcp.NewToolWithRawSchema(tool.Name, tool.Description, json.Marshal(tool.InputSchema))`;
       on marshal error, log and serve a description-only tool (never fall back to
