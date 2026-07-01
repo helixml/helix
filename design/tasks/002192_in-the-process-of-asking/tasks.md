@@ -26,7 +26,8 @@
 ## Remove Bot.Topics end-to-end (subscriptions are the source of truth)
 - [ ] Remove the `Topics` field and `WithTopics` from `orgchart.Bot`, and the `topics` parameter from `NewBot(...)`; update every call site (production + tests).
 - [ ] Drop `bots.UpdateParams.Topics` and its use in `Update`.
-- [ ] Remove the `Topics` column/field and mapping from the GORM bot model and the memory store (leftover DB column is harmless; no migration).
+- [ ] Remove the `Topics` field and mapping from the GORM `botRow` (+ memory store). This stops all reads/writes of the redundant `org_bots.topics` column (`org_subscriptions` is the source of truth).
+- [ ] Decide on the physical column: leave `org_bots.topics` orphaned (default — AutoMigrate won't drop it), or add a deliberate one-off `ALTER TABLE org_bots DROP COLUMN topics` for tidiness. Do **not** backfill old manifest entries into `org_subscriptions`.
 - [ ] Remove `Topics` from the read DTO (`read_bots.go`) and the REST DTOs (`dto.go`/`bots.go`); drop `toTopicIDs`/`toToolNames` helpers if now unused.
 
 ## Registration & authorization

@@ -105,11 +105,26 @@ it.
   only `Content` set (preserves tools).
 - **Remove `Bot.Topics` end-to-end** — the field + `WithTopics` in
   `domain/orgchart/bot.go`, the `topics` parameter of `NewBot`, the `Topics`
-  field on the GORM model (+ memory store), and `Topics` from the read DTO
-  (`read_bots.go`) and REST DTOs (`dto.go`/`bots.go`). Subscriptions are the
-  source of truth (queried via the subscriptions/topic read tools). GORM
-  AutoMigrate won't drop the DB column — an orphaned unread column is harmless;
-  note it, no migration.
+  field on the GORM `botRow` mapper (+ memory store), and `Topics` from the read
+  DTO (`read_bots.go`) and REST DTOs (`dto.go`/`bots.go`). The
+  `org_bots.topics` column is a redundant JSON array duplicating the
+  `org_subscriptions` association table (PK `org_id, bot_id, topic_id`);
+  `org_subscriptions` is the single source of truth (queried via the
+  subscriptions/topic read tools). Removing the field stops all reads/writes of
+  the column — that is the cleanup that matters.
+
+### Data migration
+- **The physical column stays unless explicitly dropped.** GORM AutoMigrate
+  only adds columns, so `org_bots.topics` remains as orphaned, unread data.
+  Per the "GORM AutoMigrate only" convention, the default is to leave it. Drop
+  it only if desired via a deliberate one-off `ALTER TABLE org_bots DROP COLUMN
+  topics` (outside AutoMigrate) — purely tidiness, no functional effect.
+- **Do NOT backfill the old manifest into `org_subscriptions`.** The `topics`
+  column was a no-op manifest — its entries were never real subscriptions, so a
+  bot may list a topic there with no `org_subscriptions` row. Backfilling would
+  silently subscribe existing bots to streams they never received (a behavior
+  change). Existing bots keep their current (real) subscriptions unchanged;
+  anything that needs a subscription gets one explicitly via `subscribe`.
 - `bots.CreateParams.Topics` and `lifecycle.CreateParams.Topics` **stay** (they
   now drive subscription, not a stored field). `bots.Create` no longer stores
   topics on the bot and applies `MergeTools(nil, baseTools)`. Drop
