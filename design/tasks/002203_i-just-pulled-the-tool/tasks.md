@@ -6,7 +6,7 @@ the minimal fix. Do not write the fix before the test fails.
 
 ## RED — replicate the bug with a failing test
 
-- [ ] Reproduce at the wire first: capture the `create_bot` schema exactly as a harness receives it (drive `tools/list` on `/workers/{id}/mcp`, or `json.Marshal` both `InputSchema()` and the reflected `createBotSchema` base and diff). Confirm the observed `type:"string"` (no `items`) and pin the exact emitting layer (leaked reflected nullable-union vs `convertMapToDefinition` `type.(string)` fallback vs a lossy round-trip).
+- [~] Reproduce at the wire first: capture the `create_bot` schema exactly as a harness receives it (drive `tools/list` on `/workers/{id}/mcp`, or `json.Marshal` both `InputSchema()` and the reflected `createBotSchema` base and diff). Confirm the observed `type:"string"` (no `items`) and pin the exact emitting layer (leaked reflected nullable-union vs `convertMapToDefinition` `type.(string)` fallback vs a lossy round-trip).
 - [ ] Write the RED test: a wire-level test that serializes/observes the schema the way a client does and asserts, for `create_bot.tools` and `create_bot.topics`, `type == "array"` + `items.type == "string"` (and `type` is never `string` nor a union). Run it and confirm it FAILS, reproducing the reported symptom — not failing for an unrelated reason (wrong endpoint, nil map, etc.).
 - [ ] Extend the RED test to the other four params so they fail too if affected: `attach_tool.tools`, `detach_tool.tools`, `subscribe.topicIds`, `unsubscribe.topicIds`.
 
