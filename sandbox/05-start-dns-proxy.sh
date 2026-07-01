@@ -64,6 +64,10 @@ done
 # log-tailer surfaces /var/log/helix-services/*.log in the Runner Logs stream.
 mkdir -p /var/log/helix-services 2>/dev/null || true
 (
+    # Restart loop must survive a non-zero exit; a sibling script's `set -e`
+    # leaks into this sourced subshell and would otherwise kill the loop on the
+    # first crash, leaving dns-proxy dead (see 10-start-hydra).
+    set +e
     while true; do
         dns-proxy -listen "${GATEWAY}:53" -upstream "${UPSTREAM_DNS}"
         echo "[$(date -Iseconds)] dns-proxy exited (code $?); restarting in 2s..."

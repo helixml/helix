@@ -24,6 +24,10 @@ type HealthResponse struct {
 // DevContainerManager.RecoverDevContainersFromDocker.
 const containerSessionIDLabel = "helix.session_id"
 
+// containerPersistentLabel marks long-lived (web-service) containers so the
+// boot-time stopped-container reaper skips them and they survive a reboot.
+const containerPersistentLabel = "helix.persistent"
+
 // DevContainerType represents the type of dev container
 type DevContainerType string
 
@@ -123,6 +127,14 @@ type CreateDevContainerRequest struct {
 	// `ubuntu:22.04`). The Sandboxes API headless runtime sets this so plain
 	// docker images can be used.
 	SkipImageValidation bool `json:"skip_image_validation,omitempty"`
+
+	// Persistent marks a long-lived dev container (e.g. a hosted web service)
+	// that must survive host reboots and dockerd restarts. It gets a Docker
+	// restart policy (unless-stopped) and is exempt from stopped-container
+	// reaping, so a reboot self-heals in seconds with /data and the image
+	// cache intact — instead of the slow provision-fresh-sandbox + full
+	// rebuild recovery path.
+	Persistent bool `json:"persistent,omitempty"`
 }
 
 // DevContainerResponse is the response after creating/querying a dev container
