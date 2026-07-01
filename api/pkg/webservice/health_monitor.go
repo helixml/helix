@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/sandbox"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -18,7 +17,6 @@ import (
 type HealthMonitor struct {
 	store      store.Store
 	controller *Controller
-	sandboxes  *sandbox.Controller
 
 	interval      time.Duration
 	probeTimeout  time.Duration
@@ -34,16 +32,15 @@ type HealthMonitor struct {
 // NewHealthMonitor builds a monitor with production-sane defaults: probe every
 // 30s, recover after ~90s of continuous failure, and don't re-recover the same
 // project more than once per 5 minutes (a cold redeploy can take minutes).
-func NewHealthMonitor(s store.Store, c *Controller, sb *sandbox.Controller) *HealthMonitor {
+func NewHealthMonitor(s store.Store, c *Controller) *HealthMonitor {
 	return &HealthMonitor{
 		store:         s,
 		controller:    c,
-		sandboxes:     sb,
 		interval:      30 * time.Second,
 		probeTimeout:  8 * time.Second,
 		failThreshold: 3,
 		cooldown:      5 * time.Minute,
-		buildTimeout:  15 * time.Minute,
+		buildTimeout:  DeployBuildTimeout,
 		fails:         map[string]int{},
 		lastRecov:     map[string]time.Time{},
 	}
@@ -51,6 +48,16 @@ func NewHealthMonitor(s store.Store, c *Controller, sb *sandbox.Controller) *Hea
 
 // Start runs the monitor on a ticker until ctx is cancelled.
 func (m *HealthMonitor) Start(ctx context.Context) {
+	// A build cannot survive the process that was orchestrating it. On startup
+	// (e.g. after a CD upgrade) fail any deploy still marked in-flight so a
+	// web service whose build was interrupted recovers on the first tick,
+	// instead of the stale in-flight row wedging recovery until buildTimeout.
+	if n, err := m.store.FailInFlightWebServiceDeploys(ctx); err != nil {
+		log.Warn().Err(err).Msg("web-service health-monitor: failing orphaned in-flight deploys on startup failed")
+	} else if n > 0 {
+		log.Info().Int64("count", n).Msg("web-service health-monitor: failed orphaned in-flight deploys on startup")
+	}
+
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	log.Info().Dur("interval", m.interval).Msg("web-service health-monitor started")
@@ -129,20 +136,10 @@ func (m *HealthMonitor) deployInProgress(ctx context.Context, projectID string) 
 }
 
 // probe returns true if the project's web service answers on its container
-// port through the hydra proxy. ProbeDevContainerPort errors on transport
-// failure / 4xx / 5xx (see hydra doRequest), so any of those count as down.
+// port through the hydra proxy. Delegates to Controller.Probe — the single
+// source of truth shared with the API's health reporting.
 func (m *HealthMonitor) probe(ctx context.Context, st *types.ProjectWebServiceState) bool {
-	sb, err := m.sandboxes.Get(ctx, st.ActiveSandboxID)
-	if err != nil || sb == nil || sb.Status != types.SandboxStatusRunning {
-		return false
-	}
-	hc, err := m.sandboxes.HydraClient(sb)
-	if err != nil {
-		return false
-	}
-	pctx, cancel := context.WithTimeout(ctx, m.probeTimeout)
-	defer cancel()
-	return hc.ProbeDevContainerPort(pctx, sb.ID, st.ContainerPort) == nil
+	return m.controller.Probe(ctx, st, m.probeTimeout)
 }
 
 func (m *HealthMonitor) reset(projectID string) {

@@ -1501,6 +1501,13 @@ export interface ServerProjectWebServiceResponse {
   cname_target?: string;
   deploys?: TypesWebServiceDeploy[];
   domains?: TypesVHostRoute[];
+  /**
+   * Health is the real, probe-based status of the web service — "disabled",
+   * "deploying", "live" or "unhealthy" — so the UI reflects whether the app
+   * actually answers, not just the last deploy row (which stays "live" long
+   * after its container dies).
+   */
+  health?: string;
   state?: TypesProjectWebServiceState;
 }
 

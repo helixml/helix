@@ -221,6 +221,24 @@ func (s *PostgresStore) UpdateWebServiceDeploy(ctx context.Context, id string, u
 		Updates(updates).Error
 }
 
+// FailInFlightWebServiceDeploys marks every deploy still in a non-terminal
+// (pending/building) state as failed and returns the number updated. Called on
+// startup: a build cannot survive the process that was orchestrating it, so any
+// deploy left in-flight after a restart (e.g. a CD upgrade) is orphaned. Left
+// alone it would wedge the health monitor's recovery — deployInProgress treats
+// an in-flight deploy as "don't touch". Failing them lets a dead web service
+// recover on the first tick instead of waiting out the build timeout.
+func (s *PostgresStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
+	res := s.gdb.WithContext(ctx).
+		Model(&types.WebServiceDeploy{}).
+		Where("status IN ?", []types.WebServiceDeployStatus{
+			types.WebServiceDeployStatusPending,
+			types.WebServiceDeployStatusBuilding,
+		}).
+		Update("status", types.WebServiceDeployStatusFailed)
+	return res.RowsAffected, res.Error
+}
+
 // ListPendingVHostRoutes returns vhost routes that are waiting for DNS
 // ownership verification (verified_at IS NULL AND verification_token != '').
 // Caps at limit to avoid runaway sweeps.
