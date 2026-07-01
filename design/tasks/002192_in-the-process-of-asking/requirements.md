@@ -1,4 +1,4 @@
-# Requirements: Replace Bot-Editing MCP Tools with Discrete Attach/Detach and Subscribe Operations
+# Requirements: Replace Bot-Editing MCP Tools with Bulk Attach/Detach and Subscribe Operations
 
 ## Background
 
@@ -17,9 +17,11 @@ streams. Two problems:
 
 Design changes:
 
-- **Tool-granting and subscription become discrete, scalar operations** —
-  eliminating the array-schema interop bug and making valid tool values
-  discoverable via an `enum`.
+- **Tool-granting and subscription accept arrays (bulk).** Grant/revoke many
+  tools and subscribe/unsubscribe many topics in a single call — per-item
+  granting is too many hops. Valid tool values are discoverable via an `enum`,
+  and the array schemas are fixed to non-nullable (no `["null","array"]` union),
+  which is what actually eliminated the original interop bug.
 - **`create_bot` subscribes immediately.** We are amending the org-package
   principle that subscription must be a separate, prompt-driven step. New
   guiding rule: **complete a user action in as few steps as possible.** Since a
@@ -30,9 +32,9 @@ Design changes:
   their own `(bot, topic)` rows — the single source of truth — so there is no
   denormalized field to drift.
 
-`update_bot` (broken bulk content+tools edit) is removed; the caller-only
-`subscribe`/`unsubscribe` and the bulk `invite_bots` are replaced by
-Bot-targeted discrete equivalents.
+`update_bot` (broken content+tools edit) is removed; the caller-only
+`subscribe`/`unsubscribe` and the many-bots `invite_bots` are replaced by
+Bot-targeted, array-based equivalents.
 
 ## User Stories
 

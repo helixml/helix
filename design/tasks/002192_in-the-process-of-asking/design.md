@@ -1,4 +1,4 @@
-# Design: Replace Bot-Editing MCP Tools with Discrete Attach/Detach and Subscribe Operations
+# Design: Replace Bot-Editing MCP Tools with Bulk Attach/Detach and Subscribe Operations
 
 ## Where the code lives
 
@@ -160,12 +160,14 @@ bots by calling it per bot).
   Authorization is by tool possession, as today.
 
 ## Key decisions
-- **Fixed array schemas, not scalar-only** — `attach_tool`/`detach_tool` and
-  `create_bot` take non-nullable arrays of enum-constrained tool names (pass one
-  or many). The enum makes values discoverable and the non-nullable override
+- **Bulk, not per-item.** Grant/revoke tools and subscribe/unsubscribe topics
+  accept arrays so a Bot can be set up in one call — per-item granting is too
+  many hops. `attach_tool`/`detach_tool` and `create_bot` take non-nullable
+  arrays of enum-constrained tool names (pass one or many); the enum makes
+  values discoverable and the non-nullable override (not going scalar) is what
   avoids the `["null","array"]` union that caused the original bug.
-  `subscribe`/`unsubscribe` likewise take a non-nullable `topicIds` array —
-  plain strings, no enum, since topic ids are dynamic.
+  `subscribe`/`unsubscribe` likewise take a non-nullable `topicIds` array
+  (plain strings, no enum — topic ids are dynamic).
 - **`create_bot` sets initial tools and auto-subscribes** — per the amended
   "fewest steps" principle; the manager's common intent is a Bot that already
   has its tools and is listening. `tools` is an enum array (discoverable, same

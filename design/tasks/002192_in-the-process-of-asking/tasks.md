@@ -1,9 +1,9 @@
-# Implementation Tasks: Replace Bot-Editing MCP Tools with Discrete Attach/Detach and Subscribe Operations
+# Implementation Tasks: Replace Bot-Editing MCP Tools with Bulk Attach/Detach and Subscribe Operations
 
 ## Principle change
 - [ ] Amend the org "No workflow in code / streams stay prompt-driven" rule in `helix/CLAUDE.md` (and any mirror in `.cursor/rules/`) toward "complete a user action in as few steps as possible"; note `create_bot` subscribes at creation.
 
-## New discrete tool grants (attach_tool / detach_tool)
+## New bulk tool grants (attach_tool / detach_tool)
 - [ ] Add `AttachTools(ctx, orgID, id, names)` and `DetachTools(ctx, orgID, id, names)` to `application/bots/bots.go` (read-modify-write via `Update`; union/remove per name via `MergeTools`; `DetachTools` refuses any `BaseReadTools` entry; validate the whole batch up front; idempotent per name).
 - [ ] Add a names provider to the mcptools `Deps` (e.g. `ToolNames func() []tool.Name`) wired in `RegisterBuiltins` to return `reg.List()` names.
 - [ ] Add a `schema.go` helper (e.g. `enumStringArrayProperty(names, description)`) building a required, non-nullable array of enum-constrained strings (shared with `create_bot.tools`).
