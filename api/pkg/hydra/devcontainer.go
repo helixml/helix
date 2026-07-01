@@ -112,6 +112,21 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 	// the pool from ENOSPC corruption.
 	go dm.runDiskPressureMonitor()
 
+	// Return freed XFS blocks to the ZFS pool. The `discard` mount option only
+	// trims a freshly-mounted XFS and can't reclaim already-freed blocks, and
+	// operators may mount /container-docker without discard at all — so warn if
+	// so, and periodically fstrim the parent + mounted zvols as a backstop.
+	warnIfContainerDockerLacksDiscard()
+	go func() {
+		time.Sleep(10 * time.Minute) // don't compete with startup I/O
+		TrimContainerDockerStorage()
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			TrimContainerDockerStorage()
+		}
+	}()
+
 	return dm
 }
 
