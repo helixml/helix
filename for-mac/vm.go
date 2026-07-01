@@ -1374,9 +1374,12 @@ else
     CHANGED=1
 fi
 
-# Enable user-configured inference providers (OpenAI, Anthropic, etc.)
+# Disable per-user providers on mac-desktop — all providers are global
 if ! grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=' "$ENV_FILE" 2>/dev/null; then
-    echo 'ENABLE_CUSTOM_USER_PROVIDERS=true' >> "$ENV_FILE"
+    echo 'ENABLE_CUSTOM_USER_PROVIDERS=false' >> "$ENV_FILE"
+    CHANGED=1
+elif grep -q '^ENABLE_CUSTOM_USER_PROVIDERS=true' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^ENABLE_CUSTOM_USER_PROVIDERS=true|ENABLE_CUSTOM_USER_PROVIDERS=false|" "$ENV_FILE"
     CHANGED=1
 fi
 
