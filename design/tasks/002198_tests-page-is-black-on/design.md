@@ -76,3 +76,33 @@ theme-config values instead of adding one-off hex codes.
 ## Files to Change
 
 - `frontend/src/components/app/TestsEditor.tsx` (only file).
+
+## Implementation Notes
+
+- Added `useLightTheme()` and derived four reusable values at the top of the
+  component:
+  - `panelBg = lightTheme.panelColor` (light `#f4f4f4` / dark `#1e1e24`) — outer
+    panels: per-test card and the "Running Tests with CLI" box.
+  - `innerBg = lightTheme.backgroundColor` (light `#ffffff` / dark `#121214`) —
+    inner boxes: per-step card, CLI command snippet, and the two accordions.
+  - `codeBg = lightTheme.isLight ? '#f0f0f4' : '#0d1117'` — the GitHub/GitLab
+    code blocks keep the GitHub-dark look in dark mode and use a light neutral in
+    light mode.
+  - `iconBtnSx` — shared `sx` for the three copy `IconButton`s: `color:
+    lightTheme.icon` (light `#5d5d7b` / dark `#7fd8ff`) plus a theme-aware hover.
+    The two config buttons spread `iconBtnSx` after their `position: 'absolute'`
+    props.
+- Actual theme hex values come from `themes.tsx` (`helix` theme). No new one-off
+  literals except the single `codeBg` light value.
+- **Verified end-to-end** in the inner Helix (`localhost:8080`): registered,
+  created org `testorg` + project `testproj`, opened the auto-created "Optimus"
+  agent → Edit → Tests tab. Confirmed light mode is fully readable (test/step
+  cards, CLI box, expanded GitHub Actions code block, copy icons) and dark mode
+  is unchanged. Screenshots in `screenshots/`:
+  - `01-light-mode-test-card.png`, `02-light-mode-after.png` (light, fixed)
+  - `03-dark-mode-test-card.png`, `04-dark-mode-code.png` (dark, no regression)
+- Gotcha: the frontend is served by the `helix-frontend-1` Vite container;
+  `node_modules` is inside the container, so `yarn build` on the host fails with
+  `vite: not found`. Typecheck via
+  `docker compose -f docker-compose.dev.yaml exec -T frontend npx tsc --noEmit`.
+  Vite HMR picks up the edit live — no rebuild needed to verify in the browser.
