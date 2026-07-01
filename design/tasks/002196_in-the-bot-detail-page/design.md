@@ -138,3 +138,53 @@ No confirmation dialog. In `handleRestartSession`, after
   teardown); do not add bespoke container/workspace teardown here.
 - Validate the session is a `zed_external` agent before the full-restart path.
 - The empty-session fallback must still provision + start for first-time use.
+
+## Implementation Notes (as-built)
+
+**Backend flow finalized as:** `restartBotAgent` resolves the bot's current
+session, and if one exists calls `BotSessionResetter.ResetSession` then always
+`Activate`. `ResetSession` (a `botSessionResetter` adapter at the composition
+root in `helix_org.go`, holding both the in-proc client and the org store) does:
+
+1. `StopExternalAgent(sessionID)` — **best-effort** (logged, non-fatal). The
+   container may already be down; we never resume it, so a stop error must not
+   block the teardown. This mirrors `restartSessionContainer`'s StopDesktop.
+2. `DeleteSession(sessionID)` — **fatal**. New thin in-proc wrapper over the
+   existing `deleteSession` handler (mirrors `StopExternalAgent`). Removing the
+   exploratory row is load-bearing: `StartExternalAgentSession` reuses an
+   existing exploratory session, so without the delete the "new" session would
+   be the same one.
+3. `SaveSession(orgID, botID, "")` — **fatal**. Clears the persisted pointer so
+   the spawner's `ensureSession` starts fresh instead of trying to
+   `ClearSession` the now-deleted session (which would error).
+
+Then `Activate` (existing) dispatches the spawner, which — seeing an empty
+pointer and no exploratory row — mints a brand-new session, starts a fresh
+desktop, and re-reads the bot's tools/MCP surface. **Creation is asynchronous**,
+so the restart response cannot carry the new id.
+
+**Key discoveries:**
+- `store.DeleteSession` only deletes the DB row — it does NOT stop the desktop.
+  Must `StopExternalAgent` first, else the container leaks (the original bug).
+- `StartExternalAgentSession` reuses the project's exploratory session (a
+  deliberate singleton guard) — deletion is what forces a new id.
+- The org runtime-state store (for `SaveSession`) is the org-domain store held at
+  the composition root, not `server.Store`, so the combined reset lives in
+  `helix_org.go`, not the in-proc client.
+- Removed the now-dead `SessionRestarter` port + `inProcHelixClient.RestartSession`.
+  The in-chat / spec-task crash-recovery path (`restartCrashedAgentThread` →
+  `restartSessionContainer`, HTTP `POST /sessions/{id}/restart-agent`) is
+  untouched.
+
+**Frontend:** `handleRestartSession` clears `chatSessionId` (drops the stale
+transcript), switches to the Chat tab, then polls `fetchExistingWorkerSession`
+(~20 × 1.5s) until a session id different from the previous one is resolvable and
+binds to it — remounting `EmbeddedSessionView` and rebinding the WebSocket. No
+confirmation dialog. This poll is necessary because the new session is created
+asynchronously by the spawner.
+
+**Verification status:** unit-tested (handler ordering, failure→500, 404,
+first-start) + crash-recovery regression + `tsc`. NOT live-e2e tested:
+`HELIX_ORG_ENABLED=false` in the available inner Helix, so the bot feature and
+its tables are absent. The integration path against a live Zed desktop should be
+verified in staging.
