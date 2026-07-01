@@ -3518,6 +3518,21 @@ func (mr *MockStoreMockRecorder) GetSpecTaskAttachment(ctx, id any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskAttachment", reflect.TypeOf((*MockStore)(nil).GetSpecTaskAttachment), ctx, id)
 }
 
+// GetSpecTaskByExternalNotionPageID mocks base method.
+func (m *MockStore) GetSpecTaskByExternalNotionPageID(ctx context.Context, pageID string) (*types.SpecTask, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskByExternalNotionPageID", ctx, pageID)
+	ret0, _ := ret[0].(*types.SpecTask)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskByExternalNotionPageID indicates an expected call of GetSpecTaskByExternalNotionPageID.
+func (mr *MockStoreMockRecorder) GetSpecTaskByExternalNotionPageID(ctx, pageID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskByExternalNotionPageID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskByExternalNotionPageID), ctx, pageID)
+}
+
 // GetSpecTaskDesignReview mocks base method.
 func (m *MockStore) GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error) {
 	m.ctrl.T.Helper()

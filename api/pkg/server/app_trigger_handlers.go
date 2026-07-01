@@ -112,6 +112,9 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 		if trigger.Trigger.AzureDevOps != nil && trigger.Trigger.AzureDevOps.Enabled {
 			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, trigger.ID)
 		}
+		if trigger.Trigger.Notion != nil && trigger.Trigger.Notion.Enabled {
+			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, trigger.ID)
+		}
 	}
 
 	return triggers, nil
@@ -166,6 +169,9 @@ func (s *HelixAPIServer) createAppTrigger(_ http.ResponseWriter, r *http.Request
 
 	// Populate WebhookURL for applicable triggers
 	if created.Trigger.AzureDevOps != nil && created.Trigger.AzureDevOps.Enabled {
+		created.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, created.ID)
+	}
+	if created.Trigger.Notion != nil && created.Trigger.Notion.Enabled {
 		created.WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, created.ID)
 	}
 

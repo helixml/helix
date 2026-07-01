@@ -9,6 +9,7 @@ import TriggerCron from './TriggerCron'
 import TriggerSlack from './TriggerSlack'
 import TriggerTeams from './TriggerTeams'
 import TriggerAzureDevOps from './TriggerAzureDevOps'
+import TriggerNotion from './TriggerNotion'
 import TriggerCrisp from './TriggerCrisp'
 import { IAppFlatState } from '../../types'
 
@@ -91,6 +92,18 @@ const Triggers: FC<TriggersProps> = ({
 
       {/* Azure DevOps Trigger */}
       <TriggerAzureDevOps
+        app={app}
+        appId={appId}
+        triggers={triggers}
+        onUpdate={onUpdate}
+        readOnly={readOnly}
+      />
+
+      {/* Add spacing between triggers */}
+      <Box sx={{ my: 3 }} />
+
+      {/* Notion Trigger */}
+      <TriggerNotion
         app={app}
         appId={appId}
         triggers={triggers}

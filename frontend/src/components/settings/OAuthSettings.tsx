@@ -37,7 +37,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
 
-type OAuthProviderType = 'atlassian' | 'github' | 'google' | 'microsoft' | 'custom'
+type OAuthProviderType = 'atlassian' | 'github' | 'google' | 'microsoft' | 'notion' | 'custom'
 type OAuthVersion = '1.0a' | '2.0'
 
 interface OAuthProvider {
@@ -65,7 +65,23 @@ const PROVIDER_TYPE_LABELS: Record<OAuthProviderType, string> = {
   github: 'GitHub',
   google: 'Google',
   microsoft: 'Microsoft',
+  notion: 'Notion',
   custom: 'Custom',
+}
+
+// PROVIDER_TYPE_PRESETS auto-fills the auth/token/userinfo URLs when an admin
+// selects a known provider type. Notion's OAuth endpoints are documented at
+// https://developers.notion.com/docs/authorization.
+const PROVIDER_TYPE_PRESETS: Partial<Record<OAuthProviderType, {
+  authorizeURL: string
+  tokenURL: string
+  userInfoURL: string
+}>> = {
+  notion: {
+    authorizeURL: 'https://api.notion.com/v1/oauth/authorize',
+    tokenURL: 'https://api.notion.com/v1/oauth/token',
+    userInfoURL: 'https://api.notion.com/v1/users/me',
+  },
 }
 
 const OAuthSettings: React.FC = () => {
@@ -157,9 +173,23 @@ const OAuthSettings: React.FC = () => {
   }
   
   const handleSelectChange = (e: SelectChangeEvent) => {
-    setCurrentProvider({
-      ...currentProvider,
-      [e.target.name as string]: e.target.value,
+    const fieldName = e.target.name as string
+    const value = e.target.value
+    setCurrentProvider(prev => {
+      if (!prev) return prev
+      const next: Partial<OAuthProvider> = { ...prev, [fieldName]: value }
+      // When the admin picks a known provider type, auto-populate the OAuth
+      // endpoints so they don't have to look them up. Only fills empty fields
+      // — won't clobber edits the admin made for an existing provider.
+      if (fieldName === 'type') {
+        const preset = PROVIDER_TYPE_PRESETS[value as OAuthProviderType]
+        if (preset) {
+          if (!next.authorizeURL) next.authorizeURL = preset.authorizeURL
+          if (!next.tokenURL) next.tokenURL = preset.tokenURL
+          if (!next.userInfoURL) next.userInfoURL = preset.userInfoURL
+        }
+      }
+      return next
     })
   }
   

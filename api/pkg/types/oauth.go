@@ -20,6 +20,7 @@ const (
 	OAuthProviderTypeSlack        OAuthProviderType = "slack"
 	OAuthProviderTypeLinkedIn     OAuthProviderType = "linkedin"
 	OAuthProviderTypeHubSpot      OAuthProviderType = "hubspot"
+	OAuthProviderTypeNotion       OAuthProviderType = "notion"
 	OAuthProviderTypeCustom       OAuthProviderType = "custom"
 )
 

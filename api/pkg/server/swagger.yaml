@@ -1642,6 +1642,29 @@ definitions:
         description: '"nvidia", "amd", "intel"'
         type: string
     type: object
+  server.GPUInfoWithSandbox:
+    properties:
+      index:
+        type: integer
+      memory_free_bytes:
+        type: integer
+      memory_total_bytes:
+        type: integer
+      memory_used_bytes:
+        type: integer
+      name:
+        type: string
+      sandbox_id:
+        type: string
+      temperature_celsius:
+        type: integer
+      utilization_percent:
+        description: GPU core utilization
+        type: integer
+      vendor:
+        description: '"nvidia", "amd", "intel"'
+        type: string
+    type: object
   server.GrantCreditsRequest:
     properties:
       credits:
@@ -5054,6 +5077,33 @@ definitions:
       commits_behind:
         type: integer
     type: object
+  types.ExternalTriggerRef:
+    properties:
+      payload:
+        description: |-
+          Payload is opaque to the spectask service. Each source unmarshals its
+          own shape. For Notion: NotionTriggerPayload. For Sentry/GitHub: tbd.
+        items:
+          type: integer
+        type: array
+      trigger_config_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.ExternalTriggerSourceType'
+    type: object
+  types.ExternalTriggerSourceType:
+    enum:
+    - notion
+    - sentry
+    - github_issue
+    type: string
+    x-enum-comments:
+      ExternalTriggerSourceGitHubIssue: future
+      ExternalTriggerSourceSentry: future
+    x-enum-varnames:
+    - ExternalTriggerSourceNotion
+    - ExternalTriggerSourceSentry
+    - ExternalTriggerSourceGitHubIssue
   types.Feedback:
     enum:
     - like
@@ -6376,6 +6426,89 @@ definitions:
         description: nil if no conflict
         type: string
     type: object
+  types.NotionColumnMap:
+    properties:
+      action_column:
+        type: string
+      action_column_type:
+        description: '"select" or "status"'
+        type: string
+      action_option_cancel:
+        type: string
+      action_option_create:
+        type: string
+      helix_task_url_column:
+        description: optional URL column; Helix writes the spectask URL here on create
+          so the row links straight to the live task
+        type: string
+      prompt_column:
+        description: optional rich-text column; empty = use page body
+        type: string
+      result_column:
+        description: optional rich-text column; empty = no writeback
+        type: string
+    type: object
+  types.NotionTrigger:
+    properties:
+      column_mapping:
+        allOf:
+        - $ref: '#/definitions/types.NotionColumnMap'
+        description: |-
+          ColumnMapping is informational metadata for the wizard's setup
+          instructions. Dispatch keys off the X-Helix-Action header, not the
+          column values, so this is not consulted at runtime.
+      embed_access_token:
+        description: |-
+          EmbedAccessToken is the API key used in the embed URL's ?access_token=
+          query parameter. For MVP this is the trigger creator's own user API key
+          (consistent with Gatewaze's pattern). All viewers of the Notion embed
+          see Helix as the trigger creator.
+        type: string
+      enabled:
+        type: boolean
+      integration_token:
+        description: |-
+          IntegrationToken is a direct Notion internal-integration token
+          (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+          the simpler internal-integration setup path. If both are set, the
+          integration token wins.
+        type: string
+      notion_database_id:
+        description: |-
+          NotionDatabaseID is the database this trigger is bound to. Informational
+          (the wizard uses it to validate the schema); dispatch keys off the page
+          ID in the webhook payload, not this field.
+        type: string
+      oauth_connection_id:
+        description: |-
+          OAuthConnectionID is the OAuthConnection used for write-back PATCHes
+          and embed-block insert/delete. Set this when the user went through the
+          OAuth flow.
+        type: string
+      public_url:
+        description: |-
+          PublicURL, if set, overrides the server's default `WebServer.URL` when
+          generating embed URLs and task-page links for THIS trigger. Required
+          when the deployment's default URL is unreachable from Notion's iframe
+          senders (e.g. localhost in dev, or an internal-only deployment) — set
+          it to a public ngrok / cloudflared tunnel or production host.
+        type: string
+      shared_secret:
+        description: |-
+          SharedSecret authenticates inbound webhooks from Notion Database
+          Automations / Button properties. Constant-time-compared against the
+          X-Helix-Webhook-Secret header.
+        type: string
+      target_project_id:
+        description: TargetProjectID is the Helix project to create spectasks in.
+        type: string
+      verification_token:
+        description: |-
+          VerificationToken is the HMAC-SHA256 secret for the secondary path
+          (Notion API webhook subscription, used for comment.created and free-form
+          page edits). Optional.
+        type: string
+    type: object
   types.OAuthConnection:
     properties:
       access_token:
@@ -6481,6 +6614,7 @@ definitions:
     - slack
     - linkedin
     - hubspot
+    - notion
     - custom
     type: string
     x-enum-varnames:
@@ -6494,6 +6628,7 @@ definitions:
     - OAuthProviderTypeSlack
     - OAuthProviderTypeLinkedIn
     - OAuthProviderTypeHubSpot
+    - OAuthProviderTypeNotion
     - OAuthProviderTypeCustom
   types.OAuthUserInfo:
     properties:
@@ -9562,6 +9697,15 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      external_trigger_ref:
+        allOf:
+        - $ref: '#/definitions/types.ExternalTriggerRef'
+        description: |-
+          External trigger ref — set when this spectask was created by an external
+          source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+          embed-block cleanup on completion / cancellation. The Payload is opaque
+          to the spectask service — each source's own package owns the shape.
+          See design/tasks/002021_investigate-notion/ "Generalisation".
       goose_recipe_name:
         description: |-
           Goose recipe binding (Phase 2b). When the parent project's agent uses
@@ -10025,6 +10169,7 @@ definitions:
     - done
     - spec_failed
     - implementation_failed
+    - cancelled
     type: string
     x-enum-comments:
       TaskStatusBacklog: Initial state, waiting for spec generation
@@ -10058,6 +10203,7 @@ definitions:
     - TaskStatusDone
     - TaskStatusSpecFailed
     - TaskStatusImplementationFailed
+    - SpecTaskStatusCancelled
   types.SpecTaskUpdateRequest:
     properties:
       assignee_id:
@@ -10152,6 +10298,15 @@ definitions:
         description: External agent tracking (single agent per SpecTask, spans entire
           workflow)
         type: string
+      external_trigger_ref:
+        allOf:
+        - $ref: '#/definitions/types.ExternalTriggerRef'
+        description: |-
+          External trigger ref — set when this spectask was created by an external
+          source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+          embed-block cleanup on completion / cancellation. The Payload is opaque
+          to the spectask service — each source's own package owns the shape.
+          See design/tasks/002021_investigate-notion/ "Generalisation".
       goose_recipe_name:
         description: |-
           Goose recipe binding (Phase 2b). When the parent project's agent uses
@@ -10988,6 +11143,8 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
+      notion:
+        $ref: '#/definitions/types.NotionTrigger'
       slack:
         $ref: '#/definitions/types.SlackTrigger'
       teams:
@@ -11094,6 +11251,7 @@ definitions:
     - crisp
     - azure_devops
     - cron
+    - notion
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
@@ -11101,6 +11259,7 @@ definitions:
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeNotion
   types.UnifiedSearchResponse:
     properties:
       query:
