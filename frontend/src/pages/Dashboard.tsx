@@ -31,7 +31,13 @@ import {
 
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
 import LMStudioModels from "../components/providers/LMStudioModels";
-import { useListProviders } from "../services/providersService";
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from "../services/providersService";
+import { PROVIDERS, Provider } from "../components/providers/types";
+import AddProviderDialog from "../components/providers/AddProviderDialog";
+import { Grid, Card, CardHeader, CardContent, CardActions, Avatar, Button as MuiButton } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import { TypesProviderEndpointType } from "../api/api";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import PricingTable from "../components/dashboard/PricingTable";
@@ -412,35 +418,174 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
 
 const DashboardProviders: FC = () => {
     const account = useAccount();
-    const { data: providers } = useListProviders({ loadModels: true, all: true, enabled: true });
-    const localEndpoints = (providers || []).filter(
+    const { data: endpoints } = useListProviders({ loadModels: true, all: true, enabled: true });
+    const { data: detectedProviders } = useDetectLocalProviders(true);
+    const createProvider = useCreateProviderEndpoint();
+    const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [connectingDetected, setConnectingDetected] = useState<string>("");
+
+    const allEndpoints = endpoints || [];
+    const isConfigured = (provider: Provider) =>
+        allEndpoints.some((e) => e.name === provider.id || e.name === provider.id.replace("user/", ""));
+    const getEndpoint = (provider: Provider) =>
+        allEndpoints.find((e) => e.name === provider.id || e.name === provider.id.replace("user/", ""));
+    const isLocal = (provider: Provider) =>
+        provider.id === "user/lmstudio" || provider.id === "user/ollama";
+
+    const localEndpoints = allEndpoints.filter(
         (e) => e.name === "lmstudio" || e.name === "ollama" || e.name?.includes("lmstudio") || e.name?.includes("ollama")
     );
 
-    if (localEndpoints.length === 0) return null;
+    const handleConnectDetected = async (dp: { server_type: string; base_url: string }) => {
+        setConnectingDetected(dp.server_type);
+        try {
+            await createProvider.mutateAsync({
+                name: dp.server_type,
+                base_url: dp.base_url,
+                api_key: "",
+                endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+                owner: "system",
+                owner_type: "system" as any,
+            });
+        } finally {
+            setConnectingDetected("");
+        }
+    };
+
+    const unconnectedDetected = (detectedProviders || []).filter(
+        (dp) => !allEndpoints.some((e) => e.name === dp.server_type)
+    );
 
     return (
         <Box sx={{ mb: 4 }}>
-            <Typography variant="h6" sx={{ mb: 1.5 }}>
-                Local AI Servers
-            </Typography>
-            {localEndpoints.map((ep) => (
-                <Box key={ep.id} sx={{ mb: 3 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                            {ep.name === "lmstudio" ? "LM Studio" : ep.name === "ollama" ? "Ollama" : ep.name}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: ep.status === "error" ? "#f44336" : "#00e891" }}>
-                            {ep.status === "error" ? "Error" : "Connected"}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace" }}>
-                            {ep.base_url}
-                        </Typography>
-                    </Box>
-                    {ep.id && <LMStudioModels endpointId={ep.id} />}
+            {/* Auto-detected local servers not yet connected */}
+            {unconnectedDetected.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 1.5, color: "#00e891" }}>
+                        Detected on this machine
+                    </Typography>
+                    {unconnectedDetected.map((dp) => (
+                        <Box key={dp.server_type} sx={{
+                            p: 2, mb: 1, borderRadius: 2,
+                            border: "1px solid rgba(0,232,145,0.3)",
+                            bgcolor: "rgba(0,232,145,0.04)",
+                            display: "flex", alignItems: "center", gap: 2,
+                        }}>
+                            <Box sx={{ flex: 1 }}>
+                                <Typography sx={{ fontWeight: 600 }}>{dp.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {dp.models.length} model{dp.models.length !== 1 ? "s" : ""} · {dp.base_url}
+                                </Typography>
+                            </Box>
+                            <MuiButton
+                                size="small"
+                                variant="contained"
+                                disabled={connectingDetected === dp.server_type}
+                                onClick={() => handleConnectDetected(dp)}
+                                sx={{ bgcolor: "#00e891", color: "#000", "&:hover": { bgcolor: "#00cc7a" }, textTransform: "none" }}
+                            >
+                                {connectingDetected === dp.server_type ? "Connecting..." : "Connect"}
+                            </MuiButton>
+                        </Box>
+                    ))}
                 </Box>
-            ))}
-            <Divider sx={{ mt: 2 }} />
+            )}
+
+            {/* Connected local servers with model management */}
+            {localEndpoints.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 1.5 }}>
+                        Local AI Servers
+                    </Typography>
+                    {localEndpoints.map((ep) => (
+                        <Box key={ep.id} sx={{ mb: 3 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                    {ep.name === "lmstudio" ? "LM Studio" : ep.name === "ollama" ? "Ollama" : ep.name}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: ep.status === "error" ? "#f44336" : "#00e891" }}>
+                                    {ep.status === "error" ? "Error" : "Connected"}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace" }}>
+                                    {ep.base_url}
+                                </Typography>
+                            </Box>
+                            {ep.id && <LMStudioModels endpointId={ep.id} />}
+                        </Box>
+                    ))}
+                </Box>
+            )}
+
+            {/* Cloud provider cards */}
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Cloud Providers
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Connect API keys for cloud inference providers.
+            </Typography>
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+                {PROVIDERS.filter((p) => !isLocal(p)).map((provider) => {
+                    const configured = isConfigured(provider);
+                    const Logo = provider.logo;
+                    return (
+                        <Grid item xs={12} sm={6} md={4} lg={3} key={provider.id}>
+                            <Card sx={{
+                                height: "100%", display: "flex", flexDirection: "column",
+                                border: "1px solid", borderColor: configured ? "rgba(0,232,145,0.3)" : "divider",
+                                boxShadow: 1,
+                                transition: "all 0.2s",
+                                "&:hover": { boxShadow: 3, transform: "translateY(-2px)" },
+                            }}>
+                                <CardHeader
+                                    avatar={
+                                        <Avatar sx={{ bgcolor: "white", width: 40, height: 40 }}>
+                                            {typeof Logo === "string" ? (
+                                                <img src={Logo} alt="" style={{ width: 28, height: 28, borderRadius: 4 }} />
+                                            ) : (
+                                                <Logo style={{ width: 28, height: 28 }} />
+                                            )}
+                                        </Avatar>
+                                    }
+                                    title={provider.name}
+                                    titleTypographyProps={{ variant: "subtitle2" }}
+                                />
+                                <CardContent sx={{ flexGrow: 1, pt: 0 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {provider.description}
+                                    </Typography>
+                                </CardContent>
+                                <CardActions sx={{ justifyContent: "center", pb: 1.5 }}>
+                                    <MuiButton
+                                        size="small"
+                                        variant={configured ? "outlined" : "text"}
+                                        color={configured ? "success" : "secondary"}
+                                        startIcon={configured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
+                                        onClick={() => { setSelectedProvider(provider); setDialogOpen(true); }}
+                                        sx={{ textTransform: "none", fontSize: "0.75rem" }}
+                                    >
+                                        {configured ? "Connected" : "Connect"}
+                                    </MuiButton>
+                                </CardActions>
+                            </Card>
+                        </Grid>
+                    );
+                })}
+            </Grid>
+
+            <Divider sx={{ mb: 2 }} />
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Advanced
+            </Typography>
+
+            {selectedProvider && (
+                <AddProviderDialog
+                    open={dialogOpen}
+                    provider={selectedProvider}
+                    orgId=""
+                    onClose={() => { setDialogOpen(false); setSelectedProvider(null); }}
+                />
+            )}
         </Box>
     );
 };
