@@ -2,24 +2,36 @@
 
 ## Background
 
-A manager Bot could not grant tools to a new Bot (`b-dewey`) or subscribe it
-to streams. The root cause was that the bulk, array-valued MCP arguments
-(`create_bot.tools`/`.topics`, `update_bot.tools`, `invite_bots.botIds`) are
-advertised with a nullable *union* schema (`"type":["null","array"]`) that
-small models mishandle — they send a bare string, which the server rejects
-(`cannot unmarshal string into …[]string`).
+A manager Bot could not grant tools to a new Bot (`b-dewey`) or subscribe it to
+streams. Two problems:
 
-Rather than patch the array schema everywhere, we make tool-granting and
-subscription discrete, scalar operations, and fix the one array we keep. Tool
-granting/subscription become scalar (no array to misrepresent), and valid tool
-values are discoverable: the `tool` argument on `attach_tool`/`detach_tool` is a
-JSON-Schema `enum` of the registered tool names. `create_bot` keeps its
-`topics` argument (a declarative manifest of the streams the Bot's prompt is
-expected to operate on); its schema is fixed to a **non-nullable, required
-array** so models pass `[]`, not `null` or a bare string.
+1. **Array-valued MCP args were unusable.** `create_bot.tools`/`.topics`,
+   `update_bot.tools`, and `invite_bots.botIds` are advertised with a nullable
+   *union* schema (`"type":["null","array"]`) that small models mishandle —
+   they send a bare string, which the server rejects (`cannot unmarshal string
+   into …[]string`).
+2. **`create_bot`'s `topics` silently subscribed nothing.** It wrote a
+   `Bot.Topics` "manifest" field that was stored but never created a
+   subscription. It *looked* like it subscribed the Bot; it didn't. This is the
+   trap that blocked the manager.
 
-`update_bot` (bulk content+tools edit) does not work and is removed. The
-caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are replaced by
+Design changes:
+
+- **Tool-granting and subscription become discrete, scalar operations** —
+  eliminating the array-schema interop bug and making valid tool values
+  discoverable via an `enum`.
+- **`create_bot` subscribes immediately.** We are amending the org-package
+  principle that subscription must be a separate, prompt-driven step. New
+  guiding rule: **complete a user action in as few steps as possible.** Since a
+  manager creating a Bot almost always wants it listening right away,
+  `create_bot(topics)` now creates real subscriptions at creation. `subscribe`
+  remains for subscribing later.
+- **`Bot.Topics` (the no-op manifest field) is removed.** Subscriptions are
+  their own `(bot, topic)` rows — the single source of truth — so there is no
+  denormalized field to drift.
+
+`update_bot` (broken bulk content+tools edit) is removed; the caller-only
+`subscribe`/`unsubscribe` and the bulk `invite_bots` are replaced by
 Bot-targeted discrete equivalents.
 
 ## User Stories
@@ -27,69 +39,61 @@ Bot-targeted discrete equivalents.
 ### US-1: Grant or revoke one tool at a time
 As a manager Bot, I want `attach_tool(botId, tool)` and
 `detach_tool(botId, tool)`, where `tool` is chosen from an enum of valid tool
-names, so I can give a Bot exactly the tools it needs without hitting an array
-bug and without guessing tool names.
+names, so I can give a Bot exactly the tools it needs without an array bug and
+without guessing names.
 
 **Acceptance criteria**
-- `attach_tool` adds `tool` to the target Bot's tool set; idempotent (already
-  present → no-op). Takes effect on the Bot's next MCP request.
-- `detach_tool` removes `tool` from the Bot's tool set; idempotent (absent →
-  no-op). It refuses to remove a universal read-baseline tool (those are
-  mandatory and the reconciler would re-add them anyway) and returns a clear
+- `attach_tool` adds `tool` to the Bot's tool set; idempotent. Takes effect on
+  the Bot's next MCP request.
+- `detach_tool` removes `tool`; idempotent. It refuses to remove a universal
+  read-baseline tool (mandatory; the reconciler would re-add it) with a clear
   error.
-- The `tool` argument is advertised as a required, non-nullable string `enum`
-  of the registered tool names; new tools appear in the enum automatically
-  without editing these tools.
-- An unknown `tool` value is rejected with a clear error.
+- `tool` is advertised as a required, non-nullable string `enum` of the
+  registered tool names; new tools appear automatically. Unknown values are
+  rejected.
 
-### US-2: Subscribe or unsubscribe a specific Bot
+### US-2: Subscribe or unsubscribe a specific Bot later
 As a manager Bot, I want `subscribe(botId, topicId)` and
-`unsubscribe(botId, topicId)`, so I can subscribe the Bot I just created (not
-only myself) to the streams of interest as a separate step.
+`unsubscribe(botId, topicId)`, so I can change a Bot's subscriptions after
+creation (or subscribe myself by passing my own id).
 
 **Acceptance criteria**
 - `subscribe` links the named Bot to the Topic (validates both exist);
-  idempotent.
-- `unsubscribe` removes that link; a missing link is a clear error/no-op.
-- A Bot may subscribe itself by passing its own id.
+  idempotent. `unsubscribe` removes that link.
 - The old caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are
-  removed (superseded by these).
+  removed (superseded).
 
-### US-3: Bot creation takes content and a topics manifest
-As a manager Bot, I want `create_bot` to take `id` (optional), `content`
-(required), `topics` (a required, non-nullable array — declarative manifest,
-pass `[]` for none), and `parentId` (optional). Tools are added afterward via
-`attach_tool`.
+### US-3: Creating a Bot subscribes it immediately
+As a manager Bot, I want `create_bot` to subscribe the new Bot to the topics I
+name, in one call, so it starts listening without a follow-up step.
 
 **Acceptance criteria**
-- `create_bot` accepts `id?`, `content`, `topics`, `parentId?`; it does **not**
+- `create_bot` accepts `id?`, `content`, `topics` (required, non-nullable array
+  of existing topic ids — pass `[]` for none), `parentId?`. It does **not**
   accept `tools` (use `attach_tool`).
-- `topics` is advertised as a required, non-nullable array of topic-id strings
-  (`{"type":"array","items":{"type":"string"}}`) — no `["null","array"]`
-  union; the model must pass `[]` for none.
-- `topics` sets the Bot's `Topics` manifest (`Bot.Topics`). It is declarative
-  and does not itself subscribe the Bot — actual subscription is a separate
-  `subscribe(botId, topicId)` call.
-- A new Bot automatically receives the universal read baseline; further tools
-  are added via `attach_tool`.
+- `topics` is advertised as `{"type":"array","items":{"type":"string"}}` and is
+  `required` — no `["null","array"]` union.
+- On success, a real subscription `(bot, topic)` row exists for every listed
+  topic; the Bot receives events from them immediately.
+- Every listed topic must already exist; unknown topics fail the call. Topics
+  are validated **before** the Bot row is written, so a failed call leaves no
+  partially-created Bot.
+- A new Bot still receives the universal read baseline; more tools via
+  `attach_tool`.
+- No `Bot.Topics` manifest field remains; subscriptions are the source of truth.
 
-### US-4: Edit a Bot's content after creation *(assumption — confirm)*
-As a manager Bot, I want `set_bot_content(botId, content)` so I can revise a
-Bot's markdown prompt after it exists (the capability `update_bot` used to
-provide besides tools).
+### US-4: Edit a Bot's content after creation
+As a manager Bot, I want `set_bot_content(botId, content)` to revise a Bot's
+markdown prompt after it exists (kept — confirmed).
 
 **Acceptance criteria**
 - `set_bot_content` replaces the Bot's `content`; other fields untouched.
-- If content should instead be immutable after creation, this tool is dropped.
 
 ## Out of Scope
 - Array-valued MCP arguments on the tool-grant/subscription tools (removed by
-  design); `create_bot.topics` is the one retained array, with a fixed
+  design). `create_bot.topics` is the one retained array, with a fixed
   non-nullable schema.
-- Making `topics` actually subscribe the Bot (it stays a declarative manifest;
-  subscription is `subscribe(botId, topicId)`).
-- Changes to subscription authorization rules beyond the signature change
-  (`subscribe`/`unsubscribe` become Bot-targeted owner mutations, granted via
-  `OwnerBotTools`, not the read baseline).
+- Auto-*creating* topics that don't exist (the manager calls `create_topic`
+  first). Possible future enhancement, not this task.
 - Frontend changes (the chart UI already creates Bots with content/parent only).
 </content>
