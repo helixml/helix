@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -16,12 +16,15 @@ import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import LMStudioModels from '../components/providers/LMStudioModels';
 
 const Providers: React.FC = () => {
   const router = useRouter()
   const account = useAccount()
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
+  const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
 
   const orgName = router.params.org_id
 
@@ -89,11 +92,6 @@ const Providers: React.FC = () => {
     if(!checkLoginStatus()) return
     if (!editAllowed) return;
 
-    if (existingEndpoint?.id && (provider.id === 'user/lmstudio' || provider.id === 'user/ollama' || existingEndpoint.name === 'lmstudio' || existingEndpoint.name === 'ollama')) {
-      router.navigate('org_provider_detail', { org_id: orgName, provider_id: existingEndpoint.id });
-      return;
-    }
-
     setSelectedProvider(provider);
     setDialogOpen(true);
   };
@@ -105,6 +103,14 @@ const Providers: React.FC = () => {
 
   // Filter for user endpoints only
   const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
+
+  // All endpoints (user + global) — used for checking if a provider is configured
+  const allEndpoints = providerEndpoints;
+
+  // Local inference servers (LM Studio, Ollama) — check all endpoints
+  const localEndpoints = allEndpoints.filter(e =>
+    e.name === 'lmstudio' || e.name === 'ollama' || e.name?.includes('lmstudio') || e.name?.includes('ollama')
+  );
 
   // User-created custom endpoints: anything whose name doesn't match a predefined PROVIDERS id.
   const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
@@ -176,6 +182,34 @@ const Providers: React.FC = () => {
           </Grid>
         </Grid>
 
+        {localEndpoints.length > 0 && (
+          <>
+            <Divider sx={{ mb: 3 }} />
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+              Local AI Servers
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Models running on this machine via LM Studio or Ollama.
+            </Typography>
+            {localEndpoints.map((ep) => (
+              <Box key={ep.id} sx={{ mb: 3 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {ep.name === 'lmstudio' ? 'LM Studio' : ep.name === 'ollama' ? 'Ollama' : ep.name}
+                  </Typography>
+                  {ep.status === 'error' ? (
+                    <Alert severity="error" sx={{ py: 0, px: 1, fontSize: '0.75rem' }}>{ep.error || 'Connection error'}</Alert>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: '#00e891' }}>Connected</Typography>
+                  )}
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontFamily: 'monospace' }}>{ep.base_url}</Typography>
+                </Box>
+                {ep.id && <LMStudioModels endpointId={ep.id} />}
+              </Box>
+            ))}
+          </>
+        )}
+
         <Divider sx={{ mb: 3 }} />
 
         <Typography variant="h6" sx={{ mb: 1.5 }}>
@@ -188,8 +222,8 @@ const Providers: React.FC = () => {
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
-            const isConfigured = !provider.is_custom && userEndpoints.some(endpoint => endpoint.name === provider.id);
-            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(endpoint => endpoint.name === provider.id);
+            const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
+            const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
@@ -255,7 +289,7 @@ const Providers: React.FC = () => {
                           size="small"
                           variant={isConfigured ? 'outlined' : 'text'}
                           color={isConfigured ? (existingProvider?.status === 'error' ? 'error' : 'success') : 'secondary'}
-                          onClick={() => handleOpenDialog(provider, existingProvider)}
+                          onClick={() => handleOpenDialog(provider)}
                           startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                           disabled={!editAllowed && !isConfigured}
                         >
