@@ -254,6 +254,7 @@ bots by calling it per bot).
 - **Frontend needed no changes:** the bot detail page reads subscriptions from
   `useListBotSubscriptions` (subscription rows), never `bot.topics`. Regenerated
   swagger + TS client only dropped the two `topics` fields.
-- **Kept `subscriptions.Invite`** (many-bots→one-topic): still has unit tests and
-  is the orthogonal counterpart to `SubscribeTopics`; not removed despite
-  `invite_bots` being gone.
+- **Removed `subscriptions.Invite`** (many-bots→one-topic): it had no production
+  caller once `invite_bots` was deleted (only its own tests), so per the
+  "clean up dead code" rule it and its two tests were removed. Replaced its
+  service-level coverage with `SubscribeTopics`/`UnsubscribeTopics` unit tests.
