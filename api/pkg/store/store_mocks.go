@@ -7006,6 +7006,21 @@ func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
 }
 
+// FailInFlightWebServiceDeploys mocks base method.
+func (m *MockStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailInFlightWebServiceDeploys", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FailInFlightWebServiceDeploys indicates an expected call of FailInFlightWebServiceDeploys.
+func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInFlightWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).FailInFlightWebServiceDeploys), ctx)
+}
+
 // UpsertProjectWebServiceState mocks base method.
 func (m *MockStore) UpsertProjectWebServiceState(ctx context.Context, state *types.ProjectWebServiceState) error {
 	m.ctrl.T.Helper()

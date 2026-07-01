@@ -24509,6 +24509,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.VHostRoute"
                     }
                 },
+                "health": {
+                    "description": "Health is the real, probe-based status of the web service — \"disabled\",\n\"deploying\", \"live\" or \"unhealthy\" — so the UI reflects whether the app\nactually answers, not just the last deploy row (which stays \"live\" long\nafter its container dies).",
+                    "type": "string"
+                },
                 "state": {
                     "$ref": "#/definitions/types.ProjectWebServiceState"
                 }

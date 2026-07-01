@@ -31,6 +31,12 @@ type ProjectWebServiceResponse struct {
 	Domains []*types.VHostRoute           `json:"domains"`
 	Deploys []*types.WebServiceDeploy     `json:"deploys"`
 
+	// Health is the real, probe-based status of the web service — "disabled",
+	// "deploying", "live" or "unhealthy" — so the UI reflects whether the app
+	// actually answers, not just the last deploy row (which stays "live" long
+	// after its container dies).
+	Health string `json:"health"`
+
 	// CNAMETarget is the hostname customers should add as the value of
 	// their CNAME record when registering a custom domain — i.e. the
 	// canonical Helix hostname parsed from SERVER_URL. Empty when the
@@ -109,6 +115,7 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 		Domains:     domains,
 		Deploys:     deploys,
 		CNAMETarget: cnameTarget,
+		Health:      s.webServiceController.Health(r.Context(), project.ID),
 	}, nil
 }
 

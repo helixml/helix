@@ -740,7 +740,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Probe live web services and auto-recover any that stop responding
 	// (crashed/hung stack heals without a human).
-	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController, apiServer.sandboxController).Start(ctx)
+	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)
 
 	// Continuous delivery for agent-created apps: when a GitHub-hosted project's
 	// default branch advances (e.g. a PR is merged), redeploy its web service.

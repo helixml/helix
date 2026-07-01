@@ -912,6 +912,7 @@ type Store interface {
 	CreateWebServiceDeploy(ctx context.Context, d *types.WebServiceDeploy) error
 	UpdateWebServiceDeploy(ctx context.Context, id string, updates map[string]interface{}) error
 	ListWebServiceDeploys(ctx context.Context, projectID string, limit int) ([]*types.WebServiceDeploy, error)
+	FailInFlightWebServiceDeploys(ctx context.Context) (int64, error)
 	ListEnabledWebServiceProjectsByRepo(ctx context.Context, repoID string) ([]*types.Project, error)
 	ListActiveWebServices(ctx context.Context) ([]*types.ProjectWebServiceState, error)
 	ListPendingVHostRoutes(ctx context.Context, limit int) ([]*types.VHostRoute, error)
