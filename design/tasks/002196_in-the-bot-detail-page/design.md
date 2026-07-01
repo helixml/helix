@@ -1,5 +1,13 @@
 # Design: Fix Restart Agent Session to Fully Reset Desktop and Context
 
+## Goal
+
+The Bot Detail page "Restart agent session" button must perform a **full
+restart**: destroy the current session + desktop + workspace and create a
+brand-new session (new session ID) with a fresh desktop and empty context, then
+show that new session in the chat window. This is distinct from the crash-
+recovery restart used elsewhere, which intentionally preserves context.
+
 ## Current flow (broken)
 
 ```
@@ -9,133 +17,140 @@ HelixOrgBotDetail.tsx  "Restart agent session"
   → restartBotAgent          (api/pkg/org/interfaces/server/api/bots.go:466)
       resolves sessionID via BotRuntime.State
   → SessionRestarter.RestartSession(sessionID)
-  → inProcHelixClient.RestartSession   (api/pkg/server/helix_org_inproc.go:543)
-  → POST /sessions/{id}/restart-agent → restartCrashedAgentThread
   → restartSessionContainer  (api/pkg/server/session_handlers.go:2451)
         StopDesktop (best-effort, errors swallowed)
-        resumeSessionInternal  ← PRESERVES ZedThreadID + workspace volume
+        resumeSessionInternal  ← PRESERVES ZedThreadID + workspace volume + session ID
         ResetCrashedPromptsForSession
-        kick queue
 ```
 
-`restartSessionContainer` is intentionally context-preserving (crash recovery).
-The bot-page button reuses it, so it never wipes the thread or forces a truly
-fresh desktop — that is the defect.
+`restartSessionContainer` is a context-preserving crash-recovery primitive.
+Reusing it for the bot-page button is the defect — it never destroys the session
+or forces a truly new desktop.
 
-## The correct primitive already exists
+## How sessions work (relevant mechanics)
 
-`ClearSession` (`api/pkg/server/session_clear.go`) is the "fresh context"
-operation:
-
-- `ClearSessionInteractions` — removes all interactions from the DB (source of
-  truth for both runtimes).
-- For Zed/ACP sessions (`AgentType == "zed_external"`) the `zedACPBackend.Clear`
-  sets `session.Metadata.ZedThreadID = ""`, so the next message opens a clean
-  thread.
-
-The spawner already combines "clear context, then restart" on every
-re-activation (`spawner.go:~486`), gated by the per-bot `PreserveContext` flag.
-The bot-page restart should reuse the same building blocks.
+- **Exploratory session = project singleton.** One row per
+  `(project_id, session_role="exploratory")`. `StartExternalAgentSession`
+  (`session_handlers.go:2669`) **reuses** an existing exploratory row if present
+  (deliberate guard against parallel sessions), else mints a new one +
+  `StartDesktop`.
+- **"Current session" resolution.** The mirror (`mirror.go:resolveSession`)
+  prefers `GetProjectExploratorySession` (`store_sessions.go`, `ORDER BY created
+  DESC`) over the persisted `BotRuntimeState.SessionID` pointer.
+- **Runtime state pointer.** `SaveSession` (`state.go:88`) persists the bot's
+  session ID under `(orgID, workerID, backend="helix", key="session_id")`.
+- **Desktop + workspace.** `StartDesktop` (`hydra_executor.go`) ZFS-clones the
+  workspace and mounts it (incl. `threads.db`). Crash-recovery `StopDesktop`
+  **preserves** that ZFS volume so it can be remounted — which is exactly what we
+  must NOT do for a full restart.
 
 ## Proposed change
 
-Introduce a **fresh-start** path for the bot-page "Restart agent session"
-button, distinct from crash recovery. Order of operations:
+Give `restartBotAgent` a dedicated **full-restart** backend flow (a new port on
+the org api adapter, e.g. `SessionRestarter.FullRestart(ctx, orgID, botID)` or a
+new `BotFullRestarter`), implemented in the in-proc helix client. Do **not**
+reuse `restartSessionContainer`. Algorithm:
 
-1. **Clear context first** — call the existing `ClearSession` primitive on the
-   bot's session: wipes interactions and resets `ZedThreadID = ""`.
-2. **Recreate the desktop** — run the container tear-down + recreate
-   (`StopDesktop` → `resumeSessionInternal`). Because `ZedThreadID` is now empty,
-   the new container comes up on a brand-new thread — i.e. genuinely fresh.
-3. **Surface failures** — for this user-initiated action, `StopDesktop` failure
-   (and any step failure) must propagate to an error response, not be swallowed.
+1. **Resolve the bot's current session** from `BotRuntime.State` /
+   exploratory lookup. If none exists, skip to step 4 (first-time start).
+2. **Fully tear down the old session:**
+   - `StopDesktop(ctx, oldSessionID)` — stop/delete the container. For this path,
+     tear-down failure should be surfaced (not silently swallowed).
+   - **Destroy the old session's workspace volume** so no `threads.db` / agent
+     state survives (see "Workspace teardown" below).
+   - **Retire the old exploratory session** so it is not resolved as current and
+     cannot be reused by the singleton guard — delete the session row (or flip
+     its `session_role` off "exploratory"). This is the load-bearing step that
+     makes the next start mint a *new* ID instead of reusing the old one.
+3. **Create a brand-new session** on the same project via the same primitive the
+   spawner/cron use — `StartExternalAgentSession` with
+   `SessionRole="exploratory"`, `AgentType="zed_external"`,
+   `AutoRestartOnCrash=true`. Because the old row is gone, this mints a **new
+   session ID**, `StartDesktop` provisions a fresh container, and a fresh ZFS
+   workspace clone is created.
+4. **Persist the new session ID** into runtime state via `SaveSession(ctx,
+   store, orgID, botID, newSessionID)` so the mirror and future activations
+   resolve the new session.
+5. **Return the new session ID** in `BotActivateDTO.SessionID`.
 
-### Where to put the "fresh" behavior
+First-time start (no existing session): steps 2 is a no-op; step 3 provisions
+the project (via `Activate`/ensurer) and starts the first session.
 
-**Decision (recommended): add a `fresh bool` parameter to the restart primitive**
-rather than duplicating it.
+### Workspace teardown
 
-- Extend `restartSessionContainer` (and the `SessionRestarter.RestartSession`
-  port) so callers choose `fresh` vs `preserve`.
-- When `fresh == true`: call `ClearSession` before the container recreate, and
-  make tear-down failures fatal.
-- When `fresh == false` (existing in-chat / spec-task callers): unchanged
-  crash-recovery behavior — `ZedThreadID` preserved, `StopDesktop` best-effort.
-- `restartBotAgent` passes `fresh = true`.
+Crash-recovery `StopDesktop` intentionally preserves the ZFS workspace volume.
+For a full restart we need the old workspace gone. Two candidate mechanisms:
 
-This keeps one implementation while making the divergence explicit, satisfying
-AC-6. (Alternative — a separate handler — was rejected to avoid two nearly
-identical restart code paths drifting apart, the exact problem the shared
-primitive was created to prevent.)
+- **A (recommended):** because the new session has a new session ID, its
+  `StartDesktop` creates a *new* per-session ZFS clone — so the new desktop is
+  already pristine regardless of the old volume. Add an explicit destroy of the
+  **old** session's volume (via the hydra executor / `DeleteDevContainer` +
+  volume delete) so it doesn't leak. Confirm during implementation whether the
+  ZFS clone is keyed per-session (then this is automatic + cleanup) or per-
+  project (then explicit reset is required).
+- **B:** delete + re-clone the project workspace volume in place. Heavier and
+  only needed if the workspace clone is project-keyed. Prefer A.
 
-### "Fresh desktop" scope — workspace volume
+**Open item for implementation:** verify in `hydra_executor.go` whether the
+workspace ZFS clone is keyed by session ID or project ID — this decides whether
+old-volume cleanup is just hygiene (A) or mandatory for freshness (B).
 
-The user says "completely fresh desktop and context." There are two levels:
+### Why a new flow, not a `fresh` flag on restartSessionContainer
 
-- **Level A (recommended default):** fresh conversation/thread + fresh container
-  process, workspace volume (git checkout, files, agent's persisted session)
-  preserved. Matches how the spawner's fresh-window re-activation already works;
-  low risk; solves the reported symptom (tools re-init, thread cleared, new
-  desktop process).
-- **Level B (optional):** also discard/re-clone the workspace ZFS volume so the
-  desktop filesystem is pristine. Heavier; only needed if stale on-disk agent
-  session state is the problem. Recommend deferring unless testing shows Level A
-  leaves stale state behind.
+`restartSessionContainer` keeps the same session ID by design and is shared with
+the in-chat / spec-task crash-recovery surfaces. A full restart needs a
+different shape (destroy + mint-new + repoint runtime state), so it gets its own
+flow. The crash-recovery primitive stays untouched (AC-7).
 
-Go with **Level A**; note Level B as a follow-up toggle if required.
+### Frontend — switch the chat window to the new session
 
-### Frontend — show the fresh session in the chat window
-
-No confirmation dialog. The button runs immediately.
-
-The chat/desktop panels on the Bot Detail page are both bound to
-`chatSessionId` (`HelixOrgBotDetail.tsx:171`), which is the bot's exploratory
-"Project Desktop" session, resolved once via
+The chat/desktop panels are bound to `chatSessionId` (`HelixOrgBotDetail.tsx:171`),
+the bot's exploratory session, resolved once via
 `fetchExistingWorkerSession(projectID, chatApi)` and rendered by
-`EmbeddedSessionView`. Because the restart clears the thread on that same
-session, the panel keeps pointing at the old (now-stale) transcript until it is
-refreshed.
+`EmbeddedSessionView`.
 
-After `restartAgent.mutateAsync` succeeds, `handleRestartSession` must refresh
-the panel so it shows the new empty thread and fresh desktop:
+No confirmation dialog. In `handleRestartSession`, after
+`restartAgent.mutateAsync` resolves:
 
-- Re-resolve the exploratory session and re-set `chatSessionId`
-  (`fetchExistingWorkerSession`) so the transcript re-loads empty and the
-  WebSocket re-subscribes (`streaming.setCurrentSessionId`).
-- If the session id is unchanged (same session, cleared thread), force the
-  transcript/desktop to reload — e.g. via the `sessionViewRef`
-  (`EmbeddedSessionViewHandle`) or by briefly nulling then re-setting
-  `chatSessionId` so `EmbeddedSessionView` remounts.
-- Update the success snackbar wording to reflect "fresh session started" and
-  keep existing error handling (`err?.response?.data?.error`), so a failed
-  backend response shows the error rather than a false success.
-- Default the session panel to the Chat tab (`sessionTab='chat'`) so the fresh
-  transcript is visible.
-
-Note: the backend `ClearSession` keeps the same session **ID** while resetting
-`ZedThreadID` and wiping interactions, so "new thread" here means the same
-exploratory session showing a brand-new, empty Zed thread. That satisfies "a
-totally fresh session/thread shown in the chat window."
+- Read the **new** session id from the mutation response
+  (`BotActivateDTO.SessionID`) and set `chatSessionId` to it. This re-binds the
+  transcript, desktop stream, and WebSocket (`streaming.setCurrentSessionId`) to
+  the new session, so the old transcript disappears and the fresh (empty) one
+  shows.
+- If the id needs a forced remount (e.g. `EmbeddedSessionView` caches by id),
+  null then set `chatSessionId`, or fall back to re-running
+  `fetchExistingWorkerSession(projectID)` which now resolves the new
+  most-recent exploratory session.
+- Default the panel to the Chat tab (`sessionTab='chat'`).
+- Update the success snackbar to "fresh session started"; keep error handling
+  (`err?.response?.data?.error`) so a failed backend response surfaces an error.
+- Ensure the mutation hook (`useRestartBotAgent` in `helixOrgService.ts`) returns
+  the DTO so the new `SessionID` is available to the handler.
 
 ## Key files
 
 | Concern | File |
 |---|---|
-| Button + handler + confirm dialog | `frontend/src/pages/HelixOrgBotDetail.tsx` |
-| Mutation hook | `frontend/src/services/helixOrgService.ts` |
+| Button + handler + chat re-bind | `frontend/src/pages/HelixOrgBotDetail.tsx` |
+| Mutation hook (return new SessionID) | `frontend/src/services/helixOrgService.ts` |
 | Bot restart handler | `api/pkg/org/interfaces/server/api/bots.go` (`restartBotAgent`) |
-| SessionRestarter port | `api/pkg/org/interfaces/server/api/api.go` |
-| In-proc restart client | `api/pkg/server/helix_org_inproc.go` (`RestartSession`) |
-| Restart primitive | `api/pkg/server/session_handlers.go` (`restartSessionContainer`) |
-| Clear primitive (reuse) | `api/pkg/server/session_clear.go` (`ClearSession`) |
-| Desktop lifecycle | `api/pkg/external-agent/hydra_executor.go` (`StopDesktop`/`StartDesktop`) |
-| Existing restart test | `api/pkg/server/restart_session_container_test.go` |
+| New full-restart port | `api/pkg/org/interfaces/server/api/api.go` |
+| In-proc client (full-restart impl) | `api/pkg/server/helix_org_inproc.go` |
+| New session primitive | `api/pkg/server/session_handlers.go` (`StartExternalAgentSession`) |
+| Exploratory lookup / retire | `api/pkg/store/store_sessions.go` (`GetProjectExploratorySession`) |
+| Runtime state pointer | `api/pkg/org/infrastructure/runtime/helix/state.go` (`SaveSession`) |
+| Desktop + workspace lifecycle | `api/pkg/external-agent/hydra_executor.go` (`StopDesktop`/`StartDesktop`) |
+| Crash-recovery primitive (leave as-is) | `api/pkg/server/session_handlers.go` (`restartSessionContainer`) |
+| Full teardown reference | `api/pkg/org/application/lifecycle/lifecycle.go` (`Delete`) |
 
 ## Risks / Notes
 
-- Changing the shared port signature (`RestartSession`) touches all callers —
-  update the in-chat and spec-task surfaces to pass `fresh = false`.
-- Making `StopDesktop` fatal only for the fresh path avoids regressing crash
-  recovery (where the container is often already gone).
-- Validate the bot's session is a `zed_external` agent before clearing; the
-  fresh path is only meaningful for those.
+- **Session retirement is the critical step** — without deleting/retiring the old
+  exploratory row, the singleton guard reuses the old ID and "restart" silently
+  no-ops again. Test this explicitly.
+- Deleting the old session row must cascade/clean its interactions and container
+  metadata; reuse the project-delete teardown helpers where possible.
+- Confirm workspace ZFS clone keying (per-session vs per-project) before choosing
+  cleanup A vs B.
+- Validate the session is a `zed_external` agent before the full-restart path.
+- The empty-session fallback must still provision + start for first-time use.
