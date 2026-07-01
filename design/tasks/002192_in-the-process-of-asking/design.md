@@ -258,3 +258,21 @@ bots by calling it per bot).
   caller once `invite_bots` was deleted (only its own tests), so per the
   "clean up dead code" rule it and its two tests were removed. Replaced its
   service-level coverage with `SubscribeTopics`/`UnsubscribeTopics` unit tests.
+
+## Browser smoke test (localhost:8080, my branch via Air)
+
+Driven through the helix-org chart UI as `test@helix.ml` (org enabled + `helix-org`
+alpha flag). All passed:
+- **Tool catalogue** (bot editor "Tools" dropdown) shows the new tools with my new
+  descriptions — `attach_tool`, `detach_tool`, `set_bot_content`, `delete_bot`,
+  `create_bot` ("in one call … `topics` … subscribe the new Bot immediately"),
+  `subscribe`/`unsubscribe` (`botId`+`topicIds`). `update_bot`/`invite_bots` absent.
+  (screenshots/03)
+- **Create bot** `b-mark` via New Bot dialog → row created, Tools=10 baseline.
+- **Subscribe** `b-mark` → `s-general` via the Subscriptions picker → "subscriptions
+  updated (1 added)"; verified `org_subscriptions(b-mark, s-general)` row. (screenshots/02)
+- **Grant tool** `publish` via Tools picker + SAVE → verified in `org_bots.tools`. (screenshots/03)
+- **Delete bot** with the "type delete" confirm → "deleted b-mark"; verified bot row
+  AND its subscription rows both cascaded to 0. (screenshots/04)
+
+Screenshots: `screenshots/01-org-chart-empty.png` … `04-bot-deleted.png`.
