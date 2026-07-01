@@ -268,6 +268,55 @@ func (c *Controller) sandboxDockerAlive(ctx context.Context, sb *types.Sandbox) 
 	return true
 }
 
+// DeployBuildTimeout bounds how long a web-service deploy may sit
+// pending/building before it is treated as an interrupted (orphaned) build.
+// Shared by the health monitor (recovery) and the API (health reporting) so
+// they agree on what "still deploying" means.
+const DeployBuildTimeout = 15 * time.Minute
+
+// Probe reports whether the project's web service answers on its container port
+// through the hydra proxy right now. It is the single source of truth for "is
+// this web service actually live", used by both the health monitor and the API
+// so the UI reflects real health rather than the last deploy row.
+func (c *Controller) Probe(ctx context.Context, st *types.ProjectWebServiceState, timeout time.Duration) bool {
+	if st == nil || !st.Enabled || st.ActiveSandboxID == "" {
+		return false
+	}
+	sb, err := c.sandboxes.Get(ctx, st.ActiveSandboxID)
+	if err != nil || sb == nil || sb.Status != types.SandboxStatusRunning {
+		return false
+	}
+	hc, err := c.sandboxes.HydraClient(sb)
+	if err != nil {
+		return false
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return hc.ProbeDevContainerPort(pctx, sb.ID, st.ContainerPort) == nil
+}
+
+// Health returns the real, probe-based status of a project's web service:
+// "disabled", "deploying", "live" or "unhealthy". The API surfaces this so the
+// UI reflects actual health instead of trusting the last deploy row (a deploy
+// stays "live" long after its container dies).
+func (c *Controller) Health(ctx context.Context, projectID string) string {
+	st, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil || st == nil || !st.Enabled || st.ActiveSandboxID == "" {
+		return "disabled"
+	}
+	if deploys, _ := c.store.ListWebServiceDeploys(ctx, projectID, 1); len(deploys) > 0 {
+		d := deploys[0]
+		inflight := d.Status == types.WebServiceDeployStatusPending || d.Status == types.WebServiceDeployStatusBuilding
+		if inflight && time.Since(d.StartedAt) < DeployBuildTimeout {
+			return "deploying"
+		}
+	}
+	if c.Probe(ctx, st, 5*time.Second) {
+		return "live"
+	}
+	return "unhealthy"
+}
+
 // RecoverWebService brings a project's web service back to a serving state
 // after the health-monitor detects it down. It escalates:
 //  1. active sandbox row gone → Redeploy (provisions a fresh sandbox).

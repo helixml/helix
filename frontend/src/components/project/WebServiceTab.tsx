@@ -47,6 +47,9 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
   const { data, isLoading, error } = useQuery<ServerProjectWebServiceResponse>({
     queryKey: stateQueryKey,
     enabled: !!projectId,
+    // Health is a live probe — refetch while the panel is open so the status
+    // badge reflects reality (and a running deploy flips to Live when it lands).
+    refetchInterval: 20000,
     queryFn: async () => {
       const res = await apiClient.v1ProjectsWebServiceDetail(projectId)
       return res.data
@@ -57,6 +60,7 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
   const domains = data?.domains ?? []
   const deploys = data?.deploys ?? []
   const cnameTarget = data?.cname_target ?? ''
+  const health = data?.health ?? ''
 
   const [containerPortDraft, setContainerPortDraft] = useState<string>('')
   const [newDomain, setNewDomain] = useState('')
@@ -135,6 +139,19 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
           disabled={updateMutation.isPending}
         />
         <Typography>{enabled ? 'Enabled' : 'Disabled'}</Typography>
+        {enabled && health && (
+          <Chip
+            size="small"
+            color={health === 'live' ? 'success' : health === 'deploying' ? 'warning' : 'error'}
+            label={
+              health === 'live'
+                ? 'Live'
+                : health === 'deploying'
+                ? 'Deploying'
+                : 'Unhealthy'
+            }
+          />
+        )}
       </Box>
 
       {enabled && (
