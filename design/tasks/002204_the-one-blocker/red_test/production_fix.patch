@@ -1,0 +1,79 @@
+diff --git a/api/pkg/server/mcp_backend_external.go b/api/pkg/server/mcp_backend_external.go
+index bd8e7ddae..6305a2710 100644
+--- a/api/pkg/server/mcp_backend_external.go
++++ b/api/pkg/server/mcp_backend_external.go
+@@ -2,6 +2,7 @@ package server
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"fmt"
+ 	"net/http"
+ 	"sync"
+@@ -323,38 +324,7 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
+ 		// Create a handler that forwards to the external server
+ 		handler := b.createToolHandler(externalClient, tool.Name)
+ 
+-		// Build tool options
+-		var opts []mcp.ToolOption
+-		opts = append(opts, mcp.WithDescription(tool.Description))
+-
+-		// Add parameters from the tool's input schema
+-		// mcp.ToolInputSchema has Properties map[string]interface{} and Required []string
+-		if tool.InputSchema.Properties != nil {
+-			required := make(map[string]bool)
+-			for _, r := range tool.InputSchema.Required {
+-				required[r] = true
+-			}
+-
+-			for propName, propDef := range tool.InputSchema.Properties {
+-				propMap, ok := propDef.(map[string]interface{})
+-				if !ok {
+-					continue
+-				}
+-
+-				desc := ""
+-				if d, ok := propMap["description"].(string); ok {
+-					desc = d
+-				}
+-
+-				if required[propName] {
+-					opts = append(opts, mcp.WithString(propName, mcp.Required(), mcp.Description(desc)))
+-				} else {
+-					opts = append(opts, mcp.WithString(propName, mcp.Description(desc)))
+-				}
+-			}
+-		}
+-
+-		mcpTool := mcp.NewTool(tool.Name, opts...)
++		mcpTool := buildProxyTool(tool)
+ 		mcpServer.AddTool(mcpTool, handler)
+ 
+ 		log.Debug().
+@@ -403,6 +373,26 @@ func (b *ExternalMCPBackend) findMCPConfig(app *types.App, mcpName string) *type
+ }
+ 
+ // createToolHandler creates a handler that forwards tool calls to the external MCP server
++// buildProxyTool reconstructs the schema the proxy advertises to Zed for a
++// single upstream tool. NOTE: this currently rebuilds every property as a
++// string, discarding type/items/enum — so array params (create_bot.tools,
++// subscribe.topicIds, …) are flattened to type:"string". See task
++// 002204_the-one-blocker.
++func buildProxyTool(tool mcp.Tool) mcp.Tool {
++	// Forward the upstream input schema verbatim so array/object/enum/nested
++	// params survive (a proxy transports schemas, it must not reinterpret
++	// them). Rebuilding per-property flattened everything to string and made
++	// array params like create_bot.tools uncallable (task 002204).
++	raw, err := json.Marshal(tool.InputSchema)
++	if err != nil {
++		// Degrade to a description-only tool rather than a wrong (all-string)
++		// schema; log so the drop is visible.
++		log.Error().Err(err).Str("tool", tool.Name).Msg("marshal upstream MCP schema; serving description-only")
++		return mcp.NewTool(tool.Name, mcp.WithDescription(tool.Description))
++	}
++	return mcp.NewToolWithRawSchema(tool.Name, tool.Description, raw)
++}
++
+ func (b *ExternalMCPBackend) createToolHandler(client mcpclient.Client, toolName string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+ 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+ 		log.Debug().

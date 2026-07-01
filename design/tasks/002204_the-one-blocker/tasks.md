@@ -4,32 +4,31 @@ Root cause is confirmed: `ExternalMCPBackend` re-advertises every proxied tool
 property as `mcp.WithString`, flattening arrays. Fix = forward the upstream
 schema verbatim. Follow TDD.
 
-## RED — reproduce the flattening
+## RED — reproduce the flattening (against REAL production code)
 
-- [x] **DONE (proven this session).** Wrote a test that replicates the proxy's
-      verbatim tool reconstruction (`mcp_backend_external.go` L322–358) against
-      the real `mark3labs/mcp-go` library, feeding an upstream `create_bot` with
-      `tools` as `type:"array", items:{type:"string"}`. Ran it:
-      - `TestProxyReadvertise_Current` **FAILS** —
-        `create_bot.tools re-advertised as "string", want "array"` (the exact blocker).
-      - `TestProxyReadvertise_Fixed` **PASSES** — `NewToolWithRawSchema`
-        passthrough keeps `tools` an array and `content` a string.
-      Test artifact: `red_test/mcp_backend_external_schema_red_test.go.txt`
-      (needs `CGO_ENABLED=1` — tree-sitter). Kept out of the helix repo during
-      planning; drop it into `api/pkg/server` in the implementation phase.
-- [ ] During implementation, promote it to a genuine regression test that
-      exercises the **production** registration (extract the per-tool schema
-      build in `getOrCreateServer` into a small pure helper and test that),
-      so a future edit to the proxy can't regress while the replica stays green.
+- [x] **DONE — proper RED, proven this session.** Extracted the per-tool schema
+      reconstruction out of `getOrCreateServer` into a production helper
+      `buildProxyTool(mcp.Tool) mcp.Tool` (behavior-preserving; `getOrCreateServer`
+      now calls it), then wrote `TestBuildProxyTool_PreservesArrayParams` that
+      calls **that real function** with an upstream `create_bot` whose `tools` is
+      `type:"array", items:{type:"string"}`.
+      - Against current code: **FAILS** — `create_bot.tools re-advertised as
+        "string", want "array"` (the exact blocker).
+      - After the passthrough fix: **PASSES**; `content` stays `string`; build clean.
+      Proof + commands: `red_test/PROOF.md`. Turnkey artifacts:
+      `red_test/mcp_backend_external_schema_test.go` and
+      `red_test/production_fix.patch`. Needs `CGO_ENABLED=1` (tree-sitter).
+      Kept out of the helix repo until the plan is approved.
 
 ## GREEN — verbatim schema passthrough
 
-- [ ] In `api/pkg/server/mcp_backend_external.go` (~L322–358), delete the
-      per-property `WithString` loop and register each tool via
-      `mcp.NewToolWithRawSchema(tool.Name, tool.Description, raw)` where
-      `raw, err := json.Marshal(tool.InputSchema)`.
-- [ ] On marshal error, log and skip the tool (do not fall back to string).
-- [ ] Run the RED test; confirm GREEN.
+- [ ] Apply `red_test/production_fix.patch` (or hand-apply): `buildProxyTool`
+      forwards the upstream schema verbatim via
+      `mcp.NewToolWithRawSchema(tool.Name, tool.Description, json.Marshal(tool.InputSchema))`;
+      on marshal error, log and serve a description-only tool (never fall back to
+      an all-string schema). Add the `encoding/json` import.
+- [ ] Also add the test file `red_test/mcp_backend_external_schema_test.go` to
+      `api/pkg/server/`. Run it; confirm GREEN (proven this session).
 
 ## Verify
 
