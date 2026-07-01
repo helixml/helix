@@ -51,8 +51,16 @@ export default function LMStudioModels({ endpointId }: Props) {
   const [contextLength, setContextLength] = useState<string>("");
 
   const handleLoad = (model: LocalModel) => {
-    setContextLength(String(Math.min(model.max_context_length, 32768)));
+    setContextLength("32K");
     setLoadDialogModel(model);
+  };
+
+  const parseContextLength = (value: string): number | undefined => {
+    const trimmed = value.trim().toUpperCase();
+    const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*K$/);
+    if (match) return Math.round(parseFloat(match[1]) * 1024);
+    const num = parseInt(trimmed);
+    return isNaN(num) ? undefined : num;
   };
 
   const confirmLoad = () => {
@@ -60,7 +68,7 @@ export default function LMStudioModels({ endpointId }: Props) {
     loadModel.mutate({
       endpointId,
       model: loadDialogModel.key,
-      contextLength: parseInt(contextLength) || undefined,
+      contextLength: parseContextLength(contextLength),
     });
     setLoadDialogModel(null);
   };
@@ -185,13 +193,13 @@ export default function LMStudioModels({ endpointId }: Props) {
         <DialogContent>
           <TextField
             label="Context Length"
-            type="number"
             value={contextLength}
             onChange={(e) => setContextLength(e.target.value)}
             fullWidth
             size="small"
+            placeholder="e.g. 32K, 8K, 131072"
             sx={{ mt: 1 }}
-            helperText={`Max: ${formatContext(loadDialogModel?.max_context_length || 0)} tokens`}
+            helperText={`Max: ${formatContext(loadDialogModel?.max_context_length || 0)} tokens. Use K suffix (e.g. 32K = 32,768)`}
           />
         </DialogContent>
         <DialogActions>
