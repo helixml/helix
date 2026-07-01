@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -35,6 +36,25 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// recoverGoroutine converts a panic in a detached goroutine into a logged error
+// instead of a process-wide crash. A panic in ANY goroutine takes down the
+// whole API binary — which would drop EVERY hosted web service and the control
+// plane, not just the one project. Every detached deploy/recovery goroutine
+// must guard itself with this. The optional onPanic runs cleanup (e.g. mark the
+// deploy failed) so state doesn't wedge.
+func recoverGoroutine(what string, onPanic func(recovered any)) {
+	if r := recover(); r != nil {
+		log.Error().
+			Interface("panic", r).
+			Str("goroutine", what).
+			Bytes("stack", debug.Stack()).
+			Msg("recovered panic in detached goroutine (would otherwise have crashed the API process)")
+		if onPanic != nil {
+			onPanic(r)
+		}
+	}
+}
 
 // ProjectSecretsGetter returns prod-scoped project secrets as `KEY=value`
 // env-var strings to inject into the web service container.
@@ -157,6 +177,13 @@ func (c *Controller) runDeploy(
 	repo *types.GitRepository,
 	state *types.ProjectWebServiceState,
 ) {
+	// A panic here must not crash the whole API (and every other hosted
+	// service). Recover and mark this deploy failed so it doesn't wedge in
+	// "building" — the health monitor will then retry cleanly.
+	defer recoverGoroutine("runDeploy project="+req.ProjectID, func(any) {
+		c.markFailed(context.Background(), deployID, "", "internal error during deploy (panic recovered)")
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+c.readinessWait+2*time.Minute)
 	defer cancel()
 

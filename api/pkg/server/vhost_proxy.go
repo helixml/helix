@@ -71,16 +71,62 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 	}
 
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
+		// Log the detail; NEVER echo the raw Go error to the client (it read
+		// "upstream error: dial hydra: ..." — a stack-trace string on a
+		// customer's site). Serve a branded, auto-refreshing "starting up"
+		// page so a transient blip or an in-flight recovery looks like a
+		// spinner, not a crash.
 		log.Warn().Err(err).
 			Str("sandbox_id", sandboxID).
 			Str("hydra_container_id", hydraContainerID).
 			Int("port", port).
 			Msg("vhost proxy error")
-		http.Error(rw, fmt.Sprintf("upstream error: %s", err), http.StatusBadGateway)
+		writeStartingUpPage(rw)
 	}
 
 	proxy.ServeHTTP(w, r)
 }
+
+// writeStartingUpPage serves a branded, auto-refreshing holding page when the
+// upstream web-service container is briefly unreachable (transient blip or an
+// in-flight auto-recovery). Retry-After + meta-refresh mean the browser retries
+// on its own, so a recovering service shows a spinner instead of an error.
+func writeStartingUpPage(rw http.ResponseWriter) {
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	rw.Header().Set("Retry-After", "3")
+	rw.Header().Set("Cache-Control", "no-store")
+	rw.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = io.WriteString(rw, startingUpHTML)
+}
+
+const startingUpHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="3">
+<title>Starting up…</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#0b0d12;color:#e6e9ef}
+  .card{text-align:center;max-width:32rem;padding:2rem}
+  .spinner{width:42px;height:42px;margin:0 auto 1.25rem;border:4px solid rgba(255,255,255,.12);
+    border-top-color:#5b8cff;border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  h1{font-size:1.25rem;font-weight:600;margin:0 0 .5rem}
+  p{margin:0;color:#9aa4b2;font-size:.95rem;line-height:1.5}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>This service is starting up</h1>
+    <p>It’ll be ready in a moment — this page refreshes automatically.</p>
+  </div>
+</body>
+</html>`
 
 // revdialTransport is a RoundTripper that dials hydra over RevDial,
 // writes the request, and reads the response. One TCP conn per request
@@ -93,14 +139,33 @@ type revdialTransport struct {
 	dialTimeout time.Duration
 }
 
+// dialRetryWindow bounds how long RoundTrip retries a failing dial before
+// giving up to the branded holding page. Short enough that a genuinely-down
+// service shows the auto-refreshing page quickly, long enough to ride through
+// the sub-second gap when a container restarts in place or a revdial control
+// connection re-establishes.
+const dialRetryWindow = 6 * time.Second
+
 func (t *revdialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	hydraClient := hydra.NewRevDialClient(t.apiServer.connman, "hydra-"+t.sandboxID)
-	ctx, cancel := context.WithTimeout(req.Context(), t.dialTimeout)
-	defer cancel()
 
-	conn, err := t.apiServer.connman.Dial(ctx, hydraClient.DeviceID())
-	if err != nil {
-		return nil, fmt.Errorf("dial hydra: %w", err)
+	// Retry ONLY the dial — nothing has been written yet, so this can't
+	// double-submit a non-idempotent request. This absorbs transient revdial
+	// races and the moment a container is coming back up during recovery.
+	var conn net.Conn
+	var err error
+	deadline := time.Now().Add(dialRetryWindow)
+	for {
+		dctx, cancel := context.WithTimeout(req.Context(), t.dialTimeout)
+		conn, err = t.apiServer.connman.Dial(dctx, hydraClient.DeviceID())
+		cancel()
+		if err == nil {
+			break
+		}
+		if req.Context().Err() != nil || time.Now().After(deadline) {
+			return nil, fmt.Errorf("dial hydra: %w", err)
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	if err := req.Write(conn); err != nil {

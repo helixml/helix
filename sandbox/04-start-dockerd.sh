@@ -356,13 +356,24 @@ done
 echo ""
 echo "🧹 Cleaning up old desktop images in nested Docker..."
 
-# First, remove ALL stopped containers to allow image removal
-# This is safe because Hydra creates fresh containers for each session
-# Stopped containers are just leftovers from previous sessions
-STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
-if [ "$STOPPED_COUNT" -gt 0 ]; then
-    echo "   Removing $STOPPED_COUNT stopped container(s)..."
-    docker container prune -f >/dev/null 2>&1 || true
+# Remove stopped leftover containers to allow image removal — but NEVER
+# persistent (web-service) containers. Those carry a Docker restart policy so
+# dockerd brings them back automatically after a reboot/dockerd restart; if the
+# reaper deletes one here (in the window before dockerd has restarted it) the
+# hosted service falls off its fast self-heal path and into a slow full
+# redeploy. `docker container prune` has no negative label filter, so enumerate
+# exited containers and skip the helix.persistent=true ones explicitly.
+mapfile -t STOPPED_TO_REMOVE < <(
+    docker ps -aq --filter "status=exited" 2>/dev/null | while read -r cid; do
+        [ -z "$cid" ] && continue
+        if [ "$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$cid" 2>/dev/null)" != "true" ]; then
+            echo "$cid"
+        fi
+    done
+)
+if [ "${#STOPPED_TO_REMOVE[@]}" -gt 0 ]; then
+    echo "   Removing ${#STOPPED_TO_REMOVE[@]} stopped container(s) (keeping persistent web-services)..."
+    docker rm -f "${STOPPED_TO_REMOVE[@]}" >/dev/null 2>&1 || true
 fi
 
 # Build a list of expected versions and registry refs

@@ -839,6 +839,12 @@ type WebServer struct {
 	// later, we might add a token to the URLs
 	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
+	// MetricsListen, when set (e.g. "0.0.0.0:9110"), starts a dedicated
+	// Prometheus /metrics HTTP listener on that address, separate from the main
+	// API/vhost router so metrics are never exposed on the public app port.
+	// Restrict access at the network layer (firewall to your Prometheus).
+	MetricsListen string `envconfig:"HELIX_METRICS_LISTEN" description:"Address for a dedicated Prometheus /metrics listener (e.g. 0.0.0.0:9110). Empty disables it. Firewall this port to your Prometheus."`
+
 	// Path to UNIX socket for serving embeddings without auth
 	// TODO: naming
 	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
