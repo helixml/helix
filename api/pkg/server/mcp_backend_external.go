@@ -372,7 +372,6 @@ func (b *ExternalMCPBackend) findMCPConfig(app *types.App, mcpName string) *type
 	return nil
 }
 
-// createToolHandler creates a handler that forwards tool calls to the external MCP server
 // buildProxyTool reconstructs the schema the proxy advertises to Zed for a
 // single upstream tool. It forwards the upstream input schema verbatim so
 // array/object/enum/nested params survive — a proxy transports schemas, it
@@ -391,6 +390,7 @@ func buildProxyTool(tool mcp.Tool) mcp.Tool {
 	return mcp.NewToolWithRawSchema(tool.Name, tool.Description, raw)
 }
 
+// createToolHandler creates a handler that forwards tool calls to the external MCP server
 func (b *ExternalMCPBackend) createToolHandler(client mcpclient.Client, toolName string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		log.Debug().
