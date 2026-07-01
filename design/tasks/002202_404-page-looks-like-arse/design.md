@@ -73,3 +73,46 @@ ones.
   route to render the 404 page. Toggle light vs dark mode and confirm all text
   and buttons are legible in light mode and unchanged in dark mode. Capture
   before/after screenshots in both modes.
+
+## Implementation Notes
+
+- **Change is a single file:** `frontend/src/pages/NotFound.tsx` (+20/-12). No
+  other files touched. `git status` on the feature branch shows only this file.
+- **Pattern used:** call `useLightTheme()` once, destructure `isLight`,
+  `textColor`, `textColorFaded`, `border`, `highlightColor`. Added a derived
+  `accentColor = isLight ? highlightColor : '#00E5FF'` for hover states, since
+  brand cyan is illegible on white. Each hardcoded color now branches on
+  `isLight`, keeping the exact original value in the dark branch → zero
+  dark-mode regression.
+- **Background gradient:** light branch uses `rgba(14,116,144,0.05)` (faint
+  teal) instead of the cyan so it isn't a lone cyan smudge on white.
+- **Home button left untouched** — its cyan bg + black text works in both modes.
+- **Glitch animation untouched** — the cyan/pink text-shadow reads fine on both
+  backgrounds (it's what makes the near-transparent "404" glyph visible).
+
+### How the 404 page is reached for testing
+The route is `/notfound`; any unmatched path (e.g. `/this-does-not-exist`)
+redirects there. It is **auth-gated AND onboarding-gated** — you must register
+AND create an org first, otherwise the app forces you back to `/onboarding` and
+the 404 page never renders. Steps: register (`test@helix.ml` / `helixtest`),
+create org `testorg`, then hit a bogus URL.
+
+### Verification result
+- TypeScript compiles clean: `npx tsc --noEmit` in the `helix-frontend-1`
+  container returned exit 0. (The local `frontend` dir has no `node_modules`, so
+  `yarn build`/`vite` can't run on the host — use the container.)
+- Visual E2E in inner Helix confirmed:
+  - **Light before** (`screenshots/00-404-light-before.png`): heading, body,
+    Organizations and Go-back buttons are invisible (white-on-white) — the bug.
+  - **Light after** (`screenshots/01-404-light-after.png`): all legible.
+  - **Dark after** (`screenshots/02-404-dark-after.png`): identical to original.
+
+### Environment gotcha (not part of this change)
+On session start the API container failed to build (`missing go.sum entry for
+prometheus/client_golang`) — a pre-existing issue in the checked-out `main`,
+unrelated to this frontend-only change. Resolved for testing by running
+`go mod download` / `go mod tidy` inside the `api` container (module cache was
+stale); no committed go.mod/go.sum changes resulted. The `/app` dir in both the
+`api` and `frontend` containers is bind-mounted to the host repo, so
+`touch`-ing files to trigger Air/Vite affects host files — be careful not to
+create stray empty files.
