@@ -118,8 +118,8 @@ func TestMarkMissingSessionsStopped_ZeroContainersDowngradesAll(t *testing.T) {
 	assert.True(t, updated["ses_a"] && updated["ses_b"], "both sessions should be downgraded")
 }
 
-// A "local" sandbox is not container-counted and must be skipped entirely.
-func TestMarkMissingSessionsStopped_SkipsLocalSandbox(t *testing.T) {
+// An empty sandbox id is ambiguous and must be skipped entirely (no store calls).
+func TestMarkMissingSessionsStopped_SkipsEmptySandbox(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -127,6 +127,32 @@ func TestMarkMissingSessionsStopped_SkipsLocalSandbox(t *testing.T) {
 	h := newTestExecutor(mockStore)
 
 	// No store calls expected.
-	h.markMissingSessionsStopped(context.Background(), "local", map[string]bool{}, nil)
 	h.markMissingSessionsStopped(context.Background(), "", map[string]bool{}, nil)
+}
+
+// The single-node "local" sandbox is NOT skipped — a self-hosted redeploy wipes
+// its containers too, so stale local sessions must also be downgraded.
+func TestMarkMissingSessionsStopped_ProcessesLocalSandbox(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	h := newTestExecutor(mockStore)
+
+	mockStore.EXPECT().
+		ListSessionsBySandbox(gomock.Any(), "local").
+		Return([]*types.Session{runningSession("ses_local")}, nil)
+	mockStore.EXPECT().GetSession(gomock.Any(), "ses_local").Return(runningSession("ses_local"), nil)
+
+	downgraded := false
+	mockStore.EXPECT().
+		UpdateSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, s types.Session) (*types.Session, error) {
+			assert.Equal(t, "stopped", s.Metadata.ExternalAgentStatus)
+			downgraded = true
+			return &s, nil
+		})
+
+	h.markMissingSessionsStopped(context.Background(), "local", map[string]bool{}, nil)
+	assert.True(t, downgraded, "local session should be downgraded")
 }

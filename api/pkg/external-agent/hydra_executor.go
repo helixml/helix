@@ -1607,7 +1607,11 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 // entry evicted, so the derived SandboxState becomes "absent" instead of showing
 // a dead container as running.
 func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, hydraClient *hydra.RevDialClient) {
-	if sandboxID == "" || sandboxID == "local" {
+	// Unlike the active_sandboxes counter (a multi-tenant autoscaler concern that
+	// skips "local"), session-status reconciliation applies to every sandbox
+	// including the single-node "local" one — a self-hosted CD redeploy destroys
+	// its containers just the same. Only skip the ambiguous empty id.
+	if sandboxID == "" {
 		return
 	}
 
