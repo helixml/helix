@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -249,9 +250,18 @@ func (s *HelixAPIServer) unloadLocalModel(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var reqBody struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(rw, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	lmsBody, _ := json.Marshal(map[string]string{"instance_id": reqBody.Model})
 	mgmtURL := managementBaseURL(endpoint.BaseURL) + "/api/v1/models/unload"
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, mgmtURL, r.Body)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, mgmtURL, bytes.NewReader(lmsBody))
 	if err != nil {
 		http.Error(rw, "Failed to create request", http.StatusInternalServerError)
 		return
