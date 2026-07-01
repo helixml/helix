@@ -28,7 +28,6 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -86,12 +85,12 @@ func New(deps Deps) *Bots {
 
 // CreateParams describes a new Bot. ID is optional — when empty a fresh
 // `b-<id>` is minted. Tools is unioned with the injected base read
-// tools; Topics is the typed manifest stored verbatim.
+// tools. Subscriptions are not part of the bot row — the lifecycle
+// service creates them as (bot, topic) rows from its own CreateParams.
 type CreateParams struct {
 	ID      string
 	Content string
 	Tools   []tool.Name
-	Topics  []streaming.TopicID
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -102,7 +101,7 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if id == "" {
 		id = orgchart.BotID("b-" + s.newID())
 	}
-	bot, err := orgchart.NewBot(id, p.Content, MergeTools(p.Tools, s.baseTools), p.Topics, s.now(), orgID)
+	bot, err := orgchart.NewBot(id, p.Content, MergeTools(p.Tools, s.baseTools), s.now(), orgID)
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
@@ -114,11 +113,10 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 
 // UpdateParams patches the mutable fields of a Bot. A nil pointer
 // leaves the corresponding field unchanged — this is what preserves
-// Tools/Topics on a content-only update.
+// Tools on a content-only update.
 type UpdateParams struct {
 	Content *string
 	Tools   *[]tool.Name
-	Topics  *[]streaming.TopicID
 }
 
 // Update reads the existing Bot, applies the patch via the domain's
@@ -136,10 +134,66 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	if p.Tools != nil {
 		updated = updated.WithTools(*p.Tools)
 	}
-	if p.Topics != nil {
-		updated = updated.WithTopics(*p.Topics)
-	}
 	updated = updated.WithUpdatedAt(s.now())
+	if err := s.bots.Update(ctx, updated); err != nil {
+		return orgchart.Bot{}, err
+	}
+	return updated, nil
+}
+
+// AttachTools grants the named tools to a Bot: the union of its current
+// tools and names (caller order preserved, new names appended, deduped),
+// persisted. Idempotent per name — names the Bot already has are no-ops,
+// and a call that adds nothing writes nothing. Returns store.ErrNotFound
+// (wrapped) when the (orgID, id) row is absent.
+func (s *Bots) AttachTools(ctx context.Context, orgID string, id orgchart.BotID, names []tool.Name) (orgchart.Bot, error) {
+	existing, err := s.bots.Get(ctx, orgID, id)
+	if err != nil {
+		return orgchart.Bot{}, err
+	}
+	merged := MergeTools(existing.Tools, names)
+	if sameToolList(existing.Tools, merged) {
+		return existing, nil
+	}
+	updated := existing.WithTools(merged).WithUpdatedAt(s.now())
+	if err := s.bots.Update(ctx, updated); err != nil {
+		return orgchart.Bot{}, err
+	}
+	return updated, nil
+}
+
+// DetachTools removes the named tools from a Bot. Idempotent per name (a
+// name the Bot lacks is a no-op). It refuses to remove any universal
+// read-baseline tool — those are mandatory and the reconciler would
+// re-add them — failing the whole call before any write. Returns
+// store.ErrNotFound (wrapped) when the (orgID, id) row is absent.
+func (s *Bots) DetachTools(ctx context.Context, orgID string, id orgchart.BotID, names []tool.Name) (orgchart.Bot, error) {
+	base := make(map[tool.Name]struct{}, len(s.baseTools))
+	for _, b := range s.baseTools {
+		base[b] = struct{}{}
+	}
+	remove := make(map[tool.Name]struct{}, len(names))
+	for _, n := range names {
+		if _, ok := base[n]; ok {
+			return orgchart.Bot{}, fmt.Errorf("cannot detach baseline tool %q", n)
+		}
+		remove[n] = struct{}{}
+	}
+	existing, err := s.bots.Get(ctx, orgID, id)
+	if err != nil {
+		return orgchart.Bot{}, err
+	}
+	kept := make([]tool.Name, 0, len(existing.Tools))
+	for _, t := range existing.Tools {
+		if _, drop := remove[t]; drop {
+			continue
+		}
+		kept = append(kept, t)
+	}
+	if len(kept) == len(existing.Tools) {
+		return existing, nil
+	}
+	updated := existing.WithTools(kept).WithUpdatedAt(s.now())
 	if err := s.bots.Update(ctx, updated); err != nil {
 		return orgchart.Bot{}, err
 	}

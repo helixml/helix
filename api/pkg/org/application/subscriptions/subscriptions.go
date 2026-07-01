@@ -115,3 +115,58 @@ func (s *Subscriptions) Invite(ctx context.Context, orgID string, topicID stream
 	}
 	return nil
 }
+
+// SubscribeTopics subscribes one Bot to several Topics in one call. It
+// validates the Bot and every Topic up front (so a bad id fails the
+// whole call before any write) then subscribes each via the single
+// Subscribe primitive (idempotent per topic). Used by the subscribe tool
+// and by lifecycle.Create to subscribe a new Bot at creation.
+func (s *Subscriptions) SubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error {
+	if len(topicIDs) == 0 {
+		return nil
+	}
+	if _, err := s.bots.Get(ctx, orgID, botID); err != nil {
+		return fmt.Errorf("bot %q: %w", botID, err)
+	}
+	for _, tid := range topicIDs {
+		if tid == "" {
+			return fmt.Errorf("topicIds contains an empty entry")
+		}
+		if _, err := s.topics.Get(ctx, orgID, tid); err != nil {
+			return fmt.Errorf("topic %q: %w", tid, err)
+		}
+	}
+	for _, tid := range topicIDs {
+		if _, _, err := s.Subscribe(ctx, orgID, botID, tid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UnsubscribeTopics drops one Bot's subscription to several Topics. It
+// validates the Bot and every Topic up front, then removes each link via
+// the single Unsubscribe primitive. Idempotent per topic: a topic the
+// Bot isn't subscribed to is a no-op (store.ErrNotFound is swallowed).
+func (s *Subscriptions) UnsubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error {
+	if len(topicIDs) == 0 {
+		return nil
+	}
+	if _, err := s.bots.Get(ctx, orgID, botID); err != nil {
+		return fmt.Errorf("bot %q: %w", botID, err)
+	}
+	for _, tid := range topicIDs {
+		if tid == "" {
+			return fmt.Errorf("topicIds contains an empty entry")
+		}
+		if _, err := s.topics.Get(ctx, orgID, tid); err != nil {
+			return fmt.Errorf("topic %q: %w", tid, err)
+		}
+	}
+	for _, tid := range topicIDs {
+		if err := s.Unsubscribe(ctx, orgID, botID, tid); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}

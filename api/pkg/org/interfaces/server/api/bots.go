@@ -192,15 +192,9 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
-	var topicsPatch *[]streaming.TopicID
-	if req.Topics != nil {
-		s := toTopicIDs(req.Topics)
-		topicsPatch = &s
-	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
 		Content: req.Content,
 		Tools:   toolsPatch,
-		Topics:  topicsPatch,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -564,9 +558,6 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	}
 	sort.Strings(tools)
 	dto.Tools = tools
-	for _, s := range b.Topics {
-		dto.Topics = append(dto.Topics, string(s))
-	}
 	return dto
 }
 

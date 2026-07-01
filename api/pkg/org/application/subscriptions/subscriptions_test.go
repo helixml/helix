@@ -36,7 +36,7 @@ func seed(t *testing.T, st *store.Store, orgID string) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatalf("create topic: %v", err)
 	}
-	b, _ := orgchart.NewBot("w-mark", "content", nil, nil, fixedClock(), orgID)
+	b, _ := orgchart.NewBot("w-mark", "content", nil, fixedClock(), orgID)
 	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestInvite_MultipleIdempotent(t *testing.T) {
 	ctx := context.Background()
 	seed(t, st, "org-test")
 	// add a second bot
-	w2, _ := orgchart.NewBot("w-priya", "content", nil, nil, fixedClock(), "org-test")
+	w2, _ := orgchart.NewBot("w-priya", "content", nil, fixedClock(), "org-test")
 	if err := st.Bots.Create(ctx, w2); err != nil {
 		t.Fatalf("create w2: %v", err)
 	}

@@ -131,7 +131,7 @@ func newHelixTestStore(t *testing.T) (*store.Store, orgchart.BotID) {
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	bot, _ := orgchart.NewBot("w-eng", "# Role: Engineer", nil, nil, time.Now().UTC(), "org-test")
+	bot, _ := orgchart.NewBot("w-eng", "# Role: Engineer", nil, time.Now().UTC(), "org-test")
 	if err := s.Bots.Create(ctx, bot); err != nil {
 		t.Fatalf("bot: %v", err)
 	}

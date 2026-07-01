@@ -23,7 +23,7 @@ func TestBotsRoundTripAndUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	created := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	b, err := orgchart.NewBot("b-ceo", "# CEO\nTop of the org.", nil, nil, created, "org-test")
+	b, err := orgchart.NewBot("b-ceo", "# CEO\nTop of the org.", nil, created, "org-test")
 	if err != nil {
 		t.Fatalf("NewBot: %v", err)
 	}
@@ -83,14 +83,14 @@ func TestBotReportingHierarchy(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().UTC()
-	owner, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, now, "org-test")
+	owner, err := orgchart.NewBot("b-owner", "# Owner", nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("NewBot owner: %v", err)
 	}
 	if err := s.Bots.Create(ctx, owner); err != nil {
 		t.Fatalf("Create owner: %v", err)
 	}
-	child, err := orgchart.NewBot("b-ceo", "# CEO", nil, nil, now, "org-test")
+	child, err := orgchart.NewBot("b-ceo", "# CEO", nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("NewBot child: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestBotOrganizationIDRoundTrip(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	scoped, err := orgchart.NewBot("b-acme-bot", "# bot", nil, nil, time.Now().UTC(), "org-acme")
+	scoped, err := orgchart.NewBot("b-acme-bot", "# bot", nil, time.Now().UTC(), "org-acme")
 	if err != nil {
 		t.Fatalf("NewBot: %v", err)
 	}

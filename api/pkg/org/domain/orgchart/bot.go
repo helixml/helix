@@ -4,7 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -19,10 +18,11 @@ import (
 // server registers exactly the tools in Bot.Tools on every request, so
 // editing a Bot's Tools changes its capability on the next MCP request.
 //
-// Topics is a typed manifest the Bot's prompt is expected to subscribe
-// to. The store does NOT auto-subscribe; the caller drives
-// create_topic/subscribe explicitly because topic lifecycle can't be
-// derived mechanically from the Bot.
+// A Bot's subscriptions are NOT stored on the Bot — they live as their
+// own (bot, topic) rows (see streaming.Subscription / store.Subscriptions),
+// which are the single source of truth. create_bot subscribes the new Bot
+// to its initial topics by creating those rows; subscribe/unsubscribe
+// change them later.
 //
 // Reporting lines (who reports to whom), subscriptions, the per-Bot
 // transcript/team/DM streams, and the runtime project/agent are all
@@ -33,16 +33,15 @@ type Bot struct {
 	OrganizationID string
 	Content        string
 	Tools          []tool.Name
-	Topics         []streaming.TopicID
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 // NewBot validates and constructs a Bot. Treat the returned value as
-// immutable. Tools and Topics may be empty; ID, Content, orgID, and now
-// must all be non-empty (now non-zero). ID is additionally validated as
-// a filesystem-safe handle (it lands in os.MkdirAll at activation time).
-func NewBot(id BotID, content string, tools []tool.Name, topics []streaming.TopicID, now time.Time, orgID string) (Bot, error) {
+// immutable. Tools may be empty; ID, Content, orgID, and now must all be
+// non-empty (now non-zero). ID is additionally validated as a
+// filesystem-safe handle (it lands in os.MkdirAll at activation time).
+func NewBot(id BotID, content string, tools []tool.Name, now time.Time, orgID string) (Bot, error) {
 	if err := ValidID(id); err != nil {
 		return Bot{}, err
 	}
@@ -60,7 +59,6 @@ func NewBot(id BotID, content string, tools []tool.Name, topics []streaming.Topi
 		OrganizationID: orgID,
 		Content:        content,
 		Tools:          tools,
-		Topics:         topics,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
@@ -78,12 +76,6 @@ func (b Bot) WithContent(content string) Bot {
 // WithTools returns a copy of the Bot with Tools replaced.
 func (b Bot) WithTools(tools []tool.Name) Bot {
 	b.Tools = tools
-	return b
-}
-
-// WithTopics returns a copy of the Bot with Topics replaced.
-func (b Bot) WithTopics(topics []streaming.TopicID) Bot {
-	b.Topics = topics
 	return b
 }
 

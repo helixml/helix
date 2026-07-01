@@ -22,7 +22,7 @@ func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.BotID, orgchart.Bo
 	st := orggorm.GetOrgTestDB(t)
 	now := time.Now().UTC()
 	for _, id := range []orgchart.BotID{"b-mgr", "b-rep"} {
-		b, _ := orgchart.NewBot(id, "# "+string(id), nil, nil, now, "org-test")
+		b, _ := orgchart.NewBot(id, "# "+string(id), nil, now, "org-test")
 		if err := st.Bots.Create(ctx, b); err != nil {
 			t.Fatalf("create %s: %v", id, err)
 		}

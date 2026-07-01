@@ -42,7 +42,7 @@ func newSeededStore(t *testing.T, repoID string) (*store.Store, orgchart.BotID) 
 	t.Helper()
 	s := orggorm.GetOrgTestDB(t)
 	ctx := context.Background()
-	b, _ := orgchart.NewBot("w-eng", "# Role", nil, nil, time.Now().UTC(), "org-test")
+	b, _ := orgchart.NewBot("w-eng", "# Role", nil, time.Now().UTC(), "org-test")
 	_ = s.Bots.Create(ctx, b)
 	if repoID != "" {
 		_ = SaveProject(ctx, s, "org-test", b.ID, "prj_x", "app_x", repoID)

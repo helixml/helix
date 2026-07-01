@@ -9,22 +9,21 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
 // botView is the on-the-wire shape returned by list_bots / get_bot. A
 // Bot is the single org-chart aggregate (the former Role and Worker
-// merged), so this carries both its definition (content, tools, topics)
-// and its place in the reporting graph (parentIds).
+// merged), so this carries both its definition (content, tools) and its
+// place in the reporting graph (parentIds). A Bot's subscriptions are not
+// on the bot — read them via the topic/subscription read tools.
 type botView struct {
-	ID        orgchart.BotID      `json:"id"`
-	Content   string              `json:"content"`
-	Tools     []tool.Name         `json:"tools,omitempty"`
-	Topics    []streaming.TopicID `json:"topics,omitempty"`
-	ParentIDs []orgchart.BotID    `json:"parentIds,omitempty"`
-	CreatedAt time.Time           `json:"createdAt"`
-	UpdatedAt time.Time           `json:"updatedAt"`
+	ID        orgchart.BotID   `json:"id"`
+	Content   string           `json:"content"`
+	Tools     []tool.Name      `json:"tools,omitempty"`
+	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
 }
 
 func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
@@ -32,7 +31,6 @@ func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
 		ID:        b.ID,
 		Content:   b.Content,
 		Tools:     b.Tools,
-		Topics:    b.Topics,
 		ParentIDs: managers,
 		CreatedAt: b.CreatedAt,
 		UpdatedAt: b.UpdatedAt,
@@ -53,7 +51,7 @@ type listBotsArgs struct{}
 func (t *ListBots) Name() tool.Name                 { return ListBotsName }
 func (t *ListBots) InputSchema() *jsonschema.Schema { return listBotsSchema }
 func (t *ListBots) Description() string {
-	return "List every Bot: id, markdown content, tools, topics, reporting parents, and " +
+	return "List every Bot: id, markdown content, tools, reporting parents, and " +
 		"timestamps. Use this to discover what bots exist."
 }
 
@@ -101,7 +99,7 @@ type getBotArgs struct {
 func (t *GetBot) Name() tool.Name                 { return GetBotName }
 func (t *GetBot) InputSchema() *jsonschema.Schema { return getBotSchema }
 func (t *GetBot) Description() string {
-	return "Fetch one Bot by id and return its content, tools, topics, and reporting parents."
+	return "Fetch one Bot by id and return its content, tools, and reporting parents."
 }
 
 func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {

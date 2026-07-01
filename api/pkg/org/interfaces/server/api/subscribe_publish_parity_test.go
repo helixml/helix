@@ -24,7 +24,7 @@ func seedTopicAndOwner(t *testing.T, st *store.Store, clock func() time.Time) {
 	if err := st.Topics.Create(ctx, s); err != nil {
 		t.Fatalf("seed topic: %v", err)
 	}
-	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, nil, clock(), "org-test")
+	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, clock(), "org-test")
 	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}

@@ -45,10 +45,6 @@ definitions:
         items:
           type: string
         type: array
-      topics:
-        items:
-          type: string
-        type: array
       updated_at:
         type: string
     type: object
@@ -473,10 +469,6 @@ definitions:
       content:
         type: string
       tools:
-        items:
-          type: string
-        type: array
-      topics:
         items:
           type: string
         type: array

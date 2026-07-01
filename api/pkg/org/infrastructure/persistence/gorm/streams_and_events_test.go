@@ -80,7 +80,7 @@ func TestEventsListForBotViaSubscriptions(t *testing.T) {
 	// Subscriptions are bot-anchored. Seed b-1 and subscribe
 	// b-1 → s-a; ListForBot(b-1) joins events on subscribed
 	// topics.
-	bot, err := orgchart.NewBot("b-1", "# b-1", nil, nil, base, "org-test")
+	bot, err := orgchart.NewBot("b-1", "# b-1", nil, base, "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}

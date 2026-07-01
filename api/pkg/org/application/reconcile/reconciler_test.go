@@ -29,7 +29,7 @@ func fixedNow() time.Time { return time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC) 
 // distinction is gone: there is one Bot aggregate, so every test fixture
 // is just a Bot with non-empty content.
 func bot(id orgchart.BotID) orgchart.Bot {
-	b, err := orgchart.NewBot(id, "#", nil, nil, fixedNow(), orgID)
+	b, err := orgchart.NewBot(id, "#", nil, fixedNow(), orgID)
 	if err != nil {
 		panic(err)
 	}

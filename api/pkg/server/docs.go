@@ -21183,12 +21183,6 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
-                "topics": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
                 "updated_at": {
                     "type": "string"
                 }
@@ -21778,12 +21772,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"

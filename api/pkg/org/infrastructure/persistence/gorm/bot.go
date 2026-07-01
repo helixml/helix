@@ -10,7 +10,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
@@ -30,7 +29,6 @@ type botRow struct {
 	OrgID     string   `gorm:"primaryKey;type:text;index"`
 	Content   string   `gorm:"not null"`
 	Tools     []string `gorm:"serializer:json"`
-	Topics    []string `gorm:"serializer:json"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -44,22 +42,14 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 	for _, t := range b.Tools {
 		tools = append(tools, string(t))
 	}
-	topics := make([]string, 0, len(b.Topics))
-	for _, s := range b.Topics {
-		topics = append(topics, string(s))
-	}
 	if len(tools) == 0 {
 		tools = nil
-	}
-	if len(topics) == 0 {
-		topics = nil
 	}
 	return botRow{
 		ID:        string(b.ID),
 		OrgID:     b.OrganizationID,
 		Content:   b.Content,
 		Tools:     tools,
-		Topics:    topics,
 		CreatedAt: b.CreatedAt,
 		UpdatedAt: b.UpdatedAt,
 	}, nil
@@ -73,19 +63,11 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 			tools = append(tools, tool.Name(t))
 		}
 	}
-	var topics []streaming.TopicID
-	if len(row.Topics) > 0 {
-		topics = make([]streaming.TopicID, 0, len(row.Topics))
-		for _, s := range row.Topics {
-			topics = append(topics, streaming.TopicID(s))
-		}
-	}
 	return orgchart.Bot{
 		ID:             orgchart.BotID(row.ID),
 		OrganizationID: row.OrgID,
 		Content:        row.Content,
 		Tools:          tools,
-		Topics:         topics,
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 	}, nil
@@ -124,17 +106,12 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	if err != nil {
 		return fmt.Errorf("marshal tools: %w", err)
 	}
-	topicsJSON, err := json.Marshal(row.Topics)
-	if err != nil {
-		return fmt.Errorf("marshal topics: %w", err)
-	}
 	return r.Repository.Update(ctx,
 		store.WithOrg(row.OrgID),
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
 			"content":    row.Content,
 			"tools":      string(toolsJSON),
-			"topics":     string(topicsJSON),
 			"updated_at": row.UpdatedAt,
 		}),
 	)

@@ -36,7 +36,6 @@ export interface ApiBotDTO {
   organization_id?: string;
   parent_ids?: string[];
   tools?: string[];
-  topics?: string[];
   updated_at?: string;
 }
 
@@ -318,7 +317,6 @@ export interface ApiTransportRequestField {
 export interface ApiUpdateBotRequest {
   content?: string;
   tools?: string[];
-  topics?: string[];
 }
 
 export interface ApiUpdateTopicRequest {
