@@ -24,14 +24,18 @@ export default function ProviderDetail() {
   const { data: providers } = useListProviders({
     loadModels: true,
     orgId,
-    all: false,
-    enabled: !!orgId,
+    all: true,
+    enabled: true,
   });
 
   const provider = providers?.find((p) => p.id === providerId);
 
   const handleBack = () => {
-    router.navigate("org_providers", { org_id: orgId });
+    if (orgId) {
+      router.navigate("org_providers", { org_id: orgId });
+    } else {
+      window.history.back();
+    }
   };
 
   if (!provider) {
