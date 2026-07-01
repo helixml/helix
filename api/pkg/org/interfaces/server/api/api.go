@@ -96,11 +96,12 @@ type Deps struct {
 	// render empty.
 	BotRuntime BotRuntime
 
-	// SessionRestarter recreates a bot's desktop container — the
-	// backend "restart the agent" primitive shared with the in-chat
-	// restart button. nil → restartBotAgent falls back to a fresh
-	// activation when the bot has a live session it can't restart.
-	SessionRestarter SessionRestarter
+	// BotSessionResetter fully tears down a bot's current session (stops
+	// the desktop, deletes the session row, clears the persisted session
+	// pointer) so restartBotAgent's subsequent Activate provisions a
+	// brand-new session on a fresh desktop with newly added MCP services.
+	// nil → restartBotAgent skips the reset and just re-activates.
+	BotSessionResetter BotSessionResetter
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching topics + appends events). Built at
@@ -202,16 +203,17 @@ type BotRuntime interface {
 	State(ctx context.Context, orgID string, botID orgchart.BotID) (BotRuntimeInfo, error)
 }
 
-// SessionRestarter recreates the desktop container backing a session —
-// the single canonical "restart the agent" backend operation
-// (StopDesktop → recreate → reset crashed prompts). The bot-page
-// "Restart agent session" button routes through restartBotAgent into
-// this port so it shares one implementation with the in-chat
-// /sessions/{id}/restart-agent endpoint. Wired at the composition root
-// over the in-proc helix client; nil → the handler falls back to a fresh
-// activation.
-type SessionRestarter interface {
-	RestartSession(ctx context.Context, sessionID string) error
+// BotSessionResetter fully removes a bot's current session so the next
+// activation is genuinely fresh. It stops the desktop, deletes the
+// session row (an exploratory session is a project singleton that
+// StartExternalAgentSession would otherwise reuse), and clears the
+// persisted session pointer. The bot-page "Restart agent session" button
+// calls this and then Activates, giving a brand-new session, desktop and
+// thread with the bot's current tools / MCP services. Wired at the
+// composition root over the in-proc helix client; nil → restartBotAgent
+// skips the reset and just re-activates the existing session.
+type BotSessionResetter interface {
+	ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error
 }
 
 // GitHubIdentity is the resolved GitHub identity for an org. Mirrors
