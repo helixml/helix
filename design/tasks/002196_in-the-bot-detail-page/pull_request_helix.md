@@ -50,6 +50,25 @@ The in-chat / spec-task crash-recovery restart (`restartCrashedAgentThread` →
 - `go test ./pkg/org/interfaces/server/api/` — green (new handler behaviour).
 - `TestRestartSessionContainerSuite` — green (crash-recovery unchanged).
 - `go build ./pkg/server/ ./pkg/org/...` and frontend `tsc --noEmit` — clean.
-- NOT live-e2e tested: `HELIX_ORG_ENABLED=false` in the available instance, so
-  the org bot feature/tables are absent. The integration path against a live Zed
-  desktop should be verified in staging.
+- **Live e2e** in inner Helix (org enabled, bot created via browser):
+  - Reset half: the running desktop container was torn down, the old session
+    soft-deleted, the runtime pointer cleared, and the chat window cleared to
+    "No conversation yet".
+  - Create half: a new session (new id) + new desktop container were minted, the
+    pointer updated, and the chat window rebound to the new session's fresh
+    transcript (manual-wake trigger), confirming a genuinely new session/thread.
+
+## Screenshots
+
+![After restart — chat cleared](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002196_in-the-bot-detail-page/screenshots/01-after-restart-chat-cleared.png)
+![Fresh session shown](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002196_in-the-bot-detail-page/screenshots/02-fresh-session-shown.png)
+
+## Known follow-up (not in this PR)
+
+Restart now routes through the per-worker dispatch queue (via `Activate`). If a
+prior activation is still *in-flight* when you restart (e.g. a stuck/booting
+desktop), the new activation queues behind it; `pollUntilDone` treats a
+deleted-session poll error as transient (retries to the 24h runaway guard), so
+the new session is delayed. The reset still tears the old desktop + session down
+correctly. A tight fix (treat "session not found" as terminal in `pollUntilDone`)
+touches shared spawner code and is left for a separate change.
