@@ -92,6 +92,35 @@ sandbox reconnects (RevDial) ──▶ DiscoverContainersFromSandbox
 listTasks derives SandboxState = "absent" → Kanban shows stopped, no dead viewer
 ```
 
+## Implementation Notes (as built)
+
+- **Reused `store.ListSessionsBySandbox`** — no new store query needed; the same
+  method `OnSandboxDisconnected` uses.
+- **New method `HydraExecutor.markMissingSessionsStopped`** (in
+  `api/pkg/external-agent/hydra_executor.go`), called from
+  `DiscoverContainersFromSandbox` right after the `SetSandboxContainerCount` block
+  and **before** the `len(containers) == 0` early return (so the full-wipe case is
+  covered).
+- **Race avoidance:** for each DB session marked `running` on the sandbox that is
+  NOT in hydra's live snapshot, we take the per-session **creation lock** (same lock
+  `StartDesktop` uses), re-read the session, and do an authoritative
+  `hydraClient.GetDevContainer(sessionID)` probe. Only if that probe fails do we
+  downgrade. This prevents tearing down a container that `StartDesktop` (re)created
+  after hydra's list snapshot was taken. We skip `starting` (only act on `running`
+  with a `ContainerName`).
+- **On downgrade:** clear `ContainerName/ContainerID/ContainerIP`, set
+  `ExternalAgentStatus = "stopped"`, keep `DesiredState`/`SandboxID` (so a reconciler
+  can restart it), persist, then `delete(h.sessions, id)` to evict the stale
+  in-memory entry.
+
+### D2 decision (Kanban live-check): NOT changed
+The primary reconcile sets DB → `stopped` and evicts the in-memory entry on
+reconnect, so the existing cheap `GetSession` check in `listTasks` already resolves
+to `absent` afterwards. Adding a per-task RevDial probe on the ~3.1s Kanban poll
+would cost a hydra round-trip per running task per poll to cover only the brief
+window before reconnect fires — a window already covered by `OnSandboxDisconnected`
+on definitive disconnect. Kept the cheap check; rely on the reconnect reconciler.
+
 ## Testing Strategy
 
 - **Go unit test** (gomock store, per repo pattern): drive
