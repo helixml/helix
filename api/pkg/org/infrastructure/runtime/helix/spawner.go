@@ -244,17 +244,26 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// Worker's footprint in Helix is attributed to the hiring
 		// user, not the service account. Empty / nil / error all
 		// degrade to "use the static client api_key".
-		if cfg.BearerForUser != nil {
-			bearerCtx, bearerCancel := context.WithTimeout(parentCtx, cfg.SessionStartupTimeout)
-			if state, err := LoadState(bearerCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
+		bearerCtx, bearerCancel := context.WithTimeout(parentCtx, cfg.SessionStartupTimeout)
+		if state, err := LoadState(bearerCtx, cfg.Store, orgID, workerID); err == nil && state.HiringUserID != "" {
+			// Attribute this activation to the hiring user for BOTH client
+			// paths. The in-proc client's resolveUser reads the user id
+			// (not the bearer), so WithUserID is what makes the Worker's
+			// session/project owned by the hiring human rather than the
+			// org-service identity — otherwise the ephemeral session key
+			// is owned by the first-admin and leaks into the tenant org's
+			// key list. The remote/HTTP client needs the bearer as an
+			// Authorization header, set below when the callback is wired.
+			parentCtx = WithUserID(parentCtx, state.HiringUserID)
+			if cfg.BearerForUser != nil {
 				if bearer, berr := cfg.BearerForUser(bearerCtx, state.HiringUserID); berr == nil && bearer != "" {
 					parentCtx = WithBearerToken(parentCtx, bearer)
 				} else if berr != nil && cfg.Logger != nil {
 					cfg.Logger.Warn("helix spawner: BearerForUser failed; falling back to service key", "worker", workerID, "user_id", state.HiringUserID, "err", berr.Error())
 				}
 			}
-			bearerCancel()
 		}
+		bearerCancel()
 
 		startupCtx, startupCancel := context.WithTimeout(parentCtx, cfg.SessionStartupTimeout)
 		defer startupCancel()
