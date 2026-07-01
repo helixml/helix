@@ -367,39 +367,7 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 		return models[i].ID < models[j].ID
 	})
 
-	// Hack to workaround that OpenAI returns models like dall-e-3, which we
-	// can't send chat completion requests to. Use a rough heuristic to
-	// filter out models we can't use.
-
-	// Check if any model starts with "gpt-"
-	hasGPTModel := false
-	for _, m := range models {
-		if strings.HasPrefix(m.ID, "gpt-") {
-			hasGPTModel = true
-			break
-		}
-	}
-
-	// If there's a GPT model, filter out non-GPT models (but keep embedding models)
-	if hasGPTModel {
-		filteredModels := make([]types.OpenAIModel, 0)
-		for _, m := range models {
-			if strings.HasPrefix(m.ID, "text-embedding-") {
-				m.Type = "embed"
-				filteredModels = append(filteredModels, m)
-			} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
-				// Add the type chat. This is needed
-				// for UI to correctly allow filtering
-				m.Type = "chat"
-
-				// Set the context length
-				m.ContextLength = getOpenAIModelContextLength(m.ID)
-
-				filteredModels = append(filteredModels, m)
-			}
-		}
-		models = filteredModels
-	}
+	models = applyOpenAIDallEFilter(models, c.baseURL)
 
 	// Set the enabled field to true if the model is in the list of allowed models
 	for i := range models {
@@ -407,6 +375,50 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 	}
 
 	return models, nil
+}
+
+// isOpenAIProvider reports whether the base URL points at OpenAI proper (as
+// opposed to any OpenAI-compatible aggregator like Scaleway, Together, Groq).
+func isOpenAIProvider(baseURL string) bool {
+	return strings.Contains(baseURL, "api.openai.com")
+}
+
+// applyOpenAIDallEFilter works around OpenAI returning models such as dall-e-3
+// on /models that can't take chat completions. It ONLY applies to real
+// api.openai.com endpoints. Other OpenAI-compatible providers legitimately
+// serve non-gpt models (llama, qwen, mistral, glm, ...) and must be returned
+// untouched, even when their catalogue happens to include a gpt-prefixed id
+// like gpt-oss-120b. Previously the mere presence of a gpt- model triggered the
+// filter for any provider, collapsing a full catalogue down to that one model.
+func applyOpenAIDallEFilter(models []types.OpenAIModel, baseURL string) []types.OpenAIModel {
+	if !isOpenAIProvider(baseURL) {
+		return models
+	}
+
+	hasGPTModel := false
+	for _, m := range models {
+		if strings.HasPrefix(m.ID, "gpt-") {
+			hasGPTModel = true
+			break
+		}
+	}
+	if !hasGPTModel {
+		return models
+	}
+
+	filteredModels := make([]types.OpenAIModel, 0)
+	for _, m := range models {
+		if strings.HasPrefix(m.ID, "text-embedding-") {
+			m.Type = "embed"
+			filteredModels = append(filteredModels, m)
+		} else if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
+			// Type chat is needed for the UI to correctly allow filtering.
+			m.Type = "chat"
+			m.ContextLength = getOpenAIModelContextLength(m.ID)
+			filteredModels = append(filteredModels, m)
+		}
+	}
+	return filteredModels
 }
 
 func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIModel, error) {

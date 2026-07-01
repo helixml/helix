@@ -471,34 +471,25 @@ func TestTrailingSlashStripped(t *testing.T) {
 	})
 }
 
-// TestListModels_GPTFilterKeepsEmbeddingModels verifies that when the OpenAI
-// model list contains GPT models (triggering the GPT filter), text-embedding-*
-// models are kept with type "embed", GPT/o-series models get type "chat", and
-// unrelated models (like dall-e) are filtered out.
+// TestListModels_GPTFilterKeepsEmbeddingModels verifies that for a real OpenAI
+// endpoint the dall-e filter keeps text-embedding-* models with type "embed",
+// gives GPT/o-series models type "chat", and drops non-chat rows (dall-e, tts,
+// whisper). Driven through applyOpenAIDallEFilter directly because the filter is
+// now gated on the api.openai.com base URL (an httptest URL is never OpenAI).
 func TestListModels_GPTFilterKeepsEmbeddingModels(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"data": []map[string]string{
-				{"id": "gpt-4o"},
-				{"id": "gpt-4.1-mini"},
-				{"id": "o3-mini"},
-				{"id": "text-embedding-3-small"},
-				{"id": "text-embedding-3-large"},
-				{"id": "text-embedding-ada-002"},
-				{"id": "dall-e-3"},
-				{"id": "tts-1"},
-				{"id": "whisper-1"},
-			},
-		})
-	})
+	input := []types.OpenAIModel{
+		{ID: "gpt-4o"},
+		{ID: "gpt-4.1-mini"},
+		{ID: "o3-mini"},
+		{ID: "text-embedding-3-small"},
+		{ID: "text-embedding-3-large"},
+		{ID: "text-embedding-ada-002"},
+		{ID: "dall-e-3"},
+		{ID: "tts-1"},
+		{ID: "whisper-1"},
+	}
 
-	ts := httptest.NewServer(handler)
-	defer ts.Close()
-
-	client := New("test-api-key", ts.URL, false)
-	models, err := client.ListModels(context.Background())
-	require.NoError(t, err)
+	models := applyOpenAIDallEFilter(input, "https://api.openai.com/v1")
 
 	// Build a map of model ID -> type for easy assertions
 	modelTypes := make(map[string]string)
@@ -516,11 +507,9 @@ func TestListModels_GPTFilterKeepsEmbeddingModels(t *testing.T) {
 	assert.Equal(t, "embed", modelTypes["text-embedding-3-large"], "text-embedding-3-large should have type embed")
 	assert.Equal(t, "embed", modelTypes["text-embedding-ada-002"], "text-embedding-ada-002 should have type embed")
 
-	// Unrelated models should be filtered out
+	// Unrelated / non-chat models should be filtered out by the allowlist
 	_, hasDallE := modelTypes["dall-e-3"]
 	assert.False(t, hasDallE, "dall-e-3 should be filtered out")
-
-	// tts and whisper are filtered by filterUnsupportedModels before the GPT filter
 	_, hasTTS := modelTypes["tts-1"]
 	assert.False(t, hasTTS, "tts-1 should be filtered out")
 	_, hasWhisper := modelTypes["whisper-1"]
