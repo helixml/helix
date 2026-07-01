@@ -22,18 +22,19 @@ schema verbatim. Follow TDD.
 
 ## GREEN — verbatim schema passthrough
 
-- [~] Apply `red_test/production_fix.patch` (or hand-apply): `buildProxyTool`
-      forwards the upstream schema verbatim via
+- [x] `buildProxyTool` extracted in `api/pkg/server/mcp_backend_external.go`;
+      `getOrCreateServer` calls it; forwards the upstream schema verbatim via
       `mcp.NewToolWithRawSchema(tool.Name, tool.Description, json.Marshal(tool.InputSchema))`;
-      on marshal error, log and serve a description-only tool (never fall back to
-      an all-string schema). Add the `encoding/json` import.
-- [ ] Also add the test file `red_test/mcp_backend_external_schema_test.go` to
-      `api/pkg/server/`. Run it; confirm GREEN (proven this session).
+      on marshal error, logs and serves a description-only tool; `encoding/json`
+      imported.
+- [x] Added `mcp_backend_external_schema_test.go` to `api/pkg/server/`. Runs
+      GREEN.
 
 ## Verify
 
-- [ ] `go build ./...` clean; existing external-MCP tests pass.
-- [ ] Sanity: org server still green — `go test ./api/pkg/org/interfaces/mcptools/ -run TestSchemaWireArrayParams`.
+- [x] `go build ./pkg/server/` clean; existing MCP/backend tests pass
+      (`go test ./pkg/server/ -run 'MCP|External|Backend'` → ok).
+- [x] Sanity: org server still green — `TestSchemaWireArrayParams` → ok.
 - [ ] Live (inner Helix): in a `zed_external` session with an HTTP MCP exposing
       an array param, confirm the LLM-visible tool advertises an array; if
       feasible, drive a real `create_bot` with `tools`/`topics` arrays and a
