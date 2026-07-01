@@ -52,14 +52,19 @@ see the valid values.
   registered-tool-name `enum`; new tools appear automatically. Unknown names
   are rejected.
 
-### US-2: Subscribe or unsubscribe a specific Bot later
-As a manager Bot, I want `subscribe(botId, topicId)` and
-`unsubscribe(botId, topicId)`, so I can change a Bot's subscriptions after
-creation (or subscribe myself by passing my own id).
+### US-2: Subscribe or unsubscribe a Bot to/from topics (one or many) later
+As a manager Bot, I want `subscribe(botId, topicIds)` and
+`unsubscribe(botId, topicIds)`, where `topicIds` is an array, so I can change a
+Bot's subscriptions — several at once — after creation (or subscribe myself by
+passing my own id).
 
 **Acceptance criteria**
-- `subscribe` links the named Bot to the Topic (validates both exist);
-  idempotent. `unsubscribe` removes that link.
+- `subscribe` links the named Bot to every listed Topic (validates the Bot and
+  all Topics exist up front); idempotent per topic. `unsubscribe` removes those
+  links.
+- `topicIds` is advertised as a required, non-nullable array of topic-id strings
+  (no enum — topic ids are dynamic). An unknown topic fails the whole call
+  before any write.
 - The old caller-only `subscribe`/`unsubscribe` and the bulk `invite_bots` are
   removed (superseded).
 
@@ -94,10 +99,11 @@ markdown prompt after it exists (kept — confirmed).
 - `set_bot_content` replaces the Bot's `content`; other fields untouched.
 
 ## Out of Scope
-- The standalone tool-grant/subscription tools stay scalar
-  (`attach_tool`/`detach_tool`/`subscribe`/`unsubscribe`). `create_bot` carries
-  two fixed non-nullable arrays (`tools` enum items, `topics`) — the bulk
-  create-time form; per-item edits are the scalar tools.
+- All bot-mutation MCP args are fixed non-nullable arrays:
+  `attach_tool`/`detach_tool` `tools` (enum items), `subscribe`/`unsubscribe`
+  `topicIds` (strings), and `create_bot`'s `tools` + `topics`. No scalar or
+  nullable/union array args remain (that union was the original bug). `botId`
+  stays a scalar identifier.
 - Auto-*creating* topics that don't exist (the manager calls `create_topic`
   first). Possible future enhancement, not this task.
 - Frontend changes (the chart UI already creates Bots with content/parent only).

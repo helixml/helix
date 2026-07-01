@@ -38,8 +38,8 @@ stays as the tool for subscribing *after* creation.
 | `set_bot_content` | `botId`, `content` | `bots.Update{Content}` |
 | `attach_tool` | `botId`, `tools` (enum array) | new `bots.AttachTools` |
 | `detach_tool` | `botId`, `tools` (enum array) | new `bots.DetachTools` |
-| `subscribe` | `botId`, `topicId` | `subscriptions.Subscribe(orgID, botId, topicId)` |
-| `unsubscribe` | `botId`, `topicId` | `subscriptions.Unsubscribe(orgID, botId, topicId)` |
+| `subscribe` | `botId`, `topicIds` (array) | new `subscriptions.SubscribeTopics(orgID, botId, topicIds)` |
+| `unsubscribe` | `botId`, `topicIds` (array) | new `subscriptions.UnsubscribeTopics(orgID, botId, topicIds)` |
 
 Removed: `update_bot`, `invite_bots`, the caller-only `subscribe`/`unsubscribe`.
 
@@ -74,14 +74,21 @@ package-init — so these schemas can't be static `mustSchema` vars.
   (e.g. `enumStringArrayProperty(names, description)`): a non-nullable array of
   enum-constrained strings; add `tools` to `required`.
 
-## Change B — `subscribe` / `unsubscribe` target a Bot
+## Change B — `subscribe` / `unsubscribe` target a Bot, take a topic array
 
-Change both args from `{topicId}` (caller-only) to `{botId, topicId}` and pass
-`orgchart.BotID(args.BotID)` as the worker id. `subscriptions.Subscribe` /
-`Unsubscribe` already accept an explicit `workerID` and validate the Topic and
-Bot exist — a straight signature change in the MCP adapter, no service change.
-Delete `invite_bots.go` and `InviteBotsName`; one `subscribe` per bot replaces
-it.
+Change both args from `{topicId}` (caller-only) to `{botId, topicIds}`, where
+`topicIds` is a **non-nullable array** (add/remove one or many at once). Add
+batch service methods that validate the Bot + every Topic up front (like
+`subscriptions.Invite` does) then apply idempotently per topic, reusing the
+existing single `Subscribe`/`Unsubscribe` primitives (DRY):
+- `SubscribeTopics(ctx, orgID, botID, topicIDs)`
+- `UnsubscribeTopics(ctx, orgID, botID, topicIDs)`
+
+Topic ids are dynamic values (not a fixed set), so `topicIds` items are plain
+strings — **no enum**: a non-nullable string array via `stringArrayProperty`,
+added to `required`. Delete `invite_bots.go` and `InviteBotsName`;
+`subscribe(botId, topicIds)` covers the create/subscribe flows (subscribe many
+bots by calling it per bot).
 
 ## Change C — `create_bot` subscribes immediately; remove `update_bot` and `Bot.Topics`
 
@@ -101,12 +108,13 @@ it.
   the read baseline; `attach_tool`/`detach_tool` change them later); `topics`
   subscribes the new Bot to each listed (existing) topic at creation.
 - **`lifecycle.Create` performs the subscription, reusing the same use case.**
-  After creating the bot row, loop `CreateParams.Topics` and call the **same**
-  `subscriptions.Subscribe(orgID, botID, topicID)` method the `subscribe` tool
-  calls — one subscription implementation, no duplicated logic (DRY). Inject the
-  subscriptions service into `lifecycle` so the REST create path shares the
-  behavior. Note the separation of concerns: internally create reuses subscribe;
-  externally `create_bot` and `subscribe` stay two distinct operations.
+  After creating the bot row, call the **same**
+  `subscriptions.SubscribeTopics(orgID, botID, CreateParams.Topics)` batch the
+  `subscribe` tool calls — one subscription implementation, no duplicated logic
+  (DRY). Inject the subscriptions service into `lifecycle` so the REST create
+  path shares the behavior. Note the separation of concerns: internally create
+  reuses subscribe; externally `create_bot` and `subscribe` stay two distinct
+  operations.
   - **Atomicity:** validate every topic exists *before* writing the bot row
     (as `subscriptions.Invite` already validates up front), so a bad topic id
     fails the call with no partially-created Bot. Then create the bot and its
@@ -156,7 +164,8 @@ it.
   `create_bot` take non-nullable arrays of enum-constrained tool names (pass one
   or many). The enum makes values discoverable and the non-nullable override
   avoids the `["null","array"]` union that caused the original bug.
-  `subscribe`/`unsubscribe` stay scalar (`botId`,`topicId`).
+  `subscribe`/`unsubscribe` likewise take a non-nullable `topicIds` array —
+  plain strings, no enum, since topic ids are dynamic.
 - **`create_bot` sets initial tools and auto-subscribes** — per the amended
   "fewest steps" principle; the manager's common intent is a Bot that already
   has its tools and is listening. `tools` is an enum array (discoverable, same
@@ -173,8 +182,9 @@ it.
   detach a subset; detach refuses if any name is baseline; an unknown tool in
   the array is rejected (whole call fails, no partial write); order-stable
   (`MergeTools`).
-- `subscribe`/`unsubscribe`: subscribe another bot; self-subscribe; unsubscribe;
-  unknown bot/topic rejected.
+- `subscribe`/`unsubscribe`: subscribe a bot to a topic array; self-subscribe;
+  unsubscribe a subset; unknown bot or any unknown topic in the array rejected
+  (whole call fails, no partial write); idempotent per topic.
 - `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot
   with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` →
   tools == `BaseReadTools`, no subscriptions; an unknown topic → error and
@@ -183,12 +193,13 @@ it.
   non-nullable array.
 - `set_bot_content`: content changes, tools preserved.
 - Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools`
-  are required non-nullable arrays of enum items; `create_bot.topics` is a
-  required non-nullable array; no `["null","array"]` union remains; registry
-  additions appear in the enums.
+  are required non-nullable arrays of enum items; `subscribe.topicIds`/
+  `unsubscribe.topicIds` and `create_bot.topics` are required non-nullable
+  string arrays; no `["null","array"]` union remains; registry additions appear
+  in the enums.
 - `builtins_test.go` / `spec_tasks_registration_test.go`: registered set;
   fix `NewBot` call sites; `go build ./...` for the org packages.
 - Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])` and
   confirm the Bot receives an event published to a listed topic; `attach_tool`
-  `subscribe`/`dm`; `subscribe(botId, topicId)` for a later topic.
+  `[subscribe, dm]`; `subscribe(botId, [topicId, …])` for later topics.
 </content>
