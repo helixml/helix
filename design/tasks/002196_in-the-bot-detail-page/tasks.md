@@ -24,10 +24,16 @@ Key discoveries during implementation:
 
 ## Frontend — switch chat window to the new session
 
-- [ ] Ensure `useRestartBotAgent` (`frontend/src/services/helixOrgService.ts`) returns the `BotActivateDTO` so the new `SessionID` is available.
-- [ ] In `handleRestartSession` (`frontend/src/pages/HelixOrgBotDetail.tsx`), after success set `chatSessionId` to the new `SessionID` (remount `EmbeddedSessionView` / re-run `fetchExistingWorkerSession` if needed) so the chat + desktop panels + WebSocket rebind to the new session and the old transcript disappears.
-- [ ] Default the session panel to the Chat tab (`sessionTab='chat'`) after restart.
-- [ ] Update success snackbar wording to "fresh session started"; keep error handling so a failed backend response surfaces an error snackbar. No confirmation dialog.
+Note: the new session is created **asynchronously** by the spawner after the
+restart POST returns, so the response can't carry the new id. Instead the
+handler drops the stale transcript and **polls** `fetchExistingWorkerSession`
+until a different (fresh) exploratory session is resolvable, then binds to it.
+
+- [x] `useRestartBotAgent` (`helixOrgService.ts`) already returns the `BotActivateDTO`; updated its comment for the new behavior.
+- [x] Rewrote `handleRestartSession` (`HelixOrgBotDetail.tsx`): clear `chatSessionId` (drops old transcript), switch to Chat tab, then poll `fetchExistingWorkerSession(projectID)` until a new session id appears and set it (remounts `EmbeddedSessionView` + rebinds WebSocket).
+- [x] Default the session panel to the Chat tab (`sessionTab='chat'`) after restart.
+- [x] Success snackbar now says "Fresh agent session started…"; error handling unchanged; no confirmation dialog. Updated the Advanced caption too.
+- [x] `tsc --noEmit` passes (exit 0); vite transforms all modules. `yarn build` can't write the reserved `frontend/dist` bind-mount in this env (frontend runs via Vite HMR) — not a code issue.
 
 ## Tests
 
