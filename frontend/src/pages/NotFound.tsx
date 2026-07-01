@@ -116,7 +116,10 @@ const NotFound: FC = () => {
         <GlitchText
           sx={{
             fontSize: { xs: '8rem', sm: '12rem' },
-            color: isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)',
+            // Dark mode: a near-transparent fill that reads as a bright number via
+            // the cyan glitch glow. On white that same faint fill is invisible
+            // (contrast ~1.2), so light mode uses a solid AA-safe brand teal.
+            color: isLight ? highlightColor : 'rgba(255, 255, 255, 0.08)',
           }}
         >
           404
