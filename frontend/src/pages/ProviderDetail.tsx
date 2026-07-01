@@ -3,6 +3,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -21,7 +22,7 @@ export default function ProviderDetail() {
   const orgId = route?.params?.org_id;
   const providerId = route?.params?.provider_id;
 
-  const { data: providers } = useListProviders({
+  const { data: providers, isLoading } = useListProviders({
     loadModels: true,
     orgId,
     enabled: true,
@@ -36,6 +37,14 @@ export default function ProviderDetail() {
       window.history.back();
     }
   };
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress size={24} />
+      </Box>
+    );
+  }
 
   if (!provider) {
     return (
