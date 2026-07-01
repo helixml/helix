@@ -7,6 +7,7 @@ import Session from './pages/Session'
 import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
+import ProviderDetail from './pages/ProviderDetail'
 import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
@@ -193,6 +194,15 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Providers />
+  ),
+}, {
+  name: 'org_provider_detail',
+  path: '/orgs/:org_id/providers/:provider_id',
+  meta: {
+    drawer: false,
+  },
+  render: () => (
+    <ProviderDetail />
   ),
 }, {
   name: 'org_tasks',
