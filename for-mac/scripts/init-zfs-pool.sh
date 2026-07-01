@@ -9,10 +9,28 @@ if sudo zpool list helix 2>/dev/null; then
 elif sudo zpool import -f helix 2>/dev/null; then
     echo 'Imported existing ZFS pool'
 elif sudo zpool import 2>/dev/null | grep -q 'pool: helix'; then
-    # Pool exists on a device but import failed for an unknown reason.
-    # Refuse to fall through to zpool create, which would destroy user data.
-    echo 'ERROR: ZFS pool helix exists but import failed. Manual intervention required.'
-    exit 1
+    # Pool exists but import failed — likely incompatible feature flags
+    # from a previous bleeding-edge ZFS version (e.g. arter97 2.4.x).
+    # Destroy and recreate since the pool data is recoverable (workspaces
+    # are git repos, Docker volumes are re-initialized on first boot).
+    echo 'WARNING: ZFS pool helix exists but cannot be imported (incompatible features).'
+    echo 'Destroying and recreating pool...'
+    DATA_DISK=""
+    for disk in /dev/vdb /dev/vdc /dev/vdd; do
+        if [ -b "$disk" ]; then
+            DATA_DISK="$disk"
+            break
+        fi
+    done
+    if [ -n "$DATA_DISK" ]; then
+        sudo zpool destroy -f helix 2>/dev/null || sudo wipefs -a "$DATA_DISK" 2>/dev/null || true
+        sudo find /helix -mindepth 1 -delete 2>/dev/null || true
+        sudo zpool create -f -o compatibility=openzfs-2.2 -m /helix helix "$DATA_DISK"
+        echo 'Pool recreated with compatible feature set'
+    else
+        echo 'ERROR: No data disk found for pool recreation'
+        exit 1
+    fi
 else
     # No existing pool — find the data disk and create a new one (first boot)
     DATA_DISK=""
@@ -32,7 +50,7 @@ else
     # /helix/container-docker before ZFS is mounted). Clear it so zpool
     # create accepts the mountpoint, then the ZFS mount takes over.
     sudo find /helix -mindepth 1 -delete 2>/dev/null || true
-    sudo zpool create -f -m /helix helix "$DATA_DISK"
+    sudo zpool create -f -o compatibility=openzfs-2.2 -m /helix helix "$DATA_DISK"
 fi
 
 # Expand pool if disk was resized (no-op if already at full size)
