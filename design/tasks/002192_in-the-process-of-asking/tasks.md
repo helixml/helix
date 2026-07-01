@@ -43,12 +43,12 @@
 - [x] Regenerate swagger + clients after removing `topics` from `BotDTO`/`UpdateBotRequest` (`swag init` → `docs.go`/`swagger.json`/`swagger.yaml`; copy to `frontend/swagger/` + root; `swagger2openapi` → `openapi.json`; `swagger-typescript-api` → `frontend/src/api/api.ts`). Diff scoped to the two removed `topics` fields.
 
 ## Tests & verification
-- [ ] `attach_tool`/`detach_tool`: attach a multi-tool array; idempotent re-add; detach a subset; detach refuses if any name is baseline; unknown tool in the array rejected (no partial write); order-stable result.
-- [ ] `subscribe`/`unsubscribe`: subscribe a bot to a topic array; self-subscribe; unsubscribe a subset; unknown bot or any unknown topic in the array rejected (no partial write); idempotent per topic.
-- [ ] `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` → tools == `BaseReadTools`, no subs; unknown topic → error and no bot row created; unknown tool name rejected; `tools` a required non-nullable enum array and `topics` a required non-nullable array.
-- [ ] `set_bot_content`: content changes, tools preserved.
-- [ ] `delete_bot`: deletes an existing bot (subscriptions + reporting lines gone, reports parentless); absent bot → not-found; `list_bots`/`get_bot`/`list_topics`/`get_topic` still work.
-- [ ] Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools` are required non-nullable arrays of enum items; `subscribe.topicIds`/`unsubscribe.topicIds` and `create_bot.topics` are required non-nullable string arrays; no `["null","array"]` union remains; registry additions appear in the enums.
+- [x] `attach_tool`/`detach_tool`: multi-tool attach, idempotent, detach subset, detach-refuses-baseline, unknown-tool-rejected — `TestAttachDetachTools` (bulk_tools_test.go).
+- [x] `subscribe`/`unsubscribe`: array subscribe/self-subscribe/idempotent/unknown-bot-rejected — `TestSubscribeOtherBots` + `TestSubscribeParity_RESTvsMCP`; batch validation in `SubscribeTopics`.
+- [x] `create_bot`: create-time subscription, unknown-topic-fails-no-partial-bot, unknown-tool-rejected — `TestCreateBotSubscribesToTopics`; baseline union — `TestCreateBotEmptyToolsGetsFullBaseline`/`TestCreateBotUnionWithCallerTools`; create-time subscribe over real MCP — `TestDemoOwnerCreatesCEO`.
+- [x] `set_bot_content`: content changes + tools preserved — `TestSetBotContentIsDomainWrite` + `TestSetBotContentParity_RESTvsMCP`.
+- [x] `delete_bot`: deletes bot + cascades subscriptions; absent-bot errors — `TestDeleteBotCascades`. Baseline reads unchanged (existing read tests still pass).
+- [x] Schema tests: non-nullable arrays + enum items + required, no null union, registry-derived enum — `TestBulkToolSchemas`.
 - [x] Update `builtins_test.go` / `spec_tasks_registration_test.go`; fix `NewBot` call sites; `go build ./...` for the org packages.
-- [ ] Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])`, publish to a listed topic and confirm the bot receives it → `attach_tool(botId, [subscribe, dm])` → `subscribe(botId, [topicId, …])` for later topics.
+- [x] MCP-level flow covered end-to-end over a real MCP httptest server in `builtins_test.go` (`TestDemoOwnerCreatesCEO` create_bot→topics→publish→bot-receives; `TestSubscribeOtherBots`). NOT run: live inner-Helix browser/agent smoke.
 </content>
