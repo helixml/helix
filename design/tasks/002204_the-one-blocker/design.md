@@ -109,3 +109,27 @@ Delete the per-property `WithString` loop entirely.
   failing agent actually uses. #2774 fixed the latter; this fixes the former.
 - Rule of thumb: an MCP **proxy** should forward schemas verbatim. Any place
   that rebuilds a tool schema from scratch is a flattening risk.
+
+## Implementation Notes (completed)
+
+- **Files changed (helix, branch `feature/002204-fix-external-mcp-proxy`):**
+  - `api/pkg/server/mcp_backend_external.go` — added `encoding/json` import;
+    extracted `buildProxyTool(mcp.Tool) mcp.Tool` and had `getOrCreateServer`
+    call it; the helper now forwards the upstream schema verbatim via
+    `mcp.NewToolWithRawSchema(name, description, json.Marshal(tool.InputSchema))`.
+    On marshal error it logs and serves a description-only tool (never an
+    all-string schema).
+  - `api/pkg/server/mcp_backend_external_schema_test.go` — regression test
+    calling the real `buildProxyTool`.
+- **Verified:** `go build ./pkg/server/` clean; `TestBuildProxyTool_PreservesArrayParams`
+  GREEN; `go test ./pkg/server/ -run 'MCP|External|Backend'` ok; org server
+  `TestSchemaWireArrayParams` still ok. Tests need `CGO_ENABLED=1` (tree-sitter;
+  install `gcc libc6-dev`).
+- **Not done here — live e2e:** a full `zed_external` org-Bot run isn't set up in
+  the inner stack (its Postgres has no org-runtime tables; the reporting Bot
+  lives in the outer stack). The fix is proven at the exact production code path
+  by the regression test. Live confirmation + redeploy + fresh Bot activation
+  are the rollout steps below.
+- **Gotcha:** `mark3labs/mcp-go` `Tool.MarshalJSON` errors if both `InputSchema`
+  and `RawInputSchema` are set; `NewToolWithRawSchema` sets only the raw form,
+  so there is no conflict.
