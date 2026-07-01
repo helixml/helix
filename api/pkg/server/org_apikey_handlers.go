@@ -59,11 +59,16 @@ func (apiServer *HelixAPIServer) listOrgAPIKeys(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// Filter out spec-task-scoped keys and collect unique owner IDs
+	// Filter out ephemeral session-scoped keys (spec-task and helix-org
+	// bot runtime keys both set SessionID) and collect unique owner IDs.
+	// These are minted per-session for the desktop/agent to authenticate
+	// and are revoked on shutdown — they are not user-managed keys and
+	// leak other members' identities (e.g. the helix-org service owner)
+	// into an org owner's key list. SpecTaskID alone missed bot sessions.
 	ownerIDs := make(map[string]struct{})
 	var filtered []*types.ApiKey
 	for _, key := range apiKeys {
-		if key.SpecTaskID != "" {
+		if key.SessionID != "" || key.SpecTaskID != "" {
 			continue
 		}
 		filtered = append(filtered, key)
