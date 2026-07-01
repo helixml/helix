@@ -88,11 +88,13 @@ it.
   drop `omitempty` on the Go field. Add a `schema.go` helper
   (e.g. `stringArrayProperty(description)`). Update the description: `topics`
   subscribes the new Bot to each listed (existing) topic at creation.
-- **`lifecycle.Create` performs the subscription.** After (or as part of)
-  creating the bot row, subscribe the new Bot to each topic in
-  `CreateParams.Topics` via the subscriptions service. Inject the subscriptions
-  service into `lifecycle` (preferred, so the REST create path shares the
-  behavior) rather than looping in the MCP adapter.
+- **`lifecycle.Create` performs the subscription, reusing the same use case.**
+  After creating the bot row, loop `CreateParams.Topics` and call the **same**
+  `subscriptions.Subscribe(orgID, botID, topicID)` method the `subscribe` tool
+  calls — one subscription implementation, no duplicated logic (DRY). Inject the
+  subscriptions service into `lifecycle` so the REST create path shares the
+  behavior. Note the separation of concerns: internally create reuses subscribe;
+  externally `create_bot` and `subscribe` stay two distinct operations.
   - **Atomicity:** validate every topic exists *before* writing the bot row
     (as `subscriptions.Invite` already validates up front), so a bad topic id
     fails the call with no partially-created Bot. Then create the bot and its
@@ -128,6 +130,8 @@ it.
   array-schema bug at the source; `tool` is a discoverable enum.
 - **`create_bot` auto-subscribes** — per the amended "fewest steps" principle;
   the manager's most common intent is a Bot that's listening immediately.
+  Internally it reuses the one `subscriptions.Subscribe` use case (DRY);
+  externally `create_bot` and `subscribe` remain two separate tools.
 - **Remove `Bot.Topics`**, don't rename it — subscriptions already live as rows;
   a parallel field would be a second source of truth that drifts.
 - **Validate topics before writing the bot** — no partial creates.
