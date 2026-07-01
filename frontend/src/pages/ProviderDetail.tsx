@@ -17,10 +17,9 @@ import LMStudioModels from "../components/providers/LMStudioModels";
 
 export default function ProviderDetail() {
   const router = useRouter();
-  const { route } = router;
   const account = useAccount();
-  const orgId = route?.params?.org_id;
-  const providerId = route?.params?.provider_id;
+  const orgId = router.params?.org_id;
+  const providerId = router.params?.provider_id;
 
   const { data: providers, isLoading } = useListProviders({
     loadModels: true,
