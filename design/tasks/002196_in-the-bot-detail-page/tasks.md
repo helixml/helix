@@ -1,18 +1,16 @@
 # Implementation Tasks: Fix Restart Agent Session to Fully Reset Desktop and Context
 
-## Backend — full-restart flow
+## Backend — full-restart flow (compose existing operations)
 
-- [ ] Add a dedicated full-restart port (e.g. `BotFullRestarter` / `FullRestart(ctx, orgID, botID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); do NOT reuse `restartSessionContainer`.
-- [ ] Implement the full-restart in the in-proc helix client (`api/pkg/server/helix_org_inproc.go`):
+- [ ] Add a dedicated full-restart port (e.g. `BotFullRestarter` / `FullRestart(ctx, orgID, botID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); do NOT reuse `restartSessionContainer` and do NOT touch container/workspace internals.
+- [ ] Add a thin in-proc `DeleteSession` wrapper (`api/pkg/server/helix_org_inproc.go`) that calls the existing `deleteSession` handler — mirror the existing `StopExternalAgent` wrapper.
+- [ ] Implement the full-restart in the in-proc helix client by composing existing ops:
   - [ ] Resolve the bot's current session (BotRuntime.State / exploratory lookup).
-  - [ ] `StopDesktop(oldSessionID)` and surface failures (do not swallow).
-  - [ ] Destroy the old session's workspace volume (via hydra executor) so no `threads.db`/agent state survives.
-  - [ ] Retire the old exploratory session (delete the row, or unset `session_role`) so the singleton guard cannot reuse it and it is no longer resolved as current.
-  - [ ] Create a new exploratory session via `StartExternalAgentSession` (`SessionRole="exploratory"`, `AgentType="zed_external"`, `AutoRestartOnCrash=true`) → new session ID + fresh desktop + fresh workspace.
+  - [ ] Delete the old session via the existing delete-session op (tears down its desktop, removes the exploratory singleton). Surface failures (do not swallow).
+  - [ ] Create a new session via the existing `StartSession` primitive → new session ID + fresh desktop + fresh MCP services.
   - [ ] Persist the new session ID via `SaveSession(orgID, botID, newSessionID)`.
 - [ ] Update `restartBotAgent` (`api/pkg/org/interfaces/server/api/bots.go`) to call the full-restart flow and return the **new** session ID in `BotActivateDTO`.
 - [ ] Keep the no-live-session path working (first-time start provisions project + starts fresh session).
-- [ ] Verify workspace ZFS clone keying (per-session vs per-project) in `hydra_executor.go` and implement old-volume cleanup accordingly.
 - [ ] Leave `restartSessionContainer` and the in-chat / spec-task callers unchanged.
 
 ## Frontend — switch chat window to the new session
@@ -24,9 +22,9 @@
 
 ## Tests
 
-- [ ] Backend: full restart deletes/retires the old exploratory session, mints a NEW session ID, and returns it.
-- [ ] Backend: old desktop container + workspace volume are torn down; new session gets a fresh workspace.
-- [ ] Backend: `StopDesktop` failure surfaces as an error (no false success).
+- [ ] Backend: full restart deletes the old session, mints a NEW session ID, and returns it.
+- [ ] Backend: the new session is a fresh desktop (old session no longer resolvable / reused).
+- [ ] Backend: delete-session failure surfaces as an error (no false success).
 - [ ] Backend: no-live-session path falls back to first-time start.
 - [ ] Backend: crash-recovery `restartSessionContainer` (in-chat) still preserves session ID + `ZedThreadID`.
 

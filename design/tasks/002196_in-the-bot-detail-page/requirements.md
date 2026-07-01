@@ -64,18 +64,18 @@ confirmation prompt is needed; clicking the button just does it.
 ## Acceptance Criteria
 
 1. Clicking "Restart agent session" on a bot with a live session:
-   - Tears down the running desktop container **and** its workspace volume for
-     the old session (nothing from the old session is reused).
-   - Retires/deletes the old exploratory session so it is no longer resolved as
-     "current".
-   - Creates a **new** exploratory session (new session ID) on the same
-     project, with a fresh desktop container and fresh workspace.
+   - **Deletes the old session** using Helix's existing delete-session
+     operation (which also stops/tears down its desktop) — nothing from the old
+     session is reused, and it is no longer resolved as "current".
+   - **Creates a new session** (new session ID) on the same project using
+     Helix's existing start-session operation, which brings up a fresh desktop
+     with fresh MCP services.
    - Persists the new session ID into the bot's runtime state so the mirror and
      future activations resolve the new session.
 2. The response returns the **new** session ID.
 3. After restart, sending a message to the bot lands on the new, empty
    session/thread on the newly started desktop — no prior conversation, and
-   newly added tools are present.
+   newly added tools / MCP services are present.
 4. After a successful restart, the Bot Detail chat window switches to the new
    session ID and shows the empty transcript + fresh desktop stream. Clicking the
    button runs immediately with **no** confirmation dialog.

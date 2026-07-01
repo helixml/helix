@@ -39,61 +39,49 @@ or forces a truly new desktop.
   DESC`) over the persisted `BotRuntimeState.SessionID` pointer.
 - **Runtime state pointer.** `SaveSession` (`state.go:88`) persists the bot's
   session ID under `(orgID, workerID, backend="helix", key="session_id")`.
-- **Desktop + workspace.** `StartDesktop` (`hydra_executor.go`) ZFS-clones the
-  workspace and mounts it (incl. `threads.db`). Crash-recovery `StopDesktop`
-  **preserves** that ZFS volume so it can be remounted — which is exactly what we
-  must NOT do for a full restart.
+- **Existing high-level ops.** Helix already exposes delete-session
+  (`DELETE /sessions/{id}` → `deleteSession`) and start-session
+  (`StartSession` → `StartExternalAgentSession`). Deleting a session tears down
+  its desktop; starting a new one brings up a fresh desktop. The full-restart
+  flow just composes these — no need to touch container/workspace internals.
 
 ## Proposed change
 
+Compose two **existing high-level Helix operations** — delete a session, then
+start a new one. We must NOT reach into container/workspace internals (ZFS,
+`DeleteDevContainer`, volume deletes); Helix already deletes sessions and creates
+new ones cleanly, and deleting a session tears down its desktop.
+
 Give `restartBotAgent` a dedicated **full-restart** backend flow (a new port on
-the org api adapter, e.g. `SessionRestarter.FullRestart(ctx, orgID, botID)` or a
-new `BotFullRestarter`), implemented in the in-proc helix client. Do **not**
-reuse `restartSessionContainer`. Algorithm:
+the org api adapter, e.g. `BotFullRestarter`/`FullRestart(ctx, orgID, botID)`),
+implemented in the in-proc helix client alongside the existing
+`StopExternalAgent` / `StartSession` wrappers. Do **not** reuse
+`restartSessionContainer`. Algorithm:
 
 1. **Resolve the bot's current session** from `BotRuntime.State` /
-   exploratory lookup. If none exists, skip to step 4 (first-time start).
-2. **Fully tear down the old session:**
-   - `StopDesktop(ctx, oldSessionID)` — stop/delete the container. For this path,
-     tear-down failure should be surfaced (not silently swallowed).
-   - **Destroy the old session's workspace volume** so no `threads.db` / agent
-     state survives (see "Workspace teardown" below).
-   - **Retire the old exploratory session** so it is not resolved as current and
-     cannot be reused by the singleton guard — delete the session row (or flip
-     its `session_role` off "exploratory"). This is the load-bearing step that
-     makes the next start mint a *new* ID instead of reusing the old one.
-3. **Create a brand-new session** on the same project via the same primitive the
-   spawner/cron use — `StartExternalAgentSession` with
-   `SessionRole="exploratory"`, `AgentType="zed_external"`,
-   `AutoRestartOnCrash=true`. Because the old row is gone, this mints a **new
-   session ID**, `StartDesktop` provisions a fresh container, and a fresh ZFS
-   workspace clone is created.
+   exploratory lookup. If none exists, skip to step 3 (first-time start).
+2. **Delete the old session** via Helix's existing delete-session operation —
+   `DELETE /api/v1/sessions/{id}` (`deleteSession`, `session_handlers.go:246`).
+   Add a thin in-proc wrapper that calls this handler, exactly mirroring the
+   existing `StopExternalAgent` wrapper (`helix_org_inproc.go:456`, which wraps
+   `stopExternalAgentSession`). Deleting the session stops its desktop and
+   removes it as the exploratory singleton, so the next start mints a new one
+   instead of reusing it. Surface failures (don't swallow).
+3. **Create a new session** on the same project via the existing `StartSession`
+   primitive (`helix_org_inproc.go:470` → `StartExternalAgentSession`), the same
+   one the spawner/cron use. It mints a **new session ID** and brings up a fresh
+   desktop with fresh MCP services.
 4. **Persist the new session ID** into runtime state via `SaveSession(ctx,
    store, orgID, botID, newSessionID)` so the mirror and future activations
    resolve the new session.
 5. **Return the new session ID** in `BotActivateDTO.SessionID`.
 
-First-time start (no existing session): steps 2 is a no-op; step 3 provisions
-the project (via `Activate`/ensurer) and starts the first session.
+First-time start (no existing session): step 2 is a no-op; step 3 provisions the
+project (via `Activate`/ensurer) and starts the first session.
 
-### Workspace teardown
-
-Crash-recovery `StopDesktop` intentionally preserves the ZFS workspace volume.
-For a full restart we need the old workspace gone. Two candidate mechanisms:
-
-- **A (recommended):** because the new session has a new session ID, its
-  `StartDesktop` creates a *new* per-session ZFS clone — so the new desktop is
-  already pristine regardless of the old volume. Add an explicit destroy of the
-  **old** session's volume (via the hydra executor / `DeleteDevContainer` +
-  volume delete) so it doesn't leak. Confirm during implementation whether the
-  ZFS clone is keyed per-session (then this is automatic + cleanup) or per-
-  project (then explicit reset is required).
-- **B:** delete + re-clone the project workspace volume in place. Heavier and
-  only needed if the workspace clone is project-keyed. Prefer A.
-
-**Open item for implementation:** verify in `hydra_executor.go` whether the
-workspace ZFS clone is keyed by session ID or project ID — this decides whether
-old-volume cleanup is just hygiene (A) or mandatory for freshness (B).
+Reusing these two existing operations means the desktop teardown and fresh-
+desktop provisioning are handled by Helix's own session lifecycle — this spec
+does not touch hydra/ZFS internals.
 
 ### Why a new flow, not a `fresh` flag on restartSessionContainer
 
@@ -135,22 +123,18 @@ No confirmation dialog. In `handleRestartSession`, after
 | Mutation hook (return new SessionID) | `frontend/src/services/helixOrgService.ts` |
 | Bot restart handler | `api/pkg/org/interfaces/server/api/bots.go` (`restartBotAgent`) |
 | New full-restart port | `api/pkg/org/interfaces/server/api/api.go` |
-| In-proc client (full-restart impl) | `api/pkg/server/helix_org_inproc.go` |
-| New session primitive | `api/pkg/server/session_handlers.go` (`StartExternalAgentSession`) |
-| Exploratory lookup / retire | `api/pkg/store/store_sessions.go` (`GetProjectExploratorySession`) |
+| In-proc client (compose delete + start) | `api/pkg/server/helix_org_inproc.go` (`StopExternalAgent`/`StartSession` are the pattern to mirror) |
+| Delete-session op (existing) | `api/pkg/server/session_handlers.go` (`deleteSession`, line 246) |
+| Start-session op (existing) | `api/pkg/server/session_handlers.go` (`StartExternalAgentSession`) |
 | Runtime state pointer | `api/pkg/org/infrastructure/runtime/helix/state.go` (`SaveSession`) |
-| Desktop + workspace lifecycle | `api/pkg/external-agent/hydra_executor.go` (`StopDesktop`/`StartDesktop`) |
 | Crash-recovery primitive (leave as-is) | `api/pkg/server/session_handlers.go` (`restartSessionContainer`) |
-| Full teardown reference | `api/pkg/org/application/lifecycle/lifecycle.go` (`Delete`) |
 
 ## Risks / Notes
 
-- **Session retirement is the critical step** — without deleting/retiring the old
-  exploratory row, the singleton guard reuses the old ID and "restart" silently
-  no-ops again. Test this explicitly.
-- Deleting the old session row must cascade/clean its interactions and container
-  metadata; reuse the project-delete teardown helpers where possible.
-- Confirm workspace ZFS clone keying (per-session vs per-project) before choosing
-  cleanup A vs B.
+- **Deleting the old session is the critical step** — without it, the exploratory
+  singleton guard reuses the old ID and "restart" silently no-ops again. Test
+  that a delete-then-start yields a genuinely new session ID.
+- Use Helix's existing delete-session operation as-is (it already handles desktop
+  teardown); do not add bespoke container/workspace teardown here.
 - Validate the session is a `zed_external` agent before the full-restart path.
 - The empty-session fallback must still provision + start for first-time use.
