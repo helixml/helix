@@ -6,12 +6,21 @@ schema verbatim. Follow TDD.
 
 ## RED — reproduce the flattening
 
-- [ ] Add a test in `api/pkg/server` that feeds a synthetic upstream tool with a
-      param `type:"array", items:{type:"string"}` (and one required scalar)
-      through the proxy tool-registration logic, marshals the re-served tool
-      schema, and asserts the array param serialises as `type:"array"` with
-      `items.type:"string"`. Confirm it FAILS against the current
-      `WithString`-only code with the reported `type:"string"` symptom.
+- [x] **DONE (proven this session).** Wrote a test that replicates the proxy's
+      verbatim tool reconstruction (`mcp_backend_external.go` L322–358) against
+      the real `mark3labs/mcp-go` library, feeding an upstream `create_bot` with
+      `tools` as `type:"array", items:{type:"string"}`. Ran it:
+      - `TestProxyReadvertise_Current` **FAILS** —
+        `create_bot.tools re-advertised as "string", want "array"` (the exact blocker).
+      - `TestProxyReadvertise_Fixed` **PASSES** — `NewToolWithRawSchema`
+        passthrough keeps `tools` an array and `content` a string.
+      Test artifact: `red_test/mcp_backend_external_schema_red_test.go.txt`
+      (needs `CGO_ENABLED=1` — tree-sitter). Kept out of the helix repo during
+      planning; drop it into `api/pkg/server` in the implementation phase.
+- [ ] During implementation, promote it to a genuine regression test that
+      exercises the **production** registration (extract the per-tool schema
+      build in `getOrCreateServer` into a small pure helper and test that),
+      so a future edit to the proxy can't regress while the replica stays green.
 
 ## GREEN — verbatim schema passthrough
 
