@@ -7,6 +7,7 @@ import { Building2, Home, ArrowLeft } from 'lucide-react'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
+import useLightTheme from '../hooks/useLightTheme'
 import { SELECTED_ORG_STORAGE_KEY } from '../utils/localStorage'
 
 const float = keyframes`
@@ -48,6 +49,11 @@ const GlitchText = styled(Typography)({
 const NotFound: FC = () => {
   const account = useAccount()
   const router = useRouter()
+  const { isLight, textColor, textColorFaded, border, highlightColor } = useLightTheme()
+
+  // Accent color for hover states — brand cyan is illegible on white, so use the
+  // theme's light-safe highlight color in light mode.
+  const accentColor = isLight ? highlightColor : '#00E5FF'
 
   const organizations = account.organizationTools.organizations
   const firstAccessibleOrg = useMemo(() => {
@@ -92,7 +98,9 @@ const NotFound: FC = () => {
           width: '600px',
           height: '600px',
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(0, 229, 255, 0.04) 0%, transparent 70%)',
+          background: isLight
+            ? 'radial-gradient(circle, rgba(14, 116, 144, 0.05) 0%, transparent 70%)'
+            : 'radial-gradient(circle, rgba(0, 229, 255, 0.04) 0%, transparent 70%)',
           animation: `${pulse} 4s ease-in-out infinite`,
           pointerEvents: 'none',
         }}
@@ -108,7 +116,7 @@ const NotFound: FC = () => {
         <GlitchText
           sx={{
             fontSize: { xs: '8rem', sm: '12rem' },
-            color: 'rgba(255, 255, 255, 0.08)',
+            color: isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)',
           }}
         >
           404
@@ -130,7 +138,7 @@ const NotFound: FC = () => {
           variant="h5"
           sx={{
             fontWeight: 600,
-            color: 'rgba(255, 255, 255, 0.85)',
+            color: isLight ? textColor : 'rgba(255, 255, 255, 0.85)',
             mb: 1,
           }}
         >
@@ -139,7 +147,7 @@ const NotFound: FC = () => {
         <Typography
           variant="body1"
           sx={{
-            color: 'rgba(255, 255, 255, 0.45)',
+            color: isLight ? textColorFaded : 'rgba(255, 255, 255, 0.45)',
             maxWidth: 400,
           }}
         >
@@ -182,14 +190,14 @@ const NotFound: FC = () => {
           startIcon={<Building2 size={18} />}
           onClick={handleGoToOrgs}
           sx={{
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            color: 'rgba(255, 255, 255, 0.7)',
+            borderColor: isLight ? border : 'rgba(255, 255, 255, 0.2)',
+            color: isLight ? textColorFaded : 'rgba(255, 255, 255, 0.7)',
             px: 3,
             py: 1.2,
             '&:hover': {
-              borderColor: '#00E5FF',
-              color: '#00E5FF',
-              bgcolor: 'rgba(0, 229, 255, 0.08)',
+              borderColor: accentColor,
+              color: accentColor,
+              bgcolor: isLight ? 'rgba(14, 116, 144, 0.08)' : 'rgba(0, 229, 255, 0.08)',
             },
           }}
         >
@@ -200,12 +208,12 @@ const NotFound: FC = () => {
           startIcon={<ArrowLeft size={18} />}
           onClick={handleGoBack}
           sx={{
-            color: 'rgba(255, 255, 255, 0.4)',
+            color: isLight ? textColorFaded : 'rgba(255, 255, 255, 0.4)',
             px: 3,
             py: 1.2,
             '&:hover': {
-              color: 'rgba(255, 255, 255, 0.7)',
-              bgcolor: 'rgba(255, 255, 255, 0.05)',
+              color: isLight ? textColor : 'rgba(255, 255, 255, 0.7)',
+              bgcolor: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)',
             },
           }}
         >
