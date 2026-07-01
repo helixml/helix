@@ -29,9 +29,9 @@ else
     echo "Creating ZFS pool on $DATA_DISK..."
     sudo mkdir -p /helix
     # /helix may have stale data from the root disk (e.g. Docker creating
-    # /helix/container-docker before ZFS is mounted). The ZFS mount will
-    # overlay these contents — they remain on the root disk but are hidden
-    # under the mountpoint. No cleanup needed.
+    # /helix/container-docker before ZFS is mounted). Clear it so zpool
+    # create accepts the mountpoint, then the ZFS mount takes over.
+    sudo find /helix -mindepth 1 -delete 2>/dev/null || true
     sudo zpool create -f -m /helix helix "$DATA_DISK"
 fi
 
