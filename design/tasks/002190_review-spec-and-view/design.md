@@ -48,6 +48,34 @@ The multiple-PRs variant already uses `secondary` — no change needed there.
   both light and dark mode. Confirm the PR-state badge still shows correctly for
   merged/closed PRs.
 
+## Implementation Notes
+
+- All changes landed in a single commit on `feature/002190-standardise-review-spec`,
+  touching only `frontend/src/components/tasks/SpecTaskActionButtons.tsx`
+  (6 insertions, 9 deletions).
+- Removed the `buttonColor` ternary AND its now-unused `prState` local
+  (`normalizePRState(onlyPR.pr_state)`); `normalizePRState` is still used
+  elsewhere in the file, so the function stayed.
+- Retinted the pulse-glow to `rgba(0, 213, 255, …)` — that's the dark-mode
+  `secondary` (`#00d5ff`), which reads well as a glow in both themes.
+- Verification: `tsc --noEmit` clean; `vite build` transformed all 21,651
+  modules (final write failed only on the read-only `dist` bind mount — an
+  environment quirk documented in CLAUDE.md, not a code error).
+- **Live E2E verified** in the inner Helix by driving the task through states
+  via direct DB updates (`spec_tasks.status` / `design_docs_pushed_at` /
+  `repo_pull_requests`), since the buttons are conditionally rendered on
+  backend task status:
+  - Review Spec (spec_review): teal, matches "NEW TASK" — see
+    `screenshots/01-review-spec-light.png`.
+  - View Pull Request with a **merged** PR: now teal/cyan (was green
+    `success`), "merged" badge still shown — light
+    (`screenshots/02-view-pr-merged-light.png`) and dark
+    (`screenshots/03-view-pr-merged-dark.png`).
+- Gotcha: the kanban board caches via React Query — after a DB status change,
+  reload the page to see the task move columns. The task detail route
+  (`/orgs/:org/projects/:id/tasks/:taskId`) is the most reliable place to view
+  the action buttons.
+
 ## Notes / Learnings
 - Theme palette: `frontend/src/themes.tsx` — `secondary` = `#0e7490` (light) /
   `#00d5ff` (dark); `primary` = `#8989a5`; `info`/`success` use MUI defaults.
