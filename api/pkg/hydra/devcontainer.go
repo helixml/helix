@@ -470,6 +470,13 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 			containerSessionIDLabel: req.SessionID,
 		},
 	}
+	// Stamp persistent (web-service) containers so the boot-time stopped-container
+	// reaper (sandbox/04-start-dockerd.sh) skips them — otherwise a reboot could
+	// delete the container in the window before dockerd's restart policy brings
+	// it back, forcing the slow full-redeploy recovery path.
+	if req.Persistent {
+		containerConfig.Labels[containerPersistentLabel] = "true"
+	}
 	if len(req.Entrypoint) > 0 {
 		containerConfig.Entrypoint = req.Entrypoint
 	}
@@ -990,6 +997,15 @@ func (dm *DevContainerManager) buildHostConfig(req *CreateDevContainerRequest) (
 		Privileged:  req.Privileged,
 		SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
 		Resources:   resources,
+	}
+
+	// Persistent dev containers (hosted web services) must survive a host
+	// reboot or inner-dockerd restart. unless-stopped makes dockerd bring the
+	// container back automatically on start — so the common outage (reboot /
+	// dockerd bounce) self-heals in seconds with /data and image cache intact,
+	// bypassing the slow provision-fresh-sandbox + full-rebuild recovery path.
+	if req.Persistent {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: "unless-stopped"}
 	}
 
 	// Only add explicit capabilities when not in privileged mode

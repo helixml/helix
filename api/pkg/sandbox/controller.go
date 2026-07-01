@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -29,6 +30,20 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// recoverGoroutine turns a panic in a detached goroutine into a logged error
+// instead of a process-wide crash (a panic in ANY goroutine kills the whole
+// API binary — every sandbox and web service with it). Guard every fire-and-
+// forget goroutine with this.
+func recoverGoroutine(what string) {
+	if r := recover(); r != nil {
+		log.Error().
+			Interface("panic", r).
+			Str("goroutine", what).
+			Bytes("stack", debug.Stack()).
+			Msg("recovered panic in detached goroutine (would otherwise have crashed the API process)")
+	}
+}
 
 // Controller orchestrates user-facing sandbox lifecycle on top of hydra.
 type Controller struct {
@@ -167,6 +182,7 @@ func (c *Controller) Create(ctx context.Context, orgID, owner string, req *types
 	c.provisionWG.Add(1)
 	go func() {
 		defer c.provisionWG.Done()
+		defer recoverGoroutine("sandbox.provision id=" + created.ID)
 		c.provision(context.Background(), created.ID)
 	}()
 
