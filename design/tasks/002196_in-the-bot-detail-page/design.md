@@ -84,13 +84,38 @@ The user says "completely fresh desktop and context." There are two levels:
 
 Go with **Level A**; note Level B as a follow-up toggle if required.
 
-### Frontend
+### Frontend — show the fresh session in the chat window
 
-- Add a confirmation dialog (reuse the existing `DeleteConfirmWindow` pattern
-  already in `HelixOrgBotDetail.tsx`) warning that current context will be
-  permanently discarded.
-- Keep the existing snackbar success/error handling; ensure a failed backend
-  response shows the error (already wired via `err?.response?.data?.error`).
+No confirmation dialog. The button runs immediately.
+
+The chat/desktop panels on the Bot Detail page are both bound to
+`chatSessionId` (`HelixOrgBotDetail.tsx:171`), which is the bot's exploratory
+"Project Desktop" session, resolved once via
+`fetchExistingWorkerSession(projectID, chatApi)` and rendered by
+`EmbeddedSessionView`. Because the restart clears the thread on that same
+session, the panel keeps pointing at the old (now-stale) transcript until it is
+refreshed.
+
+After `restartAgent.mutateAsync` succeeds, `handleRestartSession` must refresh
+the panel so it shows the new empty thread and fresh desktop:
+
+- Re-resolve the exploratory session and re-set `chatSessionId`
+  (`fetchExistingWorkerSession`) so the transcript re-loads empty and the
+  WebSocket re-subscribes (`streaming.setCurrentSessionId`).
+- If the session id is unchanged (same session, cleared thread), force the
+  transcript/desktop to reload — e.g. via the `sessionViewRef`
+  (`EmbeddedSessionViewHandle`) or by briefly nulling then re-setting
+  `chatSessionId` so `EmbeddedSessionView` remounts.
+- Update the success snackbar wording to reflect "fresh session started" and
+  keep existing error handling (`err?.response?.data?.error`), so a failed
+  backend response shows the error rather than a false success.
+- Default the session panel to the Chat tab (`sessionTab='chat'`) so the fresh
+  transcript is visible.
+
+Note: the backend `ClearSession` keeps the same session **ID** while resetting
+`ZedThreadID` and wiping interactions, so "new thread" here means the same
+exploratory session showing a brand-new, empty Zed thread. That satisfies "a
+totally fresh session/thread shown in the chat window."
 
 ## Key files
 

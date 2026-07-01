@@ -47,8 +47,11 @@ added tools take effect and stuck instances are genuinely recovered.
 step fails, I want the UI to tell me it failed rather than falsely report
 success.
 
-**US-3 — Guard against accidents.** As an admin, since this is destructive
-(context is discarded), I want a confirmation prompt before it runs.
+**US-3 — See the fresh session.** As an admin, after I click "Restart agent
+session", I want the chat window on the Bot Detail page to immediately show the
+new, empty session/thread (and the fresh desktop) — not the old transcript — so
+I can see the restart worked and start chatting on the clean session. No
+confirmation prompt is needed; clicking the button just does it.
 
 ## Acceptance Criteria
 
@@ -61,8 +64,10 @@ success.
    newly started desktop (no prior conversation carried over).
 3. If tear-down or any step fails, the API returns an error and the UI shows an
    error snackbar (no false "restart queued" success).
-4. The button shows a confirmation dialog warning that current context will be
-   permanently discarded before proceeding.
+4. After a successful restart, the Bot Detail chat window refreshes to show the
+   new, empty session/thread (and the fresh desktop stream) — the old transcript
+   is no longer displayed. Clicking the button runs immediately with **no**
+   confirmation dialog.
 5. First-time start (bot has no live session) still works — falls back to a
    normal activation.
 6. The crash-recovery `restartSessionContainer` behavior used by other surfaces

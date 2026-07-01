@@ -14,8 +14,9 @@
 
 ## Frontend
 
-- [ ] Add a confirmation dialog (reuse `DeleteConfirmWindow` pattern) to the "Restart agent session" button in `frontend/src/pages/HelixOrgBotDetail.tsx`, warning that current context will be permanently discarded.
-- [ ] Ensure a failed backend response surfaces an error snackbar (no false success message).
+- [ ] In `handleRestartSession` (`frontend/src/pages/HelixOrgBotDetail.tsx`), after `restartAgent.mutateAsync` succeeds, refresh the chat window so it shows the new empty session/thread and fresh desktop: re-resolve via `fetchExistingWorkerSession` and re-set `chatSessionId` (remount `EmbeddedSessionView` or use `sessionViewRef` if the id is unchanged).
+- [ ] Default the session panel to the Chat tab (`sessionTab='chat'`) after restart so the fresh transcript is visible.
+- [ ] Update the success snackbar wording to "fresh session started"; keep error handling so a failed backend response surfaces an error snackbar (no false success). No confirmation dialog.
 
 ## Tests
 
@@ -25,5 +26,5 @@
 
 ## Verification
 
-- [ ] Manual: add a tool to a bot, click "Restart agent session", confirm the desktop restarts and a new message opens an empty thread with no prior context.
+- [ ] Manual: add a tool to a bot, click "Restart agent session", confirm the desktop restarts and the chat window immediately shows a new, empty session/thread with no prior context.
 - [ ] Manual: confirm a tear-down failure shows an error (not "restart queued").
