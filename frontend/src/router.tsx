@@ -187,15 +187,6 @@ const routes: IApplicationRoute[] = [
     <QuestionSets />
   ),
 }, {
-  name: 'org_providers',
-  path: '/orgs/:org_id/providers',
-  meta: {
-    drawer: false,
-  },
-  render: () => (
-    <Providers />
-  ),
-}, {
   name: 'org_provider_detail',
   path: '/orgs/:org_id/providers/:provider_id',
   meta: {
@@ -203,6 +194,15 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <ProviderDetail />
+  ),
+}, {
+  name: 'org_providers',
+  path: '/orgs/:org_id/providers',
+  meta: {
+    drawer: false,
+  },
+  render: () => (
+    <Providers />
   ),
 }, {
   name: 'org_tasks',
