@@ -113,6 +113,25 @@ listTasks derives SandboxState = "absent" → Kanban shows stopped, no dead view
   can restart it), persist, then `delete(h.sessions, id)` to evict the stale
   in-memory entry.
 
+### Gotcha: `sandbox_id == "local"` must NOT be skipped
+Initial implementation copied the `SetSandboxContainerCount` guard that skips
+`sandboxID == "" || "local"`. That was wrong for status reconcile: the single-node
+dev/self-hosted deployment registers its hydra as `sandbox_id = "local"` (confirmed
+in api logs: `Auto-registered sandbox … sandbox_id=local`), and a self-hosted CD
+redeploy wipes its containers the same way. The `"local"` skip only makes sense for
+the multi-tenant autoscaler counter. Fixed: `markMissingSessionsStopped` skips only
+the ambiguous empty id.
+
+### E2E result (inner Helix, sandbox_id=local)
+Reproduced the exact bug and confirmed the fix:
+- Created a spec task → dev container running, session `external_agent_status=running`.
+- Killed the container inside DinD + restarted hydra → RevDial reconnect →
+  `DiscoverContainersFromSandbox("local")` → `ListDevContainers` no longer reports it.
+- Reconcile downgraded the session to `stopped`, cleared container metadata, evicted
+  the in-memory entry. Kanban card stopped showing a running/viewable desktop.
+- The immediately-preceding healthy reconnect (container still alive) did NOT
+  downgrade — no false positives.
+
 ### D2 decision (Kanban live-check): NOT changed
 The primary reconcile sets DB → `stopped` and evicts the in-memory entry on
 reconnect, so the existing cheap `GetSession` check in `listTasks` already resolves
