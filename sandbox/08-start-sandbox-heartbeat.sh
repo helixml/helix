@@ -37,6 +37,10 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 
 (
     trap '' PIPE
+    # Restart loop must survive a non-zero exit; the sourced entrypoint's
+    # `set -e` leaks into this subshell and would otherwise kill the loop on the
+    # first crash, leaving the heartbeat dead (see 10-start-hydra).
+    set +e
     while true; do
         echo "[$(date -Iseconds)] Starting heartbeat daemon..."
         /usr/local/bin/sandbox-heartbeat
