@@ -2,16 +2,24 @@
 
 ## Backend — full-restart flow (compose existing operations)
 
-- [ ] Add a dedicated full-restart port (e.g. `BotFullRestarter` / `FullRestart(ctx, orgID, botID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); do NOT reuse `restartSessionContainer` and do NOT touch container/workspace internals.
-- [ ] Add a thin in-proc `DeleteSession` wrapper (`api/pkg/server/helix_org_inproc.go`) that calls the existing `deleteSession` handler — mirror the existing `StopExternalAgent` wrapper.
-- [ ] Implement the full-restart in the in-proc helix client by composing existing ops:
-  - [ ] Resolve the bot's current session (BotRuntime.State / exploratory lookup).
-  - [ ] Delete the old session via the existing delete-session op (tears down its desktop, removes the exploratory singleton). Surface failures (do not swallow).
-  - [ ] Create a new session via the existing `StartSession` primitive → new session ID + fresh desktop + fresh MCP services.
-  - [ ] Persist the new session ID via `SaveSession(orgID, botID, newSessionID)`.
-- [ ] Update `restartBotAgent` (`api/pkg/org/interfaces/server/api/bots.go`) to call the full-restart flow and return the **new** session ID in `BotActivateDTO`.
-- [ ] Keep the no-live-session path working (first-time start provisions project + starts fresh session).
-- [ ] Leave `restartSessionContainer` and the in-chat / spec-task callers unchanged.
+Key discoveries during implementation:
+- `store.DeleteSession` only deletes the DB row — it does **not** stop the
+  desktop. Must call `StopExternalAgent` (→ `StopDesktop`) **before** deleting,
+  else the container leaks (the original bug).
+- `StartExternalAgentSession` **reuses** an existing exploratory session, so the
+  old exploratory row **must be deleted** for a new session ID to be minted.
+- The spawner's `ensureSession` reads the persisted `SessionID` pointer directly
+  and calls `ClearSession` on it; if we delete the session but leave the pointer,
+  that `ClearSession` errors. So we **must clear the pointer** (`SaveSession ""`).
+- Reuse the existing `Activate` path for creation — the spawner already resolves
+  provider/model/prompt; no need to replicate that logic or call `StartSession`.
+
+- [~] Add `BotSessionResetter` port (`ResetSession(ctx, orgID, botID, sessionID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); remove the now-dead `SessionRestarter` port (crash-recovery restart is not what the bot page wants).
+- [~] Add a thin in-proc `DeleteSession` wrapper (`api/pkg/server/helix_org_inproc.go`) that calls the existing `deleteSession` handler — mirror the existing `StopExternalAgent` wrapper.
+- [~] Implement `ResetSession` in the in-proc helix client by composing existing ops: `StopExternalAgent(sessionID)` → `DeleteSession(sessionID)` → `SaveSession(orgID, botID, "")`. Surface failures.
+- [~] Update `restartBotAgent` (`api/pkg/org/interfaces/server/api/bots.go`): resolve session → if live session, `ResetSession` → then always `Activate` (provisions a brand-new session + fresh desktop; also the first-time path).
+- [ ] Remove the now-dead `inProcHelixClient.RestartSession` and re-wire the composition root (`helix_org.go`) to `BotSessionResetter`.
+- [ ] Leave `restartSessionContainer` / `restartCrashedAgentThread` (in-chat / spec-task) unchanged.
 
 ## Frontend — switch chat window to the new session
 
