@@ -29,11 +29,11 @@ Empirically pinned the layer (see design.md "Investigation result"):
 
 ## GREEN — minimal fix until the test passes
 
-- [ ] Harden `convertMapToDefinition` to resolve a `[]any` union `type` to
+- [x] Harden `convertMapToDefinition` to resolve a `[]any` union `type` to
   its non-`null` member (array/string/…) instead of defaulting to `string`.
   Fixes every `[]string`/nullable param, not just create_bot.
-- [ ] Run the RED test again; confirm GREEN.
-- [ ] Add a wire-level guard test in `api/pkg/org/interfaces/mcptools` that
+- [x] Run the RED test again; confirm GREEN.
+- [~] Add a wire-level guard test in `api/pkg/org/interfaces/mcptools` that
   serializes the served schema (go-sdk `tools/list` round-trip) and asserts
   all five params (`create_bot.tools`, `create_bot.topics`,
   `attach_tool.tools`, `detach_tool.tools`, `subscribe.topicIds`,
