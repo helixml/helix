@@ -33,7 +33,7 @@ Empirically pinned the layer (see design.md "Investigation result"):
   its non-`null` member (array/string/…) instead of defaulting to `string`.
   Fixes every `[]string`/nullable param, not just create_bot.
 - [x] Run the RED test again; confirm GREEN.
-- [~] Add a wire-level guard test in `api/pkg/org/interfaces/mcptools` that
+- [x] Add a wire-level guard test in `api/pkg/org/interfaces/mcptools` that
   serializes the served schema (go-sdk `tools/list` round-trip) and asserts
   all five params (`create_bot.tools`, `create_bot.topics`,
   `attach_tool.tools`, `detach_tool.tools`, `subscribe.topicIds`,
@@ -43,6 +43,12 @@ Empirically pinned the layer (see design.md "Investigation result"):
 
 ## Verify
 
-- [ ] `go build ./...` for touched packages; `go test` for
+- [x] `go build ./pkg/agent/... ./pkg/org/...` passes; `go test` green for
   `api/pkg/org/interfaces/mcptools/` and `api/pkg/agent/skill/mcp/`.
+- [x] Verified the fix across the **real production consumption pipeline**
+  reproduced in-process: go-sdk `tools/list` round-trip → mark3labs client
+  parse → `buildParameters`. NOT tested against a live LLM harness in the
+  inner Helix stack (the reproduced pipeline is the code path that produces
+  the harness-visible schema, so this is a faithful integration test rather
+  than a state-only unit check).
 - [ ] Check CI green after pushing.
