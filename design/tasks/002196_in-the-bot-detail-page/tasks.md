@@ -14,12 +14,13 @@ Key discoveries during implementation:
 - Reuse the existing `Activate` path for creation — the spawner already resolves
   provider/model/prompt; no need to replicate that logic or call `StartSession`.
 
-- [~] Add `BotSessionResetter` port (`ResetSession(ctx, orgID, botID, sessionID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); remove the now-dead `SessionRestarter` port (crash-recovery restart is not what the bot page wants).
-- [~] Add a thin in-proc `DeleteSession` wrapper (`api/pkg/server/helix_org_inproc.go`) that calls the existing `deleteSession` handler — mirror the existing `StopExternalAgent` wrapper.
-- [~] Implement `ResetSession` in the in-proc helix client by composing existing ops: `StopExternalAgent(sessionID)` → `DeleteSession(sessionID)` → `SaveSession(orgID, botID, "")`. Surface failures.
-- [~] Update `restartBotAgent` (`api/pkg/org/interfaces/server/api/bots.go`): resolve session → if live session, `ResetSession` → then always `Activate` (provisions a brand-new session + fresh desktop; also the first-time path).
-- [ ] Remove the now-dead `inProcHelixClient.RestartSession` and re-wire the composition root (`helix_org.go`) to `BotSessionResetter`.
-- [ ] Leave `restartSessionContainer` / `restartCrashedAgentThread` (in-chat / spec-task) unchanged.
+- [x] Add `BotSessionResetter` port (`ResetSession(ctx, orgID, botID, sessionID)`) on the org api adapter (`api/pkg/org/interfaces/server/api/api.go`); removed the now-dead `SessionRestarter` port.
+- [x] Add a thin in-proc `DeleteSession` wrapper (`api/pkg/server/helix_org_inproc.go`) mirroring `StopExternalAgent`.
+- [x] Implement `ResetSession` as a `botSessionResetter` adapter at the composition root (`helix_org.go`) — it has both the in-proc client and the org store: `StopExternalAgent` (best-effort) → `DeleteSession` (fatal) → `SaveSession(orgID, botID, "")` (fatal). (Store access stays out of the api package; the in-proc client alone doesn't hold the org runtime-state store.)
+- [x] Update `restartBotAgent`: resolve session → if live session, `ResetSession` → then always `Activate`.
+- [x] Removed the now-dead `inProcHelixClient.RestartSession`; re-wired `helix_org.go` to `BotSessionResetter`.
+- [x] Left `restartSessionContainer` / `restartCrashedAgentThread` (in-chat / spec-task) unchanged.
+- [x] Rewrote `restart_bot_test.go` for the new reset→activate behavior; `go test ./pkg/org/interfaces/server/api/` green.
 
 ## Frontend — switch chat window to the new session
 
