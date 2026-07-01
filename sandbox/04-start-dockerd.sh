@@ -135,6 +135,11 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 
 (
     trap '' PIPE
+    # Restart loop must survive a non-zero exit of the supervised daemon. The
+    # sourced entrypoint's `set -e` leaks into this subshell and would otherwise
+    # abort it the moment dockerd crashes, leaving it dead and the runner wedged
+    # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
+    set +e
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
