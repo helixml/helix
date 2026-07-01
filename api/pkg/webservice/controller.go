@@ -273,26 +273,40 @@ func (c *Controller) applyRestartPolicy(ctx context.Context, sb *types.Sandbox) 
 // sandboxDockerAlive returns true if the sandbox's inner dockerd answers a
 // quick `docker info`. Used by recovery to decide restart-in-place vs recreate.
 func (c *Controller) sandboxDockerAlive(ctx context.Context, sb *types.Sandbox) bool {
-	hydraClient, err := c.sandboxes.HydraClient(sb)
-	if err != nil {
-		return false
+	// Retry before declaring the inner dockerd dead. A single failed check can
+	// just be a transient RevDial reconnect (e.g. right after a control-plane
+	// restart), and escalating that to a recreate needlessly destroys a healthy
+	// container. Only a persistent failure should trigger the recreate path.
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(2 * time.Second):
+			}
+		}
+		hydraClient, err := c.sandboxes.HydraClient(sb)
+		if err != nil {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
+			SandboxID:      sb.ID,
+			Cmd:            "/bin/sh",
+			Args:           []string{"-c", "docker info >/dev/null 2>&1"},
+			Cwd:            "/",
+			TimeoutSeconds: 15,
+		})
+		cancel()
+		if err != nil {
+			continue
+		}
+		if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
+			continue
+		}
+		return true
 	}
-	cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
-	resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
-		SandboxID:      sb.ID,
-		Cmd:            "/bin/sh",
-		Args:           []string{"-c", "docker info >/dev/null 2>&1"},
-		Cwd:            "/",
-		TimeoutSeconds: 20,
-	})
-	if err != nil {
-		return false
-	}
-	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
-		return false
-	}
-	return true
+	return false
 }
 
 // DeployBuildTimeout bounds how long a web-service deploy may sit
@@ -369,11 +383,28 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) er
 		return fmt.Errorf("get project: %w", err)
 	}
 
+	sb, sbErr := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+
+	// In-place-first: don't overreact to a transient blip. The monitor fires
+	// recovery after 3 failed probes, but a control-plane restart (e.g. a CD
+	// upgrade) briefly drops the RevDial control connection to the runner —
+	// probes fail during that window even though the container is perfectly
+	// healthy. Re-probe now that recovery is actually running (the connection
+	// has usually re-established); if the service answers, do nothing rather
+	// than needlessly recreating a working sandbox — which knocked a hosted
+	// service offline for ~2min on every deploy.
+	if sbErr == nil && sb != nil && sb.Status == types.SandboxStatusRunning {
+		if c.Probe(ctx, state, 8*time.Second) {
+			log.Info().Str("project_id", projectID).
+				Msg("health-monitor: web service healthy on re-probe — skipping recovery (transient blip, e.g. RevDial reconnect)")
+			return nil
+		}
+	}
+
 	recreate := false
 	reason := "restart in place"
-	sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
 	switch {
-	case err != nil || sb == nil:
+	case sbErr != nil || sb == nil:
 		reason = "active sandbox row is gone"
 		// Redeploy provisions a fresh sandbox; /data reattaches by project id.
 	case sb.Status != types.SandboxStatusRunning:
