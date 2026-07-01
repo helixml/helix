@@ -133,3 +133,29 @@ Delete the per-property `WithString` loop entirely.
 - **Gotcha:** `mark3labs/mcp-go` `Tool.MarshalJSON` errors if both `InputSchema`
   and `RawInputSchema` are set; `NewToolWithRawSchema` sets only the raw form,
   so there is no conflict.
+
+## End-to-end schema-path verification (code inspection)
+
+Confirmed every layer the schema passes through is a faithful array passthrough,
+so the proxy was the *unique* string-producer. Traced after the fix:
+
+1. **Org MCP server** → emits `type:"array", items:string` (wire test green).
+2. **Proxy `buildProxyTool`** → `NewToolWithRawSchema(json.Marshal(InputSchema))`
+   forwards verbatim (unit test green).
+3. **Zed → ACP agent**: `mcp_servers_for_project` (zed `crates/agent_servers/src/acp.rs`)
+   forwards an `http` context server to the external agent as
+   `acp::McpServer::Http(url)` — i.e. Zed hands Qwen the **proxy URL**; Qwen
+   connects and lists tools itself. So for a `qwen_code` Bot, Qwen is the final
+   schema consumer (not Zed's adapter).
+4. **Qwen** (`qwen-code`): `discoverTools` → `mcpToTool` → `parametersJsonSchema`
+   (raw JSON schema) → converter uses it directly → `convertSchema(mode)`:
+   `auto` (default) is a **no-op**; `openapi_30` preserves scalar `type:"array"`
+   and single-object `items`. → OpenAI tool `parameters` verbatim.
+5. **Native `zed_agent` runtime** (alternate): zed `context_server_registry` keeps
+   `input_schema` as opaque `serde_json::Value`; `adapt_schema_to_format` never
+   rebuilds properties to string and preserves `array`/`items` in both the
+   JsonSchema and Gemini-subset formats.
+
+Conclusion: no second flattening downstream. The old `type:"string"` the Bot saw
+was produced solely by the proxy's per-property `WithString` rebuild, which the
+fix removes.
