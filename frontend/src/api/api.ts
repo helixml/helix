@@ -42,7 +42,6 @@ export interface ApiBotDTO {
    */
   preserve_context?: boolean;
   tools?: string[];
-  topics?: string[];
   updated_at?: string;
 }
 
@@ -326,7 +325,6 @@ export interface ApiUpdateBotRequest {
   content?: string;
   preserve_context?: boolean;
   tools?: string[];
-  topics?: string[];
 }
 
 export interface ApiUpdateTopicRequest {

@@ -136,8 +136,7 @@ func TestRESTCreateBot_UnionWithCallerTools(t *testing.T) {
 
 // TestCreateBotParity_RESTvsMCP: the REST POST /bots handler and the MCP
 // create_bot tool both go through lifecycle.Create, so both must produce
-// identical bot rows — same content, same baseline-unioned tools, same
-// topics.
+// identical bot rows — same content, same baseline-unioned tools.
 func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
@@ -148,7 +147,6 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 		ID:      "b-qa",
 		Content: "# QA",
 		Tools:   []string{"publish", "subscribe"},
-		Topics:  []string{"s-a"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("REST create bot: %d body=%s", rec.Code, rec.Body)
@@ -161,7 +159,7 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 		"id":      "b-qa",
 		"content": "# QA",
 		"tools":   []string{"publish", "subscribe"},
-		"topics":  []string{"s-a"},
+		"topics":  []string{},
 	})
 	if _, err := createBot.Invoke(context.Background(), tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP create_bot: %v", err)
@@ -181,15 +179,12 @@ func TestCreateBotParity_RESTvsMCP(t *testing.T) {
 	if !sameNames(restBot.Tools, mcpBot.Tools) {
 		t.Errorf("Tools differ: REST=%v MCP=%v", restBot.Tools, mcpBot.Tools)
 	}
-	if len(restBot.Topics) != len(mcpBot.Topics) || (len(restBot.Topics) > 0 && restBot.Topics[0] != mcpBot.Topics[0]) {
-		t.Errorf("Topics differ: REST=%v MCP=%v", restBot.Topics, mcpBot.Topics)
-	}
 }
 
-// TestUpdateBotParity_RESTvsMCP: REST PATCH /bots/{id} and MCP update_bot
-// both go through the bots service — both leave the bot's content in the
-// same state, preserving tools on a content-only patch.
-func TestUpdateBotParity_RESTvsMCP(t *testing.T) {
+// TestSetBotContentParity_RESTvsMCP: REST PATCH /bots/{id} and MCP
+// set_bot_content both go through the bots service — both leave the bot's
+// content in the same state, preserving tools.
+func TestSetBotContentParity_RESTvsMCP(t *testing.T) {
 	clock := func() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
 	newID := func() string { return "fixed" }
 	ctx := context.Background()
@@ -206,10 +201,10 @@ func TestUpdateBotParity_RESTvsMCP(t *testing.T) {
 	mcpStore := orggorm.GetOrgTestDB(t)
 	seedBot(t, mcpStore, ctx, "b-eng", "# Eng v1")
 	reg := mcpRegistry(t, mcpStore, clock, newID)
-	updateBot, _ := reg.Get(mcptools.UpdateBotName)
-	args, _ := json.Marshal(map[string]any{"id": "b-eng", "content": "rewritten content"})
-	if _, err := updateBot.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
-		t.Fatalf("MCP update_bot: %v", err)
+	setContent, _ := reg.Get(mcptools.SetBotContentName)
+	args, _ := json.Marshal(map[string]any{"botId": "b-eng", "content": "rewritten content"})
+	if _, err := setContent.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
+		t.Fatalf("MCP set_bot_content: %v", err)
 	}
 
 	restBot, _ := restStore.Bots.Get(ctx, "org-test", "b-eng")

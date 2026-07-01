@@ -27,10 +27,10 @@ func TestValidID(t *testing.T) {
 func TestNewBotRejectsTraversalID(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	if _, err := NewBot("../../etc/cron.d/x", "content", nil, nil, now, "org-test"); err == nil {
+	if _, err := NewBot("../../etc/cron.d/x", "content", nil, now, "org-test"); err == nil {
 		t.Fatal("NewBot with traversal id: want error")
 	}
-	if _, err := NewBot("a/b", "content", nil, nil, now, "org-test"); err == nil {
+	if _, err := NewBot("a/b", "content", nil, now, "org-test"); err == nil {
 		t.Fatal("NewBot with separator id: want error")
 	}
 }

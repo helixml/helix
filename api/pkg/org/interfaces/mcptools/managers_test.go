@@ -23,7 +23,7 @@ func seedReportingGraph(t *testing.T) Config {
 
 	now := time.Now().UTC()
 	for _, id := range []orgchart.BotID{"b-owner", "b-jane", "b-bob", "b-li", "b-sam"} {
-		b, _ := orgchart.NewBot(id, "# "+string(id), nil, nil, now, "org-test")
+		b, _ := orgchart.NewBot(id, "# "+string(id), nil, now, "org-test")
 		if err := st.Bots.Create(ctx, b); err != nil {
 			t.Fatalf("create %s: %v", id, err)
 		}

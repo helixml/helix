@@ -47,7 +47,7 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	svc := newHireService(st)
 	ctx := context.Background()
 
-	boss, _ := orgchart.NewBot("w-boss", "# Eng", nil, nil, hireClock(), "org-test")
+	boss, _ := orgchart.NewBot("w-boss", "# Eng", nil, hireClock(), "org-test")
 	if err := st.Bots.Create(ctx, boss); err != nil {
 		t.Fatal(err)
 	}

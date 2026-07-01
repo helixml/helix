@@ -51,10 +51,6 @@ definitions:
         items:
           type: string
         type: array
-      topics:
-        items:
-          type: string
-        type: array
       updated_at:
         type: string
     type: object
@@ -483,10 +479,6 @@ definitions:
       preserve_context:
         type: boolean
       tools:
-        items:
-          type: string
-        type: array
-      topics:
         items:
           type: string
         type: array

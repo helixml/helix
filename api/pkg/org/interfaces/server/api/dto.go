@@ -30,14 +30,14 @@ type ToolDTO struct {
 
 // BotDTO is one row in GET /bots and the body of GET /bots/{id}. A Bot
 // IS its own job description: Content is the canonical role.md markdown,
-// Tools is its live MCP surface, Topics its subscription manifest.
-// ParentIDs are the Bots this one reports to (empty for the org root).
-// Reporting is many-to-many — a Bot may report to several managers.
+// Tools is its live MCP surface. ParentIDs are the Bots this one reports
+// to (empty for the org root). Reporting is many-to-many — a Bot may
+// report to several managers. A Bot's subscriptions are not on the bot —
+// they live as (bot, topic) rows.
 type BotDTO struct {
 	ID             string   `json:"id"`
 	Content        string   `json:"content"`
 	Tools          []string `json:"tools,omitempty"`
-	Topics         []string `json:"topics,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
 	// PreserveContext, when true, stops the runtime from wiping this
@@ -78,7 +78,9 @@ type BotDetailDTO struct {
 
 // CreateBotRequest is the body of POST /bots. Mirrors the MCP
 // create_bot tool's args. ID is optional (a fresh handle is minted when
-// empty). ParentID is the manager the new Bot reports to.
+// empty). ParentID is the manager the new Bot reports to. Topics are the
+// topics the new Bot is subscribed to at creation (they must already
+// exist).
 type CreateBotRequest struct {
 	ID              string   `json:"id,omitempty"`
 	Content         string   `json:"content"`
@@ -95,12 +97,13 @@ type CreateBotResponse struct {
 }
 
 // UpdateBotRequest is the body of PATCH /bots/{id}. A nil field is left
-// unchanged (content-only edit preserves Tools/Topics). PreserveContext
-// is a pointer for the same reason: nil leaves the current setting alone.
+// unchanged (content-only edit preserves Tools). Subscriptions are not
+// part of the bot row — change them via subscribe/unsubscribe.
+// PreserveContext is a pointer for the same reason: nil leaves the current
+// setting alone.
 type UpdateBotRequest struct {
 	Content         *string  `json:"content,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
-	Topics          []string `json:"topics,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
 }
 

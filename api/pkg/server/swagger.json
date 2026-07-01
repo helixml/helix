@@ -21183,12 +21183,6 @@
                         "type": "string"
                     }
                 },
-                "topics": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
                 "updated_at": {
                     "type": "string"
                 }
@@ -21784,12 +21778,6 @@
                     "type": "boolean"
                 },
                 "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "topics": {
                     "type": "array",
                     "items": {
                         "type": "string"

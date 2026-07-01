@@ -22,7 +22,7 @@ func newCreateBotCaller(t *testing.T, orgID string) (Config, orgchart.Bot) {
 	deps := DefaultDeps(st)
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "id-create-bot-test" }
-	caller, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, deps.Now(), orgID)
+	caller, err := orgchart.NewBot("b-owner", "# Owner", nil, deps.Now(), orgID)
 	if err != nil {
 		t.Fatalf("new caller: %v", err)
 	}

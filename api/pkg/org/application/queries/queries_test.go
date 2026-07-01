@@ -21,7 +21,7 @@ func TestQueries_ReadsAcrossAggregates(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
-	b, _ := orgchart.NewBot("w-mark", "# Eng", []tool.Name{"publish"}, nil, now, "org-test")
+	b, _ := orgchart.NewBot("w-mark", "# Eng", []tool.Name{"publish"}, now, "org-test")
 	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatal(err)
 	}

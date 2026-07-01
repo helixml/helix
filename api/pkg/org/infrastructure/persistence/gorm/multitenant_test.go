@@ -33,7 +33,7 @@ func TestBots_SameIDAcrossOrgs(t *testing.T) {
 	ctx := context.Background()
 
 	for _, org := range []string{orgA, orgB} {
-		b, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, time.Now().UTC(), org)
+		b, err := orgchart.NewBot("b-owner", "# Owner", nil, time.Now().UTC(), org)
 		if err != nil {
 			t.Fatalf("orgchart.NewBot(%s): %v", org, err)
 		}
@@ -121,7 +121,7 @@ func mustSeedOwner(t *testing.T, s *store.Store, orgID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	b, err := orgchart.NewBot("b-owner", "# Owner", nil, nil, time.Now().UTC(), orgID)
+	b, err := orgchart.NewBot("b-owner", "# Owner", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("orgchart.NewBot: %v", err)
 	}

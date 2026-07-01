@@ -40,7 +40,6 @@ func newTestServer(t *testing.T) (*httptest.Server, orgchart.BotID) {
 		"b-ceo",
 		"# CEO\nTop of org.",
 		[]tool.Name{mcptools.PingName, "create_bot"},
-		nil,
 		time.Now().UTC(),
 		"org-test",
 	)
@@ -90,7 +89,6 @@ func newTestServerToolDerived(t *testing.T) (*httptest.Server, orgchart.BotID) {
 		"b-ceo",
 		"# CEO\nTop of org.",
 		[]tool.Name{mcptools.PingName},
-		nil,
 		time.Now().UTC(),
 		"org-test",
 	)
@@ -235,7 +233,7 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 	if includeCreateBot {
 		botTools = append(botTools, mcptools.CreateBotName)
 	}
-	bot, _ := orgchart.NewBot("b-ceo", "# CEO", botTools, nil, time.Now().UTC(), "org-test")
+	bot, _ := orgchart.NewBot("b-ceo", "# CEO", botTools, time.Now().UTC(), "org-test")
 	_ = s.Bots.Create(ctx, bot)
 	return srv, "b-ceo"
 }

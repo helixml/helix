@@ -7,13 +7,13 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// Subscribe adds a Subscription between the caller and the given
-// Topic. A Worker subscribes themselves; see invite_workers for
-// adding other Workers to a Topic.
+// Subscribe subscribes a Bot to one or more Topics. Pass the target
+// bot's id and the topic ids; a Bot subscribes itself by passing its own
+// id. Reuses the same subscription use case create_bot drives at creation.
 type Subscribe struct {
 	deps Deps
 }
@@ -24,14 +24,18 @@ var subscribeSchema = mustSchema[subscribeArgs]()
 
 func (t *Subscribe) Name() tool.Name { return SubscribeName }
 func (t *Subscribe) Description() string {
-	return "Subscribe the calling Worker to a Topic. Idempotent: a no-op if already subscribed. " +
-		"Subscriptions are per-Worker: firing this Worker drops the subscription, and a new " +
-		"hire into the same Role does not automatically inherit it."
+	return "Subscribe a Bot to one or more Topics. Pass `botId` (the bot to subscribe — " +
+		"pass your own id to subscribe yourself) and `topicIds` as an array of existing " +
+		"topic ids. Idempotent per topic. Use unsubscribe to remove."
 }
-func (t *Subscribe) InputSchema() *jsonschema.Schema { return subscribeSchema }
+func (t *Subscribe) InputSchema() *jsonschema.Schema {
+	return withProperty(subscribeSchema, "topicIds",
+		stringArrayProperty("Existing Topic ids to subscribe the Bot to (one or many)."))
+}
 
 type subscribeArgs struct {
-	TopicID string `json:"topicId"`
+	BotID    string   `json:"botId"`
+	TopicIDs []string `json:"topicIds"`
 }
 
 func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -39,17 +43,19 @@ func (t *Subscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.TopicID == "" {
-		return nil, fmt.Errorf("topicId is required")
+	if args.BotID == "" {
+		return nil, fmt.Errorf("botId is required")
+	}
+	if len(args.TopicIDs) == 0 {
+		return nil, fmt.Errorf("topicIds must contain at least one topic id")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("subscribe: caller has no OrgID")
 	}
-	topicID := streaming.TopicID(args.TopicID)
-	workerID := inv.Caller.ID()
-	if _, _, err := t.deps.Subscriptions.Subscribe(ctx, orgID, workerID, topicID); err != nil {
+	botID := orgchart.BotID(args.BotID)
+	if err := t.deps.Subscriptions.SubscribeTopics(ctx, orgID, botID, args.TopicIDs); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"workerId": string(workerID), "topicId": string(topicID)})
+	return json.Marshal(map[string]any{"botId": string(botID), "topicIds": args.TopicIDs})
 }

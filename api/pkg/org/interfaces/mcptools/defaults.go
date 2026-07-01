@@ -47,12 +47,14 @@ var BaseReadTools = []tool.Name{
 func OwnerBotTools() []tool.Name {
 	ownerMutations := []tool.Name{
 		CreateBotName,
-		UpdateBotName,
+		SetBotContentName,
+		AttachToolName,
+		DetachToolName,
+		DeleteBotName,
 		CreateTopicName,
 		TopicMembersName,
 		SubscribeName,
 		UnsubscribeName,
-		InviteBotsName,
 		PublishName,
 		DMName,
 	}

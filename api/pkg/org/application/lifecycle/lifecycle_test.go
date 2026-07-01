@@ -34,7 +34,7 @@ func TestDelete_RemovesBotsTranscript(t *testing.T) {
 	const orgID = "org-test"
 
 	// Seed a bot + its transcript the same way Create would.
-	bot, err := orgchart.NewBot("w-ghost", "# Ghost", nil, nil, time.Now().UTC(), orgID)
+	bot, err := orgchart.NewBot("w-ghost", "# Ghost", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
@@ -86,14 +86,14 @@ func TestDelete_CascadesReportingLinesAndSubscriptions(t *testing.T) {
 	st := orggorm.GetOrgTestDB(t)
 	const orgID = "org-cascade"
 
-	mgr, err := orgchart.NewBot("w-mgr", "# Mgr", nil, nil, time.Now().UTC(), orgID)
+	mgr, err := orgchart.NewBot("w-mgr", "# Mgr", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
 	if err := st.Bots.Create(ctx, mgr); err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
-	report, err := orgchart.NewBot("w-report", "# Report", nil, nil, time.Now().UTC(), orgID)
+	report, err := orgchart.NewBot("w-report", "# Report", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new report: %v", err)
 	}
@@ -164,14 +164,14 @@ func TestDelete_TearsDownDMChannelToReports(t *testing.T) {
 	st := orggorm.GetOrgTestDB(t)
 	const orgID = "org-dm-delete"
 
-	mgr, err := orgchart.NewBot("w-mgr", "# Mgr", nil, nil, time.Now().UTC(), orgID)
+	mgr, err := orgchart.NewBot("w-mgr", "# Mgr", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
 	if err := st.Bots.Create(ctx, mgr); err != nil {
 		t.Fatalf("create manager: %v", err)
 	}
-	report, err := orgchart.NewBot("w-report", "# Report", nil, nil, time.Now().UTC(), orgID)
+	report, err := orgchart.NewBot("w-report", "# Report", nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new report: %v", err)
 	}
@@ -229,7 +229,7 @@ func newLifecycleSvc(st *store.Store) *lifecycle.Service {
 
 func seedBot(t *testing.T, st *store.Store, orgID, id string) {
 	t.Helper()
-	b, err := orgchart.NewBot(id, "# "+id, nil, nil, time.Now().UTC(), orgID)
+	b, err := orgchart.NewBot(id, "# "+id, nil, time.Now().UTC(), orgID)
 	if err != nil {
 		t.Fatalf("new bot %s: %v", id, err)
 	}

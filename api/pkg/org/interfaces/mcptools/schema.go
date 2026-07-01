@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
@@ -46,6 +47,54 @@ func enumSchema[T ~string](vals []T, description string) *jsonschema.Schema {
 		Enum:        out,
 		Description: description,
 	}
+}
+
+// enumStringArrayProperty builds a non-nullable array property whose
+// items are constrained to the given tool-name enum. Used for the
+// `tools` argument on create_bot/attach_tool/detach_tool so the LLM sees
+// exactly the valid tool names and never receives the `["null","array"]`
+// union the reflection-based generator would emit for a Go slice.
+func enumStringArrayProperty(names []tool.Name, description string) *jsonschema.Schema {
+	item := &jsonschema.Schema{Type: "string"}
+	if len(names) > 0 {
+		enum := make([]any, len(names))
+		for i, n := range names {
+			enum[i] = string(n)
+		}
+		item.Enum = enum
+	}
+	return &jsonschema.Schema{
+		Type:        "array",
+		Description: description,
+		Items:       item,
+	}
+}
+
+// stringArrayProperty builds a non-nullable array-of-strings property
+// (no enum). Used for dynamic-valued lists like topic ids, so the schema
+// is a plain array rather than the `["null","array"]` union.
+func stringArrayProperty(description string) *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "array",
+		Description: description,
+		Items:       &jsonschema.Schema{Type: "string"},
+	}
+}
+
+// withProperty returns a shallow copy of base with one property replaced
+// (the Properties map is cloned so the shared base schema is never
+// mutated — InputSchema() may run concurrently). Lets a tool start from
+// its reflected base schema (which carries required + additionalProperties)
+// and swap in a dynamically-built property.
+func withProperty(base *jsonschema.Schema, name string, prop *jsonschema.Schema) *jsonschema.Schema {
+	s := *base
+	props := make(map[string]*jsonschema.Schema, len(base.Properties))
+	for k, v := range base.Properties {
+		props[k] = v
+	}
+	props[name] = prop
+	s.Properties = props
+	return &s
 }
 
 // mustSchema builds a JSON Schema from the given args type T at package

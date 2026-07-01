@@ -96,7 +96,7 @@ func (r *rig) mkTopic(t *testing.T, id, name string) streaming.TopicID {
 
 func (r *rig) mkAIWorker(t *testing.T, id, subTopic streaming.TopicID) {
 	t.Helper()
-	w, err := orgchart.NewBot(orgchart.BotID(id), "# "+string(id), nil, nil, time.Now().UTC(), org)
+	w, err := orgchart.NewBot(orgchart.BotID(id), "# "+string(id), nil, time.Now().UTC(), org)
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}

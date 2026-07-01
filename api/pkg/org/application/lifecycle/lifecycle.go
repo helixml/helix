@@ -35,6 +35,15 @@ type CreateDispatcher interface {
 	DispatchHire(ctx context.Context, orgID string, botID orgchart.BotID, activationID activation.ID)
 }
 
+// TopicSubscriber subscribes a Bot to Topics. Create uses it to subscribe
+// a new Bot to the topics named at creation, reusing the same subscription
+// use case the standalone subscribe tool drives (DRY). A narrow interface
+// so lifecycle doesn't import the subscriptions package;
+// *subscriptions.Subscriptions satisfies it.
+type TopicSubscriber interface {
+	SubscribeTopics(ctx context.Context, orgID string, botID orgchart.BotID, topicIDs []streaming.TopicID) error
+}
+
 // HelixRuntime is the slice of runtime/helix.ProjectService that the
 // Delete cascade needs to tear down a Bot's Helix-side project and
 // agent app. Production wiring satisfies this with the in-process
@@ -82,6 +91,11 @@ type Service struct {
 	// to, so the base-tool union and id minting are shared with the
 	// REST/MCP update path. Required for Create.
 	Bots *bots.Bots
+
+	// Subscriber subscribes a new Bot to the topics named at creation
+	// (CreateParams.Topics), reusing the shared subscription use case. nil
+	// → no creation-time subscription (create still succeeds).
+	Subscriber TopicSubscriber
 
 	// BotReconcilers are the Bot-scoped reconcilers (see the contract on
 	// BotReconciler) run on create (FATAL) and delete (best-effort) with
@@ -165,11 +179,22 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		parent = &p.ParentID
 	}
 
+	// Validate every requested topic exists BEFORE writing the bot row, so
+	// a bad topic id fails the create with no partially-created Bot. The
+	// actual subscription rows are created below, after the bot exists.
+	for _, tid := range p.Topics {
+		if tid == "" {
+			return CreateResult{}, fmt.Errorf("topic id is empty")
+		}
+		if _, err := s.Store.Topics.Get(ctx, orgID, tid); err != nil {
+			return CreateResult{}, fmt.Errorf("topic %q: %w", tid, err)
+		}
+	}
+
 	bot, err := s.Bots.Create(ctx, orgID, bots.CreateParams{
 		ID:              p.ID,
 		Content:         p.Content,
 		Tools:           p.Tools,
-		Topics:          p.Topics,
 		PreserveContext: p.PreserveContext,
 	})
 	if err != nil {
@@ -198,6 +223,17 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		}
 		if err := rec.Reconcile(ctx, orgID, id); err != nil {
 			return CreateResult{}, fmt.Errorf("reconcile topology for bot %q: %w", id, err)
+		}
+	}
+
+	// Subscribe the new Bot to the topics named at creation, reusing the
+	// shared subscription use case (the same one the subscribe tool drives).
+	// Topics were validated above, so this only fails on an infrastructure
+	// error — treat it as FATAL like the topology reconcile, since a Bot
+	// that silently isn't listening is a broken create.
+	if s.Subscriber != nil && len(p.Topics) > 0 {
+		if err := s.Subscriber.SubscribeTopics(ctx, orgID, id, p.Topics); err != nil {
+			return CreateResult{}, fmt.Errorf("subscribe new bot %q to topics: %w", id, err)
 		}
 	}
 

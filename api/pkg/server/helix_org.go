@@ -666,6 +666,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// the bots service so the base-tool union + id minting are shared with
 	// the REST/MCP update path.
 	lifecycleSvc.Bots = svc.Bots
+	// Create subscribes the new bot to its initial topics via the shared
+	// subscription use case (same as the subscribe tool) — one implementation.
+	lifecycleSvc.Subscriber = svc.Subscriptions
 
 	// Wire the spec-task attention-event sink: each AttentionEvent the
 	// Helix UI shows is also published onto the project's KindSpecTask

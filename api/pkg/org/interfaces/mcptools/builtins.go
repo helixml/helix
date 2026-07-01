@@ -58,8 +58,9 @@ type Deps struct {
 	// read semantics.
 	Queries *queries.Queries
 	// Bots is the bot-mutation service (the merge of the former roles +
-	// workers services) — update_bot delegates here; create_bot goes
-	// through Lifecycle, which itself drives Bots.
+	// workers services) — set_bot_content and attach_tool/detach_tool
+	// delegate here; create_bot goes through Lifecycle, which itself drives
+	// Bots.
 	Bots          *bots.Bots
 	Topics        *topics.Topics
 	Subscriptions *subscriptions.Subscriptions
@@ -68,7 +69,7 @@ type Deps struct {
 	// same service the REST POST /bots handler drives).
 	Lifecycle *lifecycle.Service
 
-	// Workspace is the per-runtime file-mirror port: update_bot calls
+	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
 	// the change before the next activation.
 	Workspace runtime.WorkspaceSync
@@ -84,6 +85,13 @@ type Deps struct {
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
 	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
+
+	// ToolNames returns the catalogue of registered tool names, used by
+	// create_bot/attach_tool/detach_tool to build their `tools` enum
+	// dynamically so new tools appear automatically. Wired by
+	// RegisterBuiltins to read the live registry; nil → the tools fall
+	// back to an unconstrained string array (still valid, just no enum).
+	ToolNames func() []tool.Name
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -181,6 +189,7 @@ func (c Config) lifecycleService() *lifecycle.Service {
 	svc := &lifecycle.Service{
 		Store:          c.Store,
 		Bots:           c.botsService(),
+		Subscriber:     c.subscriptionsService(),
 		BotReconcilers: []lifecycle.BotReconciler{c.Reconciler},
 		HireHook:       c.HireHook,
 		Now:            c.Now,
@@ -255,16 +264,32 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 	if deps.Workspace == nil {
 		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use runtime.NoopWorkspaceSync{} for tests)")
 	}
+	// Wire the tool-name catalogue from the live registry so the
+	// create_bot/attach_tool/detach_tool `tools` enums always reflect the
+	// registered set. The closure reads reg lazily (at InputSchema time),
+	// so it sees every tool registered below regardless of order.
+	if deps.ToolNames == nil {
+		deps.ToolNames = func() []tool.Name {
+			all := reg.List()
+			names := make([]tool.Name, len(all))
+			for i, t := range all {
+				names[i] = t.Name()
+			}
+			return names
+		}
+	}
 	builtins := []tool.Tool{
 		// Mutations.
 		&CreateBot{deps: deps},
-		&UpdateBot{deps: deps},
+		&SetBotContent{deps: deps},
+		&AttachTool{deps: deps},
+		&DetachTool{deps: deps},
+		&DeleteBot{deps: deps},
 		&CreateTopic{deps: deps},
 		&MintCredential{deps: deps, providers: deps.CredentialProviders},
 		&TopicMembers{deps: deps},
 		&Subscribe{deps: deps},
 		&Unsubscribe{deps: deps},
-		&InviteBots{deps: deps},
 		&Publish{deps: deps},
 		&DM{deps: deps},
 		&ConfigureBotProject{deps: deps},
