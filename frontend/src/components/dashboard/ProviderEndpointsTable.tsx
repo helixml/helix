@@ -28,7 +28,10 @@ import ProviderEndpointUsageBarChart from './ProviderEndpointUsageBarChart';
 import { useApi } from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import { useListProviders } from '../../services/providersService';
-import useRouter from '../../hooks/useRouter';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import LMStudioModels from '../providers/LMStudioModels';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
 
@@ -65,13 +68,13 @@ const ProviderEndpointsTable: FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [editModelsDialogOpen, setEditModelsDialogOpen] = useState(false);
+  const [localModelsDialogOpen, setLocalModelsDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
   const api = useApi()
   const apiClient = api.getApiClient()
   const account = useAccount()
-  const router = useRouter()
   const providersManagementEnabled = account.serverConfig.providers_management_enabled ?? false    
 
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
@@ -278,10 +281,7 @@ const ProviderEndpointsTable: FC = () => {
         {selectedEndpoint && (selectedEndpoint.name === 'lmstudio' || selectedEndpoint.name === 'ollama' || selectedEndpoint.name?.includes('lmstudio') || selectedEndpoint.name?.includes('ollama')) && (
           <MenuItem onClick={() => {
             handleMenuClose();
-            const orgId = router.params?.org_id || account.organizationTools.organizations?.[0]?.id;
-            if (orgId && selectedEndpoint?.id) {
-              router.navigate('org_provider_detail', { org_id: orgId, provider_id: selectedEndpoint.id });
-            }
+            setLocalModelsDialogOpen(true);
           }}>Manage Local Models</MenuItem>
         )}
         <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
@@ -309,6 +309,22 @@ const ProviderEndpointsTable: FC = () => {
         onClose={handleEditModelsDialogClose}
         refreshData={loadData}
       />
+      <Dialog
+        open={localModelsDialogOpen}
+        onClose={() => { setLocalModelsDialogOpen(false); setSelectedEndpoint(null); }}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { maxHeight: '85vh' } }}
+      >
+        <DialogTitle sx={{ fontSize: "1rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          Manage Local Models — {selectedEndpoint?.name}
+        </DialogTitle>
+        <DialogContent sx={{ overflow: "auto" }}>
+          {selectedEndpoint?.id && localModelsDialogOpen && (
+            <LMStudioModels endpointId={selectedEndpoint.id} />
+          )}
+        </DialogContent>
+      </Dialog>
     </Paper>
   );
 };
