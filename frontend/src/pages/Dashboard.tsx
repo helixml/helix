@@ -30,6 +30,8 @@ import {
 } from "../api/api";
 
 import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTable";
+import LMStudioModels from "../components/providers/LMStudioModels";
+import { useListProviders } from "../services/providersService";
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import PricingTable from "../components/dashboard/PricingTable";
@@ -209,6 +211,7 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                             width: "100%",
                         }}
                     >
+                        <DashboardProviders />
                         <ProviderEndpointsTable />
                     </Box>
                 )}
@@ -403,6 +406,41 @@ const Dashboard: FC<DashboardProps> = ({ tab = "llm_calls", initialSessionFilter
                     </Window>
                 )}
             </Container>
+        </Box>
+    );
+};
+
+const DashboardProviders: FC = () => {
+    const account = useAccount();
+    const { data: providers } = useListProviders({ loadModels: true, all: true, enabled: true });
+    const localEndpoints = (providers || []).filter(
+        (e) => e.name === "lmstudio" || e.name === "ollama" || e.name?.includes("lmstudio") || e.name?.includes("ollama")
+    );
+
+    if (localEndpoints.length === 0) return null;
+
+    return (
+        <Box sx={{ mb: 4 }}>
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Local AI Servers
+            </Typography>
+            {localEndpoints.map((ep) => (
+                <Box key={ep.id} sx={{ mb: 3 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                            {ep.name === "lmstudio" ? "LM Studio" : ep.name === "ollama" ? "Ollama" : ep.name}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: ep.status === "error" ? "#f44336" : "#00e891" }}>
+                            {ep.status === "error" ? "Error" : "Connected"}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace" }}>
+                            {ep.base_url}
+                        </Typography>
+                    </Box>
+                    {ep.id && <LMStudioModels endpointId={ep.id} />}
+                </Box>
+            ))}
+            <Divider sx={{ mt: 2 }} />
         </Box>
     );
 };
