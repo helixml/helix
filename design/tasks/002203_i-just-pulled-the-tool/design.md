@@ -90,13 +90,18 @@ Depending on Step 1:
 Prefer a fix at the layer that actually emits the bad bytes; add the
 converter hardening as defence-in-depth.
 
-### Step 3 — Wire-level regression test
+### Step 3 — Wire-level regression test (TDD red → green)
 
-Add a test that asserts the schema **as a client receives it** (serialize
-to JSON and re-parse, or drive `tools/list`), checking for each of the five
-params: `type == "array"` and `items.type == "string"`, and that `type` is
-never `string` nor a union. This closes the gap the passing `assertArrayProp`
-left open.
+This is driven test-first. **Write the wire-level test BEFORE the fix and
+watch it fail (RED)**, reproducing the reported `type:"string"` symptom, so
+we prove the test actually exercises the broken path. The test asserts the
+schema **as a client receives it** (serialize to JSON and re-parse, or drive
+`tools/list`), checking for each of the five params: `type == "array"` and
+`items.type == "string"`, and that `type` is never `string` nor a union.
+Only then apply Step 2 and confirm the test passes (GREEN). This ordering
+closes the gap the passing `assertArrayProp` left open — that Go-level check
+was green throughout the live bug, so a wire-level RED test is what proves
+the reproduction.
 
 ## Key decisions
 
