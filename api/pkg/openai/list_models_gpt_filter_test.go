@@ -10,33 +10,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// robertModelsResponse is the exact /models envelope a customer's
-// OpenAI-compatible provider (Scaleway) returned on 2026-07-01. It lists 18
-// models, one of which is gpt-oss-120b (OpenAI's open-weights model, served by
-// a NON-OpenAI provider). Pre-fix, the presence of a "gpt-"-prefixed id tripped
-// the OpenAI-only dall-e heuristic in ListModels and collapsed the whole
-// catalogue down to just gpt-oss-120b.
-const robertModelsResponse = `{
+// compatibleProviderModelsResponse is a representative /models envelope from an
+// OpenAI-compatible aggregator: a broad multi-vendor catalogue that happens to
+// include one gpt-prefixed id (gpt-oss-120b, OpenAI's open-weights model served
+// by a non-OpenAI backend). Pre-fix, that single gpt- id tripped the OpenAI-only
+// dall-e heuristic and collapsed the whole catalogue down to just that model.
+const compatibleProviderModelsResponse = `{
   "object": "list",
   "data": [
-    {"id":"llama-3.3-70b-instruct","object":"model","created":1736258559,"owned_by":"meta"},
-    {"id":"pixtral-12b-2409","object":"model","created":1730385501,"owned_by":"mistral"},
-    {"id":"gemma-3-27b-it","object":"model","created":1730385501,"owned_by":"google"},
-    {"id":"bge-multilingual-gemma2","object":"model","created":1730385501,"owned_by":"baai"},
-    {"id":"qwen3-235b-a22b-instruct-2507","object":"model","created":1754049528,"owned_by":"qwen"},
-    {"id":"mistral-small-3.2-24b-instruct-2506","object":"model","created":1755006551,"owned_by":"mistral"},
-    {"id":"qwen3-coder-30b-a3b-instruct","object":"model","created":1755006551,"owned_by":"qwen"},
-    {"id":"gpt-oss-120b","object":"model","created":1755093042,"owned_by":"openai"},
-    {"id":"voxtral-small-24b-2507","object":"model","created":1757330049,"owned_by":"mistral"},
-    {"id":"whisper-large-v3","object":"model","created":1722263169,"owned_by":"openai"},
-    {"id":"qwen3-embedding-8b","object":"model","created":1755006551,"owned_by":"qwen"},
-    {"id":"holo2-30b-a3b","object":"model","created":1755006551,"owned_by":"hcompany"},
-    {"id":"devstral-2-123b-instruct-2512","object":"model","created":1766496679,"owned_by":"mistral"},
-    {"id":"qwen3.5-397b-a17b","object":"model","created":1773394870,"owned_by":"qwen"},
-    {"id":"gemma-4-26b-a4b-it","object":"model","created":1777469299,"owned_by":"google"},
-    {"id":"qwen3.6-35b-a3b","object":"model","created":1778158991,"owned_by":"qwen"},
-    {"id":"mistral-medium-3.5-128b","object":"model","created":1778158991,"owned_by":"mistral"},
-    {"id":"glm-5.2","object":"model","created":1782376549,"owned_by":"zai"}
+    {"id":"llama-3.3-70b-instruct","object":"model","owned_by":"vendor-a"},
+    {"id":"vision-12b","object":"model","owned_by":"vendor-b"},
+    {"id":"small-27b-it","object":"model","owned_by":"vendor-c"},
+    {"id":"bge-multilingual","object":"model","owned_by":"vendor-d"},
+    {"id":"chat-235b-a22b-instruct","object":"model","owned_by":"vendor-e"},
+    {"id":"small-24b-instruct","object":"model","owned_by":"vendor-b"},
+    {"id":"coder-30b-a3b-instruct","object":"model","owned_by":"vendor-e"},
+    {"id":"gpt-oss-120b","object":"model","owned_by":"openai"},
+    {"id":"embedding-8b","object":"model","owned_by":"vendor-e"},
+    {"id":"agentic-30b-a3b","object":"model","owned_by":"vendor-f"},
+    {"id":"devcode-123b-instruct","object":"model","owned_by":"vendor-b"},
+    {"id":"chat-397b-a17b","object":"model","owned_by":"vendor-e"},
+    {"id":"small-26b-a4b-it","object":"model","owned_by":"vendor-c"},
+    {"id":"chat-35b-a3b","object":"model","owned_by":"vendor-e"},
+    {"id":"medium-128b","object":"model","owned_by":"vendor-b"},
+    {"id":"reasoning-5.2","object":"model","owned_by":"vendor-g"}
   ]
 }`
 
@@ -49,12 +46,12 @@ func newModelsTestServer(t *testing.T, body string) *httptest.Server {
 	}))
 }
 
-// TestListModels_NonOpenAIProviderKeepsAllModels is the regression test for the
-// customer report on 2026-07-01: a Scaleway endpoint serving gpt-oss-120b had
-// 17 of its 18 models silently dropped from the Helix picker because the
-// gpt-oss-120b id tripped the OpenAI-only dall-e filter heuristic.
+// TestListModels_NonOpenAIProviderKeepsAllModels is the regression test for a
+// report where an OpenAI-compatible provider serving gpt-oss-120b had all but
+// that one model silently dropped from the Helix picker, because the gpt-oss-120b
+// id tripped the OpenAI-only dall-e filter heuristic.
 func TestListModels_NonOpenAIProviderKeepsAllModels(t *testing.T) {
-	srv := newModelsTestServer(t, robertModelsResponse)
+	srv := newModelsTestServer(t, compatibleProviderModelsResponse)
 	defer srv.Close()
 
 	client := New("test-key", srv.URL, false)
@@ -67,13 +64,13 @@ func TestListModels_NonOpenAIProviderKeepsAllModels(t *testing.T) {
 	}
 
 	// The gpt filter must NOT fire for a non-OpenAI base URL. Every model the
-	// provider advertised must survive (none of the 18 match the audio/tts/
-	// realtime substrings filterUnsupportedModels drops).
-	require.Contains(t, ids, "glm-5.2", "the model the customer actually wanted must survive")
+	// provider advertised must survive (none match the audio/tts/realtime
+	// substrings filterUnsupportedModels drops).
+	require.Contains(t, ids, "reasoning-5.2", "a non-gpt model the user wants must survive")
 	require.Contains(t, ids, "llama-3.3-70b-instruct")
-	require.Contains(t, ids, "qwen3-coder-30b-a3b-instruct")
+	require.Contains(t, ids, "coder-30b-a3b-instruct")
 	require.Contains(t, ids, "gpt-oss-120b", "the gpt- model itself must still be present")
-	require.Len(t, ids, 18,
+	require.Len(t, ids, 16,
 		"a non-OpenAI provider must return its full catalogue; got %d models: %v", len(ids), ids)
 }
 
@@ -103,10 +100,10 @@ func TestApplyOpenAIDallEFilter_RealOpenAIStillFilters(t *testing.T) {
 func TestApplyOpenAIDallEFilter_NonOpenAIUntouched(t *testing.T) {
 	models := []types.OpenAIModel{
 		{ID: "gpt-oss-120b"},
-		{ID: "glm-5.2"},
+		{ID: "reasoning-5.2"},
 		{ID: "llama-3.3-70b-instruct"},
 	}
 
-	got := applyOpenAIDallEFilter(models, "https://api.scaleway.ai/v1")
+	got := applyOpenAIDallEFilter(models, "https://api.example-aggregator.ai/v1")
 	require.Len(t, got, 3, "non-OpenAI provider list must pass through untouched")
 }
