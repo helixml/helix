@@ -42,10 +42,15 @@ sudo zpool online -e helix $(sudo zpool status -P helix 2>/dev/null | awk '/\/de
 # Step 2: Create datasets
 # =========================================================================
 
-# Workspaces dataset (dedup + compression for user workspace data)
+# Workspaces dataset (compression for user workspace data)
 if ! sudo zfs list helix/workspaces 2>/dev/null; then
     echo 'Creating helix/workspaces dataset...'
-    sudo zfs create -o dedup=on -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
+    sudo zfs create -o compression=lz4 -o atime=off -o mountpoint=/helix/workspaces helix/workspaces
+fi
+# Disable dedup if it was enabled on an existing dataset (migration)
+if sudo zfs get -H -o value dedup helix/workspaces 2>/dev/null | grep -q 'on'; then
+    sudo zfs set dedup=off helix/workspaces
+    echo 'Disabled dedup on helix/workspaces'
 fi
 
 # Docker volumes dataset — persists user data (postgres, keycloak, etc.)
@@ -77,8 +82,8 @@ if ! sudo zfs list helix/container-docker 2>/dev/null; then
         sudo umount /helix/sandbox-docker 2>/dev/null || true
         sudo zfs rename helix/sandbox-docker helix/container-docker
     else
-        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, dedup + compression)..."
-        sudo zfs create -V "$ZVOL_SIZE" -s -o dedup=on -o compression=lz4 helix/container-docker
+        echo "Creating helix/container-docker zvol (${ZVOL_SIZE}, compression)..."
+        sudo zfs create -V "$ZVOL_SIZE" -s -o compression=lz4 helix/container-docker
         # Wait for device node
         for i in $(seq 1 10); do [ -e "$ZVOL_DEV" ] && break; sleep 1; done
         if [ ! -e "$ZVOL_DEV" ]; then
