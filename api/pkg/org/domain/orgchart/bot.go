@@ -33,8 +33,16 @@ type Bot struct {
 	OrganizationID string
 	Content        string
 	Tools          []tool.Name
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// PreserveContext, when true, tells the runtime spawner NOT to wipe
+	// the Bot's chat session before each re-activation. The default
+	// (false) keeps the existing behaviour: every trigger starts on a
+	// fresh context window. Enabling it lets the Bot accumulate context
+	// across triggers (faster, more context-aware follow-ups — e.g. for
+	// Slack), at the cost of the session growing toward the model's
+	// context limit. See infrastructure/runtime/helix/spawner.go.
+	PreserveContext bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // NewBot validates and constructs a Bot. Treat the returned value as
@@ -82,5 +90,12 @@ func (b Bot) WithTools(tools []tool.Name) Bot {
 // WithUpdatedAt returns a copy of the Bot with UpdatedAt replaced.
 func (b Bot) WithUpdatedAt(t time.Time) Bot {
 	b.UpdatedAt = t
+	return b
+}
+
+// WithPreserveContext returns a copy of the Bot with PreserveContext
+// replaced.
+func (b Bot) WithPreserveContext(preserve bool) Bot {
+	b.PreserveContext = preserve
 	return b
 }

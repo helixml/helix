@@ -504,7 +504,7 @@ export default function SpecTaskActionButtons({
         <Box sx={{ display: "flex", gap: 1 }}>
           <CompactActionButton
             tooltip={isArchived ? "Task is archived" : ""}
-            color="info"
+            color="secondary"
             icon={
               isQueued || isReviewingSpec ? (
                 <CircularProgress size={18} color="inherit" />
@@ -522,8 +522,8 @@ export default function SpecTaskActionButtons({
             sx={{
               animation: "pulse-glow 2s infinite",
               "@keyframes pulse-glow": {
-                "0%, 100%": { boxShadow: "0 0 5px rgba(41, 182, 246, 0.5)" },
-                "50%": { boxShadow: "0 0 15px rgba(41, 182, 246, 0.8)" },
+                "0%, 100%": { boxShadow: "0 0 5px rgba(0, 213, 255, 0.5)" },
+                "50%": { boxShadow: "0 0 15px rgba(0, 213, 255, 0.8)" },
               },
             }}
           />
@@ -538,7 +538,7 @@ export default function SpecTaskActionButtons({
             <Button
               size={buttonSize}
               variant="contained"
-              color="info"
+              color="secondary"
               startIcon={
                 isQueued || isReviewingSpec ? (
                   <CircularProgress size={16} color="inherit" />
@@ -815,12 +815,9 @@ export default function SpecTaskActionButtons({
     if (pullRequests.length === 1) {
       const onlyPR = pullRequests[0];
       const prUrl = onlyPR.pr_url;
-      const prState = normalizePRState(onlyPR.pr_state);
       const prLabel = onlyPR.repository_name
         ? `PR: ${onlyPR.repository_name}`
         : "Pull Request";
-      const buttonColor: "secondary" | "success" | "inherit" =
-        prState === "merged" ? "success" : prState === "closed" ? "inherit" : "secondary";
 
       if (isInline) {
         return (
@@ -828,7 +825,7 @@ export default function SpecTaskActionButtons({
             <CompactActionButton
               tooltip={isArchived ? "Task is archived" : ""}
               variant="contained"
-              color={buttonColor}
+              color="secondary"
               disabled={isArchived}
               icon={<LaunchIcon sx={{ fontSize: 18 }} />}
               label={prLabel}
@@ -849,7 +846,7 @@ export default function SpecTaskActionButtons({
               <Button
                 size={buttonSize}
                 variant="contained"
-                color={buttonColor}
+                color="secondary"
                 startIcon={<LaunchIcon />}
                 component="a"
                 href={prUrl}

@@ -25,11 +25,15 @@ import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
+import Switch from '@mui/material/Switch'
 import TextField from '@mui/material/TextField'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
@@ -47,14 +51,17 @@ import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from '../components/session/EmbeddedSessionView'
+import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import RobustPromptInput from '../components/common/RobustPromptInput'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
 import router5 from '../router'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
+import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { deriveDisplaySettings } from '../services/externalAgentDisplay'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
@@ -104,10 +111,12 @@ const HelixOrgBotDetail: FC = () => {
   // loads/refreshes so a cancelled edit re-syncs to server state.
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
+  const [preserveContext, setPreserveContext] = useState(false)
   useEffect(() => {
     setContent(bot?.content ?? '')
     setTools(bot?.tools ?? [])
-  }, [bot?.content, bot?.tools])
+    setPreserveContext(bot?.preserve_context ?? false)
+  }, [bot?.content, bot?.tools, bot?.preserve_context])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -127,13 +136,14 @@ const HelixOrgBotDetail: FC = () => {
     if (!bot) return false
     if ((bot.content ?? '') !== content) return true
     if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
+    if ((bot.preserve_context ?? false) !== preserveContext) return true
     return false
-  }, [bot, content, tools])
+  }, [bot, content, tools, preserveContext])
 
   const handleSave = async () => {
     if (!botId) return
     try {
-      await updateBot.mutateAsync({ id: botId, content, tools })
+      await updateBot.mutateAsync({ id: botId, content, tools, preserve_context: preserveContext })
       snackbar.success(`bot ${botId} saved`)
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
@@ -160,6 +170,19 @@ const HelixOrgBotDetail: FC = () => {
   // one (or there isn't one yet).
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
+
+  // The session panel toggles between the inline Chat transcript and the
+  // live Desktop stream — both bound to the same exploratory session.
+  const [sessionTab, setSessionTab] = useState<'chat' | 'desktop'>('chat')
+
+  // Desktop resolution / fps for the stream, derived from the bot's agent
+  // app config (same helper the spec-task desktop uses). Falls back to
+  // 1920x1080x60 when the app or config is missing.
+  const apps = useApps()
+  const displaySettings = useMemo(
+    () => deriveDisplaySettings(apps.apps?.find((a) => a.id === agentAppID)),
+    [agentAppID, apps.apps],
+  )
 
   // chatApi adapts the generated client to the read-only shape the
   // workerChatSession helper expects (we only GET the existing session
@@ -259,17 +282,35 @@ const HelixOrgBotDetail: FC = () => {
                   </Stack>
                 </Box>
 
-                {/* Chat panel — inline transcript (same view the spec-task
-                    page uses). The transcript auto-loads when the bot
-                    already has a session; otherwise it shows an empty
-                    state. */}
+                {/* Session panel — Chat | Desktop toggle, both bound to the
+                    bot's Project Desktop exploratory session (the same views
+                    the spec-task page uses). Auto-loads when the bot already
+                    has a session; otherwise shows an empty state. */}
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
-                    <Typography variant="subtitle1">Chat with this bot</Typography>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      sx={{ width: '100%' }}
+                    >
+                      <Typography variant="subtitle1">
+                        {sessionTab === 'chat' ? 'Chat with this bot' : 'Bot desktop'}
+                      </Typography>
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={sessionTab}
+                        onChange={(_e, value) => { if (value) setSessionTab(value) }}
+                      >
+                        <ToggleButton value="chat">Chat</ToggleButton>
+                        <ToggleButton value="desktop">Desktop</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
                     <Typography variant="body2" color="text.secondary">
-                      The conversation below is the bot's Project Desktop session —
-                      the same transcript you'd see in the desktop tab, including its
-                      MCP tool calls. Send a message to drive it from here.
+                      {sessionTab === 'chat'
+                        ? "The conversation below is the bot's Project Desktop session — the same transcript you'd see in the desktop view, including its MCP tool calls. Send a message to drive it from here."
+                        : "The live desktop of the bot's Project Desktop session — watch and drive what its agent is doing in real time."}
                     </Typography>
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches
@@ -277,46 +318,80 @@ const HelixOrgBotDetail: FC = () => {
                         turns; it needs a bounded, flex-column container to
                         scroll within. RobustPromptInput drives the same
                         session via streaming.NewInference. */}
-                    {chatSessionId ? (
-                      <Box
-                        sx={{
-                          width: '100%',
-                          height: 520,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          border: (theme) =>
-                            `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
-                          borderRadius: 1,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <EmbeddedSessionView
-                          ref={sessionViewRef}
-                          sessionId={chatSessionId}
-                          autoScrollOnMount
-                        />
-                        <Box sx={{ p: 1.5, flexShrink: 0 }}>
-                          <RobustPromptInput
+                    {sessionTab === 'chat' ? (
+                      chatSessionId ? (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            height: 520,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            border: (theme) =>
+                              `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <EmbeddedSessionView
+                            ref={sessionViewRef}
                             sessionId={chatSessionId}
-                            projectId={projectID}
-                            apiClient={api.getApiClient()}
-                            onSend={async (message: string, interrupt?: boolean) => {
-                              await streaming.NewInference({
-                                type: SESSION_TYPE_TEXT,
-                                message,
-                                sessionId: chatSessionId,
-                                interrupt: interrupt ?? true,
-                              })
-                            }}
-                            onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
-                            placeholder="Send message to agent..."
+                            autoScrollOnMount
+                          />
+                          <Box sx={{ p: 1.5, flexShrink: 0 }}>
+                            <RobustPromptInput
+                              sessionId={chatSessionId}
+                              projectId={projectID}
+                              apiClient={api.getApiClient()}
+                              onSend={async (message: string, interrupt?: boolean) => {
+                                await streaming.NewInference({
+                                  type: SESSION_TYPE_TEXT,
+                                  message,
+                                  sessionId: chatSessionId,
+                                  interrupt: interrupt ?? true,
+                                })
+                              }}
+                              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                              placeholder="Send message to agent..."
+                            />
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No conversation yet for this bot.
+                        </Typography>
+                      )
+                    ) : (
+                      // Desktop stream — same widget as the spec-task page.
+                      // ExternalAgentDesktopViewer handles the sandbox
+                      // lifecycle (starting/running/paused) internally; it
+                      // needs a bounded, flex-column container to fill.
+                      chatSessionId ? (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            height: 520,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            border: (theme) =>
+                              `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <ExternalAgentDesktopViewer
+                            sessionId={chatSessionId}
+                            sandboxId={chatSessionId}
+                            mode="stream"
+                            displayWidth={displaySettings.width}
+                            displayHeight={displaySettings.height}
+                            displayFps={displaySettings.fps}
                           />
                         </Box>
-                      </Box>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        No conversation yet for this bot.
-                      </Typography>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No desktop yet for this bot.
+                        </Typography>
+                      )
                     )}
                   </Stack>
                 </Paper>
@@ -397,6 +472,27 @@ const HelixOrgBotDetail: FC = () => {
                       />
                     )}
                   />
+                </Box>
+
+                <Box>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={preserveContext}
+                        onChange={(_e, checked) => setPreserveContext(checked)}
+                      />
+                    }
+                    label="Preserve context across triggers"
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    By default each trigger wipes the bot's session so every turn
+                    starts on a fresh context window. Enable this to keep the
+                    conversation across triggers — faster, more context-aware
+                    follow-ups (e.g. for Slack), at the cost of the session
+                    growing toward the model's context limit (where compaction
+                    kicks in). Durable state still belongs in the bot's git
+                    workspace, not the chat history.
+                  </Typography>
                 </Box>
 
                 <SubscriptionsPanel botID={bot?.id} />

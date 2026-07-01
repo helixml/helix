@@ -596,6 +596,12 @@ type OIDC struct {
 	// This is especially useful with Google OIDC + OIDC_OFFLINE_ACCESS=true, as the refresh token
 	// will be preserved and can obtain new access tokens even after the browser is closed.
 	CookieMaxAge int `envconfig:"OIDC_COOKIE_MAX_AGE" default:"0"`
+	// AllowedEmailDomains restricts OIDC login/registration to these email domains
+	// (comma-separated, e.g. "helix.ml"). When empty (the default) there is no
+	// restriction — any verified account may sign in, preserving multi-tenant and
+	// customer deployments. Set it (e.g. on meta.helix.ml) to lock sign-in to a
+	// specific organisation's domain(s).
+	AllowedEmailDomains string `envconfig:"OIDC_ALLOWED_EMAIL_DOMAINS" default:""`
 }
 
 // Notifications is used for sending notifications to users when certain events happen

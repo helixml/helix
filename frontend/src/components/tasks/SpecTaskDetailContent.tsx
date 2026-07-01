@@ -69,6 +69,7 @@ import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
+import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
 import { useStreaming } from "../../contexts/streaming";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
@@ -260,33 +261,8 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
 
   // Get display settings from the task's app configuration
   const displaySettings = useMemo(() => {
-    if (!task?.helix_app_id || !apps.apps) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-    const taskApp = apps.apps.find((a) => a.id === task.helix_app_id);
-    const config = taskApp?.config?.helix?.external_agent_config;
-    if (!config) {
-      return { width: 1920, height: 1080, fps: 60 };
-    }
-
-    let width = config.display_width || 1920;
-    let height = config.display_height || 1080;
-    if (config.resolution === "5k") {
-      width = 5120;
-      height = 2880;
-    } else if (config.resolution === "4k") {
-      width = 3840;
-      height = 2160;
-    } else if (config.resolution === "1080p") {
-      width = 1920;
-      height = 1080;
-    }
-
-    return {
-      width,
-      height,
-      fps: config.display_refresh_rate || 60,
-    };
+    const taskApp = apps.apps?.find((a) => a.id === task?.helix_app_id);
+    return deriveDisplaySettings(taskApp);
   }, [task?.helix_app_id, apps.apps]);
 
   // Check if the task's app uses Claude Code with subscription credentials

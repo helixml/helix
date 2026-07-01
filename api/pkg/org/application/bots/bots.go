@@ -88,9 +88,10 @@ func New(deps Deps) *Bots {
 // tools. Subscriptions are not part of the bot row — the lifecycle
 // service creates them as (bot, topic) rows from its own CreateParams.
 type CreateParams struct {
-	ID      string
-	Content string
-	Tools   []tool.Name
+	ID              string
+	Content         string
+	Tools           []tool.Name
+	PreserveContext bool
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -105,6 +106,9 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
+	if p.PreserveContext {
+		bot = bot.WithPreserveContext(true)
+	}
 	if err := s.bots.Create(ctx, bot); err != nil {
 		return orgchart.Bot{}, err
 	}
@@ -115,8 +119,9 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 // leaves the corresponding field unchanged — this is what preserves
 // Tools on a content-only update.
 type UpdateParams struct {
-	Content *string
-	Tools   *[]tool.Name
+	Content         *string
+	Tools           *[]tool.Name
+	PreserveContext *bool
 }
 
 // Update reads the existing Bot, applies the patch via the domain's
@@ -133,6 +138,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	}
 	if p.Tools != nil {
 		updated = updated.WithTools(*p.Tools)
+	}
+	if p.PreserveContext != nil {
+		updated = updated.WithPreserveContext(*p.PreserveContext)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.bots.Update(ctx, updated); err != nil {

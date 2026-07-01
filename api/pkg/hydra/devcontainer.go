@@ -112,6 +112,21 @@ func NewDevContainerManagerWithLogBuffer(manager *Manager, logBuffer *LogBuffer)
 	// the pool from ENOSPC corruption.
 	go dm.runDiskPressureMonitor()
 
+	// Return freed XFS blocks to the ZFS pool. The `discard` mount option only
+	// trims a freshly-mounted XFS and can't reclaim already-freed blocks, and
+	// operators may mount /container-docker without discard at all — so warn if
+	// so, and periodically fstrim the parent + mounted zvols as a backstop.
+	warnIfContainerDockerLacksDiscard()
+	go func() {
+		time.Sleep(10 * time.Minute) // don't compete with startup I/O
+		TrimContainerDockerStorage()
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			TrimContainerDockerStorage()
+		}
+	}()
+
 	return dm
 }
 
@@ -1992,6 +2007,14 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 	resp.WorkspacesReaped = wReaped
 	resp.WorkspacesSkipped = wSkipped
 
+	// Reap file-copy per-session docker-data dirs for dead sessions. The zvol
+	// reaper above only covers ZFS hosts; on file-copy hosts (ZFS unavailable)
+	// the inner docker storage lives in these dirs, and nothing durable reaped
+	// them before — they leaked indefinitely.
+	fReaped, fSkipped := ReconcileOrphanFileCopyDirs(liveSessions, grace, req.DryRun)
+	resp.FileCopyDirsReaped = fReaped
+	resp.FileCopyDirsSkipped = fSkipped
+
 	if !req.DryRun {
 		// Prune golden snapshots the flatten just absorbed plus any other stale
 		// no-clone snapshots (>7d). Frees the old generations the dead session
@@ -2016,6 +2039,8 @@ func (dm *DevContainerManager) ReconcileGC(req GCReconcileRequest) GCReconcileRe
 		Int("zvols_skipped", len(resp.ZvolsSkipped)).
 		Int("workspaces_reaped", len(resp.WorkspacesReaped)).
 		Int("workspaces_skipped", len(resp.WorkspacesSkipped)).
+		Int("filecopy_dirs_reaped", len(resp.FileCopyDirsReaped)).
+		Int("filecopy_dirs_skipped", len(resp.FileCopyDirsSkipped)).
 		Int("goldens_flattened", len(resp.GoldensFlattened)).
 		Int64("bytes_freed", resp.BytesFreed).
 		Msg("GC_RECONCILE completed")

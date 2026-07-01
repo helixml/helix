@@ -1876,7 +1876,21 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 // DEPRECATED_FIELDS should be removed from settings.json (Zed doesn't support them)
 var DEPRECATED_FIELDS = []string{"default_agent", "external_sync"}
 
-// writeSettings atomically writes settings.json
+// writeSettings writes settings.json in place, preserving the file's inode.
+//
+// We deliberately do NOT write-to-temp + rename here. Zed watches the
+// settings.json *inode* via inotify (watch_config_file -> RealFs::watch only
+// adds a parent-directory watch for symlinks; a regular file is watched by its
+// own inode). An atomic rename replaces that inode on every write, and inotify
+// tears the watch down after the first replacement (IN_IGNORED) without
+// re-arming it. The daemon is the sole Helix-side writer of this file, so once
+// the watch dies Zed never sees another change — which is why a light/dark
+// toggle changed the theme on the first click but never again until restart.
+//
+// Truncating and rewriting the same inode keeps Zed's watch alive across every
+// write. Reads stay safe: Zed debounces file events ~100ms before loading, and
+// we write the (small) JSON in a single Write + Sync, so a reader never observes
+// a partially written file.
 func (d *SettingsDaemon) writeSettings(settings map[string]interface{}) error {
 	// Ensure directory exists
 	dir := filepath.Dir(SettingsPath)
@@ -1895,13 +1909,21 @@ func (d *SettingsDaemon) writeSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Atomic write (write to temp file, then rename)
-	tmpFile := SettingsPath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	// In-place write that preserves the inode (O_TRUNC, not rename) so Zed's
+	// inotify watch on settings.json survives across repeated writes.
+	f, err := os.OpenFile(SettingsPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
 		return err
 	}
-
-	if err := os.Rename(tmpFile, SettingsPath); err != nil {
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 
