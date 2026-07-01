@@ -229,3 +229,31 @@ bots by calling it per bot).
   confirm the Bot receives an event published to a listed topic; `attach_tool`
   `[subscribe, dm]`; `subscribe(botId, [topicId, …])` for later topics.
 </content>
+
+## Implementation Notes (post-build)
+
+- **Org tests use the in-memory store**, not Postgres: `gorm.GetOrgTestDB` returns
+  `memory.New()`. So `CGO_ENABLED=0 go test ./pkg/org/...` runs the whole org
+  suite with no DB. CGO is only needed for `pkg/server` tests (tree-sitter); the
+  build itself is CGO-free.
+- **`tool.Name` and `streaming.TopicID` are `= string` aliases**, so `[]string`
+  is assignable to `[]tool.Name`/`[]streaming.TopicID` — the tool args use
+  `[]string` and pass straight through to the services.
+- **Dynamic enum schema:** `Deps.ToolNames` is a closure wired in
+  `RegisterBuiltins` that reads `reg.List()` lazily, so `InputSchema()` sees every
+  registered tool regardless of registration order. `withProperty` clones the
+  reflected base schema's Properties map so concurrent `InputSchema()` calls never
+  mutate shared state.
+- **`create_bot` subscription lives in `lifecycle.Create`** (not the MCP adapter)
+  so REST `POST /bots` gets it too; it reuses `subscriptions.SubscribeTopics`
+  (DRY). Topics are validated before the bot row is written → no partial creates.
+- **Merge with `main`:** main added a `PreserveContext` bool to the Bot end-to-end
+  concurrently. Resolved by keeping both (PreserveContext threaded through;
+  `Topics` removed). The `org_bots.topics` column is left orphaned; `NewBot` lost
+  its `topics` param (≈45 call sites updated, mostly tests).
+- **Frontend needed no changes:** the bot detail page reads subscriptions from
+  `useListBotSubscriptions` (subscription rows), never `bot.topics`. Regenerated
+  swagger + TS client only dropped the two `topics` fields.
+- **Kept `subscriptions.Invite`** (many-bots→one-topic): still has unit tests and
+  is the orthogonal counterpart to `SubscribeTopics`; not removed despite
+  `invite_bots` being gone.
