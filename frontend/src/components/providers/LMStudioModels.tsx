@@ -335,7 +335,7 @@ function ModelCard({
           fontSize: "0.75rem",
           py: 0.5,
           ...(isLoaded
-            ? { borderColor: "rgba(255,255,255,0.15)", color: "text.secondary", "&:hover": { borderColor: "#f44336", color: "#f44336" } }
+            ? { borderColor: "rgba(128,128,128,0.4)", color: "text.secondary", "&:hover": { borderColor: "#f44336", color: "#f44336" } }
             : { bgcolor: "#00e891", color: "#000", "&:hover": { bgcolor: "#00cc7a" } }),
         }}
       >
