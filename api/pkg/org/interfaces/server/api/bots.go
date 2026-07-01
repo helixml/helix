@@ -101,11 +101,12 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	// service so a "New Bot" dialog with no tools picker still gets a
 	// usable MCP surface.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
-		ID:       strings.TrimSpace(req.ID),
-		Content:  req.Content,
-		Tools:    toToolNames(req.Tools),
-		Topics:   toTopicIDs(req.Topics),
-		ParentID: orgchart.BotID(strings.TrimSpace(req.ParentID)),
+		ID:              strings.TrimSpace(req.ID),
+		Content:         req.Content,
+		Tools:           toToolNames(req.Tools),
+		Topics:          toTopicIDs(req.Topics),
+		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
+		PreserveContext: req.PreserveContext,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -198,9 +199,10 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		topicsPatch = &s
 	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
-		Content: req.Content,
-		Tools:   toolsPatch,
-		Topics:  topicsPatch,
+		Content:         req.Content,
+		Tools:           toolsPatch,
+		Topics:          topicsPatch,
+		PreserveContext: req.PreserveContext,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -547,10 +549,11 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.B
 // top-level Bot.
 func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	dto := BotDTO{
-		ID:             string(b.ID),
-		Content:        b.Content,
-		ParentIDs:      parentIDs,
-		OrganizationID: b.OrganizationID,
+		ID:              string(b.ID),
+		Content:         b.Content,
+		ParentIDs:       parentIDs,
+		OrganizationID:  b.OrganizationID,
+		PreserveContext: b.PreserveContext,
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)

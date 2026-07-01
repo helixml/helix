@@ -466,12 +466,34 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// lands on a brand-new thread. First activation (no persisted session
 	// yet) has nothing to clear and falls straight through to a fresh
 	// StartSession.
+	//
+	// Opt-out: a Bot with PreserveContext=true keeps its conversation
+	// across triggers — we skip ClearSession so the follow-up lands on the
+	// existing session (and, for Zed/ACP, the same thread). This trades
+	// the fresh-window guarantee for faster, context-aware follow-ups
+	// (the Slack-support experiment); the session then relies on Helix's
+	// own context-limit/compaction handling. Failing to read the Bot must
+	// not silently fall back to wiping a preserve-context Bot, so the
+	// error propagates.
+	preserve := false
 	if state.SessionID != "" {
+		bot, err := c.Store.Bots.Get(ctx, orgID, workerID)
+		if err != nil {
+			return "", fmt.Errorf("load bot %s for context policy: %w", workerID, err)
+		}
+		preserve = bot.PreserveContext
+	}
+	if state.SessionID != "" && !preserve {
 		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
 			return "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
 		}
 		if c.Logger != nil {
 			c.Logger.Info("spawner: cleared session before re-activation",
+				"worker", workerID, "session", state.SessionID)
+		}
+	} else if state.SessionID != "" && preserve {
+		if c.Logger != nil {
+			c.Logger.Info("spawner: preserving session context across re-activation",
 				"worker", workerID, "session", state.SessionID)
 		}
 	}

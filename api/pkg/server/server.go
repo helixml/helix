@@ -254,18 +254,19 @@ func NewServer(
 		}
 
 		oidcCfg := auth.OIDCConfig{
-			ProviderURL:    cfg.Auth.OIDC.URL,
-			ClientID:       cfg.Auth.OIDC.ClientID,
-			ClientSecret:   cfg.Auth.OIDC.ClientSecret,
-			RedirectURL:    helixRedirectURL,
-			AdminUserIDs:   cfg.WebServer.AdminUserIDs,
-			Audience:       cfg.Auth.OIDC.Audience,
-			Scopes:         strings.Split(cfg.Auth.OIDC.Scopes, ","),
-			Store:          store,
-			ExpectedIssuer: cfg.Auth.OIDC.ExpectedIssuer,
-			TokenURL:       cfg.Auth.OIDC.TokenURL,
-			OfflineAccess:  cfg.Auth.OIDC.OfflineAccess,
-			Waitlist:       cfg.Auth.Waitlist,
+			ProviderURL:         cfg.Auth.OIDC.URL,
+			ClientID:            cfg.Auth.OIDC.ClientID,
+			ClientSecret:        cfg.Auth.OIDC.ClientSecret,
+			RedirectURL:         helixRedirectURL,
+			AdminUserIDs:        cfg.WebServer.AdminUserIDs,
+			Audience:            cfg.Auth.OIDC.Audience,
+			Scopes:              strings.Split(cfg.Auth.OIDC.Scopes, ","),
+			Store:               store,
+			ExpectedIssuer:      cfg.Auth.OIDC.ExpectedIssuer,
+			TokenURL:            cfg.Auth.OIDC.TokenURL,
+			OfflineAccess:       cfg.Auth.OIDC.OfflineAccess,
+			Waitlist:            cfg.Auth.Waitlist,
+			AllowedEmailDomains: auth.ParseEmailDomains(cfg.Auth.OIDC.AllowedEmailDomains),
 		}
 		if adminAlerter != nil {
 			oidcCfg.EventHandler = &oidcSignupNotifier{alerter: adminAlerter}

@@ -21177,6 +21177,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "preserve_context": {
+                    "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
+                    "type": "boolean"
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -21245,6 +21249,9 @@ const docTemplate = `{
                 },
                 "parent_id": {
                     "type": "string"
+                },
+                "preserve_context": {
+                    "type": "boolean"
                 },
                 "tools": {
                     "type": "array",
@@ -21776,6 +21783,9 @@ const docTemplate = `{
             "properties": {
                 "content": {
                     "type": "string"
+                },
+                "preserve_context": {
+                    "type": "boolean"
                 },
                 "tools": {
                     "type": "array",

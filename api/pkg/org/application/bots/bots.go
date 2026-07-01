@@ -88,10 +88,11 @@ func New(deps Deps) *Bots {
 // `b-<id>` is minted. Tools is unioned with the injected base read
 // tools; Topics is the typed manifest stored verbatim.
 type CreateParams struct {
-	ID      string
-	Content string
-	Tools   []tool.Name
-	Topics  []streaming.TopicID
+	ID              string
+	Content         string
+	Tools           []tool.Name
+	Topics          []streaming.TopicID
+	PreserveContext bool
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -106,6 +107,9 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
+	if p.PreserveContext {
+		bot = bot.WithPreserveContext(true)
+	}
 	if err := s.bots.Create(ctx, bot); err != nil {
 		return orgchart.Bot{}, err
 	}
@@ -116,9 +120,10 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 // leaves the corresponding field unchanged — this is what preserves
 // Tools/Topics on a content-only update.
 type UpdateParams struct {
-	Content *string
-	Tools   *[]tool.Name
-	Topics  *[]streaming.TopicID
+	Content         *string
+	Tools           *[]tool.Name
+	Topics          *[]streaming.TopicID
+	PreserveContext *bool
 }
 
 // Update reads the existing Bot, applies the patch via the domain's
@@ -138,6 +143,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	}
 	if p.Topics != nil {
 		updated = updated.WithTopics(*p.Topics)
+	}
+	if p.PreserveContext != nil {
+		updated = updated.WithPreserveContext(*p.PreserveContext)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.bots.Update(ctx, updated); err != nil {
