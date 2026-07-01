@@ -36,21 +36,21 @@ Bot-targeted discrete equivalents.
 
 ## User Stories
 
-### US-1: Grant or revoke one tool at a time
-As a manager Bot, I want `attach_tool(botId, tool)` and
-`detach_tool(botId, tool)`, where `tool` is chosen from an enum of valid tool
-names, so I can give a Bot exactly the tools it needs without an array bug and
-without guessing names.
+### US-1: Grant or revoke tools (one or many)
+As a manager Bot, I want `attach_tool(botId, tools)` and
+`detach_tool(botId, tools)`, where `tools` is an array of names chosen from an
+enum of valid tool names, so I can give or remove several tools in one call and
+see the valid values.
 
 **Acceptance criteria**
-- `attach_tool` adds `tool` to the Bot's tool set; idempotent. Takes effect on
-  the Bot's next MCP request.
-- `detach_tool` removes `tool`; idempotent. It refuses to remove a universal
-  read-baseline tool (mandatory; the reconciler would re-add it) with a clear
-  error.
-- `tool` is advertised as a required, non-nullable string `enum` of the
-  registered tool names; new tools appear automatically. Unknown values are
-  rejected.
+- `attach_tool` unions the given `tools` into the Bot's tool set; idempotent per
+  name. Takes effect on the Bot's next MCP request.
+- `detach_tool` removes the given `tools`; idempotent per name. It refuses if
+  any name is a universal read-baseline tool (mandatory; the reconciler would
+  re-add it), failing the call before any write.
+- `tools` is advertised as a required, non-nullable array whose items are the
+  registered-tool-name `enum`; new tools appear automatically. Unknown names
+  are rejected.
 
 ### US-2: Subscribe or unsubscribe a specific Bot later
 As a manager Bot, I want `subscribe(botId, topicId)` and

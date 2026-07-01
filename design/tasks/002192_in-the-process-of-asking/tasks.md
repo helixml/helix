@@ -4,11 +4,11 @@
 - [ ] Amend the org "No workflow in code / streams stay prompt-driven" rule in `helix/CLAUDE.md` (and any mirror in `.cursor/rules/`) toward "complete a user action in as few steps as possible"; note `create_bot` subscribes at creation.
 
 ## New discrete tool grants (attach_tool / detach_tool)
-- [ ] Add `AttachTool(ctx, orgID, id, name)` and `DetachTool(ctx, orgID, id, name)` to `application/bots/bots.go` (read-modify-write via `Update`; `DetachTool` refuses a `BaseReadTools` entry; both idempotent).
+- [ ] Add `AttachTools(ctx, orgID, id, names)` and `DetachTools(ctx, orgID, id, names)` to `application/bots/bots.go` (read-modify-write via `Update`; union/remove per name via `MergeTools`; `DetachTools` refuses any `BaseReadTools` entry; validate the whole batch up front; idempotent per name).
 - [ ] Add a names provider to the mcptools `Deps` (e.g. `ToolNames func() []tool.Name`) wired in `RegisterBuiltins` to return `reg.List()` names.
-- [ ] Add a `schema.go` helper (e.g. `enumStringProperty(names, description)`) building a required, non-nullable string `enum` property.
-- [ ] Create `attach_tool.go` (`attach_tool`, args `{botId, tool}`) building its schema from the names provider in `InputSchema()`; validate the tool name; call `bots.AttachTool`.
-- [ ] Create `detach_tool.go` (`detach_tool`, args `{botId, tool}`) mirroring attach; call `bots.DetachTool`.
+- [ ] Add a `schema.go` helper (e.g. `enumStringArrayProperty(names, description)`) building a required, non-nullable array of enum-constrained strings (shared with `create_bot.tools`).
+- [ ] Create `attach_tool.go` (`attach_tool`, args `{botId, tools}`) building its schema from the names provider in `InputSchema()`; validate the tool names; call `bots.AttachTools`.
+- [ ] Create `detach_tool.go` (`detach_tool`, args `{botId, tools}`) mirroring attach; call `bots.DetachTools`.
 
 ## Bot-targeted subscribe / unsubscribe
 - [ ] Change `subscribe.go` args to `{botId, topicId}` and pass `botId` to `subscriptions.Subscribe`; update description.
@@ -35,11 +35,11 @@
 - [ ] In `defaults.go` `OwnerBotTools()`, replace `UpdateBotName`/`InviteBotsName` with `AttachToolName`, `DetachToolName`, `SetBotContentName`; keep `SubscribeName`/`UnsubscribeName`.
 
 ## Tests & verification
-- [ ] `attach_tool`/`detach_tool`: add; idempotent re-add; detach non-baseline; detach refuses baseline; unknown tool rejected; order-stable result.
+- [ ] `attach_tool`/`detach_tool`: attach a multi-tool array; idempotent re-add; detach a subset; detach refuses if any name is baseline; unknown tool in the array rejected (no partial write); order-stable result.
 - [ ] `subscribe`/`unsubscribe`: subscribe another bot; self-subscribe; unsubscribe; unknown bot/topic rejected.
 - [ ] `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot with tools ∪ baseline + a subscription row per topic; `tools:[], topics:[]` → tools == `BaseReadTools`, no subs; unknown topic → error and no bot row created; unknown tool name rejected; `tools` a required non-nullable enum array and `topics` a required non-nullable array.
 - [ ] `set_bot_content`: content changes, tools preserved.
-- [ ] Schema tests: `attach_tool.tool` non-nullable `enum`; `create_bot.tools` required non-nullable array of enum items; `create_bot.topics` required non-nullable array; no `["null","array"]` union remains; registry additions appear in both enums.
+- [ ] Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools` are required non-nullable arrays of enum items; `create_bot.topics` required non-nullable array; no `["null","array"]` union remains; registry additions appear in the enums.
 - [ ] Update `builtins_test.go` / `spec_tasks_registration_test.go`; fix `NewBot` call sites; `go build ./...` for the org packages.
 - [ ] Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])`, publish to a listed topic and confirm the bot receives it → `attach_tool` (`subscribe`/`dm`) → `subscribe(botId, topicId)` for a later topic.
 </content>

@@ -36,38 +36,43 @@ stays as the tool for subscribing *after* creation.
 |---|---|---|
 | `create_bot` | `id?`, `content`, `tools` (enum array), `topics` (array), `parentId?` | `lifecycle.Create` → bot (tools ∪ baseline) + a subscription row per topic |
 | `set_bot_content` | `botId`, `content` | `bots.Update{Content}` |
-| `attach_tool` | `botId`, `tool` (enum) | new `bots.AttachTool` |
-| `detach_tool` | `botId`, `tool` (enum) | new `bots.DetachTool` |
+| `attach_tool` | `botId`, `tools` (enum array) | new `bots.AttachTools` |
+| `detach_tool` | `botId`, `tools` (enum array) | new `bots.DetachTools` |
 | `subscribe` | `botId`, `topicId` | `subscriptions.Subscribe(orgID, botId, topicId)` |
 | `unsubscribe` | `botId`, `topicId` | `subscriptions.Unsubscribe(orgID, botId, topicId)` |
 
 Removed: `update_bot`, `invite_bots`, the caller-only `subscribe`/`unsubscribe`.
 
-## Change A — `attach_tool` / `detach_tool` (discrete tool grants)
+## Change A — `attach_tool` / `detach_tool` (tool grants, array + enum)
 
 ```go
 type attachToolArgs struct {
-    BotID string `json:"botId"`
-    Tool  string `json:"tool"`
+    BotID string   `json:"botId"`
+    Tools []string `json:"tools"`
 }
 ```
 
-Service methods on `bots.Bots` (keep the read-modify-write in the service):
-- `AttachTool(ctx, orgID, id, name)` — Get the Bot; append `name` if absent
-  (idempotent); persist via `Update`. Validate `name` is registered.
-- `DetachTool(ctx, orgID, id, name)` — Get the Bot; refuse if `name` is in
-  `BaseReadTools`; remove if present (idempotent); persist.
+Both take a **non-nullable array** of tool names (pass one or many), each item
+constrained to the registered-tool-name enum. Service methods on `bots.Bots`
+(keep the read-modify-write in the service):
+- `AttachTools(ctx, orgID, id, names)` — Get the Bot; union `names` into `Tools`
+  (idempotent per name, order-stable via `MergeTools`); persist via `Update`.
+  Validate every name is registered up front.
+- `DetachTools(ctx, orgID, id, names)` — Get the Bot; refuse if any name is in
+  `BaseReadTools`; remove those present (idempotent per name); persist. Validate
+  the whole batch first so a bad/baseline name fails the call before any write.
 
 ### Enum of valid tool names (from the registry)
-The `tool` arg is a required, non-nullable string enum of registered tool names.
-Those names live in the `Registry` (populated by `RegisterBuiltins`), not at
-package-init — so the schema can't be a static `mustSchema` var.
+The `tools` items are the registered tool names as a JSON-Schema `enum`. Those
+names live in the `Registry` (populated by `RegisterBuiltins`), not at
+package-init — so these schemas can't be static `mustSchema` vars.
 - Add a names provider to `Deps` (e.g. `ToolNames func() []tool.Name`) wired in
   `RegisterBuiltins` to return `reg.List()` names.
-- Build the enum in `InputSchema()` at serve time (per ListTools request) so it
-  always reflects the current registry.
-- Add a `schema.go` helper (e.g. `enumStringProperty(names, description)`)
-  reusing the existing `enumSchema` shape.
+- Build the schema in `InputSchema()` at serve time (per ListTools request) so
+  it always reflects the current registry.
+- Reuse the same `schema.go` helper `create_bot` uses for its `tools`
+  (e.g. `enumStringArrayProperty(names, description)`): a non-nullable array of
+  enum-constrained strings; add `tools` to `required`.
 
 ## Change B — `subscribe` / `unsubscribe` target a Bot
 
@@ -147,8 +152,11 @@ it.
   Authorization is by tool possession, as today.
 
 ## Key decisions
-- **Discrete over bulk** for tool-granting/subscription — scalar args kill the
-  array-schema bug at the source; `tool` is a discoverable enum.
+- **Fixed array schemas, not scalar-only** — `attach_tool`/`detach_tool` and
+  `create_bot` take non-nullable arrays of enum-constrained tool names (pass one
+  or many). The enum makes values discoverable and the non-nullable override
+  avoids the `["null","array"]` union that caused the original bug.
+  `subscribe`/`unsubscribe` stay scalar (`botId`,`topicId`).
 - **`create_bot` sets initial tools and auto-subscribes** — per the amended
   "fewest steps" principle; the manager's common intent is a Bot that already
   has its tools and is listening. `tools` is an enum array (discoverable, same
@@ -161,8 +169,10 @@ it.
 - **Keep `set_bot_content`** so content stays editable after `update_bot` goes.
 
 ## Testing
-- `attach_tool`/`detach_tool`: add; idempotent; detach non-baseline; detach
-  refuses baseline; unknown tool rejected; order-stable (`MergeTools`).
+- `attach_tool`/`detach_tool`: attach a multi-tool array; idempotent re-add;
+  detach a subset; detach refuses if any name is baseline; an unknown tool in
+  the array is rejected (whole call fails, no partial write); order-stable
+  (`MergeTools`).
 - `subscribe`/`unsubscribe`: subscribe another bot; self-subscribe; unsubscribe;
   unknown bot/topic rejected.
 - `create_bot`: `tools:["subscribe","dm"], topics:["t1","t2"]` (existing) → bot
@@ -172,10 +182,10 @@ it.
   advertised as a required non-nullable enum array, `topics` as a required
   non-nullable array.
 - `set_bot_content`: content changes, tools preserved.
-- Schema tests: `attach_tool.tool` is a non-nullable `enum`; `create_bot.tools`
-  is a required non-nullable array of enum items; `create_bot.topics` is a
+- Schema tests: `attach_tool.tools`/`detach_tool.tools` and `create_bot.tools`
+  are required non-nullable arrays of enum items; `create_bot.topics` is a
   required non-nullable array; no `["null","array"]` union remains; registry
-  additions appear in both enums.
+  additions appear in the enums.
 - `builtins_test.go` / `spec_tasks_registration_test.go`: registered set;
   fix `NewBot` call sites; `go build ./...` for the org packages.
 - Manual MCP smoke (inner Helix): `create_topic` → `create_bot(topics:[…])` and
