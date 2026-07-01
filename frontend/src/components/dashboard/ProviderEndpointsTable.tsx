@@ -28,6 +28,7 @@ import ProviderEndpointUsageBarChart from './ProviderEndpointUsageBarChart';
 import { useApi } from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import { useListProviders } from '../../services/providersService';
+import useRouter from '../../hooks/useRouter';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
 
@@ -70,6 +71,7 @@ const ProviderEndpointsTable: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const account = useAccount()
+  const router = useRouter()
   const providersManagementEnabled = account.serverConfig.providers_management_enabled ?? false    
 
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
@@ -273,6 +275,15 @@ const ProviderEndpointsTable: FC = () => {
       >
         <MenuItem onClick={handleEditClick}>Edit Details</MenuItem>
         <MenuItem onClick={handleEditModelsClick}>Edit Models</MenuItem>
+        {selectedEndpoint && (selectedEndpoint.name === 'lmstudio' || selectedEndpoint.name === 'ollama' || selectedEndpoint.name?.includes('lmstudio') || selectedEndpoint.name?.includes('ollama')) && (
+          <MenuItem onClick={() => {
+            handleMenuClose();
+            const orgId = router.params?.org_id || account.organizationTools.organizations?.[0]?.id;
+            if (orgId && selectedEndpoint?.id) {
+              router.navigate('org_provider_detail', { org_id: orgId, provider_id: selectedEndpoint.id });
+            }
+          }}>Manage Local Models</MenuItem>
+        )}
         <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
       </Menu>
       <DeleteProviderEndpointDialog
