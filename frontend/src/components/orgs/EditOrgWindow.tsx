@@ -29,6 +29,12 @@ const DEFAULT_BOT_RUNTIME: BotRuntimeValue = {
   model: '',
 }
 
+// Identity for the starter Bot seeded into a new org so its chart isn't blank.
+// Created with owner=true so it can set up and coordinate other Bots.
+const STARTER_BOT_CONTENT = `# Chief of Staff
+
+You are the Chief of Staff for this organization - the owner's right hand, here to support them and the team. When you first meet the owner, ask what this organization is for and what they want to accomplish. Then set things up: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself.`
+
 const EditOrgWindow: FC<EditOrgWindowProps> = ({
   open,
   org,
@@ -157,6 +163,21 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
           await persistBotDefaults(created.name)
         } catch (e) {
           snackbar.error('Organization created, but saving the default bot runtime failed — set it in Settings.')
+        }
+      }
+
+      // New alpha org: seed a starter manager Bot so the org chart isn't
+      // blank. It gets the owner tool set (can hire + manage other Bots) and
+      // inherits the org's default runtime. Best-effort.
+      if (!org && helixOrgEnabled && created && created.name) {
+        try {
+          await api.getApiClient().v1OrgsBotsCreate(created.name, {
+            id: 'chief-of-staff',
+            content: STARTER_BOT_CONTENT,
+            owner: true,
+          })
+        } catch (e) {
+          snackbar.error('Organization created, but seeding the starter bot failed - add one from the Org Chart.')
         }
       }
 

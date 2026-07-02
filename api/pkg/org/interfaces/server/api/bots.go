@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
 // ---- Bots ---------------------------------------------------------------
@@ -96,14 +97,21 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
+	// A manager Bot gets the canonical owner tool set (all mutations +
+	// read baseline) so it can hire and manage other Bots; otherwise the
+	// caller's tools are used. Either way the bots service unions the
+	// base read tools, so a "New Bot" dialog with no tools picker still
+	// gets a usable MCP surface.
+	tools := toToolNames(req.Tools)
+	if req.Owner {
+		tools = mcptools.OwnerBotTools()
+	}
 	// REST and chat-driven creates share lifecycle.Create — one
-	// implementation. The base read tools are unioned by the bots
-	// service so a "New Bot" dialog with no tools picker still gets a
-	// usable MCP surface.
+	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              strings.TrimSpace(req.ID),
 		Content:         req.Content,
-		Tools:           toToolNames(req.Tools),
+		Tools:           tools,
 		Topics:          toTopicIDs(req.Topics),
 		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,

@@ -9721,7 +9721,7 @@ const docTemplate = `{
                 "tags": [
                     "HelixOrg"
                 ],
-                "summary": "Helix-org: restart a bot's agent session (recreate desktop container)",
+                "summary": "Helix-org: restart a bot's agent session (fresh session + desktop)",
                 "parameters": [
                     {
                         "type": "string",
@@ -21240,6 +21240,10 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "owner": {
+                    "description": "Owner makes this a manager Bot: it receives the canonical owner\ntool set (every org-graph mutation - create_bot, delete_bot,\nset_bot_content, subscribe, ... - plus the read baseline) so it can\nhire and manage other Bots. When true, Tools is ignored in favour\nof that set. Used to seed a starter/root Bot for a new org.",
+                    "type": "boolean"
                 },
                 "parent_id": {
                     "type": "string"

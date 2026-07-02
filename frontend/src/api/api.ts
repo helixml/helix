@@ -65,6 +65,14 @@ export interface ApiBotSubscriptionsResponse {
 export interface ApiCreateBotRequest {
   content?: string;
   id?: string;
+  /**
+   * Owner makes this a manager Bot: it receives the canonical owner
+   * tool set (every org-graph mutation - create_bot, delete_bot,
+   * set_bot_content, subscribe, ... - plus the read baseline) so it can
+   * hire and manage other Bots. When true, Tools is ignored in favour
+   * of that set. Used to seed a starter/root Bot for a new org.
+   */
+  owner?: boolean;
   parent_id?: string;
   preserve_context?: boolean;
   tools?: string[];
@@ -12199,7 +12207,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      *
      * @tags HelixOrg
      * @name V1OrgsBotsRestartAgentCreate
-     * @summary Helix-org: restart a bot's agent session (recreate desktop container)
+     * @summary Helix-org: restart a bot's agent session (fresh session + desktop)
      * @request POST:/api/v1/orgs/{org}/bots/{id}/restart-agent
      * @secure
      */

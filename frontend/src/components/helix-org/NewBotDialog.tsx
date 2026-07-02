@@ -73,10 +73,10 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
             label="Bot ID"
-            placeholder="b-engineer"
+            placeholder="engineer"
             value={id}
             onChange={(e) => setId(e.target.value)}
-            helperText="Convention: b-<kebab-case>. Stays as-is — the LLM and operator both refer to bots by this handle."
+            helperText="A short handle in kebab-case, e.g. engineer. Stays as-is - the LLM and operator both refer to the bot by it."
             autoFocus
             fullWidth
           />
