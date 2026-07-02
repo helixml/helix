@@ -1451,6 +1451,21 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 		}
 	}
 
+	// Reconcile the inverse of discovery: any session this control-plane still
+	// believes is "running" on this sandbox but that hydra no longer reports is
+	// stale (e.g. a CD redeploy restarted the sandbox and destroyed its dev
+	// containers). Mark those sessions stopped so the Kanban / task page stop
+	// showing a dead container as running. This MUST run even when hydra reports
+	// zero containers (the full-wipe case), so it sits before the empty-list
+	// early return below.
+	liveSessionIDs := make(map[string]bool, len(containerList.Containers))
+	for _, container := range containerList.Containers {
+		if container.SessionID != "" {
+			liveSessionIDs[container.SessionID] = true
+		}
+	}
+	h.markMissingSessionsStopped(ctx, sandboxID, liveSessionIDs, hydraClient)
+
 	if len(containerList.Containers) == 0 {
 		return nil
 	}
@@ -1580,6 +1595,103 @@ func (h *HydraExecutor) DiscoverContainersFromSandbox(ctx context.Context, sandb
 	}
 
 	return nil
+}
+
+// markMissingSessionsStopped downgrades sessions on the given sandbox that this
+// control-plane still marks "running" but that are absent from hydra's live set
+// (liveSessionIDs). For each candidate it authoritatively confirms the container
+// is gone with a per-session GetDevContainer probe — taken under the session's
+// creation lock so a concurrent StartDesktop that (re)created the container after
+// hydra's snapshot can't be wrongly torn down. Confirmed-dead sessions have their
+// container metadata cleared, status set to "stopped", and their stale in-memory
+// entry evicted, so the derived SandboxState becomes "absent" instead of showing
+// a dead container as running.
+func (h *HydraExecutor) markMissingSessionsStopped(ctx context.Context, sandboxID string, liveSessionIDs map[string]bool, hydraClient *hydra.RevDialClient) {
+	// Unlike the active_sandboxes counter (a multi-tenant autoscaler concern that
+	// skips "local"), session-status reconciliation applies to every sandbox
+	// including the single-node "local" one — a self-hosted CD redeploy destroys
+	// its containers just the same. Only skip the ambiguous empty id.
+	if sandboxID == "" {
+		return
+	}
+
+	sessions, err := h.store.ListSessionsBySandbox(ctx, sandboxID)
+	if err != nil {
+		log.Warn().Err(err).Str("sandbox_id", sandboxID).Msg("Failed to list sessions for stale-container reconcile")
+		return
+	}
+
+	for _, session := range sessions {
+		if liveSessionIDs[session.ID] {
+			continue // hydra confirms this container is alive
+		}
+		// Only downgrade sessions we believe are actively running with a
+		// container. Skip "starting" (StartDesktop may be mid-flight and not yet
+		// visible to hydra) and already-terminal states.
+		if session.Metadata.ExternalAgentStatus != "running" || session.Metadata.ContainerName == "" {
+			continue
+		}
+
+		// Serialize against StartDesktop for this session before making a
+		// decision, so the probe + downgrade is atomic wrt a concurrent start.
+		h.creationLocksMutex.Lock()
+		sessionLock, exists := h.creationLocks[session.ID]
+		if !exists {
+			sessionLock = &sync.Mutex{}
+			h.creationLocks[session.ID] = sessionLock
+		}
+		h.creationLocksMutex.Unlock()
+
+		sessionLock.Lock()
+
+		// Re-read under the lock: StartDesktop may have just (re)created it.
+		current, err := h.store.GetSession(ctx, session.ID)
+		if err != nil {
+			sessionLock.Unlock()
+			continue
+		}
+		if current.Metadata.ExternalAgentStatus != "running" || current.Metadata.ContainerName == "" {
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Authoritatively confirm the container is gone before downgrading.
+		// hydra's list snapshot may pre-date a just-started container, so a
+		// direct live probe is the source of truth for the decision.
+		if hydraClient != nil {
+			if _, err := hydraClient.GetDevContainer(ctx, session.ID); err == nil {
+				sessionLock.Unlock()
+				continue // container actually exists; snapshot was just stale
+			}
+		}
+
+		current.Metadata.ContainerName = ""
+		current.Metadata.ContainerID = ""
+		current.Metadata.ContainerIP = ""
+		current.Metadata.ExternalAgentStatus = "stopped"
+		// Keep DesiredState + SandboxID so a reconciler can restart it here.
+
+		if _, err := h.store.UpdateSession(ctx, *current); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Str("sandbox_id", sandboxID).
+				Msg("Failed to mark stale dev container session stopped during discovery")
+			sessionLock.Unlock()
+			continue
+		}
+
+		// Evict the stale in-memory entry so GetSession/HasRunningContainer agree.
+		h.mutex.Lock()
+		delete(h.sessions, session.ID)
+		h.mutex.Unlock()
+
+		log.Info().
+			Str("session_id", session.ID).
+			Str("sandbox_id", sandboxID).
+			Msg("Marked stale dev container session stopped (not reported by hydra after reconnect)")
+
+		sessionLock.Unlock()
+	}
 }
 
 // ReconcileSandboxResources posts the DB-derived live-set to a connected
