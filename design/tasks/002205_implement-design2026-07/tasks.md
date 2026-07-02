@@ -72,5 +72,8 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 
 ## Wrap-up
 
-- [ ] `cd frontend && yarn build`; `go build ./pkg/...`; push and confirm CI green
-- [ ] Update the design doc status and note any resolved open questions
+- [x] `go build ./pkg/...` green (server/services/types/vcs); `types` mapper unit test passes; frontend `tsc --noEmit` clean (yarn build not runnable locally — deps live in the container; tsc used instead)
+- [x] Merged `origin/main` into the feature branch (clean, no conflicts); rebuilt green; pushed `feature/002205-project-vcs-connection`
+- [x] PR description written (`pull_request_helix.md`)
+- [x] Design docs updated throughout with implementation notes and findings (A built; B registry/scopes/API/lozenge; C shipped; D investigated)
+- [ ] CI: runs on branch push; not fetched here (no PR / build number in this inner instance) — reviewer to confirm green
