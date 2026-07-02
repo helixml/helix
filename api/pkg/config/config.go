@@ -435,6 +435,14 @@ type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
+
+	// AgentToolNudgeModels lists model-name substrings (case-insensitive) whose
+	// tool-enabled chat completions get a directive appended to the system prompt
+	// telling the model to act via tools rather than end its turn on a bare plan.
+	// This mitigates the narrate-then-stop stall that non-Claude models (GLM,
+	// Qwen, ...) exhibit and Claude does not. Extend via env as new models surface;
+	// set empty to disable entirely.
+	AgentToolNudgeModels []string `envconfig:"INFERENCE_AGENT_TOOL_NUDGE_MODELS" default:"glm,qwen"`
 }
 
 type Search struct {

@@ -28,6 +28,51 @@ const (
 
 // POST https://app.helix.ml/v1/chat/completions
 
+// agentToolNudge is appended to the system prompt of any tool-enabled chat
+// completion. Some models (e.g. GLM) narrate a plan and return finish_reason
+// "stop" with no tool call; the Zed agent reads "no tool call" as end-of-turn
+// and hands control back to the user, who then has to prod it. Claude chains
+// planning into the tool call in one turn, so it never strands the user. This
+// directive pushes narrate-then-stop models to act in the same turn.
+const agentToolNudge = "You have tools available. When you state an action you are about to take, call the corresponding tool in the same turn. Never end your turn with only a plan, a description of what you will do next, or a question about whether to proceed. If any work remains, call a tool. Stop only when the task is complete or you genuinely need input from the user."
+
+// injectAgentToolNudge appends agentToolNudge to the request's system prompt,
+// scoped to tool-enabled requests whose model name matches one of nudgeModels
+// (case-insensitive substrings of models confirmed to narrate-then-stop). A
+// request with no tools cannot act via a tool, so the directive would be noise.
+// It merges into an existing leading system message when that message uses plain
+// string content, otherwise it prepends a fresh system message (go-openai
+// rejects a message that sets both Content and MultiContent).
+func injectAgentToolNudge(req *openai.ChatCompletionRequest, nudgeModels []string) {
+	if len(req.Tools) == 0 {
+		return
+	}
+	model := strings.ToLower(req.Model)
+	matched := false
+	for _, m := range nudgeModels {
+		if m != "" && strings.Contains(model, strings.ToLower(m)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return
+	}
+	if len(req.Messages) > 0 &&
+		req.Messages[0].Role == openai.ChatMessageRoleSystem &&
+		len(req.Messages[0].MultiContent) == 0 {
+		if req.Messages[0].Content != "" {
+			req.Messages[0].Content += "\n\n"
+		}
+		req.Messages[0].Content += agentToolNudge
+		return
+	}
+	req.Messages = append([]openai.ChatCompletionMessage{{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: agentToolNudge,
+	}}, req.Messages...)
+}
+
 // createChatCompletion godoc
 // @Summary Stream responses for chat
 // @Description Creates a model response for the given chat conversation.
@@ -65,6 +110,8 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	injectAgentToolNudge(&chatCompletionRequest, s.Cfg.Inference.AgentToolNudgeModels)
 
 	ownerID := user.ID
 	if user.TokenType == types.TokenTypeRunner {
