@@ -44,10 +44,16 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 
 ## Workstream B — Lozenge UI
 
-- [ ] Build the generic lozenge component (one per provider entry), rendered top-right in `SpecTaskKanbanBoard.tsx`, using the generated client + React Query
-- [ ] Implement the three states (Verified / Needs attention / Disconnected) and "acting as X · pushing as @y" display
-- [ ] Implement the menu: Switch account, Reconnect, Disconnect (unbind project only), Remove from my account, View on provider — reusing the existing OAuth connect flow
-- [ ] E2E in inner Helix: verified lozenge for a reachable GitHub repo; no-access → needs_attention; switch forces account picker; provider-with-no-repos shows no lozenge
+- [x] Build the generic lozenge component `VCSConnectionLozenges.tsx` (one chip per provider entry), rendered in the board header of `SpecTaskKanbanBoard.tsx`, using the generated client (`getProjectVcsConnections`) + React Query
+- [x] Three states (Verified / Needs attention / Disconnected) + "acting as X · pushing as @y" and missing-scopes in the tooltip; renders nothing when the project has no external repos
+- [~] Menu: reuses the existing Connected Services surface (`useSettingsDialog().openDialog('connected-services')`) for connect/switch/reconnect/disconnect, plus "View on provider". Full per-project unbind + forced account picker are backend follow-ups (see below) — the lozenge routes to the existing lifecycle UI rather than reimplementing it inline.
+- [~] E2E in inner Helix: endpoint verified live (401 unauth → route registered; frontend typechecks clean). Full state E2E (verified vs needs_attention) needs a project with a real connected GitHub account + external repo — pending; documented as a manual verification step.
+
+## Workstream B — Remaining follow-ups (backend, not yet done)
+
+- [ ] Force the provider account picker in Switch/Reconnect (`GetAuthorizationURL` account-selection param) — GitHub OAuth reuses the browser session; needs provider-specific handling
+- [ ] Per-project "Disconnect (unbind this project)" endpoint (connections are per-user/global today; needs a project↔connection binding to unbind without revoking the global token)
+- [ ] Pre-flight verify before "Start planning" (reuse `verifyVCSRepoAccess`); block with switch-account prompt on failure
 
 ## Workstream C — Readable dev-startup pull output
 
