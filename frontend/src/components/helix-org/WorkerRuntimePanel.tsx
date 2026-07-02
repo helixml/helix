@@ -1,9 +1,8 @@
 // WorkerRuntimePanel renders the helix-org worker.* runtime config
 // (runtime / credentials / provider / model) as first-class dropdowns.
-// It lives on the AI Providers page so an operator configures providers
-// and then picks which one their Workers use in one place. Reads/writes
-// the same config registry the server validates against; org context is
-// resolved from router.params.org_id by the underlying hooks.
+// It lives on the org General settings page. Reads/writes the same config
+// registry the server validates against; org context is resolved from
+// router.params.org_id by the underlying hooks.
 //
 // The provider + model dropdowns pull their options from Helix's existing
 // /providers + /v1/models endpoints, so adding a provider is reflected
@@ -252,7 +251,7 @@ const ProviderRow: FC<{
       <FormHelperText>
         {disabled
           ? 'Pick credentials=api_key above to enable.'
-          : 'One of the providers configured above on this Helix instance.'}
+          : 'One of the providers configured on this Helix instance.'}
       </FormHelperText>
       <Box sx={{ mt: 1 }}>
         <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={setMut.isPending || disabled}>
