@@ -16,7 +16,7 @@ export interface IOrganizationTools {
   loadingAccessGrants: boolean,
   // Organization methods
   loadOrganizations: () => Promise<void>,
-  createOrganization: (org: TypesOrganization) => Promise<boolean>,
+  createOrganization: (org: TypesOrganization) => Promise<TypesOrganization | null>,
   updateOrganization: (id: string, org: TypesOrganization) => Promise<boolean>,
   deleteOrganization: (id: string) => Promise<boolean>,
   loadOrganization: (id: string) => Promise<void>,
@@ -51,7 +51,7 @@ export const defaultOrganizationTools: IOrganizationTools = {
   appAccessGrants: [],
   loadingAccessGrants: false,
   loadOrganizations: async () => {},
-  createOrganization: async () => false,
+  createOrganization: async () => null,
   updateOrganization: async () => false,
   deleteOrganization: async () => false,
   loadOrganization: async () => {},
@@ -257,15 +257,15 @@ export default function useOrganizations(): IOrganizationTools {
 
   const createOrganization = useCallback(async (org: TypesOrganization) => {
     try {
-      await api.getApiClient().v1OrganizationsCreate(org)
+      const res = await api.getApiClient().v1OrganizationsCreate(org)
       snackbar.success('Organization created')
       await loadOrganizations()
-      return true
+      return res.data
     } catch (error) {
       console.error(error)
       const errorMessage = extractErrorMessage(error)
       snackbar.error(errorMessage || 'Error creating organization')
-      return false
+      return null
     }
   }, [])
 
