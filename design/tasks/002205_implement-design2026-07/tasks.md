@@ -76,4 +76,4 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 - [x] Merged `origin/main` into the feature branch (clean, no conflicts); rebuilt green; pushed `feature/002205-project-vcs-connection`
 - [x] PR description written (`pull_request_helix.md`)
 - [x] Design docs updated throughout with implementation notes and findings (A built; B registry/scopes/API/lozenge; C shipped; D investigated)
-- [ ] CI: runs on branch push; not fetched here (no PR / build number in this inner instance) — reviewer to confirm green
+- [x] CI green on PR #2789 (helix) — https://github.com/helixml/helix/pull/2789/checks
