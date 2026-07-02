@@ -338,7 +338,7 @@ const OrgSettings: FC = () => {
                     color="text.secondary"
                     sx={{ mb: 2 }}
                   >
-                    How this org's Bots run by default — which runtime, and which
+                    How Bots in this org run by default — which runtime, and which
                     provider/model they route through.
                   </Typography>
                   <WorkerRuntimePanel />

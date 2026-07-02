@@ -1,6 +1,6 @@
 // WorkerRuntimePanel is the org-level "Default Bot Runtime" config. It mirrors
 // the per-agent runtime picker on the Agent settings page (AppSettings) — same
-// style and terms (Agent Runtime / Credentials / Model, friendly labels) so it
+// style and terms (Runtime / Credentials / Model, friendly labels) so it
 // reads identically — but writes the org-level worker.* config registry keys
 // that new Bots inherit. Changes auto-save; org context is resolved from
 // router.params.org_id by the underlying hooks.
@@ -135,7 +135,7 @@ const WorkerRuntimePanel: FC = () => {
         <Stack spacing={2}>
           <Box>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-              Agent Runtime
+              Runtime
             </Typography>
             <FormControl fullWidth size="small">
               <Select
