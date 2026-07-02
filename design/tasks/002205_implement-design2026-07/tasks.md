@@ -47,7 +47,8 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 - [x] Build the generic lozenge component `VCSConnectionLozenges.tsx` (one chip per provider entry), rendered in the board header of `SpecTaskKanbanBoard.tsx`, using the generated client (`getProjectVcsConnections`) + React Query
 - [x] Three states (Verified / Needs attention / Disconnected) + "acting as X · pushing as @y" and missing-scopes in the tooltip; renders nothing when the project has no external repos
 - [~] Menu: reuses the existing Connected Services surface (`useSettingsDialog().openDialog('connected-services')`) for connect/switch/reconnect/disconnect, plus "View on provider". Full per-project unbind + forced account picker are backend follow-ups (see below) — the lozenge routes to the existing lifecycle UI rather than reimplementing it inline.
-- [~] E2E in inner Helix: endpoint verified live (401 unauth → route registered; frontend typechecks clean). Full state E2E (verified vs needs_attention) needs a project with a real connected GitHub account + external repo — pending; documented as a manual verification step.
+- [x] E2E in inner Helix (partial, verified): registered → created org/project (new repo) → board loaded; the board fired `GET /projects/{id}/vcs-connections` → **200 `[]`**, lozenge correctly rendered nothing (presence axis: no external repos → no lozenge), **zero console errors**. Screenshot `screenshots/05-board-loads-clean.png`.
+- [ ] E2E for the verified vs needs_attention states needs a project with a real connected GitHub account + external repo (not available in this inner instance) — manual verification step for a reviewer with a GitHub connection.
 
 ## Workstream B — Remaining follow-ups (backend, not yet done)
 
