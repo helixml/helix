@@ -436,10 +436,10 @@ type Inference struct {
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
 
-	// DisableAgentToolNudge turns off the directive appended to tool-enabled chat
-	// completions that tells the model to act via tools rather than end its turn on
-	// a bare plan. The nudge mitigates narrate-then-stop stalls with models (e.g.
-	// GLM) that Claude does not exhibit. Enabled by default; kill switch only.
+	// DisableAgentToolNudge turns off the directive appended to tool-enabled GLM
+	// chat completions that tells the model to act via tools rather than end its
+	// turn on a bare plan. The nudge mitigates narrate-then-stop stalls that GLM
+	// exhibits and Claude does not. Enabled by default; kill switch only.
 	DisableAgentToolNudge bool `envconfig:"INFERENCE_DISABLE_AGENT_TOOL_NUDGE" default:"false"`
 }
 

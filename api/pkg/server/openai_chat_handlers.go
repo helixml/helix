@@ -37,13 +37,17 @@ const (
 const agentToolNudge = "You have tools available. When you state an action you are about to take, call the corresponding tool in the same turn. Never end your turn with only a plan, a description of what you will do next, or a question about whether to proceed. If any work remains, call a tool. Stop only when the task is complete or you genuinely need input from the user."
 
 // injectAgentToolNudge appends agentToolNudge to the request's system prompt,
-// but only for tool-enabled requests (a request with no tools cannot act via a
-// tool, so the directive would be noise). It merges into an existing leading
-// system message when that message uses plain string content, otherwise it
-// prepends a fresh system message (go-openai rejects a message that sets both
-// Content and MultiContent).
+// scoped to tool-enabled requests targeting a GLM model — the only model we
+// have confirmed exhibits the narrate-then-stop stall. A request with no tools
+// cannot act via a tool, so the directive would be noise. It merges into an
+// existing leading system message when that message uses plain string content,
+// otherwise it prepends a fresh system message (go-openai rejects a message
+// that sets both Content and MultiContent).
 func injectAgentToolNudge(req *openai.ChatCompletionRequest) {
 	if len(req.Tools) == 0 {
+		return
+	}
+	if !strings.Contains(strings.ToLower(req.Model), "glm") {
 		return
 	}
 	if len(req.Messages) > 0 &&
