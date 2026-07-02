@@ -46,9 +46,9 @@
 ## Workstream C — Readable dev-startup pull output
 
 - [x] Choose the approach: `grep --line-buffered -v "^$"` (minimal; keeps per-layer progress, flushes each line)
-- [~] Apply at `stack:1098`, `stack:1139`, `stack:1176`
-- [~] Apply at `sandbox/04-start-dockerd.sh:266`, `:285`
-- [ ] Verify a fresh inner-Helix boot: pull output renders line-by-line, no mid-line truncation
+- [x] Apply at `stack:1098/1139/1176` (also fixed the `docker push` grep at `:1089` — same buffering)
+- [x] `sandbox/04-start-dockerd.sh:266/285` — **no change needed**: those `docker pull` calls have no `grep` pipe (write directly, already line-flushed by docker), and piping them through `grep` would break the `if`/exit-code check that hard-fails the boot. The buffering artifact came only from the `stack` grep path.
+- [ ] Verify a fresh inner-Helix boot: pull output renders line-by-line, no mid-line truncation (deferred — requires a fresh session; low-risk cosmetic change)
 
 ## Workstream D — Warm desktop image via golden snapshot
 

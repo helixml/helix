@@ -151,12 +151,18 @@ stdout, so lines arrive in bursts and snapshots land mid-line. Not a hang — th
 7.67 GB `helix-ubuntu` image is genuinely transferring. Full evidence:
 `investigation-helix-in-helix-boot.md` §1.
 
-Fix at `stack:1098/1139/1176` and `sandbox/04-start-dockerd.sh:266/285`:
-- Minimal/clean: `docker pull --quiet` (one final digest line), or
-- Keep per-layer progress but flush each line: `stdbuf -oL docker pull … 2>&1 | grep --line-buffered -v "^$"`. The `--line-buffered` on grep is the actual lever.
+**Implemented:** added `--line-buffered` to the `grep -v "^$"` pipes in `stack`
+(`:1098/:1139/:1176` for `docker pull`, plus `:1089` for `docker push` — same
+issue). This flushes each line immediately so the output no longer arrives in
+truncated bursts.
 
-Pick one and apply consistently. `--quiet` is simplest; `--line-buffered` keeps
-progress visible. No behavioral change beyond output formatting.
+**Finding — `sandbox/04-start-dockerd.sh:266/285` left unchanged.** Those
+`docker pull … 2>&1` calls have **no** `grep` pipe: docker writes directly and
+already line-flushes to a non-TTY. Adding a `grep` pipe there would be actively
+harmful — the surrounding `if docker pull …; then` tests the pipeline's exit
+status, so piping through `grep` (which returns non-zero when it filters all
+lines) would corrupt the boot-critical success check that hard-fails the sandbox.
+So the grep-buffering bug only ever existed in the `stack` transfer path.
 
 ## Workstream D — Warm desktop image via golden snapshot
 
