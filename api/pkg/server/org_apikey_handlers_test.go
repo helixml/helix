@@ -199,6 +199,59 @@ func TestListOrgAPIKeys_FiltersOutSpecTaskKeys(t *testing.T) {
 	require.Equal(t, "Another Regular", keys[1].Name)
 }
 
+func TestListOrgAPIKeys_FiltersOutSessionKeys(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	server := &HelixAPIServer{Store: mockStore}
+
+	orgID := "org_123"
+	userID := "user_owner"
+
+	expectResolveOrganizationByID(mockStore, orgID)
+
+	mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         userID,
+		Role:           types.OrganizationRoleOwner,
+	}, nil)
+
+	// The helix-org bot session key belongs to a different user (the
+	// org-service identity) and is scoped to this org. It must not leak
+	// into the owner's key list. It sets SessionID but not SpecTaskID,
+	// which the old SpecTaskID-only filter missed.
+	mockStore.EXPECT().ListAPIKeys(gomock.Any(), &store.ListAPIKeysQuery{
+		OrganizationID: orgID,
+		Type:           types.APIkeytypeAPI,
+	}).Return([]*types.ApiKey{
+		{Key: "key_1", Name: "Regular Key", Owner: userID, OrganizationID: orgID},
+		{Key: "key_2", Name: "Session key - ses_x", Owner: "user_service", OrganizationID: orgID, SessionID: "ses_x"},
+	}, nil)
+
+	mockStore.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: userID}).Return(&types.User{
+		ID: userID, Email: "owner@example.com",
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations/"+orgID+"/api_keys", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": orgID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+
+	rr := httptest.NewRecorder()
+	server.listOrgAPIKeys(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var keys []orgAPIKeyResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &keys)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.Equal(t, "Regular Key", keys[0].Name)
+}
+
 func TestCreateOrgAPIKey_MemberCanCreate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

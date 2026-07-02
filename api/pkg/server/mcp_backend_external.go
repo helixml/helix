@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -323,38 +324,7 @@ func (b *ExternalMCPBackend) getOrCreateServer(ctx context.Context, user *types.
 		// Create a handler that forwards to the external server
 		handler := b.createToolHandler(externalClient, tool.Name)
 
-		// Build tool options
-		var opts []mcp.ToolOption
-		opts = append(opts, mcp.WithDescription(tool.Description))
-
-		// Add parameters from the tool's input schema
-		// mcp.ToolInputSchema has Properties map[string]interface{} and Required []string
-		if tool.InputSchema.Properties != nil {
-			required := make(map[string]bool)
-			for _, r := range tool.InputSchema.Required {
-				required[r] = true
-			}
-
-			for propName, propDef := range tool.InputSchema.Properties {
-				propMap, ok := propDef.(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				desc := ""
-				if d, ok := propMap["description"].(string); ok {
-					desc = d
-				}
-
-				if required[propName] {
-					opts = append(opts, mcp.WithString(propName, mcp.Required(), mcp.Description(desc)))
-				} else {
-					opts = append(opts, mcp.WithString(propName, mcp.Description(desc)))
-				}
-			}
-		}
-
-		mcpTool := mcp.NewTool(tool.Name, opts...)
+		mcpTool := buildProxyTool(tool)
 		mcpServer.AddTool(mcpTool, handler)
 
 		log.Debug().
@@ -400,6 +370,24 @@ func (b *ExternalMCPBackend) findMCPConfig(app *types.App, mcpName string) *type
 	}
 
 	return nil
+}
+
+// buildProxyTool reconstructs the schema the proxy advertises to Zed for a
+// single upstream tool. It forwards the upstream input schema verbatim so
+// array/object/enum/nested params survive — a proxy transports schemas, it
+// must not reinterpret them. The previous per-property rebuild flattened every
+// param to string, which made array params like create_bot.tools/topics and
+// subscribe.topicIds uncallable ("cannot unmarshal string into []string").
+// See helix-specs task 002204_the-one-blocker.
+func buildProxyTool(tool mcp.Tool) mcp.Tool {
+	raw, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		// Degrade to a description-only tool rather than a wrong (all-string)
+		// schema; log so the drop is visible.
+		log.Error().Err(err).Str("tool", tool.Name).Msg("marshal upstream MCP schema; serving description-only")
+		return mcp.NewTool(tool.Name, mcp.WithDescription(tool.Description))
+	}
+	return mcp.NewToolWithRawSchema(tool.Name, tool.Description, raw)
 }
 
 // createToolHandler creates a handler that forwards tool calls to the external MCP server

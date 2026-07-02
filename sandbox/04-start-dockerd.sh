@@ -363,17 +363,19 @@ echo "🧹 Cleaning up old desktop images in nested Docker..."
 # hosted service falls off its fast self-heal path and into a slow full
 # redeploy. `docker container prune` has no negative label filter, so enumerate
 # exited containers and skip the helix.persistent=true ones explicitly.
-mapfile -t STOPPED_TO_REMOVE < <(
-    docker ps -aq --filter "status=exited" 2>/dev/null | while read -r cid; do
-        [ -z "$cid" ] && continue
-        if [ "$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$cid" 2>/dev/null)" != "true" ]; then
-            echo "$cid"
-        fi
-    done
-)
-if [ "${#STOPPED_TO_REMOVE[@]}" -gt 0 ]; then
-    echo "   Removing ${#STOPPED_TO_REMOVE[@]} stopped container(s) (keeping persistent web-services)..."
-    docker rm -f "${STOPPED_TO_REMOVE[@]}" >/dev/null 2>&1 || true
+# ponytail: plain loop, not `mapfile < <(...)` — process substitution needs
+# /dev/fd/63 which isn't resolvable in the nested-DinD container (broke the
+# whole init under `set -e`, see 2.11.39-.41). Container IDs are hex, so a
+# space-joined string with unquoted expansion is safe.
+STOPPED_TO_REMOVE=""
+for cid in $(docker ps -aq --filter "status=exited" 2>/dev/null); do
+    if [ "$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$cid" 2>/dev/null)" != "true" ]; then
+        STOPPED_TO_REMOVE="$STOPPED_TO_REMOVE $cid"
+    fi
+done
+if [ -n "$STOPPED_TO_REMOVE" ]; then
+    echo "   Removing stopped container(s) (keeping persistent web-services)..."
+    docker rm -f $STOPPED_TO_REMOVE >/dev/null 2>&1 || true
 fi
 
 # Build a list of expected versions and registry refs
