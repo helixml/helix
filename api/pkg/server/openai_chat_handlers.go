@@ -28,15 +28,6 @@ const (
 
 // POST https://app.helix.ml/v1/chat/completions
 
-// createChatCompletion godoc
-// @Summary Stream responses for chat
-// @Description Creates a model response for the given chat conversation.
-// @Tags    chat
-// @Success 200 {object} openai.ChatCompletionResponse
-// @Param request    body openai.ChatCompletionRequest true "Request body with options for conversational AI.")
-// @Router /v1/chat/completions [post]
-// @Security BearerAuth
-// @externalDocs.url https://platform.openai.com/docs/api-reference/chat/create
 // agentToolNudge is appended to the system prompt of any tool-enabled chat
 // completion. Some models (e.g. GLM) narrate a plan and return finish_reason
 // "stop" with no tool call; the Zed agent reads "no tool call" as end-of-turn
@@ -70,6 +61,15 @@ func injectAgentToolNudge(req *openai.ChatCompletionRequest) {
 	}}, req.Messages...)
 }
 
+// createChatCompletion godoc
+// @Summary Stream responses for chat
+// @Description Creates a model response for the given chat conversation.
+// @Tags    chat
+// @Success 200 {object} openai.ChatCompletionResponse
+// @Param request    body openai.ChatCompletionRequest true "Request body with options for conversational AI.")
+// @Router /v1/chat/completions [post]
+// @Security BearerAuth
+// @externalDocs.url https://platform.openai.com/docs/api-reference/chat/create
 func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
 	addCorsHeaders(rw)
 	if r.Method == http.MethodOptions {
