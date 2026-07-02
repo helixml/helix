@@ -170,11 +170,11 @@ export const BotRuntimeForm: FC<{
             displayMode="short"
           />
         </Box>
-      ) : (
+      ) : hasClaudeSubscription ? (
         <Typography variant="caption" color="text.secondary">
           Uses your connected Claude subscription — no model selection needed.
         </Typography>
-      )}
+      ) : null}
     </Stack>
   )
 }
