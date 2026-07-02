@@ -434,6 +434,21 @@ const AppSettings: FC<AppSettingsProps> = ({
     if (config !== undefined) {
       updates.external_agent_config = config
     }
+    // The reasoning/generation quartet only applies to helix_agent. Clear it
+    // when switching to an external runtime so stale helix_agent defaults
+    // (e.g. gpt-4o) can't shadow the external agent's Model/Provider pick.
+    if (agentType === AGENT_TYPE_ZED_EXTERNAL) {
+      updates.reasoning_model = ''
+      updates.reasoning_model_provider = ''
+      updates.reasoning_model_effort = ''
+      updates.generation_model = ''
+      updates.generation_model_provider = ''
+      updates.small_reasoning_model = ''
+      updates.small_reasoning_model_provider = ''
+      updates.small_reasoning_model_effort = ''
+      updates.small_generation_model = ''
+      updates.small_generation_model_provider = ''
+    }
     onUpdate(updates)
   }
 
