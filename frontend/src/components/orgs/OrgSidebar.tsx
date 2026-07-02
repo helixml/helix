@@ -8,6 +8,7 @@ import {
   BarChart as ChartIcon,
   KeyRound,
   Plug,
+  ClipboardList,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -75,6 +76,18 @@ const OrgSidebar: FC = () => {
           icon: <ChartIcon size={20} />,
           isActive: currentRouteName === 'org_usage',
           onClick: () => handleNavigationClick('org_usage'),
+        },
+      ],
+    },
+    {
+      title: 'Agent Q&A',
+      items: [
+        {
+          id: 'qa',
+          label: 'Question Sets',
+          icon: <ClipboardList size={20} />,
+          isActive: currentRouteName === 'org_qa' || currentRouteName === 'org_qa-results',
+          onClick: () => handleNavigationClick('org_qa'),
         },
       ],
     },

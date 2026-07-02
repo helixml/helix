@@ -135,6 +135,11 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 
 (
     trap '' PIPE
+    # Restart loop must survive a non-zero exit of the supervised daemon. The
+    # sourced entrypoint's `set -e` leaks into this subshell and would otherwise
+    # abort it the moment dockerd crashes, leaving it dead and the runner wedged
+    # (same class of bug that took a runner offline via hydra — see 10-start-hydra).
+    set +e
     while true; do
         # Clean up stale PID files before each restart attempt
         rm -f /var/run/docker.pid /run/docker/containerd/containerd.pid 2>/dev/null || true
@@ -351,13 +356,26 @@ done
 echo ""
 echo "🧹 Cleaning up old desktop images in nested Docker..."
 
-# First, remove ALL stopped containers to allow image removal
-# This is safe because Hydra creates fresh containers for each session
-# Stopped containers are just leftovers from previous sessions
-STOPPED_COUNT=$(docker ps -aq --filter "status=exited" 2>/dev/null | wc -l)
-if [ "$STOPPED_COUNT" -gt 0 ]; then
-    echo "   Removing $STOPPED_COUNT stopped container(s)..."
-    docker container prune -f >/dev/null 2>&1 || true
+# Remove stopped leftover containers to allow image removal — but NEVER
+# persistent (web-service) containers. Those carry a Docker restart policy so
+# dockerd brings them back automatically after a reboot/dockerd restart; if the
+# reaper deletes one here (in the window before dockerd has restarted it) the
+# hosted service falls off its fast self-heal path and into a slow full
+# redeploy. `docker container prune` has no negative label filter, so enumerate
+# exited containers and skip the helix.persistent=true ones explicitly.
+# ponytail: plain loop, not `mapfile < <(...)` — process substitution needs
+# /dev/fd/63 which isn't resolvable in the nested-DinD container (broke the
+# whole init under `set -e`, see 2.11.39-.41). Container IDs are hex, so a
+# space-joined string with unquoted expansion is safe.
+STOPPED_TO_REMOVE=""
+for cid in $(docker ps -aq --filter "status=exited" 2>/dev/null); do
+    if [ "$(docker inspect -f '{{ index .Config.Labels "helix.persistent" }}' "$cid" 2>/dev/null)" != "true" ]; then
+        STOPPED_TO_REMOVE="$STOPPED_TO_REMOVE $cid"
+    fi
+done
+if [ -n "$STOPPED_TO_REMOVE" ]; then
+    echo "   Removing stopped container(s) (keeping persistent web-services)..."
+    docker rm -f $STOPPED_TO_REMOVE >/dev/null 2>&1 || true
 fi
 
 # Build a list of expected versions and registry refs

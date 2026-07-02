@@ -10,7 +10,7 @@ import (
 // re-activation unless the operator opts in.
 func TestNewBotDefaultsPreserveContextFalse(t *testing.T) {
 	t.Parallel()
-	b, err := NewBot("b-test", "content", nil, nil, time.Now(), "org-test")
+	b, err := NewBot("b-test", "content", nil, time.Now(), "org-test")
 	if err != nil {
 		t.Fatalf("NewBot: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestNewBotDefaultsPreserveContextFalse(t *testing.T) {
 // copy without mutating the receiver.
 func TestWithPreserveContext(t *testing.T) {
 	t.Parallel()
-	b, err := NewBot("b-test", "content", nil, nil, time.Now(), "org-test")
+	b, err := NewBot("b-test", "content", nil, time.Now(), "org-test")
 	if err != nil {
 		t.Fatalf("NewBot: %v", err)
 	}

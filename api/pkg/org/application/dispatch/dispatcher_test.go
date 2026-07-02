@@ -148,7 +148,7 @@ func seedBot(t *testing.T, s *store.Store, botID orgchart.BotID) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC()
-	b, err := orgchart.NewBot(botID, "# "+string(botID)+"\nTest persona.", nil, nil, now, "org-test")
+	b, err := orgchart.NewBot(botID, "# "+string(botID)+"\nTest persona.", nil, now, "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}

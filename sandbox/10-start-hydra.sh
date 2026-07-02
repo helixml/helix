@@ -22,8 +22,15 @@ echo "🐉 Starting Hydra multi-Docker isolation daemon..."
 mkdir -p /var/run/hydra/active
 mkdir -p /hydra-data
 
-# Start Hydra daemon in background with auto-restart
+# Start Hydra daemon in background with auto-restart.
 (
+    # CRITICAL: disable errexit inside the restart loop. This script is sourced
+    # by entrypoint.sh with `set -e` active (and it leaks into this subshell),
+    # so a non-zero hydra exit — e.g. a panic — would abort the subshell BEFORE
+    # `EXIT_CODE=$?`, killing the loop and leaving hydra dead until someone
+    # manually intervenes (this took a whole runner offline in prod). With
+    # `set +e` the loop always restarts hydra.
+    set +e
     while true; do
         echo "[$(date -Iseconds)] Starting Hydra daemon..."
         /usr/local/bin/hydra \

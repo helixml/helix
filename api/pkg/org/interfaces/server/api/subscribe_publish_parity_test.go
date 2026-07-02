@@ -24,7 +24,7 @@ func seedTopicAndOwner(t *testing.T, st *store.Store, clock func() time.Time) {
 	if err := st.Topics.Create(ctx, s); err != nil {
 		t.Fatalf("seed topic: %v", err)
 	}
-	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, nil, clock(), "org-test")
+	b, _ := orgchart.NewBot("b-owner", "# Owner", nil, clock(), "org-test")
 	if err := st.Bots.Create(ctx, b); err != nil {
 		t.Fatalf("seed owner: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSubscribeParity_RESTvsMCP(t *testing.T) {
 	seedTopicAndOwner(t, mcpStore, clock)
 	reg := mcpRegistry(t, mcpStore, clock, newID)
 	subscribe, _ := reg.Get(mcptools.SubscribeName)
-	args, _ := json.Marshal(map[string]any{"topicId": "s-1"})
+	args, _ := json.Marshal(map[string]any{"botId": "b-owner", "topicIds": []string{"s-1"}})
 	if _, err := subscribe.Invoke(ctx, tool.Invocation{Caller: ownerCaller(t), Args: args}); err != nil {
 		t.Fatalf("MCP subscribe: %v", err)
 	}

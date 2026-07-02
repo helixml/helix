@@ -55,6 +55,10 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
     # lines are visible on `docker logs`. `-oL` forces line buffering
     # on tee's stdout writes so each line hits the file (and so the
     # tailer) immediately. Same fix in 04/08/14 scripts.
+    # Restart loop must survive a non-zero exit; the sourced entrypoint's
+    # `set -e` leaks into this subshell and would otherwise kill the loop on the
+    # first crash, leaving compose-manager dead (see 10-start-hydra).
+    set +e
     while true; do
         echo "[$(date -Iseconds)] Starting compose-manager..."
         HELIX_RUNNER_ID="$SANDBOX_INSTANCE_ID" \

@@ -132,7 +132,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 // cascade — tests that just need a row to read/edit use this.
 func seedBot(t *testing.T, st *store.Store, ctx context.Context, id, content string) {
 	t.Helper()
-	b, err := orgchart.NewBot(orgchart.BotID(id), content, nil, nil, time.Now().UTC(), "org-test")
+	b, err := orgchart.NewBot(orgchart.BotID(id), content, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("NewBot %s: %v", id, err)
 	}

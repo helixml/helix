@@ -164,6 +164,42 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 	return s.SessionID, nil
 }
 
+// botSessionResetter implements helixorgapi.BotSessionResetter: it fully
+// removes a bot's current session so restartBotAgent's follow-up Activate
+// provisions a genuinely fresh one. Composed of two existing high-level
+// ops on the in-proc client (stop desktop + delete session) plus clearing
+// the persisted session pointer in the org runtime-state store — no
+// container/workspace internals.
+type botSessionResetter struct {
+	client *inProcHelixClient
+	st     *helixorgstore.Store
+}
+
+func (r botSessionResetter) ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	// Stop the desktop first — deleting the session row alone leaves the
+	// container running. Best-effort: the container may already be gone
+	// (paused/crashed), and we never resume it, so a stop error must not
+	// block the teardown (mirrors restartSessionContainer's StopDesktop).
+	if err := r.client.StopExternalAgent(ctx, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("reset bot session: stop desktop failed (continuing — may already be down)")
+	}
+	// Delete the session row. An exploratory session is a project singleton
+	// that StartExternalAgentSession would otherwise reuse, so removing it
+	// is what makes the follow-up activation mint a brand-new session.
+	if err := r.client.DeleteSession(ctx, sessionID); err != nil {
+		return fmt.Errorf("delete session %s: %w", sessionID, err)
+	}
+	// Clear the persisted pointer so the spawner's ensureSession starts a
+	// fresh session instead of trying to ClearSession the deleted one.
+	if err := runtimehelix.SaveSession(ctx, r.st, orgID, botID, ""); err != nil {
+		return fmt.Errorf("clear session pointer for bot %s: %w", botID, err)
+	}
+	return nil
+}
+
 // orgServices bundles the application services the REST adapter (and the
 // per-Worker MCP server) consume. Assembled once by buildOrgServices at
 // the composition root — the "Module struct holds the assembled
@@ -666,6 +702,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// the bots service so the base-tool union + id minting are shared with
 	// the REST/MCP update path.
 	lifecycleSvc.Bots = svc.Bots
+	// Create subscribes the new bot to its initial topics via the shared
+	// subscription use case (same as the subscribe tool) — one implementation.
+	lifecycleSvc.Subscriber = svc.Subscriptions
 
 	// Wire the spec-task attention-event sink: each AttentionEvent the
 	// Helix UI shows is also published onto the project's KindSpecTask
@@ -748,12 +787,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
 		BotRuntime:    orgWorkerRuntime{st: st},
-		// SessionRestarter recreates a worker's desktop container through
-		// the same backend primitive the in-chat restart button uses, so
-		// the worker-page "Restart agent session" button genuinely
-		// recovers a stuck container instead of SendMessage-ing the
-		// existing session.
-		SessionRestarter: inProcClient,
+		// BotSessionResetter tears the worker's current session fully down
+		// (stop desktop → delete session → clear pointer) so the bot-page
+		// "Restart agent session" button then Activates onto a brand-new
+		// session, desktop and thread with the bot's current MCP services —
+		// instead of resuming the old container and thread.
+		BotSessionResetter: botSessionResetter{client: inProcClient, st: st},
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

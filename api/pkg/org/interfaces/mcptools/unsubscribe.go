@@ -7,11 +7,12 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// Unsubscribe removes the caller's Subscription from the given Topic.
+// Unsubscribe removes a Bot's subscription to one or more Topics. Pass
+// the target bot's id and the topic ids; idempotent per topic.
 type Unsubscribe struct {
 	deps Deps
 }
@@ -20,12 +21,20 @@ const UnsubscribeName tool.Name = "unsubscribe"
 
 var unsubscribeSchema = mustSchema[unsubscribeArgs]()
 
-func (t *Unsubscribe) Name() tool.Name                 { return UnsubscribeName }
-func (t *Unsubscribe) Description() string             { return "Unsubscribe the calling Worker from a Topic." }
-func (t *Unsubscribe) InputSchema() *jsonschema.Schema { return unsubscribeSchema }
+func (t *Unsubscribe) Name() tool.Name { return UnsubscribeName }
+func (t *Unsubscribe) Description() string {
+	return "Unsubscribe a Bot from one or more Topics. Pass `botId` and `topicIds` as an " +
+		"array of topic ids. Idempotent per topic (a topic the Bot isn't subscribed to is " +
+		"a no-op). Use subscribe to add."
+}
+func (t *Unsubscribe) InputSchema() *jsonschema.Schema {
+	return withProperty(unsubscribeSchema, "topicIds",
+		stringArrayProperty("Topic ids to unsubscribe the Bot from (one or many)."))
+}
 
 type unsubscribeArgs struct {
-	TopicID string `json:"topicId"`
+	BotID    string   `json:"botId"`
+	TopicIDs []string `json:"topicIds"`
 }
 
 func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -33,17 +42,19 @@ func (t *Unsubscribe) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	if args.TopicID == "" {
-		return nil, fmt.Errorf("topicId is required")
+	if args.BotID == "" {
+		return nil, fmt.Errorf("botId is required")
+	}
+	if len(args.TopicIDs) == 0 {
+		return nil, fmt.Errorf("topicIds must contain at least one topic id")
 	}
 	orgID := inv.Caller.OrganizationID()
 	if orgID == "" {
 		return nil, fmt.Errorf("unsubscribe: caller has no OrgID")
 	}
-	topicID := streaming.TopicID(args.TopicID)
-	workerID := inv.Caller.ID()
-	if err := t.deps.Subscriptions.Unsubscribe(ctx, orgID, workerID, topicID); err != nil {
+	botID := orgchart.BotID(args.BotID)
+	if err := t.deps.Subscriptions.UnsubscribeTopics(ctx, orgID, botID, args.TopicIDs); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"workerId": string(workerID), "topicId": string(topicID)})
+	return json.Marshal(map[string]any{"botId": string(botID), "topicIds": args.TopicIDs})
 }

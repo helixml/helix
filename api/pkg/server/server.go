@@ -740,7 +740,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 
 	// Probe live web services and auto-recover any that stop responding
 	// (crashed/hung stack heals without a human).
-	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController, apiServer.sandboxController).Start(ctx)
+	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)
 
 	// Continuous delivery for agent-created apps: when a GitHub-hosted project's
 	// default branch advances (e.g. a PR is merged), redeploy its web service.
@@ -818,6 +818,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	if err := apiServer.startCertMagicListener(ctx, vhostCfg, handler); err != nil {
 		log.Error().Err(err).Msg("vhost TLS auto mode failed to start; continuing without it")
 	}
+
+	// Optional dedicated Prometheus /metrics listener. Deliberately separate
+	// from the main router so metrics are never served on the public app port —
+	// firewall this address to your Prometheus. No-op when unset.
+	apiServer.startMetricsListener(ctx)
 
 	srv := &http.Server{
 		Addr: fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),

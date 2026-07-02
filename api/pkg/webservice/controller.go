@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -35,6 +36,25 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// recoverGoroutine converts a panic in a detached goroutine into a logged error
+// instead of a process-wide crash. A panic in ANY goroutine takes down the
+// whole API binary — which would drop EVERY hosted web service and the control
+// plane, not just the one project. Every detached deploy/recovery goroutine
+// must guard itself with this. The optional onPanic runs cleanup (e.g. mark the
+// deploy failed) so state doesn't wedge.
+func recoverGoroutine(what string, onPanic func(recovered any)) {
+	if r := recover(); r != nil {
+		log.Error().
+			Interface("panic", r).
+			Str("goroutine", what).
+			Bytes("stack", debug.Stack()).
+			Msg("recovered panic in detached goroutine (would otherwise have crashed the API process)")
+		if onPanic != nil {
+			onPanic(r)
+		}
+	}
+}
 
 // ProjectSecretsGetter returns prod-scoped project secrets as `KEY=value`
 // env-var strings to inject into the web service container.
@@ -157,6 +177,13 @@ func (c *Controller) runDeploy(
 	repo *types.GitRepository,
 	state *types.ProjectWebServiceState,
 ) {
+	// A panic here must not crash the whole API (and every other hosted
+	// service). Recover and mark this deploy failed so it doesn't wedge in
+	// "building" — the health monitor will then retry cleanly.
+	defer recoverGoroutine("runDeploy project="+req.ProjectID, func(any) {
+		c.markFailed(context.Background(), deployID, "", "internal error during deploy (panic recovered)")
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), c.provisionWait+c.bootstrapWait+c.readinessWait+2*time.Minute)
 	defer cancel()
 
@@ -246,26 +273,89 @@ func (c *Controller) applyRestartPolicy(ctx context.Context, sb *types.Sandbox) 
 // sandboxDockerAlive returns true if the sandbox's inner dockerd answers a
 // quick `docker info`. Used by recovery to decide restart-in-place vs recreate.
 func (c *Controller) sandboxDockerAlive(ctx context.Context, sb *types.Sandbox) bool {
-	hydraClient, err := c.sandboxes.HydraClient(sb)
+	// Retry before declaring the inner dockerd dead. A single failed check can
+	// just be a transient RevDial reconnect (e.g. right after a control-plane
+	// restart), and escalating that to a recreate needlessly destroys a healthy
+	// container. Only a persistent failure should trigger the recreate path.
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(2 * time.Second):
+			}
+		}
+		hydraClient, err := c.sandboxes.HydraClient(sb)
+		if err != nil {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
+			SandboxID:      sb.ID,
+			Cmd:            "/bin/sh",
+			Args:           []string{"-c", "docker info >/dev/null 2>&1"},
+			Cwd:            "/",
+			TimeoutSeconds: 15,
+		})
+		cancel()
+		if err != nil {
+			continue
+		}
+		if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// DeployBuildTimeout bounds how long a web-service deploy may sit
+// pending/building before it is treated as an interrupted (orphaned) build.
+// Shared by the health monitor (recovery) and the API (health reporting) so
+// they agree on what "still deploying" means.
+const DeployBuildTimeout = 15 * time.Minute
+
+// Probe reports whether the project's web service answers on its container port
+// through the hydra proxy right now. It is the single source of truth for "is
+// this web service actually live", used by both the health monitor and the API
+// so the UI reflects real health rather than the last deploy row.
+func (c *Controller) Probe(ctx context.Context, st *types.ProjectWebServiceState, timeout time.Duration) bool {
+	if st == nil || !st.Enabled || st.ActiveSandboxID == "" {
+		return false
+	}
+	sb, err := c.sandboxes.Get(ctx, st.ActiveSandboxID)
+	if err != nil || sb == nil || sb.Status != types.SandboxStatusRunning {
+		return false
+	}
+	hc, err := c.sandboxes.HydraClient(sb)
 	if err != nil {
 		return false
 	}
-	cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
-		SandboxID:      sb.ID,
-		Cmd:            "/bin/sh",
-		Args:           []string{"-c", "docker info >/dev/null 2>&1"},
-		Cwd:            "/",
-		TimeoutSeconds: 20,
-	})
-	if err != nil {
-		return false
+	return hc.ProbeDevContainerPort(pctx, sb.ID, st.ContainerPort) == nil
+}
+
+// Health returns the real, probe-based status of a project's web service:
+// "disabled", "deploying", "live" or "unhealthy". The API surfaces this so the
+// UI reflects actual health instead of trusting the last deploy row (a deploy
+// stays "live" long after its container dies).
+func (c *Controller) Health(ctx context.Context, projectID string) string {
+	st, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil || st == nil || !st.Enabled || st.ActiveSandboxID == "" {
+		return "disabled"
 	}
-	if resp != nil && resp.ExitCode != nil && *resp.ExitCode != 0 {
-		return false
+	if deploys, _ := c.store.ListWebServiceDeploys(ctx, projectID, 1); len(deploys) > 0 {
+		d := deploys[0]
+		inflight := d.Status == types.WebServiceDeployStatusPending || d.Status == types.WebServiceDeployStatusBuilding
+		if inflight && time.Since(d.StartedAt) < DeployBuildTimeout {
+			return "deploying"
+		}
 	}
-	return true
+	if c.Probe(ctx, st, 5*time.Second) {
+		return "live"
+	}
+	return "unhealthy"
 }
 
 // RecoverWebService brings a project's web service back to a serving state
@@ -293,11 +383,28 @@ func (c *Controller) RecoverWebService(ctx context.Context, projectID string) er
 		return fmt.Errorf("get project: %w", err)
 	}
 
+	sb, sbErr := c.sandboxes.Get(ctx, state.ActiveSandboxID)
+
+	// In-place-first: don't overreact to a transient blip. The monitor fires
+	// recovery after 3 failed probes, but a control-plane restart (e.g. a CD
+	// upgrade) briefly drops the RevDial control connection to the runner —
+	// probes fail during that window even though the container is perfectly
+	// healthy. Re-probe now that recovery is actually running (the connection
+	// has usually re-established); if the service answers, do nothing rather
+	// than needlessly recreating a working sandbox — which knocked a hosted
+	// service offline for ~2min on every deploy.
+	if sbErr == nil && sb != nil && sb.Status == types.SandboxStatusRunning {
+		if c.Probe(ctx, state, 8*time.Second) {
+			log.Info().Str("project_id", projectID).
+				Msg("health-monitor: web service healthy on re-probe — skipping recovery (transient blip, e.g. RevDial reconnect)")
+			return nil
+		}
+	}
+
 	recreate := false
 	reason := "restart in place"
-	sb, err := c.sandboxes.Get(ctx, state.ActiveSandboxID)
 	switch {
-	case err != nil || sb == nil:
+	case sbErr != nil || sb == nil:
 		reason = "active sandbox row is gone"
 		// Redeploy provisions a fresh sandbox; /data reattaches by project id.
 	case sb.Status != types.SandboxStatusRunning:

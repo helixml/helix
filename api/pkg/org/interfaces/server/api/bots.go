@@ -193,15 +193,9 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
-	var topicsPatch *[]streaming.TopicID
-	if req.Topics != nil {
-		s := toTopicIDs(req.Topics)
-		topicsPatch = &s
-	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
 		Content:         req.Content,
 		Tools:           toolsPatch,
-		Topics:          topicsPatch,
 		PreserveContext: req.PreserveContext,
 	})
 	if err != nil {
@@ -446,15 +440,17 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// restartBotAgent recreates the bot's desktop container from scratch —
-// the bot-page "Restart agent session" button. Unlike activateBot
-// (which continues the existing session and so cannot recover a stuck
-// container), this resolves the bot's current session and delegates to
-// the shared backend restart primitive (StopDesktop → recreate → reset
-// crashed prompts). If the bot has no live session yet, it falls back
-// to a normal activation so first-time start still works.
+// restartBotAgent gives the bot a genuinely fresh session — the bot-page
+// "Restart agent session" button. It does NOT resume/recover the existing
+// session (that would keep the old desktop and thread, which is the bug
+// operators hit). Instead it fully tears the current session down via
+// BotSessionResetter (stop desktop → delete session row → clear the
+// persisted pointer) and then Activates, which provisions a brand-new
+// session, desktop and thread that pick up the bot's current tools / MCP
+// services. If the bot has no live session yet, the reset is skipped and
+// the Activate alone handles first-time start.
 //
-// @Summary Helix-org: restart a bot's agent session (recreate desktop container)
+// @Summary Helix-org: restart a bot's agent session (fresh session + desktop)
 // @Tags HelixOrg
 // @Param id path string true "Bot ID"
 // @Success 202 {object} api.BotActivateDTO
@@ -482,8 +478,8 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the bot's current desktop session. Empty means the bot has
-	// never activated — there's no container to recreate, so fall through
-	// to a normal activation (which starts a fresh one).
+	// never activated — there's nothing to tear down, so we skip straight
+	// to the activation below (first-time start).
 	var sessionID string
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
@@ -491,17 +487,18 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if sessionID != "" && a.deps.SessionRestarter != nil {
-		if err := a.deps.SessionRestarter.RestartSession(ctx, sessionID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("restart bot %s session: %w", id, err))
+	// Fully remove the current session (stop desktop → delete session →
+	// clear pointer) so the Activate below mints a brand-new one instead of
+	// reusing the old exploratory session or resuming the old desktop.
+	if sessionID != "" && a.deps.BotSessionResetter != nil {
+		if err := a.deps.BotSessionResetter.ResetSession(ctx, orgID, id, sessionID); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("reset bot %s session: %w", id, err))
 			return
 		}
-		writeJSON(w, http.StatusAccepted, BotActivateDTO{SessionID: sessionID})
-		return
 	}
 
-	// No live session (or restarter unwired): fall back to a normal
-	// activation, which provisions the project and starts a fresh session.
+	// Provision the project (fast-path if it exists) and start a fresh
+	// session + desktop. Also the first-time-start path.
 	if a.deps.Activations == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
 		return
@@ -567,9 +564,6 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	}
 	sort.Strings(tools)
 	dto.Tools = tools
-	for _, s := range b.Topics {
-		dto.Topics = append(dto.Topics, string(s))
-	}
 	return dto
 }
 

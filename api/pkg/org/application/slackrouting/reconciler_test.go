@@ -55,7 +55,7 @@ func makeRouter(t *testing.T, ctx context.Context, s *store.Store, procs *proces
 func addBot(t *testing.T, ctx context.Context, s *store.Store, id string) {
 	t.Helper()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
-	b, err := orgchart.NewBot(id, "content", nil, nil, now, org)
+	b, err := orgchart.NewBot(id, "content", nil, now, org)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -538,22 +538,21 @@ func (c *inProcHelixClient) ClearSession(ctx context.Context, sessionID string) 
 	return nil
 }
 
-// RestartSession recreates a session's desktop container via the same
-// canonical backend primitive the in-chat restart button uses
-// (POST /sessions/{id}/restart-agent → restartSessionContainer). The
-// worker-page "Restart agent session" button reaches this through the
-// helix-org SessionRestarter port, so both surfaces share one
-// implementation and "restart" cannot diverge.
-func (c *inProcHelixClient) RestartSession(ctx context.Context, sessionID string) error {
+// DeleteSession removes a session row via the same DELETE /sessions/{id}
+// handler the public API uses. Mirrors StopExternalAgent. Used by the
+// bot-page "Restart agent session" reset: deleting the (exploratory)
+// session is what makes the follow-up activation mint a brand-new one
+// rather than reuse the singleton.
+func (c *inProcHelixClient) DeleteSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
-		return errors.New("RestartSession: sessionID is required")
+		return errors.New("DeleteSession: sessionID is required")
 	}
-	r, err := c.newRequest(ctx, http.MethodPost, "/api/v1/sessions/"+sessionID+"/restart-agent", nil, map[string]string{"id": sessionID})
+	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/sessions/"+sessionID, nil, map[string]string{"id": sessionID})
 	if err != nil {
 		return err
 	}
-	if _, herr := c.server.restartCrashedAgentThread(nil, r); herr != nil {
-		return fmt.Errorf("restart agent session %s: %s", sessionID, herr.Error())
+	if _, herr := c.server.deleteSession(nil, r); herr != nil {
+		return fmt.Errorf("delete session %s: %s", sessionID, herr.Error())
 	}
 	return nil
 }

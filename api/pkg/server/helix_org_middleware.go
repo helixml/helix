@@ -180,6 +180,13 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
+		// Bridge the authenticated caller into the runtime-helix context
+		// so lifecycle.Create persists them as the Bot's hiring user
+		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
+		// this every Bot's session falls back to the org-service identity
+		// (first admin), which cross-attributes another user's key into
+		// the tenant org's API-keys list.
+		ctx = runtimehelix.WithUserID(ctx, user.ID)
 		// Strip the /orgs/{org}/helix-org prefix so the downstream
 		// helix-org handler sees the same flat path it served from
 		// /api/v1/org/* before — keeps the org-graph server unaware

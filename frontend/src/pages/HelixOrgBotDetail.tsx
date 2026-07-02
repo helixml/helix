@@ -150,16 +150,38 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
-  // handleRestartSession recreates the Bot's desktop container from
-  // scratch via the dedicated restart endpoint, which recovers a stuck
-  // container (not just a SendMessage continuation). Destructive to
-  // in-flight work, so it's tucked behind the Advanced accordion with an
-  // explicit warning.
+  // handleRestartSession gives the Bot a genuinely fresh session: the
+  // backend stops + deletes the current session and enqueues a brand-new
+  // one (new desktop, new thread, current MCP services), which the spawner
+  // provisions asynchronously. We drop the stale transcript immediately,
+  // switch to Chat, then poll the project's exploratory session until the
+  // new one appears and bind the chat/desktop panels to it. Tucked behind
+  // the Advanced accordion; destructive to in-flight work.
   const handleRestartSession = async () => {
     if (!botId || restartAgent.isPending) return
+    const previousSessionId = chatSessionId
     try {
       await restartAgent.mutateAsync(botId)
-      snackbar.success('Agent session restart queued — it will come back up shortly')
+      setChatSessionId(null)
+      setSessionTab('chat')
+      snackbar.success('Fresh agent session started — it will come up shortly')
+      // The new session is created asynchronously; poll the project's
+      // exploratory session until a different (fresh) one is resolvable.
+      if (projectID) {
+        for (let attempt = 0; attempt < 20; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          let sid: string | null = null
+          try {
+            sid = await fetchExistingWorkerSession(projectID, chatApi)
+          } catch {
+            sid = null
+          }
+          if (sid && sid !== previousSessionId) {
+            setChatSessionId(sid)
+            break
+          }
+        }
+      }
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
@@ -613,8 +635,9 @@ const HelixOrgBotDetail: FC = () => {
                   {restartAgent.isPending ? 'Restarting…' : 'Restart agent session'}
                 </Button>
                 <Typography variant="caption" color="text.secondary">
-                  Restarts the bot's agent session from scratch. Any in-progress work in
-                  the current session will be lost.
+                  Deletes the current session and starts a brand-new one — a fresh
+                  desktop, thread and tools. Any in-progress work in the current
+                  session will be lost.
                 </Typography>
               </Stack>
             </AccordionDetails>

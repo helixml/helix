@@ -13,7 +13,7 @@ import (
 const orgID = "org-test"
 
 func bot(id orgchart.BotID) orgchart.Bot {
-	b, err := orgchart.NewBot(id, "#", nil, nil, time.Unix(1, 0), orgID)
+	b, err := orgchart.NewBot(id, "#", nil, time.Unix(1, 0), orgID)
 	if err != nil {
 		panic(err)
 	}

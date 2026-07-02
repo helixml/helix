@@ -21,6 +21,10 @@ mkdir -p /var/log/helix-services 2>/dev/null || true
 
 (
     trap '' PIPE
+    # Restart loop must survive a non-zero exit; the sourced entrypoint's
+    # `set -e` leaks into this subshell and would otherwise kill the loop on the
+    # first crash, leaving inference-proxy dead (see 10-start-hydra).
+    set +e
     while true; do
         echo "[$(date -Iseconds)] Starting inference-proxy..."
         /usr/local/bin/inference-proxy --listen "$LISTEN" --compose "$ACTIVE_YAML"

@@ -203,6 +203,10 @@ func (c *Controller) provision(ctx context.Context, sandboxID string) {
 		Entrypoint:          entrypoint,
 		Cmd:                 cmd,
 		SkipImageValidation: skipValidation,
+		// Persistent sandboxes (hosted web services) must survive reboots and
+		// dockerd restarts: give the dev container a restart policy and exempt
+		// it from stopped-container reaping so it self-heals in seconds.
+		Persistent: sandbox.Persistent,
 	}
 
 	hydraClient := c.newHydraClient(host.ID)

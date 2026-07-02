@@ -52,12 +52,10 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 		"# Owner\nBootstrap owner.",
 		[]tool.Name{
 			mcptools.CreateBotName,
-			mcptools.UpdateBotName,
 			mcptools.CreateTopicName,
 			mcptools.SubscribeName,
 			mcptools.PublishName,
 		},
-		nil,
 		now,
 		"org-test",
 	)
@@ -72,20 +70,17 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 		"id":   "s-general",
 		"name": "general",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-general"})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"botId": "b-owner", "topicIds": []string{"s-general"}})
 
+	// create_bot subscribes the new CEO to s-general at creation — one call,
+	// no follow-up subscribe needed (this is the "fewest steps" behavior).
 	invokeExpectID(t, ownerSession, mcptools.CreateBotName, map[string]any{
 		"id":       "b-ceo",
-		"content":  "# CEO\nLead the company. Subscribe to s-general.",
+		"content":  "# CEO\nLead the company.",
 		"tools":    []string{"publish", "subscribe"},
+		"topics":   []string{"s-general"},
 		"parentId": "b-owner",
 	})
-
-	// Stand in for the CEO's create activation: subscribe to the topic
-	// they were told about. The dispatcher isn't wired in this test, so
-	// we drive it manually.
-	ceoSession := connectMCP(t, srv.URL, "b-ceo")
-	invokeOK(t, ceoSession, mcptools.SubscribeName, map[string]any{"topicId": "s-general"})
 
 	if _, err := s.Subscriptions.Find(ctx, "org-test", "b-ceo", "s-general"); err != nil {
 		t.Fatalf("CEO subscription on s-general missing: %v", err)
@@ -111,12 +106,12 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 	}
 }
 
-// TestUpdateBotIsDomainWrite pins the post-refactor contract: update_bot
-// is a pure DB mutation. The spawner is the only thing that projects
-// state into envs, so after a tool call the on-disk files (if any) are
-// stale and only the DB row reflects the change. A content-only update
-// preserves the bot's tools.
-func TestUpdateBotIsDomainWrite(t *testing.T) {
+// TestSetBotContentIsDomainWrite pins the post-refactor contract:
+// set_bot_content is a pure DB mutation. The spawner is the only thing
+// that projects state into envs, so after a tool call the on-disk files
+// (if any) are stale and only the DB row reflects the change. Editing
+// content preserves the bot's tools.
+func TestSetBotContentIsDomainWrite(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -137,9 +132,8 @@ func TestUpdateBotIsDomainWrite(t *testing.T) {
 		"# Owner",
 		[]tool.Name{
 			mcptools.CreateBotName,
-			mcptools.UpdateBotName,
+			mcptools.SetBotContentName,
 		},
-		nil,
 		now,
 		"org-test",
 	)
@@ -151,6 +145,7 @@ func TestUpdateBotIsDomainWrite(t *testing.T) {
 		"id":       "b-eng",
 		"content":  "# Engineer v1\nBuild stuff.",
 		"tools":    []string{"publish"},
+		"topics":   []string{},
 		"parentId": "b-owner",
 	})
 
@@ -161,9 +156,9 @@ func TestUpdateBotIsDomainWrite(t *testing.T) {
 	}
 	toolsBefore := append([]tool.Name(nil), created.Tools...)
 
-	// Content-only update rewrites Content and preserves Tools.
-	invokeExpectID(t, ownerSession, mcptools.UpdateBotName, map[string]any{
-		"id":      "b-eng",
+	// set_bot_content rewrites Content and preserves Tools.
+	invokeExpectID(t, ownerSession, mcptools.SetBotContentName, map[string]any{
+		"botId":   "b-eng",
 		"content": "# Engineer v2\nBuild better stuff.",
 	})
 
@@ -204,7 +199,6 @@ func TestTopicMembers(t *testing.T) {
 		"b-owner",
 		"# Owner",
 		[]tool.Name{mcptools.CreateTopicName, mcptools.TopicMembersName, mcptools.SubscribeName},
-		nil,
 		now,
 		"org-test",
 	)
@@ -215,7 +209,6 @@ func TestTopicMembers(t *testing.T) {
 		"b-listener",
 		"# Listener",
 		[]tool.Name{mcptools.SubscribeName},
-		nil,
 		now,
 		"org-test",
 	)
@@ -234,18 +227,18 @@ func TestTopicMembers(t *testing.T) {
 		t.Fatalf("members before subscribe = %v, want empty", got)
 	}
 
-	invokeOK(t, listenerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-room"})
+	invokeOK(t, listenerSession, mcptools.SubscribeName, map[string]any{"botId": "b-listener", "topicIds": []string{"s-room"}})
 
 	if got := membersOf(t, ownerSession, "s-room"); len(got) != 1 || got[0] != "b-listener" {
 		t.Fatalf("members after subscribe = %v, want [b-listener]", got)
 	}
 }
 
-// TestInviteBots verifies one Bot can subscribe others to a Topic — the
+// TestSubscribeOtherBots verifies subscribe targets an arbitrary Bot (not
+// just the caller): the owner subscribes other bots to a Topic — the
 // primitive that lets the initiator open a DM by creating a Topic and
-// adding both parties, without requiring the recipient to self-subscribe
-// first.
-func TestInviteBots(t *testing.T) {
+// adding both parties, without requiring the recipient to self-subscribe.
+func TestSubscribeOtherBots(t *testing.T) {
 	t.Parallel()
 
 	s := orggorm.GetOrgTestDB(t)
@@ -263,16 +256,15 @@ func TestInviteBots(t *testing.T) {
 	owner, _ := orgchart.NewBot(
 		"b-owner",
 		"# Owner",
-		[]tool.Name{mcptools.CreateTopicName, mcptools.InviteBotsName, mcptools.TopicMembersName},
-		nil,
+		[]tool.Name{mcptools.CreateTopicName, mcptools.SubscribeName, mcptools.TopicMembersName},
 		now,
 		"org-test",
 	)
 	mustCreate(t, s.Bots.Create(ctx, owner))
 	// Subscriptions are bot-anchored: each bot gets its own sub rows.
-	alice, _ := orgchart.NewBot("b-alice", "# Alice", nil, nil, now, "org-test")
+	alice, _ := orgchart.NewBot("b-alice", "# Alice", nil, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, alice))
-	bob, _ := orgchart.NewBot("b-bob", "# Bob", nil, nil, now, "org-test")
+	bob, _ := orgchart.NewBot("b-bob", "# Bob", nil, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, bob))
 
 	ownerSession := connectMCP(t, srv.URL, "b-owner")
@@ -282,15 +274,19 @@ func TestInviteBots(t *testing.T) {
 		"name": "alice ↔ bob",
 	})
 
-	// Owner adds both parties to the topic in one call.
-	invokeOK(t, ownerSession, mcptools.InviteBotsName, map[string]any{
-		"topicId": "s-dm",
-		"botIds":  []string{"b-alice", "b-bob"},
+	// Owner subscribes both parties to the topic (subscribe targets any bot).
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
+		"botId":    "b-alice",
+		"topicIds": []string{"s-dm"},
+	})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
+		"botId":    "b-bob",
+		"topicIds": []string{"s-dm"},
 	})
 
 	got := membersOf(t, ownerSession, "s-dm")
 	if len(got) != 2 {
-		t.Fatalf("members after invite = %v, want two", got)
+		t.Fatalf("members after subscribe = %v, want two", got)
 	}
 	want := map[string]bool{"b-alice": true, "b-bob": true}
 	for _, m := range got {
@@ -299,27 +295,29 @@ func TestInviteBots(t *testing.T) {
 		}
 	}
 
-	// Idempotent: re-inviting an already-subscribed bot alongside a new
-	// one is a no-op for the existing subscription and a success for the
-	// rest.
-	invokeOK(t, ownerSession, mcptools.InviteBotsName, map[string]any{
-		"topicId": "s-dm",
-		"botIds":  []string{"b-alice", "b-owner"},
+	// Idempotent: re-subscribing an already-subscribed bot is a no-op.
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
+		"botId":    "b-alice",
+		"topicIds": []string{"s-dm"},
+	})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{
+		"botId":    "b-owner",
+		"topicIds": []string{"s-dm"},
 	})
 	got = membersOf(t, ownerSession, "s-dm")
 	if len(got) != 3 {
-		t.Fatalf("members after re-invite = %v, want three", got)
+		t.Fatalf("members after re-subscribe = %v, want three", got)
 	}
 
 	// Unknown bot -> error, no partial subscription created.
-	if _, err := invokeTool(t, ownerSession, mcptools.InviteBotsName, map[string]any{
-		"topicId": "s-dm",
-		"botIds":  []string{"b-ghost"},
+	if _, err := invokeTool(t, ownerSession, mcptools.SubscribeName, map[string]any{
+		"botId":    "b-ghost",
+		"topicIds": []string{"s-dm"},
 	}); err == nil {
-		t.Fatalf("inviting unknown bot should error")
+		t.Fatalf("subscribing unknown bot should error")
 	}
 	if got = membersOf(t, ownerSession, "s-dm"); len(got) != 3 {
-		t.Fatalf("members after failed invite = %v, want three (unchanged)", got)
+		t.Fatalf("members after failed subscribe = %v, want three (unchanged)", got)
 	}
 }
 
@@ -343,9 +341,9 @@ func TestDM(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	// Alice and Bob both get dm + read_events.
-	alice, _ := orgchart.NewBot("b-alice", "# Alice", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, nil, now, "org-test")
+	alice, _ := orgchart.NewBot("b-alice", "# Alice", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, alice))
-	bob, _ := orgchart.NewBot("b-bob", "# Bob", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, nil, now, "org-test")
+	bob, _ := orgchart.NewBot("b-bob", "# Bob", []tool.Name{mcptools.DMName, mcptools.ReadEventsName}, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, bob))
 
 	// DM channels are scoped to reporting relationships: wire one (Alice
@@ -467,7 +465,6 @@ func TestReadsOverMCP(t *testing.T) {
 			mcptools.ListTopicEventsName,
 			mcptools.ReadEventsName,
 		},
-		nil,
 		now,
 		"org-test",
 	)
@@ -497,7 +494,7 @@ func TestReadsOverMCP(t *testing.T) {
 		"id":   "s-news",
 		"name": "news",
 	})
-	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"topicId": "s-news"})
+	invokeOK(t, ownerSession, mcptools.SubscribeName, map[string]any{"botId": "b-owner", "topicIds": []string{"s-news"}})
 	invokeExpectID(t, ownerSession, mcptools.PublishName, map[string]any{
 		"topicId": "s-news",
 		"body":    "first event",
@@ -571,9 +568,9 @@ func TestBotLog(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, nil, now, "org-test")
+	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, owner))
-	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, nil, now, "org-test")
+	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, now, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, bot))
 
 	// Pre-create the transcript + seed a couple of events. In production
@@ -665,9 +662,9 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now().UTC().Truncate(time.Second)
 
-	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, nil, base, "org-test")
+	owner, _ := orgchart.NewBot("b-owner", "# Owner", []tool.Name{mcptools.BotLogName}, base, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, owner))
-	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, nil, base, "org-test")
+	bot, _ := orgchart.NewBot("b-bot", "# Bot", nil, base, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, bot))
 
 	topicID := activation.TranscriptID("b-bot")
@@ -779,7 +776,7 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	// activationId belonging to a *different* Bot is rejected too — no
 	// cross-Bot leakage even if the caller knows another Bot's activation
 	// IDs.
-	other, _ := orgchart.NewBot("b-other", "# Other", nil, nil, base, "org-test")
+	other, _ := orgchart.NewBot("b-other", "# Other", nil, base, "org-test")
 	mustCreate(t, s.Bots.Create(ctx, other))
 	otherTopic, _ := streaming.NewTopic(activation.TranscriptID("b-other"), "Activations: b-other", "", "b-owner", base, transport.Transport{}, "org-test")
 	mustCreate(t, s.Topics.Create(ctx, otherTopic))

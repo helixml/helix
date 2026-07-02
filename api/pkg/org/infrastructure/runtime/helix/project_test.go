@@ -193,7 +193,7 @@ func newProjectTestStore(t *testing.T, roleContent string) (*store.Store, orgcha
 	// The Bot IS the role: its Content is the prompt that lands in
 	// role.md. Keep the `w-eng` handle so the on-branch path assertions
 	// (workers/w-eng/.context/role.md) stay meaningful.
-	b, err := orgchart.NewBot("w-eng", roleContent, nil, nil, time.Now().UTC(), "org-test")
+	b, err := orgchart.NewBot("w-eng", roleContent, nil, time.Now().UTC(), "org-test")
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}

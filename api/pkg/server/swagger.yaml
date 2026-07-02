@@ -51,10 +51,6 @@ definitions:
         items:
           type: string
         type: array
-      topics:
-        items:
-          type: string
-        type: array
       updated_at:
         type: string
     type: object
@@ -483,10 +479,6 @@ definitions:
       preserve_context:
         type: boolean
       tools:
-        items:
-          type: string
-        type: array
-      topics:
         items:
           type: string
         type: array
@@ -2380,6 +2372,13 @@ definitions:
         items:
           $ref: '#/definitions/types.VHostRoute'
         type: array
+      health:
+        description: |-
+          Health is the real, probe-based status of the web service — "disabled",
+          "deploying", "live" or "unhealthy" — so the UI reflects whether the app
+          actually answers, not just the last deploy row (which stays "live" long
+          after its container dies).
+        type: string
       state:
         $ref: '#/definitions/types.ProjectWebServiceState'
     type: object

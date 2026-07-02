@@ -68,7 +68,7 @@ func seedTenant(t *testing.T, s *store.Store, orgID string, workerID orgchart.Bo
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	w, err := orgchart.NewBot(workerID, "# "+string(workerID), nil, nil, now, orgID)
+	w, err := orgchart.NewBot(workerID, "# "+string(workerID), nil, now, orgID)
 	if err != nil {
 		t.Fatalf("[%s] new bot: %v", orgID, err)
 	}
