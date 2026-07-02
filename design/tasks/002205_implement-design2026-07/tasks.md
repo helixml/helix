@@ -32,9 +32,10 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 
 ## Workstream B — Board data API
 
-- [ ] Add `GET /api/v1/projects/{id}/vcs-connections` returning one entry per distinct provider among the project's external repos, with state, acting_user, pushing_as, per-repo access, missing_scopes
-- [ ] Compute presence from `distinct(repo.ExternalType) where repo.IsExternal`; compute state from the verify probe against the acting user's connection
-- [ ] Swagger annotations + `./stack update_openapi`
+- [x] Add `GET /api/v1/projects/{id}/vcs-connections` — `vcs_connection_handlers.go` + route in `server.go`; returns `[]types.VCSConnectionInfo` (state, acting_user, pushing_as, per-repo access, missing_scopes)
+- [x] Presence from `distinct(repo.ExternalType) where repo.IsExternal`; state from the verify probe (`verifyVCSRepoAccess`) against the acting user's connection via `oauth.Provider.MakeAuthorizedRequest` + `vcs.AccessProbeURL`
+- [x] Wire verify probes through `oauth.Provider.MakeAuthorizedRequest` (done here — completes the B-core item)
+- [ ] Swagger annotations added; `./stack update_openapi` still to run (batched with the `last_push_error` field regen)
 
 ## Workstream B — Pre-flight verify
 
