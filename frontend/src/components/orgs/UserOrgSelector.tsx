@@ -12,7 +12,6 @@ import {
   Bot,
   Clock,
   Container,
-  Server,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -388,23 +387,23 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Navigation buttons configuration
   const navigationButtons = useMemo(() => {
     const baseButtons = [
-      {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
-        onClick: handleProjectsClick,
-        label: "Projects",
-      },
       // Helix Org overview. Alpha-gated: only rendered for users granted
-      // the 'helix-org' alpha_features flag. Slots in right under
-      // Projects so it sits with the other primary org-level surfaces.
+      // the 'helix-org' alpha_features flag. Leads the rail as the primary
+      // org-level surface.
       ...(helixOrgEnabled ? [{
         icon: <Network size={NAV_BUTTON_SIZE} />,
         tooltip: "View org chart",
         isActive: router.name.startsWith('helix_org'),
         onClick: handleHelixOrgClick,
-        label: "Org",
+        label: "Org Chart",
       }] : []),
+      {
+        icon: <Bot size={NAV_BUTTON_SIZE} />,
+        tooltip: "View agents",
+        isActive: isActive(['agents', 'agent']),
+        onClick: () => orgNavigateTo('agents'),
+        label: "Agents",
+      },
       {
         icon: <MessageCircle size={NAV_BUTTON_SIZE} />,
         tooltip: "AI chat assistant",
@@ -413,11 +412,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Chat",
       },
       {
-        icon: <Bot size={NAV_BUTTON_SIZE} />,
-        tooltip: "View agents",
-        isActive: isActive(['agents', 'agent']),
-        onClick: () => orgNavigateTo('agents'),
-        label: "Agents",
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View projects",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: handleProjectsClick,
+        label: "Projects",
       },
       {
         icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
@@ -450,17 +449,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       // },
     ]
 
-    // Only show Providers menu item if providers management is enabled
-    // Admins manage inference providers via the admin panel, not here
-    if (account.serverConfig.providers_management_enabled) {
-      baseButtons.push({
-        icon: <Server size={NAV_BUTTON_SIZE} />,
-        tooltip: "View model providers",
-        isActive: isActive('providers'),
-        onClick: () => orgNavigateTo('providers'),
-        label: "Providers",
-      })
-    }
+    // Providers is intentionally omitted from the rail: the same page is
+    // reachable from Settings (OrgSidebar -> org_providers).
 
     // Add org settings button when we have an org context.
     // Highlights for any of the grouped admin pages (general, members,
@@ -487,7 +477,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     }
 
     return baseButtons
-  }, [isActive, currentOrgSlug, account.serverConfig.providers_management_enabled, helixOrgEnabled, router.name])
+  }, [isActive, currentOrgSlug, helixOrgEnabled, router.name])
 
   const isAccountSettingsActive = settingsDialog.activeDialog === 'account'
 
