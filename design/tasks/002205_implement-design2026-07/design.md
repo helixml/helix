@@ -187,6 +187,28 @@ transfer can be folded in before `PromoteSessionToGolden(Zvol)` (`api/pkg/hydra/
 Persisting `sandbox-docker-storage` independently would fight the split
 architecture, so the golden route is the aligned fix.
 
+## Implementation notes (as built)
+
+**Workstream A (backend, done):**
+- `types.PushError` struct + `SpecTask.LastPushError *PushError` (jsonb serializer,
+  GORM AutoMigrate) — `api/pkg/types/simple_spec_task.go`.
+- `types.NewPushError(provider, account, repo, rawMessage, failedAt)` translates
+  the raw provider message → `Cause` + `NextStep`. Matches on `not found`/`404`
+  (the misleading private-repo case → switch account), `403`/`forbidden`, and
+  `401`/auth. Unit-tested in `push_error_test.go`.
+- Helpers in `git_repository_service.go`: `OAuthProviderTypeForRepo` (ExternalType
+  → OAuthProviderType), `RepoOwnerName` (parse `owner/repo` from ExternalURL), and
+  `GetActingAccountHandle` (acting-user-first `@login` resolution, mirroring
+  `getCredentialsForRepo`). The first two are reused by Workstream B.
+- `git_http_server.go`: on `upstreamPushFailed` → `recordPushError(...)` persists
+  the structured error after rollback; on success → `clearPushError(...)`. Task ID
+  comes from the agent API key's `SpecTaskID` (the spec-task push path).
+- **Gotcha:** the git package path is `api/pkg/...` — build from `cd api`, not repo
+  root (`go build ./pkg/...`).
+
+**Workstream C (done):** see the Workstream C section above — `stack` grep pipes
+line-buffered; `04-start-dockerd.sh` deliberately left unchanged (exit-code hazard).
+
 ## Key decisions
 
 - **Two workstreams, A first.** A is independent and removes the footgun even

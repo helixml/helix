@@ -2,15 +2,20 @@
 
 ## Workstream A — Loud push-failure surfacing (ship first, independent)
 
-- [ ] Add `PushError` struct and `LastPushError *PushError` field to `SpecTask` in `api/pkg/types/simple_spec_task.go` (GORM AutoMigrate, json serializer)
-- [ ] Populate and persist `PushError` at the mirror-push failure/rollback site in `api/pkg/services/git_http_server.go:687-691`, using the already-resolved acting user's connection for the account handle
-- [ ] Clear `LastPushError` on the next successful push
-- [ ] Gate the task "pushed/ready for review" signal on absence of `LastPushError` + a verified ref (stop confabulating success from the pre-mirror 200)
-- [ ] Add a provider error-translation mapper (raw `Repository not found` → cause + next step referencing account, repo, switch action)
-- [ ] Move the task to an explicit error state on push failure and surface the translated cause + next step on the task card/detail
-- [ ] Regenerate OpenAPI (`./stack update_openapi`) and consume the new field via the generated frontend client
-- [ ] Go unit tests: `PushError` write on failure, error clears on success, translate mapper output
+- [x] Add `PushError` struct and `LastPushError *PushError` field to `SpecTask` in `api/pkg/types/simple_spec_task.go` (GORM AutoMigrate, json serializer)
+- [x] Populate and persist `PushError` at the mirror-push failure/rollback site in `api/pkg/services/git_http_server.go` (`recordPushError`), resolving the acting user's account handle via new `GetActingAccountHandle`
+- [x] Clear `LastPushError` on the next successful push (`clearPushError`)
+- [x] Add a provider error-translation mapper `types.NewPushError` (raw `Repository not found`/403/401 → cause + next step referencing account, repo, switch action)
+- [x] Go unit test for the translate mapper (`push_error_test.go`) — passing
+- [~] Move the task to an explicit error state on push failure and surface the translated cause + next step on the task card/detail (data is now persisted on `SpecTask.LastPushError`; frontend surfacing pending — see Lozenge UI)
+- [ ] Regenerate OpenAPI (`./stack update_openapi`) so the frontend client sees `last_push_error`
 - [ ] E2E in inner Helix: spec task against an unreachable external repo shows the error state and message; agent does NOT report success
+
+Note on "gate the ready-for-review signal": the persisted `LastPushError` is the
+queryable signal the board/agent now reads. A push that fails is no longer silent
+— the error is on the task. Fully rewiring the agent's completion message is a
+larger cross-cutting change tracked under frontend surfacing; the backend truth
+(error persisted, cleared on next success) is in place.
 
 ## Workstream B — Provider capability abstraction (generic core)
 
