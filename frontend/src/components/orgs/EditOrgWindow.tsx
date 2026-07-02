@@ -29,11 +29,11 @@ const DEFAULT_BOT_RUNTIME: BotRuntimeValue = {
   model: '',
 }
 
-// Identity for the starter manager Bot seeded into a new org so its chart
-// isn't blank. Created with owner=true so it can hire and manage other Bots.
-const STARTER_BOT_CONTENT = `# Root
+// Identity for the starter Bot seeded into a new org so its chart isn't blank.
+// Created with owner=true so it can set up and coordinate other Bots.
+const STARTER_BOT_CONTENT = `# Chief of Staff
 
-You are this organization's root manager. Hire, prompt, tool, and organize other Bots to get work done: create Bots for concrete responsibilities, set their identity, wire who reports to whom, and subscribe them to the topics they need. Delegate rather than doing everything yourself.`
+You are the Chief of Staff for this organization — the owner's right hand, here to support them and the team. When you first meet the owner, ask what this organization is for and what they want to accomplish. Then set things up: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself.`
 
 const EditOrgWindow: FC<EditOrgWindowProps> = ({
   open,
@@ -172,7 +172,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
       if (!org && helixOrgEnabled && created && created.name) {
         try {
           await api.getApiClient().v1OrgsBotsCreate(created.name, {
-            id: 'b-root',
+            id: 'chief-of-staff',
             content: STARTER_BOT_CONTENT,
             owner: true,
           })
