@@ -37,17 +37,25 @@ const (
 const agentToolNudge = "You have tools available. When you state an action you are about to take, call the corresponding tool in the same turn. Never end your turn with only a plan, a description of what you will do next, or a question about whether to proceed. If any work remains, call a tool. Stop only when the task is complete or you genuinely need input from the user."
 
 // injectAgentToolNudge appends agentToolNudge to the request's system prompt,
-// scoped to tool-enabled requests targeting a GLM model — the only model we
-// have confirmed exhibits the narrate-then-stop stall. A request with no tools
-// cannot act via a tool, so the directive would be noise. It merges into an
-// existing leading system message when that message uses plain string content,
-// otherwise it prepends a fresh system message (go-openai rejects a message
-// that sets both Content and MultiContent).
-func injectAgentToolNudge(req *openai.ChatCompletionRequest) {
+// scoped to tool-enabled requests whose model name matches one of nudgeModels
+// (case-insensitive substrings of models confirmed to narrate-then-stop). A
+// request with no tools cannot act via a tool, so the directive would be noise.
+// It merges into an existing leading system message when that message uses plain
+// string content, otherwise it prepends a fresh system message (go-openai
+// rejects a message that sets both Content and MultiContent).
+func injectAgentToolNudge(req *openai.ChatCompletionRequest, nudgeModels []string) {
 	if len(req.Tools) == 0 {
 		return
 	}
-	if !strings.Contains(strings.ToLower(req.Model), "glm") {
+	model := strings.ToLower(req.Model)
+	matched := false
+	for _, m := range nudgeModels {
+		if m != "" && strings.Contains(model, strings.ToLower(m)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return
 	}
 	if len(req.Messages) > 0 &&
@@ -103,9 +111,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if !s.Cfg.Inference.DisableAgentToolNudge {
-		injectAgentToolNudge(&chatCompletionRequest)
-	}
+	injectAgentToolNudge(&chatCompletionRequest, s.Cfg.Inference.AgentToolNudgeModels)
 
 	ownerID := user.ID
 	if user.TokenType == types.TokenTypeRunner {

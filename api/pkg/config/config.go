@@ -436,11 +436,13 @@ type Inference struct {
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
 
-	// DisableAgentToolNudge turns off the directive appended to tool-enabled GLM
-	// chat completions that tells the model to act via tools rather than end its
-	// turn on a bare plan. The nudge mitigates narrate-then-stop stalls that GLM
-	// exhibits and Claude does not. Enabled by default; kill switch only.
-	DisableAgentToolNudge bool `envconfig:"INFERENCE_DISABLE_AGENT_TOOL_NUDGE" default:"false"`
+	// AgentToolNudgeModels lists model-name substrings (case-insensitive) whose
+	// tool-enabled chat completions get a directive appended to the system prompt
+	// telling the model to act via tools rather than end its turn on a bare plan.
+	// This mitigates the narrate-then-stop stall that non-Claude models (GLM,
+	// Qwen, ...) exhibit and Claude does not. Extend via env as new models surface;
+	// set empty to disable entirely.
+	AgentToolNudgeModels []string `envconfig:"INFERENCE_AGENT_TOOL_NUDGE_MODELS" default:"glm,qwen"`
 }
 
 type Search struct {
