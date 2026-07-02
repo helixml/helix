@@ -1,25 +1,25 @@
-// WorkerRuntimePanel renders the helix-org worker.* runtime config
-// (runtime / credentials / provider / model) as first-class dropdowns.
-// It lives on the org General settings page. Reads/writes the same config
-// registry the server validates against; org context is resolved from
+// WorkerRuntimePanel is the org-level "Default Bot Runtime" config. It mirrors
+// the per-agent runtime picker on the Agent settings page (AppSettings) — same
+// style and terms (Agent Runtime / Credentials / Model, friendly labels) so it
+// reads identically — but writes the org-level worker.* config registry keys
+// that new Bots inherit. Changes auto-save; org context is resolved from
 // router.params.org_id by the underlying hooks.
-//
-// The provider + model dropdowns pull their options from Helix's existing
-// /providers + /v1/models endpoints, so adding a provider is reflected
-// here without a redeploy.
 
 import { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import FormControl from '@mui/material/FormControl'
-import FormHelperText from '@mui/material/FormHelperText'
-import InputLabel from '@mui/material/InputLabel'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
+import Radio from '@mui/material/Radio'
+import RadioGroup from '@mui/material/RadioGroup'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
-import SaveIcon from '@mui/icons-material/Save'
+import Typography from '@mui/material/Typography'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 
+import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
@@ -30,24 +30,17 @@ import {
   useSetHelixOrgSetting,
 } from '../../services/helixOrgService'
 
-// Allowed values for the two dropdown-only knobs. The server validates
-// against the same set in api/pkg/server/helix_org.go::resolveWorkerAgentConfig.
-const RUNTIME_OPTIONS = [
-  { value: 'claude_code', label: 'claude_code', help: 'Anthropic Claude Code CLI inside the desktop. Authenticates via subscription OAuth or via Helix-routed API key.' },
-  { value: 'zed_agent', label: 'zed_agent', help: 'Native Zed agent — always routed through a Helix-managed provider (forces credentials=api_key).' },
+// Strong code-generation models to surface first in the picker.
+const RECOMMENDED_MODELS = [
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5-20250929',
 ]
 
-const CREDENTIALS_OPTIONS = [
-  { value: 'subscription', label: 'subscription', help: 'Each operator authenticates with their own Claude OAuth subscription (only meaningful with runtime=claude_code).' },
-  { value: 'api_key', label: 'api_key', help: 'Inference routed through one of Helix\'s configured providers — pick provider + model below.' },
-]
-
-// JSON-encode the value the dropdown produced so it satisfies the
-// registry's string-spec contract.
+// JSON-encode the value so it satisfies the registry's string-spec contract.
 const encodeStringValue = (raw: string): string => JSON.stringify(raw)
 
-// Read the redacted/persisted JSON value back into a plain string for the
-// dropdowns. Falls back to empty when parsing fails (e.g. masked value).
+// Read the persisted JSON value back into a plain string. Falls back to empty
+// when parsing fails (e.g. a masked value).
 const decodeStringValue = (v: string): string => {
   if (!v) return ''
   try {
@@ -61,6 +54,12 @@ const decodeStringValue = (v: string): string => {
 const WorkerRuntimePanel: FC = () => {
   const { data, isLoading } = useHelixOrgSettings()
   const { data: providers } = useHelixProviders()
+  const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const setMut = useSetHelixOrgSetting()
+  const snackbar = useSnackbar()
+
+  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const hasAnthropicProvider = (providers ?? []).includes('anthropic')
 
   const specByKey = useMemo(() => {
     const m = new Map<string, SettingsSpecDTO>()
@@ -88,227 +87,152 @@ const WorkerRuntimePanel: FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
-  const { data: models } = useHelixModelsForProvider(provider, { enabled: credentials === 'api_key' })
+  // Warm the models cache for the picker's currently-selected provider.
+  useHelixModelsForProvider(provider, { enabled: !!provider })
 
-  // claude_code + subscription means provider+model are unused (the CLI
-  // handles OAuth itself), so we visually disable those rows.
-  const apiKeyMode = credentials === 'api_key'
+  const save = async (key: string, value: string, label: string) => {
+    try {
+      await setMut.mutateAsync({ key, value: encodeStringValue(value) })
+      snackbar.success(`${label} saved`)
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
+    }
+  }
+
+  const onRuntime = (v: string) => {
+    setRuntime(v)
+    save('worker.runtime', v, 'Runtime')
+    // Non-claude runtimes are always API-key routed; persist that so the
+    // stored value matches what the server coerces to.
+    if (v !== 'claude_code' && credentials !== 'api_key') {
+      setCredentials('api_key')
+      save('worker.credentials', 'api_key', 'Credentials')
+    }
+  }
+
+  const onCredentials = (v: string) => {
+    setCredentials(v)
+    save('worker.credentials', v, 'Credentials')
+  }
+
+  const onSelectModel = (prov: string, modelId: string) => {
+    setProvider(prov)
+    setModel(modelId)
+    save('worker.provider', prov, 'Provider')
+    save('worker.model', modelId, 'Model')
+  }
+
+  const isClaude = runtime === 'claude_code'
+  // claude_code + subscription is the only mode that doesn't route through a
+  // provider/model; everything else does.
+  const apiKeyMode = !isClaude || credentials === 'api_key'
 
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack spacing={2.5}>
-        {isLoading ? (
-          <LoadingSpinner />
-        ) : (
-          <>
-            <RuntimeRow value={runtime} onChange={setRuntime} />
-            <CredentialsRow
-              value={credentials}
-              onChange={(v) => {
-                setCredentials(v)
-                // Switching to subscription wipes provider+model because
-                // they're meaningless in OAuth mode.
-                if (v === 'subscription' && runtime === 'claude_code') {
-                  setProvider('')
-                  setModel('')
-                }
-              }}
-              runtime={runtime}
-            />
-            <ProviderRow
-              value={provider}
-              onChange={(v) => { setProvider(v); setModel('') }}
-              providers={providers ?? []}
-              disabled={!apiKeyMode}
-            />
-            <ModelRow
-              value={model}
-              onChange={setModel}
-              models={models ?? []}
-              disabled={!apiKeyMode || !provider}
-              provider={provider}
-            />
-          </>
-        )}
-      </Stack>
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+              Agent Runtime
+            </Typography>
+            <FormControl fullWidth size="small">
+              <Select
+                value={runtime}
+                onChange={(e) => onRuntime(e.target.value)}
+                renderValue={(v) => (v === 'claude_code' ? 'Claude Code' : 'Zed Agent')}
+              >
+                <MenuItem value="claude_code">
+                  <Box>
+                    <Typography variant="body2">Claude Code</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Anthropic's coding agent
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="zed_agent">
+                  <Box>
+                    <Typography variant="body2">Zed Agent</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Built-in, Anthropic & OpenAI compatible
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+
+          {isClaude && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Credentials
+              </Typography>
+              <FormControl>
+                <RadioGroup value={credentials} onChange={(e) => onCredentials(e.target.value)}>
+                  <FormControlLabel
+                    value="subscription"
+                    control={<Radio size="small" />}
+                    disabled={!hasClaudeSubscription}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">Claude Subscription</Typography>
+                        {hasClaudeSubscription ? (
+                          <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">(not connected)</Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                  <FormControlLabel
+                    value="api_key"
+                    control={<Radio size="small" />}
+                    disabled={!hasAnthropicProvider}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2">Anthropic API Key</Typography>
+                        {hasAnthropicProvider ? (
+                          <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">(not configured)</Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                </RadioGroup>
+              </FormControl>
+              {!hasClaudeSubscription && !hasAnthropicProvider && (
+                <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
+                  Connect a Claude subscription or add an Anthropic API key above in Providers.
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {apiKeyMode ? (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                Model
+              </Typography>
+              <AdvancedModelPicker
+                recommendedModels={RECOMMENDED_MODELS}
+                hint="Select the model your Bots use by default"
+                selectedProvider={provider}
+                selectedModelId={model}
+                onSelectModel={onSelectModel}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              Uses your connected Claude subscription — no model selection needed.
+            </Typography>
+          )}
+        </Stack>
+      )}
     </Paper>
-  )
-}
-
-// RuntimeRow is the worker.runtime dropdown.
-const RuntimeRow: FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
-  const setMut = useSetHelixOrgSetting()
-  const snackbar = useSnackbar()
-  const handleSave = async () => {
-    try {
-      await setMut.mutateAsync({ key: 'worker.runtime', value: encodeStringValue(value) })
-      snackbar.success('Runtime saved')
-    } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
-    }
-  }
-  const helpFor = RUNTIME_OPTIONS.find((o) => o.value === value)?.help
-  return (
-    <FormControl fullWidth size="small">
-      <InputLabel id="runtime-label">Runtime</InputLabel>
-      <Select
-        labelId="runtime-label"
-        value={value}
-        label="Runtime"
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {RUNTIME_OPTIONS.map((o) => (
-          <MenuItem key={o.value} value={o.value} sx={{ fontFamily: 'monospace' }}>
-            {o.label}
-          </MenuItem>
-        ))}
-      </Select>
-      <FormHelperText>{helpFor}</FormHelperText>
-      <Box sx={{ mt: 1 }}>
-        <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={setMut.isPending}>
-          {setMut.isPending ? 'Saving…' : 'Save runtime'}
-        </Button>
-      </Box>
-    </FormControl>
-  )
-}
-
-// CredentialsRow is the worker.credentials dropdown.
-const CredentialsRow: FC<{ value: string; onChange: (v: string) => void; runtime: string }> = ({ value, onChange, runtime }) => {
-  const setMut = useSetHelixOrgSetting()
-  const snackbar = useSnackbar()
-  const handleSave = async () => {
-    try {
-      await setMut.mutateAsync({ key: 'worker.credentials', value: encodeStringValue(value) })
-      snackbar.success('Credentials saved')
-    } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
-    }
-  }
-  const helpFor = CREDENTIALS_OPTIONS.find((o) => o.value === value)?.help
-  // The backend coerces non-claude_code runtimes to api_key, but surface
-  // that so the page doesn't look broken on zed_agent + subscription.
-  const forcedToApiKey = runtime !== 'claude_code'
-  return (
-    <FormControl fullWidth size="small">
-      <InputLabel id="creds-label">Credentials</InputLabel>
-      <Select
-        labelId="creds-label"
-        value={forcedToApiKey ? 'api_key' : value}
-        label="Credentials"
-        onChange={(e) => onChange(e.target.value)}
-        disabled={forcedToApiKey}
-      >
-        {CREDENTIALS_OPTIONS.map((o) => (
-          <MenuItem key={o.value} value={o.value} sx={{ fontFamily: 'monospace' }}>
-            {o.label}
-          </MenuItem>
-        ))}
-      </Select>
-      <FormHelperText>
-        {forcedToApiKey ? `runtime=${runtime} forces api_key — only claude_code supports subscription.` : helpFor}
-      </FormHelperText>
-      <Box sx={{ mt: 1 }}>
-        <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={setMut.isPending || forcedToApiKey}>
-          {setMut.isPending ? 'Saving…' : 'Save credentials'}
-        </Button>
-      </Box>
-    </FormControl>
-  )
-}
-
-// ProviderRow lists every provider configured on this Helix instance.
-const ProviderRow: FC<{
-  value: string
-  onChange: (v: string) => void
-  providers: string[]
-  disabled: boolean
-}> = ({ value, onChange, providers, disabled }) => {
-  const setMut = useSetHelixOrgSetting()
-  const snackbar = useSnackbar()
-  const handleSave = async () => {
-    try {
-      await setMut.mutateAsync({ key: 'worker.provider', value: encodeStringValue(value) })
-      snackbar.success('Provider saved')
-    } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
-    }
-  }
-  return (
-    <FormControl fullWidth size="small" disabled={disabled}>
-      <InputLabel id="provider-label">Provider</InputLabel>
-      <Select
-        labelId="provider-label"
-        value={value}
-        label="Provider"
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <MenuItem value=""><em>none</em></MenuItem>
-        {providers.map((p) => (
-          <MenuItem key={p} value={p} sx={{ fontFamily: 'monospace' }}>{p}</MenuItem>
-        ))}
-      </Select>
-      <FormHelperText>
-        {disabled
-          ? 'Pick credentials=api_key above to enable.'
-          : 'One of the providers configured on this Helix instance.'}
-      </FormHelperText>
-      <Box sx={{ mt: 1 }}>
-        <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={setMut.isPending || disabled}>
-          {setMut.isPending ? 'Saving…' : 'Save provider'}
-        </Button>
-      </Box>
-    </FormControl>
-  )
-}
-
-// ModelRow lists models the picked provider exposes.
-const ModelRow: FC<{
-  value: string
-  onChange: (v: string) => void
-  models: { id: string; name?: string; description?: string }[]
-  disabled: boolean
-  provider: string
-}> = ({ value, onChange, models, disabled, provider }) => {
-  const setMut = useSetHelixOrgSetting()
-  const snackbar = useSnackbar()
-  const handleSave = async () => {
-    try {
-      await setMut.mutateAsync({ key: 'worker.model', value: encodeStringValue(value) })
-      snackbar.success('Model saved')
-    } catch (e: any) {
-      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
-    }
-  }
-  const selected = models.find((m) => m.id === value)
-  return (
-    <FormControl fullWidth size="small" disabled={disabled}>
-      <InputLabel id="model-label">Model</InputLabel>
-      <Select
-        labelId="model-label"
-        value={value}
-        label="Model"
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <MenuItem value=""><em>none</em></MenuItem>
-        {models.map((m) => (
-          <MenuItem key={m.id} value={m.id} sx={{ fontFamily: 'monospace' }}>
-            {m.id}{m.name ? ` — ${m.name}` : ''}
-          </MenuItem>
-        ))}
-      </Select>
-      <FormHelperText>
-        {disabled
-          ? (provider ? 'Pick credentials=api_key above to enable.' : 'Pick a provider first.')
-          : (selected?.description?.slice(0, 200) ?? `Models exposed by ${provider}.`)
-        }
-      </FormHelperText>
-      <Box sx={{ mt: 1 }}>
-        <Button size="small" variant="contained" color="secondary" startIcon={<SaveIcon />} onClick={handleSave} disabled={setMut.isPending || disabled}>
-          {setMut.isPending ? 'Saving…' : 'Save model'}
-        </Button>
-      </Box>
-    </FormControl>
   )
 }
 
