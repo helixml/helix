@@ -88,6 +88,12 @@ type CreateBotRequest struct {
 	Topics          []string `json:"topics,omitempty"`
 	ParentID        string   `json:"parent_id,omitempty"`
 	PreserveContext bool     `json:"preserve_context,omitempty"`
+	// Owner makes this a manager Bot: it receives the canonical owner
+	// tool set (every org-graph mutation — create_bot, delete_bot,
+	// set_bot_content, subscribe, … — plus the read baseline) so it can
+	// hire and manage other Bots. When true, Tools is ignored in favour
+	// of that set. Used to seed a starter/root Bot for a new org.
+	Owner bool `json:"owner,omitempty"`
 }
 
 // CreateBotResponse is the body of POST /bots on success.

@@ -29,6 +29,12 @@ const DEFAULT_BOT_RUNTIME: BotRuntimeValue = {
   model: '',
 }
 
+// Identity for the starter manager Bot seeded into a new org so its chart
+// isn't blank. Created with owner=true so it can hire and manage other Bots.
+const STARTER_BOT_CONTENT = `# Root
+
+You are this organization's root manager. Hire, prompt, tool, and organize other Bots to get work done: create Bots for concrete responsibilities, set their identity, wire who reports to whom, and subscribe them to the topics they need. Delegate rather than doing everything yourself.`
+
 const EditOrgWindow: FC<EditOrgWindowProps> = ({
   open,
   org,
@@ -157,6 +163,21 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
           await persistBotDefaults(created.name)
         } catch (e) {
           snackbar.error('Organization created, but saving the default bot runtime failed — set it in Settings.')
+        }
+      }
+
+      // New alpha org → seed a starter manager Bot so the org chart isn't
+      // blank. It gets the owner tool set (can hire + manage other Bots) and
+      // inherits the org's default runtime. Best-effort.
+      if (!org && helixOrgEnabled && created && created.name) {
+        try {
+          await api.getApiClient().v1OrgsBotsCreate(created.name, {
+            id: 'b-root',
+            content: STARTER_BOT_CONTENT,
+            owner: true,
+          })
+        } catch (e) {
+          snackbar.error('Organization created, but seeding the starter bot failed — add one from the Org Chart.')
         }
       }
 
