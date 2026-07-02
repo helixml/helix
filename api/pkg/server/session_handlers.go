@@ -439,15 +439,23 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 			assistant = data.GetAssistant(app, assistantID)
 
-			// Update the model if the assistant has one
-			// Prefer GenerationModel over Model (new field vs legacy field)
-			if assistant.GenerationModel != "" {
+			// Update the model if the assistant has one. For helix_agent the
+			// GenerationModel field carries the real selection; for external
+			// agents (zed_external) the source of truth is Model/Provider —
+			// GenerationModel there is a stale helix_agent template default
+			// (gpt-4o) that must not win.
+			if assistant.AgentType == types.AgentTypeHelixAgent && assistant.GenerationModel != "" {
 				startReq.Model = assistant.GenerationModel
 				if assistant.GenerationModelProvider != "" {
 					startReq.Provider = types.Provider(assistant.GenerationModelProvider)
 				}
 			} else if assistant.Model != "" {
 				startReq.Model = assistant.Model
+			} else if assistant.GenerationModel != "" {
+				startReq.Model = assistant.GenerationModel
+				if assistant.GenerationModelProvider != "" {
+					startReq.Provider = types.Provider(assistant.GenerationModelProvider)
+				}
 			}
 
 			// Override provider if explicitly set on assistant
@@ -465,13 +473,14 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
 			} else {
-				// For basic mode, use generation model (or fall back to Model field)
-				if assistant.GenerationModel != "" {
-					generateSessionNameProvider = assistant.GenerationModelProvider
-					generateSessionNameModel = assistant.GenerationModel
-				} else if assistant.Model != "" {
+				// For basic/external mode, prefer Model/Provider (the real pick);
+				// fall back to GenerationModel only when Model is unset.
+				if assistant.Model != "" {
 					generateSessionNameProvider = assistant.Provider
 					generateSessionNameModel = assistant.Model
+				} else if assistant.GenerationModel != "" {
+					generateSessionNameProvider = assistant.GenerationModelProvider
+					generateSessionNameModel = assistant.GenerationModel
 				}
 			}
 		}
