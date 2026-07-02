@@ -101,6 +101,7 @@ import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import BacklogTableView from "./BacklogTableView";
+import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
 import { useSampleTypes } from "../../hooks/useSampleTypes";
 import { useAttentionEvents, AttentionEvent } from "../../hooks/useAttentionEvents";
@@ -1895,6 +1896,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             />
           )}
         </Box>
+        {projectId && <VCSConnectionLozenges projectId={projectId} />}
       </Box>
 
       {/* Mobile search bar */}
