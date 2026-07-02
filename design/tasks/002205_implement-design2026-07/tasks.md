@@ -19,15 +19,15 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 
 ## Workstream B — Provider capability abstraction (generic core)
 
-- [ ] Add `VCSProviderCapability` (Type, AuthMechanism, RequiredScopes, VerifyAccess, IdentityHandle, TranslateError) and a registry keyed by `types.ExternalRepositoryType`
-- [ ] Implement the GitHub capability entry (scopes `repo,read:user,user:email,read:org`; verify via `GET /repos/{o}/{r}`; identity from `OAuthConnection.ProviderUsername`)
-- [ ] Wire verify probes through `oauth.Provider.MakeAuthorizedRequest`
-- [ ] Stub/placeholder capability entries for GitLab / ADO / Bitbucket (verify probe + scopes) so adding them needs no shared-component change
+- [x] Add `vcs.Capability` (Type, Provider, AuthMechanism, RequiredScopes, AccessProbePath) and a registry keyed by `types.ExternalRepositoryType` — new package `api/pkg/vcs/capability.go`
+- [x] Implement the GitHub capability entry (scopes `repo,read:user,user:email,read:org`; probe `GET /repos/{o}/{r}`; identity via `vcs.IdentityHandle` from `OAuthConnection.ProviderUsername`)
+- [x] Stub capability entries for GitLab / ADO / Bitbucket (scopes + probe) so adding them needs no shared-component change
+- [~] Wire verify probes through `oauth.Provider.MakeAuthorizedRequest` (probe URL builder `vcs.AccessProbeURL` in place; service-layer probe call pending — needed by board API + pre-flight)
 
 ## Workstream B — Scopes & forced account selection
 
-- [ ] Source requested connect scopes from the capability registry; update `simple_sample_projects.go:731` to include `read:org` and stop storing `["repo"]` only
-- [ ] Align/widen `GitHubRepoScopes` validation in `sample_project_access_handlers.go:257`
+- [x] Source requested connect scopes from the capability registry; `simple_sample_projects.go` now uses `vcs.RequiredScopes(github)` (includes `read:org`), stops hardcoding `["repo","read:user","user:email"]`
+- [x] `GitHubRepoScopes` validation in `sample_project_access_handlers.go`: kept at operational minimum `repo` (documented) — widening the hard validation would reject existing connections; identity/org scopes degrade gracefully per design
 - [ ] Force the provider account picker in Switch/Reconnect flows (pass account-selection param into `GetAuthorizationURL`)
 
 ## Workstream B — Board data API
