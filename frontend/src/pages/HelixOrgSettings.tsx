@@ -60,7 +60,7 @@ const HelixOrgSettings: FC = () => {
           <Box>
             <Typography variant="h5" sx={{ mb: 1 }}>Settings</Typography>
             <Typography variant="body2" color="text.secondary">
-              Configures how this org's Workers run. Changes take effect on the next worker
+              Configures how this org's Bots run. Changes take effect on the next bot
               activation — no API restart needed.
             </Typography>
           </Box>

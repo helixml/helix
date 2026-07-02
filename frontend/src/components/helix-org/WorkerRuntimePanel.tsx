@@ -19,7 +19,6 @@ import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
 import SaveIcon from '@mui/icons-material/Save'
 
 import LoadingSpinner from '../widgets/LoadingSpinner'
@@ -99,7 +98,6 @@ const WorkerRuntimePanel: FC = () => {
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Stack spacing={2.5}>
-        <Typography variant="subtitle1">Worker runtime</Typography>
         {isLoading ? (
           <LoadingSpinner />
         ) : (
@@ -145,7 +143,7 @@ const RuntimeRow: FC<{ value: string; onChange: (v: string) => void }> = ({ valu
   const handleSave = async () => {
     try {
       await setMut.mutateAsync({ key: 'worker.runtime', value: encodeStringValue(value) })
-      snackbar.success('worker.runtime saved')
+      snackbar.success('Runtime saved')
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
     }
@@ -153,11 +151,11 @@ const RuntimeRow: FC<{ value: string; onChange: (v: string) => void }> = ({ valu
   const helpFor = RUNTIME_OPTIONS.find((o) => o.value === value)?.help
   return (
     <FormControl fullWidth size="small">
-      <InputLabel id="runtime-label">worker.runtime</InputLabel>
+      <InputLabel id="runtime-label">Runtime</InputLabel>
       <Select
         labelId="runtime-label"
         value={value}
-        label="worker.runtime"
+        label="Runtime"
         onChange={(e) => onChange(e.target.value)}
       >
         {RUNTIME_OPTIONS.map((o) => (
@@ -183,7 +181,7 @@ const CredentialsRow: FC<{ value: string; onChange: (v: string) => void; runtime
   const handleSave = async () => {
     try {
       await setMut.mutateAsync({ key: 'worker.credentials', value: encodeStringValue(value) })
-      snackbar.success('worker.credentials saved')
+      snackbar.success('Credentials saved')
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
     }
@@ -194,11 +192,11 @@ const CredentialsRow: FC<{ value: string; onChange: (v: string) => void; runtime
   const forcedToApiKey = runtime !== 'claude_code'
   return (
     <FormControl fullWidth size="small">
-      <InputLabel id="creds-label">worker.credentials</InputLabel>
+      <InputLabel id="creds-label">Credentials</InputLabel>
       <Select
         labelId="creds-label"
         value={forcedToApiKey ? 'api_key' : value}
-        label="worker.credentials"
+        label="Credentials"
         onChange={(e) => onChange(e.target.value)}
         disabled={forcedToApiKey}
       >
@@ -232,18 +230,18 @@ const ProviderRow: FC<{
   const handleSave = async () => {
     try {
       await setMut.mutateAsync({ key: 'worker.provider', value: encodeStringValue(value) })
-      snackbar.success('worker.provider saved')
+      snackbar.success('Provider saved')
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
     }
   }
   return (
     <FormControl fullWidth size="small" disabled={disabled}>
-      <InputLabel id="provider-label">worker.provider</InputLabel>
+      <InputLabel id="provider-label">Provider</InputLabel>
       <Select
         labelId="provider-label"
         value={value}
-        label="worker.provider"
+        label="Provider"
         onChange={(e) => onChange(e.target.value)}
       >
         <MenuItem value=""><em>none</em></MenuItem>
@@ -278,7 +276,7 @@ const ModelRow: FC<{
   const handleSave = async () => {
     try {
       await setMut.mutateAsync({ key: 'worker.model', value: encodeStringValue(value) })
-      snackbar.success('worker.model saved')
+      snackbar.success('Model saved')
     } catch (e: any) {
       snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed')
     }
@@ -286,11 +284,11 @@ const ModelRow: FC<{
   const selected = models.find((m) => m.id === value)
   return (
     <FormControl fullWidth size="small" disabled={disabled}>
-      <InputLabel id="model-label">worker.model</InputLabel>
+      <InputLabel id="model-label">Model</InputLabel>
       <Select
         labelId="model-label"
         value={value}
-        label="worker.model"
+        label="Model"
         onChange={(e) => onChange(e.target.value)}
       >
         <MenuItem value=""><em>none</em></MenuItem>

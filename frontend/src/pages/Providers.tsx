@@ -349,10 +349,10 @@ const Providers: React.FC = () => {
           <>
             <Divider sx={{ my: 4 }} />
             <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
-              Worker runtime
+              Default Bot Runtime
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-              How this org's agent Workers run — which runtime, and which provider/model they route through.
+              How this org's Bots run by default — which runtime, and which provider/model they route through.
             </Typography>
             <WorkerRuntimePanel />
           </>
