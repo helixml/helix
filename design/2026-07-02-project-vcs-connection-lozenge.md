@@ -170,12 +170,35 @@ must request `repo` + `read:user` + `user:email` + `read:org`:
   (`git_repository_handlers.go:1790`) and needed to tell the user *"your
   @linuxrecruit account isn't in the helixml org."*
 
+## Error surfacing — the footgun, and the highest-priority fix
+
+This is the single most damaging behavior and it is worth fixing **first and on
+its own** — it removes the footgun even before the lozenge, pre-flight check, or
+scope changes ship. Today a push can fail and be rolled back while the agent
+reports *"pushed and ready for review"* and the UI shows nothing; the user has
+no signal at all. "Surface properly" means all of:
+
+1. **Never report success the system can't verify.** The agent's completion
+   signal must be tied to the specs actually persisting on the branch the UI
+   reads — not to the `receive-pack` 200 that precedes the external mirror push
+   (`git_http_server.go:636-640`). If the mirror push fails and refs are rolled
+   back (`:688`), the agent must say so, not confabulate success.
+2. **Persist a structured error on the task.** On external-push failure
+   (`git_http_server.go:680-690`), write a `last_push_error` carrying the
+   provider, the account used (`@linuxrecruit`), the repo (`helixml/find-ai`),
+   and the raw provider message — so it's queryable and shown, not just logged.
+3. **Show an explicit error state on the task/board**, never silence. A failed
+   spec push is a first-class task error, surfaced where the user is looking.
+4. **Translate the provider error into a cause + next step.** Map raw
+   `remote: Repository not found` → *"@linuxrecruit can't access
+   `helixml/find-ai`. If the repo is private, this account isn't a member —
+   switch to an account with access."* Include account, repo, likely cause, and
+   the action, wired to the lozenge's switch-account flow.
+
 ## Backend work required (the UI alone won't fix it)
 
-1. **Surface the silent rollback.** On external-push failure
-   (`git_http_server.go:680-690`), persist the error on the task (e.g.
-   `last_push_error`), reflect it as a task/board error state, and feed it back
-   to the agent so it stops claiming success it can't verify.
+1. **Ship the error-surfacing fixes above** — the highest priority, and
+   independent of the rest of this design.
 2. **Pre-flight + on-failure verify-and-prompt.** Add a provider access-verify
    probe (interface method per provider). Check before kicking off planning and
    translate a push auth failure into an actionable "switch account" prompt on
