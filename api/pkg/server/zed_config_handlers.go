@@ -605,8 +605,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfig(ctx context.Context, app *
 }
 
 // buildCodeAgentConfigFromAssistant creates a CodeAgentConfig from an assistant configuration.
-// For zed_external agents, use GenerationModelProvider/GenerationModel - that's where the UI
-// stores the user's model selection for external agents.
+// For zed_external agents the user's model selection lives in Model/Provider; the
+// GenerationModel quartet holds helix_agent template defaults (gpt-4o/openai) that must
+// not shadow it. This must match GenerateZedMCPConfig's precedence or CodeAgentConfig.Model
+// (fed to Goose/qwen via agent_servers) disagrees with agent.default_model.
 // The CodeAgentRuntime determines how the LLM is configured in Zed (built-in agent vs qwen).
 func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.Context, assistant *types.AssistantConfig, helixURL string, providerSnapshot []external_agent.ProviderRef) *types.CodeAgentConfig {
 	// Get the code agent runtime, default to zed_agent
@@ -618,15 +620,15 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 	// Check if this agent uses subscription-based credentials (e.g., Claude OAuth)
 	isSubscription := assistant.CodeAgentCredentialType.IsSubscription()
 
-	// For zed_external agents, use generation model fields (that's where the UI sets the model)
-	// Fall back to primary provider/model only if generation fields are empty.
-	providerName := assistant.GenerationModelProvider
+	// Model/Provider is the zed_external source of truth; GenerationModel is the
+	// stale helix_agent-template fallback (see doc comment above).
+	providerName := assistant.Provider
 	if providerName == "" {
-		providerName = assistant.Provider
+		providerName = assistant.GenerationModelProvider
 	}
-	modelName := assistant.GenerationModel
+	modelName := assistant.Model
 	if modelName == "" {
-		modelName = assistant.Model
+		modelName = assistant.GenerationModel
 	}
 
 	// Resolve the agent's stored provider token (ID or legacy name) to the
