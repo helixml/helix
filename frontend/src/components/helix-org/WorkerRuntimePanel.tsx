@@ -141,8 +141,29 @@ const WorkerRuntimePanel: FC = () => {
               <Select
                 value={runtime}
                 onChange={(e) => onRuntime(e.target.value)}
-                renderValue={(v) => (v === 'claude_code' ? 'Claude Code' : 'Zed Agent')}
+                renderValue={(v) => {
+                  if (v === 'claude_code') return 'Claude Code'
+                  if (v === 'qwen_code') return 'Qwen Code'
+                  if (v === 'goose_code') return 'Goose'
+                  return 'Zed Agent'
+                }}
               >
+                <MenuItem value="zed_agent">
+                  <Box>
+                    <Typography variant="body2">Zed Agent</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Built-in, Anthropic & OpenAI compatible
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem value="qwen_code">
+                  <Box>
+                    <Typography variant="body2">Qwen Code</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Optimized for Qwen, including smaller models
+                    </Typography>
+                  </Box>
+                </MenuItem>
                 <MenuItem value="claude_code">
                   <Box>
                     <Typography variant="body2">Claude Code</Typography>
@@ -151,11 +172,11 @@ const WorkerRuntimePanel: FC = () => {
                     </Typography>
                   </Box>
                 </MenuItem>
-                <MenuItem value="zed_agent">
+                <MenuItem value="goose_code">
                   <Box>
-                    <Typography variant="body2">Zed Agent</Typography>
+                    <Typography variant="body2">Goose</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Built-in, Anthropic & OpenAI compatible
+                      Open-source ACP agent (AAIF)
                     </Typography>
                   </Box>
                 </MenuItem>
