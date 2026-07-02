@@ -2,9 +2,10 @@
 
 **Date:** 2026-07-02
 **Context:** Surfaced while waiting for the inner Helix stack to boot during the
-VCS-lozenge spec work (below). Two separate, unrelated-to-the-lozenge issues in
-the Helix-in-Helix dev startup path. Recorded here at the user's request; these
-are **helix-repo** changes, not part of the lozenge implementation.
+VCS-lozenge spec work (below). Two Helix-in-Helix dev-startup issues, unrelated
+to the lozenge but **implemented as part of this same task** (workstreams C and D
+in `design.md` / `tasks.md`). This document is the detailed backing evidence for
+those two workstreams.
 
 ---
 

@@ -143,6 +143,44 @@ push that rolls back. **Never** fall back to the repo-level/admin credential for
 user-initiated actions (`getCredentialsForRepo` acting-user-first stays; the
 repo-level `OAuthConnectionID` remains for system/agent-initiated only).
 
+## Workstream C — Readable dev-startup pull output
+
+The pull output looks half-rendered/hung because `docker pull … 2>&1 | grep -v "^$"`
+runs against a non-TTY (plaintext per-layer lines) and **grep block-buffers**
+stdout, so lines arrive in bursts and snapshots land mid-line. Not a hang — the
+7.67 GB `helix-ubuntu` image is genuinely transferring. Full evidence:
+`investigation-helix-in-helix-boot.md` §1.
+
+Fix at `stack:1098/1139/1176` and `sandbox/04-start-dockerd.sh:266/285`:
+- Minimal/clean: `docker pull --quiet` (one final digest line), or
+- Keep per-layer progress but flush each line: `stdbuf -oL docker pull … 2>&1 | grep --line-buffered -v "^$"`. The `--line-buffered` on grep is the actual lever.
+
+Pick one and apply consistently. `--quiet` is simplest; `--line-buffered` keeps
+progress visible. No behavioral change beyond output formatting.
+
+## Workstream D — Warm desktop image via golden snapshot
+
+The build cache already persists — this session's `helix-ubuntu` build was 100 %
+`CACHED`. The cost is the **transfer** (`push → registry:5000 → pull-back`, ~411 s)
+because the **sandbox container's own docker store** (`helix_sandbox-docker-storage`,
+a named volume, distinct from the golden-cloned desktop inner dockerd) comes up
+empty each fresh session. Per `design/2026-02-14-sandbox-docker-storage-split.md`
+the two stores are deliberately split and the inner sandbox "pulls from the
+registry". Full evidence: `investigation-helix-in-helix-boot.md` §2.
+
+Fix: have the **golden build run through the desktop-image transfer before
+promotion**, so the golden snapshot carries `helix-ubuntu:<tag>` inside the
+sandbox store. A fresh session then clones a golden where the image is already
+present, and the existing skip-checks short-circuit:
+- `sandbox/04-start-dockerd.sh:220-224` (skip pull when exact tag present)
+- the `./stack` transfer path (`stack:1074-1145`) only re-pushes/pulls when absent
+
+Confirm scope first by reading `api/pkg/services/golden_build_service.go` — how
+far the golden build currently runs for this project type, and whether the
+transfer can be folded in before `PromoteSessionToGolden(Zvol)` (`api/pkg/hydra/golden.go`).
+Persisting `sandbox-docker-storage` independently would fight the split
+architecture, so the golden route is the aligned fix.
+
 ## Key decisions
 
 - **Two workstreams, A first.** A is independent and removes the footgun even

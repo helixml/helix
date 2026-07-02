@@ -94,6 +94,26 @@ re-attach the wrong account.
 - [ ] Scope sets are provider-specific, sourced from each provider's capability
       entry.
 
+### Story 6 — Readable Helix-in-Helix pull output (dev environment)
+**As** a developer watching the inner Helix boot, **I want** the image-pull
+output to render line-by-line, **so that** it doesn't look truncated or hung.
+(Backing evidence: `investigation-helix-in-helix-boot.md` §1.)
+
+- [ ] `docker pull` progress in the dev-startup path flushes per line — no
+      block-buffered bursts or mid-line truncation (`008906cd1cbe: Pul`).
+- [ ] Applied at every site: `stack:1098/1139/1176`, `sandbox/04-start-dockerd.sh:266/285`.
+
+### Story 7 — Warm desktop image on fresh sessions (dev environment)
+**As** a developer starting a fresh Helix-in-Helix session, **I want** the
+`helix-ubuntu` desktop image already present inside the sandbox, **so that** I
+don't wait ~7 min for a registry re-transfer every session.
+(Backing evidence: `investigation-helix-in-helix-boot.md` §2.)
+
+- [ ] The golden snapshot carries `helix-ubuntu:<tag>` inside the sandbox's own
+      docker store (`sandbox-docker-storage`), so the transfer skip-checks
+      short-circuit on warm sessions.
+- [ ] Cold first build still works; no regression to the non-ZFS / file-copy path.
+
 ## Non-goals (decided)
 
 - Do **not** make a repo/project-level credential authoritative over the acting

@@ -43,6 +43,21 @@
 - [ ] Implement the menu: Switch account, Reconnect, Disconnect (unbind project only), Remove from my account, View on provider — reusing the existing OAuth connect flow
 - [ ] E2E in inner Helix: verified lozenge for a reachable GitHub repo; no-access → needs_attention; switch forces account picker; provider-with-no-repos shows no lozenge
 
+## Workstream C — Readable dev-startup pull output
+
+- [ ] Choose the approach (`docker pull --quiet` vs `stdbuf -oL … | grep --line-buffered`)
+- [ ] Apply at `stack:1098`, `stack:1139`, `stack:1176`
+- [ ] Apply at `sandbox/04-start-dockerd.sh:266`, `:285`
+- [ ] Verify a fresh inner-Helix boot: pull output renders line-by-line, no mid-line truncation
+
+## Workstream D — Warm desktop image via golden snapshot
+
+- [ ] Read `api/pkg/services/golden_build_service.go` to confirm how far the golden build runs for this project type
+- [ ] Extend the golden build to perform the desktop-image transfer (populate `sandbox-docker-storage` with `helix-ubuntu:<tag>`) before `PromoteSessionToGolden`/`PromoteSessionToGoldenZvol` (`api/pkg/hydra/golden.go`)
+- [ ] Verify the skip-checks short-circuit on a warm session (`sandbox/04-start-dockerd.sh:220-224`; `stack:1074-1145`) — no re-transfer
+- [ ] Verify cold first build still works and the non-ZFS / file-copy fallback path is unaffected
+- [ ] Measure fresh-session startup before/after (target: eliminate the ~411 s transfer on warm sessions)
+
 ## Wrap-up
 
 - [ ] `cd frontend && yarn build`; `go build ./pkg/...`; push and confirm CI green
