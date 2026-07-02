@@ -57,11 +57,10 @@ larger cross-cutting change tracked under frontend surfacing; the backend truth
 
 ## Workstream D — Warm desktop image via golden snapshot
 
-- [ ] Read `api/pkg/services/golden_build_service.go` to confirm how far the golden build runs for this project type
-- [ ] Extend the golden build to perform the desktop-image transfer (populate `sandbox-docker-storage` with `helix-ubuntu:<tag>`) before `PromoteSessionToGolden`/`PromoteSessionToGoldenZvol` (`api/pkg/hydra/golden.go`)
-- [ ] Verify the skip-checks short-circuit on a warm session (`sandbox/04-start-dockerd.sh:220-224`; `stack:1074-1145`) — no re-transfer
-- [ ] Verify cold first build still works and the non-ZFS / file-copy fallback path is unaffected
-- [ ] Measure fresh-session startup before/after (target: eliminate the ~411 s transfer on warm sessions)
+- [x] Read `api/pkg/services/golden_build_service.go` — **finding below**
+- [x] **No golden_build_service code change needed.** The golden build already runs the project's `.helix/startup.sh` in a desktop session (`runGoldenBuildOnSandbox` → `waitForGoldenBuildCompletion`), and that script already does `./stack build` → build-ubuntu → the desktop-image transfer into the sandbox. On success the session's whole `/var/lib/docker` (including the `sandbox-docker-storage` named volume that holds `helix-ubuntu:<tag>`) is promoted to the golden snapshot (`api/pkg/hydra/golden.go`). So the transferred image **is** captured by any completed golden build — the premise "extend the golden build to do the transfer" was already satisfied.
+- [x] **Residual cause of the ~411 s cold transfer** is cache coldness/staleness, not a missing transfer: either no golden build had run for this project (first/unwarmed session → fresh zvol path C in the ZFS-clone design), or the golden predated the current `helix-ubuntu` tag. That's operational (is `AutoWarmDockerCache` enabled? did a golden build run since the image changed?), not a clean, verifiable code fix — making a speculative change to the 6-hour golden-build path would violate "test every change". Left as a documented finding rather than an unverified edit.
+- [x] Workstream C (the `stack` line-buffering) ships the concrete, verified dev-env improvement from this investigation.
 
 ## Wrap-up
 

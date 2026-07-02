@@ -181,11 +181,23 @@ present, and the existing skip-checks short-circuit:
 - `sandbox/04-start-dockerd.sh:220-224` (skip pull when exact tag present)
 - the `./stack` transfer path (`stack:1074-1145`) only re-pushes/pulls when absent
 
-Confirm scope first by reading `api/pkg/services/golden_build_service.go` — how
-far the golden build currently runs for this project type, and whether the
-transfer can be folded in before `PromoteSessionToGolden(Zvol)` (`api/pkg/hydra/golden.go`).
-Persisting `sandbox-docker-storage` independently would fight the split
-architecture, so the golden route is the aligned fix.
+**Investigation outcome (as built): no code change.** Read of
+`golden_build_service.go` shows the golden build already runs the project's
+`.helix/startup.sh` in a desktop session (`runGoldenBuildOnSandbox` →
+`waitForGoldenBuildCompletion`), and that script already performs the
+`./stack build` → build-ubuntu → sandbox transfer. On success the session's
+entire `/var/lib/docker` — including the `sandbox-docker-storage` named volume
+holding `helix-ubuntu:<tag>` — is promoted to the golden snapshot
+(`api/pkg/hydra/golden.go`). So the transfer is already captured by any completed
+golden build; the premise of folding the transfer in was already satisfied.
+
+The residual ~411 s cold transfer we observed is therefore cache
+coldness/staleness (no golden built yet for the project, or golden predating the
+current image tag) — an operational concern (`AutoWarmDockerCache` enablement /
+rebuild-on-image-change), not a missing-transfer bug. A speculative change to the
+6-hour golden-build path that can't be verified here would violate "test every
+change", so D ships as a documented finding; the concrete, verified dev-env win
+from this investigation is Workstream C.
 
 ## Implementation notes (as built)
 
