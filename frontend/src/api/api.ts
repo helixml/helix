@@ -67,8 +67,8 @@ export interface ApiCreateBotRequest {
   id?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
-   * tool set (every org-graph mutation — create_bot, delete_bot,
-   * set_bot_content, subscribe, … — plus the read baseline) so it can
+   * tool set (every org-graph mutation - create_bot, delete_bot,
+   * set_bot_content, subscribe, ... - plus the read baseline) so it can
    * hire and manage other Bots. When true, Tools is ignored in favour
    * of that set. Used to seed a starter/root Bot for a new org.
    */

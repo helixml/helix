@@ -76,7 +76,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
             placeholder="engineer"
             value={id}
             onChange={(e) => setId(e.target.value)}
-            helperText="A short handle in kebab-case, e.g. engineer. Stays as-is — the LLM and operator both refer to the bot by it."
+            helperText="A short handle in kebab-case, e.g. engineer. Stays as-is - the LLM and operator both refer to the bot by it."
             autoFocus
             fullWidth
           />
