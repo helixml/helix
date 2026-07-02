@@ -16,6 +16,7 @@ import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import WorkerRuntimePanel from '../components/helix-org/WorkerRuntimePanel';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -24,6 +25,10 @@ const Providers: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const orgName = router.params.org_id
+
+  // helix-org alpha: only then is the worker-runtime config (and its
+  // settings endpoint) available for this org.
+  const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
 
   // Check if providers management is enabled
   const providersManagementEnabled = account.serverConfig.providers_management_enabled
@@ -339,6 +344,20 @@ const Providers: React.FC = () => {
             );
           })}
         </Grid>
+
+        {orgName && helixOrgEnabled && (
+          <>
+            <Divider sx={{ my: 4 }} />
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+              Worker runtime
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              How this org's agent Workers run — which runtime, and which provider/model they route through.
+            </Typography>
+            <WorkerRuntimePanel />
+          </>
+        )}
+
         {selectedProvider && editAllowed && (
           <AddProviderDialog
             orgId={org?.id || ''}
