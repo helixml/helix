@@ -7,6 +7,7 @@ import AddIcon from '@mui/icons-material/Add'
 import { useRoute } from 'react-router5'
 
 import Page from '../components/system/Page'
+import ChatQaTabs from '../components/orgs/ChatQaTabs'
 import QuestionSetsTable from '../components/questionSets/QuestionSetsTable'
 import QuestionSetDialog from '../components/questionSets/QuestionSetDialog'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -180,6 +181,7 @@ const QuestionSets: FC = () => {
         </div>
       )}
     >
+      <ChatQaTabs value="qa" />
       <Container maxWidth="xl" sx={{ mb: 4 }}>
         <Paywall active={paywallActive} onBillingClick={navigateToBilling}>
           {renderContent()}

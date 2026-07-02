@@ -22,7 +22,6 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  FileQuestionMark,
   MessageCircle,
   Kanban,
   Network,
@@ -418,13 +417,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: handleProjectsClick,
         label: "Projects",
       },
-      {
-        icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
-        tooltip: "View Q&A",
-        isActive: isActive('qa'),
-        onClick: () => orgNavigateTo('qa'),
-        label: "Q&A",
-      },
+      // Q&A folded under Chat (segmented toggle on the Chat page); no longer
+      // a top-level rail entry.
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
         tooltip: "View tasks",
