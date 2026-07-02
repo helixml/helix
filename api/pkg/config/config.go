@@ -435,6 +435,12 @@ type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
+
+	// DisableAgentToolNudge turns off the directive appended to tool-enabled chat
+	// completions that tells the model to act via tools rather than end its turn on
+	// a bare plan. The nudge mitigates narrate-then-stop stalls with models (e.g.
+	// GLM) that Claude does not exhibit. Enabled by default; kill switch only.
+	DisableAgentToolNudge bool `envconfig:"INFERENCE_DISABLE_AGENT_TOOL_NUDGE" default:"false"`
 }
 
 type Search struct {
