@@ -45,9 +45,9 @@
 
 ## Workstream C — Readable dev-startup pull output
 
-- [ ] Choose the approach (`docker pull --quiet` vs `stdbuf -oL … | grep --line-buffered`)
-- [ ] Apply at `stack:1098`, `stack:1139`, `stack:1176`
-- [ ] Apply at `sandbox/04-start-dockerd.sh:266`, `:285`
+- [x] Choose the approach: `grep --line-buffered -v "^$"` (minimal; keeps per-layer progress, flushes each line)
+- [~] Apply at `stack:1098`, `stack:1139`, `stack:1176`
+- [~] Apply at `sandbox/04-start-dockerd.sh:266`, `:285`
 - [ ] Verify a fresh inner-Helix boot: pull output renders line-by-line, no mid-line truncation
 
 ## Workstream D — Warm desktop image via golden snapshot
