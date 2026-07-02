@@ -450,6 +450,8 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_qa":
+      case "org_qa-results":
       case "team_people":
         // Organization management pages use the org context sidebar
         return <OrgSidebar />;

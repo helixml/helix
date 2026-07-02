@@ -179,7 +179,7 @@ const routes: IApplicationRoute[] = [
   name: 'org_qa',
   path: '/orgs/:org_id/qa',
   meta: {
-    drawer: false,
+    drawer: true,
     title: 'Q&A',
   },
   render: () => (

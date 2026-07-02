@@ -417,8 +417,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: handleProjectsClick,
         label: "Projects",
       },
-      // Q&A folded under Chat (segmented toggle on the Chat page); no longer
-      // a top-level rail entry.
+      // Q&A now lives in the org Settings sub-nav (OrgSidebar -> Agent Q&A);
+      // no longer a top-level rail entry.
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
         tooltip: "View tasks",
@@ -463,6 +463,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_billing',
             'org_usage',
             'org_api_keys',
+            'org_qa',
+            'org_qa-results',
           ]),
           onClick: () => orgNavigateTo('org_general', { org_id: currentOrgSlug }),
           label: "Settings",

@@ -23,7 +23,6 @@ import ListItemText from '@mui/material/ListItemText'
 import { Brain } from 'lucide-react'
 
 import Page from '../components/system/Page'
-import ChatQaTabs from '../components/orgs/ChatQaTabs'
 import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
@@ -324,7 +323,6 @@ const Home: FC = () => {
           minHeight: '100%',
         }}
       >
-        <ChatQaTabs value="chat" />
         {/* Main content */}
         <Box
           sx={{
