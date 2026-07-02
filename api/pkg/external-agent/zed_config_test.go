@@ -35,6 +35,8 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 		dbScalewayID    = "pe_scaleway_01"
 		dbScaleway      = ProviderRef{ID: dbScalewayID, Name: "scaleway"}
 		dbScalewayPrime = ProviderRef{ID: dbScalewayID, Name: "scaleway-prime"} // same ID, renamed
+		dbGLMID         = "pe_glm_01"
+		dbGLM           = ProviderRef{ID: dbGLMID, Name: "glm-helix"}
 	)
 
 	cases := []struct {
@@ -99,6 +101,25 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "scaleway/qwen3-coder-480b"},
 			wantMisconfig:    false,
 			why:              "control case: agent stored ID resolves to canonical scaleway name",
+		},
+		{
+			// Regression (2026-07-02, meta.helix.ml): a GLM-on-Helix external
+			// agent booted Zed as openai/gpt-4o. The real pick lived in
+			// Model/Provider while the helix_agent template defaults
+			// (gpt-4o/openai) sat in the GenerationModel quartet. The reader
+			// preferred GenerationModel and shadowed the real selection.
+			name: "model_provider_wins_over_stale_generation_quartet",
+			assistants: []types.AssistantConfig{{
+				AgentType:               types.AgentTypeZedExternal,
+				Provider:                dbGLMID,
+				Model:                   "glm-5.1",
+				GenerationModelProvider: "openai", // stale template default
+				GenerationModel:         "gpt-4o", // stale template default
+			}},
+			snapshot:         []ProviderRef{dbGLM, globalOpenAI},
+			wantDefaultModel: &ModelConfig{Provider: "openai", Model: "glm-helix/glm-5.1"},
+			wantMisconfig:    false,
+			why:              "zed_external source of truth is Model/Provider; the GenerationModel quartet must not shadow it",
 		},
 		{
 			name: "configured_anthropic_passes_through",

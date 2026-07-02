@@ -121,16 +121,20 @@ func GenerateZedMCPConfig(
 	}
 	assistant := FindZedExternalAssistant(app)
 
-	// For zed_external agents, prefer GenerationModel fields (where UI stores the selection)
+	// For zed_external agents the runtime selection lives in Model/Provider
+	// (CodingAgentForm writes these). GenerationModel/-Provider are the
+	// helix_agent template defaults (gpt-4o/openai) and must NOT shadow the
+	// real pick — doing so made GLM/Goose agents boot as openai/gpt-4o while a
+	// sibling Claude agent (empty GenerationModel) worked.
 	var provider, model string
 	if assistant != nil {
-		provider = assistant.GenerationModelProvider
+		provider = assistant.Provider
 		if provider == "" {
-			provider = assistant.Provider
+			provider = assistant.GenerationModelProvider
 		}
-		model = assistant.GenerationModel
+		model = assistant.Model
 		if model == "" {
-			model = assistant.Model
+			model = assistant.GenerationModel
 		}
 	}
 
@@ -750,13 +754,17 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
 		return ""
 	}
-	provider := assistant.GenerationModelProvider
+	// Mirror GenerateZedMCPConfig: Model/Provider is the zed_external source of
+	// truth; the GenerationModel quartet is helix_agent template default noise.
+	// The two must validate and route the same fields or the validator can
+	// green-light a stale provider the reader never uses.
+	provider := assistant.Provider
 	if provider == "" {
-		provider = assistant.Provider
+		provider = assistant.GenerationModelProvider
 	}
-	model := assistant.GenerationModel
+	model := assistant.Model
 	if model == "" {
-		model = assistant.Model
+		model = assistant.GenerationModel
 	}
 	if provider == "" || model == "" {
 		return fmt.Sprintf("agent %q is missing a provider or model selection — open the agent settings and pick a provider and model", app.ID)
