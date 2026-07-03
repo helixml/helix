@@ -215,3 +215,38 @@ layers so no tool can skip a step:
   the *other* project by `project_id`. Confirm a project in a *second* org is not
   listable/editable.
 - Verify `request_spectask_changes` persists the comment.
+
+## Implementation Notes (as-built)
+
+- **Membership was already enforced at the MCP mount.** `buildMCPServer`
+  (`api/pkg/org/interfaces/server/mcp.go`) calls `GetBot(orgID, botID)` before
+  building the caller and derives the caller's org from the *persisted*
+  `bot.OrganizationID` (not spoofable). The service-level `MemberVerifier` we
+  added (`application/spectasks` + `application/projects`) is defensive depth; it
+  is wired from `Queries` in `builtins.go` and is optional (nil → skipped) so
+  unit tests need no store. Because `DefaultDeps` wires `Queries`, two existing
+  deps tests had to seed a real bot row.
+- **Cross-project + org boundary** live in `runtime/helix/spectasks.go`
+  `resolveProject`: empty projectID → own project (unchanged); non-empty → load
+  project + assert `OrganizationID == caller org`. `ownedTask` then chains
+  task→project. Interface change: every `runtime.SpecTasks` verb took a new
+  `projectID string` param (threaded through the service + tool adapters).
+- **`request_spectask_changes` comment fix**: added `SpecTaskWorkflow.RequestChanges`
+  to the port; the server wrapper (`spec_tasks_org_wiring.go`) reuses
+  `services.BuildRevisionInstructionPrompt` + `sendMessageToSpecTaskAgent`
+  (the exact REST design-review mechanism). Delivery is best-effort; the status
+  transition is authoritative.
+- **Projects port** (`runtime/helix/projects.go`) imports the helix store
+  (`pkg/store`) for `ListProjectsQuery` — no import cycle (`pkg/store` doesn't
+  import `pkg/org`). `helixStore` (the big `store.Store` interface) satisfies the
+  structural `ProjectStore`.
+- **Filter routing gotcha**: `.Message.extra` is raw JSON bytes; predicates read
+  it via built-in `printf "%s"` then `contains`. The coercion of `SpecTaskID →
+  ThreadID` means per-task routing uses the first-class `.Message.thread_id`,
+  which is cleaner than digging into `extra`.
+- **No new connect/disconnect tools** (per review). `EnsureSpecTaskTopic`
+  (extracted from the attention publisher) lets a wiring path pre-create a
+  project's topic; connection = existing `create_bot`/`subscribe` + optional
+  filter processor, guided by the new `/pm-bot` prompt.
+- **Prompt count**: prompt tests use ad-hoc registries, so adding the `/pm-bot`
+  builtin didn't break any count assertion.
