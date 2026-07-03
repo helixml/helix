@@ -68,17 +68,19 @@ and/or `event_type`/`domain` using a filter processor over the single topic
 - The `/pm-bot` prompt describes subscribing to the single Helix events topic +
   filtering, not subscribing to per-project topics.
 
-### US5 — Deprecate the per-project approach
-**As** a maintainer, **I want** the per-project `spectask` path removed and any
-existing per-project topics cleaned up **so that** there is one code path and no
-orphaned rows.
+### US5 — Delete the per-project approach
+**As** a maintainer, **I want** the per-project `spectask` code path **fully
+deleted** (not deprecated) and any existing per-project topics cleaned up **so
+that** there is exactly one code path and no dead code or orphaned rows.
 
 **Acceptance criteria**
-- Per-project find-or-create (`EnsureSpecTaskTopic`) is removed.
-- The `spectask` transport kind is removed (or clearly deprecated) and the
-  transport registry/tests updated.
-- Existing `spectask` topic rows are migrated/cleaned up (deleted) by the
-  reconciler.
+- Per-project find-or-create (`EnsureSpecTaskTopic`) is deleted entirely.
+- The `spectask` transport kind is **deleted**: `transport/spectask.go`,
+  `SpecTaskConfig`, the strategy, the `SpecTaskConfig()` accessor, and its
+  registry entries (`strategies`, `kindOrder`) are all removed. No deprecated
+  stub or compatibility shim remains.
+- The transport registry/tests are updated to drop `KindSpecTask`.
+- Existing `spectask` topic rows are cleaned up (deleted) by the reconciler.
 - `helix_events` is inbound-only, system-managed, and NOT offered in the New
   Topic UI (`TRANSPORT_KINDS`) or user-creatable via `create_topic`.
 
@@ -105,10 +107,9 @@ match the implementation.
    pointed at them cascade/break). Since 002209 shipped recently and these
    topics are auto-managed, is destructive cleanup acceptable, or do you want a
    one-time migration that re-points existing subscriptions to the new topic?
-2. **Remove vs. deprecate `KindSpecTask`:** plan is to remove the constant,
-   strategy, and config file outright (read path stores kind as a plain string,
-   so legacy rows still load for the delete scan). Acceptable, or keep it
-   registered-but-deprecated for one release?
+2. **`KindSpecTask` deletion (confirmed):** the constant, strategy, config, and
+   file are deleted outright — no deprecation. The read path stores kind as a
+   plain string, so legacy rows still load for the reconciler's delete scan.
 3. **Deterministic topic id:** proposed `s-helix-events` (unique per org via the
    `(id, orgID)` key, mirroring `s-slack-ws-…`). Any preferred naming
    convention?

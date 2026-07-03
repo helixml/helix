@@ -94,11 +94,13 @@ a predicate over `.Message.extra` (`domain` / `event_type` / `project_id`) or
 `.Message.thread_id`, routing matches to the bot's inbox topic (existing
 `application/processors` + `subscribe`). This is documented, not coded.
 
-### 5. Remove the per-project path
-- Delete `transport/spectask.go` + `spectask_test.go`; remove `KindSpecTask` from
-  `strategies` and `kindOrder`.
+### 5. Delete the per-project path (no deprecation)
+- **Delete** `transport/spectask.go` + `spectask_test.go` entirely, including
+  `SpecTaskConfig`, the `specTask` strategy, and the `SpecTaskConfig()`
+  accessor; remove `KindSpecTask` from `strategies` and `kindOrder`. No
+  deprecated stub or compatibility shim is left behind.
 - Update `transport_test.go` (kind count/order assertions, drop `KindSpecTask`).
-- Delete `EnsureSpecTaskTopic` and its tests; update
+- **Delete** `EnsureSpecTaskTopic` and its tests; update
   `spec_task_attention_publisher_test.go` for the single-topic behavior.
 - Legacy `spectask` topic rows are deleted by the reconciler (§2). The read path
   tolerates the now-unregistered kind string, so the delete scan works.
@@ -125,8 +127,9 @@ a predicate over `.Message.extra` (`domain` / `event_type` / `project_id`) or
 - **Destructive legacy cleanup.** 002209 topics are auto-managed and recent, so
   the reconciler deletes them rather than running a bespoke migration (see
   requirements Open Question 1).
-- **Remove `KindSpecTask` outright.** Read path stores kind as a plain string, so
-  legacy rows still load for the delete scan without the constant.
+- **Delete `KindSpecTask` outright (no deprecation).** Read path stores kind as a
+  plain string, so legacy rows still load for the delete scan without the
+  constant.
 
 ## Testing
 - Unit: `HelixEventsConfig.Validate`; kind registered in `KindValues`;
