@@ -6,21 +6,21 @@
 - [x] Add `helixevents_test.go` (kind in `KindValues`, empty config valid).
 
 ## Reconciler + deterministic topic
-- [ ] Add `helixEventsTopicID()` helper returning `streaming.TopicID("s-helix-events")` (single source of truth, shared with the publisher).
-- [ ] Add `api/pkg/org/application/helixevents/reconciler.go` with `Reconcile(ctx, orgID)`: idempotent get-or-create of the single `helix_events` topic (race-safe re-read on create conflict); does NOT touch legacy `spectask` rows (manual cleanup); narrow deps (`store.Topics`, `now`, logger); nil-safe no-op.
-- [ ] Add reconciler unit tests: creates exactly one topic, idempotent on re-run, no-op on nil deps.
-- [ ] Build the reconciler in the composition root (`helix_org.go`, near `slackrouting.New`) and wire it into bootstrap in `helix_org_middleware.go` alongside the other reconcilers.
+- [x] Add `helixEventsTopicID()` helper returning `streaming.TopicID("s-helix-events")` — implemented as exported const `helixevents.TopicID` (single source of truth, shared with the publisher).
+- [x] Add `api/pkg/org/application/helixevents/reconciler.go` with `Reconcile(ctx, orgID)`: idempotent get-or-create of the single `helix_events` topic (race-safe re-read on create conflict); does NOT touch legacy `spectask` rows (manual cleanup); narrow deps (`store.Topics`, `now`, logger); nil-safe no-op.
+- [x] Add reconciler unit tests: creates exactly one topic, idempotent on re-run, no-op on nil deps.
+- [x] Build the reconciler in the composition root (`helix_org.go`, near `slackrouting.New`) and wire it into bootstrap in `helix_org_middleware.go` alongside the other reconcilers.
 
 ## Publisher
-- [ ] Rewrite `attentionTopicPublisher` in `spec_task_attention_publisher.go` to resolve the org's single `helix_events` topic by `helixEventsTopicID()` and publish (defensive idempotent get-or-create; keep the org-empty no-op).
-- [ ] Rename `specTaskEventExtra` → `helixEventExtra`; add `domain` (`"spectask"`) + `event_type` and keep `project_id`/`spec_task_id`/names; preserve coerced Message fields (Subject/Body/ThreadID/MessageID).
-- [ ] Update `spec_task_attention_publisher_test.go` for single-topic behavior + new envelope.
+- [x] Rewrite `attentionTopicPublisher` in `spec_task_attention_publisher.go` to resolve the org's single `helix_events` topic by `helixevents.TopicID` and publish (defensive idempotent get-or-create via the reconciler; keep the org-empty no-op).
+- [x] Rename `specTaskEventExtra` → `helixEventExtra`; add `domain` (`"spectask"`) + `event_type` and keep `project_id`/`spec_task_id`/names; preserve coerced Message fields (Subject/Body/ThreadID/MessageID).
+- [x] Update `spec_task_attention_publisher_test.go` for single-topic behavior + new envelope.
 
 ## Remove per-project path
-- [ ] Delete `EnsureSpecTaskTopic` and its per-project logic + tests.
-- [ ] Delete `transport/spectask.go` and `transport/spectask_test.go`; remove `KindSpecTask` from `strategies`/`kindOrder`.
-- [ ] Update `transport_test.go` kind count/order assertions (drop `KindSpecTask`).
-- [ ] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable) and not accepted by `create_topic` for user callers.
+- [x] Delete `EnsureSpecTaskTopic` and its per-project logic + tests.
+- [x] Delete `transport/spectask.go` and `transport/spectask_test.go`; remove `KindSpecTask` from `strategies`/`kindOrder`.
+- [x] Update `transport_test.go` kind count/order assertions (drop `KindSpecTask`).
+- [~] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable) and not accepted by `create_topic` for user callers.
 
 ## Verify
 - [ ] `go build ./...` and `go test ./api/pkg/org/... ./api/pkg/server/...` pass.
