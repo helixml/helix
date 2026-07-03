@@ -402,11 +402,14 @@ export HELIX_API_KEY=<key from api_keys for the session owner>
   --agent app_01kw1n70xs2qq2y4ntzbqqmpff \
   -n "<task name>" \
   --prompt "Complete the task below end-to-end, testing live in this inner Helix." \
-  --prompt-file /path/to/brief.md          # appended after --prompt; no repo commit required
+  --prompt-file /path/to/brief.md \        # appended after --prompt; no repo commit required
+  --attach /path/to/big.log --attach /path/to/other.log   # repeatable
 ```
-`--prompt-file` reads a file straight into the task prompt (added to `spectask
-start` for exactly this — skips the write-doc → branch → PR → merge dance). You
-can also just inline it: `--prompt "$(cat brief.md)"`.
+`--prompt-file` reads a file straight into the task prompt (skips the write-doc →
+branch → PR → merge dance). You can also just inline it: `--prompt "$(cat brief.md)"`.
+`--attach` (repeatable) uploads files as spec-task **attachments** — the agent
+reads them at `design/tasks/<task>/attachments/<name>` inside the sandbox, so
+non-trivial logfiles/large context go there instead of bloating the prompt.
 
 `spectask start` **provisions a sandbox and the CLI will time out (~short) — the
 task is still created**; confirm via `spec_tasks` (order by `created_at`, not
