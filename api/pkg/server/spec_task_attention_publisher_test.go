@@ -143,6 +143,32 @@ func TestAttentionPublisher_ReusesExistingTopic(t *testing.T) {
 	}
 }
 
+// TestEnsureSpecTaskTopic_Idempotent pins that the shared helper creates
+// the topic once and returns the same id on a second call — so a wiring
+// path can pre-create a project's input topic without racing the publisher.
+func TestEnsureSpecTaskTopic_Idempotent(t *testing.T) {
+	t.Parallel()
+	topics := &fakeTopics{}
+	n := 0
+	newID := func() string { n++; return "top_ensure" }
+	now := func() time.Time { return time.Unix(1700000000, 0).UTC() }
+
+	first, err := EnsureSpecTaskTopic(context.Background(), topics, newID, now, "org-1", "prj_1")
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	second, err := EnsureSpecTaskTopic(context.Background(), topics, newID, now, "org-1", "prj_1")
+	if err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	if first != second {
+		t.Errorf("ids differ: %q vs %q", first, second)
+	}
+	if len(topics.created) != 1 {
+		t.Errorf("created %d topics, want 1 (idempotent)", len(topics.created))
+	}
+}
+
 // TestAttentionPublisher_SkipsWithoutOrgScope pins that an event without
 // an org (or project) is a no-op — nothing to route.
 func TestAttentionPublisher_SkipsWithoutOrgScope(t *testing.T) {

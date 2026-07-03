@@ -86,9 +86,23 @@ func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev 
 }
 
 // ensureTopic returns the project's KindSpecTask topic, creating it on
-// first use (mirrors how Slack auto-creates its workspace topic).
+// first use. Thin wrapper over the shared EnsureSpecTaskTopic so the
+// publisher and any wiring path (e.g. pre-creating the input topic before
+// a bot is subscribed to it) agree on the topic's identity and config.
 func (p *attentionTopicPublisher) ensureTopic(ctx context.Context, orgID, projectID string) (streaming.TopicID, error) {
-	existing, err := p.topics.List(ctx, orgID)
+	return EnsureSpecTaskTopic(ctx, p.topics, p.newID, p.now, orgID, projectID)
+}
+
+// EnsureSpecTaskTopic find-or-creates the KindSpecTask topic for a project
+// (mirrors how Slack auto-creates its workspace topic). It is the single
+// source of truth for a project's spec-task topic identity + config, shared
+// by the attention publisher (which creates it lazily on the first event)
+// and any wiring path that needs the topic to exist deterministically
+// before an event has fired — e.g. subscribing an org-wide PM Bot to a
+// quiet project at creation time. Idempotent: a second call for the same
+// (org, project) returns the existing topic.
+func EnsureSpecTaskTopic(ctx context.Context, topics orgstore.Topics, newID func() string, now func() time.Time, orgID, projectID string) (streaming.TopicID, error) {
+	existing, err := topics.List(ctx, orgID)
 	if err != nil {
 		return "", fmt.Errorf("list topics: %w", err)
 	}
@@ -105,20 +119,20 @@ func (p *attentionTopicPublisher) ensureTopic(ctx context.Context, orgID, projec
 	if err != nil {
 		return "", fmt.Errorf("marshal topic config: %w", err)
 	}
-	id := streaming.TopicID(p.newID())
+	id := streaming.TopicID(newID())
 	topic, err := streaming.NewTopic(
 		id,
 		"Spec tasks: "+projectID,
 		"Spec-task state changes for project "+projectID,
 		"", // createdBy is optional (no worker context for automation)
-		p.now(),
+		now(),
 		transport.Transport{Kind: transport.KindSpecTask, Config: cfgJSON},
 		orgID,
 	)
 	if err != nil {
 		return "", fmt.Errorf("build topic: %w", err)
 	}
-	if err := p.topics.Create(ctx, topic); err != nil {
+	if err := topics.Create(ctx, topic); err != nil {
 		return "", fmt.Errorf("create topic: %w", err)
 	}
 	return id, nil

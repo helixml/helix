@@ -125,3 +125,46 @@ func keys(m map[string]bool) []string {
 	}
 	return out
 }
+
+// TestFilterRoutesSpecTaskEventsToBot confirms an org-wide PM Bot can be
+// wired to a project's spec-task events using ONLY the existing filter
+// processor — no dedicated connect tool. It mirrors the payload the
+// attention publisher emits (ThreadID = spec task id; Extra carries
+// event_type / project_id) and shows routing on both a first-class Message
+// field (thread_id) and an Extra key (event_type via printf %s).
+func TestFilterRoutesSpecTaskEventsToBot(t *testing.T) {
+	// Two branches: PRs for a specific project, and everything for one task.
+	p := newFilterProc(t, []processor.Output{
+		{TopicID: "s-pm-prs", Match: `{{ if and (contains "\"event_type\":\"pr_ready\"" (printf "%s" .Message.extra)) (contains "\"project_id\":\"prj_1\"" (printf "%s" .Message.extra)) }}1{{ end }}`},
+		{TopicID: "s-task-thread", Match: `{{ if eq .Message.thread_id "task_1" }}1{{ end }}`},
+	})
+
+	// A pr_ready event for task_1 in prj_1 — matches both branches.
+	prReady := streaming.Message{
+		Subject:  "PR ready",
+		Body:     "review it",
+		ThreadID: "task_1",
+		Extra:    []byte(`{"spec_task_id":"task_1","event_type":"pr_ready","project_id":"prj_1"}`),
+	}
+	res, err := p.Process(prReady)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	got := topicSet(res)
+	if !got["s-pm-prs"] || !got["s-task-thread"] {
+		t.Fatalf("pr_ready for task_1/prj_1 should route to both branches, got %v", keys(got))
+	}
+
+	// A ci_failed event for a different task/project — matches neither.
+	other := streaming.Message{
+		ThreadID: "task_2",
+		Extra:    []byte(`{"spec_task_id":"task_2","event_type":"ci_failed","project_id":"prj_2"}`),
+	}
+	res2, err := p.Process(other)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(res2) != 0 {
+		t.Fatalf("unrelated event should be dropped, got %v", keys(topicSet(res2)))
+	}
+}
