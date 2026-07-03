@@ -14,9 +14,7 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
-// spyOrgReconciler records Reconcile(orgID) calls. It satisfies
-// lifecycle.OrgReconciler — the whole-org reconciler contract the Slack
-// auto-router implements.
+// spyOrgReconciler records Reconcile(orgID) calls.
 type spyOrgReconciler struct {
 	mu     sync.Mutex
 	orgIDs []string
@@ -37,17 +35,9 @@ func (s *spyOrgReconciler) calls() []string {
 	return out
 }
 
-// TestCreateBotRunsInjectedOrgReconcilers is the regression guard for the
-// bug where a bot added via the MCP create_bot tool did not reconcile the
-// Slack auto-router: the MCP surface built its own lifecycle.Service with an
-// empty OrgReconcilers slice, so runOrgReconcilers was a silent no-op.
-//
-// The fix gives mcptools.Config a Lifecycle injection seam so the composition
-// root can share the one reconciler-complete lifecycle.Service with both the
-// REST handlers and the MCP tools. This test injects a lifecycle.Service whose
-// OrgReconcilers contains a spy, drives create_bot, and asserts the spy ran
-// once for the caller's org — proving MCP-created bots trigger the whole-org
-// (Slack auto-router) reconcile exactly as REST-created bots do.
+// TestCreateBotRunsInjectedOrgReconcilers guards the bug where MCP create_bot
+// skipped the Slack auto-router: it asserts create_bot runs the OrgReconcilers
+// on the injected (shared) lifecycle, as REST POST /bots does.
 func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 	t.Parallel()
 	st := orggorm.GetOrgTestDB(t)
@@ -70,8 +60,6 @@ func TestCreateBotRunsInjectedOrgReconcilers(t *testing.T) {
 		Now: deps.Now, NewID: deps.NewID, BaseTools: BaseReadTools,
 	})
 	spy := &spyOrgReconciler{}
-	// The shared, reconciler-complete lifecycle.Service the composition root
-	// builds — here with just enough wired for Create + the spy org reconciler.
 	deps.Lifecycle = &lifecycle.Service{
 		Store:          st,
 		Bots:           botSvc,

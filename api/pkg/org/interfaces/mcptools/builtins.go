@@ -127,13 +127,9 @@ type Config struct {
 	Projects            runtime.Projects
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
-	// Lifecycle is an optional pre-built bot-lifecycle service. When set,
-	// Build() uses it verbatim for the MCP tool surface instead of
-	// constructing a fresh one — this is how the composition root shares the
-	// ONE reconciler-complete lifecycle.Service (including OrgReconcilers, the
-	// Slack auto-router) with both the REST handlers and the MCP tools, so
-	// create semantics cannot drift between callers. nil → lifecycleService()
-	// builds the standalone service used by tests and reconciler-free runtimes.
+	// Lifecycle, when set, is used verbatim instead of building a fresh one,
+	// so the MCP tools share the composition root's reconciler-complete
+	// service. nil → lifecycleService() builds a standalone service.
 	Lifecycle *lifecycle.Service
 }
 
@@ -227,8 +223,6 @@ func (c Config) publishingService() *publishing.Publishing {
 // the REST POST /bots handler. The bots service is wired so the row
 // creation applies the base-read-tool union.
 func (c Config) lifecycleService() *lifecycle.Service {
-	// Prefer the injected, reconciler-complete service (composition root) so
-	// the MCP tools and REST handlers share one instance — no drift.
 	if c.Lifecycle != nil {
 		return c.Lifecycle
 	}

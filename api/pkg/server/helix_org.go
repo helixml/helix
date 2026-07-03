@@ -649,13 +649,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	// NOTE: the MCP tool registry (reg) and orgServer are built LATER — after
-	// the shared lifecycle.Service is fully assembled below — so the MCP
-	// create_bot tool and the REST POST /bots handler drive the SAME
-	// reconciler-complete lifecycle (including the Slack auto-router
-	// OrgReconciler). Building them here would capture a lifecycle without the
-	// OrgReconcilers, which is exactly the bug that made MCP-created bots skip
-	// the Slack auto-router reconcile. See `deps.Lifecycle = lifecycleSvc` below.
+	// The MCP registry (reg) and orgServer are built later, after lifecycleSvc
+	// is assembled, so MCP create_bot shares the same reconciler-complete
+	// lifecycle as REST. See `deps.Lifecycle = lifecycleSvc` below.
 
 	// JSON handlers consumed by the React pages at
 	// /orgs/:org_id/helix-org/*. They mount under
@@ -776,12 +772,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	})
 	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
 
-	// The MCP tools and the REST handlers now share ONE reconciler-complete
-	// lifecycle.Service: inject it into the MCP tool deps so the chat-driven
-	// create_bot tool runs the same OrgReconcilers (Slack auto-router) the REST
-	// POST /bots handler does. Built here (not at line ~640) so the shared
-	// lifecycleSvc — with Bots, Subscriber and OrgReconcilers all wired — is
-	// captured, eliminating the UI-vs-MCP drift.
+	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
+	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
