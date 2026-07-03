@@ -148,3 +148,38 @@ per-project "Spec tasks: <projectId>" topics and will be stale after this ships.
   filter processor keyed on `project_id` through the UI; trigger attention events
   on each project via the UI; confirm the bot is activated and acts on the right
   project, and the events are visible on the Helix events topic in the browser.
+
+## Implementation Notes (as-built)
+
+- **Deterministic id is an exported const, not a func.** `helixevents.TopicID`
+  (`"s-helix-events"`) is the single source of truth, imported by both the
+  reconciler and the publisher. `streaming.TopicID` is a type alias for `string`.
+- **Reconciler lives in `api/pkg/org/application/helixevents/`** — narrow deps
+  (`store.Topics` + `Now` + `Logger`), nil-safe no-op, race-safe get-or-create
+  (Get→Create→re-Get on conflict, copied from `reconcile.ensureTopicWithMembers`).
+  It does NOT touch legacy `spectask` rows (manual cleanup, per review).
+- **Built once in the composition root** (`helix_org.go`, next to
+  `slackrouting.New`) and shared: passed to the `attentionTopicPublisher` (for
+  the defensive per-event ensure) AND threaded through `newHelixOrgScope` into
+  the bootstrap middleware (`helix_org_middleware.go`), which calls
+  `Reconcile(orgID)` alongside the topology/Slack/role reconciles. `newHelixOrgScope`
+  gained a 6th param; the one test caller passes `nil` (safe no-op).
+- **Publisher simplified.** `attentionTopicPublisher` no longer holds `topics`,
+  `newID`, or `now` — just `{reconciler, publisher}`. It ensures via the
+  reconciler then publishes to `helixevents.TopicID`. The org-empty no-op is
+  kept; the project-empty guard is dropped (routing handles empty project_id).
+- **Envelope:** `helixEventExtra{domain, event_type, project_id, spec_task_id,
+  project_name, spec_task_name}`; `domain="spectask"` for attention events.
+  First-class Message fields unchanged (Subject/Body/ThreadID=SpecTaskID/MessageID).
+- **`KindSpecTask` fully deleted:** `transport/spectask.go` + `_test.go` removed,
+  registry (`strategies`, `kindOrder`) and `transport_test.go` updated to
+  `KindHelixEvents`. No compatibility shim.
+- **Frontend:** no change needed — `TRANSPORT_KINDS` in `HelixOrgTopics.tsx`
+  already omits `spectask`/`slack`, so `helix_events` is user-uncreatable by
+  omission. The MCP `create_topic` enum derives from `KindValues()` (unchanged
+  behavior vs the old `spectask` kind).
+- **Gotcha:** `go build ./...` fails locally on the gstreamer package
+  (`go-gst` needs `pkg-config`) — unrelated to this change. Build/test the
+  affected trees: `go build ./api/pkg/server/... ./api/pkg/org/...` and
+  `CGO_ENABLED=1 go test ./api/pkg/server/ ./api/pkg/org/...` (CGo needs gcc for
+  tree-sitter). All affected tests pass.

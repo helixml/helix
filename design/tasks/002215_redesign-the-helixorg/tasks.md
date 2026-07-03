@@ -20,7 +20,7 @@
 - [x] Delete `EnsureSpecTaskTopic` and its per-project logic + tests.
 - [x] Delete `transport/spectask.go` and `transport/spectask_test.go`; remove `KindSpecTask` from `strategies`/`kindOrder`.
 - [x] Update `transport_test.go` kind count/order assertions (drop `KindSpecTask`).
-- [~] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable) and not accepted by `create_topic` for user callers.
+- [x] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable). Note: `create_topic` MCP enum is derived from `KindValues()` (same as `spectask`/`slack` before) — unchanged behavior; the constraint was the New Topic UI, which excludes it. No frontend change needed.
 
 ## Verify
 - [ ] `go build ./...` and `go test ./api/pkg/org/... ./api/pkg/server/...` pass.
