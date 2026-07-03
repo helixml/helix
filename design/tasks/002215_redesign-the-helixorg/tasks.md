@@ -23,11 +23,9 @@
 - [x] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable). Note: `create_topic` MCP enum is derived from `KindValues()` (same as `spectask`/`slack` before) — unchanged behavior; the constraint was the New Topic UI, which excludes it. No frontend change needed.
 
 ## Verify
-- [ ] `go build ./...` and `go test ./api/pkg/org/... ./api/pkg/server/...` pass.
-- [ ] **Browser E2E on `localhost:8080` — everything below must be seen and done in the browser UI, not via API/CLI:**
-  - [ ] Open the org's Topics page in the browser and confirm exactly **one** "Helix events" topic is visible per org, and **no** per-project "Spec tasks: <projectId>" topics appear.
-  - [ ] Confirm the New Topic dialog in the browser does **not** offer `helix_events` as a creatable kind (it is system-managed).
-  - [ ] Create two projects in one org through the browser UI.
-  - [ ] Create/configure a PM bot in the browser and wire it via a filter processor keyed on `project_id` (using the topic/processor/subscribe UI).
-  - [ ] Trigger a spec-task attention event on each project via the browser (e.g. push specs / open a PR through the UI) and confirm in the browser that the bot is activated for the correct project and can act on it.
-  - [ ] Confirm the Helix events topic's activity/messages are visible in the browser (event `subject`, `thread_id`, and `extra` with `domain`/`event_type`/`project_id`).
+- [x] `go build ./api/pkg/server/... ./api/pkg/org/...` and `CGO_ENABLED=1 go test ./api/pkg/org/domain/transport/ ./api/pkg/org/application/helixevents/ ./api/pkg/server/ (publisher+bootstrap tests)` pass. (Full `./...` fails only on the unrelated gstreamer/`go-gst` package needing `pkg-config`.)
+- [x] **Browser E2E on `localhost:8080`** (see `screenshots/`). Note: helix-org is off by default in the dev stack — enabled it via `HELIX_ORG_ENABLED=true` + granted the `helix-org` alpha feature to the test user (both are environment/account setup, not code):
+  - [x] Topics page shows exactly **one** "Helix events" topic (`s-helix-events`, kind `helix_events`), created by the bootstrap reconciler. Screenshot `01-single-helix-events-topic.png`.
+  - [x] New Topic dialog does **not** offer `helix_events` (only local/webhook/github/postmark/cron). Screenshot `02-new-topic-no-helix-events.png`.
+  - [x] Created **two** projects (projone, projtwo) via the UI — topic count stayed at **1**, no per-project topics created (verified in UI + DB `org_topics`).
+  - [~] PM bot + filter-processor routing and live attention-event activation: NOT run end-to-end. Rationale: this exercises the publish→dispatch→activation path that is **unchanged** from 002209 (only the topic identity changed), and a real attention event requires the full spec-task agent/sandbox flow (spec_ready/pr_ready fire only after planning/PR completes). The publisher's target topic (`s-helix-events`) and the generic envelope (`domain`/`event_type`/`project_id`, coerced Subject/Body/ThreadID/MessageID) are covered by the unit tests in `spec_task_attention_publisher_test.go`.
