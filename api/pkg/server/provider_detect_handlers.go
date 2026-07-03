@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -133,6 +134,77 @@ func probeEndpoint(ctx context.Context, baseURL string) (models []string, server
 
 	log.Info().Str("base_url", baseURL).Int("model_count", len(models)).Str("server_type", serverType).Msg("detected local provider")
 	return models, serverType
+}
+
+func (s *HelixAPIServer) ensureLocalModelLoaded(ctx context.Context, providerName, modelID string) {
+	endpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{WithGlobal: true})
+	if err != nil {
+		return
+	}
+
+	var endpoint *types.ProviderEndpoint
+	for _, ep := range endpoints {
+		if ep.Name == providerName {
+			endpoint = ep
+			break
+		}
+	}
+	if endpoint == nil {
+		return
+	}
+
+	if !strings.Contains(endpoint.Name, "lmstudio") && !strings.Contains(endpoint.BaseURL, ":1234") {
+		return
+	}
+
+	mgmtBase := managementBaseURL(endpoint.BaseURL)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mgmtBase+"/api/v1/models", nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Models []struct {
+			Key             string `json:"key"`
+			LoadedInstances []struct {
+				ID string `json:"id"`
+			} `json:"loaded_instances"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return
+	}
+
+	for _, m := range result.Models {
+		if m.Key == modelID {
+			if len(m.LoadedInstances) > 0 {
+				return
+			}
+			log.Info().Str("model", modelID).Str("provider", providerName).Msg("auto-loading model in LM Studio")
+			loadBody, _ := json.Marshal(map[string]interface{}{"model": modelID, "context_length": 32768})
+			loadReq, err := http.NewRequestWithContext(ctx, http.MethodPost, mgmtBase+"/api/v1/models/load", bytes.NewReader(loadBody))
+			if err != nil {
+				return
+			}
+			loadReq.Header.Set("Content-Type", "application/json")
+			loadClient := &http.Client{Timeout: 120 * time.Second}
+			loadResp, err := loadClient.Do(loadReq)
+			if err != nil {
+				log.Err(err).Str("model", modelID).Msg("failed to auto-load model")
+				return
+			}
+			loadResp.Body.Close()
+			log.Info().Str("model", modelID).Msg("model auto-loaded successfully")
+			return
+		}
+	}
 }
 
 func inferServerType(ownedBy string) string {
