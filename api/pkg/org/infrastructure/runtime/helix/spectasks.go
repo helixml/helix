@@ -37,6 +37,11 @@ type SpecTaskStore interface {
 type SpecTaskWorkflow interface {
 	ApproveSpecs(ctx context.Context, task *types.SpecTask) error
 	EnsurePullRequests(ctx context.Context, task *types.SpecTask, primaryRepoID, userID string) error
+	// RequestChanges delivers the reviewer's comment to the task's agent
+	// (the same revision-instruction the REST design-review path sends), so
+	// the comment isn't dropped on the MCP path. userID is the actor to
+	// attribute / notify (the Worker's hiring user).
+	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error
 }
 
 // SpecTasks is the helix-runtime implementation of runtime.SpecTasks. It
@@ -281,7 +286,7 @@ func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgc
 }
 
 func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID, comment string) (runtime.SpecTaskView, error) {
-	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -292,14 +297,24 @@ func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID o
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
-	// Send the spec back for revision. The full design-review-comment
-	// thread is the REST/UI path; here we make the same status transition
-	// the orchestrator reacts to and bump the revision count.
+	// Send the spec back for revision: the same status transition the
+	// orchestrator reacts to, plus a revision-count bump.
 	task.Status = types.TaskStatusSpecRevision
 	task.SpecRevisionCount++
 	task.UpdatedAt = time.Now()
 	if err := s.tasks.UpdateSpecTask(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("request changes: %w", err)
+	}
+	// Deliver the reviewer's comment to the task's agent — the same
+	// revision instruction the REST design-review path sends — so the
+	// comment isn't dropped on the MCP path. A delivery failure (e.g. no
+	// connected session) must not fail the transition: the status change is
+	// already persisted and the agent picks the feedback up on reconnect,
+	// matching the REST handler's best-effort semantics.
+	if derr := s.workflow.RequestChanges(ctx, task, comment, hiringUserID); derr != nil {
+		// Best-effort: swallow, mirroring the REST path which logs and
+		// continues. The transition above is the authoritative state.
+		_ = derr
 	}
 	return toView(task), nil
 }

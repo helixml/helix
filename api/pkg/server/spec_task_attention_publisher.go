@@ -32,11 +32,18 @@ type orgEventPublisher interface {
 }
 
 // specTaskEventExtra is the structured payload carried on the topic event
-// so an activated Worker knows what changed without an extra lookup.
+// so an activated Worker (or a filter processor's predicate over
+// .Message.extra) can route/react without an extra lookup. It holds the
+// keys that have no natural streaming.Message field (event_type, project_id)
+// plus denormalized display fields; the human-facing text and threading are
+// coerced onto first-class Message fields (Subject/Body/ThreadID/MessageID)
+// in PublishAttentionEvent.
 type specTaskEventExtra struct {
-	SpecTaskID string `json:"spec_task_id"`
-	EventType  string `json:"event_type"`
-	ProjectID  string `json:"project_id"`
+	SpecTaskID   string `json:"spec_task_id"`
+	EventType    string `json:"event_type"`
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name,omitempty"`
+	SpecTaskName string `json:"spec_task_name,omitempty"`
 }
 
 // PublishAttentionEvent resolves (or creates) the project's spec-task
@@ -51,14 +58,25 @@ func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev 
 		return fmt.Errorf("ensure spectask topic: %w", err)
 	}
 	extra, _ := json.Marshal(specTaskEventExtra{
-		SpecTaskID: ev.SpecTaskID,
-		EventType:  string(ev.EventType),
-		ProjectID:  ev.ProjectID,
+		SpecTaskID:   ev.SpecTaskID,
+		EventType:    string(ev.EventType),
+		ProjectID:    ev.ProjectID,
+		ProjectName:  ev.ProjectName,
+		SpecTaskName: ev.SpecTaskName,
 	})
+	// Coerce the notification's fields onto first-class Message fields so
+	// predicates and consumers use natural fields, not just Extra:
+	//   Title       → Subject
+	//   Description → Body
+	//   SpecTaskID  → ThreadID   (all events for one task thread together)
+	//   ID          → MessageID  (stable, unique id)
+	// event_type / project_id stay in Extra (no natural Message field).
 	msg := streaming.Message{
 		Subject:         ev.Title,
 		Body:            ev.Description,
 		BodyContentType: "text/plain",
+		ThreadID:        ev.SpecTaskID,
+		MessageID:       ev.ID,
 		Extra:           extra,
 	}
 	if _, err := p.publisher.Publish(ctx, ev.OrganizationID, topicID, "", msg); err != nil {

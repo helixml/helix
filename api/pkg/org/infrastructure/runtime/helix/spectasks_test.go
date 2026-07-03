@@ -71,10 +71,13 @@ func (f *fakeSpecTaskStore) IncrementGlobalTaskNumber(_ context.Context) (int, e
 
 // fakeSpecTaskWorkflow records the service-level calls.
 type fakeSpecTaskWorkflow struct {
-	approveCalls    []string
-	ensureCalls     []string
-	ensurePrimaryID string
-	ensureUserID    string
+	approveCalls        []string
+	ensureCalls         []string
+	ensurePrimaryID     string
+	ensureUserID        string
+	requestChangesCalls []string
+	lastComment         string
+	lastRequestUserID   string
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -87,6 +90,12 @@ func (f *fakeSpecTaskWorkflow) EnsurePullRequests(_ context.Context, task *types
 	f.ensureUserID = userID
 	// Simulate the system opening a PR.
 	task.RepoPullRequests = []types.RepoPR{{RepositoryName: "helix", PRURL: "https://example/pr/1", PRState: "open"}}
+	return nil
+}
+func (f *fakeSpecTaskWorkflow) RequestChanges(_ context.Context, task *types.SpecTask, comment, userID string) error {
+	f.requestChangesCalls = append(f.requestChangesCalls, task.ID)
+	f.lastComment = comment
+	f.lastRequestUserID = userID
 	return nil
 }
 
@@ -227,6 +236,40 @@ func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 	}
 	if _, err := st.Get(context.Background(), "org-test", wid, "prj_foreign", "task_f"); err == nil {
 		t.Error("expected cross-org rejection when targeting another org's project")
+	}
+}
+
+// TestSpecTasks_RequestChangesDeliversComment pins that the reviewer's
+// comment is delivered to the agent via the workflow (not dropped), and the
+// task transitions to spec_revision with a bumped count.
+func TestSpecTasks_RequestChangesDeliversComment(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	if err := SaveHiringUser(context.Background(), &wrap.Store, "org-test", wid, "user_hiring"); err != nil {
+		t.Fatalf("SaveHiringUser: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", Status: types.TaskStatusSpecReview}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.RequestChanges(context.Background(), "org-test", wid, "", "task_1", "tighten scope"); err != nil {
+		t.Fatalf("RequestChanges: %v", err)
+	}
+	if len(wf.requestChangesCalls) != 1 || wf.lastComment != "tighten scope" {
+		t.Errorf("workflow RequestChanges calls=%v comment=%q, want 1 call with the comment", wf.requestChangesCalls, wf.lastComment)
+	}
+	if wf.lastRequestUserID != "user_hiring" {
+		t.Errorf("actor = %q, want user_hiring", wf.lastRequestUserID)
+	}
+	got := fs.tasks["task_1"]
+	if got.Status != types.TaskStatusSpecRevision || got.SpecRevisionCount != 1 {
+		t.Errorf("status=%q count=%d, want spec_revision / 1", got.Status, got.SpecRevisionCount)
 	}
 }
 

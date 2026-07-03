@@ -103,6 +103,21 @@ func TestAttentionPublisher_CreatesTopicAndPublishes(t *testing.T) {
 	if !strings.Contains(pub.calls[0].msg.Body, "review it") {
 		t.Errorf("published body missing description: %q", pub.calls[0].msg.Body)
 	}
+	// Notification fields coerced onto first-class Message fields.
+	got := pub.calls[0].msg
+	if got.Subject != "PR ready" {
+		t.Errorf("Subject = %q, want %q", got.Subject, "PR ready")
+	}
+	if got.ThreadID != "task_1" {
+		t.Errorf("ThreadID = %q, want the spec task id task_1", got.ThreadID)
+	}
+	if got.MessageID != "ae_1" {
+		t.Errorf("MessageID = %q, want the attention event id ae_1", got.MessageID)
+	}
+	// Routing keys with no natural Message field stay in Extra.
+	if !strings.Contains(string(got.Extra), "pr_ready") || !strings.Contains(string(got.Extra), "prj_1") {
+		t.Errorf("Extra missing event_type/project_id: %s", got.Extra)
+	}
 }
 
 // TestAttentionPublisher_ReusesExistingTopic pins that a second event for
