@@ -69,6 +69,22 @@ uncertainties; if there are none, write "None".
   generate a spec task in the inner Helix and confirm `requirements.md` gains an
   Open Questions section.
 
+## Implementation Notes
+
+- Implemented exactly as designed: added `## Open Questions (requirements.md)`
+  section to `planningPromptTemplate` between the "## Your Task Directory" list
+  and "## CRITICAL: Title Format" (`spec_task_prompts.go`).
+- The inline-code backticks in the instruction (`` `requirements.md` ``,
+  `` `## Open Questions` ``) are emitted via the template string's
+  `+ "`...`" +` concatenation style already used throughout the template.
+- Added `TestBuildPlanningPrompt_OpenQuestions` guarding the new instruction,
+  mirroring the existing `TestBuildPlanningPrompt_TitleFormatRule` pattern.
+- Verified: `go build ./pkg/services/` clean; `go test ./pkg/services/ -run
+  TestBuildPlanningPrompt` passes (both title-format and open-questions tests);
+  dumped the rendered section to confirm wording/backticks render correctly.
+- No downstream changes needed — title parsing reads the first non-empty line
+  and is unaffected by the end-of-file Open Questions section.
+
 ## Gotchas
 
 - Do not touch the `{{.ClonedTaskPreamble}}` / `{{.Guidelines}}` / Kodit
