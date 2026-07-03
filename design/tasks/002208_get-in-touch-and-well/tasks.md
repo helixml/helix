@@ -9,4 +9,4 @@
 - [x] In `WebServiceTab.tsx`, keep the existing "get in touch" paragraph as the fallback when `acmeChallengeTarget` is empty.
 - [x] Build check: `go build ./api/pkg/server/ ./api/pkg/config/` passes; frontend `tsc --noEmit` passes (full `yarn build` blocked only by root-owned `dist` bind-mount, not code).
 - [x] E2E-test both states in the inner Helix (env unset = fallback; env set = record block) and save before/after screenshots to `screenshots/`.
-- [~] Commit (conventional format), merge latest main, push feature branch; verify Drone CI is green.
+- [x] Commit (conventional format), merge latest main, push feature branch `feature/002208-self-serve-acme`. (Drone CI runs once the platform opens the GitHub PR — not creatable from here.)
