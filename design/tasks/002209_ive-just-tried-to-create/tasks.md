@@ -10,6 +10,7 @@
 - [ ] Add optional `ProjectID` (`json:"project_id,omitempty"`) to each args struct in `mcptools/spec_tasks.go` and pass it through.
 - [ ] Add a `projectID string` parameter to every method on the `runtime.SpecTasks` interface and `NoopSpecTasks` in `runtime.go`.
 - [ ] Forward `projectID` through `application/spectasks/spectasks.go` (keep caller identity extraction; worker stays the actor).
+- [ ] Add a caller org-membership check (`Queries.GetBot(orgID, botID)`) in the `application/spectasks` + `application/projects` services (thread in the `Queries` facade) so every tool verifies the bot belongs to the org; take org/identity only from `inv.Caller`, never from tool args.
 - [ ] In `runtime/helix/spectasks.go`, replace `project()` with `resolveProject(ctx, orgID, workerID, projectID)`: empty → own project (unchanged); non-empty → load project, assert `project.OrganizationID == orgID` (hard cross-org block), acting user = worker's `HiringUserID`.
 - [ ] Update `ownedTask` to compare against the resolved project id.
 - [ ] Update tool descriptions to explain the optional `project_id` (omit = own project).
@@ -32,6 +33,6 @@
 - [ ] Confirm the new tools + existing spec-task tools are grantable per Role and that a bot created with them works.
 
 ## 5. Tests & build
-- [ ] Unit tests: `resolveProject` (own / named / cross-org rejection), `ownedTask`, `list_projects`/`get_project` org scoping, `EnsureSpecTaskTopic` idempotency, filter predicate over `.Message.extra`.
+- [ ] Unit tests: caller org-membership rejection (bot not in org), `resolveProject` (own / named / cross-org rejection), `ownedTask` (cross-org task id rejected), `list_projects`/`get_project` org scoping, `EnsureSpecTaskTopic` idempotency, filter predicate over `.Message.extra`.
 - [ ] `go build ./api/pkg/org/... ./api/pkg/server/... ./api/pkg/types/` green.
 - [ ] E2E in inner Helix: two projects in one org, PM bot connected to both, trigger an event on each, approve/create-PRs on the *other* project by `project_id`; confirm a second-org project is not listable/editable.

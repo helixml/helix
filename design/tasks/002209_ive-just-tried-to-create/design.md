@@ -159,9 +159,31 @@ What this task must provide for connection:
   spec-task tools passing `project_id`.
 
 ## Authorization model (summary)
+Enforced as a fixed pipeline every discovery/spec-task tool runs, in shared
+layers so no tool can skip a step:
+
+1. **Trusted caller only.** `orgID` and `botID` come from the authenticated MCP
+   invocation (`inv.Caller`), never from tool JSON args. A tool that reads an org
+   id from its args as the auth basis is a bug.
+2. **Caller is an org member.** Verify the bot exists in that org via
+   `Queries.GetBot(orgID, botID)` before any work (this is what `read_events`
+   already does). No org id / bot-not-in-org → reject. Since this needs store
+   access (today's `callerIdentity` is pure), thread the `Queries` facade into
+   the `application/spectasks` + `application/projects` services and run the
+   `GetBot` check there, so both surfaces enforce it uniformly rather than each
+   tool re-implementing it.
+3. **Every project_id is org-owned.** `list_projects` filters by `orgID`;
+   `get_project` and any spec-task tool with a `project_id` assert
+   `project.OrganizationID == orgID` in the runtime `resolve*` (not-found /
+   permission error otherwise).
+4. **Every task_id is project-owned.** `ownedTask` asserts `task.ProjectID ==`
+   the resolved (already org-verified) project — so a task is transitively
+   org-verified, and a cross-org task id is rejected.
+
 | Boundary | Enforcement |
 |---|---|
-| Cross-org project / task access | **Hard** — runtime asserts `project.OrganizationID == caller org`; cross-org `get_project`/task ops fail |
+| Caller is a member of the org | **Hard** — `GetBot(orgID, botID)` in the shared `callerIdentity`; org/identity taken only from `inv.Caller` |
+| Cross-org project / task access | **Hard** — runtime asserts `project.OrganizationID == caller org`; `ownedTask` chains task→project→org; cross-org ids fail |
 | Which same-org projects the bot manages | **Soft** — expressed by the bot's filter routes / subscriptions + Role prompt |
 | Tool availability | A tool is usable iff it's in the Bot's `Tools` (granted per Role) |
 

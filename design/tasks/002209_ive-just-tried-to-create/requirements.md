@@ -123,6 +123,33 @@ prompt describing its cross-project, org-scoped responsibilities.
   creation, it can inspect the `event_type`/`spec_task_id`/`project_id` keys on
   each event, and it drives spec tasks by passing the target `project_id`.
 
+### US-6: Org-membership and resource-scoping enforcement (cross-cutting)
+As a security-conscious operator, I want every project-discovery and spec-task
+MCP tool to verify the request comes from a bot that is a member of the org, and
+to only ever act on project/task IDs that belong to that same org, so a bot can
+never read or edit another org's resources by guessing an ID.
+
+**Acceptance Criteria**
+- **Caller membership:** every tool resolves the caller from the invocation
+  (bot id + org id come from the authenticated MCP mount, not from tool args) and
+  verifies the bot actually exists as a member of that org (e.g. `GetBot(orgID,
+  botID)`) before doing any work. A caller with no org id, or a bot not found in
+  that org, is rejected.
+- **Project IDs:** `list_projects` returns **only** projects in the caller's org.
+  `get_project` and any spec-task tool given a `project_id` verify that project's
+  `OrganizationID` equals the caller's org; a mismatched or non-existent id
+  returns not-found/permission-denied (never another org's data).
+- **Task IDs:** any spec-task tool given a `task_id` verifies the task belongs to
+  the resolved (org-verified) project. A `task_id` for a task outside that
+  project — including a valid id from another org — is rejected.
+- **No trust in caller-supplied org/identity:** tools must not accept an org id
+  or bot identity from their JSON args as the authorization basis; only the
+  invocation's authenticated caller is trusted.
+- **Uniform, not per-tool ad hoc:** the checks live in shared
+  helpers/policy layers (caller identity in `application/spectasks` +
+  `application/projects`; org+ownership in the runtime `resolve*`), so no
+  individual tool can forget them.
+
 ## Out of Scope
 - New notification/event *sources* beyond the existing `AttentionEvent` set
   (`specs_pushed`, `agent_interaction_completed`, `spec_failed`,
