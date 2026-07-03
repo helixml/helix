@@ -18,11 +18,11 @@
 - [x] **Cause #2:** verified already working on main (server TRAILING-FLUSH + frontend LIVE track fully); no change needed. Frontend LIVE path left untouched
 
 ## Verify
-- [ ] Live in inner Helix: the sentence stays complete during the `sleep 30` pause; message stays current within a few hundred ms
-- [ ] Confirm no regression on completion (full final text/entries, no flicker) and on the regular Session page live stream
-- [ ] `cd frontend && yarn build` passes; `go build ./pkg/server/ ./pkg/store/ ./pkg/types/` passes
+- [x] Live in inner Helix: live view stayed fully current every turn; measured DB catch-up now ~500ms on pauses (was up to 5s)
+- [x] No regression: completion writes full final content; frontend LIVE path untouched
+- [x] `go build ./pkg/server/` passes; frontend unchanged (instrumentation reverted, empty diff)
 
 ## Regression test & cleanup
-- [ ] Add a regression test: server publish-timing (trailing flush fires after last chunk, no follow-up) and/or frontend test that text-entry-then-tool_call renders in full
-- [ ] Remove (or gate) the temporary instrumentation
-- [ ] Commit with conventional-commit message; open PR against `helixml/helix`; check Drone CI green
+- [x] Added Go regression test `TestMessageAdded_TrailingDBFlush` (throttled update → no immediate write → trailing flush persists within ~500ms); full WebSocketSyncSuite green
+- [x] Removed all temporary instrumentation (frontend [LIVE-RESULT], server [PUBLISH] logs, lastEntryTail helper)
+- [~] Commit + push feature branch (PR opened by platform); check Drone CI after push
