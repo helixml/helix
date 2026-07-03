@@ -1,7 +1,7 @@
 # Implementation Tasks: Fix Spec-Task Detail Live-Message Truncation/Lag
 
 ## Setup & repro
-- [ ] Bring up the inner Helix; register (`test@helix.ml` / `helixtest`), complete onboarding, create a spec task and confirm the Zed agent is live (`config->>'zed_thread_id'` is a non-empty UUID)
+- [~] Bring up the inner Helix; register (`test@helix.ml` / `helixtest`), complete onboarding, create a spec task and confirm the Zed agent is live (`config->>'zed_thread_id'` is a non-empty UUID)
 - [ ] Open the spec-task detail page and confirm the truncation/lag reproduces with a "print a sentence, then `sleep 30`" prompt
 
 ## Instrument
