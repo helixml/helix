@@ -6,7 +6,10 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
-import { useListProviders } from '../services/providersService';
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
+import { TypesProviderEndpointType } from '../api/api';
+import CircularProgress from '@mui/material/CircularProgress';
+import { Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
@@ -24,7 +27,10 @@ const Providers: React.FC = () => {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
+  const [connectingDetected, setConnectingDetected] = useState<string>("");
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
+  const { data: detectedProviders } = useDetectLocalProviders(true);
+  const createProvider = useCreateProviderEndpoint();
 
   const orgName = router.params.org_id
 
@@ -116,6 +122,27 @@ const Providers: React.FC = () => {
   const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
   const customEndpoints = userEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
 
+  // Detected but not yet connected local providers
+  const unconnectedDetected = (detectedProviders || []).filter(
+    dp => !allEndpoints.some(e => e.name === dp.server_type)
+  );
+
+  const handleConnectDetected = async (dp: { server_type: string; base_url: string; name: string }) => {
+    setConnectingDetected(dp.server_type);
+    try {
+      await createProvider.mutateAsync({
+        name: dp.server_type,
+        base_url: dp.base_url,
+        api_key: "",
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        owner: "system",
+        owner_type: "system" as any,
+      });
+    } finally {
+      setConnectingDetected("");
+    }
+  };
+
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
@@ -128,6 +155,42 @@ const Providers: React.FC = () => {
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
         </Typography>
+
+        {/* Detected local servers banner */}
+        {unconnectedDetected.length > 0 && (
+          <Box sx={{ mb: 4 }}>
+            {unconnectedDetected.map((dp) => (
+              <Alert
+                key={dp.server_type}
+                severity="success"
+                icon={<Server size={20} />}
+                sx={{
+                  mb: 1,
+                  border: '1px solid rgba(0,232,145,0.3)',
+                  bgcolor: 'rgba(0,232,145,0.05)',
+                  '& .MuiAlert-icon': { color: '#00e891' },
+                }}
+                action={
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={connectingDetected === dp.server_type}
+                    onClick={() => handleConnectDetected(dp)}
+                    sx={{
+                      bgcolor: '#00e891', color: '#000',
+                      '&:hover': { bgcolor: '#00cc7a' },
+                      textTransform: 'none',
+                    }}
+                  >
+                    {connectingDetected === dp.server_type ? <CircularProgress size={16} sx={{ color: '#000' }} /> : 'Connect'}
+                  </Button>
+                }
+              >
+                <strong>{dp.name}</strong> detected on this machine with {dp.models.length} model{dp.models.length !== 1 ? 's' : ''} available
+              </Alert>
+            ))}
+          </Box>
+        )}
 
         {/* Claude Subscription Section */}
         <Typography variant="h6" sx={{ mb: 1.5 }}>
