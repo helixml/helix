@@ -25,4 +25,4 @@
 ## Regression test & cleanup
 - [x] Added Go regression test `TestMessageAdded_TrailingDBFlush` (throttled update → no immediate write → trailing flush persists within ~500ms); full WebSocketSyncSuite green
 - [x] Removed all temporary instrumentation (frontend [LIVE-RESULT], server [PUBLISH] logs, lastEntryTail helper)
-- [~] Commit + push feature branch (PR opened by platform); check Drone CI after push
+- [x] Committed + pushed feature branch `feature/002212-fix-spec-task-detail` (merged latest main; platform opens the GitHub PR → Drone CI runs then)
