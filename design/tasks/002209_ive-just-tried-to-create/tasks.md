@@ -7,13 +7,13 @@
 - [ ] Improve `attentionTopicPublisher.PublishAttentionEvent` field coercion: `Title→Subject`, `Description→Body`, `SpecTaskID→ThreadID`, `ID→MessageID`; keep `event_type`/`project_id`/`project_name`/`spec_task_name` in `Extra`. Update/extend its tests.
 
 ## 1. Cross-project targeting for spec-task tools
-- [ ] Add optional `ProjectID` (`json:"project_id,omitempty"`) to each args struct in `mcptools/spec_tasks.go` and pass it through.
-- [ ] Add a `projectID string` parameter to every method on the `runtime.SpecTasks` interface and `NoopSpecTasks` in `runtime.go`.
-- [ ] Forward `projectID` through `application/spectasks/spectasks.go` (keep caller identity extraction; worker stays the actor).
-- [ ] Add a caller org-membership check (`Queries.GetBot(orgID, botID)`) in the `application/spectasks` + `application/projects` services (thread in the `Queries` facade) so every tool verifies the bot belongs to the org; take org/identity only from `inv.Caller`, never from tool args.
-- [ ] In `runtime/helix/spectasks.go`, replace `project()` with `resolveProject(ctx, orgID, workerID, projectID)`: empty → own project (unchanged); non-empty → load project, assert `project.OrganizationID == orgID` (hard cross-org block), acting user = worker's `HiringUserID`.
-- [ ] Update `ownedTask` to compare against the resolved project id.
-- [ ] Update tool descriptions to explain the optional `project_id` (omit = own project).
+- [~] Add optional `ProjectID` (`json:"project_id,omitempty"`) to each args struct in `mcptools/spec_tasks.go` and pass it through.
+- [~] Add a `projectID string` parameter to every method on the `runtime.SpecTasks` interface and `NoopSpecTasks` in `runtime.go`.
+- [~] Forward `projectID` through `application/spectasks/spectasks.go` (keep caller identity extraction; worker stays the actor).
+- [~] Add a caller org-membership check (`Queries.GetBot(orgID, botID)`) in the `application/spectasks` + `application/projects` services (thread in the `Queries` facade) so every tool verifies the bot belongs to the org; take org/identity only from `inv.Caller`, never from tool args. NOTE: already enforced at the MCP mount (`buildMCPServer` → `GetBot`); service-level check is defensive depth, wired via an optional verifier so unit tests need no store.
+- [~] In `runtime/helix/spectasks.go`, replace `project()` with `resolveProject(ctx, orgID, workerID, projectID)`: empty → own project (unchanged); non-empty → load project, assert `project.OrganizationID == orgID` (hard cross-org block), acting user = worker's `HiringUserID`.
+- [~] Update `ownedTask` to compare against the resolved project id.
+- [~] Update tool descriptions to explain the optional `project_id` (omit = own project).
 
 ## 2. Helix project read tools (`list_projects`, `get_project`)
 - [ ] Add `runtime.Projects` port + `ProjectView` + `NoopProjects`/`ErrProjectsUnsupported` in `runtime.go`.
