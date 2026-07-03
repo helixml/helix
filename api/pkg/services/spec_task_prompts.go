@@ -54,6 +54,14 @@ Create exactly 3 files in /home/retro/work/helix-specs/design/tasks/{{.TaskDirNa
 2. design.md - Architecture + key decisions
 3. tasks.md - Checklist of implementation tasks using [ ] format
 
+## Open Questions (requirements.md)
+
+End ` + "`requirements.md`" + ` with an ` + "`## Open Questions`" + ` section listing any genuine
+questions or uncertain assumptions you have for the user - anything you would
+otherwise have to guess. This surfaces guesses so the user can correct them at
+review time instead of them silently becoming the spec. Only list real
+uncertainties; if there are none, write "None".
+
 ## CRITICAL: Title Format
 
 Each of the three files MUST start with an H1 in this exact format:

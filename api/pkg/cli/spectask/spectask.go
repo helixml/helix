@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -59,6 +61,8 @@ func newStartCommand() *cobra.Command {
 	var projectID string
 	var agentID string
 	var prompt string
+	var promptFile string
+	var attachFiles []string
 	var quiet bool
 
 	cmd := &cobra.Command{
@@ -91,6 +95,20 @@ Example workflow:
 					fmt.Println("Creating new spec task...")
 				}
 				taskPrompt := prompt
+				// --prompt-file lets you dispatch an entire brief (e.g. a design
+				// doc) as the task prompt without committing it to the repo.
+				// Appended after --prompt when both are given.
+				if promptFile != "" {
+					data, readErr := os.ReadFile(promptFile)
+					if readErr != nil {
+						return fmt.Errorf("failed to read --prompt-file %q: %w", promptFile, readErr)
+					}
+					if taskPrompt != "" {
+						taskPrompt = taskPrompt + "\n\n" + string(data)
+					} else {
+						taskPrompt = string(data)
+					}
+				}
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
@@ -103,6 +121,17 @@ Example workflow:
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 					if agentID != "" {
 						fmt.Printf("   Agent: %s\n", agentID)
+					}
+				}
+				// Attach files (e.g. logfiles) — the agent reads them at
+				// design/tasks/<task>/attachments/<name>, keeping large context
+				// out of the prompt.
+				if len(attachFiles) > 0 {
+					if err := uploadSpecTaskAttachments(apiURL, token, taskID, attachFiles); err != nil {
+						return fmt.Errorf("failed to upload attachments: %w", err)
+					}
+					if !quiet {
+						fmt.Printf("📎 Uploaded %d attachment(s)\n", len(attachFiles))
 					}
 				}
 			}
@@ -150,6 +179,8 @@ Example workflow:
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
 	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
+	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
 
 	return cmd
@@ -445,6 +476,47 @@ func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*Sp
 	}
 
 	return &task, nil
+}
+
+// uploadSpecTaskAttachments uploads local files as attachments on a spec task
+// (multipart, field name "files"). The agent can then read them inside the
+// sandbox at design/tasks/<task>/attachments/<name>.
+func uploadSpecTaskAttachments(apiURL, token, taskID string, files []string) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", f, err)
+		}
+		part, err := w.CreateFormFile("files", filepath.Base(f))
+		if err != nil {
+			return err
+		}
+		if _, err := part.Write(data); err != nil {
+			return err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/attachments", apiURL, taskID)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("attachments API returned %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
 }
 
 // triggerStartPlanning starts planning for a task (returns task, not session)
