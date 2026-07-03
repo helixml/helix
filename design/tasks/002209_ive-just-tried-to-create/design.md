@@ -25,6 +25,11 @@
   per subscribed Bot. Bots read via `read_events` / are activated by the spawner.
 - **Subscribe primitive:** `subscribe` / `unsubscribe` MCP tools +
   `application/subscriptions`.
+- **Filter/processing system:** `processor.KindFilter` +
+  `application/processors` + `application/processing` runner. A filter routes an
+  input topic's messages to output topics by a template predicate rendered
+  against the message (`.Message.extra` included). This is the connection
+  mechanism — no new tools needed.
 
 ## The gap
 The 8 spec-task MCP tools resolve the target project as the **Worker's own
@@ -84,31 +89,44 @@ port so `api/pkg/org/` stays decoupled from the Helix store.
 - Add `Projects *projects.Service` (new thin `application/projects` service,
   mirroring `application/spectasks`) to `mcptools.Deps` + `Config`.
 
-### 3. `connect_project` / `disconnect_project` — the connection primitive
-The bot is "connected to" a project == subscribed to that project's
-`KindSpecTask` topic. Because topics are created lazily by the attention
-publisher, add a primitive that **ensures the topic exists and subscribes in one
-call** (mirrors `create_bot`'s create-and-subscribe convenience).
+### 3. Connection via the existing filter-processor system (NO new tools)
+**Decision (review feedback): do not add `connect_project`/`disconnect_project`
+tools.** The org already has a flexible topic + processing/filter system; a bot
+is connected to a project's events using those primitives, and project selection
+is driven by discovery (§2) at bot-creation time.
 
-- Extract the find-or-create logic from `attentionTopicPublisher.ensureTopic`
-  into a shared helper so the tool and the publisher agree on the topic's
-  identity/config (same `SpecTaskConfig{ProjectID}` match rule). Options:
-  a small `EnsureSpecTaskTopic(ctx, topics, newID, now, orgID, projectID)`
-  function in the server package, or a method on a shared struct. **Do not
-  duplicate the ensure logic** — one implementation.
-- `connect_project(project_id, botId?)`:
-  1. authorize project ∈ caller's org (reuse the `Projects` port `Get`);
-  2. ensure the `KindSpecTask` topic for the project;
-  3. subscribe the bot (default: the caller) via the existing
-     `subscriptions.Subscribe` use case.
-- `disconnect_project(project_id, botId?)`: resolve project → topic, then
-  `unsubscribe`. (If the topic doesn't exist, it's a no-op success.)
+How the pieces already fit:
+- Each project's spec-task events already stream on its `KindSpecTask` topic,
+  and each `streaming.Message` carries `Extra = {spec_task_id, event_type,
+  project_id}`.
+- A **filter processor** (`processor.KindFilter`,
+  `api/pkg/org/domain/processor/filter.go`) reads an input topic, renders a Go
+  `text/template` **predicate against the message context** — which exposes
+  `.Message.extra` (`api/pkg/org/domain/processor/template.go` `templateData`) —
+  and republishes matching messages to its output topic(s). So a predicate like
+  one keying on `.Message.extra.event_type` / `.Message.extra.project_id`
+  "filters messages for a bot" with zero new code.
+- The bot subscribes to the processor's output topic (or directly to the
+  project topic) via the existing `subscribe` use case; the dispatcher then
+  activates it. The Slack auto-router already demonstrates reconciler-owned
+  filter routes per Worker via `Output.ManagedFor` — the same pattern applies if
+  we later want managed PM-bot routes.
 
-**Wiring note:** `connect_project` needs the topic-ensure seam, which lives in
-the server package (it consumes the org `Topics` store + id/clock seams). Pass
-an `EnsureProjectTopic` collaborator into `mcptools.Deps` (interface defined in
-mcptools, implemented in server) to avoid an import cycle — same pattern as
-`EventDispatcher` in `builtins.go`.
+What this task must provide for connection:
+- **Nothing new on the MCP tool surface.** Verify a filter processor can be
+  created (existing `application/processors` use case) with an input of a
+  project's `KindSpecTask` topic and a predicate over `.Message.extra`, and that
+  a subscribed bot is triggered.
+- **Deterministic input topic at wiring time.** Today the `KindSpecTask` topic
+  is created lazily on the first attention event, so wiring before any event has
+  fired has nothing to point at. Fix by extracting the find-or-create logic in
+  `attentionTopicPublisher.ensureTopic` into a shared helper
+  (`EnsureSpecTaskTopic(...)`) and calling it from the bot-creation/wiring path
+  (reused, **not** a new MCP tool) so the input topic exists deterministically.
+  One implementation of the ensure logic, shared with the publisher.
+- **Bot-creation UX** uses `list_projects` (§2) to offer selectable projects and
+  wires the chosen ones with the existing topic/processor/subscribe use cases.
+  No dedicated per-project connect verb.
 
 ### 4. Granting + Role prompt (data, not code)
 - The new tools are **not** added to `BaseReadTools`. They are opt-in, granted
@@ -124,7 +142,7 @@ mcptools, implemented in server) to avoid an import cycle — same pattern as
 | Boundary | Enforcement |
 |---|---|
 | Cross-org project / task access | **Hard** — runtime asserts `project.OrganizationID == caller org`; cross-org `get_project`/task ops fail |
-| Which same-org projects the bot manages | **Soft** — expressed by the bot's subscriptions (`connect_project`) + Role prompt |
+| Which same-org projects the bot manages | **Soft** — expressed by the bot's filter routes / subscriptions + Role prompt |
 | Tool availability | A tool is usable iff it's in the Bot's `Tools` (granted per Role) |
 
 ## Key decisions & rationale
@@ -135,18 +153,23 @@ mcptools, implemented in server) to avoid an import cycle — same pattern as
   adds friction and Go logic for a low-cost violation. (Noted alternative: also
   require the bot be subscribed to the project before edits — deferred unless the
   cost of a mistaken cross-project edit proves high.)
-- **Reuse the attention publisher's topic-ensure logic** for `connect_project`
-  so triggering and connecting can never disagree on the topic.
+- **No dedicated connect/disconnect tools** (review feedback). Reuse the org's
+  topic + filter-processor + subscribe primitives; drive project selection from
+  `list_projects` at bot-creation time. Share the attention publisher's
+  topic-ensure logic (refactor, not a new tool) so wiring has a deterministic
+  input topic.
 - **Projects behind a runtime port**, mirroring `SpecTasks`, to preserve the
   org↔helix decoupling.
 
 ## Testing
 - Unit: `resolveProject` (own vs named vs cross-org rejection); `ownedTask`
   against resolved project; `list_projects`/`get_project` org scoping;
-  `connect_project` ensure-then-subscribe (incl. topic-not-yet-existing).
+  `EnsureSpecTaskTopic` find-or-create idempotency; a filter predicate over
+  `.Message.extra` (project_id / event_type) selecting/dropping correctly.
 - E2E in inner Helix (`localhost:8080`): create two projects in one org, stand up
-  a PM bot, `connect_project` to both, trigger an attention event on each
-  (e.g. push specs / open PR), confirm the bot is activated and can
-  `approve_spectask_spec` / `create_spectask_prs` on the *other* project by
-  `project_id`. Confirm a project in a *second* org is not listable/editable.
+  a PM bot, wire it to both via the existing topic/filter-processor/subscribe
+  path, trigger an attention event on each (e.g. push specs / open PR), confirm
+  the bot is activated and can `approve_spectask_spec` / `create_spectask_prs` on
+  the *other* project by `project_id`. Confirm a project in a *second* org is not
+  listable/editable.
 - Verify `request_spectask_changes` persists the comment.

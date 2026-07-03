@@ -30,22 +30,40 @@ event yet).
 
 ## User Stories
 
-### US-1: Connect the PM bot to a project (multi-project, org-scoped)
-As an org owner, I want to connect my org-wide PM bot to a specific project in
-my org so that the bot starts receiving that project's spec-task notification
-events and can manage its tasks — and I want to connect it to several projects
-at once for multi-project workflows.
+### US-1: Route a project's events to the PM bot via the existing filter system
+As an org owner, I want my org-wide PM bot to receive a project's spec-task
+notification events using the org's existing topic + processing/filter system —
+**not** via any new connect/disconnect tool — so I can wire it to several
+projects at once for multi-project workflows.
 
 **Acceptance Criteria**
-- A `connect_project` MCP tool ensures the project's `KindSpecTask` topic exists
-  (creating it on demand, even if no attention event has fired yet) and
-  subscribes the target bot to it, in one call.
-- The tool rejects a `project_id` that belongs to a **different organization**
-  than the caller (hard cross-org block).
-- Connecting the same bot to N projects works; the bot receives events from all
-  connected projects.
-- A `disconnect_project` tool (or documented use of `unsubscribe`) removes the
-  connection.
+- **No new "connect_project"/"disconnect_project" MCP tools.** Connection is
+  expressed with the primitives that already exist: the per-project
+  `KindSpecTask` topic (auto-created by `attentionTopicPublisher`), a **filter
+  processor** (`processor.KindFilter`) whose predicate selects the wanted
+  messages, and the existing `subscribe` use case.
+- The filter predicate can select on the event payload the topic already
+  carries — `.Message.extra` holds `{spec_task_id, event_type, project_id}`
+  (e.g. route only `pr_ready` / `ci_failed`, or a specific `project_id`).
+- Wiring one bot to N projects works and the bot is triggered by events from all
+  wired projects (multiple filter routes / subscriptions, same machinery the
+  Slack auto-router already uses via `Output.ManagedFor`).
+- Cross-org routing is impossible: topics/events are already org-scoped, and the
+  project-discovery tools (US-2) only return same-org projects.
+
+### US-1b: Connection is configured at bot-creation time, driven by discovery
+As an org owner, when I create the PM bot I want to be asked which projects to
+connect it to, using the discovered project list (US-2), and have the wiring
+(filter processor route + subscription) set up as part of creation using the
+existing use cases.
+
+**Acceptance Criteria**
+- The bot-creation flow uses `list_projects` to present selectable projects.
+- The selected projects are wired using the existing topic/processor/subscribe
+  use cases (reused, not reimplemented), consistent with the helix-org
+  "complete the action in as few steps as possible, reuse existing use cases"
+  principle.
+- No dedicated per-project connect tool is introduced.
 
 ### US-2: Discover projects in the org
 As the PM bot, I want to list the projects in my org and read a single
@@ -93,8 +111,9 @@ prompt describing its cross-project, org-scoped responsibilities.
 - The new tools plus the existing spec-task tools can be granted to a bot's Role
   (they are not part of `BaseReadTools`; they are opt-in per Role).
 - A PM-bot Role prompt exists that explains: it only manages projects in its own
-  org, it must `connect_project` to receive events, and it filters events by the
-  `event_type`/`spec_task_id` key on the topic.
+  org, it receives events through the topics/filter routes it was wired to at
+  creation, it can inspect the `event_type`/`spec_task_id`/`project_id` keys on
+  each event, and it drives spec tasks by passing the target `project_id`.
 
 ## Out of Scope
 - New notification/event *sources* beyond the existing `AttentionEvent` set

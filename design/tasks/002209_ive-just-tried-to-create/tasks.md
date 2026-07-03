@@ -20,18 +20,17 @@
 - [ ] Add `mcptools/projects.go` with `list_projects` (optional `status`) and `get_project` (`project_id`); register as reads in `builtins.go`.
 - [ ] Wire the `Projects` service into `mcptools.Deps` + `Config.Build` and the helix impl in `helix_org.go`.
 
-## 3. Connection primitive (`connect_project` / `disconnect_project`)
-- [ ] Extract `attentionTopicPublisher.ensureTopic` into a shared `EnsureSpecTaskTopic` helper (no duplication) used by both the publisher and the new tool.
-- [ ] Define an `EnsureProjectTopic` collaborator interface in mcptools (implemented in server) and add it to `Deps`/`Config` to avoid an import cycle.
-- [ ] Implement `connect_project(project_id, botId?)`: authorize project ∈ org → ensure topic → subscribe via the shared `subscriptions.Subscribe` use case.
-- [ ] Implement `disconnect_project(project_id, botId?)`: resolve project → topic → unsubscribe (no-op if topic absent).
-- [ ] Register both tools in `builtins.go` (mutations, opt-in per Role — not in `BaseReadTools`).
+## 3. Connection via existing filter/processor system (NO new connect tools)
+- [ ] Confirm a `processor.KindFilter` can be created (existing `application/processors` use case) with a project's `KindSpecTask` topic as input and a predicate over `.Message.extra` (`event_type` / `project_id`), routing to an output topic a bot subscribes to.
+- [ ] Extract `attentionTopicPublisher.ensureTopic` into a shared `EnsureSpecTaskTopic` helper (single implementation) so the bot-creation/wiring path can pre-create the input topic deterministically — this is a refactor, **not** a new MCP tool.
+- [ ] Wire the bot-creation flow to offer projects from `list_projects` and set up the chosen projects' filter route + subscription using the existing topic/processor/subscribe use cases (reused, not reimplemented).
+- [ ] Do NOT add `connect_project`/`disconnect_project` tools.
 
 ## 4. PM-bot Role prompt + granting
-- [ ] Add a PM-bot Role prompt template under `application/prompts/templates` describing same-org-only scope, discover→connect→filter→manage flow, and `project_id` usage.
+- [ ] Add a PM-bot Role prompt template under `application/prompts/templates` describing same-org-only scope, how events arrive via wired topics/filter routes, inspecting the `event_type`/`project_id` keys, and driving tasks with `project_id`.
 - [ ] Confirm the new tools + existing spec-task tools are grantable per Role and that a bot created with them works.
 
 ## 5. Tests & build
-- [ ] Unit tests: `resolveProject` (own / named / cross-org rejection), `ownedTask`, `list_projects`/`get_project` org scoping, `connect_project` ensure-then-subscribe (topic not-yet-existing).
+- [ ] Unit tests: `resolveProject` (own / named / cross-org rejection), `ownedTask`, `list_projects`/`get_project` org scoping, `EnsureSpecTaskTopic` idempotency, filter predicate over `.Message.extra`.
 - [ ] `go build ./api/pkg/org/... ./api/pkg/server/... ./api/pkg/types/` green.
 - [ ] E2E in inner Helix: two projects in one org, PM bot connected to both, trigger an event on each, approve/create-PRs on the *other* project by `project_id`; confirm a second-org project is not listable/editable.
