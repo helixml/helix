@@ -770,13 +770,17 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	// otherwise.
 	prevName, prevOwner := existingEndpoint.Name, existingEndpoint.Owner
 
-	// Apply endpoint type change and update ownership accordingly
+	// Apply endpoint type change. Keep the existing owner — global visibility is
+	// keyed on endpoint_type='global' in the store, not on owner, so there is no
+	// reason to reassign ownership. Stamping Owner="system" here made a real DB
+	// row indistinguishable from a synthetic env-var endpoint (ID="-", Owner=
+	// "system"), which the UI treats as read-only, permanently stranding it. This
+	// now matches createProviderEndpoint, which leaves a global endpoint owned by
+	// its admin creator.
 	if updatedEndpoint.EndpointType != "" && updatedEndpoint.EndpointType != existingEndpoint.EndpointType {
 		switch updatedEndpoint.EndpointType {
 		case types.ProviderEndpointTypeGlobal:
 			existingEndpoint.EndpointType = updatedEndpoint.EndpointType
-			existingEndpoint.Owner = string(types.OwnerTypeSystem)
-			existingEndpoint.OwnerType = types.OwnerTypeSystem
 		default:
 			http.Error(rw, fmt.Sprintf("Unsupported endpoint type switch to %q", updatedEndpoint.EndpointType), http.StatusBadRequest)
 			return

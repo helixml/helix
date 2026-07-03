@@ -654,8 +654,11 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() 
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
-			s.Equal(string(types.OwnerTypeSystem), ep.Owner)
-			s.Equal(types.OwnerTypeSystem, ep.OwnerType)
+			// Owner must stay the admin creator, NOT be reassigned to "system".
+			// Reassigning to "system" made the row look like a synthetic env-var
+			// endpoint and stranded it as read-only in the UI.
+			s.Equal("admin_id", ep.Owner)
+			s.Equal(types.OwnerTypeUser, ep.OwnerType)
 			return ep, nil
 		})
 

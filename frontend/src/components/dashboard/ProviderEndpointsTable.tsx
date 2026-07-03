@@ -144,7 +144,11 @@ const ProviderEndpointsTable: FC = () => {
   };
 
   const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
-    return endpoint.endpoint_type === 'global' && endpoint.owner === 'system';
+    // Only synthetic env-var endpoints are read-only. They are injected from
+    // config with a sentinel id of "-" (no DB row to edit). A real DB row —
+    // including a global one — always has a real id and is admin-editable, even
+    // if a past bug stamped its owner as "system".
+    return endpoint.id === '-';
   };
 
   // Helper function to render owner information
