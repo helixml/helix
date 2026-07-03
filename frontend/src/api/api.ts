@@ -1087,6 +1087,20 @@ export interface ServerGPUInfoWithSandbox {
   vendor?: string;
 }
 
+export interface ServerGPUInfoWithSandbox {
+  index?: number;
+  memory_free_bytes?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  name?: string;
+  sandbox_id?: string;
+  temperature_celsius?: number;
+  /** GPU core utilization */
+  utilization_percent?: number;
+  /** "nvidia", "amd", "intel" */
+  vendor?: string;
+}
+
 export interface ServerGrantCreditsRequest {
   credits?: number;
   org_id?: string;
@@ -3203,6 +3217,22 @@ export interface TypesExternalStatus {
   commits_behind?: number;
 }
 
+export interface TypesExternalTriggerRef {
+  /**
+   * Payload is opaque to the spectask service. Each source unmarshals its
+   * own shape. For Notion: NotionTriggerPayload. For Sentry/GitHub: tbd.
+   */
+  payload?: number[];
+  trigger_config_id?: string;
+  type?: TypesExternalTriggerSourceType;
+}
+
+export enum TypesExternalTriggerSourceType {
+  ExternalTriggerSourceNotion = "notion",
+  ExternalTriggerSourceSentry = "sentry",
+  ExternalTriggerSourceGitHubIssue = "github_issue",
+}
+
 export enum TypesFeedback {
   FeedbackLike = "like",
   FeedbackDislike = "dislike",
@@ -4022,6 +4052,78 @@ export interface TypesMoveRepositoryPreviewItem {
   new_name?: string;
 }
 
+export interface TypesNotionColumnMap {
+  action_column?: string;
+  /** "select" or "status" */
+  action_column_type?: string;
+  action_option_cancel?: string;
+  action_option_create?: string;
+  /** optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task */
+  helix_task_url_column?: string;
+  /** optional rich-text column; empty = use page body */
+  prompt_column?: string;
+  /** optional rich-text column; empty = no writeback */
+  result_column?: string;
+}
+
+export interface TypesNotionTrigger {
+  /**
+   * ColumnMapping is informational metadata for the wizard's setup
+   * instructions. Dispatch keys off the X-Helix-Action header, not the
+   * column values, so this is not consulted at runtime.
+   */
+  column_mapping?: TypesNotionColumnMap;
+  /**
+   * EmbedAccessToken is the API key used in the embed URL's ?access_token=
+   * query parameter. For MVP this is the trigger creator's own user API key
+   * (consistent with Gatewaze's pattern). All viewers of the Notion embed
+   * see Helix as the trigger creator.
+   */
+  embed_access_token?: string;
+  enabled?: boolean;
+  /**
+   * IntegrationToken is a direct Notion internal-integration token
+   * (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+   * the simpler internal-integration setup path. If both are set, the
+   * integration token wins.
+   */
+  integration_token?: string;
+  /**
+   * NotionDatabaseID is the database this trigger is bound to. Informational
+   * (the wizard uses it to validate the schema); dispatch keys off the page
+   * ID in the webhook payload, not this field.
+   */
+  notion_database_id?: string;
+  /**
+   * OAuthConnectionID is the OAuthConnection used for write-back PATCHes
+   * and embed-block insert/delete. Set this when the user went through the
+   * OAuth flow.
+   */
+  oauth_connection_id?: string;
+  /**
+   * PublicURL, if set, overrides the server's default `WebServer.URL` when
+   * generating embed URLs and task-page links for THIS trigger. Required
+   * when the deployment's default URL is unreachable from Notion's iframe
+   * senders (e.g. localhost in dev, or an internal-only deployment) — set
+   * it to a public ngrok / cloudflared tunnel or production host.
+   */
+  public_url?: string;
+  /**
+   * SharedSecret authenticates inbound webhooks from Notion Database
+   * Automations / Button properties. Constant-time-compared against the
+   * X-Helix-Webhook-Secret header.
+   */
+  shared_secret?: string;
+  /** TargetProjectID is the Helix project to create spectasks in. */
+  target_project_id?: string;
+  /**
+   * VerificationToken is the HMAC-SHA256 secret for the secondary path
+   * (Notion API webhook subscription, used for comment.created and free-form
+   * page edits). Optional.
+   */
+  verification_token?: string;
+}
+
 export interface TypesOAuthConnection {
   /** OAuth token fields */
   access_token?: string;
@@ -4086,6 +4188,7 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
   OAuthProviderTypeHubSpot = "hubspot",
+  OAuthProviderTypeNotion = "notion",
   OAuthProviderTypeCustom = "custom",
 }
 
@@ -6000,6 +6103,14 @@ export interface TypesSpecTask {
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
   /**
+   * External trigger ref — set when this spectask was created by an external
+   * source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+   * embed-block cleanup on completion / cancellation. The Payload is opaque
+   * to the spectask service — each source's own package owns the shape.
+   * See design/tasks/002021_investigate-notion/ "Generalisation".
+   */
+  external_trigger_ref?: TypesExternalTriggerRef;
+  /**
    * Goose recipe binding (Phase 2b). When the parent project's agent uses
    * the goose_code runtime and the user picked a recipe at task-creation
    * time, GooseRecipeName names the AssistantGooseRecipe to invoke and
@@ -6278,6 +6389,7 @@ export enum TypesSpecTaskStatus {
   TaskStatusDone = "done",
   TaskStatusSpecFailed = "spec_failed",
   TaskStatusImplementationFailed = "implementation_failed",
+  SpecTaskStatusCancelled = "cancelled",
 }
 
 export interface TypesSpecTaskUpdateRequest {
@@ -6335,6 +6447,14 @@ export interface TypesSpecTaskWithProject {
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
+  /**
+   * External trigger ref — set when this spectask was created by an external
+   * source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+   * embed-block cleanup on completion / cancellation. The Payload is opaque
+   * to the spectask service — each source's own package owns the shape.
+   * See design/tasks/002021_investigate-notion/ "Generalisation".
+   */
+  external_trigger_ref?: TypesExternalTriggerRef;
   /**
    * Goose recipe binding (Phase 2b). When the parent project's agent uses
    * the goose_code runtime and the user picked a recipe at task-creation
@@ -6838,6 +6958,7 @@ export interface TypesTrigger {
   crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
+  notion?: TypesNotionTrigger;
   slack?: TypesSlackTrigger;
   teams?: TypesTeamsTrigger;
 }
@@ -6904,6 +7025,7 @@ export enum TypesTriggerType {
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeNotion = "notion",
 }
 
 export interface TypesUnifiedSearchResponse {

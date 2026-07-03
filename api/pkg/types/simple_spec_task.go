@@ -1,10 +1,44 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	"gorm.io/datatypes"
 )
+
+// ExternalTriggerSourceType discriminates which external system created a
+// spectask. Each source's own package owns its shape; the spectask service
+// only ever reads Type to dispatch, never the Payload.
+type ExternalTriggerSourceType string
+
+const (
+	ExternalTriggerSourceNotion      ExternalTriggerSourceType = "notion"
+	ExternalTriggerSourceSentry      ExternalTriggerSourceType = "sentry"       // future
+	ExternalTriggerSourceGitHubIssue ExternalTriggerSourceType = "github_issue" // future
+)
+
+// ExternalTriggerRef records that a spectask originated from an external
+// source (Notion row, Sentry issue, ...). See
+// design/tasks/002021_investigate-notion/ "Generalisation" for the lifecycle
+// pattern this seam supports.
+type ExternalTriggerRef struct {
+	Type            ExternalTriggerSourceType `json:"type"`
+	TriggerConfigID string                    `json:"trigger_config_id"`
+
+	// Payload is opaque to the spectask service. Each source unmarshals its
+	// own shape. For Notion: NotionTriggerPayload. For Sentry/GitHub: tbd.
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// NotionTriggerPayload is the source-specific shape carried inside
+// ExternalTriggerRef.Payload when Type == ExternalTriggerSourceNotion. Only
+// the Notion package marshals/unmarshals this.
+type NotionTriggerPayload struct {
+	PageID       string `json:"page_id"`
+	DatabaseID   string `json:"database_id,omitempty"`
+	EmbedBlockID string `json:"embed_block_id,omitempty"` // For best-effort cleanup on cancel
+}
 
 type SpecTaskPriority string
 
@@ -214,6 +248,13 @@ type SpecTask struct {
 	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
+	// External trigger ref — set when this spectask was created by an external
+	// source (Notion row, Sentry issue, GitHub issue). Used for write-back and
+	// embed-block cleanup on completion / cancellation. The Payload is opaque
+	// to the spectask service — each source's own package owns the shape.
+	// See design/tasks/002021_investigate-notion/ "Generalisation".
+	ExternalTriggerRef *ExternalTriggerRef `json:"external_trigger_ref,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Public sharing
 	PublicDesignDocs bool `json:"public_design_docs" gorm:"default:false"` // Allow viewing design docs without login
 
@@ -343,6 +384,12 @@ const (
 	// Error states
 	TaskStatusSpecFailed           SpecTaskStatus = "spec_failed"           // Spec generation failed
 	TaskStatusImplementationFailed SpecTaskStatus = "implementation_failed" // Implementation failed
+
+	// Cancelled — terminal state reached when an external trigger source (Notion
+	// row flipped back to NoGo, etc.) asks Helix to abandon the work before it
+	// reaches done. Named SpecTaskStatusCancelled to avoid colliding with the
+	// older TaskStatusCancelled in task_management.go.
+	SpecTaskStatusCancelled SpecTaskStatus = "cancelled"
 )
 
 // Agent specialization types

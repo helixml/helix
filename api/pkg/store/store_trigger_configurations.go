@@ -37,6 +37,8 @@ func (s *PostgresStore) CreateTriggerConfiguration(ctx context.Context, triggerC
 		triggerType = types.TriggerTypeAzureDevOps
 	case triggerConfig.Trigger.Slack != nil:
 		triggerType = types.TriggerTypeSlack
+	case triggerConfig.Trigger.Notion != nil:
+		triggerType = types.TriggerTypeNotion
 	default:
 		return nil, fmt.Errorf("trigger type not specified")
 	}

@@ -1808,6 +1808,71 @@ type AzureDevOpsTrigger struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
 
+// NotionTrigger configures a Notion-driven spec-task source.
+// See design/tasks/002021_investigate-notion/ for the full design.
+type NotionTrigger struct {
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+
+	// SharedSecret authenticates inbound webhooks from Notion Database
+	// Automations / Button properties. Constant-time-compared against the
+	// X-Helix-Webhook-Secret header.
+	SharedSecret string `json:"shared_secret,omitempty" yaml:"shared_secret,omitempty"`
+
+	// VerificationToken is the HMAC-SHA256 secret for the secondary path
+	// (Notion API webhook subscription, used for comment.created and free-form
+	// page edits). Optional.
+	VerificationToken string `json:"verification_token,omitempty" yaml:"verification_token,omitempty"`
+
+	// OAuthConnectionID is the OAuthConnection used for write-back PATCHes
+	// and embed-block insert/delete. Set this when the user went through the
+	// OAuth flow.
+	OAuthConnectionID string `json:"oauth_connection_id,omitempty" yaml:"oauth_connection_id,omitempty"`
+
+	// IntegrationToken is a direct Notion internal-integration token
+	// (`ntn_…`). Used in place of OAuthConnectionID when the customer prefers
+	// the simpler internal-integration setup path. If both are set, the
+	// integration token wins.
+	IntegrationToken string `json:"integration_token,omitempty" yaml:"integration_token,omitempty"`
+
+	// NotionDatabaseID is the database this trigger is bound to. Informational
+	// (the wizard uses it to validate the schema); dispatch keys off the page
+	// ID in the webhook payload, not this field.
+	NotionDatabaseID string `json:"notion_database_id,omitempty" yaml:"notion_database_id,omitempty"`
+
+	// TargetProjectID is the Helix project to create spectasks in.
+	TargetProjectID string `json:"target_project_id,omitempty" yaml:"target_project_id,omitempty"`
+
+	// EmbedAccessToken is the API key used in the embed URL's ?access_token=
+	// query parameter. For MVP this is the trigger creator's own user API key
+	// (consistent with Gatewaze's pattern). All viewers of the Notion embed
+	// see Helix as the trigger creator.
+	EmbedAccessToken string `json:"embed_access_token,omitempty" yaml:"embed_access_token,omitempty"`
+
+	// PublicURL, if set, overrides the server's default `WebServer.URL` when
+	// generating embed URLs and task-page links for THIS trigger. Required
+	// when the deployment's default URL is unreachable from Notion's iframe
+	// senders (e.g. localhost in dev, or an internal-only deployment) — set
+	// it to a public ngrok / cloudflared tunnel or production host.
+	PublicURL string `json:"public_url,omitempty" yaml:"public_url,omitempty"`
+
+	// ColumnMapping is informational metadata for the wizard's setup
+	// instructions. Dispatch keys off the X-Helix-Action header, not the
+	// column values, so this is not consulted at runtime.
+	ColumnMapping NotionColumnMap `json:"column_mapping,omitempty" yaml:"column_mapping,omitempty"`
+}
+
+// NotionColumnMap captures the user's column choices for the wizard's
+// copy-paste setup instructions. Not consulted at dispatch time.
+type NotionColumnMap struct {
+	ActionColumn       string `json:"action_column,omitempty" yaml:"action_column,omitempty"`
+	ActionColumnType   string `json:"action_column_type,omitempty" yaml:"action_column_type,omitempty"` // "select" or "status"
+	ActionOptionCreate string `json:"action_option_create,omitempty" yaml:"action_option_create,omitempty"`
+	ActionOptionCancel string `json:"action_option_cancel,omitempty" yaml:"action_option_cancel,omitempty"`
+	PromptColumn       string `json:"prompt_column,omitempty" yaml:"prompt_column,omitempty"`         // optional rich-text column; empty = use page body
+	ResultColumn       string `json:"result_column,omitempty" yaml:"result_column,omitempty"`         // optional rich-text column; empty = no writeback
+	HelixTaskURLColumn string `json:"helix_task_url_column,omitempty" yaml:"helix_task_url_column,omitempty"` // optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task
+}
+
 // AgentWorkQueueTrigger represents a trigger for agent work queue items
 
 type Trigger struct {
@@ -1817,6 +1882,7 @@ type Trigger struct {
 	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
 	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
 	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Notion      *NotionTrigger      `json:"notion,omitempty" yaml:"notion,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
@@ -2906,6 +2972,7 @@ const (
 	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"
+	TriggerTypeNotion      TriggerType = "notion"
 	// TODO: discord
 )
 

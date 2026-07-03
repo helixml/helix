@@ -23388,6 +23388,40 @@
                 }
             }
         },
+        "server.GPUInfoWithSandbox": {
+            "type": "object",
+            "properties": {
+                "index": {
+                    "type": "integer"
+                },
+                "memory_free_bytes": {
+                    "type": "integer"
+                },
+                "memory_total_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sandbox_id": {
+                    "type": "string"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                },
+                "utilization_percent": {
+                    "description": "GPU core utilization",
+                    "type": "integer"
+                },
+                "vendor": {
+                    "description": "\"nvidia\", \"amd\", \"intel\"",
+                    "type": "string"
+                }
+            }
+        },
         "server.GrantCreditsRequest": {
             "type": "object",
             "properties": {
@@ -28193,6 +28227,41 @@
                 }
             }
         },
+        "types.ExternalTriggerRef": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "description": "Payload is opaque to the spectask service. Each source unmarshals its\nown shape. For Notion: NotionTriggerPayload. For Sentry/GitHub: tbd.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "trigger_config_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ExternalTriggerSourceType"
+                }
+            }
+        },
+        "types.ExternalTriggerSourceType": {
+            "type": "string",
+            "enum": [
+                "notion",
+                "sentry",
+                "github_issue"
+            ],
+            "x-enum-comments": {
+                "ExternalTriggerSourceGitHubIssue": "future",
+                "ExternalTriggerSourceSentry": "future"
+            },
+            "x-enum-varnames": [
+                "ExternalTriggerSourceNotion",
+                "ExternalTriggerSourceSentry",
+                "ExternalTriggerSourceGitHubIssue"
+            ]
+        },
         "types.Feedback": {
             "type": "string",
             "enum": [
@@ -30019,6 +30088,84 @@
                 }
             }
         },
+        "types.NotionColumnMap": {
+            "type": "object",
+            "properties": {
+                "action_column": {
+                    "type": "string"
+                },
+                "action_column_type": {
+                    "description": "\"select\" or \"status\"",
+                    "type": "string"
+                },
+                "action_option_cancel": {
+                    "type": "string"
+                },
+                "action_option_create": {
+                    "type": "string"
+                },
+                "helix_task_url_column": {
+                    "description": "optional URL column; Helix writes the spectask URL here on create so the row links straight to the live task",
+                    "type": "string"
+                },
+                "prompt_column": {
+                    "description": "optional rich-text column; empty = use page body",
+                    "type": "string"
+                },
+                "result_column": {
+                    "description": "optional rich-text column; empty = no writeback",
+                    "type": "string"
+                }
+            }
+        },
+        "types.NotionTrigger": {
+            "type": "object",
+            "properties": {
+                "column_mapping": {
+                    "description": "ColumnMapping is informational metadata for the wizard's setup\ninstructions. Dispatch keys off the X-Helix-Action header, not the\ncolumn values, so this is not consulted at runtime.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.NotionColumnMap"
+                        }
+                    ]
+                },
+                "embed_access_token": {
+                    "description": "EmbedAccessToken is the API key used in the embed URL's ?access_token=\nquery parameter. For MVP this is the trigger creator's own user API key\n(consistent with Gatewaze's pattern). All viewers of the Notion embed\nsee Helix as the trigger creator.",
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "integration_token": {
+                    "description": "IntegrationToken is a direct Notion internal-integration token\n(`ntn_…`). Used in place of OAuthConnectionID when the customer prefers\nthe simpler internal-integration setup path. If both are set, the\nintegration token wins.",
+                    "type": "string"
+                },
+                "notion_database_id": {
+                    "description": "NotionDatabaseID is the database this trigger is bound to. Informational\n(the wizard uses it to validate the schema); dispatch keys off the page\nID in the webhook payload, not this field.",
+                    "type": "string"
+                },
+                "oauth_connection_id": {
+                    "description": "OAuthConnectionID is the OAuthConnection used for write-back PATCHes\nand embed-block insert/delete. Set this when the user went through the\nOAuth flow.",
+                    "type": "string"
+                },
+                "public_url": {
+                    "description": "PublicURL, if set, overrides the server's default `WebServer.URL` when\ngenerating embed URLs and task-page links for THIS trigger. Required\nwhen the deployment's default URL is unreachable from Notion's iframe\nsenders (e.g. localhost in dev, or an internal-only deployment) — set\nit to a public ngrok / cloudflared tunnel or production host.",
+                    "type": "string"
+                },
+                "shared_secret": {
+                    "description": "SharedSecret authenticates inbound webhooks from Notion Database\nAutomations / Button properties. Constant-time-compared against the\nX-Helix-Webhook-Secret header.",
+                    "type": "string"
+                },
+                "target_project_id": {
+                    "description": "TargetProjectID is the Helix project to create spectasks in.",
+                    "type": "string"
+                },
+                "verification_token": {
+                    "description": "VerificationToken is the HMAC-SHA256 secret for the secondary path\n(Notion API webhook subscription, used for comment.created and free-form\npage edits). Optional.",
+                    "type": "string"
+                }
+            }
+        },
         "types.OAuthConnection": {
             "type": "object",
             "properties": {
@@ -30171,6 +30318,7 @@
                 "slack",
                 "linkedin",
                 "hubspot",
+                "notion",
                 "custom"
             ],
             "x-enum-varnames": [
@@ -30184,6 +30332,7 @@
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
                 "OAuthProviderTypeHubSpot",
+                "OAuthProviderTypeNotion",
                 "OAuthProviderTypeCustom"
             ]
         },
@@ -34334,6 +34483,14 @@
                     "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
                 },
+                "external_trigger_ref": {
+                    "description": "External trigger ref — set when this spectask was created by an external\nsource (Notion row, Sentry issue, GitHub issue). Used for write-back and\nembed-block cleanup on completion / cancellation. The Payload is opaque\nto the spectask service — each source's own package owns the shape.\nSee design/tasks/002021_investigate-notion/ \"Generalisation\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalTriggerRef"
+                        }
+                    ]
+                },
                 "goose_recipe_name": {
                     "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
                     "type": "string"
@@ -34948,7 +35105,8 @@
                 "pull_request",
                 "done",
                 "spec_failed",
-                "implementation_failed"
+                "implementation_failed",
+                "cancelled"
             ],
             "x-enum-comments": {
                 "TaskStatusBacklog": "Initial state, waiting for spec generation",
@@ -34980,7 +35138,8 @@
                 "TaskStatusPullRequest",
                 "TaskStatusDone",
                 "TaskStatusSpecFailed",
-                "TaskStatusImplementationFailed"
+                "TaskStatusImplementationFailed",
+                "SpecTaskStatusCancelled"
             ]
         },
         "types.SpecTaskUpdateRequest": {
@@ -35115,6 +35274,14 @@
                 "external_agent_id": {
                     "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
+                },
+                "external_trigger_ref": {
+                    "description": "External trigger ref — set when this spectask was created by an external\nsource (Notion row, Sentry issue, GitHub issue). Used for write-back and\nembed-block cleanup on completion / cancellation. The Payload is opaque\nto the spectask service — each source's own package owns the shape.\nSee design/tasks/002021_investigate-notion/ \"Generalisation\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalTriggerRef"
+                        }
+                    ]
                 },
                 "goose_recipe_name": {
                     "description": "Goose recipe binding (Phase 2b). When the parent project's agent uses\nthe goose_code runtime and the user picked a recipe at task-creation\ntime, GooseRecipeName names the AssistantGooseRecipe to invoke and\nGooseRecipeParams holds the parameter values to substitute. The Helix\nAPI bakes these into a CodeAgentBakedRecipe and pushes it to the\nsettings-sync-daemon, which writes a single slash_command pointing at\nthe substituted recipe YAML. Empty when no recipe was selected.",
@@ -36280,6 +36447,9 @@
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
                 },
+                "notion": {
+                    "$ref": "#/definitions/types.NotionTrigger"
+                },
                 "slack": {
                     "$ref": "#/definitions/types.SlackTrigger"
                 },
@@ -36431,14 +36601,16 @@
                 "teams",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "notion"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
                 "TriggerTypeTeams",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeNotion"
             ]
         },
         "types.UnifiedSearchResponse": {

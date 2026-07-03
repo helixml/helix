@@ -42,6 +42,13 @@ func NewOAuth2Provider(ctx context.Context, config *types.OAuthProvider, store s
 		TokenURL: config.TokenURL,
 	}
 
+	// Notion's token endpoint requires HTTP Basic authentication (client_id /
+	// client_secret in the Authorization header, not the body). Force the
+	// auth style here so the auto-detect doesn't first try in-params and 4xx.
+	if config.Type == types.OAuthProviderTypeNotion {
+		endpoint.AuthStyle = oauth2.AuthStyleInHeader
+	}
+
 	// If discovery URL is provided, use it to set up OIDC provider and get endpoints
 	if config.DiscoveryURL != "" {
 		provider, err = oidc.NewProvider(ctx, config.DiscoveryURL)
@@ -293,7 +300,15 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 	// If URL contains the token, replace it
 	userInfoURL = strings.Replace(userInfoURL, "{token}", token.AccessToken, 1)
 
-	resp, err := client.Get(userInfoURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build user info request: %w", err)
+	}
+	// Notion's API requires the Notion-Version header on every request.
+	if p.config.Type == types.OAuthProviderTypeNotion {
+		req.Header.Set("Notion-Version", notionAPIVersion)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user info: %w", err)
 	}
@@ -310,6 +325,10 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 
 	if strings.Contains(userInfoURL, "https://api.hubapi.com") {
 		return p.parseHubSpotUserInfo(body)
+	}
+
+	if p.config.Type == types.OAuthProviderTypeNotion {
+		return parseNotionUserInfo(body)
 	}
 
 	// Standard providers
@@ -405,6 +424,13 @@ func (p *OAuth2Provider) MakeAuthorizedRequest(ctx context.Context, connection *
 
 	if method == "POST" || method == "PUT" || method == "PATCH" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Notion's API requires the Notion-Version header on every authenticated
+	// request. Pin to the version the rest of the integration is written
+	// against; bump centrally when we upgrade.
+	if p.config.Type == types.OAuthProviderTypeNotion {
+		req.Header.Set("Notion-Version", notionAPIVersion)
 	}
 
 	return client.Do(req)
