@@ -191,33 +191,38 @@ var ErrProjectConfigUnsupported = errors.New("project config access not wired on
 // approve, request changes, open PRs — rather than generic CRUD.
 //
 // Implementations key by orgID + workerID; the helix runtime impl
-// resolves worker→projectID via WorkerRuntimeState internally so MCP
-// tool callers never see (or supply) a project ID — a Worker can only
-// act on tasks in the project it is assigned to. Other runtimes plug in
-// NoopSpecTasks, and the tools surface ErrSpecTasksUnsupported.
+// resolves worker→projectID via WorkerRuntimeState internally. Every verb
+// also takes an optional projectID: empty means "the Worker's own
+// project" (the original behaviour — a Worker managing its own tasks); a
+// non-empty projectID targets another project the caller manages, and the
+// impl MUST assert that project belongs to the caller's org (a hard
+// cross-org block) before acting. This is what lets an org-wide project
+// manager Bot drive spec tasks across several projects in its org. Other
+// runtimes plug in NoopSpecTasks, and the tools surface
+// ErrSpecTasksUnsupported.
 type SpecTasks interface {
-	// Create makes a new spec task in the caller's project (status
+	// Create makes a new spec task in the target project (status
 	// backlog). Mirrors the REST create-from-prompt path.
-	Create(ctx context.Context, orgID string, workerID orgchart.BotID, in CreateSpecTaskInput) (SpecTaskView, error)
-	// List returns the caller's project's spec tasks, optionally filtered.
-	List(ctx context.Context, orgID string, workerID orgchart.BotID, filter ListSpecTasksFilter) ([]SpecTaskView, error)
-	// Get returns one spec task; it must belong to the caller's project.
-	Get(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	Create(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, in CreateSpecTaskInput) (SpecTaskView, error)
+	// List returns the target project's spec tasks, optionally filtered.
+	List(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, filter ListSpecTasksFilter) ([]SpecTaskView, error)
+	// Get returns one spec task; it must belong to the target project.
+	Get(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
-	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
-	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecReviewView, error)
+	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecReviewView, error)
 	// ApproveSpec approves the generated spec, advancing the task toward
 	// implementation.
-	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// RequestChanges sends the spec back for revision with a comment.
-	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, taskID, comment string) (SpecTaskView, error)
+	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID, comment string) (SpecTaskView, error)
 	// CreatePullRequests tells the system the code is good and to open
 	// the pull request(s) — one per repo attached to the project. It
 	// does NOT merge/approve on GitHub.
-	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 }
 
 // CreateSpecTaskInput is the create shape. Only Name and Description are
@@ -276,28 +281,28 @@ type SpecReviewView struct {
 // crash. Every verb returns ErrSpecTasksUnsupported.
 type NoopSpecTasks struct{}
 
-func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ CreateSpecTaskInput) (SpecTaskView, error) {
+func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ string, _ CreateSpecTaskInput) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
+func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ string, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
 	return nil, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecReviewView, error) {
+func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecReviewView, error) {
 	return SpecReviewView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 

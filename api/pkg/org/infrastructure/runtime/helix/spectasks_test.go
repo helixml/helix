@@ -119,7 +119,7 @@ func TestSpecTasks_NoProjectReturnsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	_, err = st.Create(context.Background(), "org-test", orgchart.BotID("w-noproject"), runtime.CreateSpecTaskInput{Name: "x", Description: "y"})
+	_, err = st.Create(context.Background(), "org-test", orgchart.BotID("w-noproject"), "", runtime.CreateSpecTaskInput{Name: "x", Description: "y"})
 	if !errors.Is(err, runtime.ErrSpecTasksUnsupported) {
 		t.Errorf("err = %v, want ErrSpecTasksUnsupported", err)
 	}
@@ -140,7 +140,7 @@ func TestSpecTasks_CreateInOwnProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	view, err := st.Create(context.Background(), "org-test", wid, runtime.CreateSpecTaskInput{
+	view, err := st.Create(context.Background(), "org-test", wid, "", runtime.CreateSpecTaskInput{
 		Name: "Add login", Description: "Add a login page",
 	})
 	if err != nil {
@@ -178,8 +178,55 @@ func TestSpecTasks_GetForeignTaskRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	if _, err := st.Get(context.Background(), "org-test", wid, "task_other"); err == nil {
+	if _, err := st.Get(context.Background(), "org-test", wid, "", "task_other"); err == nil {
 		t.Error("expected ownership error for foreign task")
+	}
+}
+
+// TestSpecTasks_CrossProjectSameOrgAllowed pins the org-wide PM path: a
+// Worker whose own project is prj_mine can act on a task in another
+// project (prj_other) in the SAME org by passing that project_id.
+func TestSpecTasks_CrossProjectSameOrgAllowed(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	fs.tasks["task_o"] = &types.SpecTask{ID: "task_o", ProjectID: "prj_other", Status: types.TaskStatusBacklog}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	view, err := st.Get(context.Background(), "org-test", wid, "prj_other", "task_o")
+	if err != nil {
+		t.Fatalf("cross-project Get in same org should succeed: %v", err)
+	}
+	if view.ID != "task_o" {
+		t.Errorf("view.ID = %q, want task_o", view.ID)
+	}
+}
+
+// TestSpecTasks_CrossOrgProjectRejected pins the hard cross-org block: a
+// Worker cannot target a project that belongs to another org, even with a
+// valid project_id.
+func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	// Project exists but belongs to a DIFFERENT org.
+	fs.projects["prj_foreign"] = &types.Project{ID: "prj_foreign", OrganizationID: "org-other"}
+	fs.tasks["task_f"] = &types.SpecTask{ID: "task_f", ProjectID: "prj_foreign"}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.Get(context.Background(), "org-test", wid, "prj_foreign", "task_f"); err == nil {
+		t.Error("expected cross-org rejection when targeting another org's project")
 	}
 }
 
@@ -201,7 +248,7 @@ func TestSpecTasks_ApproveSpecSetsApproverAndDelegates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	if _, err := st.ApproveSpec(context.Background(), "org-test", wid, "task_1"); err != nil {
+	if _, err := st.ApproveSpec(context.Background(), "org-test", wid, "", "task_1"); err != nil {
 		t.Fatalf("ApproveSpec: %v", err)
 	}
 	if len(wf.approveCalls) != 1 {
@@ -225,7 +272,7 @@ func TestSpecTasks_RequestChangesTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	view, err := st.RequestChanges(context.Background(), "org-test", wid, "task_1", "tighten scope")
+	view, err := st.RequestChanges(context.Background(), "org-test", wid, "", "task_1", "tighten scope")
 	if err != nil {
 		t.Fatalf("RequestChanges: %v", err)
 	}
@@ -254,7 +301,7 @@ func TestSpecTasks_CreatePullRequestsDelegatesAndMapsPRs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpecTasks: %v", err)
 	}
-	view, err := st.CreatePullRequests(context.Background(), "org-test", wid, "task_1")
+	view, err := st.CreatePullRequests(context.Background(), "org-test", wid, "", "task_1")
 	if err != nil {
 		t.Fatalf("CreatePullRequests: %v", err)
 	}

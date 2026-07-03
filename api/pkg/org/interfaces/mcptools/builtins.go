@@ -147,7 +147,14 @@ func (c Config) specTasksService() *spectasks.Service {
 	if port == nil {
 		port = runtime.NoopSpecTasks{}
 	}
-	return spectasks.New(port)
+	// Queries satisfies spectasks.MemberVerifier (GetBot); pass it so every
+	// spec-task call verifies the caller Bot is a member of its org. nil is
+	// tolerated (the check is then skipped — the MCP mount already enforces it).
+	var members spectasks.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return spectasks.New(port, members)
 }
 
 // subscriptionsService builds the subscription application service.

@@ -67,18 +67,34 @@ func NewSpecTasks(orgStore *store.Store, tasks SpecTaskStore, workflow SpecTaskW
 
 var _ runtime.SpecTasks = (*SpecTasks)(nil)
 
-// project resolves the worker's project ID and hiring user from runtime
-// state. Returns ErrSpecTasksUnsupported when the worker has no project
-// (hired against a different runtime / not yet activated).
-func (s *SpecTasks) project(ctx context.Context, orgID string, workerID orgchart.BotID) (projectID, hiringUserID string, err error) {
+// resolveProject decides which project a call acts on and returns the
+// acting (hiring) user. When requestedProjectID is empty the call targets
+// the Worker's OWN project (resolved from runtime state) — the original
+// behaviour. When it is non-empty the call targets another project the
+// caller manages; we load that project and assert it belongs to the
+// caller's org, a HARD cross-org block (an org-wide PM Bot must never
+// reach another tenant's project by guessing an id). The acting user is
+// always the Worker's hiring user, so cross-project mutations are still
+// attributed to a real Helix user.
+func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID string) (projectID, hiringUserID string, err error) {
 	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
 	if err != nil {
 		return "", "", fmt.Errorf("load worker state: %w", err)
 	}
-	if state.ProjectID == "" {
-		return "", "", fmt.Errorf("worker %s: %w", workerID, runtime.ErrSpecTasksUnsupported)
+	if requestedProjectID == "" {
+		if state.ProjectID == "" {
+			return "", "", fmt.Errorf("worker %s: %w", workerID, runtime.ErrSpecTasksUnsupported)
+		}
+		return state.ProjectID, state.HiringUserID, nil
 	}
-	return state.ProjectID, state.HiringUserID, nil
+	project, err := s.tasks.GetProject(ctx, requestedProjectID)
+	if err != nil {
+		return "", "", fmt.Errorf("get project: %w", err)
+	}
+	if project.OrganizationID != orgID {
+		return "", "", fmt.Errorf("project %s does not belong to this worker's organization", requestedProjectID)
+	}
+	return requestedProjectID, state.HiringUserID, nil
 }
 
 // ownedTask fetches a task and verifies it belongs to the caller's
@@ -94,8 +110,8 @@ func (s *SpecTasks) ownedTask(ctx context.Context, projectID, taskID string) (*t
 	return task, nil
 }
 
-func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.BotID, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
-	projectID, hiringUserID, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -157,8 +173,8 @@ func (s *SpecTasks) Create(ctx context.Context, orgID string, workerID orgchart.
 	return toView(task), nil
 }
 
-func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.BotID, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
-	projectID, _, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID string, filter runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,8 +194,8 @@ func (s *SpecTasks) List(ctx context.Context, orgID string, workerID orgchart.Bo
 	return out, nil
 }
 
-func (s *SpecTasks) Get(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
-	projectID, _, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) Get(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -190,8 +206,8 @@ func (s *SpecTasks) Get(ctx context.Context, orgID string, workerID orgchart.Bot
 	return toView(task), nil
 }
 
-func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
-	projectID, _, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -213,8 +229,8 @@ func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID or
 	return toView(task), nil
 }
 
-func (s *SpecTasks) ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (runtime.SpecReviewView, error) {
-	projectID, _, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecReviewView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecReviewView{}, err
 	}
@@ -234,8 +250,8 @@ func (s *SpecTasks) ReviewSpec(ctx context.Context, orgID string, workerID orgch
 	}, nil
 }
 
-func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
-	projectID, hiringUserID, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -264,8 +280,8 @@ func (s *SpecTasks) ApproveSpec(ctx context.Context, orgID string, workerID orgc
 	return toView(task), nil
 }
 
-func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, taskID, comment string) (runtime.SpecTaskView, error) {
-	projectID, _, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID, comment string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
@@ -288,8 +304,8 @@ func (s *SpecTasks) RequestChanges(ctx context.Context, orgID string, workerID o
 	return toView(task), nil
 }
 
-func (s *SpecTasks) CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (runtime.SpecTaskView, error) {
-	projectID, hiringUserID, err := s.project(ctx, orgID, workerID)
+func (s *SpecTasks) CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, hiringUserID, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
