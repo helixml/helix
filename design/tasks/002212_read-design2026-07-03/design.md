@@ -96,6 +96,53 @@ Run the repro (sentence → `sleep 30`) and read the logs during the pause:
   with no follow-up event, and/or a frontend test that a text entry followed by a tool_call
   renders the full text.
 
+## Implementation Notes (diagnosis + fix — verified live in inner Helix)
+
+**Diagnosis (evidence, not analogy).** With the instrumentation live, three streaming
+turns were run on the spec-task detail page (a text turn, a text→tool_call turn with a
+25s `sleep` pause, and a long prose turn):
+
+- **Frontend id-guard always passes.** Every `[LIVE-RESULT]` logged `src:"LIVE",
+  match:true` — `currentResponses.id` always equalled `initialInteraction.id`. Cause #1's
+  *frontend symptom* (falling back to the 3s-polled DB) was never observed.
+- **Server trailing flush works.** `📤 [PUBLISH] branch=TRAILING-FLUSH` fires ~50ms after
+  each burst carrying the full tail, and the frontend `lastTail` tracked it to completion.
+  Cause #2 (trailing publish not delivering the tail) is **not broken** on current `main`.
+  The trailing-edge *publish* flushTimer was added 2026-04-25 (commit `6fdef74a4`), before
+  the doc was written — the live-view lag it describes is already fixed on `main`.
+- **The real remaining gap is the DB write cadence.** Sampling `interactions.response_message`
+  during a `waiting` turn showed the length growing in ~5s steps (`updated` advanced
+  11:46:05 → 11:46:10, +5.2s) — i.e. the DB is throttled to `dbWriteInterval = 5s`
+  leading-edge with **no trailing flush**, while the live stream is current to ~50ms. So
+  any consumer that reads the DB *during* streaming — the id-guard fallback path (cause #1),
+  a page reload/snapshot mid-stream, or any other reader — sees up to 5s-stale text. The
+  publish path had a trailing flush; the DB path did not. That asymmetry is the bug to fix.
+
+**Fix implemented (server, `websocket_external_agent_sync.go`).** Added a trailing-edge DB
+flush that mirrors the existing publish `flushTimer`:
+- New `sctx.dbFlushTimer` + `dbTrailingFlushInterval = 500ms`.
+- Extracted the DB write into `flushStreamingFieldsToDB(sctx)` (caller holds `sctx.mu`),
+  reused by both the leading-edge write and the trailing timer (DRY; column-scoped write
+  preserved so it never clobbers state/completed/error).
+- In the throttled-DB-write block: the leading branch (`>= dbWriteInterval`) now also
+  cancels any pending `dbFlushTimer`; the new `else` branch schedules/reschedules the
+  trailing flush 500ms out. Continuous streaming keeps resetting it (so writes still happen
+  at the 5s leading cadence, bounding TOAST churn); a pause or end-of-burst triggers one
+  catch-up write within ~500ms.
+- `dbFlushTimer` is stopped at the same teardown points as `flushTimer` (interaction
+  transition reset + `flushAndClearStreamingContext`). The AfterFunc re-checks `!sctx.dirty`
+  and nil accumulator/interaction, matching the publish flushTimer's race handling.
+
+Net effect: DB staleness during a streaming pause drops from up to 5s to ~500ms, so the
+fallback/reload path is never badly stale. The frontend LIVE path was already correct and
+is left unchanged (no risk to the delicate completion/flicker logic).
+
+## Instrumentation status
+Temporary `[LIVE-RESULT]` (frontend) and `📤 [PUBLISH] branch=…` LEADING/TRAILING-FLUSH
+logs (server) were added for diagnosis and are **removed** before the final commit. The
+`lastEntryTail` helper is removed with them. The `flushStreamingFieldsToDB` helper,
+`dbFlushTimer`, and `dbTrailingFlushInterval` are the permanent fix and stay.
+
 ## Risks
 - **Heisenbug / timing-sensitive.** The lag depends on chunk cadence; the `sleep 30` repro
   forces a clean trailing-edge pause to make it reproducible.

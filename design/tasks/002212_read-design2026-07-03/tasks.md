@@ -2,20 +2,20 @@
 
 ## Setup & repro
 - [x] Bring up the inner Helix; registered, onboarded (testorg/testproj), created spec task, started Planning (live Zed agent provisioning)
-- [ ] Open the spec-task detail page and confirm the truncation/lag reproduces with a "print a sentence, then `sleep 30`" prompt
+- [x] Ran repro on the detail page (text turn, text→tool_call+25s sleep, long prose). Reported *text* truncation did NOT reproduce on current main — live view stays current
 
 ## Instrument
 - [x] Add temporary `[LIVE-RESULT]` console.log in useLiveInteraction.ts
 - [x] Add server LEADING/FORCE-FLUSH/TRAILING-FLUSH publish logging + entry tail (lastEntryTail helper)
 
 ## Diagnose
-- [ ] Run the repro; capture console + server logs during the pause
-- [ ] Determine the cause: `src=DB` ⇒ cause #1 (id-guard/DB fallback); `src=LIVE` + stale tail with no `TRAILING-FLUSH` ⇒ cause #2 (entry-patch trailing flush)
-- [ ] Record the evidence and conclusion in the design doc / commit message
+- [x] Captured console `[LIVE-RESULT]` + server `📤 [PUBLISH]` logs during the pause
+- [x] Determined: id-guard always `src=LIVE` (not #1 symptom); server TRAILING-FLUSH fires fine (not #2). Real gap = DB write throttled to 5s with no trailing flush (cause-#1 mechanism)
+- [x] Recorded evidence + conclusion in design.md (Implementation Notes)
 
 ## Fix (apply the branch the evidence points to; harden the other cheaply)
-- [ ] **Cause #1:** correct the id match so `currentResponse.id === initialInteraction.id` holds for the active interaction, and/or add a trailing-edge DB flush (~300–500ms `time.AfterFunc`) via `UpdateInteractionStreamingFields` so the DB fallback is never >~half a second stale
-- [ ] **Cause #2:** ensure the `flushTimer` trailing publish always fires shortly after the last chunk (capturing the latest entries, no race with completion teardown); pause/ignore the 3s poll for the active interaction while streaming only if it is observed clobbering live entries
+- [x] **Fix (cause-#1 mechanism):** added trailing-edge DB flush (`dbFlushTimer`, 500ms) via `flushStreamingFieldsToDB` + `UpdateInteractionStreamingFields`, bounding DB staleness to ~500ms
+- [x] **Cause #2:** verified already working on main (server TRAILING-FLUSH + frontend LIVE track fully); no change needed. Frontend LIVE path left untouched
 
 ## Verify
 - [ ] Live in inner Helix: the sentence stays complete during the `sleep 30` pause; message stays current within a few hundred ms
