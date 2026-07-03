@@ -16,11 +16,11 @@
 - [x] Update tool descriptions to explain the optional `project_id` (omit = own project).
 
 ## 2. Helix project read tools (`list_projects`, `get_project`)
-- [ ] Add `runtime.Projects` port + `ProjectView` + `NoopProjects`/`ErrProjectsUnsupported` in `runtime.go`.
-- [ ] Implement `runtime/helix/projects.go` over the store (org-filtered `List`, `Get` with org assertion).
-- [ ] Add `application/projects` service (mirror `application/spectasks`).
-- [ ] Add `mcptools/projects.go` with `list_projects` (optional `status`) and `get_project` (`project_id`); register as reads in `builtins.go`.
-- [ ] Wire the `Projects` service into `mcptools.Deps` + `Config.Build` and the helix impl in `helix_org.go`.
+- [x] Add `runtime.Projects` port + `ProjectView` + `NoopProjects`/`ErrProjectsUnsupported` in `runtime.go`.
+- [x] Implement `runtime/helix/projects.go` over the store (org-filtered `List`, `Get` with org assertion).
+- [x] Add `application/projects` service (mirror `application/spectasks`, incl. optional `MemberVerifier`).
+- [x] Add `mcptools/projects.go` with `list_projects` and `get_project` (`project_id`); register as reads in `builtins.go`. NOTE: dropped the `status` filter for now — `list_projects` takes no args (org from caller); a filter can be added later without changing the tool shape.
+- [x] Wire the `Projects` service into `mcptools.Deps` + `Config.Build` and the helix impl in `helix_org.go`.
 
 ## 3. Connection via existing filter/processor system (NO new connect tools)
 - [ ] Confirm a `processor.KindFilter` can be created (existing `application/processors` use case) with a project's `KindSpecTask` topic as input and a predicate over `.Message.extra` (`event_type` / `project_id`), routing to an output topic a bot subscribes to.
