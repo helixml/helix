@@ -384,6 +384,35 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 ```
 
+### Dispatch an investigation to a helix-in-helix spec task (from a design doc)
+When the **outer** instance can't be instrumented — e.g. Air won't hot-reload
+because the repo is a ZFS bind-mount (inotify doesn't cross it), or a headless
+browser/Google-auth is unavailable — hand the whole thing to a spec task. Its
+sandbox is a **full inner Helix at `localhost:8080` where Air hot-reload, Vite
+HMR, and the browser all work**. You can do this end-to-end from the CLI yourself:
+
+```bash
+# 1. Write the brief as a design doc; merge it (design-doc only, admin, no CI wait):
+git checkout -b design/<slug> && git add design/<file>.md && git commit -m "..."
+git push -u origin design/<slug>
+gh pr create --repo helixml/helix -t "..." -b "..."
+gh pr merge <n> --repo helixml/helix --merge --admin      # so the spec task's clone has it
+
+# 2. Start a spec task that reads the doc and does the work in the inner Helix:
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=<key from api_keys for the session owner>
+/tmp/helix-bin spectask start \
+  --project prj_01kg02vqqyg178c1n2ydscn5fb \
+  --agent app_01kw1n70xs2qq2y4ntzbqqmpff \
+  -n "<task name>" \
+  --prompt "Read design/<file>.md and complete the task it describes end-to-end, testing live in this inner Helix."
+```
+`spectask start` **provisions a sandbox and the CLI will time out (~short) — the
+task is still created**; confirm via `spec_tasks` (order by `created_at`, not
+`created`) and `docker exec helix-sandbox-nvidia-1 docker ps | grep ubuntu-external-<sid>`.
+Get an API key straight from the DB when `.env.usercreds` is stale:
+`SELECT key, owner FROM api_keys WHERE owner=(SELECT owner FROM sessions WHERE id='ses_…')`.
+
 ### Sandbox Service Names
 - `sandbox-nvidia` (Linux GPU), `sandbox` (Linux no-GPU), `sandbox-macos` (macOS, container: `helix-sandbox-macos-1`)
 
