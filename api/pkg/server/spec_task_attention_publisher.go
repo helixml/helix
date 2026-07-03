@@ -4,25 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
-	orgstore "github.com/helixml/helix/api/pkg/org/domain/store"
+	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
-	"github.com/helixml/helix/api/pkg/org/domain/transport"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // attentionTopicPublisher implements services.AttentionEventSink: it
-// forwards each spec-task attention event onto a per-project org topic
-// (transport.KindSpecTask) so subscribed Workers are triggered via the
-// normal dispatch path. This is the helix↔org bridge — it lives in the
-// server package (not org infra) because it consumes helix's
-// *types.AttentionEvent; org transports import only the org domain.
+// forwards each spec-task attention event onto the org's single,
+// generic "Helix events" topic (transport.KindHelixEvents) so
+// subscribed Workers are triggered via the normal dispatch path. This
+// is the helix↔org bridge — it lives in the server package (not org
+// infra) because it consumes helix's *types.AttentionEvent; org
+// transports import only the org domain.
+//
+// Spec-task events are the first `domain` on the bus; the topic is
+// designed to carry every future Helix event kind, distinguished by the
+// `domain` / `event_type` keys in the published Message's Extra. Routing
+// to individual bots is done by filter processors over this one topic
+// (keyed on domain / event_type / project_id) — there are no per-project
+// topics.
 type attentionTopicPublisher struct {
-	topics    orgstore.Topics
-	publisher orgEventPublisher
-	newID     func() string
-	now       func() time.Time
+	reconciler *helixevents.Reconciler
+	publisher  orgEventPublisher
 }
 
 // orgEventPublisher is the narrow publish surface — satisfied by the org
@@ -31,36 +35,45 @@ type orgEventPublisher interface {
 	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
-// specTaskEventExtra is the structured payload carried on the topic event
+// helixEventExtra is the structured payload carried on the topic event
 // so an activated Worker (or a filter processor's predicate over
-// .Message.extra) can route/react without an extra lookup. It holds the
-// keys that have no natural streaming.Message field (event_type, project_id)
-// plus denormalized display fields; the human-facing text and threading are
-// coerced onto first-class Message fields (Subject/Body/ThreadID/MessageID)
-// in PublishAttentionEvent.
-type specTaskEventExtra struct {
-	SpecTaskID   string `json:"spec_task_id"`
-	EventType    string `json:"event_type"`
-	ProjectID    string `json:"project_id"`
+// .Message.extra) can route/react without an extra lookup. Domain +
+// EventType identify the event family and type; the remaining keys are
+// the spec-task payload (denormalized display fields avoid a lookup).
+// The human-facing text and threading are coerced onto first-class
+// Message fields (Subject/Body/ThreadID/MessageID) in
+// PublishAttentionEvent.
+type helixEventExtra struct {
+	Domain       string `json:"domain"`     // event family, e.g. "spectask"
+	EventType    string `json:"event_type"` // type within the family
+	ProjectID    string `json:"project_id,omitempty"`
+	SpecTaskID   string `json:"spec_task_id,omitempty"`
 	ProjectName  string `json:"project_name,omitempty"`
 	SpecTaskName string `json:"spec_task_name,omitempty"`
 }
 
-// PublishAttentionEvent resolves (or creates) the project's spec-task
-// topic and publishes the event. A missing org/project scope is a no-op
-// — there's nothing to route to.
+// domainSpecTask is the event family for spec-task attention events —
+// the first (and today only) domain on the Helix events bus.
+const domainSpecTask = "spectask"
+
+// PublishAttentionEvent ensures the org's single Helix events topic
+// exists, then publishes the event onto it. A missing org scope is a
+// no-op — there's nothing to route to.
 func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev *types.AttentionEvent) error {
-	if ev == nil || ev.OrganizationID == "" || ev.ProjectID == "" {
+	if ev == nil || ev.OrganizationID == "" {
 		return nil
 	}
-	topicID, err := p.ensureTopic(ctx, ev.OrganizationID, ev.ProjectID)
-	if err != nil {
-		return fmt.Errorf("ensure spectask topic: %w", err)
+	// Defensive ensure: the helixevents reconciler creates this topic on
+	// org bootstrap, but a brand-new org whose bootstrap hasn't run yet
+	// still needs somewhere to publish. Idempotent.
+	if err := p.reconciler.Reconcile(ctx, ev.OrganizationID); err != nil {
+		return fmt.Errorf("ensure helix events topic: %w", err)
 	}
-	extra, _ := json.Marshal(specTaskEventExtra{
-		SpecTaskID:   ev.SpecTaskID,
+	extra, _ := json.Marshal(helixEventExtra{
+		Domain:       domainSpecTask,
 		EventType:    string(ev.EventType),
 		ProjectID:    ev.ProjectID,
+		SpecTaskID:   ev.SpecTaskID,
 		ProjectName:  ev.ProjectName,
 		SpecTaskName: ev.SpecTaskName,
 	})
@@ -70,7 +83,7 @@ func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev 
 	//   Description → Body
 	//   SpecTaskID  → ThreadID   (all events for one task thread together)
 	//   ID          → MessageID  (stable, unique id)
-	// event_type / project_id stay in Extra (no natural Message field).
+	// domain / event_type / project_id stay in Extra (no natural field).
 	msg := streaming.Message{
 		Subject:         ev.Title,
 		Body:            ev.Description,
@@ -79,61 +92,8 @@ func (p *attentionTopicPublisher) PublishAttentionEvent(ctx context.Context, ev 
 		MessageID:       ev.ID,
 		Extra:           extra,
 	}
-	if _, err := p.publisher.Publish(ctx, ev.OrganizationID, topicID, "", msg); err != nil {
-		return fmt.Errorf("publish spectask event: %w", err)
+	if _, err := p.publisher.Publish(ctx, ev.OrganizationID, helixevents.TopicID, "", msg); err != nil {
+		return fmt.Errorf("publish helix event: %w", err)
 	}
 	return nil
-}
-
-// ensureTopic returns the project's KindSpecTask topic, creating it on
-// first use. Thin wrapper over the shared EnsureSpecTaskTopic so the
-// publisher and any wiring path (e.g. pre-creating the input topic before
-// a bot is subscribed to it) agree on the topic's identity and config.
-func (p *attentionTopicPublisher) ensureTopic(ctx context.Context, orgID, projectID string) (streaming.TopicID, error) {
-	return EnsureSpecTaskTopic(ctx, p.topics, p.newID, p.now, orgID, projectID)
-}
-
-// EnsureSpecTaskTopic find-or-creates the KindSpecTask topic for a project
-// (mirrors how Slack auto-creates its workspace topic). It is the single
-// source of truth for a project's spec-task topic identity + config, shared
-// by the attention publisher (which creates it lazily on the first event)
-// and any wiring path that needs the topic to exist deterministically
-// before an event has fired — e.g. subscribing an org-wide PM Bot to a
-// quiet project at creation time. Idempotent: a second call for the same
-// (org, project) returns the existing topic.
-func EnsureSpecTaskTopic(ctx context.Context, topics orgstore.Topics, newID func() string, now func() time.Time, orgID, projectID string) (streaming.TopicID, error) {
-	existing, err := topics.List(ctx, orgID)
-	if err != nil {
-		return "", fmt.Errorf("list topics: %w", err)
-	}
-	for _, t := range existing {
-		if t.Transport.Kind != transport.KindSpecTask {
-			continue
-		}
-		cfg, cfgErr := t.Transport.SpecTaskConfig()
-		if cfgErr == nil && cfg.ProjectID == projectID {
-			return t.ID, nil
-		}
-	}
-	cfgJSON, err := json.Marshal(transport.SpecTaskConfig{ProjectID: projectID})
-	if err != nil {
-		return "", fmt.Errorf("marshal topic config: %w", err)
-	}
-	id := streaming.TopicID(newID())
-	topic, err := streaming.NewTopic(
-		id,
-		"Spec tasks: "+projectID,
-		"Spec-task state changes for project "+projectID,
-		"", // createdBy is optional (no worker context for automation)
-		now(),
-		transport.Transport{Kind: transport.KindSpecTask, Config: cfgJSON},
-		orgID,
-	)
-	if err != nil {
-		return "", fmt.Errorf("build topic: %w", err)
-	}
-	if err := topics.Create(ctx, topic); err != nil {
-		return "", fmt.Errorf("create topic: %w", err)
-	}
-	return id, nil
 }

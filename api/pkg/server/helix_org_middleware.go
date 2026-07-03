@@ -12,6 +12,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -38,6 +39,10 @@ type helixOrgScope struct {
 	// routing isn't wired.
 	slackRoutes *slackrouting.Reconciler
 
+	// helixEvents ensures the org's single "Helix events" topic exists on
+	// first request. nil when not wired.
+	helixEvents *helixevents.Reconciler
+
 	mu           sync.Mutex
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
@@ -50,13 +55,14 @@ type helixOrgScope struct {
 
 // newHelixOrgScope wires the data the middleware needs. configs and
 // orgStore are the same instances handed to the helix-org handler.
-func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror, slackRoutes *slackrouting.Reconciler) *helixOrgScope {
+func newHelixOrgScope(configs *configregistry.Registry, orgStore *helixorgstore.Store, hs helixstore.Store, mirror *runtimehelix.Mirror, slackRoutes *slackrouting.Reconciler, helixEvents *helixevents.Reconciler) *helixOrgScope {
 	return &helixOrgScope{
 		configs:      configs,
 		orgStore:     orgStore,
 		helixStore:   hs,
 		mirror:       mirror,
 		slackRoutes:  slackRoutes,
+		helixEvents:  helixEvents,
 		bootstrapped: map[string]bool{},
 	}
 }
@@ -125,6 +131,15 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		if s.slackRoutes != nil {
 			if err := s.slackRoutes.Reconcile(ctx, orgID); err != nil {
 				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org slack route reconcile failed")
+			}
+		}
+
+		// Ensure the org's single "Helix events" topic exists. Best-effort
+		// like the reconciles above: a failure logs and continues (the
+		// attention publisher also ensures it defensively on first event).
+		if s.helixEvents != nil {
+			if err := s.helixEvents.Reconcile(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org helix events topic reconcile failed")
 			}
 		}
 

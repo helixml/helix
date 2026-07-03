@@ -57,6 +57,7 @@ func TestEnsureBootstrapConcurrentCallsAllSucceed(t *testing.T) {
 		&noAdminHelixStore{},
 		nil, // mirror — nil is a safe no-op for this bootstrap-race test
 		nil, // slackRoutes — nil is a safe no-op
+		nil, // helixEvents — nil is a safe no-op
 	)
 
 	const N = 8
