@@ -12744,6 +12744,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/vcs-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project VCS connection status",
+                "operationId": "getProjectVCSConnections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VCSConnectionInfo"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/web-service": {
             "get": {
                 "security": [
@@ -31990,6 +32055,42 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PushError": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "description": "VCS account the push was attempted as, e.g. \"@linuxrecruit\"",
+                    "type": "string"
+                },
+                "cause": {
+                    "description": "translated human-readable cause",
+                    "type": "string"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "next_step": {
+                    "description": "translated actionable next step",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "e.g. \"github\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "raw_message": {
+                    "description": "verbatim provider error",
+                    "type": "string"
+                },
+                "repo": {
+                    "description": "e.g. \"helixml/find-ai\"",
+                    "type": "string"
+                }
+            }
+        },
         "types.PushResponse": {
             "type": "object",
             "properties": {
@@ -34392,6 +34493,14 @@ const docTemplate = `{
                     "description": "Git tracking",
                     "type": "string"
                 },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
+                },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
                     "type": "string"
@@ -35173,6 +35282,14 @@ const docTemplate = `{
                 "last_push_commit_hash": {
                     "description": "Git tracking",
                     "type": "string"
+                },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
                 },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
@@ -37180,6 +37297,89 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.VCSActingUser": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSConnectionInfo": {
+            "type": "object",
+            "properties": {
+                "acting_user": {
+                    "$ref": "#/definitions/types.VCSActingUser"
+                },
+                "missing_scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "pushing_as": {
+                    "$ref": "#/definitions/types.VCSPushingAs"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VCSRepoAccess"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/types.VCSConnectionState"
+                }
+            }
+        },
+        "types.VCSConnectionState": {
+            "type": "string",
+            "enum": [
+                "verified",
+                "needs_attention",
+                "disconnected"
+            ],
+            "x-enum-varnames": [
+                "VCSConnectionVerified",
+                "VCSConnectionNeedsAttention",
+                "VCSConnectionDisconnected"
+            ]
+        },
+        "types.VCSPushingAs": {
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "description": "OAuthConnection ID (for switch/disconnect)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "e.g. \"@tonychapman-prog\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSRepoAccess": {
+            "type": "object",
+            "properties": {
+                "has_access": {
+                    "description": "true if the connection can reach it (or access is unverifiable for this provider)",
+                    "type": "boolean"
+                },
+                "repo": {
+                    "description": "\"owner/repo\"",
+                    "type": "string"
+                },
+                "verified": {
+                    "description": "true if we actually probed the provider (false = optimistic/unverifiable)",
+                    "type": "boolean"
                 }
             }
         },

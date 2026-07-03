@@ -4843,6 +4843,22 @@ export interface TypesPullResponse {
   success?: boolean;
 }
 
+export interface TypesPushError {
+  /** VCS account the push was attempted as, e.g. "@linuxrecruit" */
+  account?: string;
+  /** translated human-readable cause */
+  cause?: string;
+  failed_at?: string;
+  /** translated actionable next step */
+  next_step?: string;
+  /** e.g. "github" */
+  provider?: TypesExternalRepositoryType;
+  /** verbatim provider error */
+  raw_message?: string;
+  /** e.g. "helixml/find-ai" */
+  repo?: string;
+}
+
 export interface TypesPushResponse {
   branch?: string;
   message?: string;
@@ -6029,6 +6045,12 @@ export interface TypesSpecTask {
   last_push_at?: string;
   /** Git tracking */
   last_push_commit_hash?: string;
+  /**
+   * Structured error from the last external (mirror) push. Set when a user-initiated
+   * push to the external repo fails and refs are rolled back; cleared (nil) on the
+   * next successful push. Surfaced on the board so failures aren't silent.
+   */
+  last_push_error?: TypesPushError;
   /** Merge commit hash */
   merge_commit_hash?: string;
   /** When merge happened */
@@ -6365,6 +6387,12 @@ export interface TypesSpecTaskWithProject {
   last_push_at?: string;
   /** Git tracking */
   last_push_commit_hash?: string;
+  /**
+   * Structured error from the last external (mirror) push. Set when a user-initiated
+   * push to the external repo fails and refs are rolled back; cleared (nil) on the
+   * next successful push. Surfaced on the board so failures aren't silent.
+   */
+  last_push_error?: TypesPushError;
   /** Merge commit hash */
   merge_commit_hash?: string;
   /** When merge happened */
@@ -7236,6 +7264,42 @@ export interface TypesUserTokenUsageResponse {
 export interface TypesUsersAggregatedUsageMetric {
   metrics?: TypesAggregatedUsageMetric[];
   user?: TypesUser;
+}
+
+export interface TypesVCSActingUser {
+  id?: string;
+  name?: string;
+}
+
+export interface TypesVCSConnectionInfo {
+  acting_user?: TypesVCSActingUser;
+  missing_scopes?: string[];
+  provider?: TypesExternalRepositoryType;
+  pushing_as?: TypesVCSPushingAs;
+  repos?: TypesVCSRepoAccess[];
+  state?: TypesVCSConnectionState;
+}
+
+export enum TypesVCSConnectionState {
+  VCSConnectionVerified = "verified",
+  VCSConnectionNeedsAttention = "needs_attention",
+  VCSConnectionDisconnected = "disconnected",
+}
+
+export interface TypesVCSPushingAs {
+  /** OAuthConnection ID (for switch/disconnect) */
+  connection_id?: string;
+  /** e.g. "@tonychapman-prog" */
+  username?: string;
+}
+
+export interface TypesVCSRepoAccess {
+  /** true if the connection can reach it (or access is unverifiable for this provider) */
+  has_access?: boolean;
+  /** "owner/repo" */
+  repo?: string;
+  /** true if we actually probed the provider (false = optimistic/unverifiable) */
+  verified?: boolean;
 }
 
 export interface TypesVHostRoute {
@@ -13447,6 +13511,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/usage`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.
+     *
+     * @tags Projects
+     * @name GetProjectVcsConnections
+     * @summary Get project VCS connection status
+     * @request GET:/api/v1/projects/{id}/vcs-connections
+     * @secure
+     */
+    getProjectVcsConnections: (id: string, params: RequestParams = {}) =>
+      this.request<TypesVCSConnectionInfo[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/vcs-connections`,
+        method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",

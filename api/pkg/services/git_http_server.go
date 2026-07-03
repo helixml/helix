@@ -652,9 +652,11 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		// Using the latest actor available means agent-initiated pushes at
 		// any phase carry a real user identity rather than anonymous creds.
 		var pushUserID string
+		var pushTaskID string
 		if restriction != nil && restriction.IsAgentKey {
 			rawKey := s.extractRawAPIKey(apiKey)
 			if keyRecord, err := s.store.GetAPIKey(context.Background(), &types.ApiKey{Key: rawKey}); err == nil && keyRecord.SpecTaskID != "" {
+				pushTaskID = keyRecord.SpecTaskID
 				if pushTask, err := s.store.GetSpecTask(context.Background(), keyRecord.SpecTaskID); err == nil {
 					pushUserID = pushTask.ImplementationApprovedBy
 					if pushUserID == "" {
@@ -668,6 +670,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		}
 
 		upstreamPushFailed := false
+		var pushErr error
 		for branch, isForce := range pushedBranchesMap {
 			// Create per-branch timeout so later branches don't get starved
 			branchCtx, branchCancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -679,6 +682,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 			if err != nil {
 				log.Error().Err(err).Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Failed to push branch to upstream - rolling back")
 				upstreamPushFailed = true
+				pushErr = err
 				break
 			}
 			log.Info().Str("repo_id", repoID).Str("branch", branch).Bool("force", isForce).Msg("Successfully pushed branch to upstream")
@@ -687,8 +691,14 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		if upstreamPushFailed {
 			log.Warn().Str("repo_id", repoID).Msg("Rolling back refs due to upstream push failure")
 			s.rollbackBranchRefs(repoPath, branchesBefore, pushedBranches)
+			// Persist a structured error on the task so the failure is surfaced
+			// instead of silently rolled back after the client already got 200.
+			s.recordPushError(context.Background(), pushTaskID, repo, pushUserID, pushErr)
 			return
 		}
+
+		// External push succeeded — clear any stale push error on the task.
+		s.clearPushError(context.Background(), pushTaskID)
 	}
 
 	// Trigger post-push hooks asynchronously
@@ -801,6 +811,47 @@ func (s *GitHTTPServer) rollbackBranchRefs(repoPath string, previousHashes map[s
 				log.Info().Str("branch", branch).Msg("Removed newly created branch ref")
 			}
 		}
+	}
+}
+
+// recordPushError persists a structured PushError on the spec task after a
+// user-initiated external push failed and its refs were rolled back. This is the
+// signal the board/agent reads instead of silently reporting success. Best-effort:
+// logs and returns on any error rather than failing the (already-completed) push.
+func (s *GitHTTPServer) recordPushError(ctx context.Context, taskID string, repo *types.GitRepository, actingUserID string, pushErr error) {
+	if taskID == "" || repo == nil {
+		return
+	}
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Could not load spec task to record push error")
+		return
+	}
+	rawMsg := ""
+	if pushErr != nil {
+		rawMsg = pushErr.Error()
+	}
+	account := s.gitRepoService.GetActingAccountHandle(ctx, repo, actingUserID)
+	task.LastPushError = types.NewPushError(repo.ExternalType, account, RepoOwnerName(repo), rawMsg, time.Now())
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to persist push error on spec task")
+		return
+	}
+	log.Warn().Str("task_id", taskID).Str("account", account).Str("repo", RepoOwnerName(repo)).Msg("Recorded external push failure on spec task")
+}
+
+// clearPushError removes a stale PushError from the task after a successful push.
+func (s *GitHTTPServer) clearPushError(ctx context.Context, taskID string) {
+	if taskID == "" {
+		return
+	}
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil || task.LastPushError == nil {
+		return
+	}
+	task.LastPushError = nil
+	if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to clear push error on spec task")
 	}
 }
 
