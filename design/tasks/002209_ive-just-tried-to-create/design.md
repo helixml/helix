@@ -31,6 +31,26 @@
   against the message (`.Message.extra` included). This is the connection
   mechanism — no new tools needed.
 
+### 0. Coerce notification fields into first-class Message fields
+Today `attentionTopicPublisher.PublishAttentionEvent` maps only `Title→Subject`
+and `Description→Body` and drops the rest into `Extra`. Improve the mapping so
+predicates and consumers can use natural `streaming.Message` fields:
+
+| `AttentionEvent` | `streaming.Message` | Why |
+|---|---|---|
+| `Title` | `Subject` | (already) human headline |
+| `Description` | `Body` (`text/plain`) | (already) detail |
+| `SpecTaskID` | `ThreadID` | all events for one task thread together — enables per-task conversations and `.Message.thread_id` routing |
+| `ID` | `MessageID` | stable, unique id (dedupe / `InReplyTo` chaining) |
+| `EventType`, `ProjectID` | `Extra` | routing keys with no natural Message field |
+| `ProjectName`, `SpecTaskName` | `Extra` | denormalized display, avoids a lookup |
+
+Notes: keep `event_type`/`project_id` in `Extra` **and** thread by `SpecTaskID`
+so a predicate can route by type/project while the bot still sees a coherent
+per-task thread. Leave `From` empty (the event is system-sourced; `Event.Source`
+already records provenance). This is a change to the existing publisher only —
+no new event source.
+
 ## The gap
 The 8 spec-task MCP tools resolve the target project as the **Worker's own
 project only**:

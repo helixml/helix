@@ -43,8 +43,16 @@ projects at once for multi-project workflows.
   processor** (`processor.KindFilter`) whose predicate selects the wanted
   messages, and the existing `subscribe` use case.
 - The filter predicate can select on the event payload the topic already
-  carries — `.Message.extra` holds `{spec_task_id, event_type, project_id}`
+  carries — `.Message.extra` holds `{spec_task_id, event_type, project_id, ...}`
   (e.g. route only `pr_ready` / `ci_failed`, or a specific `project_id`).
+- Relevant Helix notification fields are **coerced into the most appropriate
+  first-class `streaming.Message` fields** (not only stuffed into `Extra`) so
+  predicates and downstream consumers can use natural fields: the attention
+  event's title → `Subject`, description → `Body`, spec-task id → `ThreadID`
+  (so all events for one task thread together), attention-event id →
+  `MessageID`. Structured routing keys that have no natural Message field
+  (`event_type`, `project_id`) and denormalized display fields (`project_name`,
+  `spec_task_name`) stay in `Extra`.
 - Wiring one bot to N projects works and the bot is triggered by events from all
   wired projects (multiple filter routes / subscriptions, same machinery the
   Slack auto-router already uses via `Output.ManagedFor`).

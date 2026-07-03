@@ -4,6 +4,7 @@
 - [ ] Verify the triggering path end-to-end: emit an `AttentionEvent`, confirm a `KindSpecTask` topic is created and the event lands on it with `Extra = {spec_task_id, event_type, project_id}`, and a subscribed bot is activated.
 - [ ] Verify each existing spec-task tool makes the correct status transition (create/start/review/approve/request-changes/create-PRs).
 - [ ] Fix `request_spectask_changes` dropping the reviewer `comment` in `runtime/helix/spectasks.go` (persist it, or document the limitation in the tool description).
+- [ ] Improve `attentionTopicPublisher.PublishAttentionEvent` field coercion: `Title→Subject`, `Description→Body`, `SpecTaskID→ThreadID`, `ID→MessageID`; keep `event_type`/`project_id`/`project_name`/`spec_task_name` in `Extra`. Update/extend its tests.
 
 ## 1. Cross-project targeting for spec-task tools
 - [ ] Add optional `ProjectID` (`json:"project_id,omitempty"`) to each args struct in `mcptools/spec_tasks.go` and pass it through.
