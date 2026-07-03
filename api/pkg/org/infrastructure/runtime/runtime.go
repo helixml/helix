@@ -309,3 +309,44 @@ func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.
 // ErrSpecTasksUnsupported is what the noop impl returns. Tools translate
 // it into a friendly MCP error.
 var ErrSpecTasksUnsupported = errors.New("spec task access not wired on this runtime")
+
+// Projects is the port the org MCP project-discovery tools use to list
+// and read the Helix projects in the caller's org — so an org-wide
+// project-manager Bot can discover which projects exist before deciding
+// which to manage. Reads are ALWAYS scoped to the caller's org: List
+// returns only that org's projects, and Get asserts the project belongs
+// to the org (a project id from another tenant returns an error, never
+// another org's data). Other runtimes plug in NoopProjects and the tools
+// surface ErrProjectsUnsupported.
+type Projects interface {
+	// List returns the projects in the caller's org.
+	List(ctx context.Context, orgID string) ([]ProjectView, error)
+	// Get returns one project by id; it must belong to the caller's org.
+	Get(ctx context.Context, orgID, projectID string) (ProjectView, error)
+}
+
+// ProjectView is the tool-facing projection of a Helix project. Append-only
+// from the JSON wire format so existing tool clients keep working.
+type ProjectView struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status,omitempty"`
+	DefaultRepoID  string `json:"default_repo_id,omitempty"`
+	DefaultAgentID string `json:"default_helix_app_id,omitempty"`
+}
+
+// NoopProjects satisfies Projects without doing anything — the default for
+// tools.Deps so production paths that don't wire a real impl don't crash.
+type NoopProjects struct{}
+
+func (NoopProjects) List(_ context.Context, _ string) ([]ProjectView, error) {
+	return nil, ErrProjectsUnsupported
+}
+func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
+	return ProjectView{}, ErrProjectsUnsupported
+}
+
+// ErrProjectsUnsupported is what the noop impl returns. Tools translate it
+// into a friendly MCP error.
+var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")

@@ -472,6 +472,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.SpecTasks = specTasks
 
+	// Projects backs the project-discovery MCP tools (list_projects,
+	// get_project) — org-scoped reads so an org-wide PM Bot can find the
+	// projects it manages. The helix store satisfies the port directly.
+	projectsPort, err := runtimehelix.NewProjects(helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init projects: %w", err)
+	}
+	deps.Projects = projectsPort
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
