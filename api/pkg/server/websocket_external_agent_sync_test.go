@@ -453,6 +453,78 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantNewMessageID_MultiEntry()
 	s.NoError(err)
 }
 
+// TestMessageAdded_TrailingDBFlush verifies the trailing-edge DB flush: a
+// streaming update that arrives within dbWriteInterval of the last DB write is
+// throttled (no immediate write), but is still persisted shortly afterwards by
+// the dbFlushTimer — rather than sitting up to dbWriteInterval stale in the DB.
+// This closes the cause-#1 gap where a mid-turn pause left the persisted
+// interaction (and thus the poll-fallback / reload snapshot) badly stale.
+func (s *WebSocketSyncSuite) TestMessageAdded_TrailingDBFlush() {
+	s.server.contextMappings["thread-tf"] = "ses_tf"
+
+	session := &types.Session{ID: "ses_tf", Owner: "user-1"}
+	existingInteraction := &types.Interaction{
+		ID:               "int-tf",
+		SessionID:        "ses_tf",
+		State:            types.InteractionStateWaiting,
+		ResponseMessage:  "Hello",
+		LastZedMessageID: "msg-A",
+	}
+
+	// Pre-seed a streaming context whose last DB write was just now, so the next
+	// message_added takes the throttled (else) branch and schedules a trailing
+	// flush instead of writing immediately.
+	s.server.streamingContexts["ses_tf"] = &streamingContext{
+		session:       session,
+		interaction:   existingInteraction,
+		interactionID: "int-tf",
+		lastDBWrite:   time.Now(),
+		lastPublish:   time.Now(),
+	}
+
+	// The trailing flush is the ONLY expected DB write; capture its content and
+	// signal when it lands.
+	written := make(chan string, 1)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, _ datatypes.JSON, _ int, _ string) error {
+			written <- responseMessage
+			return nil
+		},
+	).Times(1)
+
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-tf").
+		Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_tf").
+		Return(nil, nil).AnyTimes()
+
+	syncMsg := &types.SyncMessage{
+		EventType: "message_added",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-tf",
+			"message_id":    "msg-A",
+			"content":       "Hello, world!",
+			"role":          "assistant",
+		},
+	}
+
+	s.NoError(s.server.handleMessageAdded("agent-1", syncMsg))
+
+	// No immediate write (throttled).
+	select {
+	case <-written:
+		s.Fail("DB write happened immediately; expected it to be throttled to the trailing flush")
+	case <-time.After(dbTrailingFlushInterval / 2):
+	}
+
+	// Trailing flush fires shortly after and persists the latest content.
+	select {
+	case msg := <-written:
+		s.Equal("Hello, world!", msg)
+	case <-time.After(2 * time.Second):
+		s.Fail("trailing DB flush did not fire")
+	}
+}
+
 // TestMessageAdded_PriorInteractionMessageIDsAreFiltered reproduces the
 // cross-interaction response_entries leak surfaced by the e2e RESPONSE
 // ENTRIES ISOLATION VALIDATION step in Drone build #1024 (tag 2.11.0).

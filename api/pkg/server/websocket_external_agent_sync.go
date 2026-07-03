@@ -85,6 +85,11 @@ type streamingContext struct {
 	// Trailing-edge flush timer: fires after publishInterval to drain any
 	// patches that were skipped by the throttle when no new event arrived.
 	flushTimer *time.Timer
+	// Trailing-edge DB flush timer: mirrors flushTimer for the throttled DB
+	// write. Fires after dbTrailingFlushInterval so the persisted interaction
+	// (read by the 3s poll fallback and page-reload snapshots) never sits
+	// more than ~dbTrailingFlushInterval behind the live stream during a pause.
+	dbFlushTimer *time.Timer
 	// Per-entry delta tracking: tracks entries sent to frontend so we can compute per-entry diffs
 	previousEntries []wsprotocol.ResponseEntry
 	// Message accumulator: persists across handleMessageAdded calls so that
@@ -116,6 +121,13 @@ const (
 	// publishInterval is the minimum time between frontend pubsub events during streaming.
 	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
 	publishInterval = 50 * time.Millisecond
+
+	// dbTrailingFlushInterval is the delay after the last streamed chunk before
+	// the trailing-edge DB flush fires. Kept small enough that a fallback/reload
+	// read is never badly stale, but large enough that continuous streaming
+	// (which keeps resetting the timer) still writes at the dbWriteInterval
+	// cadence rather than on every chunk — bounding TOAST churn.
+	dbTrailingFlushInterval = 500 * time.Millisecond
 )
 
 // External agent WebSocket connections
@@ -1333,28 +1345,41 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// serializing multi-MB JSON on every message.
 			now := time.Now()
 			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
-				acc.Rebuild()
-				targetInteraction.ResponseMessage = acc.Content
-				targetInteraction.LastZedMessageOffset = acc.Offset
-				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
-					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
+				// Leading-edge DB write; cancel any pending trailing flush since
+				// we're persisting the latest state right now.
+				if sctx.dbFlushTimer != nil {
+					sctx.dbFlushTimer.Stop()
+					sctx.dbFlushTimer = nil
 				}
-				// Column-scoped write: never touch state/completed/error here,
-				// so that a concurrent handleTurnCancelled / handleMessageCompleted
-				// transition can't be clobbered by this in-flight streaming flush.
-				if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
-					context.Background(),
-					targetInteraction.ID,
-					targetInteraction.GenerationID,
-					targetInteraction.ResponseMessage,
-					targetInteraction.ResponseEntries,
-					targetInteraction.LastZedMessageOffset,
-					targetInteraction.LastZedMessageID,
-				); err != nil {
+				if err := apiServer.flushStreamingFieldsToDB(sctx); err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 				}
-				sctx.lastDBWrite = now
-				sctx.dirty = false
+			} else {
+				// Trailing-edge DB flush: mirror the frontend publish flushTimer
+				// so the persisted interaction (used by the 3s poll fallback and
+				// page-reload snapshots) is never more than dbTrailingFlushInterval
+				// behind the live stream during a pause. Without this the DB sits
+				// up to dbWriteInterval (5s) stale whenever the agent pauses
+				// mid-turn (e.g. before a tool call). Each new chunk resets the
+				// timer, so continuous streaming still writes at the dbWriteInterval
+				// cadence via the leading-edge branch above.
+				if sctx.dbFlushTimer != nil {
+					sctx.dbFlushTimer.Stop()
+				}
+				trailingInteractionID := targetInteraction.ID
+				sctx.dbFlushTimer = time.AfterFunc(dbTrailingFlushInterval, func() {
+					sctx.mu.Lock()
+					defer sctx.mu.Unlock()
+					sctx.dbFlushTimer = nil
+					if !sctx.dirty {
+						return
+					}
+					if err := apiServer.flushStreamingFieldsToDB(sctx); err != nil {
+						log.Error().Err(err).
+							Str("interaction_id", trailingInteractionID).
+							Msg("Failed to write interaction in trailing DB flush")
+					}
+				})
 			}
 
 			log.Debug().
@@ -1624,6 +1649,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 				sctx.flushTimer.Stop()
 				sctx.flushTimer = nil
 			}
+			if sctx.dbFlushTimer != nil {
+				sctx.dbFlushTimer.Stop()
+				sctx.dbFlushTimer = nil
+			}
 		}
 		sctx.mu.Unlock()
 
@@ -1856,6 +1885,10 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 	if sctx.flushTimer != nil {
 		sctx.flushTimer.Stop()
 		sctx.flushTimer = nil
+	}
+	if sctx.dbFlushTimer != nil {
+		sctx.dbFlushTimer.Stop()
+		sctx.dbFlushTimer = nil
 	}
 
 	if sctx.interaction != nil {
@@ -4033,6 +4066,42 @@ func computePatch(previousContent, newContent string) (patchOffset int, patch st
 	}
 
 	return utf16Off, newContent[byteOff:], totalLength
+}
+
+// flushStreamingFieldsToDB rebuilds the accumulator content for the current
+// interaction and persists the streaming columns (response_message,
+// response_entries, offset, last message id). It is a column-scoped write: it
+// never touches state/completed/error, so a concurrent
+// handleTurnCancelled / handleMessageCompleted transition can't be clobbered by
+// an in-flight streaming flush. The caller must hold sctx.mu. It is a no-op if
+// there is no interaction or accumulator to flush. On success it updates
+// lastDBWrite and clears the dirty flag.
+func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext) error {
+	if sctx.accumulator == nil || sctx.interaction == nil {
+		return nil
+	}
+	acc := sctx.accumulator
+	it := sctx.interaction
+	acc.Rebuild()
+	it.ResponseMessage = acc.Content
+	it.LastZedMessageOffset = acc.Offset
+	if entriesJSON, err := json.Marshal(acc.Entries()); err == nil {
+		_ = json.Unmarshal(entriesJSON, &it.ResponseEntries)
+	}
+	if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
+		context.Background(),
+		it.ID,
+		it.GenerationID,
+		it.ResponseMessage,
+		it.ResponseEntries,
+		it.LastZedMessageOffset,
+		it.LastZedMessageID,
+	); err != nil {
+		return err
+	}
+	sctx.lastDBWrite = time.Now()
+	sctx.dirty = false
+	return nil
 }
 
 // publishEntryPatchesToFrontend sends per-entry delta patches for structured streaming.
