@@ -26,6 +26,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
+	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
@@ -715,15 +716,25 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// subscription use case (same as the subscribe tool) — one implementation.
 	lifecycleSvc.Subscriber = svc.Subscriptions
 
+	// The helixevents reconciler owns the org's single "Helix events"
+	// topic — created on org bootstrap and ensured defensively by the
+	// attention publisher for brand-new orgs. Shared by the publisher
+	// (below) and the bootstrap path (via the org scope) so both agree on
+	// the topic's identity.
+	helixEventsReconciler := helixevents.New(helixevents.Deps{
+		Topics: st.Topics,
+		Now:    deps.Now,
+		Logger: logger,
+	})
+
 	// Wire the spec-task attention-event sink: each AttentionEvent the
-	// Helix UI shows is also published onto the project's KindSpecTask
+	// Helix UI shows is also published onto the org's single Helix events
 	// topic, so subscribed Workers are triggered via the normal dispatch
-	// path. Reuses the configured id/clock seams.
+	// path. Routing to individual bots is done by filter processors over
+	// that one topic (keyed on domain / event_type / project_id).
 	cfg.APIServer.attentionService.SetEventSink(&attentionTopicPublisher{
-		topics:    st.Topics,
-		publisher: svc.Publishing,
-		newID:     deps.NewID,
-		now:       deps.Now,
+		reconciler: helixEventsReconciler,
+		publisher:  svc.Publishing,
 	})
 
 	// Slack inbound: one shared ingest serves both ingress sources. It
@@ -865,7 +876,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Str("root", orgRoot).
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
-	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler)
+	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler, helixEventsReconciler)
 
 	// Public github webhook handler — mounted on the insecure router
 	// because GitHub deliveries authenticate via HMAC, not the helix

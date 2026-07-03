@@ -510,7 +510,7 @@ func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 		transport.KindGitHub,
 		transport.KindCron,
 		transport.KindSlack,
-		transport.KindSpecTask,
+		transport.KindHelixEvents,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("TransportKindValues() length = %d, want %d (%v)", len(got), len(want), got)
