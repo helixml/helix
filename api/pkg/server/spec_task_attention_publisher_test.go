@@ -103,6 +103,21 @@ func TestAttentionPublisher_CreatesTopicAndPublishes(t *testing.T) {
 	if !strings.Contains(pub.calls[0].msg.Body, "review it") {
 		t.Errorf("published body missing description: %q", pub.calls[0].msg.Body)
 	}
+	// Notification fields coerced onto first-class Message fields.
+	got := pub.calls[0].msg
+	if got.Subject != "PR ready" {
+		t.Errorf("Subject = %q, want %q", got.Subject, "PR ready")
+	}
+	if got.ThreadID != "task_1" {
+		t.Errorf("ThreadID = %q, want the spec task id task_1", got.ThreadID)
+	}
+	if got.MessageID != "ae_1" {
+		t.Errorf("MessageID = %q, want the attention event id ae_1", got.MessageID)
+	}
+	// Routing keys with no natural Message field stay in Extra.
+	if !strings.Contains(string(got.Extra), "pr_ready") || !strings.Contains(string(got.Extra), "prj_1") {
+		t.Errorf("Extra missing event_type/project_id: %s", got.Extra)
+	}
 }
 
 // TestAttentionPublisher_ReusesExistingTopic pins that a second event for
@@ -125,6 +140,32 @@ func TestAttentionPublisher_ReusesExistingTopic(t *testing.T) {
 	}
 	if len(pub.calls) != 2 {
 		t.Errorf("published %d times, want 2", len(pub.calls))
+	}
+}
+
+// TestEnsureSpecTaskTopic_Idempotent pins that the shared helper creates
+// the topic once and returns the same id on a second call — so a wiring
+// path can pre-create a project's input topic without racing the publisher.
+func TestEnsureSpecTaskTopic_Idempotent(t *testing.T) {
+	t.Parallel()
+	topics := &fakeTopics{}
+	n := 0
+	newID := func() string { n++; return "top_ensure" }
+	now := func() time.Time { return time.Unix(1700000000, 0).UTC() }
+
+	first, err := EnsureSpecTaskTopic(context.Background(), topics, newID, now, "org-1", "prj_1")
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	second, err := EnsureSpecTaskTopic(context.Background(), topics, newID, now, "org-1", "prj_1")
+	if err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	if first != second {
+		t.Errorf("ids differ: %q vs %q", first, second)
+	}
+	if len(topics.created) != 1 {
+		t.Errorf("created %d topics, want 1 (idempotent)", len(topics.created))
 	}
 }
 

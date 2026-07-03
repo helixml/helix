@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -21,4 +22,15 @@ func (w specTaskWorkflow) ApproveSpecs(ctx context.Context, task *types.SpecTask
 
 func (w specTaskWorkflow) EnsurePullRequests(ctx context.Context, task *types.SpecTask, primaryRepoID, userID string) error {
 	return w.apiServer.ensurePullRequestsForAllRepos(ctx, task, primaryRepoID, userID)
+}
+
+// RequestChanges delivers the reviewer's comment to the task's agent as a
+// revision instruction — the exact mechanism the REST design-review
+// "request_changes" branch uses (BuildRevisionInstructionPrompt +
+// sendMessageToSpecTaskAgent, interrupt=true). The status transition itself
+// is already persisted by the runtime impl; this only carries the comment.
+func (w specTaskWorkflow) RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error {
+	message := services.BuildRevisionInstructionPrompt(task, comment)
+	_, _, err := w.apiServer.sendMessageToSpecTaskAgent(ctx, task, message, userID, true)
+	return err
 }

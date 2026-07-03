@@ -191,33 +191,38 @@ var ErrProjectConfigUnsupported = errors.New("project config access not wired on
 // approve, request changes, open PRs — rather than generic CRUD.
 //
 // Implementations key by orgID + workerID; the helix runtime impl
-// resolves worker→projectID via WorkerRuntimeState internally so MCP
-// tool callers never see (or supply) a project ID — a Worker can only
-// act on tasks in the project it is assigned to. Other runtimes plug in
-// NoopSpecTasks, and the tools surface ErrSpecTasksUnsupported.
+// resolves worker→projectID via WorkerRuntimeState internally. Every verb
+// also takes an optional projectID: empty means "the Worker's own
+// project" (the original behaviour — a Worker managing its own tasks); a
+// non-empty projectID targets another project the caller manages, and the
+// impl MUST assert that project belongs to the caller's org (a hard
+// cross-org block) before acting. This is what lets an org-wide project
+// manager Bot drive spec tasks across several projects in its org. Other
+// runtimes plug in NoopSpecTasks, and the tools surface
+// ErrSpecTasksUnsupported.
 type SpecTasks interface {
-	// Create makes a new spec task in the caller's project (status
+	// Create makes a new spec task in the target project (status
 	// backlog). Mirrors the REST create-from-prompt path.
-	Create(ctx context.Context, orgID string, workerID orgchart.BotID, in CreateSpecTaskInput) (SpecTaskView, error)
-	// List returns the caller's project's spec tasks, optionally filtered.
-	List(ctx context.Context, orgID string, workerID orgchart.BotID, filter ListSpecTasksFilter) ([]SpecTaskView, error)
-	// Get returns one spec task; it must belong to the caller's project.
-	Get(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	Create(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, in CreateSpecTaskInput) (SpecTaskView, error)
+	// List returns the target project's spec tasks, optionally filtered.
+	List(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, filter ListSpecTasksFilter) ([]SpecTaskView, error)
+	// Get returns one spec task; it must belong to the target project.
+	Get(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
-	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
-	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecReviewView, error)
+	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecReviewView, error)
 	// ApproveSpec approves the generated spec, advancing the task toward
 	// implementation.
-	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	ApproveSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// RequestChanges sends the spec back for revision with a comment.
-	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, taskID, comment string) (SpecTaskView, error)
+	RequestChanges(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID, comment string) (SpecTaskView, error)
 	// CreatePullRequests tells the system the code is good and to open
 	// the pull request(s) — one per repo attached to the project. It
 	// does NOT merge/approve on GitHub.
-	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, taskID string) (SpecTaskView, error)
+	CreatePullRequests(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 }
 
 // CreateSpecTaskInput is the create shape. Only Name and Description are
@@ -276,31 +281,72 @@ type SpecReviewView struct {
 // crash. Every verb returns ErrSpecTasksUnsupported.
 type NoopSpecTasks struct{}
 
-func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ CreateSpecTaskInput) (SpecTaskView, error) {
+func (NoopSpecTasks) Create(_ context.Context, _ string, _ orgchart.BotID, _ string, _ CreateSpecTaskInput) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
+func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ string, _ ListSpecTasksFilter) ([]SpecTaskView, error) {
 	return nil, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecReviewView, error) {
+func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecReviewView, error) {
 	return SpecReviewView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, _, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
-func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _ string) (SpecTaskView, error) {
+func (NoopSpecTasks) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 
 // ErrSpecTasksUnsupported is what the noop impl returns. Tools translate
 // it into a friendly MCP error.
 var ErrSpecTasksUnsupported = errors.New("spec task access not wired on this runtime")
+
+// Projects is the port the org MCP project-discovery tools use to list
+// and read the Helix projects in the caller's org — so an org-wide
+// project-manager Bot can discover which projects exist before deciding
+// which to manage. Reads are ALWAYS scoped to the caller's org: List
+// returns only that org's projects, and Get asserts the project belongs
+// to the org (a project id from another tenant returns an error, never
+// another org's data). Other runtimes plug in NoopProjects and the tools
+// surface ErrProjectsUnsupported.
+type Projects interface {
+	// List returns the projects in the caller's org.
+	List(ctx context.Context, orgID string) ([]ProjectView, error)
+	// Get returns one project by id; it must belong to the caller's org.
+	Get(ctx context.Context, orgID, projectID string) (ProjectView, error)
+}
+
+// ProjectView is the tool-facing projection of a Helix project. Append-only
+// from the JSON wire format so existing tool clients keep working.
+type ProjectView struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description,omitempty"`
+	Status         string `json:"status,omitempty"`
+	DefaultRepoID  string `json:"default_repo_id,omitempty"`
+	DefaultAgentID string `json:"default_helix_app_id,omitempty"`
+}
+
+// NoopProjects satisfies Projects without doing anything — the default for
+// tools.Deps so production paths that don't wire a real impl don't crash.
+type NoopProjects struct{}
+
+func (NoopProjects) List(_ context.Context, _ string) ([]ProjectView, error) {
+	return nil, ErrProjectsUnsupported
+}
+func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
+	return ProjectView{}, ErrProjectsUnsupported
+}
+
+// ErrProjectsUnsupported is what the noop impl returns. Tools translate it
+// into a friendly MCP error.
+var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")

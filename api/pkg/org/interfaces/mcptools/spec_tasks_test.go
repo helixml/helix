@@ -18,6 +18,7 @@ import (
 type recordingPort struct {
 	runtime.NoopSpecTasks
 	createIn    runtime.CreateSpecTaskInput
+	lastProject string
 	lastTaskID  string
 	lastComment string
 	lastFilter  runtime.ListSpecTasksFilter
@@ -26,44 +27,44 @@ type recordingPort struct {
 	err         error
 }
 
-func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.BotID, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
-	p.createIn = in
+func (p *recordingPort) Create(_ context.Context, _ string, _ orgchart.BotID, projectID string, in runtime.CreateSpecTaskInput) (runtime.SpecTaskView, error) {
+	p.lastProject, p.createIn = projectID, in
 	return p.view, p.err
 }
-func (p *recordingPort) List(_ context.Context, _ string, _ orgchart.BotID, f runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
-	p.lastFilter = f
+func (p *recordingPort) List(_ context.Context, _ string, _ orgchart.BotID, projectID string, f runtime.ListSpecTasksFilter) ([]runtime.SpecTaskView, error) {
+	p.lastProject, p.lastFilter = projectID, f
 	if p.err != nil {
 		return nil, p.err
 	}
 	return []runtime.SpecTaskView{p.view}, nil
 }
-func (p *recordingPort) Get(_ context.Context, _ string, _ orgchart.BotID, id string) (runtime.SpecTaskView, error) {
-	p.lastTaskID = id
+func (p *recordingPort) Get(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, id string) (runtime.SpecTaskView, error) {
-	p.lastTaskID = id
+func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, id string) (runtime.SpecReviewView, error) {
-	p.lastTaskID = id
+func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecReviewView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
 	return p.review, p.err
 }
-func (p *recordingPort) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, id string) (runtime.SpecTaskView, error) {
-	p.lastTaskID = id
+func (p *recordingPort) ApproveSpec(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
-func (p *recordingPort) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, id, comment string) (runtime.SpecTaskView, error) {
-	p.lastTaskID, p.lastComment = id, comment
+func (p *recordingPort) RequestChanges(_ context.Context, _ string, _ orgchart.BotID, projectID, id, comment string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID, p.lastComment = projectID, id, comment
 	return p.view, p.err
 }
-func (p *recordingPort) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, id string) (runtime.SpecTaskView, error) {
-	p.lastTaskID = id
+func (p *recordingPort) CreatePullRequests(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
 
 func depsWithPort(p runtime.SpecTasks) mcptools.Deps {
-	return mcptools.Deps{SpecTasks: spectasks.New(p)}
+	return mcptools.Deps{SpecTasks: spectasks.New(p, nil)}
 }
 
 func callerInv(args string) tool.Invocation {
@@ -120,6 +121,18 @@ func TestListSpecTasksTool(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "task_1") {
 		t.Errorf("output missing task: %s", out)
+	}
+}
+
+func TestGetSpecTaskTool_ForwardsProjectID(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_9", Status: "backlog"}}
+	tl := mcptools.NewGetSpecTask(depsWithPort(p))
+	if _, err := tl.Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_9"}`)); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.lastProject != "prj_other" {
+		t.Errorf("project id = %q, want prj_other", p.lastProject)
 	}
 }
 
