@@ -124,3 +124,47 @@ have non-empty `OrgReconcilers`) — a structural guard against future re-splitt
 - Single-replica assumption for socket-mode Slack is unchanged.
 - The auto-router remains a correct no-op when no Automated router exists — the
   fix only guarantees the reconcile *runs* on MCP creates.
+
+---
+
+## Implementation Notes (as-built)
+
+**Seam chosen:** Added an optional `Lifecycle *lifecycle.Service` field to
+`mcptools.Config` (`api/pkg/org/interfaces/mcptools/builtins.go`).
+`Config.lifecycleService()` now returns `c.Lifecycle` verbatim when set, else
+falls back to the previous standalone construction. This keeps every existing
+test/runtime that uses `DefaultDeps(...).Build()` working unchanged, while
+letting the composition root inject the shared instance.
+
+**Reorder (as-built):** Rather than move the large `buildOrgServices` block up,
+I moved the *small* MCP registry block **down**. In
+`api/pkg/server/helix_org.go`:
+- Removed `reg := mcptools.NewRegistry()` / `RegisterBuiltins(reg, deps.Build())`
+  / `orgServer := ...` from their old spot (~line 641-657); left `promptReg`
+  where it was and added a NOTE comment there.
+- Re-added that block immediately after
+  `lifecycleSvc.OrgReconcilers = append(..., slackRouteReconciler)`, preceded by
+  `deps.Lifecycle = lifecycleSvc`.
+- Safe because `reg` and `orgServer` are only consumed much later
+  (`apiDeps.Tools = reg`, `orgServer.Handler(...)`), and `buildOrgServices`
+  takes `deps` by value and never reads `Lifecycle`.
+
+**Same-instance guarantee:** `apiDeps.Lifecycle = lifecycleSvc` (unchanged) and
+`deps.Lifecycle = lifecycleSvc` → `deps.Build()` → `lifecycleService()` returns
+that same pointer. So REST `POST /bots` and MCP `create_bot` now drive the exact
+same `*lifecycle.Service`, including its `OrgReconcilers` (Slack auto-router),
+`Dispatcher`, `Helix`, and `Mirror`.
+
+**Base-tool parity confirmed:** `buildOrgServices` builds `svc.Bots` with
+`BaseTools: mcptools.BaseReadTools` (helix_org.go:224) — the same baseline the
+MCP path used — so sharing the lifecycle preserves the base-read-tool union for
+MCP-created bots.
+
+**Red→green:** `create_bot_slackrouting_test.go` failed to compile on HEAD
+(`deps.Lifecycle undefined`); after the seam + reorder it passes. Full
+`./pkg/org/...` suite (38 packages) green.
+
+**Files changed (helix):**
+- `api/pkg/org/interfaces/mcptools/builtins.go` — `Config.Lifecycle` seam.
+- `api/pkg/server/helix_org.go` — reorder + inject shared lifecycle.
+- `api/pkg/org/interfaces/mcptools/create_bot_slackrouting_test.go` — regression test (new).
