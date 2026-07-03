@@ -127,6 +127,10 @@ type Config struct {
 	Projects            runtime.Projects
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
+	// Lifecycle, when set, is used verbatim instead of building a fresh one,
+	// so the MCP tools share the composition root's reconciler-complete
+	// service. nil → lifecycleService() builds a standalone service.
+	Lifecycle *lifecycle.Service
 }
 
 // Build assembles the application services from the config and returns
@@ -219,6 +223,9 @@ func (c Config) publishingService() *publishing.Publishing {
 // the REST POST /bots handler. The bots service is wired so the row
 // creation applies the base-read-tool union.
 func (c Config) lifecycleService() *lifecycle.Service {
+	if c.Lifecycle != nil {
+		return c.Lifecycle
+	}
 	svc := &lifecycle.Service{
 		Store:          c.Store,
 		Bots:           c.botsService(),
