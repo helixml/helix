@@ -1,9 +1,9 @@
 # Implementation Tasks: Single Org-Wide Helix Events Topic (Replace Per-Project Spec-Task Topics)
 
 ## Transport kind
-- [~] Add `api/pkg/org/domain/transport/helixevents.go`: `KindHelixEvents = "helix_events"`, empty `HelixEventsConfig` (always-valid `Validate`), `helixEvents` strategy, `HelixEventsConfig()` accessor.
-- [~] Register `KindHelixEvents` in the `strategies` map and `kindOrder` in `transport.go`.
-- [~] Add `helixevents_test.go` (kind in `KindValues`, empty config valid).
+- [x] Add `api/pkg/org/domain/transport/helixevents.go`: `KindHelixEvents = "helix_events"`, empty `HelixEventsConfig` (always-valid `Validate`), `helixEvents` strategy, `HelixEventsConfig()` accessor.
+- [x] Register `KindHelixEvents` in the `strategies` map and `kindOrder` in `transport.go`.
+- [x] Add `helixevents_test.go` (kind in `KindValues`, empty config valid).
 
 ## Reconciler + deterministic topic
 - [ ] Add `helixEventsTopicID()` helper returning `streaming.TopicID("s-helix-events")` (single source of truth, shared with the publisher).
