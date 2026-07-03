@@ -20,13 +20,13 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
-	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/application/subscriptions"
 	"github.com/helixml/helix/api/pkg/org/application/topics"
@@ -638,11 +638,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
 	}
 
-	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
-		return nil, fmt.Errorf("register helix-org builtins: %w", err)
-	}
-
 	// Prompts registry — drives slash-command typeahead in the chat
 	// composer (/help, /role, /worker, …) and surfaces the same set as
 	// MCP prompts on each per-Worker MCP server. Without this the chat
@@ -654,7 +649,13 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+	// NOTE: the MCP tool registry (reg) and orgServer are built LATER — after
+	// the shared lifecycle.Service is fully assembled below — so the MCP
+	// create_bot tool and the REST POST /bots handler drive the SAME
+	// reconciler-complete lifecycle (including the Slack auto-router
+	// OrgReconciler). Building them here would capture a lifecycle without the
+	// OrgReconcilers, which is exactly the bug that made MCP-created bots skip
+	// the Slack auto-router reconcile. See `deps.Lifecycle = lifecycleSvc` below.
 
 	// JSON handlers consumed by the React pages at
 	// /orgs/:org_id/helix-org/*. They mount under
@@ -774,6 +775,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger:        logger,
 	})
 	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
+
+	// The MCP tools and the REST handlers now share ONE reconciler-complete
+	// lifecycle.Service: inject it into the MCP tool deps so the chat-driven
+	// create_bot tool runs the same OrgReconcilers (Slack auto-router) the REST
+	// POST /bots handler does. Built here (not at line ~640) so the shared
+	// lifecycleSvc — with Bots, Subscriber and OrgReconcilers all wired — is
+	// captured, eliminating the UI-vs-MCP drift.
+	deps.Lifecycle = lifecycleSvc
+	reg := mcptools.NewRegistry()
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
+		return nil, fmt.Errorf("register helix-org builtins: %w", err)
+	}
+	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+
 	// Thread-follow: the post-routing arm that records thread participation
 	// in the domain-event log and (when enabled) fans later thread messages
 	// out to existing participants. Registered late on the runner, like the
