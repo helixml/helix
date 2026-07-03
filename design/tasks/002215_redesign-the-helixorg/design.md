@@ -49,14 +49,13 @@ New file `api/pkg/org/domain/transport/helixevents.go`:
 - **New reconciler** `api/pkg/org/application/helixevents/reconciler.go`, built
   in the composition root next to `slackrouting.New`, wired into
   `helix_org_middleware.go` bootstrap alongside the others:
-  - `Reconcile(ctx, orgID)`:
-    1. **Ensure** the single `helix_events` topic exists (get-or-create the
-       deterministic id, race-safe re-read on create conflict — copy the
-       idempotent get-or-create shape from `reconcile.ensureTopicWithMembers`).
-       Name "Helix events", description "Helix event bus for this org",
-       transport `{Kind: KindHelixEvents}`.
-    2. **Clean up legacy:** list the org's topics, delete any with kind
-       `spectask` (the per-project topics from 002209). Ignore `ErrNotFound`.
+  - `Reconcile(ctx, orgID)`: **ensure** the single `helix_events` topic exists —
+    get-or-create the deterministic id, race-safe re-read on create conflict
+    (copy the idempotent get-or-create shape from
+    `reconcile.ensureTopicWithMembers`). Name "Helix events", description "Helix
+    event bus for this org", transport `{Kind: KindHelixEvents}`. Nothing else —
+    it does **not** touch legacy `spectask` rows (operator cleans those up
+    manually, per review).
   - Narrow deps: `store.Topics` only (+ `now`, logger). Nil-safe no-op like the
     other reconcilers.
 - Keep the reconciler in `application/` (org reconcilers live there); the
@@ -102,8 +101,10 @@ a predicate over `.Message.extra` (`domain` / `event_type` / `project_id`) or
 - Update `transport_test.go` (kind count/order assertions, drop `KindSpecTask`).
 - **Delete** `EnsureSpecTaskTopic` and its tests; update
   `spec_task_attention_publisher_test.go` for the single-topic behavior.
-- Legacy `spectask` topic rows are deleted by the reconciler (§2). The read path
-  tolerates the now-unregistered kind string, so the delete scan works.
+- Legacy `spectask` topic rows are **left in place** for manual operator cleanup
+  (per review) — not deleted by this change. The read path stores kind as a
+  plain string with no read-time validation, so those rows still load harmlessly
+  after `KindSpecTask` is removed.
 
 ### 6. No documentation / prompt changes
 Per review, **no documentation is updated** — the 002209 design docs and the
@@ -122,9 +123,9 @@ per-project "Spec tasks: <projectId>" topics and will be stale after this ships.
 - **Generic envelope with `domain` + `event_type`.** One bus for all Helix
   events; spec-task is just the first `domain`. Future domains add a value, not a
   topic.
-- **Destructive legacy cleanup.** 002209 topics are auto-managed and recent, so
-  the reconciler deletes them rather than running a bespoke migration (see
-  requirements Open Question 1).
+- **No automated legacy cleanup.** Per review, legacy per-project `spectask`
+  topic rows are left untouched; the operator removes them manually. The change
+  neither migrates nor deletes them.
 - **Delete `KindSpecTask` outright (no deprecation).** Read path stores kind as a
   plain string, so legacy rows still load for the delete scan without the
   constant.

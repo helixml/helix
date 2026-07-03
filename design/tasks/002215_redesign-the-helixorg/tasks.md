@@ -7,8 +7,8 @@
 
 ## Reconciler + deterministic topic
 - [ ] Add `helixEventsTopicID()` helper returning `streaming.TopicID("s-helix-events")` (single source of truth, shared with the publisher).
-- [ ] Add `api/pkg/org/application/helixevents/reconciler.go` with `Reconcile(ctx, orgID)`: idempotent get-or-create of the single `helix_events` topic (race-safe re-read on create conflict) + delete legacy `spectask` topics; narrow deps (`store.Topics`, `now`, logger); nil-safe no-op.
-- [ ] Add reconciler unit tests: creates exactly one topic, idempotent on re-run, deletes legacy `spectask` rows, no-op on nil deps.
+- [ ] Add `api/pkg/org/application/helixevents/reconciler.go` with `Reconcile(ctx, orgID)`: idempotent get-or-create of the single `helix_events` topic (race-safe re-read on create conflict); does NOT touch legacy `spectask` rows (manual cleanup); narrow deps (`store.Topics`, `now`, logger); nil-safe no-op.
+- [ ] Add reconciler unit tests: creates exactly one topic, idempotent on re-run, no-op on nil deps.
 - [ ] Build the reconciler in the composition root (`helix_org.go`, near `slackrouting.New`) and wire it into bootstrap in `helix_org_middleware.go` alongside the other reconcilers.
 
 ## Publisher

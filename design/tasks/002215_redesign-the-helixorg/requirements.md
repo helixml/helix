@@ -80,7 +80,8 @@ that** there is exactly one code path and no dead code or orphaned rows.
   registry entries (`strategies`, `kindOrder`) are all removed. No deprecated
   stub or compatibility shim remains.
 - The transport registry/tests are updated to drop `KindSpecTask`.
-- Existing `spectask` topic rows are cleaned up (deleted) by the reconciler.
+- Existing `spectask` topic rows are **left untouched** by this change — the
+  operator cleans them up manually. The reconciler does NOT delete them.
 - `helix_events` is inbound-only, system-managed, and NOT offered in the New
   Topic UI (`TRANSPORT_KINDS`) or user-creatable via `create_topic`.
 
@@ -95,24 +96,14 @@ that** there is exactly one code path and no dead code or orphaned rows.
 - Changing the AttentionService event source or the dispatcher.
 
 ## Open Questions
-1. **Legacy row handling:** plan is for the reconciler to **delete** existing
-   per-project `spectask` topics (and any subscriptions/filter processors that
-   pointed at them cascade/break). Since 002209 shipped recently and these
-   topics are auto-managed, is destructive cleanup acceptable, or do you want a
-   one-time migration that re-points existing subscriptions to the new topic?
-2. **`KindSpecTask` deletion (confirmed):** the constant, strategy, config, and
-   file are deleted outright — no deprecation. The read path stores kind as a
-   plain string, so legacy rows still load for the reconciler's delete scan.
-3. **Deterministic topic id:** proposed `s-helix-events` (unique per org via the
-   `(id, orgID)` key, mirroring `s-slack-ws-…`). Any preferred naming
-   convention?
-4. **Transport kind name:** proposed `helix_events`. Confirm this over
-   alternatives like `helix` or `events`.
-5. **Config shape:** the `helix_events` transport needs no config (org-wide,
-   inbound-only). An empty always-valid config is proposed — confirm no per-org
-   settings are needed.
-6. **Stale `pm_bot.md` prompt (flagged):** per review, no docs/prompts are
-   changed. Note that `pm_bot.md` currently instructs the PM bot to subscribe to
-   the per-project "Spec tasks: <projectId>" topics, which this change deletes —
-   so after this ships the prompt will describe topics that no longer exist.
-   Confirm you want the prompt left unchanged despite that.
+All resolved in review:
+1. **Legacy row handling — RESOLVED:** the reconciler does **nothing** to legacy
+   `spectask` topic rows; the operator cleans them up manually.
+2. **`KindSpecTask` deletion — RESOLVED:** delete the constant, strategy, config,
+   and file outright (no deprecation).
+3. **Deterministic topic id — RESOLVED:** `s-helix-events` accepted.
+4. **Transport kind name — RESOLVED:** `helix_events` accepted.
+5. **Config shape — RESOLVED:** empty always-valid config, no per-org settings.
+6. **`pm_bot.md` prompt — RESOLVED:** left unchanged (no doc/prompt edits). It
+   lives at `api/pkg/org/application/prompts/templates/pm_bot.md` in the `helix`
+   repo.
