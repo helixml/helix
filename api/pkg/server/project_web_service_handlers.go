@@ -42,6 +42,12 @@ type ProjectWebServiceResponse struct {
 	// canonical Helix hostname parsed from SERVER_URL. Empty when the
 	// vhost feature is not configured on this instance.
 	CNAMETarget string `json:"cname_target,omitempty"`
+
+	// ACMEChallengeTarget is the fixed CNAME value customers point
+	// "_acme-challenge.<their-domain>" at when the domain is behind a
+	// proxy/CDN that hides the origin from Let's Encrypt. Empty when the
+	// operator has not configured delegation (HELIX_VHOST_ACME_CHALLENGE_TARGET).
+	ACMEChallengeTarget string `json:"acme_challenge_target,omitempty"`
 }
 
 // PutProjectWebServiceRequest is the body for PUT
@@ -111,11 +117,12 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 	}
 
 	return &ProjectWebServiceResponse{
-		State:       state,
-		Domains:     domains,
-		Deploys:     deploys,
-		CNAMETarget: cnameTarget,
-		Health:      s.webServiceController.Health(r.Context(), project.ID),
+		State:               state,
+		Domains:             domains,
+		Deploys:             deploys,
+		CNAMETarget:         cnameTarget,
+		ACMEChallengeTarget: strings.TrimSpace(s.Cfg.WebServer.VHostACMEChallengeTarget),
+		Health:              s.webServiceController.Health(r.Context(), project.ID),
 	}, nil
 }
 
