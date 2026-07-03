@@ -34,7 +34,7 @@ import LMStudioModels from "../components/providers/LMStudioModels";
 import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from "../services/providersService";
 import { PROVIDERS, Provider } from "../components/providers/types";
 import AddProviderDialog from "../components/providers/AddProviderDialog";
-import { Grid, Card, CardHeader, CardContent, CardActions, Avatar, Button as MuiButton } from "@mui/material";
+import { Card, CardHeader, CardContent, CardActions, Avatar, Button as MuiButton } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { TypesProviderEndpointType } from "../api/api";
