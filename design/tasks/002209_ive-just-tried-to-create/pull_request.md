@@ -45,3 +45,14 @@ to discover projects, and the notification payload buried everything in `Extra`.
   filter routing of spec-task events, field coercion, comment delivery,
   `EnsureSpecTaskTopic` idempotency, and prompt/tool registration.
 - Full `go build .` and `go test ./pkg/org/...` green.
+
+## Live e2e (inner Helix)
+Verified end-to-end against a running instance (helix-org enabled): an org-graph
+`pm-bot` drove its live MCP endpoint — tools advertised with `project_id`,
+`list_projects` org-scoped, and a **cross-project** `create_spectask(project_id=proj-a)`
+landed a task in another project (confirmed in Postgres + the proj-a UI board).
+Cross-org `get_project`/`create_spectask` against a second org's project were
+hard-rejected ("does not belong to this organization"), 0 rows created.
+
+## Screenshots
+![proj-a board with cross-project task](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002209_ive-just-tried-to-create/screenshots/02-cross-project-task-in-proj-a.png)
