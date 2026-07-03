@@ -85,6 +85,27 @@ uncertainties; if there are none, write "None".
 - No downstream changes needed — title parsing reads the first non-empty line
   and is unaffected by the end-of-file Open Questions section.
 
+## Live E2E Test (verified)
+
+Ran end-to-end in the inner Helix (`localhost:8080`) against the hot-reloaded
+API (confirmed `/helix` binary rebuilt after the source edit):
+
+1. Registered, created org `testorg` + project `testproj` (empty repo).
+2. Created a deliberately vague task: "Add a notifications feature so users get
+   alerted about important events."
+3. Clicked START PLANNING; the sandbox agent generated and pushed specs.
+4. The generated `requirements.md` ended with a proper `## Open Questions`
+   section listing five genuine uncertainties (tech stack, auth/user model,
+   event sources, delivery channels, real-time vs polling) instead of inventing
+   answers — exactly the intended behaviour. The agent even cross-referenced it
+   ("see Open Questions") in the overview and made "resolve Open Questions" the
+   first implementation task.
+5. Title parsing unaffected: `task.Name` correctly parsed to "In-App
+   Notifications for Important Events" (the H1), confirming the end-of-file
+   section doesn't interfere with `SpecTitleFromRequirements`.
+6. Verified the section renders in the Spec Review UI — see
+   `screenshots/01-open-questions-live.png`.
+
 ## Gotchas
 
 - Do not touch the `{{.ClonedTaskPreamble}}` / `{{.Guidelines}}` / Kodit
