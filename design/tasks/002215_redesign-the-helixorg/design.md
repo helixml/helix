@@ -105,13 +105,11 @@ a predicate over `.Message.extra` (`domain` / `event_type` / `project_id`) or
 - Legacy `spectask` topic rows are deleted by the reconciler (§2). The read path
   tolerates the now-unregistered kind string, so the delete scan works.
 
-### 6. Docs + prompt
-- Update `api/pkg/org/application/prompts/templates/pm_bot.md`: connect by
-  subscribing to the single "Helix events" topic and filtering by
-  `project_id`/`event_type`/`domain`; remove "Spec tasks: <projectId>" per-project
-  language.
-- Update 002209 `design.md` / `requirements.md` references from per-project
-  `KindSpecTask` topics to the single Helix events topic + filter routing.
+### 6. No documentation / prompt changes
+Per review, **no documentation is updated** — the 002209 design docs and the
+`api/pkg/org/application/prompts/templates/pm_bot.md` prompt are left as-is. See
+requirements Open Question 6: the prompt currently references the now-deleted
+per-project "Spec tasks: <projectId>" topics and will be stale after this ships.
 
 ## Key decisions
 - **Deterministic id, no config.** Org-wide singleton → deterministic id

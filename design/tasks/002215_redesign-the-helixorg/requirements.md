@@ -84,17 +84,10 @@ that** there is exactly one code path and no dead code or orphaned rows.
 - `helix_events` is inbound-only, system-managed, and NOT offered in the New
   Topic UI (`TRANSPORT_KINDS`) or user-creatable via `create_topic`.
 
-### US6 — Docs updated
-**As** a future reader, **I want** the 002209 design docs and `/pm-bot` prompt to
-reference the single Helix events topic + filter routing **so that** the docs
-match the implementation.
-
-**Acceptance criteria**
-- 002209 `design.md` / `requirements.md` references to per-project `KindSpecTask`
-  topics are updated to the single Helix events topic model.
-- `api/pkg/org/application/prompts/templates/pm_bot.md` is updated.
-
 ## Non-Goals
+- **Documentation / prompt changes.** Per review, no documentation is updated:
+  the 002209 design docs and the `api/pkg/org/application/prompts/templates/pm_bot.md`
+  prompt are left as-is (see Open Question 6).
 - Adding new event domains beyond `spectask` (the envelope must *allow* them; we
   don't implement them here).
 - New MCP tools (routing uses the existing topic + filter-processor + subscribe
@@ -118,3 +111,8 @@ match the implementation.
 5. **Config shape:** the `helix_events` transport needs no config (org-wide,
    inbound-only). An empty always-valid config is proposed — confirm no per-org
    settings are needed.
+6. **Stale `pm_bot.md` prompt (flagged):** per review, no docs/prompts are
+   changed. Note that `pm_bot.md` currently instructs the PM bot to subscribe to
+   the per-project "Spec tasks: <projectId>" topics, which this change deletes —
+   so after this ships the prompt will describe topics that no longer exist.
+   Confirm you want the prompt left unchanged despite that.

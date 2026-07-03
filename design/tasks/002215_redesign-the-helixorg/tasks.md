@@ -22,10 +22,6 @@
 - [ ] Update `transport_test.go` kind count/order assertions (drop `KindSpecTask`).
 - [ ] Confirm `helix_events` is absent from `TRANSPORT_KINDS` in `frontend/src/pages/HelixOrgTopics.tsx` (user-uncreatable) and not accepted by `create_topic` for user callers.
 
-## Docs + prompt
-- [ ] Update `api/pkg/org/application/prompts/templates/pm_bot.md`: subscribe to the single "Helix events" topic and filter by `project_id`/`event_type`/`domain`; remove per-project "Spec tasks: <projectId>" language.
-- [ ] Update 002209 `design.md`/`requirements.md` references from per-project `KindSpecTask` topics to the single Helix events topic + filter routing.
-
 ## Verify
 - [ ] `go build ./...` and `go test ./api/pkg/org/... ./api/pkg/server/...` pass.
 - [ ] E2E on inner Helix (`localhost:8080`): exactly one "Helix events" topic per org; PM bot wired via a filter processor on `project_id` is activated for the right project across two projects; no per-project topics created.
