@@ -23,10 +23,10 @@
 - [x] Wire the `Projects` service into `mcptools.Deps` + `Config.Build` and the helix impl in `helix_org.go`.
 
 ## 3. Connection via existing filter/processor system (NO new connect tools)
-- [ ] Confirm a `processor.KindFilter` can be created (existing `application/processors` use case) with a project's `KindSpecTask` topic as input and a predicate over `.Message.extra` (`event_type` / `project_id`), routing to an output topic a bot subscribes to.
-- [ ] Extract `attentionTopicPublisher.ensureTopic` into a shared `EnsureSpecTaskTopic` helper (single implementation) so the bot-creation/wiring path can pre-create the input topic deterministically — this is a refactor, **not** a new MCP tool.
-- [ ] Wire the bot-creation flow to offer projects from `list_projects` and set up the chosen projects' filter route + subscription using the existing topic/processor/subscribe use cases (reused, not reimplemented).
-- [ ] Do NOT add `connect_project`/`disconnect_project` tools.
+- [x] Confirm a `processor.KindFilter` routes a project's spec-task events to a bot — test `TestFilterRoutesSpecTaskEventsToBot` in `processor/filter_test.go` routes on both `.Message.thread_id` (spec task, now a first-class field) and `.Message.extra` keys (`event_type`/`project_id` via `printf "%s"`).
+- [x] Extract `attentionTopicPublisher.ensureTopic` into a shared `EnsureSpecTaskTopic` helper (single implementation, idempotent) so a wiring path can pre-create the input topic deterministically. Refactor, not a new MCP tool.
+- [x] Bot→project wiring uses existing primitives only: `list_projects` (discovery) → `EnsureSpecTaskTopic` (deterministic input topic) → existing `create_bot`/`subscribe` (subscribe the bot to the topic) → optional `create_topic`+filter `processor` for event-type filtering. Driven by the PM-bot Role prompt (section 4); no dedicated UI or connect verb. NOTE: no separate frontend form — helix-org bots are created via the `create_bot` MCP tool in owner-chat, so "ask which projects" is prompt-driven.
+- [x] Did NOT add `connect_project`/`disconnect_project` tools.
 
 ## 4. PM-bot Role prompt + granting
 - [ ] Add a PM-bot Role prompt template under `application/prompts/templates` describing same-org-only scope, how events arrive via wired topics/filter routes, inspecting the `event_type`/`project_id` keys, and driving tasks with `project_id`.
