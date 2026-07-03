@@ -1507,6 +1507,13 @@ export interface ServerProjectGooseRecipe {
 
 export interface ServerProjectWebServiceResponse {
   /**
+   * ACMEChallengeTarget is the fixed CNAME value customers point
+   * "_acme-challenge.<their-domain>" at when the domain is behind a
+   * proxy/CDN that hides the origin from Let's Encrypt. Empty when the
+   * operator has not configured delegation (HELIX_VHOST_ACME_CHALLENGE_TARGET).
+   */
+  acme_challenge_target?: string;
+  /**
    * CNAMETarget is the hostname customers should add as the value of
    * their CNAME record when registering a custom domain — i.e. the
    * canonical Helix hostname parsed from SERVER_URL. Empty when the
