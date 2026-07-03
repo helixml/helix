@@ -33,6 +33,11 @@ export interface ApiBotDTO {
   content?: string;
   created_at?: string;
   id?: string;
+  /**
+   * Name is the human-readable display label; empty means the UI falls
+   * back to ID. Distinct from ID, which is the immutable handle.
+   */
+  name?: string;
   organization_id?: string;
   parent_ids?: string[];
   /**
@@ -65,6 +70,11 @@ export interface ApiBotSubscriptionsResponse {
 export interface ApiCreateBotRequest {
   content?: string;
   id?: string;
+  /**
+   * Name is the human-readable display label (e.g. "Chief of Staff").
+   * Optional; the ID stays the immutable handle.
+   */
+  name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
    * tool set (every org-graph mutation - create_bot, delete_bot,
@@ -331,6 +341,7 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  name?: string;
   preserve_context?: boolean;
   tools?: string[];
 }

@@ -110,6 +110,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              strings.TrimSpace(req.ID),
+		Name:            strings.TrimSpace(req.Name),
 		Content:         req.Content,
 		Tools:           tools,
 		Topics:          toTopicIDs(req.Topics),
@@ -202,6 +203,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		toolsPatch = &t
 	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
+		Name:            req.Name,
 		Content:         req.Content,
 		Tools:           toolsPatch,
 		PreserveContext: req.PreserveContext,
@@ -555,6 +557,7 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.B
 func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
+		Name:            b.Name,
 		Content:         b.Content,
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,

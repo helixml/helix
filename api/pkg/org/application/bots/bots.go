@@ -89,6 +89,7 @@ func New(deps Deps) *Bots {
 // service creates them as (bot, topic) rows from its own CreateParams.
 type CreateParams struct {
 	ID              string
+	Name            string
 	Content         string
 	Tools           []tool.Name
 	PreserveContext bool
@@ -106,6 +107,9 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
+	if p.Name != "" {
+		bot = bot.WithName(p.Name)
+	}
 	if p.PreserveContext {
 		bot = bot.WithPreserveContext(true)
 	}
@@ -119,6 +123,7 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 // leaves the corresponding field unchanged — this is what preserves
 // Tools on a content-only update.
 type UpdateParams struct {
+	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
 	PreserveContext *bool
@@ -133,6 +138,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 		return orgchart.Bot{}, err
 	}
 	updated := existing
+	if p.Name != nil {
+		updated = updated.WithName(*p.Name)
+	}
 	if p.Content != nil {
 		updated = updated.WithContent(*p.Content)
 	}

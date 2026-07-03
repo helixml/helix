@@ -135,6 +135,7 @@ type Service struct {
 // Topics are its capability/manifest.
 type CreateParams struct {
 	ID              string
+	Name            string
 	Content         string
 	Tools           []tool.Name
 	Topics          []streaming.TopicID
@@ -193,6 +194,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 
 	bot, err := s.Bots.Create(ctx, orgID, bots.CreateParams{
 		ID:              p.ID,
+		Name:            p.Name,
 		Content:         p.Content,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,

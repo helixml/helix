@@ -21168,6 +21168,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "name": {
+                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
+                    "type": "string"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -21239,6 +21243,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label (e.g. \"Chief of Staff\").\nOptional; the ID stays the immutable handle.",
                     "type": "string"
                 },
                 "owner": {
@@ -21780,6 +21788,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "content": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "preserve_context": {

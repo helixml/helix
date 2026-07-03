@@ -27,6 +27,7 @@ import (
 type botRow struct {
 	ID              string   `gorm:"primaryKey;type:text"`
 	OrgID           string   `gorm:"primaryKey;type:text;index"`
+	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
 	PreserveContext bool     `gorm:"not null;default:false"`
@@ -49,6 +50,7 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 	return botRow{
 		ID:              string(b.ID),
 		OrgID:           b.OrganizationID,
+		Name:            b.Name,
 		Content:         b.Content,
 		Tools:           tools,
 		PreserveContext: b.PreserveContext,
@@ -68,6 +70,7 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 	return orgchart.Bot{
 		ID:              orgchart.BotID(row.ID),
 		OrganizationID:  row.OrgID,
+		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
 		PreserveContext: row.PreserveContext,
@@ -113,6 +116,7 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 		store.WithOrg(row.OrgID),
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
+			"name":             row.Name,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
 			"preserve_context": row.PreserveContext,

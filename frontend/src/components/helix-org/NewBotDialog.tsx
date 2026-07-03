@@ -1,9 +1,9 @@
 // NewBotDialog is the shared "create bot" dialog used by the Chart
 // canvas's floating top-right button / per-node "new bot" affordance and
 // the Bots list's "+ New bot" header action. A Bot is created in one
-// step: an id, its content (markdown identity/prompt), and an optional
-// parent bot it reports to. There is no kind selector and no separate
-// identity field — a Bot's content IS its identity.
+// step: a display name, an id (the immutable handle, auto-derived from the
+// name but overridable), its content (markdown prompt), and an optional
+// parent bot it reports to.
 
 import { FC, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
@@ -30,18 +30,31 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   const create = useCreateBot()
   const { data: botsData } = useListHelixOrgBots({ enabled: open })
 
+  const [name, setName] = useState('')
   const [id, setId] = useState('')
+  const [idEdited, setIdEdited] = useState(false)
   const [content, setContent] = useState('')
   const [parentId, setParentId] = useState(presetParentId ?? '')
 
   useEffect(() => {
     if (!open) return
+    setName('')
     setId('')
+    setIdEdited(false)
     setContent('')
     setParentId(presetParentId ?? '')
   }, [open, presetParentId])
 
   const bots = botsData ?? []
+
+  // Slugify a display name into a kebab-case handle for the id field, unless
+  // the operator has typed their own id.
+  const onNameChange = (value: string) => {
+    setName(value)
+    if (!idEdited) {
+      setId(value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''))
+    }
+  }
 
   const submit = async () => {
     const trimmedId = id.trim()
@@ -52,6 +65,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
     try {
       const res = await create.mutateAsync({
         id: trimmedId,
+        name: name.trim(),
         content,
         ...(parentId ? { parent_id: parentId } : {}),
       })
@@ -72,13 +86,22 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
-            label="Bot ID"
-            placeholder="engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="A short handle in kebab-case, e.g. engineer. Stays as-is - the LLM and operator both refer to the bot by it."
+            label="Name"
+            placeholder="Chief of Staff"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            helperText="Human-readable display name shown in the chart and bot page."
             autoFocus
             fullWidth
+          />
+          <TextField
+            label="Bot ID"
+            placeholder="chief-of-staff"
+            value={id}
+            onChange={(e) => { setIdEdited(true); setId(e.target.value) }}
+            helperText="Immutable kebab-case handle (auto-filled from the name). Referenced by the LLM, repos and MCP tools; can be anything."
+            fullWidth
+            sx={{ '& input': { fontFamily: 'monospace' } }}
           />
           {presetParentId ? (
             <TextField
@@ -100,8 +123,8 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
             >
               <MenuItem value="">(none)</MenuItem>
               {bots.map((b) => (
-                <MenuItem key={b.id} value={b.id ?? ''} sx={{ fontFamily: 'monospace' }}>
-                  {b.id}
+                <MenuItem key={b.id} value={b.id ?? ''}>
+                  {b.name || b.id}
                 </MenuItem>
               ))}
             </TextField>
