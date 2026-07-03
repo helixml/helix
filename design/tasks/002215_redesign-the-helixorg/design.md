@@ -141,7 +141,10 @@ per-project "Spec tasks: <projectId>" topics and will be stale after this ships.
 - Filter predicate over `.Message.extra` (`project_id`/`event_type`/`domain`)
   selects/drops correctly.
 - Transport registry tests updated for the kind swap.
-- E2E (inner Helix `localhost:8080`): two projects in one org; confirm exactly
-  one "Helix events" topic exists; wire a PM bot via a filter processor keyed on
-  `project_id`; trigger attention events on each project; confirm the bot is
-  activated and acts on the right project; confirm no per-project topics appear.
+- **Browser E2E (inner Helix `localhost:8080`) — must be verified in the browser
+  UI, not just via API/CLI:** two projects in one org; confirm in the Topics page
+  that exactly one "Helix events" topic exists and no per-project topics appear;
+  confirm the New Topic dialog does not offer `helix_events`; wire a PM bot via a
+  filter processor keyed on `project_id` through the UI; trigger attention events
+  on each project via the UI; confirm the bot is activated and acts on the right
+  project, and the events are visible on the Helix events topic in the browser.

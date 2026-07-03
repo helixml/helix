@@ -24,4 +24,10 @@
 
 ## Verify
 - [ ] `go build ./...` and `go test ./api/pkg/org/... ./api/pkg/server/...` pass.
-- [ ] E2E on inner Helix (`localhost:8080`): exactly one "Helix events" topic per org; PM bot wired via a filter processor on `project_id` is activated for the right project across two projects; no per-project topics created.
+- [ ] **Browser E2E on `localhost:8080` — everything below must be seen and done in the browser UI, not via API/CLI:**
+  - [ ] Open the org's Topics page in the browser and confirm exactly **one** "Helix events" topic is visible per org, and **no** per-project "Spec tasks: <projectId>" topics appear.
+  - [ ] Confirm the New Topic dialog in the browser does **not** offer `helix_events` as a creatable kind (it is system-managed).
+  - [ ] Create two projects in one org through the browser UI.
+  - [ ] Create/configure a PM bot in the browser and wire it via a filter processor keyed on `project_id` (using the topic/processor/subscribe UI).
+  - [ ] Trigger a spec-task attention event on each project via the browser (e.g. push specs / open a PR through the UI) and confirm in the browser that the bot is activated for the correct project and can act on it.
+  - [ ] Confirm the Helix events topic's activity/messages are visible in the browser (event `subject`, `thread_id`, and `extra` with `domain`/`event_type`/`project_id`).
