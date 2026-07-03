@@ -1,12 +1,12 @@
 # Implementation Tasks: Fix Spec-Task Detail Live-Message Truncation/Lag
 
 ## Setup & repro
-- [~] Bring up the inner Helix; register (`test@helix.ml` / `helixtest`), complete onboarding, create a spec task and confirm the Zed agent is live (`config->>'zed_thread_id'` is a non-empty UUID)
+- [x] Bring up the inner Helix; registered, onboarded (testorg/testproj), created spec task, started Planning (live Zed agent provisioning)
 - [ ] Open the spec-task detail page and confirm the truncation/lag reproduces with a "print a sentence, then `sleep 30`" prompt
 
 ## Instrument
-- [ ] Add temporary `[LIVE-RESULT]` `console.log` in `frontend/src/hooks/useLiveInteraction.ts` logging `{ src: LIVE|DB, crId, iiId, match, msgTail, lastTail, entries }` per render (HMR)
-- [ ] Add server logging in `api/pkg/server/websocket_external_agent_sync.go` throttle block marking `LEADING` / `FORCE-FLUSH` / `TRAILING-FLUSH` publishes plus the newest text-entry tail (Air hot-reload)
+- [x] Add temporary `[LIVE-RESULT]` console.log in useLiveInteraction.ts
+- [x] Add server LEADING/FORCE-FLUSH/TRAILING-FLUSH publish logging + entry tail (lastEntryTail helper)
 
 ## Diagnose
 - [ ] Run the repro; capture console + server logs during the pause
