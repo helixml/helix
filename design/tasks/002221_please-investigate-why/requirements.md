@@ -86,17 +86,16 @@ subscription for the new bot on the Automated Slack router.
 - Adding new MCP tools or changing `create_bot`'s arguments/semantics.
 
 ## Open Questions
-- **Unification mechanism.** Preferred fix is a single shared `lifecycle.Service`
-  injected into both REST and MCP deps (reordering the composition root so the
-  reconciler-wired service is built before `deps.Build()`). An alternative is
-  adding an `OrgReconcilers`/`Lifecycle` seam to `mcptools.Config` and wiring the
-  same reconciler into it. Both remove the drift; the single-instance approach is
-  recommended as it also unifies Dispatcher/Helix/Mirror. Is the single-instance
-  approach acceptable given it requires reordering `helix_org.go`?
-- **Red test location.** Recommended in the `mcptools` package (behavioural, via
-  a spy `OrgReconciler` through the composition seam). Acceptable, or do you want
-  it as a server-package wiring/pointer-equality test instead?
-- Assumption: an Automated Slack router already exists in the org at create time
-  (created on workspace-connect). If none exists, `Reconcile` is a correct no-op;
-  the fix only ensures the reconcile *runs*. Confirm this matches the reported
-  scenario.
+
+All resolved at review (approved 2026-07-03):
+
+- **Unification mechanism.** ✅ Approved: single shared `lifecycle.Service`
+  injected into both REST and MCP deps, reordering the composition root so the
+  reconciler-wired service is built before `deps.Build()`. This also unifies
+  Dispatcher/Helix/Mirror, not just the Slack reconciler.
+- **Red test location.** ✅ Approved: in the `mcptools` package — behavioural,
+  via a spy `OrgReconciler` injected through the composition seam.
+- **Automated router precondition.** ✅ Confirmed: an Automated Slack router
+  already exists in the org at create time (created on workspace-connect). If
+  none exists, `Reconcile` is a correct no-op; the fix only ensures the reconcile
+  *runs*.
