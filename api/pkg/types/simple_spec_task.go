@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
@@ -199,6 +201,11 @@ type SpecTask struct {
 	MergedAt           *time.Time `json:"merged_at,omitempty"`                 // When merge happened
 	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`         // Merge commit hash
 
+	// Structured error from the last external (mirror) push. Set when a user-initiated
+	// push to the external repo fails and refs are rolled back; cleared (nil) on the
+	// next successful push. Surfaced on the board so failures aren't silent.
+	LastPushError *PushError `json:"last_push_error,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// Simple tracking
 	EstimatedHours    int        `json:"estimated_hours,omitempty"`
 	PlanningStartedBy string     `json:"planning_started_by,omitempty"` // User who kicked off planning (may differ from CreatedBy)
@@ -243,6 +250,59 @@ type SpecTask struct {
 	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
+}
+
+// PushError captures a failed external (mirror) push so the failure is queryable
+// and shown on the task instead of being silently rolled back after the git
+// client already received its 200. Cleared (set to nil) on the next successful push.
+type PushError struct {
+	Provider   ExternalRepositoryType `json:"provider"`    // e.g. "github"
+	Account    string                 `json:"account"`     // VCS account the push was attempted as, e.g. "@linuxrecruit"
+	Repo       string                 `json:"repo"`        // e.g. "helixml/find-ai"
+	RawMessage string                 `json:"raw_message"` // verbatim provider error
+	Cause      string                 `json:"cause"`       // translated human-readable cause
+	NextStep   string                 `json:"next_step"`   // translated actionable next step
+	FailedAt   time.Time              `json:"failed_at"`
+}
+
+// NewPushError builds a PushError, translating the raw provider message into a
+// human-readable cause and next step. The motivating footgun: GitHub returns
+// "404 Repository not found" (not 403) for a private repo the token can't see,
+// which reads as "the repo doesn't exist" when the real cause is that the
+// connected account can't access it. We translate that into an actionable
+// switch-account prompt. Kept generic across providers via simple message matching.
+func NewPushError(provider ExternalRepositoryType, account, repo, rawMessage string, failedAt time.Time) *PushError {
+	pe := &PushError{
+		Provider:   provider,
+		Account:    account,
+		Repo:       repo,
+		RawMessage: rawMessage,
+		FailedAt:   failedAt,
+	}
+	acct := account
+	if acct == "" {
+		acct = "your connected account"
+	}
+	repoName := repo
+	if repoName == "" {
+		repoName = "the repository"
+	}
+	lower := strings.ToLower(rawMessage)
+	switch {
+	case strings.Contains(lower, "not found") || strings.Contains(lower, "404"):
+		pe.Cause = fmt.Sprintf("%s can't access %s. If the repo is private, this account isn't a member.", acct, repoName)
+		pe.NextStep = "Switch to a VCS account that has access to this repo, then retry."
+	case strings.Contains(lower, "forbidden") || strings.Contains(lower, "403") || strings.Contains(lower, "permission"):
+		pe.Cause = fmt.Sprintf("%s doesn't have write permission to %s.", acct, repoName)
+		pe.NextStep = "Switch to an account with write access, or ask an admin to grant it."
+	case strings.Contains(lower, "authentication") || strings.Contains(lower, "401") || strings.Contains(lower, "credentials"):
+		pe.Cause = fmt.Sprintf("Authentication failed for %s.", acct)
+		pe.NextStep = "Reconnect the VCS account, then retry."
+	default:
+		pe.Cause = fmt.Sprintf("Push to %s as %s failed.", repoName, acct)
+		pe.NextStep = "Check the account has access to the repo, or switch accounts, then retry."
+	}
+	return pe
 }
 
 // SampleSpecProject - simplified sample projects with proper spec-driven tasks

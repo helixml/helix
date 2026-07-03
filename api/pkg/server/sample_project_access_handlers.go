@@ -253,7 +253,13 @@ func (s *HelixAPIServer) forkSampleProjectRepositories(_ http.ResponseWriter, r 
 	}, nil
 }
 
-// GitHubRepoScopes are the scopes required for GitHub repository operations
+// GitHubRepoScopes is the hard operational MINIMUM validated when *using* an
+// existing connection — only "repo" (clone/push/PR) is strictly required, so we
+// don't reject connections made before the wider scope set was requested.
+// The full set to REQUEST at connect time (repo + read:user + user:email +
+// read:org, for identity and org-access verification) lives in the VCS
+// capability registry (vcs.RequiredScopes); missing identity/org scopes degrade
+// the lozenge gracefully rather than blocking the push.
 var GitHubRepoScopes = []string{"repo"}
 
 // getGitHubAccessToken retrieves a GitHub OAuth access token for the user

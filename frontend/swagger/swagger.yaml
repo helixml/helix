@@ -7776,6 +7776,30 @@ definitions:
       success:
         type: boolean
     type: object
+  types.PushError:
+    properties:
+      account:
+        description: VCS account the push was attempted as, e.g. "@linuxrecruit"
+        type: string
+      cause:
+        description: translated human-readable cause
+        type: string
+      failed_at:
+        type: string
+      next_step:
+        description: translated actionable next step
+        type: string
+      provider:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: e.g. "github"
+      raw_message:
+        description: verbatim provider error
+        type: string
+      repo:
+        description: e.g. "helixml/find-ai"
+        type: string
+    type: object
   types.PushResponse:
     properties:
       branch:
@@ -9623,6 +9647,13 @@ definitions:
       last_push_commit_hash:
         description: Git tracking
         type: string
+      last_push_error:
+        allOf:
+        - $ref: '#/definitions/types.PushError'
+        description: |-
+          Structured error from the last external (mirror) push. Set when a user-initiated
+          push to the external repo fails and refs are rolled back; cleared (nil) on the
+          next successful push. Surfaced on the board so failures aren't silent.
       merge_commit_hash:
         description: Merge commit hash
         type: string
@@ -10213,6 +10244,13 @@ definitions:
       last_push_commit_hash:
         description: Git tracking
         type: string
+      last_push_error:
+        allOf:
+        - $ref: '#/definitions/types.PushError'
+        description: |-
+          Structured error from the last external (mirror) push. Set when a user-initiated
+          push to the external repo fails and refs are rolled back; cleared (nil) on the
+          next successful push. Surfaced on the board so failures aren't silent.
       merge_commit_hash:
         description: Merge commit hash
         type: string
@@ -11639,6 +11677,64 @@ definitions:
         type: array
       user:
         $ref: '#/definitions/types.User'
+    type: object
+  types.VCSActingUser:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  types.VCSConnectionInfo:
+    properties:
+      acting_user:
+        $ref: '#/definitions/types.VCSActingUser'
+      missing_scopes:
+        items:
+          type: string
+        type: array
+      provider:
+        $ref: '#/definitions/types.ExternalRepositoryType'
+      pushing_as:
+        $ref: '#/definitions/types.VCSPushingAs'
+      repos:
+        items:
+          $ref: '#/definitions/types.VCSRepoAccess'
+        type: array
+      state:
+        $ref: '#/definitions/types.VCSConnectionState'
+    type: object
+  types.VCSConnectionState:
+    enum:
+    - verified
+    - needs_attention
+    - disconnected
+    type: string
+    x-enum-varnames:
+    - VCSConnectionVerified
+    - VCSConnectionNeedsAttention
+    - VCSConnectionDisconnected
+  types.VCSPushingAs:
+    properties:
+      connection_id:
+        description: OAuthConnection ID (for switch/disconnect)
+        type: string
+      username:
+        description: e.g. "@tonychapman-prog"
+        type: string
+    type: object
+  types.VCSRepoAccess:
+    properties:
+      has_access:
+        description: true if the connection can reach it (or access is unverifiable
+          for this provider)
+        type: boolean
+      repo:
+        description: '"owner/repo"'
+        type: string
+      verified:
+        description: true if we actually probed the provider (false = optimistic/unverifiable)
+        type: boolean
     type: object
   types.VHostRoute:
     properties:
@@ -19998,6 +20094,50 @@ paths:
       security:
       - BearerAuth: []
       summary: Get project token usage
+      tags:
+      - Projects
+  /api/v1/projects/{id}/vcs-connections:
+    get:
+      consumes:
+      - application/json
+      description: One entry per distinct VCS provider present among the project's
+        external repos, with the acting user, the account pushes are attributed to,
+        and per-repo verified access. Backs the project board connection lozenge.
+      operationId: getProjectVCSConnections
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.VCSConnectionInfo'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project VCS connection status
       tags:
       - Projects
   /api/v1/projects/{id}/web-service:
