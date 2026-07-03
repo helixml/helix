@@ -59,6 +59,7 @@ func newStartCommand() *cobra.Command {
 	var projectID string
 	var agentID string
 	var prompt string
+	var promptFile string
 	var quiet bool
 
 	cmd := &cobra.Command{
@@ -91,6 +92,20 @@ Example workflow:
 					fmt.Println("Creating new spec task...")
 				}
 				taskPrompt := prompt
+				// --prompt-file lets you dispatch an entire brief (e.g. a design
+				// doc) as the task prompt without committing it to the repo.
+				// Appended after --prompt when both are given.
+				if promptFile != "" {
+					data, readErr := os.ReadFile(promptFile)
+					if readErr != nil {
+						return fmt.Errorf("failed to read --prompt-file %q: %w", promptFile, readErr)
+					}
+					if taskPrompt != "" {
+						taskPrompt = taskPrompt + "\n\n" + string(data)
+					} else {
+						taskPrompt = string(data)
+					}
+				}
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
@@ -150,6 +165,7 @@ Example workflow:
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
 	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
 
 	return cmd
