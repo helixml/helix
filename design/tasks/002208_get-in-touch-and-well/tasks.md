@@ -8,5 +8,5 @@
 - [x] In `WebServiceTab.tsx`, when `acmeChallengeTarget` is set, replace the "get in touch" paragraph with a self-serve record block (Name `_acme-challenge.app.yourcompany.com`, Type `CNAME`, Value `{acmeChallengeTarget}`) with copy buttons, styled like the existing direct-CNAME block.
 - [x] In `WebServiceTab.tsx`, keep the existing "get in touch" paragraph as the fallback when `acmeChallengeTarget` is empty.
 - [x] Build check: `go build ./api/pkg/server/ ./api/pkg/config/` passes; frontend `tsc --noEmit` passes (full `yarn build` blocked only by root-owned `dist` bind-mount, not code).
-- [ ] E2E-test both states in the inner Helix (env unset = fallback; env set = record block) and save before/after screenshots to `screenshots/`.
-- [ ] Commit (conventional format) and open PR; verify Drone CI is green.
+- [x] E2E-test both states in the inner Helix (env unset = fallback; env set = record block) and save before/after screenshots to `screenshots/`.
+- [~] Commit (conventional format), merge latest main, push feature branch; verify Drone CI is green.

@@ -110,6 +110,21 @@ existing direct-CNAME instructions.
 - **Additive only.** Rides the existing response and endpoint; no new routes,
   no store or migration changes, no change to issuance code.
 
+## Implementation Notes (verified 2026-07-03)
+
+- **Files changed (helix repo):**
+  - `api/pkg/config/config.go` — added `VHostACMEChallengeTarget` (`HELIX_VHOST_ACME_CHALLENGE_TARGET`).
+  - `api/pkg/server/project_web_service_handlers.go` — added `ACMEChallengeTarget` to `ProjectWebServiceResponse`, populated from config (trimmed).
+  - `frontend/src/components/project/WebServiceTab.tsx` — read `acme_challenge_target`; conditional record block vs. "get in touch" fallback.
+  - Regenerated: `frontend/src/api/api.ts`, `api/pkg/server/swagger.json`, `swagger.yaml`, `docs.go`.
+- **`./stack update_openapi` gotcha:** `swag` installs to `$(go env GOPATH)/bin` which is NOT on PATH by default here. Run with `export PATH="$PATH:$(go env GOPATH)/bin"` first, otherwise it fails with `swag: command not found` (and misleadingly exits 0).
+- **Frontend build gotcha:** `yarn build` fails at `prepare-out-dir` because `frontend/dist` is a root-owned bind-mount (production-frontend-mode artifact). This is an environment permission issue, NOT a code error — the Vite transform completes (21654 modules) and `npx tsc --noEmit` passes clean. Dev stack uses Vite HMR (port 8081), so source edits are live without a build.
+- **E2E verified in inner Helix** (`localhost:8080`, dev mode): registered, onboarded (testorg → testproj), enabled the project web service, opened the "How to add a custom domain" panel.
+  - Env unset → fallback "get in touch and we'll give you the exact `_acme-challenge` record" shows (screenshot `01-fallback-get-in-touch.png`).
+  - Set `HELIX_VHOST_ACME_CHALLENGE_TARGET=_acme-challenge.helix.ml`, recreated the api container (`docker compose ... up -d api` — `restart` does NOT reload `.env`), reloaded → record block shows Name `_acme-challenge.app.yourcompany.com`, Type `CNAME`, Value `_acme-challenge.helix.ml` with copy buttons (screenshot `02-self-serve-record.png`).
+  - Restored `.env` to default afterwards.
+- `cnameTarget` falls back to the SERVER_URL host, which is `localhost` in dev — that's why the panel shows `localhost` as the direct CNAME value.
+
 ## Testing
 
 - Backend: `go build ./api/pkg/server/ ./api/pkg/config/`. Optionally a table
