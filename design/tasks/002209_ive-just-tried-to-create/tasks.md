@@ -29,8 +29,8 @@
 - [x] Did NOT add `connect_project`/`disconnect_project` tools.
 
 ## 4. PM-bot Role prompt + granting
-- [ ] Add a PM-bot Role prompt template under `application/prompts/templates` describing same-org-only scope, how events arrive via wired topics/filter routes, inspecting the `event_type`/`project_id` keys, and driving tasks with `project_id`.
-- [ ] Confirm the new tools + existing spec-task tools are grantable per Role and that a bot created with them works.
+- [x] Added the `/pm-bot` prompt (`application/prompts/pm_bot.go` + `templates/pm_bot.md`, registered in prompts `builtins.go`): drafts an org-wide PM bot — discover projects via `list_projects`, same-org-only scope, how events arrive (`subject`/`thread_id`/`extra` keys), grant the spec-task + discovery + topic tools, subscribe to the projects' `Spec tasks: <projectId>` topics, drive tasks with `project_id`.
+- [x] Confirmed the project + spec-task tools are grantable per Role and NOT in `BaseReadTools` (`projects_registration_test.go`, `spec_tasks_registration_test.go`).
 
 ## 5. Tests & build
 - [ ] Unit tests: caller org-membership rejection (bot not in org), `resolveProject` (own / named / cross-org rejection), `ownedTask` (cross-org task id rejected), `list_projects`/`get_project` org scoping, `EnsureSpecTaskTopic` idempotency, filter predicate over `.Message.extra`.
