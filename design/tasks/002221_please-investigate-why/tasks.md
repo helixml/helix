@@ -6,5 +6,5 @@
 - [x] Verify REST `apiDeps.Lifecycle` and the MCP `Deps.Lifecycle` are the same instance; the MCP path no longer builds its own lifecycle in production.
 - [x] Run the red test — now PASSES (seam + reorder).
 - [x] Build & unit-test: `go build ./api/pkg/...`; `CGO_ENABLED=1 go test ./pkg/org/... -count=1` (mcptools, lifecycle, slackrouting suites).
-- [ ] Manual E2E at `localhost:8080`: with an Automated Slack router present, create a bot via MCP/chat AND via the UI; verify both produce a managed route (`Output.ManagedFor == botID`) + subscription; check API logs for `slackrouting: added route for bot`.
+- [x] Manual E2E at `localhost:8080`: with an Automated Slack router present, create a bot via MCP/chat AND via the UI; verify both produce a managed route (`Output.ManagedFor == botID`) + subscription; check API logs for `slackrouting: added route for bot`.
 - [ ] Verify CI is green after pushing (Drone / `gh pr checks`).

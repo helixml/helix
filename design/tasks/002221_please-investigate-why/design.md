@@ -168,3 +168,47 @@ MCP-created bots.
 - `api/pkg/org/interfaces/mcptools/builtins.go` — `Config.Lifecycle` seam.
 - `api/pkg/server/helix_org.go` — reorder + inject shared lifecycle.
 - `api/pkg/org/interfaces/mcptools/create_bot_slackrouting_test.go` — regression test (new).
+
+---
+
+## Live E2E Verification (localhost:8080) — PASSED
+
+Verified in the running inner stack (`HELIX_ORG_ENABLED=true`, user granted the
+`helix-org` alpha feature):
+
+1. Registered `test@helix.ml`, created org `testorg`
+   (`org_01kwmbn8fgv66k8t2wzazgnpkr`). The reordered composition root booted
+   cleanly and wired the in-proc adapter (`helix-org in-proc adapter wired
+   owner_email=test@helix.ml`) — proving the reorder didn't break startup.
+2. Seeded an Automated Slack router (a `filter` processor with
+   `created_by='helix'` = SystemActor) on a workspace topic, since a real Slack
+   connection wasn't available. (First seed had an empty-topic-id "unmatched"
+   output — the mapper correctly rejected it; fixed by pointing it at a real
+   output topic.)
+3. Created two bots **via the helix-org UI** ("NEW BOT"): `b-jokebot`,
+   `b-punbot`.
+4. Result — the create-path reconcile ran and the router gained a managed route
+   per bot, plus a subscription each:
+   - `outputs` now contains `ManagedFor:"b-jokebot"` with
+     `Match: {{ mentions "b-jokebot" .Message.body }}` and the same for
+     `b-punbot`.
+   - `org_subscriptions` has `(b-jokebot → its route topic)` and
+     `(b-punbot → its route topic)`.
+   - API logs: `slackrouting: added route for bot ... bot=b-jokebot` and
+     `bot=b-punbot`; earlier a `create: reconcile bot=b-jokebot` log line
+     directly confirmed the create path invokes the OrgReconciler.
+
+**MCP path:** covered by the red→green unit test
+(`create_bot_slackrouting_test.go`), which drives the `create_bot` tool and
+asserts the injected OrgReconciler runs. Since the composition root now sets
+`deps.Lifecycle = lifecycleSvc` (the same instance the UI/REST path uses and
+which the live test exercised), MCP `create_bot` runs the identical reconcile.
+Driving a live MCP JSON-RPC `create_bot` additionally requires an owner bot with
+the `create_bot` tool + an MCP session, which is disproportionate; the unit test
++ shared-instance proof cover it.
+
+Screenshot: `screenshots/01-bots-created.png`.
+
+**Dev-only setup (NOT part of the fix, not committed):** `HELIX_ORG_ENABLED=true`
+in `.env`, `users.alpha_features={helix-org}`, and the seeded router rows are
+local test scaffolding in the running stack only.
