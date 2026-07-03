@@ -384,6 +384,39 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 ```
 
+### Dispatch an investigation to a helix-in-helix spec task (from a local brief)
+When the **outer** instance can't be instrumented — e.g. Air won't hot-reload
+because the repo is a ZFS bind-mount (inotify doesn't cross it), or a headless
+browser/Google-auth is unavailable — hand the whole thing to a spec task. Its
+sandbox is a **full inner Helix at `localhost:8080` where Air hot-reload, Vite
+HMR, and the browser all work**. Do it end-to-end from the CLI, **no branch or
+merge needed** — pass the whole brief straight into the prompt:
+
+```bash
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=<key from api_keys for the session owner>
+
+# Write the brief to a local file (does NOT need to be committed), then:
+/tmp/helix-bin spectask start \
+  --project prj_01kg02vqqyg178c1n2ydscn5fb \
+  --agent app_01kw1n70xs2qq2y4ntzbqqmpff \
+  -n "<task name>" \
+  --prompt "Complete the task below end-to-end, testing live in this inner Helix." \
+  --prompt-file /path/to/brief.md \        # appended after --prompt; no repo commit required
+  --attach /path/to/big.log --attach /path/to/other.log   # repeatable
+```
+`--prompt-file` reads a file straight into the task prompt (skips the write-doc →
+branch → PR → merge dance). You can also just inline it: `--prompt "$(cat brief.md)"`.
+`--attach` (repeatable) uploads files as spec-task **attachments** — the agent
+reads them at `design/tasks/<task>/attachments/<name>` inside the sandbox, so
+non-trivial logfiles/large context go there instead of bloating the prompt.
+
+`spectask start` **provisions a sandbox and the CLI will time out (~short) — the
+task is still created**; confirm via `spec_tasks` (order by `created_at`, not
+`created`) and `docker exec helix-sandbox-nvidia-1 docker ps | grep ubuntu-external-<sid>`.
+Get an API key straight from the DB when `.env.usercreds` is stale:
+`SELECT key, owner FROM api_keys WHERE owner=(SELECT owner FROM sessions WHERE id='ses_…')`.
+
 ### Sandbox Service Names
 - `sandbox-nvidia` (Linux GPU), `sandbox` (Linux no-GPU), `sandbox-macos` (macOS, container: `helix-sandbox-macos-1`)
 
