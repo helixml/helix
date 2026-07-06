@@ -65,6 +65,7 @@ func newStartCommand() *cobra.Command {
 	var promptFile string
 	var attachFiles []string
 	var quiet bool
+	var wait bool
 	var noWait bool
 
 	cmd := &cobra.Command{
@@ -150,21 +151,28 @@ Example workflow:
 				fmt.Printf("✅ Task status: %s\n", task.Status)
 			}
 
-			// The task is created and planning is triggered — that is the durable
-			// outcome of `start`. Blocking to watch the sandbox boot is a
-			// convenience; --no-wait skips it entirely (scripting, or when the
-			// caller only needs the task id).
-			if noWait {
+			// Default: don't block on the sandbox. Creating the task and
+			// triggering planning is the durable outcome; the browser task page
+			// (known at creation time) shows the sandbox provisioning and streams
+			// the desktop as it comes up, so there is nothing for the CLI to wait
+			// on. --wait opts into blocking until the sandbox is up + printing
+			// session-level connect info. (--no-wait is now the default and kept
+			// only as a hidden no-op for back-compat.)
+			shouldWait := wait && !noWait
+			if !shouldWait {
 				if quiet {
 					fmt.Println(taskID)
 				} else {
-					fmt.Printf("\n✅ Task created and planning started: %s\n", taskID)
-					fmt.Printf("   Sandbox is provisioning in the background — check: helix spectask list\n")
+					fmt.Printf("\n✅ Task created — planning started: %s\n", taskID)
+					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+						fmt.Printf("   Open in browser: %s\n", taskURL)
+					}
+					fmt.Printf("   The sandbox provisions in the background; the page shows it loading.\n")
 				}
 				return nil
 			}
 
-			// Poll for session to be created (sandbox takes ~10-15s to start)
+			// --wait: poll for the session to be created (sandbox takes ~10-15s).
 			if !quiet {
 				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
 			}
@@ -172,14 +180,16 @@ Example workflow:
 			if err != nil {
 				// A wait-timeout is NOT a failure of `start`: the task was already
 				// created and is still provisioning (slow image pull / busy host).
-				// Surface the task id and exit 0 rather than a misleading non-zero
-				// error. Real errors (HTTP failures etc.) still hard-fail.
+				// Surface the task id + URL and exit 0 rather than a misleading
+				// non-zero error. Real errors (HTTP failures etc.) still hard-fail.
 				if errors.Is(err, errSandboxWaitTimeout) {
 					if quiet {
 						fmt.Println(taskID)
 					} else {
 						fmt.Printf("\n⏳ Task created (%s) — sandbox still provisioning after 3m.\n", taskID)
-						fmt.Printf("   It keeps booting in the background; check: helix spectask list\n")
+						if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+							fmt.Printf("   Open in browser: %s\n", taskURL)
+						}
 					}
 					return nil
 				}
@@ -210,8 +220,10 @@ Example workflow:
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
-	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
-	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Don't block waiting for the sandbox to boot — create the task, trigger planning, print the task id, and return immediately")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
+	_ = cmd.Flags().MarkHidden("no-wait")
 
 	return cmd
 }
@@ -443,10 +455,28 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Status         string `json:"status"`
+	OrganizationID string `json:"organization_id"`
+	ProjectID      string `json:"project_id"`
+}
+
+// buildTaskURL returns the frontend task-detail page URL, which is known the
+// instant the task is created — no need to wait for the sandbox. Opening it
+// shows the sandbox provisioning and streams the desktop as it comes up.
+// Returns "" if org/project can't be determined (caller prints the id alone).
+func buildTaskURL(apiURL string, task *SpecTask, projectFallback string) string {
+	proj := task.ProjectID
+	if proj == "" {
+		proj = projectFallback
+	}
+	if task.OrganizationID == "" || proj == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+		strings.TrimRight(apiURL, "/"), task.OrganizationID, proj, task.ID)
 }
 
 type Session struct {
