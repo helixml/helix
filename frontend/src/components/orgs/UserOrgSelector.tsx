@@ -281,7 +281,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (!firstAccessibleOrg) return
     const firstOrgSlug = firstAccessibleOrg.name
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, firstOrgSlug)
-    const useRouteName = router.name.startsWith('org_') ? router.name : 'org_projects'
+    const useRouteName = router.name.startsWith('org_') ? router.name : orgLandingRoute(account.user)
     const useParams = Object.assign({}, router.params, { org_id: firstOrgSlug })
     router.navigate(useRouteName, useParams)
   }, [listOrgs, account.user])

@@ -204,7 +204,8 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		},
 	}
 	if state.ProjectID != "" {
-		if _, err := a.Service.GetProject(ctx, state.ProjectID); err != nil {
+		existing, err := a.Service.GetProject(ctx, state.ProjectID)
+		if err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
 				if clearErr := ClearProject(ctx, a.Store, orgID, workerID); clearErr != nil {
 					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
@@ -219,6 +220,27 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		} else {
 			// Project already exists — fast path.
 			//
+			// The project is tracked by ID (state.ProjectID) but ApplyProject
+			// upserts by NAME. When the desired display name has drifted from
+			// the tracked project's current name — an existing worker whose
+			// project predates the `<Bot> @ <Org>` scheme, or an org/bot
+			// rename — a bare ApplyProject would match nothing and FORK an
+			// orphan project, and the settings-drift refresh below would then
+			// target the orphan instead of the live agent app. Rename in place
+			// by ID first so ApplyProject matches the same project.
+			if existing.Name != projectName {
+				renamed := projectName
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Name: &renamed}); err != nil {
+					// Don't fork: skip the by-name refresh this activation and
+					// keep the worker running on its existing project. Retries
+					// next activation.
+					if a.Logger != nil {
+						a.Logger.Warn("project applier: rename to display name failed, skipping refresh to avoid orphan", "worker", workerID, "project", state.ProjectID, "want_name", projectName, "err", err)
+					}
+					a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
+					return state.ProjectID, state.AgentAppID, state.RepoID, nil
+				}
+			}
 			// We DO re-call ApplyProject so worker.* changes (runtime,
 			// credentials, provider, model) made on the Settings page
 			// after this worker was first provisioned propagate to the
