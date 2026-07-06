@@ -246,8 +246,8 @@ type SpecTask struct {
 	// NOTE: Use GORM preloading to load these when needed:
 	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)
 	// swaggerignore prevents circular reference in swagger generation
-	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
-	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
+	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
+	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
 }
