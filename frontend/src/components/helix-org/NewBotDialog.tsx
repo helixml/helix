@@ -5,7 +5,7 @@
 // name but overridable), its content (markdown prompt), and an optional
 // parent bot it reports to.
 
-import { FC, useEffect, useState } from 'react'
+import { FC, useEffect, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -46,13 +46,28 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   }, [open, presetParentId])
 
   const bots = botsData ?? []
+  const existingIds = useMemo(() => new Set(bots.map((b) => b.id)), [bots])
+
+  // Append -1, -2, ... to a base slug until it's free within the org. Matches
+  // the backend's suffix-on-conflict (bots.Create), so the previewed id is what
+  // actually gets stored.
+  const uniqueSlug = (base: string): string => {
+    if (!base || !existingIds.has(base)) return base
+    for (let i = 1; i < 100; i++) {
+      const cand = `${base}-${i}`
+      if (!existingIds.has(cand)) return cand
+    }
+    return base
+  }
 
   // Slugify a display name into a kebab-case handle for the id field, unless
-  // the operator has typed their own id.
+  // the operator has typed their own id. Two bots named the same (e.g. a second
+  // "Chief of Staff") would otherwise derive the same id and collide.
   const onNameChange = (value: string) => {
     setName(value)
     if (!idEdited) {
-      setId(value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''))
+      const base = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      setId(uniqueSlug(base))
     }
   }
 
