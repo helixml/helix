@@ -41,6 +41,13 @@ func (s *WebSocketSyncSuite) SetupTest() {
 	// Allow it anywhere without specific ordering.
 	s.store.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
+	// sendQueuedPromptToSession backfills any design-review comment linked to the
+	// prompt at dispatch (backfillCommentLinkageForPrompt). For non-comment
+	// prompts the lookup returns not-found; allow it anywhere by default. Tests
+	// that exercise a comment-linked prompt override this with a specific expect.
+	s.store.EXPECT().GetCommentByPromptID(gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("record not found")).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{
