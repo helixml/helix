@@ -397,6 +397,21 @@ func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Con
 // Returns the created prompt-history entry ID so callers that need to correlate
 // the eventual response (e.g. the design-review comment path) can link to it.
 func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
+	promptID, err := apiServer.persistQueuedPrompt(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)
+	if err != nil {
+		return "", err
+	}
+	apiServer.nudgeSessionQueue(sessionID)
+	return promptID, nil
+}
+
+// persistQueuedPrompt inserts the pending prompt row synchronously and returns
+// its id, WITHOUT nudging the poller. Callers that must persist a link to the
+// prompt before dispatch runs (the design-review comment path stores
+// comment.PromptID so the dispatch-time backfill can find it) use this + an
+// explicit nudgeSessionQueue once their link is saved, closing the race where
+// the async poller could dispatch before the link exists.
+func (apiServer *HelixAPIServer) persistQueuedPrompt(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("enqueueAgentMessage: sessionID is required")
 	}
@@ -434,12 +449,14 @@ func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessio
 		Str("spec_task_id", specTaskID).
 		Msg("✉️  [QUEUE] Enqueued agent message")
 
-	// Nudge the poller in the background — it dispatches when idle (or cancels
-	// then sends for interrupts). Runs on a detached context so it survives the
-	// caller's request context being cancelled.
-	go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
-
 	return entry.ID, nil
+}
+
+// nudgeSessionQueue asks the session-scoped poller to drain now, in the
+// background. It dispatches when idle (or cancels-then-sends for interrupts).
+// Detached context so it survives the caller's request context being cancelled.
+func (apiServer *HelixAPIServer) nudgeSessionQueue(sessionID string) {
+	go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
 }
 
 // processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)

@@ -400,7 +400,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		// interrupt=true: reviewer-driven feedback should preempt any in-flight agent turn,
 		// matching the comment-queue semantic.
 		message := services.BuildRevisionInstructionPrompt(specTask, req.OverallComment)
-		_, _, err = s.sendMessageToSpecTaskAgent(ctx, specTask, message, user.ID, true)
+		err = s.enqueueSpecTaskAgentMessage(ctx, specTask, message, true, user.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -1238,44 +1238,52 @@ func (s *HelixAPIServer) sendCommentToAgentNow(
 	// Build prompt for agent using the shared helper
 	promptText := services.BuildCommentPrompt(specTask, comment)
 
-	// Send via the unified helper, notifying the commenter of responses.
-	// interactionID is returned directly — avoids the fragile session-based queue
-	// lookup that breaks when the agent's live session differs from PlanningSessionID.
-	// That divergence comes from a user spinning up a separate thread/session in the
-	// Zed UI (handleUserCreatedThread); auto-compaction, by contrast, now summarises
-	// in-place within the same thread and does NOT fork a new session (older Zed builds
-	// did — hence this note). In practice the desktop's anchor connection is the
-	// planning session, so sends still resolve to PlanningSessionID.
-	// interrupt=true: a design-review comment is reactive feedback that should preempt
-	// any in-flight agent turn so the latest input takes priority over stale work.
-	requestID, interactionID, err := s.sendMessageToSpecTaskAgent(ctx, specTask, promptText, comment.CommentedBy, true)
+	// Enqueue onto the session-scoped prompt queue (the single sender path).
+	// interrupt=true: a design-review comment is reactive feedback that should
+	// preempt any in-flight agent turn so the latest input takes priority.
+	// comment.CommentedBy is carried as notifyUserID so the response streams to
+	// the commenter.
+	//
+	// We persist the comment↔prompt link BEFORE nudging the poller (persist +
+	// explicit nudge, not the auto-nudging enqueue) so there is no race where the
+	// async dispatch runs before the link exists. We also stamp comment.RequestID
+	// with the prompt id as a placeholder: the comment queue's in-flight guard
+	// (GetNextQueuedCommentForSession / IsCommentBeingProcessedForSession) keys
+	// off request_id being non-empty, so this stops a second comment dispatching
+	// concurrently in the window before dispatch. backfillCommentLinkageForPrompt
+	// overwrites RequestID/InteractionID with the real interaction id at dispatch,
+	// which is what finalizeCommentResponse / streaming look up.
+	if specTask.PlanningSessionID == "" {
+		return fmt.Errorf("cannot send comment to agent: spec task %s has no planning session", specTask.ID)
+	}
+	promptID, err := s.persistQueuedPrompt(ctx, specTask.PlanningSessionID, promptText, true, comment.CommentedBy, specTask.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("spec_task_id", specTask.ID).
 			Str("comment_id", comment.ID).
-			Msg("Failed to send comment to agent via websocket")
+			Msg("Failed to enqueue comment for agent")
 		return err
 	}
 
-	// Store both IDs on the comment: requestID links to message_completed for finalization,
-	// interactionID lets finalizeCommentResponse copy the streamed response at completion time.
-	comment.RequestID = requestID
-	comment.InteractionID = interactionID
-
+	comment.PromptID = promptID
+	comment.RequestID = promptID // placeholder; backfilled to the interaction id at dispatch
 	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
 		log.Error().
 			Err(err).
 			Str("comment_id", comment.ID).
-			Msg("Failed to update comment with request_id")
-		// Continue anyway - the comment was sent, just won't have response linking
+			Msg("Failed to link comment to queued prompt")
+		// Continue anyway - the prompt is enqueued; without the link the response
+		// just won't finalize onto the comment.
 	}
+
+	s.nudgeSessionQueue(specTask.PlanningSessionID)
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("comment_id", comment.ID).
-		Str("request_id", requestID).
-		Msg("Sent design review comment to agent via websocket (with response mapping)")
+		Str("prompt_id", promptID).
+		Msg("Enqueued design review comment for agent (interrupt=true, response mapping via prompt link)")
 
 	return nil
 }
@@ -1746,100 +1754,4 @@ func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *
 	return err
 }
 
-// sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
-// It handles: finding connected session, generating request ID, setting up response routing, and sending.
-// If no session is connected, sendChatMessageToExternalAgent persists the interaction; the no-WS path
-// triggers autoStartDevContainerForSession and pickupWaitingInteraction delivers on reconnect.
-// Returns (requestID, interactionID, error). Both IDs are needed by callers that track comment responses.
-//
-// interrupt=true tells the agent to cancel its current turn before processing this message. Use it for
-// reactive feedback (design-review comments, request-changes flows). Use false for system-driven
-// instructions (approval kickoff, post-merge push/rebase) that should respect the agent's queue.
-func (s *HelixAPIServer) sendMessageToSpecTaskAgent(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	message string,
-	notifyUserID string, // Optional: user to notify of responses (e.g., commenter). Empty = no extra notification
-	interrupt bool,
-) (string, string, error) {
-	// Find a connected session for this spec task, falling back to PlanningSessionID.
-	// If no session is connected, sendChatMessageToExternalAgent will still create
-	// the interaction. sendCommandToExternalAgent will fail and trigger auto-start;
-	// pickupWaitingInteraction delivers the message when the agent reconnects.
-	sessionID, err := s.findConnectedSessionForSpecTask(ctx, specTask)
-	if err != nil {
-		if specTask.PlanningSessionID == "" {
-			return "", "", fmt.Errorf("no connected session and no planning session ID: %w", err)
-		}
-		log.Info().
-			Str("spec_task_id", specTask.ID).
-			Str("planning_session_id", specTask.PlanningSessionID).
-			Msg("No connected session, falling back to planning session ID — auto-start will be triggered on send")
-		sessionID = specTask.PlanningSessionID
-	}
-
-	return s.sendMessageToSession(ctx, sessionID, message, notifyUserID, interrupt)
-}
-
-// sendMessageToSession is the session-scoped helper for delivering a message to an external agent.
-// It generates a request ID, optionally registers a notify-user mapping for response routing, and
-// calls sendChatMessageToExternalAgent — which persists a Waiting interaction even when no agent
-// WebSocket is connected. If the WS is absent, ErrNoExternalAgentWS is returned wrapped: callers
-// should treat that as "queued, will deliver on reconnect" via pickupWaitingInteraction, not a
-// hard failure. The interactionID is returned even in that case so the caller can correlate
-// responses on /api/v1/ws/user.
-func (s *HelixAPIServer) sendMessageToSession(
-	ctx context.Context,
-	sessionID string,
-	message string,
-	notifyUserID string,
-	interrupt bool,
-) (string, string, error) {
-	_ = ctx // session lookup is delegated to sendChatMessageToExternalAgent
-
-	requestID := "req_" + system.GenerateUUID()
-
-	if notifyUserID != "" {
-		s.contextMappingsMutex.Lock()
-		if s.requestToCommenterMapping == nil {
-			s.requestToCommenterMapping = make(map[string]string)
-		}
-		s.requestToCommenterMapping[requestID] = notifyUserID
-		if s.sessionToCommenterMapping == nil {
-			s.sessionToCommenterMapping = make(map[string]string)
-		}
-		s.sessionToCommenterMapping[sessionID] = notifyUserID
-		s.contextMappingsMutex.Unlock()
-	}
-
-	interactionID, err := s.sendChatMessageToExternalAgent(sessionID, message, requestID, interrupt)
-	if err != nil {
-		// ErrNoExternalAgentWS means the interaction was persisted but no WS was connected.
-		// pickupWaitingInteraction will deliver it on reconnect — surface as success to
-		// the caller, who already has the interactionID for response correlation.
-		if errors.Is(err, ErrNoExternalAgentWS) {
-			log.Info().
-				Str("session_id", sessionID).
-				Str("interaction_id", interactionID).
-				Str("request_id", requestID).
-				Msg("✉️  Queued message for session — no WS connected, will deliver on reconnect")
-			return requestID, interactionID, nil
-		}
-
-		if notifyUserID != "" {
-			s.contextMappingsMutex.Lock()
-			delete(s.requestToCommenterMapping, requestID)
-			s.contextMappingsMutex.Unlock()
-		}
-		return "", "", fmt.Errorf("failed to send message via WebSocket: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("interaction_id", interactionID).
-		Str("request_id", requestID).
-		Msg("✅ Sent message to session agent via WebSocket")
-
-	return requestID, interactionID, nil
-}
 

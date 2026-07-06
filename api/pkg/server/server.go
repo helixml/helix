@@ -588,8 +588,10 @@ func NewServer(
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
-	// Set the message sender callback for SpecDrivenTaskService (for sending messages to agents via WebSocket)
-	apiServer.specDrivenTaskService.SendMessageToAgent = apiServer.sendMessageToSpecTaskAgent
+	// Set the message enqueuer callback for SpecDrivenTaskService — the single
+	// sender path (session-scoped prompt queue). Delivery is deferred until idle
+	// for interrupt=false, or cancel-then-send for interrupt=true.
+	apiServer.specDrivenTaskService.EnqueueMessageToAgent = apiServer.enqueueSpecTaskAgentMessage
 	// Set the exec-in-desktop callback for running commands in containers (e.g., updating git identity)
 	apiServer.specDrivenTaskService.ExecInDesktop = apiServer.execCommandInDesktop
 	// Wire project-secret injection into HydraExecutor so every desktop container
@@ -628,7 +630,7 @@ func NewServer(
 	apiServer.specTaskOrchestrator.SetGoldenBuildService(apiServer.goldenBuildService)
 	apiServer.specTaskOrchestrator.SetEnsurePRsFunc(apiServer.ensurePullRequestsForAllRepos)
 	apiServer.specTaskOrchestrator.SetAttentionService(apiServer.attentionService)
-	apiServer.specTaskOrchestrator.SetCINotifier(services.NewMessageSenderCINotifier(apiServer.sendMessageToSpecTaskAgent))
+	apiServer.specTaskOrchestrator.SetCINotifier(services.NewEnqueueCINotifier(apiServer.enqueueSpecTaskAgentMessage))
 
 	// Recover golden builds that were in progress when the API last restarted.
 	// Re-attaches monitoring goroutines for still-running builds, resets stale ones.

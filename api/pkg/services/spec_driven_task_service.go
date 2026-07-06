@@ -45,7 +45,7 @@ type SpecDrivenTaskService struct {
 	externalAgentExecutor    external_agent.Executor   // Wolf executor for launching external agents
 	gitRepositoryService     *GitRepositoryService     // Service for git repository operations
 	RegisterRequestMapping   RequestMappingRegistrar   // Callback to register request-to-session mappings
-	SendMessageToAgent       SpecTaskMessageSender     // Callback to send messages to agents via WebSocket
+	EnqueueMessageToAgent    SpecTaskMessageEnqueuer   // Callback to enqueue messages onto the session-scoped prompt queue (the single sender path)
 	helixAgentID             string                    // ID of Helix agent for spec generation
 	zedAgentPool             []string                  // Pool of available Zed agents
 	testMode                 bool                      // If true, skip async operations for testing
@@ -1380,7 +1380,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// Send instruction to existing agent session (reuse planning session)
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
-			agentInstructionService := NewAgentInstructionService(s.store, s.SendMessageToAgent, s.koditService)
+			agentInstructionService := NewAgentInstructionService(s.store, s.EnqueueMessageToAgent, s.koditService)
 
 			err := agentInstructionService.SendApprovalInstruction(
 				context.Background(),
@@ -1448,13 +1448,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			return fmt.Errorf("failed to update task for revision: %w", err)
 		}
 
-		// Send revision instruction to existing agent session via WebSocket
-		if s.SendMessageToAgent != nil && !s.testMode {
+		// Send revision instruction to existing agent session via the queue
+		if s.EnqueueMessageToAgent != nil && !s.testMode {
 			go func(t *types.SpecTask, comments string) {
 				message := BuildRevisionInstructionPrompt(t, comments)
 				// interrupt=true: revision instruction is reviewer-driven feedback delivered via the
 				// task-state machine — same semantic as a comment, should preempt in-flight work.
-				_, _, err := s.SendMessageToAgent(context.Background(), t, message, "", true)
+				err := s.EnqueueMessageToAgent(context.Background(), t, message, true, "")
 				if err != nil {
 					log.Error().
 						Err(err).

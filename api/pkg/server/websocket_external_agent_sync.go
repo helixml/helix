@@ -1943,15 +1943,17 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent is the canonical function for sending a message
-// to an external agent. It creates a waiting interaction, enqueues it for response
-// routing, and sends the WebSocket command. All callers that need to send a message
-// to an agent should use this function.
+// sendChatMessageToExternalAgent creates a waiting interaction with a
+// caller-supplied request_id and sends the WebSocket command directly, with no
+// busy-check.
 //
-// interrupt=true tells the agent to cancel its current turn before processing the
-// message, matching the semantic used by prompt-history queue messages. Used for
-// reactive feedback (e.g. design review comments) where the latest input should
-// take priority over in-flight work.
+// PRODUCTION SENDS DO NOT USE THIS. All production message sending now goes
+// through the session-scoped prompt queue (enqueueAgentMessage →
+// processPendingPromptsForSession → sendQueuedPromptToSession), which honours
+// interrupt as defer-until-idle (false) vs cancel-then-send (true). This
+// function is retained ONLY as the low-level primitive the WebSocket-sync e2e
+// test harness drives (test_helpers.go SendChatMessage, used by the cross-repo
+// Zed e2e server which passes its own request_id and asserts routing on it).
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
 	ctx := context.Background()
 
