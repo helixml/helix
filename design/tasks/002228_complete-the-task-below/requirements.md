@@ -1,4 +1,4 @@
-# Requirements: Route Automated Agent Message Senders Through the Prompt Queue
+# Requirements: Unify All Agent Message Sending on the Session-Scoped Prompt Queue
 
 ## Background
 
@@ -10,141 +10,135 @@ discipline.
 - **GOOD — the prompt-queue path** (`prompt_history_entries` rows →
   `processPendingPromptsForIdleSessions` → `processPromptQueue` /
   `processInterruptPrompt` → `sendQueuedPromptToSession`). Honors `interrupt`
-  as first-class: `interrupt=true` cancels the current turn and sends;
-  `interrupt=false` is **held until the latest interaction is not `waiting`**
-  (deferred until idle). Also carries the thread-establishment boot barrier and
-  the orphaned-waiting reap guard (PR #2808).
+  first-class: `interrupt=true` cancels the current turn (respecting the
+  thread-establishment boot barrier) and sends; `interrupt=false` is **held
+  until the latest interaction is not `waiting`** (deferred until idle). Also
+  carries the orphaned-waiting reap guard (PR #2808). Empirically reliable.
+  **But it is spec-task-scoped**: `prompt_history_entries.SpecTaskID` is
+  `NOT NULL` and the poller entry point is keyed on a spec task.
 - **POOR — the direct path** (`sendChatMessageToExternalAgent` →
   `sendMessageToSession` → `sendMessageToSpecTaskAgent`). Creates the waiting
   interaction and emits the `chat_message` **immediately, with no busy-check and
   no deferral**. `interrupt` here only chooses cancel-first (true) vs send-now
   (false); **neither value defers until idle**.
 
-Four automated, non-urgent senders pass `interrupt=false` believing it queues
-behind the in-flight turn. It does not — they fire a concurrent `session/prompt`
-mid-turn, creating a second empty `waiting` interaction that leans on Zed's
-fragile ACP message-pump. This caused a production incident (see attachment
-`2026-07-06-ci-notification-concurrent-turn-mid-turn.md`).
+Everything that is **not** a spec-task queue message uses the poor path — and
+that includes two important classes:
+
+1. **Automated spec-task senders** (CI, post-merge push, rebase, approval) that
+   pass `interrupt=false` believing it queues. It doesn't — they fire a
+   concurrent `session/prompt` mid-turn, stacking a second empty `waiting`
+   interaction. This caused a production incident (attachment
+   `2026-07-06-ci-notification-concurrent-turn-mid-turn.md`).
+2. **Org "bot" / general session sends.** The org runtime's
+   `inProcHelixClient.SendMessage` → `POST /sessions/{id}/messages` →
+   `sendMessageToSession` sends with `interrupt=false` (never set → zero value),
+   on the poor path. Bot activations are serialised per Worker only at
+   *dispatch*, not per *turn* (`SendMessage` is fire-and-forget), so a Worker's
+   next activation can dispatch while its previous turn is still streaming — the
+   same concurrent-mid-turn failure. **Strongly suspected root cause of "bots
+   are unreliable"** (to be confirmed with a live repro).
 
 ## Goal
 
-Converge **all** automated senders onto the robust prompt-queue path, then delete
-the now-dead poor-duplicate direct-dispatch code. On the queue path:
-- `interrupt=false` finally means the same thing everywhere — "defer until the
-  agent is idle" (push, rebase, approval);
-- `interrupt=true` is a proper interrupt — cancel the current turn (respecting
-  the thread-establishment boot barrier), then deliver — used for CI results so
-  the agent learns of pass/fail immediately.
+Make the session-scoped prompt queue the **single way** to send a message to an
+agent. `interrupt` means the same thing everywhere:
+- `interrupt=false` → **defer until the agent is idle** (bots, general sends,
+  push, rebase, approval);
+- `interrupt=true` → **cancel the current turn (boot-safe) then send** (CI
+  results, design-review comments, org transitions, reviewer revision).
 
-Either way, no automated sender ever fires a concurrent `session/prompt` mid-turn
-(the incident), because the queue's `processInterruptPrompt` cancels first rather
-than stacking a second empty `waiting` interaction.
+Then **delete the poor direct-dispatch path entirely** — no fallbacks, no dead
+code (repo rules). No automated sender or bot ever fires a concurrent
+`session/prompt` mid-turn again.
 
 ## User Stories
 
 ### US1 — CI results interrupt cleanly (no concurrent empty interaction)
-As a user watching a spec-task agent work a long turn, when CI passes/fails on a
-PR, I want the CI notification delivered **immediately as a proper interrupt** so
-the agent learns of failing tests straight away — but delivered by cancelling the
-current turn first, never by stacking a second empty `waiting` card behind the
-running one (the incident).
+When CI passes/fails mid-turn, the notification is delivered immediately as a
+proper interrupt (cancel current turn, respecting the boot barrier, then send),
+never as a second empty `waiting` card behind the running one.
 
 **Acceptance criteria**
-- A CI transition fired while the latest interaction is `waiting` triggers a
-  `cancel_current_turn` (with ack wait) and then delivers the CI message — it
-  does **not** create a concurrent second `waiting` interaction alongside the
-  running one.
-- CI results are delivered as an interrupt (`interrupt=true`) via the queue's
-  `processInterruptPrompt`, not the direct-dispatch path.
-- During agent boot (thread not yet established / `ZedThreadID` empty), the CI
-  interrupt is **deferred** by the thread-establishment barrier and delivered
-  into the same thread once established — it never forks a divorced thread
+- CI results enqueue with `interrupt=true`; delivered via `processInterruptPrompt`.
+- During boot (thread not established) the interrupt defers and lands in the same
+  thread once established (no divorced thread).
+- No coalescing — each CI transition is its own interrupt.
+
+### US2 — Post-merge push/rebase & approval respect the queue
+These enqueue with `interrupt=false` and defer while the agent is busy, delivered
+in order once idle.
+
+**Acceptance criteria**
+- Push, rebase, approval are enqueued interrupt=false and deferred while busy.
+
+### US3 — Bot / general session sends defer until idle
+A message sent via `POST /sessions/{id}/messages` (the endpoint org bots use)
+while the agent is mid-turn is **held until the current turn completes**, then
+delivered as the next turn — not dispatched concurrently.
+
+**Acceptance criteria**
+- `sendSessionMessage` enqueues onto the session-scoped queue instead of the
+  direct path.
+- A send to a mid-turn session creates **no** concurrent second `waiting`
+  interaction; it is delivered once idle.
+- If the desktop is stopped/offline, the queued message boots it (existing queue
+  → autostart path) and delivers on reconnect.
+- Org bots (which call this endpoint) inherit this behaviour with no org-runtime
+  code change.
+
+### US4 — Deliberate interrupts still interrupt (via the queue)
+Design-review comment reply, org status transition, and reviewer revision remain
+immediate interrupts — now delivered through the queue's `interrupt=true` path.
+
+**Acceptance criteria**
+- These paths enqueue `interrupt=true` and preempt the current turn.
+- Design-review comment **response routing still works**: the streamed response
+  is attributed to the commenter and finalized onto the comment (re-plumbed to
+  resolve via the interaction's `PromptID` rather than a synchronously-returned
+  request/interaction id).
+- The interrupt-during-boot barrier is not regressed
   (`design/2026-06-19-incident-interrupt-during-boot-context-loss.md`).
-- If the desktop is stopped/offline, the queued CI message boots it cleanly (via
-  the existing queue → `sendCommandToExternalAgent` → autostart path) and is
-  delivered on reconnect — never stranded as a concurrent dispatch.
-- No coalescing: each CI transition is delivered as its own interrupt.
 
-### US2 — Post-merge push/rebase instructions respect the queue
-As a user who approves an implementation while the agent is mid-turn, I want the
-post-merge **push** instruction (and the post-merge-failure **rebase**
-instruction) to queue behind the in-flight turn and deliver when idle.
+### US5 — Exactly one path; direct path deleted
+There is one way to message an agent. The direct path and its wrappers are gone.
 
 **Acceptance criteria**
-- Both instructions are enqueued (interrupt=false) and deferred while busy.
-- They are delivered in order once idle; they are **not** coalesced with each
-  other or with CI results.
-
-### US3 — Approval kickoff respects the queue
-As the system starting the implementation phase, I want the approval kickoff
-instruction to be enqueued so that on the rare occasion the agent is not idle,
-it defers instead of dispatching concurrently.
-
-**Acceptance criteria**
-- `SendApprovalInstruction` enqueues (interrupt=false) rather than dispatching
-  directly.
-- Delivered as the next turn when the agent is idle.
-
-### US4 — Deliberate interrupts still interrupt
-As a reviewer submitting revision feedback / a design-review comment / an org
-status transition, I want my message to interrupt the current turn immediately
-(these are `interrupt=true` today and must stay so).
-
-**Acceptance criteria**
-- `spec_driven_task_service.go:1457`, `spec_tasks_org_wiring.go:34`,
-  `spec_task_design_review_handlers.go:403` & `:1251`, and the user-send endpoint
-  `session_handlers.go:2324` are **unchanged in behaviour**.
-- The interrupt-during-boot barrier
-  (`design/2026-06-19-incident-interrupt-during-boot-context-loss.md`) is not
-  regressed.
-
-### US5 — No dead code / no duplicate deferral mechanism
-As a maintainer, I want the poor-duplicate direct-dispatch path removed once no
-non-interrupt caller reaches it, per repo rules (no fallbacks, clean up dead
-code).
-
-**Acceptance criteria**
-- The three unused instruction methods
-  (`SendImplementationReviewRequest`, `SendRevisionInstruction`,
-  `SendMergeInstruction`) and their now-unused helpers/prompt builders are
-  deleted.
-- `MessageSenderCINotifier` (the direct-sender CI notifier) is replaced by an
-  enqueue-based notifier; the old one is deleted.
-- The direct path is narrowed so `interrupt=false` is no longer reachable from
-  automated senders. What remains of the direct path exists only for genuine
-  `interrupt=true` callers and the user-controlled send endpoint.
-- `CGO_ENABLED=0 go build ./...` passes; no unused symbols remain.
+- `sendChatMessageToExternalAgent`, `sendMessageToSession`,
+  `sendMessageToSpecTaskAgent`, `MessageSenderCINotifier`, and the unused
+  instruction methods (`SendImplementationReviewRequest`,
+  `SendRevisionInstruction`, `SendMergeInstruction`) + their now-unused helpers
+  are deleted.
+- `CGO_ENABLED=0 go build ./...` passes with no unused symbols.
 
 ## Non-Goals
 
-- Rewriting response routing for the `interrupt=true` comment-reply paths (they
-  need a synchronous interactionID + commenter mapping the async queue can't
-  provide). The direct path stays for them.
-- Changing the user-send endpoint `session_handlers.go:2324` (it forwards a
-  user-controlled `interrupt` flag — must be preserved).
-- Changing the offline/reconnect delivery semantics (queue path already handles
-  no-WS via autostart + `pickupWaitingInteraction`).
-
-## Resolved (from review)
-
-- **CI results: interrupt, don't coalesce.** Reviewer confirmed it's useful for
-  agents to learn of failing tests straight away even mid-turn, so CI results are
-  delivered as a proper `interrupt=true` (cancel-then-send via the queue) and
-  **no coalescing** is implemented. (Was Open Question 1/2.)
+- Rewriting the org-graph runtime. We only change the transport underneath its
+  existing `SendMessage`.
+- Changing agent/Zed-side ACP behaviour.
+- A user-facing prompt-history UI for non-spec-task sessions (the rows are just
+  the queue mechanism there).
 
 ## Open Questions
 
-1. **Enqueue target session.** The queue only delivers to the canonical
-   `task.PlanningSessionID` (poller filters non-canonical sessions). The enqueue
-   path will therefore target `PlanningSessionID`, not
-   `findConnectedSessionForSpecTask`. For approval kickoff the reused session is
-   the planning session, so this matches — please confirm no automated sender
-   needs to target a non-planning session.
-2. **User attribution on enqueued rows.** `prompt_history_entries.user_id` is
-   `NOT NULL`. Plan: use `task.CreatedBy` (fallback `task.Owner`). CI results
-   aren't tied to a commenter; is attributing them to the task creator fine?
-3. **Dropping the `interrupt` param from `sendMessageToSpecTaskAgent`.** After
-   migration all its remaining callers pass `true`. Drop the param (hardcode
-   true) for cleanliness, or leave it? (`sendMessageToSession` /
-   `sendChatMessageToExternalAgent` must keep the param for the user-send
-   endpoint.)
+1. **`SpecTaskID` nullable migration.** Plan: make
+   `prompt_history_entries.spec_task_id` nullable so general/bot session rows can
+   omit it. GORM AutoMigrate does not reliably relax `NOT NULL`; confirm we may
+   add an explicit column alter (still AutoMigrate-driven, per repo rules) —
+   acceptable?
+2. **`POST /sessions/{id}/messages` response contract.** It currently returns
+   `{request_id, interaction_id}` synchronously; the queue mints those later.
+   Plan: return the created queue-entry id instead (async handle) and regenerate
+   the API client + update the CLI. Any external consumer that depends on the
+   old fields? (Org runtime ignores the return; need to confirm CLI.)
+3. **Scope/sequencing of the comment-reply reroute.** Migrating the
+   design-review comment path to the queue requires re-plumbing response
+   finalization (notify-user on the row + finalize via `Interaction.PromptID`).
+   This is the most delicate change. Do it in this PR (true "one way"), or land
+   the queue + bot/automated migration first and follow up with the comment
+   reroute? (Recommend: same PR, but flag as the highest-risk piece.)
+4. **Confirm bot causation.** Should I reproduce a live bot-mid-turn overlap
+   (empty concurrent interaction) before/after the change to prove it's *the*
+   cause, not just *a* cause?
+5. **User attribution for enqueued rows.** `user_id` is `NOT NULL`; plan: spec
+   task → `CreatedBy`/`Owner`; general session → `session.Owner`. OK?
