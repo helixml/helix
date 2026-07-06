@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type GetTeamMembershipQuery struct {
 }
 
 // CreateTeamMembership creates a new team membership
-func (s *PostgresStore) CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error) {
+func (s *Store) CreateTeamMembership(ctx context.Context, membership *types.TeamMembership) (*types.TeamMembership, error) {
 	if membership.UserID == "" {
 		return nil, fmt.Errorf("user_id not specified")
 	}
@@ -49,7 +49,7 @@ func (s *PostgresStore) CreateTeamMembership(ctx context.Context, membership *ty
 }
 
 // GetTeamMembership retrieves a team membership by team ID and user ID
-func (s *PostgresStore) GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error) {
+func (s *Store) GetTeamMembership(ctx context.Context, q *GetTeamMembershipQuery) (*types.TeamMembership, error) {
 	if q.TeamID == "" || q.UserID == "" {
 		return nil, fmt.Errorf("team_id and user_id must be specified")
 	}
@@ -70,7 +70,7 @@ func (s *PostgresStore) GetTeamMembership(ctx context.Context, q *GetTeamMembers
 }
 
 // ListTeamMemberships lists team memberships based on query parameters
-func (s *PostgresStore) ListTeamMemberships(ctx context.Context, q *ListTeamMembershipsQuery) ([]*types.TeamMembership, error) {
+func (s *Store) ListTeamMemberships(ctx context.Context, q *ListTeamMembershipsQuery) ([]*types.TeamMembership, error) {
 	query := s.gdb.WithContext(ctx)
 
 	if q.OrganizationID != "" {
@@ -95,7 +95,7 @@ func (s *PostgresStore) ListTeamMemberships(ctx context.Context, q *ListTeamMemb
 }
 
 // DeleteTeamMembership deletes a team membership
-func (s *PostgresStore) DeleteTeamMembership(ctx context.Context, teamID, userID string) error {
+func (s *Store) DeleteTeamMembership(ctx context.Context, teamID, userID string) error {
 	if teamID == "" || userID == "" {
 		return fmt.Errorf("team_id and user_id must be specified")
 	}

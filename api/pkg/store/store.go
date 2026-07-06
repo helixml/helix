@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/license"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/datatypes"
@@ -211,7 +212,9 @@ var _ Store = &PostgresStore{}
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 var (
-	ErrNotFound = errors.New("not found")
+	// ErrNotFound aliases the org subsystem's sentinel so error comparisons
+	// (== / errors.Is) match across the store and orgstore packages.
+	ErrNotFound = orgstore.ErrNotFound
 	ErrMultiple = errors.New("multiple found")
 	ErrConflict = errors.New("conflict")
 )
