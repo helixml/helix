@@ -3,35 +3,35 @@
 ## Make the queue session-scoped
 - [x] Make `prompt_history_entries.SpecTaskID` nullable; add `NotifyUserID` column; add `PromptID` to `SpecTaskDesignReviewComment`
 - [x] Add `CreatePromptHistoryEntry` + `GetCommentByPromptID` to `store.Store` + `PostgresStore`; regenerate `store_mocks.go`
-- [~] Extract `processPendingPromptsForSession(ctx, sessionID)` from `processPendingPromptsForIdleSessions`; keep the spec-task entry (listing + canonical filter) calling it
-- [ ] Implement `enqueueAgentMessage(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)` (resolve owner/project, insert pending row, nudge `processPendingPromptsForSession`; error on empty session)
-- [ ] Add `SpecTaskMessageEnqueuer` callback (`func(ctx, task, message, interrupt bool) error`) in `services/git_http_server.go`; wire `EnqueueMessageToAgent` on `SpecDrivenTaskService` in `server.go`
-- [ ] At dispatch (`sendQueuedPromptToSession`) set `requestToCommenterMapping`/`sessionToCommenterMapping` from the row's `NotifyUserID`
+- [x] Extract `processPendingPromptsForSession(ctx, sessionID)` from `processPendingPromptsForIdleSessions`; keep the spec-task entry (listing + canonical filter) calling it
+- [x] Implement `enqueueAgentMessage(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)` (resolve owner/project, insert pending row, nudge `processPendingPromptsForSession`; error on empty session)
+- [x] Add `SpecTaskMessageEnqueuer` callback (`func(ctx, task, message, interrupt bool) error`) in `services/git_http_server.go`; wire `EnqueueMessageToAgent` on `SpecDrivenTaskService` in `server.go`
+- [x] At dispatch (`sendQueuedPromptToSession`) set `requestToCommenterMapping`/`sessionToCommenterMapping` from the row's `NotifyUserID`
 
 ## Comment-reply: backfill linkage at dispatch (lower-risk, keeps machinery intact)
-- [ ] `sendCommentToAgentNow` enqueues interrupt=true and stores `comment.PromptID`
-- [ ] `sendQueuedPromptToSession` backfills `comment.RequestID`/`InteractionID` via `GetCommentByPromptID(prompt.ID)` after creating the interaction
-- [ ] No change needed to finalize/streaming/timeout/reconcile (they still use RequestID/InteractionID)
+- [x] `sendCommentToAgentNow` enqueues interrupt=true and stores `comment.PromptID`
+- [x] `sendQueuedPromptToSession` backfills `comment.RequestID`/`InteractionID` via `GetCommentByPromptID(prompt.ID)` after creating the interaction
+- [x] No change needed to finalize/streaming/timeout/reconcile (they still use RequestID/InteractionID)
 
 ## Migrate every sender onto enqueue
 - [ ] CI notifier → enqueue interrupt=true (replace `MessageSenderCINotifier`); no coalescing
 - [ ] Push (`spec_task_workflow_handlers.go:213`) → enqueue interrupt=false
 - [ ] Rebase (`:314`) → enqueue interrupt=false
 - [ ] Approval (`agent_instruction_service.go:673`) → enqueue interrupt=false
-- [ ] Comment reply (`spec_task_design_review_handlers.go:1251`) → enqueue interrupt=true
-- [ ] Design-review submit (`:403`) → enqueue interrupt=true
-- [ ] Org transition (`spec_tasks_org_wiring.go:34`) → enqueue interrupt=true
-- [ ] Reviewer revision (`spec_driven_task_service.go:1457`) → enqueue interrupt=true
-- [ ] `sendSessionMessage` (`session_handlers.go:2324`) → enqueue (interrupt from body); org bots inherit the fix, no org-runtime change
+- [x] Comment reply (`spec_task_design_review_handlers.go:1251`) → enqueue interrupt=true
+- [x] Design-review submit (`:403`) → enqueue interrupt=true
+- [x] Org transition (`spec_tasks_org_wiring.go:34`) → enqueue interrupt=true
+- [x] Reviewer revision (`spec_driven_task_service.go:1457`) → enqueue interrupt=true
+- [x] `sendSessionMessage` (`session_handlers.go:2324`) → enqueue (interrupt from body); org bots inherit the fix, no org-runtime change
 
 ## Public API contract
 - [ ] Change `sendSessionMessage` response to return the queue-entry id (async handle); update swagger, run `./stack update_openapi`, update generated client + CLI
 
 ## Delete dead / duplicate code
-- [ ] Delete `sendChatMessageToExternalAgent`, `sendMessageToSession`, `sendMessageToSpecTaskAgent`
-- [ ] Delete `MessageSenderCINotifier` / `NewMessageSenderCINotifier`
-- [ ] Delete `SendImplementationReviewRequest`, `SendRevisionInstruction`, `SendMergeInstruction`, `AgentInstructionService.sendMessage`, `BuildImplementationReviewPrompt`, `BuildMergeInstructionPrompt` (keep `BuildRevisionInstructionPrompt`)
-- [ ] Delete the `messageSender` field from `AgentInstructionService`
+- [x] Delete `sendChatMessageToExternalAgent`, `sendMessageToSession`, `sendMessageToSpecTaskAgent`
+- [x] Delete `MessageSenderCINotifier` / `NewMessageSenderCINotifier`
+- [x] Delete `SendImplementationReviewRequest`, `SendRevisionInstruction`, `SendMergeInstruction`, `AgentInstructionService.sendMessage`, `BuildImplementationReviewPrompt`, `BuildMergeInstructionPrompt` (keep `BuildRevisionInstructionPrompt`)
+- [x] Delete the `messageSender` field from `AgentInstructionService`
 - [ ] Grep each deleted symbol to prove zero references; `CGO_ENABLED=0 go build ./...` clean
 
 ## Testing
