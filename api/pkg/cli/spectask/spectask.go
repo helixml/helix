@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -64,6 +65,7 @@ func newStartCommand() *cobra.Command {
 	var promptFile string
 	var attachFiles []string
 	var quiet bool
+	var noWait bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -148,12 +150,39 @@ Example workflow:
 				fmt.Printf("✅ Task status: %s\n", task.Status)
 			}
 
+			// The task is created and planning is triggered — that is the durable
+			// outcome of `start`. Blocking to watch the sandbox boot is a
+			// convenience; --no-wait skips it entirely (scripting, or when the
+			// caller only needs the task id).
+			if noWait {
+				if quiet {
+					fmt.Println(taskID)
+				} else {
+					fmt.Printf("\n✅ Task created and planning started: %s\n", taskID)
+					fmt.Printf("   Sandbox is provisioning in the background — check: helix spectask list\n")
+				}
+				return nil
+			}
+
 			// Poll for session to be created (sandbox takes ~10-15s to start)
 			if !quiet {
 				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
 			}
 			session, err := waitForTaskSession(apiURL, token, taskID, 3*time.Minute)
 			if err != nil {
+				// A wait-timeout is NOT a failure of `start`: the task was already
+				// created and is still provisioning (slow image pull / busy host).
+				// Surface the task id and exit 0 rather than a misleading non-zero
+				// error. Real errors (HTTP failures etc.) still hard-fail.
+				if errors.Is(err, errSandboxWaitTimeout) {
+					if quiet {
+						fmt.Println(taskID)
+					} else {
+						fmt.Printf("\n⏳ Task created (%s) — sandbox still provisioning after 3m.\n", taskID)
+						fmt.Printf("   It keeps booting in the background; check: helix spectask list\n")
+					}
+					return nil
+				}
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 
@@ -182,6 +211,7 @@ Example workflow:
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
 	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Don't block waiting for the sandbox to boot — create the task, trigger planning, print the task id, and return immediately")
 
 	return cmd
 }
@@ -548,6 +578,12 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	return &task, nil
 }
 
+// errSandboxWaitTimeout is returned by waitForTaskSession when the sandbox did
+// not come up within the poll window. The task itself was already created and
+// is still provisioning, so callers should treat this as a soft outcome (print
+// the task id, exit 0) rather than a hard `start` failure.
+var errSandboxWaitTimeout = errors.New("timeout waiting for sandbox to start")
+
 // waitForTaskSession polls for a session with dev_container_id to be created for the task
 func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
 	deadline := time.Now().Add(timeout)
@@ -595,7 +631,7 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 		time.Sleep(pollInterval)
 	}
 
-	return nil, fmt.Errorf("timeout waiting for sandbox to start (task: %s)", taskID)
+	return nil, fmt.Errorf("%w (task: %s)", errSandboxWaitTimeout, taskID)
 }
 
 func newResumeCommand() *cobra.Command {
