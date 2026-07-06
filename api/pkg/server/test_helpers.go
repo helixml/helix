@@ -113,9 +113,12 @@ func paceChatMessage(sessionID string) {
 	}
 }
 
-// SendChatMessage sends a chat message through the production code path,
-// creating an interaction and sending the WebSocket command. This is the
-// same path used by sendMessageToSpecTaskAgent.
+// SendChatMessage sends a chat message via the low-level
+// sendChatMessageToExternalAgent primitive (creates an interaction with the
+// caller-supplied request_id and sends the WebSocket command). This is a
+// TEST-HARNESS entry point for the WebSocket-sync e2e server, which needs to
+// supply its own request_id and assert routing on it. Production sends go
+// through the session-scoped prompt queue, not this path.
 //
 // Defaults interrupt=false to preserve historical behaviour for the cross-repo
 // e2e test server (zed-repo). Use SendChatMessageWithInterrupt for tests that

@@ -93,13 +93,19 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 		GetSpecTask(gomock.Any(), "task-123").
 		Return(&types.SpecTask{ID: "task-123", PlanningSessionID: sessionID}, nil)
 
+	// The session-scoped processor re-lists the session's prompts to decide
+	// interrupt vs queue.
+	s.store.EXPECT().
+		ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{pendingEntry}, nil).AnyTimes()
+
 	// GetSession for the session (used to load session + check interactions)
 	session := &types.Session{
 		ID:           sessionID,
 		Owner:        "user-1",
 		GenerationID: 0,
 	}
-	// GetSession + ListInteractions called by both processPendingPromptsForIdleSessions
+	// GetSession + ListInteractions called by both processPendingPromptsForSession
 	// (to check if session is idle) AND processPromptQueue (to check if session is busy)
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 	s.store.EXPECT().
@@ -137,6 +143,10 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Id
 	s.store.EXPECT().
 		GetSpecTask(gomock.Any(), "task-456").
 		Return(&types.SpecTask{ID: "task-456", PlanningSessionID: sessionID}, nil)
+
+	s.store.EXPECT().
+		ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{pendingEntry}, nil)
 
 	session := &types.Session{
 		ID:           sessionID,
@@ -180,6 +190,10 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 		GetSpecTask(gomock.Any(), "task-789").
 		Return(&types.SpecTask{ID: "task-789", PlanningSessionID: sessionID}, nil)
 
+	s.store.EXPECT().
+		ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{pendingEntry}, nil)
+
 	session := &types.Session{
 		ID:           sessionID,
 		Owner:        "user-1",
@@ -201,6 +215,79 @@ func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForIdleSessions_Bu
 	// (gomock enforces this automatically — any unexpected call fails the test)
 
 	s.server.processPendingPromptsForIdleSessions(context.Background(), "task-789")
+}
+
+// TestPersistQueuedPrompt_CreatesRowWithFields verifies the enqueue primitive
+// writes a pending row keyed on the session with the right interrupt / notify /
+// spec-task / owner fields, and returns the generated prompt id.
+func (s *PromptHistoryHandlersSuite) TestPersistQueuedPrompt_CreatesRowWithFields() {
+	sessionID := "ses_enq"
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).
+		Return(&types.Session{ID: sessionID, Owner: "user-9", ProjectID: "prj_1"}, nil)
+
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().
+		CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
+		})
+
+	promptID, err := s.server.persistQueuedPrompt(context.Background(), sessionID, "hello agent", true, "commenter-1", "spt_1")
+	s.Require().NoError(err)
+	s.Require().NotEmpty(promptID)
+	s.Require().NotNil(captured)
+	s.Equal(promptID, captured.ID)
+	s.Equal(sessionID, captured.SessionID)
+	s.Equal("user-9", captured.UserID)
+	s.Equal("spt_1", captured.SpecTaskID)
+	s.Equal("commenter-1", captured.NotifyUserID)
+	s.True(captured.Interrupt)
+	s.Equal("pending", captured.Status)
+}
+
+// TestPersistQueuedPrompt_RequiresSession verifies the enqueue primitive rejects
+// an empty session id rather than silently dropping the message.
+func (s *PromptHistoryHandlersSuite) TestPersistQueuedPrompt_RequiresSession() {
+	_, err := s.server.persistQueuedPrompt(context.Background(), "", "msg", false, "", "")
+	s.Require().Error(err)
+}
+
+// TestProcessPendingPromptsForSession_BusyInterrupt_ThreadNotEstablished_Defers
+// verifies the thread-establishment boot barrier: an interrupt for a busy
+// session whose Zed thread does not yet exist is deferred (no dispatch), so it
+// can't fork a divorced thread.
+func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusyInterrupt_ThreadNotEstablished_Defers() {
+	sessionID := "ses_boot_interrupt"
+	entry := &types.PromptHistoryEntry{ID: "p1", SessionID: sessionID, Status: "pending", Interrupt: true}
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{entry}, nil)
+	// Session busy (waiting), no ZedThreadID → boot barrier defers.
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).
+		Return(&types.Session{ID: sessionID}, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{{ID: "int1", State: types.InteractionStateWaiting}}, int64(1), nil)
+	// GetNextInterruptPrompt must NOT be called (deferred). gomock enforces.
+	s.server.processPendingPromptsForSession(context.Background(), sessionID)
+}
+
+// TestProcessPendingPromptsForSession_BusyInterrupt_ThreadEstablished_Interrupts
+// verifies that once the thread exists, a busy-session interrupt is dispatched
+// via processInterruptPrompt (cancel-then-send).
+func (s *PromptHistoryHandlersSuite) TestProcessPendingPromptsForSession_BusyInterrupt_ThreadEstablished_Interrupts() {
+	sessionID := "ses_est_interrupt"
+	entry := &types.PromptHistoryEntry{ID: "p1", SessionID: sessionID, Status: "pending", Interrupt: true}
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).
+		Return([]*types.PromptHistoryEntry{entry}, nil)
+	session := &types.Session{ID: sessionID}
+	session.Metadata.ZedThreadID = "thread-abc" // established
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
+		Return([]*types.Interaction{{ID: "int1", State: types.InteractionStateWaiting}}, int64(1), nil)
+	// Busy + established → processInterruptPrompt runs; GetNextInterruptPrompt
+	// returning nil stops it cleanly. Its being CALLED proves we didn't defer.
+	s.store.EXPECT().GetNextInterruptPrompt(gomock.Any(), sessionID).Return(nil, nil)
+	s.server.processPendingPromptsForSession(context.Background(), sessionID)
 }
 
 // TestMarkCanonicalSessionStartingForSync_NoWS_MarksStarting verifies that
