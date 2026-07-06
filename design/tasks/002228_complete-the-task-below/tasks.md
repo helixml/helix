@@ -1,18 +1,17 @@
 # Implementation Tasks: Unify All Agent Message Sending on the Session-Scoped Prompt Queue
 
 ## Make the queue session-scoped
-- [ ] Make `prompt_history_entries.SpecTaskID` nullable (AutoMigrate; add explicit column alter if AutoMigrate won't relax NOT NULL)
-- [ ] Add `NotifyUserID` column to `prompt_history_entries` (for interrupt=true comment-reply streaming)
-- [ ] Add `CreatePromptHistoryEntry(ctx, *types.PromptHistoryEntry) error` to `store.Store` + `PostgresStore`; regenerate `store_mocks.go`
+- [~] Make `prompt_history_entries.SpecTaskID` nullable; add `NotifyUserID` column; add `PromptID` to `SpecTaskDesignReviewComment`
+- [ ] Add `CreatePromptHistoryEntry` + `GetCommentByPromptID` to `store.Store` + `PostgresStore`; regenerate `store_mocks.go`
 - [ ] Extract `processPendingPromptsForSession(ctx, sessionID)` from `processPendingPromptsForIdleSessions`; keep the spec-task entry (listing + canonical filter) calling it
 - [ ] Implement `enqueueAgentMessage(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)` (resolve owner/project, insert pending row, nudge `processPendingPromptsForSession`; error on empty session)
 - [ ] Add `SpecTaskMessageEnqueuer` callback (`func(ctx, task, message, interrupt bool) error`) in `services/git_http_server.go`; wire `EnqueueMessageToAgent` on `SpecDrivenTaskService` in `server.go`
 - [ ] At dispatch (`sendQueuedPromptToSession`) set `requestToCommenterMapping`/`sessionToCommenterMapping` from the row's `NotifyUserID`
 
-## Re-plumb comment-reply finalization (highest risk — see Open Q3)
-- [ ] Link comment → prompt at enqueue (store prompt id on the comment)
-- [ ] Resolve finalization at `message_completed` via `Interaction.PromptID` → comment; copy `ResponseMessage`
-- [ ] Preserve the existing finalize safety nets (auto_wake, terminal-without-finalize fallbacks)
+## Comment-reply: backfill linkage at dispatch (lower-risk, keeps machinery intact)
+- [ ] `sendCommentToAgentNow` enqueues interrupt=true and stores `comment.PromptID`
+- [ ] `sendQueuedPromptToSession` backfills `comment.RequestID`/`InteractionID` via `GetCommentByPromptID(prompt.ID)` after creating the interaction
+- [ ] No change needed to finalize/streaming/timeout/reconcile (they still use RequestID/InteractionID)
 
 ## Migrate every sender onto enqueue
 - [ ] CI notifier → enqueue interrupt=true (replace `MessageSenderCINotifier`); no coalescing

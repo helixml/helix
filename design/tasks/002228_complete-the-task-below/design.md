@@ -86,19 +86,25 @@ Add `NotifyUserID` to `prompt_history_entries`. At dispatch,
 `sessionToCommenterMapping[sessionID]` from the row (today `sendMessageToSession`
 does this synchronously). This preserves design-review response streaming.
 
-### 6. Re-plumb comment-reply finalization to resolve via PromptID
-Today `sendCommentToAgentNow` stores `comment.RequestID`/`InteractionID`
-synchronously and `finalizeCommentResponse(requestID)` →
-`GetCommentByRequestID`. In the queue path `requestID == interaction.ID`, minted
-at dispatch, and the interaction already persists `PromptID`. Change:
-- enqueue the comment (interrupt=true) and link comment → prompt (store the
-  prompt id on the comment);
-- at `message_completed`, resolve interaction → `PromptID` → comment and finalize
-  by copying `interaction.ResponseMessage`.
-This removes the need for a synchronously-returned request/interaction id and is
-what lets the direct path die. **Highest-risk change** — the finalize logic has
-several safety nets (`auto_wake`, terminal-without-finalize fallbacks) that must
-be kept working. (See Open Q3 on sequencing.)
+### 6. Comment-reply: BACKFILL the linkage at dispatch (chosen, lower-risk)
+The comment subsystem's reliability machinery (`finalizeCommentResponse`,
+`updateCommentWithStreamingResponse`, `reconcileStuckInFlightComment`,
+`handleCommentTimeout`) all key off `comment.RequestID` / `comment.InteractionID`.
+Rather than rewrite all of that to resolve via `PromptID` (high risk), we keep
+those fields as the linkage and **populate them at dispatch** instead of at the
+old synchronous send:
+- add `PromptID` to `SpecTaskDesignReviewComment`;
+- `sendCommentToAgentNow` enqueues (interrupt=true), gets the prompt id back, and
+  stores `comment.PromptID` (does NOT set RequestID/InteractionID yet);
+- in `sendQueuedPromptToSession`, right after `CreateInteraction` (requestID ==
+  interaction.ID, `interaction.PromptID` set), call a single generic backfill:
+  `GetCommentByPromptID(prompt.ID)` → if found, set `comment.RequestID` /
+  `comment.InteractionID` = interaction id and save.
+Result: every existing comment safety-net keeps working **unchanged**; the two
+fields are just set at dispatch (before any streaming/completion) rather than at
+the old synchronous send. This is the same WS-layer↔comment coupling that already
+exists (`finalizeCommentResponse` is already called from `handleMessageCompleted`).
+Add store `GetCommentByPromptID`.
 
 ### 7. Migrate every sender onto enqueue
 | Sender | interrupt | notes |
