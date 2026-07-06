@@ -1,9 +1,9 @@
 # Implementation Tasks: Unify All Agent Message Sending on the Session-Scoped Prompt Queue
 
 ## Make the queue session-scoped
-- [~] Make `prompt_history_entries.SpecTaskID` nullable; add `NotifyUserID` column; add `PromptID` to `SpecTaskDesignReviewComment`
-- [ ] Add `CreatePromptHistoryEntry` + `GetCommentByPromptID` to `store.Store` + `PostgresStore`; regenerate `store_mocks.go`
-- [ ] Extract `processPendingPromptsForSession(ctx, sessionID)` from `processPendingPromptsForIdleSessions`; keep the spec-task entry (listing + canonical filter) calling it
+- [x] Make `prompt_history_entries.SpecTaskID` nullable; add `NotifyUserID` column; add `PromptID` to `SpecTaskDesignReviewComment`
+- [x] Add `CreatePromptHistoryEntry` + `GetCommentByPromptID` to `store.Store` + `PostgresStore`; regenerate `store_mocks.go`
+- [~] Extract `processPendingPromptsForSession(ctx, sessionID)` from `processPendingPromptsForIdleSessions`; keep the spec-task entry (listing + canonical filter) calling it
 - [ ] Implement `enqueueAgentMessage(ctx, sessionID, message, interrupt, notifyUserID, specTaskID)` (resolve owner/project, insert pending row, nudge `processPendingPromptsForSession`; error on empty session)
 - [ ] Add `SpecTaskMessageEnqueuer` callback (`func(ctx, task, message, interrupt bool) error`) in `services/git_http_server.go`; wire `EnqueueMessageToAgent` on `SpecDrivenTaskService` in `server.go`
 - [ ] At dispatch (`sendQueuedPromptToSession`) set `requestToCommenterMapping`/`sessionToCommenterMapping` from the row's `NotifyUserID`
