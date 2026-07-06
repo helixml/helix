@@ -654,8 +654,11 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_SwitchUserToGlobal() 
 	s.store.EXPECT().UpdateProviderEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, ep *types.ProviderEndpoint) (*types.ProviderEndpoint, error) {
 			s.Equal(types.ProviderEndpointTypeGlobal, ep.EndpointType)
-			s.Equal(string(types.OwnerTypeSystem), ep.Owner)
-			s.Equal(types.OwnerTypeSystem, ep.OwnerType)
+			// Owner must stay the admin creator, NOT be reassigned to "system".
+			// Reassigning to "system" made the row look like a synthetic env-var
+			// endpoint and stranded it as read-only in the UI.
+			s.Equal("admin_id", ep.Owner)
+			s.Equal(types.OwnerTypeUser, ep.OwnerType)
 			return ep, nil
 		})
 
@@ -700,6 +703,48 @@ func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotSwitchT
 		Name:         "my-endpoint",
 		EndpointType: types.ProviderEndpointTypeGlobal,
 		BaseURL:      "http://localhost:11434",
+	}
+	body, _ := json.Marshal(update)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/provider-endpoints/"+endpointID, bytes.NewReader(body))
+	req = req.WithContext(s.authCtx)
+	req = mux.SetURLVars(req, map[string]string{"id": endpointID})
+
+	rr := httptest.NewRecorder()
+	s.server.updateProviderEndpoint(rr, req)
+
+	s.Equal(http.StatusForbidden, rr.Code)
+	s.Contains(rr.Body.String(), "Only admins can update global endpoints")
+}
+
+// A non-admin who owns a global endpoint (e.g. one an admin switched to global,
+// which now retains the original owner) must not be able to edit it, even via a
+// request that omits endpoint_type. The gate keys on the stored row's type.
+func (s *ProviderHandlersSuite) TestUpdateProviderEndpoint_NonAdminCannotEditGlobal() {
+	s.server.Cfg.Providers.EnableCustomUserProviders = true
+	endpointID := "ep_123"
+
+	existing := &types.ProviderEndpoint{
+		ID:           endpointID,
+		Name:         "my-endpoint",
+		BaseURL:      "http://localhost:11434",
+		Owner:        "user_id",
+		OwnerType:    types.OwnerTypeUser,
+		EndpointType: types.ProviderEndpointTypeGlobal,
+	}
+
+	s.store.EXPECT().GetSystemSettings(gomock.Any()).Return(&types.SystemSettings{
+		ProvidersManagementEnabled: true,
+	}, nil)
+	s.store.EXPECT().GetProviderEndpoint(gomock.Any(), &store.GetProviderEndpointsQuery{
+		ID: endpointID,
+	}).Return(existing, nil)
+
+	// Payload deliberately omits endpoint_type — the attack that skipped the old
+	// payload-only gate.
+	update := types.UpdateProviderEndpoint{
+		Name:    "my-endpoint",
+		BaseURL: "http://evil.example.com",
 	}
 	body, _ := json.Marshal(update)
 
