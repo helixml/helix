@@ -42,6 +42,6 @@
 - [x] Verify boot barrier + PR #2808 reap preserved (unit-tested; shared code path proven live)
 
 ## Ship
-- [ ] Branch off `main`, conventional commits, regular merge (never squash)
-- [ ] Push, check Drone CI yourself, fix forward until green
-- [ ] PR references https://github.com/helixml/helix/pull/2808 and calls out: session-scoped queue, bot fix, deleted direct path, API contract change
+- [x] Branch off `main`, conventional commits (regular merge at PR time — never squash)
+- [~] Pushed to feature branch. Drone CI runs when the PR is opened by the platform (branch not on GitHub until then); local build + unit tests + live E2E all green
+- [x] PR description (pull_request_helix.md) references https://github.com/helixml/helix/pull/2808 and calls out session-scoped queue, bot fix, deleted direct path, API contract change
