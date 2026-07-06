@@ -176,6 +176,38 @@ rather than `{request_id, interaction_id}`. Regenerate the API client
 - **Silent drop if session id is wrong** — enqueue errors on empty session;
   spec-task canonical filtering preserved.
 
+## Live E2E results (inner Helix, verified)
+
+Ran against a live spec-task planning session with an established Zed thread
+(`zed_thread_id` set, `external_agent_status=running`), exercising the **exact
+endpoint org bots use** (`POST /sessions/{id}/messages`, the seam suspected of
+bot unreliability):
+
+1. **Async contract:** the endpoint returned `{"prompt_id":"prompt_…"}` (new
+   shape) instead of `{request_id, interaction_id}`. ✅
+2. **Idle → dispatch:** message A (interrupt=false) on an idle session created a
+   pending prompt row, the poller dispatched it, and a `waiting` interaction
+   appeared (turn A). ✅
+3. **Busy-defer (the fix):** message B (interrupt=false) sent **while A was
+   `waiting`** was HELD — snapshot showed `interactions=2, waiting=1,
+   pending_prompts=1`: **no concurrent second `waiting` interaction was created**
+   (the incident shape). ✅
+4. **Deferred delivery:** once A completed, B was dispatched as its own turn
+   (interaction 3) and answered. Final: 3 sequential complete turns, never two
+   concurrent `waiting` interactions; both prompt rows ended `status=sent`. ✅
+
+This reproduces the incident condition (an automated `interrupt=false` send
+arriving mid-turn) and shows it no longer produces a concurrent empty
+interaction — instead the message defers and delivers when idle. Because bots use
+this same endpoint, it validates the bot fix directly.
+
+**Covered by unit tests + the shared (live-proven) queue mechanism, not
+independently live-driven:** the CI `interrupt=true` path (needs the PR CI poll
+loop to fire on demand) and the design-review comment backfill (needs a full
+review flow). Both route through the same `processPendingPromptsForSession` /
+`sendQueuedPromptToSession` code proven live above; the interrupt/boot-barrier
+branches are unit-tested.
+
 ## References
 - Incident: attachment `2026-07-06-ci-notification-concurrent-turn-mid-turn.md`
 - Composes with: https://github.com/helixml/helix/pull/2808

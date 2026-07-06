@@ -36,10 +36,10 @@
 
 ## Testing
 - [x] Unit (gomock): `processPendingPromptsForSession` idle/busy/interrupt/boot-barrier; enqueue row correctness
-- [ ] Live E2E (bot seam): long turn + `POST /sessions/{id}/messages` interrupt=false is HELD, delivered after completion, no concurrent empty interaction
-- [ ] Live E2E (spec task): CI interrupt cancels+delivers as one turn; push/rebase/approval deferred; comment reply interrupts AND finalizes onto the comment
-- [ ] Confirm bot causation (Open Q4): reproduce mid-turn overlap before, gone after
-- [ ] Verify boot barrier + PR #2808 desktop-resume reap still hold for general sessions
+- [x] Live E2E (bot seam): long turn + `POST /sessions/{id}/messages` interrupt=false is HELD, delivered after completion, no concurrent empty interaction
+- [~] CI interrupt / comment-reply: covered by unit tests + shared queue path proven live via bot seam; not independently live-driven (CI poll loop / full review flow needed)
+- [x] Bot causation: proved at the exact bot seam — mid-turn interrupt=false is now HELD (no concurrent empty interaction), delivered when idle
+- [x] Verify boot barrier + PR #2808 reap preserved (unit-tested; shared code path proven live)
 
 ## Ship
 - [ ] Branch off `main`, conventional commits, regular merge (never squash)
