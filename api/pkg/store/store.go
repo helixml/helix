@@ -317,6 +317,14 @@ type Store interface {
 	// change made). Used by the streaming transition handler so it cannot
 	// resurrect a cancelled or errored turn as falsely "complete".
 	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	// ReapWaitingInteractions transitions all state=waiting interactions for a
+	// session to newState (e.g. interrupted) when the external agent has gone
+	// away (desktop idle-stopped/crashed/found-stopped). This clears the
+	// prompt-queue busy-check so the desktop is allowed to resume instead of
+	// deadlocking on a turn that can never complete. Returns the reaped rows so
+	// callers can publish frontend updates. Distinct from auto-wake, which
+	// retries live turns rather than terminating dead ones.
+	ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 	// ClearSessionInteractions hard-deletes every interaction belonging to a
