@@ -115,6 +115,13 @@ type WorkerProject struct {
 	Store       *store.Store
 	HelixOrgURL string
 	OrgID       string
+	// OrgDisplayName is the org's human label, used to build the
+	// project's display name (`<Bot> @ <Org>`). The host resolves it
+	// from the main store and stamps it here; empty falls back to a
+	// bare bot label. Both the owner-chat applier and the spawner MUST
+	// set it identically — the project is upserted by name, so a
+	// divergent value would create a duplicate project.
+	OrgDisplayName string
 	// Runtime overrides the default `zed_agent` runtime constant.
 	// Empty means "use the package-level Runtime const" (zed_agent),
 	// which routes inference back through Helix and honours
@@ -165,6 +172,18 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if runtime == "" {
 		runtime = Runtime
 	}
+	// Project display name: `<Bot> @ <Org>` (e.g. "Chief of Staff @ Acme")
+	// rather than the bare slug. bot.Name may be empty (fall back to the
+	// ID); OrgDisplayName may be empty in bare/test wirings (fall back to
+	// just the bot label). Deterministic so upsert-by-name stays idempotent.
+	botLabel := bot.Name
+	if botLabel == "" {
+		botLabel = string(bot.ID)
+	}
+	projectName := botLabel
+	if a.OrgDisplayName != "" {
+		projectName = fmt.Sprintf("%s @ %s", botLabel, a.OrgDisplayName)
+	}
 	applyReq := types.ProjectApplyRequest{
 		// Scope the project to the org this Ensure call was invoked for,
 		// not the struct's OrgID field. They are normally equal, but a
@@ -172,7 +191,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		// from frozen config) must not be able to apply one org's project
 		// into another — the org parameter is the authority here.
 		OrganizationID: orgID,
-		Name:           string(workerID),
+		Name:           projectName,
 		Spec: types.ProjectSpec{
 			Description: bot.Content,
 			Agent: &types.ProjectAgentSpec{

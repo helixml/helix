@@ -42,6 +42,7 @@ import { styled, keyframes } from '@mui/material/styles'
 import LoginRegisterDialog from './LoginRegisterDialog'
 import { TypesAuthProvider } from '../../api/api'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 
 // Shimmer animation for login button
@@ -288,7 +289,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Handle org select, also remember the last org user has been in
   const handleOrgSelect = (orgSlug: string) => {
     localStorage.setItem(SELECTED_ORG_STORAGE_KEY, orgSlug)
-    router.navigate('org_projects', { org_id: orgSlug })
+    router.navigate(orgLandingRoute(account.user), { org_id: orgSlug })
     setDialogOpen(false)
   }
 
