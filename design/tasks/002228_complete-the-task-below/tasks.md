@@ -25,17 +25,17 @@
 - [x] `sendSessionMessage` (`session_handlers.go:2324`) → enqueue (interrupt from body); org bots inherit the fix, no org-runtime change
 
 ## Public API contract
-- [ ] Change `sendSessionMessage` response to return the queue-entry id (async handle); update swagger, run `./stack update_openapi`, update generated client + CLI
+- [x] Change `sendSessionMessage` response to return the queue-entry id (async handle); update swagger, run `./stack update_openapi`, update generated client + CLI
 
 ## Delete dead / duplicate code
-- [x] Delete `sendChatMessageToExternalAgent`, `sendMessageToSession`, `sendMessageToSpecTaskAgent`
+- [x] Delete production direct wrappers `sendMessageToSession`, `sendMessageToSpecTaskAgent` (no prod callers). KEPT `sendChatMessageToExternalAgent` — it is production-unreachable now but is the low-level primitive the cross-repo Zed WS-sync e2e harness drives via `test_helpers.SendChatMessage` (passes its own request_id and asserts routing); deleting it would require rewriting the pinned zed e2e server. Documented as test-harness-only.
 - [x] Delete `MessageSenderCINotifier` / `NewMessageSenderCINotifier`
 - [x] Delete `SendImplementationReviewRequest`, `SendRevisionInstruction`, `SendMergeInstruction`, `AgentInstructionService.sendMessage`, `BuildImplementationReviewPrompt`, `BuildMergeInstructionPrompt` (keep `BuildRevisionInstructionPrompt`)
 - [x] Delete the `messageSender` field from `AgentInstructionService`
-- [ ] Grep each deleted symbol to prove zero references; `CGO_ENABLED=0 go build ./...` clean
+- [x] Grep each deleted symbol to prove zero references; `CGO_ENABLED=0 go build ./...` clean
 
 ## Testing
-- [ ] Unit (gomock): `processPendingPromptsForSession` idle/busy/interrupt/boot-barrier; enqueue row correctness
+- [x] Unit (gomock): `processPendingPromptsForSession` idle/busy/interrupt/boot-barrier; enqueue row correctness
 - [ ] Live E2E (bot seam): long turn + `POST /sessions/{id}/messages` interrupt=false is HELD, delivered after completion, no concurrent empty interaction
 - [ ] Live E2E (spec task): CI interrupt cancels+delivers as one turn; push/rebase/approval deferred; comment reply interrupts AND finalizes onto the comment
 - [ ] Confirm bot causation (Open Q4): reproduce mid-turn overlap before, gone after
