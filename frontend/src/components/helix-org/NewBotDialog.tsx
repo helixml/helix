@@ -46,7 +46,13 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   }, [open, presetParentId])
 
   const bots = botsData ?? []
-  const existingIds = useMemo(() => new Set(bots.map((b) => b.id)), [bots])
+  // Keyed on botsData (not the freshly-allocated `bots`) so it's stable while
+  // the query is loading and recomputes once, when the list arrives.
+  const existingIds = useMemo(() => new Set((botsData ?? []).map((b) => b.id)), [botsData])
+
+  // Slugify a display name into a kebab-case handle.
+  const slugify = (v: string): string =>
+    v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
   // Append -1, -2, ... to a base slug until it's free within the org. Matches
   // the backend's suffix-on-conflict (bots.Create), so the previewed id is what
@@ -60,16 +66,24 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
     return base
   }
 
-  // Slugify a display name into a kebab-case handle for the id field, unless
-  // the operator has typed their own id. Two bots named the same (e.g. a second
-  // "Chief of Staff") would otherwise derive the same id and collide.
+  // Auto-derive the id from the name, unless the operator typed their own. Two
+  // bots named the same (e.g. a second "Chief of Staff") would otherwise derive
+  // the same id and collide.
   const onNameChange = (value: string) => {
     setName(value)
     if (!idEdited) {
-      const base = value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-      setId(uniqueSlug(base))
+      setId(uniqueSlug(slugify(value)))
     }
   }
+
+  // Re-derive the id once the org's bot list loads: if the user typed the name
+  // before useListHelixOrgBots resolved, the first derivation saw an empty set
+  // and may under-count collisions. Only while the id is still auto-derived.
+  useEffect(() => {
+    if (idEdited || !name) return
+    setId(uniqueSlug(slugify(name)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingIds])
 
   const submit = async () => {
     const trimmedId = id.trim()
