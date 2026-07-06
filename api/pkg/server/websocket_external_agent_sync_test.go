@@ -1168,8 +1168,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 // error to a legacy HTTP-streaming response channel that doesn't exist for
 // WebSocket-driven chat — the interaction was silently left in Waiting, then
 // handleMessageCompleted's empty-response branch overwrote it with the
-// generic "Agent returned empty response (message bounced or content lost).
-// The prompt will be retried." which buries the actual cause.
+// generic "Agent unresponsive: it returned an empty response. Retrying
+// automatically." which buries the actual cause.
 //
 // This test pins the desired behaviour: when an active interaction exists for
 // the failing request_id, the agent's error message MUST land on the

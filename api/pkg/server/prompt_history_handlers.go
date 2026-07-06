@@ -14,6 +14,43 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// desktopResumeReapStaleThreshold is how long a state=waiting interaction with
+// no live WebSocket must have been idle before the queue-side liveness guard
+// treats it as an orphan (agent gone) and reaps it so the desktop can resume.
+// Sized above the auto-wake stuck threshold (180s) so a genuinely in-flight or
+// mid-boot turn is never mistaken for a dead one.
+const desktopResumeReapStaleThreshold = 3 * time.Minute
+
+// isOrphanedWaitingInteraction reports whether `latest` (the newest interaction
+// of `session`) is a state=waiting turn whose external agent has gone away and
+// will therefore never complete — the case that deadlocks the prompt-queue
+// busy-check and stops the desktop from resuming. Pure so it can be unit-tested
+// exhaustively against every branch of the boot/live/orphan matrix.
+//
+// All must hold to classify as orphaned (any failing → treat as busy, defer):
+//   - latest is state=waiting (nothing else can be actively streaming);
+//   - no live WebSocket to the agent (wsLive=false) — a live turn keeps one;
+//   - the thread is already established (ZedThreadID set) — an empty ZedThreadID
+//     is the very-first-message boot race, which must never be reaped (mirrors
+//     the THREAD-ESTABLISHMENT BARRIER in processPendingPromptsForIdleSessions);
+//   - the turn has been idle past desktopResumeReapStaleThreshold — a freshly
+//     created / mid-boot in-flight turn is protected by the staleness window.
+func isOrphanedWaitingInteraction(session *types.Session, latest *types.Interaction, wsLive bool, now time.Time) bool {
+	if session == nil || latest == nil {
+		return false
+	}
+	if latest.State != types.InteractionStateWaiting {
+		return false
+	}
+	if wsLive {
+		return false
+	}
+	if session.Metadata.ZedThreadID == "" {
+		return false
+	}
+	return now.Sub(latest.Updated) > desktopResumeReapStaleThreshold
+}
+
 // @Summary Sync prompt history
 // @Description Sync prompt history entries from the frontend (union merge - no deletes)
 // @Tags PromptHistory
@@ -279,10 +316,51 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 				apiServer.processInterruptPrompt(ctx, sessionID)
 			}
 		} else {
-			log.Debug().
-				Str("session_id", sessionID).
-				Int("queue_count", pending.queueCount).
-				Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
+			// Liveness guard for the busy branch. A Waiting latest interaction
+			// normally means an agent is actively streaming a turn, so we defer
+			// the queue until message_completed. BUT if the agent has gone away
+			// (desktop idle-stopped / crashed / restarted) that completion never
+			// arrives: the queue waits forever AND the desktop never resumes —
+			// the exact deadlock behind the "didn't boot when I sent a message"
+			// incident. The idle-checker reaps at stop time for the idle path;
+			// this net covers every OTHER way the desktop dies (OOM, crash,
+			// stack restart) where nothing reaped the dangling interaction.
+			//
+			// Reap ONLY when all three hold, so we never kill a live or mid-boot
+			// turn:
+			//   - no live WebSocket to the external agent (a live turn has one);
+			//   - the thread is already established (ZedThreadID set) — an empty
+			//     ZedThreadID means the very first message is mid-boot, which we
+			//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
+			//   - the waiting interaction is stale beyond the reap threshold — a
+			//     freshly-created in-flight turn is protected.
+			latest := interactions[0]
+			_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
+			if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {
+				reaped, reapErr := apiServer.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, "desktop stopped while turn in-flight; reaped so queue can resume")
+				if reapErr != nil {
+					log.Error().Err(reapErr).Str("session_id", sessionID).Msg("Failed to reap orphaned waiting interaction; queue still blocked")
+				} else {
+					log.Warn().
+						Str("session_id", sessionID).
+						Int("reaped_count", len(reaped)).
+						Time("latest_waiting_updated", latest.Updated).
+						Msg("♻️ [QUEUE] Reaped orphaned waiting interaction (no live agent) — dispatching queued prompt to resume desktop")
+					for _, in := range reaped {
+						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, in)
+					}
+					if pending.interruptCount > 0 {
+						apiServer.processInterruptPrompt(ctx, sessionID)
+					} else {
+						apiServer.processPromptQueue(ctx, sessionID)
+					}
+				}
+			} else {
+				log.Debug().
+					Str("session_id", sessionID).
+					Int("queue_count", pending.queueCount).
+					Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
+			}
 		}
 	}
 }

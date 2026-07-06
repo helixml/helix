@@ -8,6 +8,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
+	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
@@ -74,6 +75,45 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	}
 }
 
+// TestBotsCreate_SuffixesDuplicateID pins the name-collision fix in
+// bots.Create: two bots whose ids collide (e.g. a second "Chief of Staff"
+// slugifying to the same handle) don't fail on the composite (id, org)
+// primary key — the second is suffixed base-1 rather than erroring.
+func TestBotsCreate_SuffixesDuplicateID(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	botSvc := bots.New(bots.Deps{
+		Bots:  st.Bots,
+		Now:   hireClock,
+		NewID: func() string { return "id" },
+	})
+	ctx := context.Background()
+
+	first, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Chief of Staff"})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if first.ID != "chief-of-staff" {
+		t.Fatalf("first id = %q, want chief-of-staff", first.ID)
+	}
+
+	second, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Another"})
+	if err != nil {
+		t.Fatalf("second create should suffix, not error: %v", err)
+	}
+	if second.ID != "chief-of-staff-1" {
+		t.Fatalf("second id = %q, want chief-of-staff-1", second.ID)
+	}
+
+	// Both rows exist independently.
+	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff"); err != nil {
+		t.Fatalf("first bot missing: %v", err)
+	}
+	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff-1"); err != nil {
+		t.Fatalf("suffixed bot missing: %v", err)
+	}
+}
+
 // TestCreate_RejectsPathTraversalID pins the path-injection guard: a bot
 // id that would escape the envs directory is rejected before any
 // os.MkdirAll, and nothing is created under the temp envs root.
@@ -105,5 +145,63 @@ func TestCreate_UnknownParent(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Create with unknown parent: want error")
+	}
+}
+
+type recordingDispatcher struct{ hires int }
+
+func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.BotID, activation.ID) {
+	r.hires++
+}
+
+// TestCreate_DeferActivation: DeferActivation creates the bot row (and its
+// topology) but skips the hire — no activation row, no dispatch, empty
+// ActivationID. This is the "org has no runtime configured yet" path that
+// keeps a seeded bot from being provisioned on the gpt default.
+func TestCreate_DeferActivation(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	disp := &recordingDispatcher{}
+	svc.Dispatcher = disp
+	ctx := context.Background()
+
+	res, err := svc.Create(ctx, "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "x", DeferActivation: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := st.Bots.Get(ctx, "org-test", "w-new"); err != nil {
+		t.Fatalf("bot row should still exist when deferred: %v", err)
+	}
+	if res.ActivationID != "" {
+		t.Fatalf("deferred create should return empty ActivationID, got %q", res.ActivationID)
+	}
+	if disp.hires != 0 {
+		t.Fatalf("deferred create must not dispatch a hire, got %d", disp.hires)
+	}
+}
+
+// TestCreate_DispatchesWhenNotDeferred: the default path (runtime already
+// configured) still dispatches the hire so the bot provisions immediately.
+func TestCreate_DispatchesWhenNotDeferred(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	disp := &recordingDispatcher{}
+	svc.Dispatcher = disp
+
+	res, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "x",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.ActivationID == "" {
+		t.Fatal("non-deferred create should return an ActivationID")
+	}
+	if disp.hires != 1 {
+		t.Fatalf("non-deferred create should dispatch exactly one hire, got %d", disp.hires)
 	}
 }

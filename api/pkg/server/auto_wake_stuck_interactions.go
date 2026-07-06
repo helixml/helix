@@ -532,9 +532,11 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// mark this row terminal — re-sending to the wedged thread cannot help.
 	// The user's prompt is independently crash-marked (Restart surfaces) by
 	// handleThreadLoadError once the wedge recurs.
+	// Background for maintainers: design/2026-06-15-wedged-acp-thread-autowake-flood.md
+	// (claude-agent-acp cancel/prompt swallow). Kept out of the user-facing string.
 	if wedged, n := apiServer.sessionWedgedByConsecutiveErrors(ctx, session); wedged {
 		stuck.State = types.InteractionStateError
-		stuck.Error = "Agent thread wedged (claude-agent-acp cancel/prompt swallow) — auto-wake stopped; click Restart to recover (see design/2026-06-15-wedged-acp-thread-autowake-flood.md)"
+		stuck.Error = "Agent unresponsive: automatic retries stopped. Click Restart to recover."
 		stuck.Updated = time.Now()
 		stuck.Completed = time.Now()
 		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
@@ -552,9 +554,11 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 
 	// Gate 2 — retry cap. Read off the stuck row itself, atomically
 	// updated by IncrementInteractionAutoWakeCount on prior attempts.
+	// Background for maintainers: design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
+	// (upstream ACP buffering). Kept out of the user-facing string.
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
 		stuck.State = types.InteractionStateError
-		stuck.Error = "Agent unresponsive after auto-wake retries (upstream ACP buffering — see design/2026-04-25-zed-claude-async-event-flush-on-user-input.md)"
+		stuck.Error = "Agent unresponsive: no response after automatic retries. Click Restart to recover."
 		stuck.Updated = time.Now()
 		stuck.Completed = time.Now()
 		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {

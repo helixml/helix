@@ -999,9 +999,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// Insecure router as unauthenticated users will see all public provider endpoints
 	subRouter.HandleFunc("/provider-endpoints", apiServer.listProviderEndpoints).Methods(http.MethodGet)
 
+	subRouter.HandleFunc("/providers/detect-local", apiServer.detectLocalProviders).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints", apiServer.createProviderEndpoint).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.updateProviderEndpoint).Methods(http.MethodPut)
 	authRouter.HandleFunc("/provider-endpoints/{id}", apiServer.deleteProviderEndpoint).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/provider-endpoints/{id}/local-models", apiServer.listLocalModels).Methods(http.MethodGet)
+	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/load", apiServer.loadLocalModel).Methods(http.MethodPost)
+	authRouter.HandleFunc("/provider-endpoints/{id}/local-models/unload", apiServer.unloadLocalModel).Methods(http.MethodPost)
 	authRouter.HandleFunc("/provider-endpoints/{id}/daily-usage", apiServer.getProviderDailyUsage).Methods(http.MethodGet)
 	authRouter.HandleFunc("/provider-endpoints/{id}/users-daily-usage", apiServer.getProviderUsersDailyUsage).Methods(http.MethodGet)
 	// Helix inference route

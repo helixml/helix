@@ -66,14 +66,15 @@ func fetchOnlineNodes(ctx context.Context, cfg Config) ([]node, error) {
 		}
 	}
 
-	// nodeSearch and sliceReference are both *required* query params on
-	// GET /workerPools/nodes per the scheduler OpenAPI; the server 400s
-	// without them. Both serialise as URL-encoded JSON strings, matching
-	// the convention searchWorkRequirements already uses for
-	// /work/requirements.
+	// nodeSearch is a URL-encoded JSON search object. sliceReference is an
+	// opaque base64 pagination cursor (slice ID) on this endpoint, NOT a
+	// JSON object - the /work/requirements convention does not apply here,
+	// and sending `{"size":200}` makes YD 400 ("Unable to decode slice ID").
+	// We read only the first page (deployments have <10 online nodes), so
+	// we omit it; YD returns the first slice by default.
+	// ponytail: first-page-only; add cursor paging if a deployment exceeds one slice
 	q := url.Values{}
 	q.Set("nodeSearch", `{"statuses":["RUNNING"]}`)
-	q.Set("sliceReference", `{"size":200}`)
 
 	var out sliceNode
 	if err := doJSON(ctx, httpc, creds, base, http.MethodGet, "/workerPools/nodes", q, nil, &out, retryConfig{maxAttempts: 3}); err != nil {

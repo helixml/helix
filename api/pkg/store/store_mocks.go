@@ -2227,6 +2227,21 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureUserMeta", reflect.TypeOf((*MockStore)(nil).EnsureUserMeta), ctx, UserMeta)
 }
 
+// FailInFlightWebServiceDeploys mocks base method.
+func (m *MockStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FailInFlightWebServiceDeploys", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FailInFlightWebServiceDeploys indicates an expected call of FailInFlightWebServiceDeploys.
+func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInFlightWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).FailInFlightWebServiceDeploys), ctx)
+}
+
 // FindAvailableSandboxInstance mocks base method.
 func (m *MockStore) FindAvailableSandboxInstance(ctx context.Context, desktopType string) (*types.SandboxInstance, error) {
 	m.ctrl.T.Helper()
@@ -5601,6 +5616,21 @@ func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTask
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
 }
 
+// ReapWaitingInteractions mocks base method.
+func (m *MockStore) ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReapWaitingInteractions", ctx, sessionID, newState, reason)
+	ret0, _ := ret[0].([]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReapWaitingInteractions indicates an expected call of ReapWaitingInteractions.
+func (mr *MockStoreMockRecorder) ReapWaitingInteractions(ctx, sessionID, newState, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapWaitingInteractions", reflect.TypeOf((*MockStore)(nil).ReapWaitingInteractions), ctx, sessionID, newState, reason)
+}
+
 // ReconcileStuckSendingPrompts mocks base method.
 func (m *MockStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()
@@ -7004,21 +7034,6 @@ func (m *MockStore) UpdateWebServiceDeploy(ctx context.Context, id string, updat
 func (mr *MockStoreMockRecorder) UpdateWebServiceDeploy(ctx, id, updates any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWebServiceDeploy", reflect.TypeOf((*MockStore)(nil).UpdateWebServiceDeploy), ctx, id, updates)
-}
-
-// FailInFlightWebServiceDeploys mocks base method.
-func (m *MockStore) FailInFlightWebServiceDeploys(ctx context.Context) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FailInFlightWebServiceDeploys", ctx)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// FailInFlightWebServiceDeploys indicates an expected call of FailInFlightWebServiceDeploys.
-func (mr *MockStoreMockRecorder) FailInFlightWebServiceDeploys(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FailInFlightWebServiceDeploys", reflect.TypeOf((*MockStore)(nil).FailInFlightWebServiceDeploys), ctx)
 }
 
 // UpsertProjectWebServiceState mocks base method.
