@@ -239,7 +239,7 @@ ln -sfn /Applications/Helix.app/Contents/Frameworks build/Frameworks
 
 The QEMU binary links against frameworks at `@executable_path/../Frameworks`, so the symlink is required.
 
-If you're modifying the QEMU C code itself (helix-frame-export patches, GPU changes, etc.), build the custom QEMU from source instead (see "Building from Scratch" above). After building, the output lands in `build/dev-qemu/` and picks up the sysroot frameworks automatically — but you still need the `build/Frameworks` symlink pointing at either the UTM sysroot output (`~/pm/UTM/sysroot-macOS-arm64/lib/`) or the prod app bundle as above.
+If you're modifying the QEMU C code itself (helix-frame-export patches, GPU changes, etc.), build the custom QEMU from source instead (see "Building from Scratch" above). After building, the output lands in `build/dev-qemu/` and picks up the sysroot frameworks automatically — but you still need the `build/Frameworks` symlink pointing at either the UTM sysroot output (`<path-to-UTM>/sysroot-macOS-arm64/lib/`) or the prod app bundle as above.
 
 ### Standalone Probe Tools
 
