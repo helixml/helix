@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type GetOrganizationMembershipQuery struct {
 }
 
 // CreateOrganizationMembership creates a new organization membership
-func (s *PostgresStore) CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error) {
+func (s *Store) CreateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error) {
 	if membership.UserID == "" {
 		return nil, fmt.Errorf("user_id not specified")
 	}
@@ -48,7 +48,7 @@ func (s *PostgresStore) CreateOrganizationMembership(ctx context.Context, member
 }
 
 // GetOrganizationMembership retrieves an organization membership by organization ID and user ID
-func (s *PostgresStore) GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
+func (s *Store) GetOrganizationMembership(ctx context.Context, q *GetOrganizationMembershipQuery) (*types.OrganizationMembership, error) {
 	if q.OrganizationID == "" || q.UserID == "" {
 		return nil, fmt.Errorf("organization_id and user_id must be specified")
 	}
@@ -68,7 +68,7 @@ func (s *PostgresStore) GetOrganizationMembership(ctx context.Context, q *GetOrg
 }
 
 // ListOrganizationMemberships lists organization memberships based on query parameters
-func (s *PostgresStore) ListOrganizationMemberships(ctx context.Context, q *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error) {
+func (s *Store) ListOrganizationMemberships(ctx context.Context, q *ListOrganizationMembershipsQuery) ([]*types.OrganizationMembership, error) {
 	query := s.gdb.WithContext(ctx)
 
 	if q != nil {
@@ -90,7 +90,7 @@ func (s *PostgresStore) ListOrganizationMemberships(ctx context.Context, q *List
 }
 
 // UpdateOrganizationMembership updates an existing organization membership
-func (s *PostgresStore) UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error) {
+func (s *Store) UpdateOrganizationMembership(ctx context.Context, membership *types.OrganizationMembership) (*types.OrganizationMembership, error) {
 	if membership.UserID == "" {
 		return nil, fmt.Errorf("user_id not specified")
 	}
@@ -112,7 +112,7 @@ func (s *PostgresStore) UpdateOrganizationMembership(ctx context.Context, member
 }
 
 // DeleteOrganizationMembership deletes an organization membership
-func (s *PostgresStore) DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error {
+func (s *Store) DeleteOrganizationMembership(ctx context.Context, organizationID, userID string) error {
 	if organizationID == "" || userID == "" {
 		return fmt.Errorf("organization_id and user_id must be specified")
 	}

@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// autoMigrateRoleConfig syncs all role configs in the database
-func (s *PostgresStore) autoMigrateRoleConfig(ctx context.Context) error {
+// AutoMigrateRoleConfig syncs all role configs in the database
+func (s *Store) AutoMigrateRoleConfig(ctx context.Context) error {
 	for _, role := range types.Roles {
 		err := s.gdb.WithContext(ctx).
 			Model(&types.Role{}).
@@ -25,7 +25,7 @@ func (s *PostgresStore) autoMigrateRoleConfig(ctx context.Context) error {
 	return nil
 }
 
-func (s *PostgresStore) CreateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
+func (s *Store) CreateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
 	if role.OrganizationID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
@@ -46,7 +46,7 @@ func (s *PostgresStore) CreateRole(ctx context.Context, role *types.Role) (*type
 }
 
 // GetRole retrieves a role by ID
-func (s *PostgresStore) GetRole(ctx context.Context, id string) (*types.Role, error) {
+func (s *Store) GetRole(ctx context.Context, id string) (*types.Role, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
@@ -61,7 +61,7 @@ func (s *PostgresStore) GetRole(ctx context.Context, id string) (*types.Role, er
 }
 
 // ListRoles lists roles based on organization ID
-func (s *PostgresStore) ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error) {
+func (s *Store) ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error) {
 	if organizationID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
@@ -78,7 +78,7 @@ func (s *PostgresStore) ListRoles(ctx context.Context, organizationID string) ([
 }
 
 // UpdateRole updates an existing role
-func (s *PostgresStore) UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
+func (s *Store) UpdateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
 	if role.ID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
@@ -98,7 +98,7 @@ func (s *PostgresStore) UpdateRole(ctx context.Context, role *types.Role) (*type
 }
 
 // DeleteRole deletes a role by ID
-func (s *PostgresStore) DeleteRole(ctx context.Context, id string) error {
+func (s *Store) DeleteRole(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
 	}

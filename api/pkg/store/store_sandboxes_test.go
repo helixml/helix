@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -19,7 +20,7 @@ func newSandboxTestStore(t *testing.T) *PostgresStore {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&types.Sandbox{}))
 
-	return &PostgresStore{gdb: db}
+	return &PostgresStore{gdb: db, Store: orgstore.New(db)}
 }
 
 func TestSetSandboxContainerIgnoresDeletedRows(t *testing.T) {
