@@ -753,8 +753,14 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// For global endpoints, only allow updates by admins
-	if updatedEndpoint.EndpointType == types.ProviderEndpointTypeGlobal && !user.Admin {
+	// For global endpoints, only allow updates by admins. Gate on the stored
+	// row, not the request payload: a global endpoint now retains its original
+	// (possibly non-admin) owner, so the ownership check above no longer blocks
+	// that owner. If we only checked updatedEndpoint.EndpointType, a request that
+	// omits endpoint_type would skip this gate entirely and let the owner edit a
+	// globally-shared endpoint.
+	if (existingEndpoint.EndpointType == types.ProviderEndpointTypeGlobal ||
+		updatedEndpoint.EndpointType == types.ProviderEndpointTypeGlobal) && !user.Admin {
 		http.Error(rw, "Only admins can update global endpoints", http.StatusForbidden)
 		return
 	}
