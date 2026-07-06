@@ -119,26 +119,22 @@ There is one way to message an agent. The direct path and its wrappers are gone.
 - A user-facing prompt-history UI for non-spec-task sessions (the rows are just
   the queue mechanism there).
 
+## Decisions (resolved at review)
+
+1. **One PR, full unification.** The comment-reply reroute (finalize via
+   `Interaction.PromptID`) ships in **this** PR — genuine "one way." It is the
+   highest-risk piece and must be tested live end-to-end (see design Risks).
+2. **`POST /sessions/{id}/messages` becomes async.** It returns the queue-entry
+   id instead of `{request_id, interaction_id}`; regenerate the API client +
+   update the CLI. (Org runtime ignores the return; CLI to be updated.)
+3. **`SpecTaskID` nullable migration** proceeds; add an explicit column alter if
+   AutoMigrate won't relax `NOT NULL`.
+4. **User attribution:** spec task → `CreatedBy`/`Owner`; general session →
+   `session.Owner`.
+5. **Confirm bot causation live** during implementation: reproduce a bot
+   mid-turn overlap (empty concurrent interaction) before, show it gone after —
+   to prove this is *the* cause, not just *a* cause.
+
 ## Open Questions
 
-1. **`SpecTaskID` nullable migration.** Plan: make
-   `prompt_history_entries.spec_task_id` nullable so general/bot session rows can
-   omit it. GORM AutoMigrate does not reliably relax `NOT NULL`; confirm we may
-   add an explicit column alter (still AutoMigrate-driven, per repo rules) —
-   acceptable?
-2. **`POST /sessions/{id}/messages` response contract.** It currently returns
-   `{request_id, interaction_id}` synchronously; the queue mints those later.
-   Plan: return the created queue-entry id instead (async handle) and regenerate
-   the API client + update the CLI. Any external consumer that depends on the
-   old fields? (Org runtime ignores the return; need to confirm CLI.)
-3. **Scope/sequencing of the comment-reply reroute.** Migrating the
-   design-review comment path to the queue requires re-plumbing response
-   finalization (notify-user on the row + finalize via `Interaction.PromptID`).
-   This is the most delicate change. Do it in this PR (true "one way"), or land
-   the queue + bot/automated migration first and follow up with the comment
-   reroute? (Recommend: same PR, but flag as the highest-risk piece.)
-4. **Confirm bot causation.** Should I reproduce a live bot-mid-turn overlap
-   (empty concurrent interaction) before/after the change to prove it's *the*
-   cause, not just *a* cause?
-5. **User attribution for enqueued rows.** `user_id` is `NOT NULL`; plan: spec
-   task → `CreatedBy`/`Owner`; general session → `session.Owner`. OK?
+None (all resolved at review).
