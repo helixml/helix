@@ -1,12 +1,17 @@
-# Design: Route Automated interrupt=false Agent Messages Through the Prompt Queue
+# Design: Route Automated Agent Message Senders Through the Prompt Queue
 
 ## Summary
 
 Add a small **enqueue** path that services can call to insert a pending
-`prompt_history_entries` row (interrupt=false) and nudge the existing poller —
-the same mechanism `syncPromptHistory` uses for user queue-mode messages.
-Migrate the four automated `interrupt=false` senders onto it, then delete the
-now-dead direct-dispatch duplicate.
+`prompt_history_entries` row (interrupt true or false) and nudge the existing
+poller — the same mechanism `syncPromptHistory` uses for user messages. Migrate
+the four automated senders onto it, then delete the now-dead direct-dispatch
+duplicate.
+
+Per review: **CI results are delivered as `interrupt=true`** (cancel the current
+turn, respecting the boot barrier, then send — so the agent learns of pass/fail
+immediately) and are **not coalesced**. The other three senders (push, rebase,
+approval) enqueue with `interrupt=false` (defer until idle).
 
 ## Current architecture (as verified in the tree)
 
@@ -78,35 +83,33 @@ CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) e
 ```
 
 Thin `gdb.Create` wrapper (the `BeforeCreate` hook already stamps timestamps).
-For CI coalescing (optional, see §5), also add:
-
-```go
-// Appends newLine to an existing pending, not-yet-claimed CI entry for the
-// session; returns true if it coalesced, false if none was found.
-CoalescePendingCINotification(ctx context.Context, sessionID, newLine string) (bool, error)
-```
+No coalescing store method is needed (CI results interrupt individually — see
+review resolution).
 
 ### 2. New enqueue callback (keep `pkg/services` decoupled from the store)
 Mirror the existing `SpecTaskMessageSender` callback pattern. In
 `services/git_http_server.go` add:
 
 ```go
-// SpecTaskMessageEnqueuer inserts an interrupt=false prompt into the queue for a
-// spec task's canonical planning session and nudges the poller. Delivery is
-// deferred until the agent is idle. No IDs are returned — dispatch is async.
-type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string) error
+// SpecTaskMessageEnqueuer inserts a prompt into the queue for a spec task's
+// canonical planning session and nudges the poller. interrupt=false defers until
+// the agent is idle; interrupt=true is delivered as a proper interrupt (cancel
+// current turn, respecting the boot barrier, then send). No IDs are returned —
+// dispatch is async.
+type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool) error
 ```
 
 Implement on the API server (e.g. in `prompt_history_handlers.go`):
 
 ```go
-func (apiServer *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx, task, message) error {
+func (apiServer *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx, task, message, interrupt) error {
     sessionID := task.PlanningSessionID           // canonical target (poller filter)
+    if sessionID == "" { return fmt.Errorf("no planning session for task %s", task.ID) }
     userID := task.CreatedBy; if "" { task.Owner }
     entry := &types.PromptHistoryEntry{
         ID: system.Generate...(), UserID: userID, ProjectID: task.ProjectID,
         SpecTaskID: task.ID, SessionID: sessionID, Content: message,
-        Status: "pending", Interrupt: false,
+        Status: "pending", Interrupt: interrupt,
     }
     if err := apiServer.Store.CreatePromptHistoryEntry(ctx, entry); err != nil { return err }
     go apiServer.processPendingPromptsForIdleSessions(context.Background(), task.ID)
@@ -114,7 +117,9 @@ func (apiServer *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx, task, message)
 }
 ```
 
-Guard: if `sessionID == ""` return a clear error (nothing to target).
+The poller then routes it: interrupt=true → `processInterruptPrompt`
+(cancel + send, or defer if thread not established); interrupt=false →
+`processPromptQueue` (defer while busy). Both are already implemented.
 
 ### 3. Wire the callback (server.go)
 - Add `EnqueueMessageToAgent SpecTaskMessageEnqueuer` to `SpecDrivenTaskService`;
@@ -125,36 +130,22 @@ Guard: if `sessionID == ""` return a clear error (nothing to target).
 - `NewAgentInstructionService(...)` gets the enqueuer instead of `messageSender`.
 
 ### 4. Migrate the four senders
-1. **CI notifier**: replace `MessageSenderCINotifier` with a notifier that holds
-   a `SpecTaskMessageEnqueuer` and calls it in `NotifyCIResult`. Delete
-   `MessageSenderCINotifier` / `NewMessageSenderCINotifier`.
-2. **Push** (`spec_task_workflow_handlers.go:213`): call
-   `s.enqueueSpecTaskAgentMessage(ctx, specTask, message)`.
-3. **Rebase** (`:314`): same.
-4. **Approval** (`agent_instruction_service.go:673`): call the enqueuer; drop the
-   `s.messageSender` field once unused.
+1. **CI notifier** (`interrupt=true`): replace `MessageSenderCINotifier` with a
+   notifier that holds a `SpecTaskMessageEnqueuer` and calls it with
+   `interrupt=true` in `NotifyCIResult`. Delete `MessageSenderCINotifier` /
+   `NewMessageSenderCINotifier`. No coalescing.
+2. **Push** (`spec_task_workflow_handlers.go:213`, `interrupt=false`): call
+   `s.enqueueSpecTaskAgentMessage(ctx, specTask, message, false)`.
+3. **Rebase** (`:314`, `interrupt=false`): same.
+4. **Approval** (`agent_instruction_service.go:673`, `interrupt=false`): call the
+   enqueuer with `false`; drop the `s.messageSender` field once unused.
 
-### 5. CI coalescing (design decision — see Open Questions)
-**Recommended:** coalesce consecutive *pending, not-yet-dispatched* CI entries
-for the same session so N CI transitions during one long turn drain as one
-"here's what happened while you were working" message. Push/rebase/approval do
-**not** coalesce (distinct, ordered).
-
-Mechanism: mark CI entries with a sentinel in `Tags` (e.g. `["__ci__"]`, no
-schema change). The CI enqueue path calls `CoalescePendingCINotification`; on
-`false` it creates a fresh tagged entry. Only coalesce `status='pending'` rows
-(never one already `sending`/`sent`) so we never mutate an in-flight turn.
-
-If coalescing is deferred (answer to Open Q1 = in-order), skip §5 entirely and
-the CI notifier just enqueues each result as its own row — still correct, just
-chattier.
-
-### 6. Delete dead code
+### 5. Delete dead code
 - `SendImplementationReviewRequest`, `SendRevisionInstruction`,
   `SendMergeInstruction`, `AgentInstructionService.sendMessage` (now unused),
   `BuildImplementationReviewPrompt`, `BuildMergeInstructionPrompt` (+ templates).
 - `MessageSenderCINotifier` / `NewMessageSenderCINotifier`.
-- If Open Q5 = yes: drop the `interrupt` param from `sendMessageToSpecTaskAgent`
+- If Open Q3 = yes: drop the `interrupt` param from `sendMessageToSpecTaskAgent`
   (hardcode cancel-first for its interrupt-only callers). Keep the param on
   `sendMessageToSession` / `sendChatMessageToExternalAgent` (user-send endpoint).
 
@@ -174,27 +165,29 @@ chattier.
 
 - **Build:** `CGO_ENABLED=0 go build ./...`.
 - **Unit (gomock store, suite pattern):**
-  - enqueue creates a pending interrupt=false row for the canonical session and
-    nudges the poller;
-  - busy session (latest interaction `waiting`) → poller defers (no interaction
-    created);
-  - idle session → dispatched via `processPromptQueue`;
-  - CI coalescing (if built): second CI enqueue while a pending CI row exists
-    appends instead of creating a second row; push/rebase never coalesce;
-  - the three deleted methods are gone (compile-time).
+  - enqueue creates a pending row (correct `Interrupt` value) for the canonical
+    session and nudges the poller;
+  - interrupt=false + busy session (latest interaction `waiting`) → poller defers
+    (no interaction created); idle → dispatched via `processPromptQueue`;
+  - interrupt=true + busy + thread established → `processInterruptPrompt` (cancel
+    + send); interrupt=true + thread not established → deferred (boot barrier);
+  - the deleted methods are gone (compile-time).
 - **Live E2E in the inner Helix (mandatory — lifecycle code):** create a spec
-  task, drive it to a live established thread, start a long turn, simulate a CI
-  transition, confirm the message is **held** and delivered only after the turn
-  completes (reproduce the incident shape and show it no longer occurs). Verify
-  the four `interrupt=true` paths still interrupt.
+  task, drive it to a live established thread, start a long turn, then:
+  - simulate a **CI transition** and confirm it cancels the running turn and
+    delivers the CI message as a single new turn — **not** a concurrent second
+    empty `waiting` interaction (reproduce the incident shape; show it's gone);
+  - simulate a **push/rebase/approval** (interrupt=false) and confirm it is
+    **held** and delivered only after the running turn completes.
+  - Verify the pre-existing `interrupt=true` paths (design-review comment, org
+    transition) still interrupt correctly.
 - **CI:** push, then check Drone via MCP tools; fix forward.
 
 ## Files touched (estimate)
 
 | File | Change |
 |---|---|
-| `api/pkg/types/prompt_history.go` | (only if adding a Kind column — prefer not) |
-| `api/pkg/store/store.go` | +`CreatePromptHistoryEntry` (+`CoalescePendingCINotification`) |
+| `api/pkg/store/store.go` | +`CreatePromptHistoryEntry` |
 | `api/pkg/store/store_prompt_history.go` | impl |
 | `api/pkg/store/store_mocks.go` | regen |
 | `api/pkg/services/git_http_server.go` | +`SpecTaskMessageEnqueuer` type |
@@ -215,8 +208,10 @@ chattier.
   the poller runs immediately (nudged) and on every sync/list poll; acceptable.
 - **Deleting methods used only by tests.** Update/remove those tests in the same
   PR.
-- **Coalescing edge:** never touch a `sending`/`sent` row (would corrupt an
-  in-flight turn) — enforced by the `status='pending'` filter.
+- **CI interrupts cancel in-progress work.** A CI transition mid-turn will cancel
+  the running turn (that is the intent per review). This is the robust
+  `processInterruptPrompt` cancel-then-send, not the buggy concurrent dispatch;
+  the boot barrier still defers interrupts fired before the thread exists.
 
 ## References
 - Incident: attachment `2026-07-06-ci-notification-concurrent-turn-mid-turn.md`

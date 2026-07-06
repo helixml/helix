@@ -1,4 +1,4 @@
-# Requirements: Route Automated interrupt=false Agent Messages Through the Prompt Queue
+# Requirements: Route Automated Agent Message Senders Through the Prompt Queue
 
 ## Background
 
@@ -28,27 +28,42 @@ fragile ACP message-pump. This caused a production incident (see attachment
 
 ## Goal
 
-Converge the automated `interrupt=false` senders onto the queue path so
-`interrupt=false` finally means the same thing everywhere — "defer until the
-agent is idle" — then delete the now-dead poor-duplicate code.
+Converge **all** automated senders onto the robust prompt-queue path, then delete
+the now-dead poor-duplicate direct-dispatch code. On the queue path:
+- `interrupt=false` finally means the same thing everywhere — "defer until the
+  agent is idle" (push, rebase, approval);
+- `interrupt=true` is a proper interrupt — cancel the current turn (respecting
+  the thread-establishment boot barrier), then deliver — used for CI results so
+  the agent learns of pass/fail immediately.
+
+Either way, no automated sender ever fires a concurrent `session/prompt` mid-turn
+(the incident), because the queue's `processInterruptPrompt` cancels first rather
+than stacking a second empty `waiting` interaction.
 
 ## User Stories
 
-### US1 — CI results never barge into a running turn
+### US1 — CI results interrupt cleanly (no concurrent empty interaction)
 As a user watching a spec-task agent work a long turn, when CI passes/fails on a
-PR, I want the CI notification to be **held and delivered only after the current
-turn completes**, not injected as a second empty `waiting` card while the real
-work streams into the previous one.
+PR, I want the CI notification delivered **immediately as a proper interrupt** so
+the agent learns of failing tests straight away — but delivered by cancelling the
+current turn first, never by stacking a second empty `waiting` card behind the
+running one (the incident).
 
 **Acceptance criteria**
-- A CI transition fired while the latest interaction is `waiting` creates **no**
-  new interaction until the running turn completes.
-- Once the agent goes idle, the queued CI message is delivered as the next turn.
-- If the agent is already idle, the CI message is delivered promptly (queue
-  dispatch, no regression vs today's latency in the common case).
+- A CI transition fired while the latest interaction is `waiting` triggers a
+  `cancel_current_turn` (with ack wait) and then delivers the CI message — it
+  does **not** create a concurrent second `waiting` interaction alongside the
+  running one.
+- CI results are delivered as an interrupt (`interrupt=true`) via the queue's
+  `processInterruptPrompt`, not the direct-dispatch path.
+- During agent boot (thread not yet established / `ZedThreadID` empty), the CI
+  interrupt is **deferred** by the thread-establishment barrier and delivered
+  into the same thread once established — it never forks a divorced thread
+  (`design/2026-06-19-incident-interrupt-during-boot-context-loss.md`).
 - If the desktop is stopped/offline, the queued CI message boots it cleanly (via
   the existing queue → `sendCommandToExternalAgent` → autostart path) and is
   delivered on reconnect — never stranded as a concurrent dispatch.
+- No coalescing: each CI transition is delivered as its own interrupt.
 
 ### US2 — Post-merge push/rebase instructions respect the queue
 As a user who approves an implementation while the agent is mid-turn, I want the
@@ -110,30 +125,25 @@ code).
 - Changing the offline/reconnect delivery semantics (queue path already handles
   no-WS via autostart + `pickupWaitingInteraction`).
 
+## Resolved (from review)
+
+- **CI results: interrupt, don't coalesce.** Reviewer confirmed it's useful for
+  agents to learn of failing tests straight away even mid-turn, so CI results are
+  delivered as a proper `interrupt=true` (cancel-then-send via the queue) and
+  **no coalescing** is implemented. (Was Open Question 1/2.)
+
 ## Open Questions
 
-1. **Coalescing CI results.** The brief prefers coalescing multiple CI
-   transitions that stack during one long turn into a single "here's what
-   happened while you were working" message, keeping push/rebase distinct. Do
-   you want coalescing implemented in this PR, or is strict in-order delivery of
-   separate CI messages acceptable for v1? (Design proposes lightweight
-   coalescing of consecutive *pending, not-yet-dispatched* CI entries for the
-   same session; recommend this but it adds a store method + a way to mark CI
-   entries.)
-2. **How to mark CI entries for coalescing.** Proposed: a sentinel value in the
-   existing `Tags` column (no schema change) vs. adding a dedicated
-   `Kind`/`Source` column to `prompt_history_entries`. Recommend the Tags
-   sentinel to avoid a migration — acceptable?
-3. **Enqueue target session.** The queue only delivers to the canonical
+1. **Enqueue target session.** The queue only delivers to the canonical
    `task.PlanningSessionID` (poller filters non-canonical sessions). The enqueue
    path will therefore target `PlanningSessionID`, not
    `findConnectedSessionForSpecTask`. For approval kickoff the reused session is
    the planning session, so this matches — please confirm no automated sender
    needs to target a non-planning session.
-4. **User attribution on enqueued rows.** `prompt_history_entries.user_id` is
+2. **User attribution on enqueued rows.** `prompt_history_entries.user_id` is
    `NOT NULL`. Plan: use `task.CreatedBy` (fallback `task.Owner`). CI results
    aren't tied to a commenter; is attributing them to the task creator fine?
-5. **Dropping the `interrupt` param from `sendMessageToSpecTaskAgent`.** After
+3. **Dropping the `interrupt` param from `sendMessageToSpecTaskAgent`.** After
    migration all its remaining callers pass `true`. Drop the param (hardcode
    true) for cleanliness, or leave it? (`sendMessageToSession` /
    `sendChatMessageToExternalAgent` must keep the param for the user-send
