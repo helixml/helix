@@ -14,10 +14,10 @@
 - [x] No change needed to finalize/streaming/timeout/reconcile (they still use RequestID/InteractionID)
 
 ## Migrate every sender onto enqueue
-- [ ] CI notifier → enqueue interrupt=true (replace `MessageSenderCINotifier`); no coalescing
-- [ ] Push (`spec_task_workflow_handlers.go:213`) → enqueue interrupt=false
-- [ ] Rebase (`:314`) → enqueue interrupt=false
-- [ ] Approval (`agent_instruction_service.go:673`) → enqueue interrupt=false
+- [x] CI notifier → enqueue interrupt=true (replace `MessageSenderCINotifier`); no coalescing
+- [x] Push (`spec_task_workflow_handlers.go:213`) → enqueue interrupt=false
+- [x] Rebase (`:314`) → enqueue interrupt=false
+- [x] Approval (`agent_instruction_service.go:673`) → enqueue interrupt=false
 - [x] Comment reply (`spec_task_design_review_handlers.go:1251`) → enqueue interrupt=true
 - [x] Design-review submit (`:403`) → enqueue interrupt=true
 - [x] Org transition (`spec_tasks_org_wiring.go:34`) → enqueue interrupt=true
