@@ -1696,6 +1696,56 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Msg("✅ Design review backfilled successfully from git")
 }
 
+// backfillCommentLinkageForPrompt links a design-review comment to the
+// interaction the queue just created for its prompt. The comment path enqueues
+// with comment.PromptID set but does not know the interaction/request id until
+// dispatch; this sets comment.RequestID and comment.InteractionID (both equal
+// the interaction id on the queue path) so the existing comment finalize /
+// streaming / timeout / reconcile machinery — which keys off those fields —
+// works unchanged. No-op for non-comment prompts (the lookup returns nothing).
+func (s *HelixAPIServer) backfillCommentLinkageForPrompt(ctx context.Context, promptID, requestID, interactionID string) {
+	if promptID == "" {
+		return
+	}
+	comment, err := s.Store.GetCommentByPromptID(ctx, promptID)
+	if err != nil || comment == nil {
+		// Normal for non-comment prompts (CI, push, bots, user sends).
+		return
+	}
+	if comment.RequestID == requestID && comment.InteractionID == interactionID {
+		return
+	}
+	comment.RequestID = requestID
+	comment.InteractionID = interactionID
+	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
+		log.Error().Err(err).
+			Str("comment_id", comment.ID).
+			Str("prompt_id", promptID).
+			Str("request_id", requestID).
+			Msg("Failed to backfill comment linkage at dispatch — comment response may not finalize")
+		return
+	}
+	log.Info().
+		Str("comment_id", comment.ID).
+		Str("prompt_id", promptID).
+		Str("request_id", requestID).
+		Str("interaction_id", interactionID).
+		Msg("🔗 [HELIX] Backfilled design-review comment linkage from queued prompt dispatch")
+}
+
+// enqueueSpecTaskAgentMessage is the spec-task-shaped SpecTaskMessageEnqueuer:
+// it enqueues onto the session-scoped prompt queue for the task's canonical
+// planning session. Delivery is async (the poller dispatches when idle, or
+// cancels-then-sends for interrupt=true) — this is the single sender path that
+// replaces the old immediate direct dispatch.
+func (s *HelixAPIServer) enqueueSpecTaskAgentMessage(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error {
+	if task.PlanningSessionID == "" {
+		return fmt.Errorf("cannot enqueue message: spec task %s has no planning session", task.ID)
+	}
+	_, err := s.enqueueAgentMessage(ctx, task.PlanningSessionID, message, interrupt, notifyUserID, task.ID)
+	return err
+}
+
 // sendMessageToSpecTaskAgent is the unified helper for sending messages to spec task agents via WebSocket
 // It handles: finding connected session, generating request ID, setting up response routing, and sending.
 // If no session is connected, sendChatMessageToExternalAgent persists the interaction; the no-WS path

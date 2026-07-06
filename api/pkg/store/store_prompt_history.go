@@ -264,6 +264,24 @@ func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTas
 	return entries, nil
 }
 
+// ListPromptHistoryBySession returns all non-deleted prompt history entries for
+// a session. Used by the session-scoped queue processor to decide whether the
+// session has pending interrupt vs queue prompts (the claim/dispatch selectors
+// are session-scoped already).
+func (s *PostgresStore) ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	var entries []*types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
+		Order("created_at ASC").
+		Find(&entries).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
 // MarkPromptAsPending marks a prompt as pending (used before retry)
 func (s *PostgresStore) MarkPromptAsPending(ctx context.Context, promptID string) error {
 	return s.gdb.WithContext(ctx).

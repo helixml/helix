@@ -3344,6 +3344,28 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 	// Use interaction ID as request ID for better tracing
 	requestID := createdInteraction.ID
 
+	// Commenter response routing + design-review comment linkage. These carry the
+	// context the old synchronous direct send set up at call time; on the queue
+	// path we set them at dispatch, once the interaction (and its request_id)
+	// exist. NotifyUserID on the prompt row is the user the response should be
+	// streamed to (a design-review commenter); the comment linkage backfills the
+	// comment's RequestID/InteractionID so all the existing comment finalize /
+	// streaming / timeout / reconcile machinery (which keys off those fields)
+	// keeps working unchanged.
+	if prompt.NotifyUserID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToCommenterMapping == nil {
+			apiServer.requestToCommenterMapping = make(map[string]string)
+		}
+		apiServer.requestToCommenterMapping[requestID] = prompt.NotifyUserID
+		if apiServer.sessionToCommenterMapping == nil {
+			apiServer.sessionToCommenterMapping = make(map[string]string)
+		}
+		apiServer.sessionToCommenterMapping[sessionID] = prompt.NotifyUserID
+		apiServer.contextMappingsMutex.Unlock()
+	}
+	apiServer.backfillCommentLinkageForPrompt(ctx, prompt.ID, requestID, createdInteraction.ID)
+
 	// Store request_id->session mapping so thread_created can find the right session
 	// (needed for the FIRST message when ZedThreadID is empty and Zed will create a
 	// new thread). The interaction → prompt link no longer lives in an in-memory map;

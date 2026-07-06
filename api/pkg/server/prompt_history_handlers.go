@@ -188,13 +188,12 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		canonicalSessionID = specTask.PlanningSessionID
 	}
 
-	// Collect pending prompts per session
-	type sessionPending struct {
-		interruptCount int
-		queueCount     int
-	}
-	sessionPrompts := make(map[string]*sessionPending)
-
+	// Collect the distinct sessions that have pending prompts, honouring the
+	// canonical-session filter (issue #10b): only the authoritative planning
+	// session is driven; duplicate race sessions are skipped. If we couldn't
+	// determine the canonical session, fall through to the old behaviour of
+	// processing every session that has pending prompts.
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
@@ -202,8 +201,6 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 		if entry.SessionID == "" {
 			continue
 		}
-		// Skip sessions that are not the canonical planning session (issue #10b).
-		// If we couldn't determine the canonical session, fall through to the old behaviour.
 		if canonicalSessionID != "" && entry.SessionID != canonicalSessionID {
 			log.Debug().
 				Str("spec_task_id", specTaskID).
@@ -212,157 +209,237 @@ func (apiServer *HelixAPIServer) processPendingPromptsForIdleSessions(ctx contex
 				Msg("🔍 [QUEUE] Skipping prompt for non-canonical session (duplicate race session)")
 			continue
 		}
-
-		if sessionPrompts[entry.SessionID] == nil {
-			sessionPrompts[entry.SessionID] = &sessionPending{}
+		if seen[entry.SessionID] {
+			continue
 		}
-
-		if entry.Interrupt {
-			sessionPrompts[entry.SessionID].interruptCount++
-		} else {
-			sessionPrompts[entry.SessionID].queueCount++
-		}
+		seen[entry.SessionID] = true
+		apiServer.processPendingPromptsForSession(ctx, entry.SessionID)
 	}
+}
 
-	if len(sessionPrompts) == 0 {
+// processPendingPromptsForSession drains any pending prompts for a single
+// session: dispatch when idle, defer when busy. This is the session-scoped core
+// shared by the spec-task poller (above) and the general enqueue path — the
+// delivery unit is the session, not the spec task, so bots / general session
+// sends get the exact busy-defer, thread-establishment boot barrier, and
+// PR #2808 orphaned-waiting reap that make the queue reliable.
+func (apiServer *HelixAPIServer) processPendingPromptsForSession(ctx context.Context, sessionID string) {
+	if sessionID == "" {
 		return
 	}
 
-	log.Debug().
-		Str("spec_task_id", specTaskID).
-		Int("session_count", len(sessionPrompts)).
-		Msg("🔍 [QUEUE] Found sessions with pending prompts")
-
-	// Process pending prompts for idle sessions
-	for sessionID, pending := range sessionPrompts {
-		session, err := apiServer.Store.GetSession(ctx, sessionID)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+	// Coarse "is there work, and of which kind" check for this session. The
+	// actual claim/dispatch selectors (GetNext*Prompt) do the retry gating; here
+	// we only need to know whether interrupt vs queue prompts are pending to pick
+	// the drain function.
+	entries, err := apiServer.Store.ListPromptHistoryBySession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list session prompts for queue processing")
+		return
+	}
+	interruptCount := 0
+	queueCount := 0
+	for _, entry := range entries {
+		if entry.Status != "pending" && entry.Status != "failed" {
 			continue
 		}
-
-		if session == nil {
-			continue
-		}
-
-		// Load the MOST RECENT interaction so we can check if the session is busy.
-		// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
-		// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
-		// interactions[len-1] would be the 100th — almost always Complete from
-		// hours ago — so the busy check would always say "idle" and the queue
-		// would dispatch on top of an actively-streaming Zed turn.
-		// Order DESC + PerPage 1 returns just the newest interaction.
-		interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-			SessionID:    sessionID,
-			GenerationID: session.GenerationID,
-			PerPage:      1,
-			Order:        "id DESC",
-		})
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
-			continue
-		}
-
-		// Session is idle iff there is no interaction, or the latest one is
-		// not still Waiting for Zed. interactions[0] is the newest because of
-		// the DESC order above.
-		isIdle := true
-		if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
-			isIdle = false
-		}
-
-		if isIdle {
-			if pending.interruptCount > 0 {
-				log.Info().
-					Str("session_id", sessionID).
-					Int("interrupt_count", pending.interruptCount).
-					Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
-				apiServer.processInterruptPrompt(ctx, sessionID)
-			} else {
-				// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
-				// This ensures queue-mode messages always go through the same code path as
-				// post-message_completed dispatch (Bug 2 fix).
-				log.Info().
-					Str("session_id", sessionID).
-					Int("queue_count", pending.queueCount).
-					Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
-				apiServer.processPromptQueue(ctx, sessionID)
-			}
-		} else if pending.interruptCount > 0 {
-			// THREAD-ESTABLISHMENT BARRIER: an interrupt cancels the agent's
-			// current turn and injects a new message — that only makes sense once
-			// the session's thread exists. During the agent boot race the session
-			// can be "busy" (the very first message is an in-flight Waiting
-			// interaction) while its thread is NOT yet established (ZedThreadID
-			// empty, thread_created not received). Firing the interrupt now would
-			// (a) cancel the just-delivered first turn before the agent processes
-			// it and (b) dispatch with an empty acp_thread_id, forking a NEW thread
-			// divorced from the first message — so the agent runs with no context.
-			// Defer until the first message lands and thread_created sets
-			// ZedThreadID; the prompt stays pending and the next poll retries,
-			// then the interrupt fires into the SAME, established thread.
-			// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
-			if session.Metadata.ZedThreadID == "" {
-				log.Info().
-					Str("session_id", sessionID).
-					Int("interrupt_count", pending.interruptCount).
-					Msg("⏸️ [QUEUE] Busy but thread not established yet (no ZedThreadID) — deferring interrupt until first message lands and thread_created arrives")
-			} else {
-				// Session is busy but there are interrupt prompts - these should interrupt the agent
-				log.Info().
-					Str("session_id", sessionID).
-					Int("interrupt_count", pending.interruptCount).
-					Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
-				apiServer.processInterruptPrompt(ctx, sessionID)
-			}
+		if entry.Interrupt {
+			interruptCount++
 		} else {
-			// Liveness guard for the busy branch. A Waiting latest interaction
-			// normally means an agent is actively streaming a turn, so we defer
-			// the queue until message_completed. BUT if the agent has gone away
-			// (desktop idle-stopped / crashed / restarted) that completion never
-			// arrives: the queue waits forever AND the desktop never resumes —
-			// the exact deadlock behind the "didn't boot when I sent a message"
-			// incident. The idle-checker reaps at stop time for the idle path;
-			// this net covers every OTHER way the desktop dies (OOM, crash,
-			// stack restart) where nothing reaped the dangling interaction.
-			//
-			// Reap ONLY when all three hold, so we never kill a live or mid-boot
-			// turn:
-			//   - no live WebSocket to the external agent (a live turn has one);
-			//   - the thread is already established (ZedThreadID set) — an empty
-			//     ZedThreadID means the very first message is mid-boot, which we
-			//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
-			//   - the waiting interaction is stale beyond the reap threshold — a
-			//     freshly-created in-flight turn is protected.
-			latest := interactions[0]
-			_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
-			if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {
-				reaped, reapErr := apiServer.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, "desktop stopped while turn in-flight; reaped so queue can resume")
-				if reapErr != nil {
-					log.Error().Err(reapErr).Str("session_id", sessionID).Msg("Failed to reap orphaned waiting interaction; queue still blocked")
-				} else {
-					log.Warn().
-						Str("session_id", sessionID).
-						Int("reaped_count", len(reaped)).
-						Time("latest_waiting_updated", latest.Updated).
-						Msg("♻️ [QUEUE] Reaped orphaned waiting interaction (no live agent) — dispatching queued prompt to resume desktop")
-					for _, in := range reaped {
-						apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, in)
-					}
-					if pending.interruptCount > 0 {
-						apiServer.processInterruptPrompt(ctx, sessionID)
-					} else {
-						apiServer.processPromptQueue(ctx, sessionID)
-					}
-				}
-			} else {
-				log.Debug().
-					Str("session_id", sessionID).
-					Int("queue_count", pending.queueCount).
-					Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
-			}
+			queueCount++
 		}
 	}
+	if interruptCount == 0 && queueCount == 0 {
+		return
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for queue processing")
+		return
+	}
+	if session == nil {
+		return
+	}
+
+	// Load the MOST RECENT interaction so we can check if the session is busy.
+	// CRITICAL: ListInteractions defaults to "id ASC" (oldest first). With
+	// PerPage=100 and 165 interactions, we'd get interactions 1-100 and
+	// interactions[len-1] would be the 100th — almost always Complete from
+	// hours ago — so the busy check would always say "idle" and the queue
+	// would dispatch on top of an actively-streaming Zed turn.
+	// Order DESC + PerPage 1 returns just the newest interaction.
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    sessionID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to list interactions for queue processing")
+		return
+	}
+
+	// Session is idle iff there is no interaction, or the latest one is
+	// not still Waiting for Zed. interactions[0] is the newest because of
+	// the DESC order above.
+	isIdle := true
+	if len(interactions) > 0 && interactions[0].State == types.InteractionStateWaiting {
+		isIdle = false
+	}
+
+	if isIdle {
+		if interruptCount > 0 {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", interruptCount).
+				Msg("📤 [QUEUE] Session is idle with interrupt prompts, sending interrupt")
+			apiServer.processInterruptPrompt(ctx, sessionID)
+		} else {
+			// Queue-mode messages when idle: use processPromptQueue for consistent semantics.
+			// This ensures queue-mode messages always go through the same code path as
+			// post-message_completed dispatch (Bug 2 fix).
+			log.Info().
+				Str("session_id", sessionID).
+				Int("queue_count", queueCount).
+				Msg("📤 [QUEUE] Session is idle with queue-mode prompts, dispatching via processPromptQueue")
+			apiServer.processPromptQueue(ctx, sessionID)
+		}
+	} else if interruptCount > 0 {
+		// THREAD-ESTABLISHMENT BARRIER: an interrupt cancels the agent's
+		// current turn and injects a new message — that only makes sense once
+		// the session's thread exists. During the agent boot race the session
+		// can be "busy" (the very first message is an in-flight Waiting
+		// interaction) while its thread is NOT yet established (ZedThreadID
+		// empty, thread_created not received). Firing the interrupt now would
+		// (a) cancel the just-delivered first turn before the agent processes
+		// it and (b) dispatch with an empty acp_thread_id, forking a NEW thread
+		// divorced from the first message — so the agent runs with no context.
+		// Defer until the first message lands and thread_created sets
+		// ZedThreadID; the prompt stays pending and the next poll retries,
+		// then the interrupt fires into the SAME, established thread.
+		// See design/2026-06-19-incident-interrupt-during-boot-context-loss.md.
+		if session.Metadata.ZedThreadID == "" {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", interruptCount).
+				Msg("⏸️ [QUEUE] Busy but thread not established yet (no ZedThreadID) — deferring interrupt until first message lands and thread_created arrives")
+		} else {
+			// Session is busy but there are interrupt prompts - these should interrupt the agent
+			log.Info().
+				Str("session_id", sessionID).
+				Int("interrupt_count", interruptCount).
+				Msg("📤 [QUEUE] Session is busy but has interrupt prompts, sending interrupt")
+			apiServer.processInterruptPrompt(ctx, sessionID)
+		}
+	} else {
+		// Liveness guard for the busy branch. A Waiting latest interaction
+		// normally means an agent is actively streaming a turn, so we defer
+		// the queue until message_completed. BUT if the agent has gone away
+		// (desktop idle-stopped / crashed / restarted) that completion never
+		// arrives: the queue waits forever AND the desktop never resumes —
+		// the exact deadlock behind the "didn't boot when I sent a message"
+		// incident. The idle-checker reaps at stop time for the idle path;
+		// this net covers every OTHER way the desktop dies (OOM, crash,
+		// stack restart) where nothing reaped the dangling interaction.
+		//
+		// Reap ONLY when all three hold, so we never kill a live or mid-boot
+		// turn:
+		//   - no live WebSocket to the external agent (a live turn has one);
+		//   - the thread is already established (ZedThreadID set) — an empty
+		//     ZedThreadID means the very first message is mid-boot, which we
+		//     must not reap (mirrors the THREAD-ESTABLISHMENT BARRIER above);
+		//   - the waiting interaction is stale beyond the reap threshold — a
+		//     freshly-created in-flight turn is protected.
+		latest := interactions[0]
+		_, wsLive := apiServer.externalAgentWSManager.getConnection(sessionID)
+		if isOrphanedWaitingInteraction(session, latest, wsLive, time.Now()) {
+			reaped, reapErr := apiServer.Store.ReapWaitingInteractions(ctx, sessionID, types.InteractionStateInterrupted, "desktop stopped while turn in-flight; reaped so queue can resume")
+			if reapErr != nil {
+				log.Error().Err(reapErr).Str("session_id", sessionID).Msg("Failed to reap orphaned waiting interaction; queue still blocked")
+			} else {
+				log.Warn().
+					Str("session_id", sessionID).
+					Int("reaped_count", len(reaped)).
+					Time("latest_waiting_updated", latest.Updated).
+					Msg("♻️ [QUEUE] Reaped orphaned waiting interaction (no live agent) — dispatching queued prompt to resume desktop")
+				for _, in := range reaped {
+					apiServer.publishInteractionUpdateToFrontend(sessionID, session.Owner, in)
+				}
+				if interruptCount > 0 {
+					apiServer.processInterruptPrompt(ctx, sessionID)
+				} else {
+					apiServer.processPromptQueue(ctx, sessionID)
+				}
+			}
+		} else {
+			log.Debug().
+				Str("session_id", sessionID).
+				Int("queue_count", queueCount).
+				Msg("Session is busy (interaction waiting), queue prompts will be processed after message_completed")
+		}
+	}
+}
+
+// enqueueAgentMessage is the single server-side entry point for sending a
+// message to an agent. It inserts a pending prompt_history_entries row for the
+// session and nudges the session-scoped poller — the same mechanism the
+// frontend uses via syncPromptHistory. interrupt=false defers until the agent
+// is idle; interrupt=true is delivered as a proper interrupt (cancel current
+// turn, respecting the boot barrier). notifyUserID, when non-empty, is the user
+// the response should be streamed to (design-review commenter); it is carried on
+// the row and registered as a commenter mapping at dispatch. specTaskID is
+// optional — general session sends (e.g. org bots) omit it.
+//
+// This replaces the old immediate-dispatch direct path
+// (sendChatMessageToExternalAgent), which had no busy-check and fired concurrent
+// session/prompts mid-turn.
+// Returns the created prompt-history entry ID so callers that need to correlate
+// the eventual response (e.g. the design-review comment path) can link to it.
+func (apiServer *HelixAPIServer) enqueueAgentMessage(ctx context.Context, sessionID, message string, interrupt bool, notifyUserID, specTaskID string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("enqueueAgentMessage: sessionID is required")
+	}
+	if message == "" {
+		return "", fmt.Errorf("enqueueAgentMessage: message is required")
+	}
+
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session %s: %w", sessionID, err)
+	}
+	if session == nil {
+		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+
+	entry := &types.PromptHistoryEntry{
+		ID:           system.GeneratePromptHistoryID(),
+		UserID:       session.Owner,
+		ProjectID:    session.ProjectID, // best-effort; not required for delivery
+		SpecTaskID:   specTaskID,
+		SessionID:    sessionID,
+		Content:      message,
+		Status:       "pending",
+		Interrupt:    interrupt,
+		NotifyUserID: notifyUserID,
+	}
+	if err := apiServer.Store.CreatePromptHistoryEntry(ctx, entry); err != nil {
+		return "", fmt.Errorf("failed to enqueue agent message: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("prompt_id", entry.ID).
+		Bool("interrupt", interrupt).
+		Str("spec_task_id", specTaskID).
+		Msg("✉️  [QUEUE] Enqueued agent message")
+
+	// Nudge the poller in the background — it dispatches when idle (or cancels
+	// then sends for interrupts). Runs on a detached context so it survives the
+	// caller's request context being cancelled.
+	go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
+
+	return entry.ID, nil
 }
 
 // processInterruptPrompt processes ONLY interrupt prompts (interrupt=true)
