@@ -35,7 +35,10 @@ type ToolDTO struct {
 // report to several managers. A Bot's subscriptions are not on the bot —
 // they live as (bot, topic) rows.
 type BotDTO struct {
-	ID             string   `json:"id"`
+	ID string `json:"id"`
+	// Name is the human-readable display label; empty means the UI falls
+	// back to ID. Distinct from ID, which is the immutable handle.
+	Name           string   `json:"name,omitempty"`
 	Content        string   `json:"content"`
 	Tools          []string `json:"tools,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
@@ -82,7 +85,10 @@ type BotDetailDTO struct {
 // topics the new Bot is subscribed to at creation (they must already
 // exist).
 type CreateBotRequest struct {
-	ID              string   `json:"id,omitempty"`
+	ID string `json:"id,omitempty"`
+	// Name is the human-readable display label (e.g. "Chief of Staff").
+	// Optional; the ID stays the immutable handle.
+	Name            string   `json:"name,omitempty"`
 	Content         string   `json:"content"`
 	Tools           []string `json:"tools,omitempty"`
 	Topics          []string `json:"topics,omitempty"`
@@ -108,6 +114,7 @@ type CreateBotResponse struct {
 // PreserveContext is a pointer for the same reason: nil leaves the current
 // setting alone.
 type UpdateBotRequest struct {
+	Name            *string  `json:"name,omitempty"`
 	Content         *string  `json:"content,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`

@@ -35,6 +35,11 @@ definitions:
         type: string
       id:
         type: string
+      name:
+        description: |-
+          Name is the human-readable display label; empty means the UI falls
+          back to ID. Distinct from ID, which is the immutable handle.
+        type: string
       organization_id:
         type: string
       parent_ids:
@@ -85,6 +90,11 @@ definitions:
       content:
         type: string
       id:
+        type: string
+      name:
+        description: |-
+          Name is the human-readable display label (e.g. "Chief of Staff").
+          Optional; the ID stays the immutable handle.
         type: string
       owner:
         description: |-
@@ -483,6 +493,8 @@ definitions:
   api.UpdateBotRequest:
     properties:
       content:
+        type: string
+      name:
         type: string
       preserve_context:
         type: boolean

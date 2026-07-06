@@ -89,6 +89,8 @@ const BOT_GAP_Y = 90
 
 type FlatBot = {
   id: string
+  // Human-readable display label; empty falls back to the id.
+  name: string
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
 }
@@ -97,6 +99,7 @@ type FlatBot = {
 
 type BotNodeData = {
   botId: string
+  botName: string
   onSelectBot: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
@@ -166,9 +169,9 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
           <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
           <Typography
             variant="body2"
-            sx={{ fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
-            {data.botId}
+            {data.botName || data.botId}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={0.25}>
@@ -424,6 +427,7 @@ const buildGraph = (
       position: { x, y },
       data: {
         botId: b.id,
+        botName: b.name,
         onSelectBot: handlers.onSelectBot,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
@@ -1001,6 +1005,7 @@ const HelixOrgChart: FC = () => {
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? []).map((b: BotDTO) => ({
       id: b.id ?? '',
+      name: b.name ?? '',
       parentIds: b.parent_ids ?? [],
     })),
     [botsData],
