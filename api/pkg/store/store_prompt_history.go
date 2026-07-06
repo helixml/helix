@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -124,6 +125,20 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		Existing: updated, // Number of existing entries that were updated
 		Entries:  allEntries,
 	}, nil
+}
+
+// CreatePromptHistoryEntry inserts a single prompt history entry. This is the
+// server-side enqueue primitive used by automated/system and general session
+// sends (the frontend uses SyncPromptHistory instead). The BeforeCreate hook
+// stamps timestamps.
+func (s *PostgresStore) CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error {
+	if entry.ID == "" {
+		return fmt.Errorf("prompt history entry ID is required")
+	}
+	if entry.SessionID == "" {
+		return fmt.Errorf("prompt history entry SessionID is required")
+	}
+	return s.gdb.WithContext(ctx).Create(entry).Error
 }
 
 // GetPromptHistoryEntry returns a single prompt history entry by ID

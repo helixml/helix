@@ -13,12 +13,21 @@ type PromptHistoryEntry struct {
 	ID             string `json:"id" gorm:"primaryKey;size:255"`
 	UserID         string `json:"user_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
 	OrganizationID string `json:"organization_id" gorm:"size:255;index"` // Organization scope for search
-	ProjectID      string `json:"project_id" gorm:"not null;size:255;index"` // For reference, but primary grouping is by spec_task
-	SpecTaskID     string `json:"spec_task_id" gorm:"not null;size:255;index:idx_prompt_history_user_task"`
-	SessionID  string `json:"session_id" gorm:"size:255;index"` // Optional - which session this was sent to
+	ProjectID      string `json:"project_id" gorm:"size:255;index"` // For reference, but primary grouping is by spec_task
+	// SpecTaskID is nullable: frontend queue-mode messages always carry it, but
+	// automated/system and general session sends (e.g. org bots via
+	// POST /sessions/{id}/messages) enqueue by SessionID with no spec task.
+	SpecTaskID string `json:"spec_task_id" gorm:"size:255;index:idx_prompt_history_user_task"`
+	SessionID  string `json:"session_id" gorm:"size:255;index"` // Which session this was sent to (the delivery unit)
 
 	// Content
 	Content string `json:"content" gorm:"type:text;not null"`
+
+	// NotifyUserID, when set, is the user who should be streamed the agent's
+	// response (e.g. a design-review commenter). At dispatch the queue registers
+	// requestToCommenterMapping/sessionToCommenterMapping from this field — the
+	// same routing the old direct send set up synchronously.
+	NotifyUserID string `json:"notify_user_id,omitempty" gorm:"size:255"`
 
 	// Status tracks whether this was successfully sent
 	// Values: "pending", "sent", "failed"
