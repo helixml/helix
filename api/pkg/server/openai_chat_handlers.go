@@ -189,10 +189,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		}
 	}
 
-	if validatedProvider != "" {
-		s.ensureLocalModelLoaded(r.Context(), validatedProvider, chatCompletionRequest.Model)
-	}
-
 	modelName, err := model.ProcessModelName(
 		s.Cfg.Inference.Provider,
 		chatCompletionRequest.Model,
