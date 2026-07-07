@@ -39,8 +39,9 @@ Rewrite top-to-bottom; keep practical sections lower down.
    One-paragraph pitch: run fleets of coding agents, each in its own desktop,
    organized on a spec-driven Kanban board.
 3. **Hero screenshot** — the project Kanban board, with a meta caption
-   (this README rewrite was itself a task on that board). Placeholder image
-   reference clearly marked `TODO: replace with real screenshot`.
+   (this README rewrite was itself a task on that board). The image file (the
+   user's attachment) is committed into the helix repo at
+   `docs/images/kanban-board.png` and referenced with a relative Markdown path.
 4. **Projects & Kanban** (the new core section) — explain the board stages and
    the spec → plan → approve → implement → review → PR flow; parallel tasks in
    isolated sandboxes.
@@ -60,10 +61,10 @@ Rewrite top-to-bottom; keep practical sections lower down.
   them and the install flow is unchanged.
 - **Single source of positioning.** Copy tone/claims from `helix-next` so the
   README, marketing site, and docs agree.
-- **Screenshots.** Reuse the existing GitHub user-attachment image URLs already
-  in the README for the demoted feature sections. For the new Kanban hero, use a
-  clearly-labelled placeholder to be swapped for the real screenshot before
-  merge (raised in Open Questions).
+- **Screenshots.** Commit the Kanban hero screenshot into the repo
+  (`docs/images/kanban-board.png`) and reference it relatively — do not use a
+  hosted/external URL for the hero (review feedback). The demoted feature
+  sections may keep their existing GitHub user-attachment image URLs.
 - **Length.** Keep it scannable. The old README is ~270 lines; the rewrite
   should be similar or shorter, front-loading the new story.
 

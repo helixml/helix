@@ -33,7 +33,9 @@ that it's an old-school RAG appliance.
 **Acceptance Criteria:**
 - H1 / tagline reflect agentic engineering (fleets of coding agents in
   isolated desktops, spec-driven Kanban), not "AI Agents on a Private GenAI Stack".
-- The first image below the header is a screenshot of the project Kanban board.
+- The first image below the header is a screenshot of the project Kanban board,
+  committed into the helix repo (e.g. `docs/images/kanban-board.png`) and
+  referenced with a **relative path** — not a hosted/external URL.
 - The screenshot has descriptive alt text and a one-line meta caption.
 
 ### US-2: Reader understands the projects + Kanban workflow
@@ -75,17 +77,19 @@ to remain,
 
 ## Non-Goals
 - No changes to product code, docs site, or `helix-next`.
-- No new screenshots need to be produced by code; placeholder image
-  references / existing asset URLs are acceptable (see Open Questions).
+- No new screenshots need to be produced by code. The Kanban hero image is the
+  attachment the user provided; it is committed into the helix repo and
+  referenced relatively (see Open Questions for the source-file note).
 - Not rewriting `CONTRIBUTING.md`, `local-development.md`, or other docs.
 
 ## Open Questions
-- **Hero screenshot source:** Should the README embed an existing hosted asset
-  URL for the Kanban board screenshot, or a placeholder `docs/`-relative path
-  that someone fills in later? Current README uses GitHub user-attachment URLs
-  and `helix.ml/assets/...`. Assumption: use a clearly-labelled placeholder
-  URL/path for the Kanban hero and note it must be replaced with the real
-  screenshot before merge.
+- **Hero screenshot file:** Per review feedback, the Kanban screenshot (the
+  user's attachment) will be committed into the helix repo and referenced by
+  relative path. Proposed location: `docs/images/kanban-board.png`. One
+  practical note: the attachment image is **not currently present on disk in
+  this workspace**, so the implementer must save the provided attachment to
+  that path before the README will render. Is `docs/images/` the preferred
+  location, or should it live elsewhere (e.g. `frontend/assets/img/`)?
 - **Keep RAG/knowledge as a section or a one-liner?** Assumption: keep a
   short "Also included" section so existing users still find it, but demote it
   well below the agentic-engineering content.
