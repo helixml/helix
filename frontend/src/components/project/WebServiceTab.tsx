@@ -390,7 +390,7 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
 
           <Divider />
 
-          <Box>
+          <Box sx={{ pb: 3 }}>
             <Typography variant="subtitle1" gutterBottom>
               Recent deploys
             </Typography>
