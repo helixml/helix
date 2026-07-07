@@ -77,19 +77,19 @@ docs pick up `acme_challenge_target`. Do not hand-edit generated files.
 
 - Read the new field: `const acmeChallengeTarget = data?.acme_challenge_target ?? ''`
   (next to the existing `cnameTarget` read, line ~62).
-- Replace the proxy paragraph (lines ~320-330) with a conditional:
-  - **If `acmeChallengeTarget` is set:** keep the intro sentence ("Behind
-    Cloudflare or another proxy/CDN? …one-time ACME challenge delegation"),
-    then render a record block styled like the existing direct-CNAME block
-    (the monospace `Box` at lines ~281-313): **Name**
+- Gate the **entire** proxy/ACME-delegation section on `acmeChallengeTarget`:
+  - **If `acmeChallengeTarget` is set:** render the intro sentence ("Behind
+    Cloudflare or another proxy/CDN? …one-time ACME challenge delegation — add
+    this second record alongside the CNAME above:"), then a record block styled
+    like the existing direct-CNAME block: **Name**
     `_acme-challenge.app.yourcompany.com`, **Type** `CNAME`, **Value**
     `{acmeChallengeTarget}`, each with a `ContentCopyIcon` copy button that
-    calls `navigator.clipboard.writeText(...)` + `snackbar.success(...)`
-    (reuse the existing pattern). Close with the existing "Domains pointed
-    directly at `{cnameTarget}` (no proxy) need none of this." line.
-  - **If `acmeChallengeTarget` is empty:** render the current "get in touch
-    and we'll give you the exact `_acme-challenge` record to add" paragraph
-    unchanged (fallback, no regression).
+    calls `navigator.clipboard.writeText(...)` + `snackbar.success(...)`.
+    Close with the "Domains pointed directly at `{cnameTarget}` (no proxy)
+    need none of this." line.
+  - **If `acmeChallengeTarget` is empty:** render **nothing** — the whole
+    proxy section is omitted. There is NO "get in touch" fallback (see the
+    decision below). The direct-CNAME steps (1–3) still render.
 
 The example host in the Name (`app.yourcompany.com`) matches the placeholder
 already used in the panel's step 1, keeping the instructions consistent. This
@@ -104,9 +104,16 @@ existing direct-CNAME instructions.
   add backend record-derivation logic and a per-domain UI with zero benefit —
   rejected. The value is one string, displayed the same way `cname_target`
   already is.
-- **Config-driven, empty-safe.** The target is not hardcoded (it is
-  deployment-specific and belongs to the operator's DNS zone). Empty config
-  keeps today's behaviour, so no instance regresses.
+- **Config-driven; unconfigured = omit the section (no "get in touch").** The
+  target is deployment-specific (the operator's DNS zone), so it stays config-
+  driven. When it is empty we hide the proxy/delegation section entirely rather
+  than fall back to "get in touch". Two reasons: (1) "get in touch" is
+  meaningless on a self-hosted instance with no Helix support desk; (2) it
+  would be misleading — an orange-proxied custom domain's cert genuinely
+  cannot issue without the delegation record (network challenges can't reach
+  the hidden origin), so the surrounding "point the proxy at us and it still
+  works" claim is only true once the record exists. Showing the section only
+  when self-serve is actually possible keeps the panel honest.
 - **Additive only.** Rides the existing response and endpoint; no new routes,
   no store or migration changes, no change to issuance code.
 
@@ -120,9 +127,10 @@ existing direct-CNAME instructions.
 - **`./stack update_openapi` gotcha:** `swag` installs to `$(go env GOPATH)/bin` which is NOT on PATH by default here. Run with `export PATH="$PATH:$(go env GOPATH)/bin"` first, otherwise it fails with `swag: command not found` (and misleadingly exits 0).
 - **Frontend build gotcha:** `yarn build` fails at `prepare-out-dir` because `frontend/dist` is a root-owned bind-mount (production-frontend-mode artifact). This is an environment permission issue, NOT a code error — the Vite transform completes (21654 modules) and `npx tsc --noEmit` passes clean. Dev stack uses Vite HMR (port 8081), so source edits are live without a build.
 - **E2E verified in inner Helix** (`localhost:8080`, dev mode): registered, onboarded (testorg → testproj), enabled the project web service, opened the "How to add a custom domain" panel.
-  - Env unset → fallback "get in touch and we'll give you the exact `_acme-challenge` record" shows (screenshot `01-fallback-get-in-touch.png`).
-  - Set `HELIX_VHOST_ACME_CHALLENGE_TARGET=_acme-challenge.helix.ml`, recreated the api container (`docker compose ... up -d api` — `restart` does NOT reload `.env`), reloaded → record block shows Name `_acme-challenge.app.yourcompany.com`, Type `CNAME`, Value `_acme-challenge.helix.ml` with copy buttons (screenshot `02-self-serve-record.png`).
+  - Env unset → the panel ends at step 3; the "Behind Cloudflare…" / "get in touch" section is entirely absent (screenshot `01-unconfigured-no-proxy-section.png`).
+  - Set `HELIX_VHOST_ACME_CHALLENGE_TARGET=_acme-challenge.helix.ml`, recreated the api container (`docker compose ... up -d api` — `restart` does NOT reload `.env`), reloaded → record block shows Name `_acme-challenge.app.yourcompany.com`, Type `CNAME`, Value `_acme-challenge.helix.ml` with copy buttons, and no "get in touch" text (screenshot `02-self-serve-record.png`).
   - Restored `.env` to default afterwards.
+- **Follow-up (user feedback): eliminated "get in touch" entirely.** The original design kept a "get in touch" fallback when unconfigured; the user rejected it as nonsensical. Changed the frontend to omit the whole proxy section when `acmeChallengeTarget` is empty (commit `fix(frontend): drop meaningless get-in-touch ACME fallback`). Re-verified both states E2E after an environment/DB reset (had to re-onboard).
 - `cnameTarget` falls back to the SERVER_URL host, which is `localhost` in dev — that's why the panel shows `localhost` as the direct CNAME value.
 
 ## Testing

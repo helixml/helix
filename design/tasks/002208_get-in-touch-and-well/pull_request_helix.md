@@ -12,7 +12,11 @@ in the Helix Cloudflare zone.
 
 This surfaces that record in the UI (name / type / value + copy buttons),
 exactly like the existing direct-CNAME instructions, so users can self-serve.
-No change to how certs are actually issued (`vhost_tls*.go` — already shipped).
+The old "get in touch" wording is removed entirely — on an instance that
+hasn't configured a delegation target the proxy section is simply omitted
+(it's meaningless to tell a self-hosted user to contact support, and an
+orange-proxied domain's cert can't issue without the record anyway). No change
+to how certs are actually issued (`vhost_tls*.go` — already shipped).
 
 ## Changes
 
@@ -23,22 +27,23 @@ No change to how certs are actually issued (`vhost_tls*.go` — already shipped)
   `acme_challenge_target` on the existing `GET .../web-service` response.
 - **`frontend/src/components/project/WebServiceTab.tsx`** — when configured,
   render the concrete `_acme-challenge` CNAME record with copy buttons; when
-  not configured, keep the existing "get in touch" wording (no regression).
+  not configured, omit the proxy/delegation section entirely (no "get in
+  touch").
 - Regenerated OpenAPI client + swagger docs.
 
 ## Testing
 
 - `go build ./api/pkg/server/ ./api/pkg/config/` passes; `tsc --noEmit` clean.
-- Verified end-to-end in a dev Helix: with the env var unset the panel shows
-  the "get in touch" fallback; with it set to `_acme-challenge.helix.ml` the
-  panel shows the record block (Name `_acme-challenge.app.yourcompany.com`,
+- Verified end-to-end in a dev Helix: with the env var unset the panel ends at
+  step 3 with no proxy section at all; with it set to `_acme-challenge.helix.ml`
+  the panel shows the record block (Name `_acme-challenge.app.yourcompany.com`,
   Type `CNAME`, Value `_acme-challenge.helix.ml`) with working copy buttons.
 
 ## Screenshots
 
-Fallback (env unset):
+Unconfigured (env unset) — no proxy/"get in touch" section:
 
-![Fallback](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002208_get-in-touch-and-well/screenshots/01-fallback-get-in-touch.png)
+![Unconfigured](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002208_get-in-touch-and-well/screenshots/01-unconfigured-no-proxy-section.png)
 
 Self-serve record (env set):
 

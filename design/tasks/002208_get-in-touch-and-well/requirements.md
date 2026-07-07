@@ -36,10 +36,14 @@ can enable HTTPS myself without emailing support.
 As that same user, I want copy buttons for the record name and value, so I
 don't mistype the delegation target and silently break cert issuance.
 
-**US-3 — Graceful fallback when unconfigured.**
-As an operator of a Helix instance that has NOT configured a delegation
-target, I want the panel to keep the existing "get in touch" wording rather
-than showing a blank/incorrect record.
+**US-3 — No meaningless "get in touch" when unconfigured.**
+As a user on a Helix instance that has NOT configured a delegation target, I
+want the proxy/ACME-delegation section omitted entirely rather than being told
+to "get in touch" — which is meaningless (a self-hosted instance may have no
+support desk) and misleading (an orange-proxied domain's cert genuinely can't
+issue without the record, so claiming "it still works" would be false). The
+direct-CNAME instructions remain — the honest, supported path on such an
+instance.
 
 ## Acceptance Criteria
 
@@ -53,11 +57,11 @@ than showing a blank/incorrect record.
   showing: **Name** `_acme-challenge.app.yourcompany.com`, **Type** `CNAME`,
   **Value** `<delegation target>`, with copy buttons on name and value —
   mirroring the styling of the existing direct-CNAME block.
-- [ ] When the delegation target is NOT configured, the paragraph keeps the
-  current "get in touch and we'll give you the exact `_acme-challenge` record"
-  wording (no regression, no empty value shown).
-- [ ] Copy still notes that domains pointed **directly** at the CNAME target
-  (no proxy) need none of this.
+- [x] When the delegation target is NOT configured, the entire proxy/ACME
+  delegation section is omitted — no "get in touch" wording, no empty record.
+  The direct-CNAME steps (1–3) remain.
+- [x] Copy still notes that domains pointed **directly** at the CNAME target
+  (no proxy) need none of this (shown in the configured state).
 - [ ] `./stack update_openapi` regenerated; frontend uses the generated API
   client type (no hand-edited `api.ts`).
 - [ ] `cd frontend && yarn build` and `go build ./api/pkg/server/ ./api/pkg/config/` succeed.
