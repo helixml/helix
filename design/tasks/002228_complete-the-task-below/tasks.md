@@ -52,7 +52,7 @@
 - [x] Verified session-scoped list endpoint live (200 + rows by session_id, 400 without either param); component type-checks. Rendering a live queued item in a real org-bot chat not shown (needs full org-graph bot setup)
 
 ## Follow-on (same PR): zed e2e production-path (queue) coverage
-- [ ] memorystore: implement prompt-history methods needed by the queue path (`CreatePromptHistoryEntry`, `ListPromptHistoryBySession`, `GetNextPendingPrompt`, `GetNextInterruptPrompt`, plus any missing GetSession/CreateInteraction/ListInteractions)
-- [ ] zed test server: add Phase — queue defer (interrupt=false held while busy, delivered when idle)
-- [ ] zed test server: add Phase — queue interrupt (interrupt=true cancels-then-sends via processInterruptPrompt)
-- [ ] Bump `sandbox-versions.txt` ZED_COMMIT after committing zed changes (order per CLAUDE.md)
+- [x] memorystore: real in-memory prompt queue (`CreatePromptHistoryEntry`, `ListPromptHistoryBySession`, claim selectors, `GetCommentByPromptID`) + fixed `ListInteractions` to honor `Order desc` (bug the busy-check relies on — found by running the e2e)
+- [x] zed test server: Phase 16 — queue defer (interrupt=false held while busy, delivered when idle). VERIFIED PASSING against real Zed
+- [x] zed test server: Phase 17 — queue interrupt (interrupt=true cancels-then-sends). VERIFIED PASSING against real Zed (fixed: interrupt must land after streaming starts)
+- [x] Bumped `sandbox-versions.txt` ZED_COMMIT=548da160ce; pushed zed branch feature/002228-unify-all-agent-message + `EnqueueQueuedPrompt` test helper

@@ -208,6 +208,41 @@ review flow). Both route through the same `processPendingPromptsForSession` /
 `sendQueuedPromptToSession` code proven live above; the interrupt/boot-barrier
 branches are unit-tested.
 
+## zed WebSocket-sync e2e — production queue path (added + RUN GREEN)
+
+Added two phases to the cross-repo Zed e2e (`helix-ws-test-server/main.go`) that
+drive the PRODUCTION queue path (`EnqueueQueuedPrompt` →
+`processPendingPromptsForSession` → `processPromptQueue`/`processInterruptPrompt`
+→ `sendQueuedPromptToSession`) against a **real Zed binary** — the existing 15
+phases only drove the low-level `SendChatMessage` primitive:
+- **Phase 16 (queue busy-defer):** enqueue `interrupt=false` while a turn streams
+  → asserts it is HELD (no concurrent interaction) then delivered as the next
+  turn once idle. ✅ PASSED.
+- **Phase 17 (queue interrupt):** enqueue `interrupt=true` while a turn streams →
+  asserts it cancels the running turn (interaction → interrupted) and the
+  interrupt message is delivered. ✅ PASSED.
+
+Ran the full dockerized e2e in this environment (`run_docker_e2e.sh`, zed-agent):
+**all 17 phases + store validations PASSED** ("E2E TEST PASSED"). This also
+proved the helix changes don't regress the existing 15 phases.
+
+Two real bugs were caught **only by running it** (not by compile/inspection):
+1. `memorystore.ListInteractions` ignored `Order` and always sorted ascending, so
+   the queue busy-check (`Order:"id DESC", PerPage:1`) read the oldest *Complete*
+   interaction and reported idle — both prompts dispatched concurrently. Fixed to
+   honor `desc`.
+2. The interrupt/defer must land **after the first turn starts streaming**;
+   interrupting a not-yet-started turn left the follow-up wedged (post-cancel ACP
+   fragility, mirrors Phase 8). Phases now wait for streaming before the second
+   enqueue.
+
+Enablers: `EnqueueQueuedPrompt` test helper (`test_helpers.go`) + real in-memory
+prompt queue in `memorystore`. Cross-repo: zed branch pushed; `sandbox-versions.txt`
+`ZED_COMMIT` bumped to the zed commit so CI builds the test server with these phases.
+Note: locally the e2e's model was pointed at `claude-opus-4-8` (the Vertex-backed
+proxy here doesn't serve `claude-sonnet-4-5-latest`); that local-only change was
+reverted — CI uses real Anthropic secrets where the default model works.
+
 ## References
 - Incident: attachment `2026-07-06-ci-notification-concurrent-turn-mid-turn.md`
 - Composes with: https://github.com/helixml/helix/pull/2808

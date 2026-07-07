@@ -71,4 +71,20 @@ agent** and deletes the duplicate.
   failure, unrelated — fails identically on `origin/main`).
 - Live E2E in the inner Helix: see PR discussion / design doc.
 
+## Also in this PR
+
+- **Org-chat queue visibility:** the queue is now session-scoped, so
+  `POST /prompt-history` list/sync accept a `session_id` (not just `spec_task_id`).
+  A read-only `SessionPromptQueue` strip in the org-bot chat shows what's queued
+  for the agent. (Kept `usePromptHistory`/`RobustPromptInput` untouched to avoid
+  regressing the spec-task queue.)
+- **zed WebSocket-sync e2e — production-path coverage:** added a real in-memory
+  prompt queue to `memorystore` (+ fixed `ListInteractions` to honor `Order desc`,
+  which the busy-check relies on) and an `EnqueueQueuedPrompt` test helper, so the
+  cross-repo Zed e2e can drive the production queue path. Two new phases
+  (queue busy-defer, queue interrupt) run green against a real Zed. `sandbox-versions.txt`
+  `ZED_COMMIT` is bumped to the companion zed commit.
+
+Companion zed PR: adds the two e2e phases (see pull_request_zed.md).
+
 Composes with https://github.com/helixml/helix/pull/2808.
