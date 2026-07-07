@@ -115,6 +115,13 @@ type WorkerProject struct {
 	Store       *store.Store
 	HelixOrgURL string
 	OrgID       string
+	// OrgDisplayName is the org's human label, used to build the
+	// project's display name (`<Bot> @ <Org>`). The host resolves it
+	// from the main store and stamps it here; empty falls back to a
+	// bare bot label. Both the owner-chat applier and the spawner MUST
+	// set it identically — the project is upserted by name, so a
+	// divergent value would create a duplicate project.
+	OrgDisplayName string
 	// Runtime overrides the default `zed_agent` runtime constant.
 	// Empty means "use the package-level Runtime const" (zed_agent),
 	// which routes inference back through Helix and honours
@@ -165,6 +172,18 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if runtime == "" {
 		runtime = Runtime
 	}
+	// Project display name: `<Bot> @ <Org>` (e.g. "Chief of Staff @ Acme")
+	// rather than the bare slug. bot.Name may be empty (fall back to the
+	// ID); OrgDisplayName may be empty in bare/test wirings (fall back to
+	// just the bot label). Deterministic so upsert-by-name stays idempotent.
+	botLabel := bot.Name
+	if botLabel == "" {
+		botLabel = string(bot.ID)
+	}
+	projectName := botLabel
+	if a.OrgDisplayName != "" {
+		projectName = fmt.Sprintf("%s @ %s", botLabel, a.OrgDisplayName)
+	}
 	applyReq := types.ProjectApplyRequest{
 		// Scope the project to the org this Ensure call was invoked for,
 		// not the struct's OrgID field. They are normally equal, but a
@@ -172,7 +191,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		// from frozen config) must not be able to apply one org's project
 		// into another — the org parameter is the authority here.
 		OrganizationID: orgID,
-		Name:           string(workerID),
+		Name:           projectName,
 		Spec: types.ProjectSpec{
 			Description: bot.Content,
 			Agent: &types.ProjectAgentSpec{
@@ -185,7 +204,8 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		},
 	}
 	if state.ProjectID != "" {
-		if _, err := a.Service.GetProject(ctx, state.ProjectID); err != nil {
+		existing, err := a.Service.GetProject(ctx, state.ProjectID)
+		if err != nil {
 			if errors.Is(err, ErrProjectNotFound) {
 				if clearErr := ClearProject(ctx, a.Store, orgID, workerID); clearErr != nil {
 					return "", "", "", fmt.Errorf("clear stale project state for %s: %w", workerID, clearErr)
@@ -200,6 +220,27 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		} else {
 			// Project already exists — fast path.
 			//
+			// The project is tracked by ID (state.ProjectID) but ApplyProject
+			// upserts by NAME. When the desired display name has drifted from
+			// the tracked project's current name — an existing worker whose
+			// project predates the `<Bot> @ <Org>` scheme, or an org/bot
+			// rename — a bare ApplyProject would match nothing and FORK an
+			// orphan project, and the settings-drift refresh below would then
+			// target the orphan instead of the live agent app. Rename in place
+			// by ID first so ApplyProject matches the same project.
+			if existing.Name != projectName {
+				renamed := projectName
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Name: &renamed}); err != nil {
+					// Don't fork: skip the by-name refresh this activation and
+					// keep the worker running on its existing project. Retries
+					// next activation.
+					if a.Logger != nil {
+						a.Logger.Warn("project applier: rename to display name failed, skipping refresh to avoid orphan", "worker", workerID, "project", state.ProjectID, "want_name", projectName, "err", err)
+					}
+					a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
+					return state.ProjectID, state.AgentAppID, state.RepoID, nil
+				}
+			}
 			// We DO re-call ApplyProject so worker.* changes (runtime,
 			// credentials, provider, model) made on the Settings page
 			// after this worker was first provisioned propagate to the

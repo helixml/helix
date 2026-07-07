@@ -29,7 +29,9 @@ import {
 } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
+import useAccount from '../../hooks/useAccount'
 import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 
 const formatDate = (dateStr?: string): string => {
   if (!dateStr) return '-'
@@ -144,6 +146,7 @@ const OrgCard: FC<{
   onMenuOpen: (event: React.MouseEvent<HTMLElement>, org: TypesOrganization) => void
 }> = ({ org, userID, onMenuOpen }) => {
   const router = useRouter()
+  const account = useAccount()
   const membership = computeMembershipState(org, userID)
   const isOwner = membership.kind === 'owner'
   const isNonMember = membership.kind === 'admin-view'
@@ -182,7 +185,7 @@ const OrgCard: FC<{
         }}
         onClick={() => {
           localStorage.setItem(SELECTED_ORG_STORAGE_KEY, org.name || '')
-          router.navigate('org_projects', { org_id: org.name })
+          router.navigate(orgLandingRoute(account.user), { org_id: org.name })
         }}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 1 }}>
