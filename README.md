@@ -19,7 +19,9 @@
 
 **Run a fleet of coding agents on your own infrastructure. Each agent gets its own GPU-accelerated desktop; you organize the work on a spec-driven Kanban board and review the pull requests.**
 
-You already run Claude Code (or Codex, or Gemini) on your laptop: one agent, one terminal, tied to your machine and your attention. Helix runs that same agent as a **fleet** — many in parallel, each in its own isolated sandbox with a full desktop (browser, terminal, filesystem, GUI apps), on your own infrastructure, shared with your team. You describe an outcome as a **spec task**, an agent plans it, you approve the plan, and it implements the change and opens a pull request. Instead of babysitting one agent in one terminal, you dispatch and review many from a Kanban board.
+**It's about running agents on the server, not on every developer's laptop.** You already run Claude Code (or Codex, or Gemini) locally: one agent, one terminal, tied to your machine and your attention. You wouldn't hire a team of developers and sit them all at one laptop — so why make your agents share one? Helix gives each agent its own computer.
+
+Helix runs those agents as a **fleet** — many in parallel, each in its own isolated sandbox with a full desktop (browser, terminal, filesystem, GUI apps), on your own infrastructure, shared with your team. You describe an outcome as a **spec task**, an agent plans it, you approve the plan, and it implements the change and opens a pull request. Instead of babysitting one agent in one terminal, you dispatch and review many from a Kanban board.
 
 It runs with the agent harnesses you already use (Claude Code, Codex, Gemini CLI, Qwen Code, or any ACP-compatible agent) against the LLM providers you already use — including self-hosted models on your own GPUs. Self-hostable end to end, including air-gapped.
 
