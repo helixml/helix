@@ -143,6 +143,10 @@ nohup.out
 # already in git; *.png only excludes new untracked ones.
 *.png
 
+# ...except images referenced by the README / docs, which are tracked.
+!docs/images/
+!docs/images/**
+
 # Playwright MCP trace dir (per-session screenshots, console logs,
 # accessibility snapshots). Local only — never check in.
 .playwright-mcp/

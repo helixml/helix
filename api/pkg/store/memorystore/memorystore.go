@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type MemoryStore struct {
 	apps         map[string]*types.App
 	projects     map[string]*types.Project
 	specTasks    map[string]*types.SpecTask
+	prompts      map[string]*types.PromptHistoryEntry // prompt_history_entries by id
 	// planningSessionClaims tracks the atomic claim set by
 	// SetPlanningSessionIDIfEmpty; keyed by taskID, value is the winning
 	// sessionID. Allocated lazily.
@@ -50,6 +52,7 @@ func New() *MemoryStore {
 		apps:         make(map[string]*types.App),
 		projects:     make(map[string]*types.Project),
 		specTasks:    make(map[string]*types.SpecTask),
+		prompts:      make(map[string]*types.PromptHistoryEntry),
 	}
 }
 
@@ -312,8 +315,14 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Sort by ID ascending (creation order)
-	sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	// Honor the requested order. The prompt-queue busy-check relies on
+	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
+	// chronologically); the default is ascending (creation order).
+	if strings.Contains(strings.ToLower(query.Order), "desc") {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
+	} else {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	}
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
@@ -372,23 +381,106 @@ func (m *MemoryStore) ResetStuckComments(_ context.Context) (int64, error) {
 	return 0, nil
 }
 
-// Prompt queue — always return nil (no prompts queued)
-func (m *MemoryStore) GetNextPendingPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
+// Prompt queue — real in-memory implementation so the WebSocket-sync e2e can
+// drive the production queue path (enqueue → processPendingPromptsForSession →
+// sendQueuedPromptToSession). Claim semantics mirror the Postgres selectors:
+// pick the oldest pending/failed row for the session and atomically flip it to
+// 'sending' before returning.
 
-func (m *MemoryStore) GetAnyPendingPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *MemoryStore) MarkPromptAsPending(_ context.Context, _ string) error { return nil }
-func (m *MemoryStore) MarkPromptAsSent(_ context.Context, _ string) error    { return nil }
-func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, _ string, _ string) error {
+func (m *MemoryStore) CreatePromptHistoryEntry(_ context.Context, entry *types.PromptHistoryEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *entry
+	m.prompts[entry.ID] = &cp
 	return nil
+}
+
+func (m *MemoryStore) ListPromptHistoryBySession(_ context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*types.PromptHistoryEntry
+	for _, p := range m.prompts {
+		if p.SessionID == sessionID && p.DeletedAt == nil {
+			cp := *p
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+// claimNextPrompt finds the oldest pending/failed prompt for the session
+// matching the interrupt filter and flips it to 'sending'. interruptFilter:
+// nil = any, else must match.
+func (m *MemoryStore) claimNextPrompt(sessionID string, interruptFilter *bool) *types.PromptHistoryEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var best *types.PromptHistoryEntry
+	for _, p := range m.prompts {
+		if p.SessionID != sessionID || p.DeletedAt != nil {
+			continue
+		}
+		if p.Status != "pending" && p.Status != "failed" {
+			continue
+		}
+		if interruptFilter != nil && p.Interrupt != *interruptFilter {
+			continue
+		}
+		if best == nil || p.CreatedAt.Before(best.CreatedAt) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	best.Status = "sending"
+	cp := *best
+	return &cp
+}
+
+func (m *MemoryStore) GetNextPendingPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	no := false
+	return m.claimNextPrompt(sessionID, &no), nil
+}
+
+func (m *MemoryStore) GetAnyPendingPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	// Interrupt-first: try interrupt prompts, then any.
+	yes := true
+	if p := m.claimNextPrompt(sessionID, &yes); p != nil {
+		return p, nil
+	}
+	return m.claimNextPrompt(sessionID, nil), nil
+}
+
+func (m *MemoryStore) GetNextInterruptPrompt(_ context.Context, sessionID string) (*types.PromptHistoryEntry, error) {
+	yes := true
+	return m.claimNextPrompt(sessionID, &yes), nil
+}
+
+func (m *MemoryStore) setPromptStatus(id, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok := m.prompts[id]; ok {
+		p.Status = status
+	}
+}
+
+func (m *MemoryStore) MarkPromptAsPending(_ context.Context, id string) error {
+	m.setPromptStatus(id, "pending")
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsSent(_ context.Context, id string) error {
+	m.setPromptStatus(id, "sent")
+	return nil
+}
+func (m *MemoryStore) MarkPromptAsFailed(_ context.Context, id string, _ string) error {
+	m.setPromptStatus(id, "failed")
+	return nil
+}
+
+// GetCommentByPromptID — the e2e drives plain queue prompts, not design-review
+// comments, so no comment is ever linked to a prompt: return not found.
+func (m *MemoryStore) GetCommentByPromptID(_ context.Context, _ string) (*types.SpecTaskDesignReviewComment, error) {
+	return nil, store.ErrNotFound
 }
 func (m *MemoryStore) MarkPromptAsCrashed(_ context.Context, _ string, _ string) error {
 	return nil

@@ -79,6 +79,18 @@ export async function listPromptHistory(
 }
 
 /**
+ * List the prompt queue for a session (no spec task) — used by the org-chat /
+ * bot-session queue view to show what's queued for the agent.
+ */
+export async function listSessionPromptHistory(
+  apiClient: Api<unknown>['api'],
+  sessionId: string,
+): Promise<TypesPromptHistoryListResponse> {
+  const response = await apiClient.v1PromptHistoryList({ session_id: sessionId })
+  return response.data
+}
+
+/**
  * Convert backend entry to local format
  */
 export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHistoryEntry {

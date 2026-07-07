@@ -56,6 +56,28 @@ export function useCreateProviderEndpoint() {
   });
 }
 
+export interface DetectedProvider {
+  name: string;
+  server_type: string;
+  base_url: string;
+  models: string[];
+}
+
+export function useDetectLocalProviders(enabled: boolean) {
+  return useQuery({
+    queryKey: ['providers', 'detect-local'],
+    queryFn: async (): Promise<DetectedProvider[]> => {
+      const res = await fetch('/api/v1/providers/detect-local');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.providers || [];
+    },
+    enabled,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+}
+
 export interface UpdateProviderEndpointArgs {
   id: string;
   body: Partial<TypesUpdateProviderEndpoint>;
@@ -81,6 +103,74 @@ export function useUpdateProviderEndpoint() {
       // Invalidate all provider queries (with any combination of params)
       queryClient.invalidateQueries({ queryKey: ['providers'] })
     }
+  });
+}
+
+export interface LocalModel {
+  key: string;
+  type: string;
+  display_name?: string;
+  publisher?: string;
+  architecture?: string;
+  quantization?: { name: string; bits_per_weight: number };
+  size_bytes: number;
+  params_string?: string;
+  max_context_length: number;
+  format?: string;
+  loaded_instances: Array<{ id: string; config?: Record<string, unknown> }>;
+  capabilities?: { vision?: boolean; trained_for_tool_use?: boolean };
+}
+
+export function useLocalModels(endpointId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['providers', 'local-models', endpointId],
+    queryFn: async (): Promise<LocalModel[]> => {
+      if (!endpointId) return [];
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.models || [];
+    },
+    enabled: enabled && !!endpointId,
+    refetchInterval: 5000,
+  });
+}
+
+export function useLoadLocalModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ endpointId, model, contextLength }: { endpointId: string; model: string; contextLength?: number }) => {
+      const body: Record<string, unknown> = { model };
+      if (contextLength) body.context_length = contextLength;
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
+    },
+  });
+}
+
+export function useUnloadLocalModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ endpointId, model }: { endpointId: string; model: string }) => {
+      const res = await fetch(`/api/v1/provider-endpoints/${endpointId}/local-models/unload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
+    },
   });
 }
 
