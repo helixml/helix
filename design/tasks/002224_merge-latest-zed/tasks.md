@@ -10,24 +10,24 @@
 - [x] Measure delta: `git log --oneline helix-fork..upstream/main | wc -l`; record upstream HEAD SHA
 - [x] Record `agent-client-protocol` / `-schema` versions from `Cargo.lock`; note if bumped vs 0.14.0 / 0.13.6
 - [x] **Answer the open question**: has 002153 (and later merges) already landed? Reconcile fence + `git log`
-- [ ] Read PR #65 (`git show 9546054e68`) — understand the Error arm / `ChatResponseError` / `TEST_WEBSOCKET_SERVICE_GUARD` surface that must survive
-- [ ] Create branch `feature/002224-merge-latest-zed` from current fork HEAD
+- [x] Read PR #65 (`git show 9546054e68`) — understand the Error arm / `ChatResponseError` / `TEST_WEBSOCKET_SERVICE_GUARD` surface that must survive
+- [x] Create branch `feature/002224-merge-latest-zed` from current fork HEAD
 
 ## Pre-Merge Reconnaissance
-- [ ] Gauge churn in high-conflict files: `git diff <fence>..upstream/main --stat -- crates/agent_ui/src/agent_panel.rs crates/zed/src/zed.rs crates/agent_servers/src/acp.rs crates/agent_ui/src/acp/thread_view.rs crates/anthropic/src/anthropic.rs`
-- [ ] Check upstream changes to `crates/acp_thread/src/connection.rs` (AgentConnection / StubAgentConnection) vs PR #65's `fail_turn`
-- [ ] Check for new `BaseView` / `ContextServerStatus` variants and any ACP `non_exhaustive` / `ErrorCode` changes in the upstream diff
-- [ ] Check whether upstream added a session-list / resume UI that could collide with `from_existing_thread` (escalate if so)
+- [x] Gauge churn in high-conflict files: `git diff <fence>..upstream/main --stat -- crates/agent_ui/src/agent_panel.rs crates/zed/src/zed.rs crates/agent_servers/src/acp.rs crates/agent_ui/src/acp/thread_view.rs crates/anthropic/src/anthropic.rs`
+- [x] Check upstream changes to `crates/acp_thread/src/connection.rs` (AgentConnection / StubAgentConnection) vs PR #65's `fail_turn`
+- [x] Check for new `BaseView` / `ContextServerStatus` variants and any ACP `non_exhaustive` / `ErrorCode` changes in the upstream diff
+- [x] Check whether upstream added a session-list / resume UI that could collide with `from_existing_thread` (escalate if so)
 
 ## Merge Execution (update portingguide.md as you go)
 - [ ] Start the `## Merge 002224 (2026-07-06)` porting-guide entry BEFORE resolving conflicts
-- [ ] `git merge upstream/main` — note all conflicts
-- [ ] Resolve each conflict immediately; document each in the porting guide as resolved
-- [ ] `Cargo.lock`: `git checkout --theirs Cargo.lock`
-- [ ] `.github/workflows/` conflicts: `git checkout --theirs` (Helix doesn't use Zed CI) — but do NOT touch `.drone.yml --locked`
-- [ ] If ACP bumped: convert `non_exhaustive` ACP struct literals to builders; re-check `ErrorCode` arms; fix `AgentConnection`/`StubAgentConnection` impls
-- [ ] `git diff --check` — no conflict markers remain
-- [ ] Commit the merge; record merge SHA
+- [x] `git merge upstream/main` — note all conflicts
+- [x] Resolve each conflict immediately; document each in the porting guide as resolved
+- [x] `Cargo.lock`: `git checkout --theirs Cargo.lock`
+- [x] `.github/workflows/` conflicts: `git checkout --theirs` (Helix doesn't use Zed CI) — but do NOT touch `.drone.yml --locked`
+- [~] If ACP bumped: convert `non_exhaustive` ACP struct literals to builders; re-check `ErrorCode` arms; fix `AgentConnection`/`StubAgentConnection` impls
+- [x] `git diff --check` — no conflict markers remain
+- [x] Commit the merge; record merge SHA
 
 ## Auto-Merge Inspection (verify even when git says "auto-merged")
 - [ ] `agent_panel.rs` — read full `ensure_thread_initialized`; Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized`; ThreadDisplayNotification handler still calls `OnboardingUpsell::set_dismissed(true, cx)` and inits `NativeAgentSessionList`; Critical Fix #11 guard present; record new line numbers
