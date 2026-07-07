@@ -9,4 +9,5 @@
 - [x] ~~Keep the "get in touch" paragraph as the fallback when empty.~~ **Superseded by user feedback:** eliminate "get in touch" entirely — when `acmeChallengeTarget` is empty, omit the whole proxy/delegation section (direct-CNAME steps remain). Re-verified both states E2E.
 - [x] Build check: `go build ./api/pkg/server/ ./api/pkg/config/` passes; frontend `tsc --noEmit` passes (full `yarn build` blocked only by root-owned `dist` bind-mount, not code).
 - [x] E2E-test both states in the inner Helix (env unset = fallback; env set = record block) and save before/after screenshots to `screenshots/`.
-- [x] Commit (conventional format), merge latest main, push feature branch `feature/002208-self-serve-acme`. (Drone CI runs once the platform opens the GitHub PR — not creatable from here.)
+- [x] Commit (conventional format), merge latest main, push feature branch `feature/002208-self-serve-acme`. (Drone CI runs once the platform opens the GitHub PR — not creatable from here.) — PR #2813, CI green.
+- [x] **Follow-up (user feedback):** drop the dedicated env var; gate the record on `VHostACMEDNSProvider == "cloudflare"` and derive the target from the CNAME target's registrable domain (`publicsuffix`), keeping `HELIX_VHOST_ACME_CHALLENGE_TARGET` as an optional override. Added unit tests; re-verified both states E2E.

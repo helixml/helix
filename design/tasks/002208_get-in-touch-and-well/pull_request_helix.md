@@ -12,32 +12,40 @@ in the Helix Cloudflare zone.
 
 This surfaces that record in the UI (name / type / value + copy buttons),
 exactly like the existing direct-CNAME instructions, so users can self-serve.
-The old "get in touch" wording is removed entirely — on an instance that
-hasn't configured a delegation target the proxy section is simply omitted
-(it's meaningless to tell a self-hosted user to contact support, and an
-orange-proxied domain's cert can't issue without the record anyway). No change
-to how certs are actually issued (`vhost_tls*.go` — already shipped).
+The old "get in touch" wording is removed entirely — the proxy section is shown
+**only when DNS-01 delegation can actually work** (the Cloudflare DNS-01
+provider is enabled), and the delegation value is **derived automatically**
+from the CNAME target's registrable domain (`ingress.helix.ml` →
+`_acme-challenge.helix.ml`). No change to how certs are actually issued
+(`vhost_tls*.go` — already shipped).
 
 ## Changes
 
-- **`api/pkg/config/config.go`** — new operator config
-  `HELIX_VHOST_ACME_CHALLENGE_TARGET` (the fixed delegation host, e.g.
-  `_acme-challenge.helix.ml`). Empty = feature hidden.
-- **`api/pkg/server/project_web_service_handlers.go`** — expose the value as
-  `acme_challenge_target` on the existing `GET .../web-service` response.
-- **`frontend/src/components/project/WebServiceTab.tsx`** — when configured,
-  render the concrete `_acme-challenge` CNAME record with copy buttons; when
-  not configured, omit the proxy/delegation section entirely (no "get in
-  touch").
+- **`api/pkg/server/project_web_service_handlers.go`** — expose
+  `acme_challenge_target` on the existing `GET .../web-service` response,
+  computed by a new `acmeChallengeTarget()` helper: empty unless the Cloudflare
+  DNS-01 provider is enabled, then an explicit override or a value derived from
+  the CNAME target's registrable domain (via `golang.org/x/net/publicsuffix`).
+- **`api/pkg/config/config.go`** — `HELIX_VHOST_ACME_CHALLENGE_TARGET` is now an
+  optional **override** (empty by default; only needed when the ACME zone
+  differs from the CNAME target's domain).
+- **`frontend/src/components/project/WebServiceTab.tsx`** — when the target is
+  present, render the concrete `_acme-challenge` CNAME record with copy buttons;
+  otherwise omit the proxy/delegation section entirely (no "get in touch").
+- **`api/pkg/server/project_web_service_acme_test.go`** — unit tests for
+  derivation, override precedence, provider gating, multi-level TLDs, and the
+  no-registrable-domain case.
 - Regenerated OpenAPI client + swagger docs.
 
 ## Testing
 
-- `go build ./api/pkg/server/ ./api/pkg/config/` passes; `tsc --noEmit` clean.
-- Verified end-to-end in a dev Helix: with the env var unset the panel ends at
-  step 3 with no proxy section at all; with it set to `_acme-challenge.helix.ml`
-  the panel shows the record block (Name `_acme-challenge.app.yourcompany.com`,
-  Type `CNAME`, Value `_acme-challenge.helix.ml`) with working copy buttons.
+- `go build ./api/pkg/server/ ./api/pkg/config/` passes; `go test -run
+  TestACMEChallengeTarget ./pkg/server/` passes; `tsc --noEmit` clean.
+- Verified end-to-end in a dev Helix: with the Cloudflare DNS-01 provider +
+  `HELIX_VHOST_CNAME_TARGET=ingress.helix.ml` (no challenge-target var) the
+  panel shows the derived record (Value `_acme-challenge.helix.ml`) with working
+  copy buttons; removing the provider hides the whole proxy section even with a
+  valid CNAME target.
 
 ## Screenshots
 

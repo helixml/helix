@@ -38,33 +38,31 @@ Because the value is fixed and Helix already controls it, there is nothing to
 Add one field to the `WebServer` struct, next to the existing
 `VHostCNAMETarget` (line ~909):
 
-```go
-// VHostACMEChallengeTarget is the fixed delegation host that customers
-// point "_acme-challenge.<their-domain>" at (via CNAME) when their custom
-// domain sits behind a proxy/CDN that hides the origin from Let's Encrypt.
-// It must be a name in the DNS zone Helix's Cloudflare token controls, so
-// certmagic can follow the CNAME and place the ACME TXT record there.
-// Empty = the self-serve record UI is hidden and the "get in touch"
-// fallback is shown instead.
-VHostACMEChallengeTarget string `envconfig:"HELIX_VHOST_ACME_CHALLENGE_TARGET" description:"Delegation host customers CNAME '_acme-challenge.<domain>' at for proxied custom domains (e.g. '_acme-challenge.helix.ml'). Must live in the Helix Cloudflare zone. Empty = hide the self-serve record."`
-```
+`VHostACMEChallengeTarget` is now an **optional override** (see "Follow-up 2"
+in the implementation notes). It is normally left empty; the delegation target
+is derived automatically. It's kept only for deployments whose ACME zone
+differs from the CNAME target's registrable domain.
 
 ### 2. API response (`api/pkg/server/project_web_service_handlers.go`)
 
-Add a field to `ProjectWebServiceResponse` (next to `CNAMETarget`, line ~44)
-and populate it in `getProjectWebService` (next to the `cnameTarget` block,
-line ~108):
+Add a field to `ProjectWebServiceResponse` (next to `CNAMETarget`) and populate
+it in `getProjectWebService` via a helper:
 
 ```go
-// ACMEChallengeTarget is the fixed CNAME value customers point
+// ACMEChallengeTarget is the CNAME value customers point
 // "_acme-challenge.<their-domain>" at when the domain is behind a
-// proxy/CDN. Empty when the operator has not configured delegation.
+// proxy/CDN. Empty when DNS-01 delegation isn't available (hides the record).
 ACMEChallengeTarget string `json:"acme_challenge_target,omitempty"`
 ```
 
 ```go
-ACMEChallengeTarget: strings.TrimSpace(s.Cfg.WebServer.VHostACMEChallengeTarget),
+ACMEChallengeTarget: s.acmeChallengeTarget(cnameTarget),
 ```
+
+`acmeChallengeTarget` returns `""` unless the Cloudflare DNS-01 provider is
+enabled (so the UI shows the record only when delegation can actually work),
+then returns the override if set, else derives
+`"_acme-challenge." + publicsuffix.EffectiveTLDPlusOne(cnameTarget)`.
 
 No new endpoint — this rides the existing `GET /api/v1/projects/{id}/web-service`.
 
@@ -104,16 +102,20 @@ existing direct-CNAME instructions.
   add backend record-derivation logic and a per-domain UI with zero benefit —
   rejected. The value is one string, displayed the same way `cname_target`
   already is.
-- **Config-driven; unconfigured = omit the section (no "get in touch").** The
-  target is deployment-specific (the operator's DNS zone), so it stays config-
-  driven. When it is empty we hide the proxy/delegation section entirely rather
-  than fall back to "get in touch". Two reasons: (1) "get in touch" is
-  meaningless on a self-hosted instance with no Helix support desk; (2) it
-  would be misleading — an orange-proxied custom domain's cert genuinely
-  cannot issue without the delegation record (network challenges can't reach
-  the hidden origin), so the surrounding "point the proxy at us and it still
-  works" claim is only true once the record exists. Showing the section only
-  when self-serve is actually possible keeps the panel honest.
+- **Gate on the real capability; derive the value; no "get in touch".** The
+  self-serve record is shown only when the Cloudflare DNS-01 provider is
+  enabled (`VHostACMEDNSProvider == "cloudflare"`) — the exact condition under
+  which CNAME delegation can succeed — and the target value is *derived* from
+  the CNAME target's registrable domain rather than requiring a dedicated env
+  var. This replaced two earlier iterations: (a) a "get in touch" fallback,
+  rejected as meaningless on a self-hosted instance and misleading (an
+  orange-proxied domain's cert can't issue without the record, so "point the
+  proxy at us and it still works" is only true once it exists); and (b) gating
+  on a standalone `HELIX_VHOST_ACME_CHALLENGE_TARGET`, which could be set or
+  forgotten independently of the solver. Tying the UI to the capability and
+  deriving the value keeps the standard deployment zero-config and the panel
+  honest. The env var survives only as an override for the rare mismatched-zone
+  case.
 - **Additive only.** Rides the existing response and endpoint; no new routes,
   no store or migration changes, no change to issuance code.
 
@@ -131,6 +133,12 @@ existing direct-CNAME instructions.
   - Set `HELIX_VHOST_ACME_CHALLENGE_TARGET=_acme-challenge.helix.ml`, recreated the api container (`docker compose ... up -d api` — `restart` does NOT reload `.env`), reloaded → record block shows Name `_acme-challenge.app.yourcompany.com`, Type `CNAME`, Value `_acme-challenge.helix.ml` with copy buttons, and no "get in touch" text (screenshot `02-self-serve-record.png`).
   - Restored `.env` to default afterwards.
 - **Follow-up (user feedback): eliminated "get in touch" entirely.** The original design kept a "get in touch" fallback when unconfigured; the user rejected it as nonsensical. Changed the frontend to omit the whole proxy section when `acmeChallengeTarget` is empty (commit `fix(frontend): drop meaningless get-in-touch ACME fallback`). Re-verified both states E2E after an environment/DB reset (had to re-onboard).
+- **Follow-up 2 (user feedback): the dedicated env var was mostly redundant — derive it instead.** `HELIX_VHOST_ACME_CHALLENGE_TARGET` is no longer required. The handler now computes the field in a new `acmeChallengeTarget(cnameTarget)` method (commit `refactor(api): derive ACME challenge target, gate on DNS-01 provider`):
+  - Returns `""` unless `VHostACMEDNSProvider == "cloudflare"` — i.e. the self-serve record shows *only when DNS-01 delegation can actually work*, instead of keying off a standalone flag that could be set/forgotten independently of the solver.
+  - Otherwise derives `"_acme-challenge." + publicsuffix.EffectiveTLDPlusOne(cnameTarget)` (e.g. `ingress.helix.ml` → `_acme-challenge.helix.ml`). Uses `golang.org/x/net/publicsuffix` (was already an indirect dep; now direct).
+  - `HELIX_VHOST_ACME_CHALLENGE_TARGET` remains only as an optional override for the edge case where the ACME zone differs from the CNAME target's registrable domain.
+  - Edge cases covered by `project_web_service_acme_test.go`: derivation, override precedence, case-insensitive provider, multi-level TLD (`helix.co.uk`), trailing dot, and no-registrable-domain (`localhost` → `""`).
+  - **E2E re-verified:** `HELIX_VHOST_ACME_DNS_PROVIDER=cloudflare` + `HELIX_VHOST_CNAME_TARGET=ingress.helix.ml` (no challenge-target var) → record shows `_acme-challenge.helix.ml` (derived). Removing the provider → section hidden even though the CNAME target has a valid registrable domain. Screenshots refreshed.
 - `cnameTarget` falls back to the SERVER_URL host, which is `localhost` in dev — that's why the panel shows `localhost` as the direct CNAME value.
 
 ## Testing
