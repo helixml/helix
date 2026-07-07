@@ -273,6 +273,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   fps = 60,
   className = "",
   suppressOverlay = false,
+  wakeSignal = 0,
 }) => {
   const lightTheme = useLightTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null); // Canvas for WebSocket video mode
@@ -417,6 +418,24 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
       setRetryCountdown(null);
       onRetry();
     }, retryDelaySeconds * 1000);
+  }, []);
+
+  // Reset all reconnect retry bookkeeping to a clean slate.
+  // Shared by the successful-connection path and the session-wake path so both
+  // give subsequent reconnects a full retry budget.
+  const resetRetryState = useCallback(() => {
+    retryAttemptRef.current = 0;
+    manualReconnectAttemptsRef.current = 0;
+    setRetryAttemptDisplay(0);
+    setRetryCountdown(null);
+    if (retryIntervalRef.current) {
+      clearInterval(retryIntervalRef.current);
+      retryIntervalRef.current = null;
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
   }, []);
 
   // Quality mode: video or screenshot-based fallback
@@ -916,9 +935,7 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
           setIsConnected(true);
           hasEverConnectedRef.current = true; // Mark first successful connection
           setError(null); // Clear any previous errors on successful connection
-          retryAttemptRef.current = 0; // Reset retry counter on successful connection
-          manualReconnectAttemptsRef.current = 0; // Reset manual reconnect counter on successful connection
-          setRetryAttemptDisplay(0);
+          resetRetryState(); // Reset retry counters/timers on successful connection
           onConnectionChange?.(true);
 
           // Register WebSocket stream connection
@@ -1462,6 +1479,27 @@ const DesktopStreamViewer: React.FC<DesktopStreamViewerProps> = ({
   useEffect(() => {
     reconnectRef.current = reconnect;
   }, [reconnect]);
+
+  // Session wake handling.
+  // When a slept task is woken (user sends a message or clicks "Start Desktop"),
+  // the reconnect retry counters may already be exhausted from earlier failed
+  // attempts, so the next reconnect would hit the give-up branch and show a stale
+  // error instead of connecting. The parent bumps `wakeSignal` on each wake; when it
+  // changes we clear that state and kick off a fresh reconnect: resetRetryState()
+  // zeroes the component counters/timers and a fresh stream (created by reconnect)
+  // resets the transport reconnectAttempts to 0. `wakeSignal` starts at 0, so the
+  // first render never triggers a spurious reconnect.
+  const prevWakeSignalRef = useRef(wakeSignal);
+  useEffect(() => {
+    if (wakeSignal !== prevWakeSignalRef.current) {
+      prevWakeSignalRef.current = wakeSignal;
+      addConnectionLog("Session waking - resetting reconnect retry state");
+      resetRetryState();
+      setError(null);
+      setReconnectClicked(false);
+      reconnectRef.current(500, "Reconnecting...");
+    }
+  }, [wakeSignal, resetRetryState, addConnectionLog]);
 
   // Toggle fullscreen - with cross-browser support (Chrome, Safari, Firefox)
   // On iOS, uses custom CSS fullscreen since native video fullscreen doesn't support interaction
