@@ -37,6 +37,16 @@ type AuthorizationToRepositoryFunc func(ctx context.Context, user *types.User, r
 // feedback like design-review comments; use false for system-driven instructions.
 type SpecTaskMessageSender func(ctx context.Context, task *types.SpecTask, message string, notifyUserID string, interrupt bool) (string, string, error)
 
+// SpecTaskMessageEnqueuer enqueues a message onto the session-scoped prompt
+// queue for a spec task's canonical planning session and returns once the row is
+// persisted (delivery is async — the poller dispatches when the agent is idle,
+// or cancels-then-sends for interrupt=true). notifyUserID, when non-empty, is
+// the user the response should be streamed to (design-review commenter).
+//
+// This is the single sender abstraction for pkg/services callers; it replaces
+// SpecTaskMessageSender's immediate direct dispatch.
+type SpecTaskMessageEnqueuer func(ctx context.Context, task *types.SpecTask, message string, interrupt bool, notifyUserID string) error
+
 // BranchRestriction holds the result of checking branch permissions for an API key
 type BranchRestriction struct {
 	IsAgentKey      bool     // True if this is a session-scoped agent key

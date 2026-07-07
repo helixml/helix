@@ -1659,8 +1659,7 @@ export interface ServerSessionMessageRequest {
 }
 
 export interface ServerSessionMessageResponse {
-  interaction_id?: string;
-  request_id?: string;
+  prompt_id?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -4688,6 +4687,13 @@ export interface TypesPromptHistoryEntry {
   last_used_at?: string;
   /** When to retry (for exponential backoff) */
   next_retry_at?: string;
+  /**
+   * NotifyUserID, when set, is the user who should be streamed the agent's
+   * response (e.g. a design-review commenter). At dispatch the queue registers
+   * requestToCommenterMapping/sessionToCommenterMapping from this field — the
+   * same routing the old direct send set up synchronously.
+   */
+  notify_user_id?: string;
   /** Organization scope for search */
   organization_id?: string;
   /** Library features for prompt reuse */
@@ -4701,8 +4707,13 @@ export interface TypesPromptHistoryEntry {
   queue_position?: number;
   /** Retry tracking for failed prompts */
   retry_count?: number;
-  /** Optional - which session this was sent to */
+  /** Which session this was sent to (the delivery unit) */
   session_id?: string;
+  /**
+   * SpecTaskID is nullable: frontend queue-mode messages always carry it, but
+   * automated/system and general session sends (e.g. org bots via
+   * POST /sessions/{id}/messages) enqueue by SessionID with no spec task.
+   */
   spec_task_id?: string;
   /**
    * Status tracks whether this was successfully sent
@@ -4744,6 +4755,11 @@ export interface TypesPromptHistoryListResponse {
 export interface TypesPromptHistorySyncRequest {
   entries?: TypesPromptHistoryEntrySync[];
   project_id?: string;
+  /**
+   * SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+   * that have no spec task). Exactly one of SpecTaskID / SessionID is set.
+   */
+  session_id?: string;
   spec_task_id?: string;
 }
 
@@ -5353,7 +5369,10 @@ export interface TypesSandboxInstance {
   profile_status?: string;
   /**
    * Provider is the Name() of the compute.Provider that owns this host.
-   * E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+   * For pool-discovery providers this is a composite key baked from the
+   * deployment tag, worker tag and instance type (e.g.
+   * "yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34"), so it
+   * needs the same width as ProviderID. Empty for self-registered hosts.
    */
   provider?: string;
   /**
@@ -6208,6 +6227,8 @@ export interface TypesSpecTaskDesignReviewComment {
   interaction_id?: string;
   /** Optional line number */
   line_number?: number;
+  /** Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch */
+  prompt_id?: string;
   /**
    * Database-backed queue for agent processing (restart-resilient)
    * QueuedAt is set when comment is submitted for agent processing.
@@ -13733,13 +13754,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1PromptHistoryList: (
-      query: {
-        /** Spec Task ID (required) */
-        spec_task_id: string;
-        /** Project ID (optional filter) */
-        project_id?: string;
+      query?: {
+        /** Spec Task ID (required unless session_id is given) */
+        spec_task_id?: string;
         /** Session ID (optional filter) */
         session_id?: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
         /** Only entries after this timestamp (Unix milliseconds) */
         since?: number;
         /** Max entries to return (default 100) */

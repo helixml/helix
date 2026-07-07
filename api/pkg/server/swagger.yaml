@@ -2593,9 +2593,7 @@ definitions:
     type: object
   server.SessionMessageResponse:
     properties:
-      interaction_id:
-        type: string
-      request_id:
+      prompt_id:
         type: string
     type: object
   server.SessionSandboxStateResponse:
@@ -7510,6 +7508,13 @@ definitions:
       next_retry_at:
         description: When to retry (for exponential backoff)
         type: string
+      notify_user_id:
+        description: |-
+          NotifyUserID, when set, is the user who should be streamed the agent's
+          response (e.g. a design-review commenter). At dispatch the queue registers
+          requestToCommenterMapping/sessionToCommenterMapping from this field — the
+          same routing the old direct send set up synchronously.
+        type: string
       organization_id:
         description: Organization scope for search
         type: string
@@ -7528,9 +7533,13 @@ definitions:
         description: Retry tracking for failed prompts
         type: integer
       session_id:
-        description: Optional - which session this was sent to
+        description: Which session this was sent to (the delivery unit)
         type: string
       spec_task_id:
+        description: |-
+          SpecTaskID is nullable: frontend queue-mode messages always carry it, but
+          automated/system and general session sends (e.g. org bots via
+          POST /sessions/{id}/messages) enqueue by SessionID with no spec task.
         type: string
       status:
         description: |-
@@ -7593,6 +7602,11 @@ definitions:
           $ref: '#/definitions/types.PromptHistoryEntrySync'
         type: array
       project_id:
+        type: string
+      session_id:
+        description: |-
+          SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+          that have no spec task). Exactly one of SpecTaskID / SessionID is set.
         type: string
       spec_task_id:
         type: string
@@ -8551,7 +8565,10 @@ definitions:
       provider:
         description: |-
           Provider is the Name() of the compute.Provider that owns this host.
-          E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+          For pool-discovery providers this is a composite key baked from the
+          deployment tag, worker tag and instance type (e.g.
+          "yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34"), so it
+          needs the same width as ProviderID. Empty for self-registered hosts.
         type: string
       provider_id:
         description: |-
@@ -9891,6 +9908,10 @@ definitions:
       line_number:
         description: Optional line number
         type: integer
+      prompt_id:
+        description: Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID
+          are backfilled from it at dispatch
+        type: string
       queued_at:
         description: |-
           Database-backed queue for agent processing (restart-resilient)
@@ -20417,10 +20438,14 @@ paths:
       - application/json
       description: Get prompt history entries for the current user
       parameters:
-      - description: Spec Task ID (required)
+      - description: Spec Task ID (required unless session_id is given)
         in: query
         name: spec_task_id
-        required: true
+        type: string
+      - description: Session ID for session-scoped queues (required unless spec_task_id
+          is given)
+        in: query
+        name: session_id
         type: string
       - description: Project ID (optional filter)
         in: query

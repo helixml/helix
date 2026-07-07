@@ -55,6 +55,7 @@ const (
 	OrgInvitationPrefix        = "oin_"
 	VHostRoutePrefix           = "vhr_"
 	WebServiceDeployPrefix     = "wsd_"
+	PromptHistoryPrefix        = "prompt_"
 )
 
 func GenerateUUID() string {
@@ -246,6 +247,10 @@ func GenerateOrgInvitationID() string {
 
 func GenerateVHostRouteID() string {
 	return fmt.Sprintf("%s%s", VHostRoutePrefix, newID())
+}
+
+func GeneratePromptHistoryID() string {
+	return fmt.Sprintf("%s%s", PromptHistoryPrefix, newID())
 }
 
 func GenerateWebServiceDeployID() string {
