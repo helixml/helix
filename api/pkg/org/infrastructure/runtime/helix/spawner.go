@@ -82,6 +82,10 @@ type SpawnerConfig struct {
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID string
+	// OrgDisplayName is the org's human label, forwarded to WorkerProject
+	// so the project is named `<Bot> @ <Org>`. Must match the applier's
+	// value (upsert-by-name).
+	OrgDisplayName string
 	// SessionStartupTimeout bounds how long ensureSession is allowed to
 	// take — creating / picking the session row, opening the Helix
 	// chat session, attaching the live transcript WebSocket. Five
@@ -385,16 +389,17 @@ After meaningful work, persist state on helix-specs:
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
 func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.BotID) error {
 	a := &WorkerProject{
-		Service:     c.ProjectService,
-		Workspace:   c.Workspace,
-		Store:       c.Store,
-		HelixOrgURL: c.HelixOrgURL,
-		OrgID:       c.OrgID,
-		Runtime:     c.Runtime,
-		Provider:    c.Provider,
-		Model:       c.Model,
-		Credentials: c.Credentials,
-		Logger:      c.Logger,
+		Service:        c.ProjectService,
+		Workspace:      c.Workspace,
+		Store:          c.Store,
+		HelixOrgURL:    c.HelixOrgURL,
+		OrgID:          c.OrgID,
+		OrgDisplayName: c.OrgDisplayName,
+		Runtime:        c.Runtime,
+		Provider:       c.Provider,
+		Model:          c.Model,
+		Credentials:    c.Credentials,
+		Logger:         c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, orgID, workerID)
 	return err

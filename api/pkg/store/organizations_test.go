@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -199,6 +200,78 @@ func (suite *OrganizationsTestSuite) TestDeleteOrganization_RemovesProjectsAndRe
 	})
 	suite.Require().NoError(err)
 	suite.Empty(repositories)
+}
+
+// TestDeleteOrganization_RemovesSpecTaskChildren guards the FK-violation
+// regression: a spec task with a work session (and zed thread) blocked org
+// deletion with fk_spec_tasks_work_sessions because those children carried
+// NO ACTION FKs and DeleteOrganization did not clear them first.
+func (suite *OrganizationsTestSuite) TestDeleteOrganization_RemovesSpecTaskChildren() {
+	orgID := system.GenerateOrganizationID()
+	createdOrg, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+		ID:    orgID,
+		Name:  "Test Organization " + orgID,
+		Owner: "test-user",
+	})
+	suite.Require().NoError(err)
+
+	project, err := suite.db.CreateProject(suite.ctx, &types.Project{
+		ID:             "project-" + system.GenerateUUID(),
+		Name:           "Project for spec-task child delete test",
+		UserID:         "test-user",
+		OrganizationID: createdOrg.ID,
+	})
+	suite.Require().NoError(err)
+
+	session, err := suite.db.CreateSession(suite.ctx, types.Session{
+		ID:      system.GenerateSessionID(),
+		Owner:   "test-user",
+		Created: time.Now(),
+		Updated: time.Now(),
+	})
+	suite.Require().NoError(err)
+
+	task := &types.SpecTask{
+		ID:             "task-" + system.GenerateUUID(),
+		ProjectID:      project.ID,
+		OrganizationID: createdOrg.ID,
+		Name:           "Task with children",
+		Type:           "feature",
+		Priority:       types.SpecTaskPriorityMedium,
+		Status:         types.TaskStatusBacklog,
+		CreatedBy:      "test-user",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	suite.Require().NoError(suite.db.CreateSpecTask(suite.ctx, task))
+
+	workSession := &types.SpecTaskWorkSession{
+		SpecTaskID:     task.ID,
+		HelixSessionID: session.ID,
+		Phase:          types.SpecTaskPhaseImplementation,
+		Status:         types.SpecTaskWorkSessionStatusActive,
+	}
+	suite.Require().NoError(suite.db.CreateSpecTaskWorkSession(suite.ctx, workSession))
+
+	suite.Require().NoError(suite.db.CreateSpecTaskZedThread(suite.ctx, &types.SpecTaskZedThread{
+		WorkSessionID: workSession.ID,
+		SpecTaskID:    task.ID,
+		ZedThreadID:   "zed-thread-" + system.GenerateUUID(),
+	}))
+
+	// This previously failed with the fk_spec_tasks_work_sessions violation.
+	err = suite.db.DeleteOrganization(suite.ctx, createdOrg.ID)
+	suite.Require().NoError(err)
+
+	_, err = suite.db.GetOrganization(suite.ctx, &GetOrganizationQuery{ID: createdOrg.ID})
+	suite.Equal(ErrNotFound, err)
+
+	_, err = suite.db.GetSpecTask(suite.ctx, task.ID)
+	suite.Error(err)
+
+	sessions, err := suite.db.ListSpecTaskWorkSessions(suite.ctx, task.ID)
+	suite.Require().NoError(err)
+	suite.Empty(sessions)
 }
 
 func (suite *OrganizationsTestSuite) TestListOrganizations() {
