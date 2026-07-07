@@ -173,6 +173,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
         try {
           await api.getApiClient().v1OrgsBotsCreate(created.name, {
             id: 'chief-of-staff',
+            name: 'Chief of Staff',
             content: STARTER_BOT_CONTENT,
             owner: true,
           })

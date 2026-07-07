@@ -4,87 +4,26 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// authorizeOrgOwner used to check if the user is an owner of the organization to perform certain actions
-// such as creating, updating teams, updating or deleting organization
-func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
-	// Global admins can perform any operation, regardless of their organization membership
-	if user.Admin {
-		// For global admins, we'll still try to get their membership if it exists
-		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-			OrganizationID: orgID,
-			UserID:         user.ID,
-		})
-
-		// If the global admin has membership, return it
-		if err == nil {
-			return membership, nil
-		}
-
-		// If the global admin doesn't have a membership, create a temporary one with owner role
-		// This won't be stored in the database, just returned for the current operation
-		return &types.OrganizationMembership{
-			OrganizationID: orgID,
-			UserID:         user.ID,
-			Role:           types.OrganizationRoleOwner,
-		}, nil
-	}
-
-	// For non-admin users, proceed with the existing logic
-	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-		OrganizationID: orgID,
-		UserID:         user.ID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if membership.Role != types.OrganizationRoleOwner {
-		return nil, fmt.Errorf("user is not an owner of this organization")
-	}
-
-	return membership, nil
+// orgAuthorizer builds an org authorizer over the server's store. The org
+// authorization logic lives in api/pkg/orgstore (shared with downstream
+// services); these methods delegate to it so there is a single implementation.
+func (apiServer *HelixAPIServer) orgAuthorizer() *orgstore.Authorizer {
+	return orgstore.NewAuthorizer(apiServer.Store)
 }
 
-// deleting used to check if the user is a member of the organization to perform certain actions
-// such as listing teams, listing members, etc
+// authorizeOrgOwner checks if the user is an owner of the organization.
+func (apiServer *HelixAPIServer) authorizeOrgOwner(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
+	return apiServer.orgAuthorizer().AuthorizeOrgOwner(ctx, user, orgID)
+}
+
+// authorizeOrgMember checks if the user is a member of the organization.
 func (apiServer *HelixAPIServer) authorizeOrgMember(ctx context.Context, user *types.User, orgID string) (*types.OrganizationMembership, error) {
-	// Global admins can perform any operation, regardless of their organization membership
-	if user.Admin {
-		// For global admins, we'll still try to get their membership if it exists
-		membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-			OrganizationID: orgID,
-			UserID:         user.ID,
-		})
-
-		// If the global admin has membership, return it
-		if err == nil {
-			return membership, nil
-		}
-
-		// If the global admin doesn't have a membership, create a temporary one with owner role
-		// This won't be stored in the database, just returned for the current operation
-		return &types.OrganizationMembership{
-			OrganizationID: orgID,
-			UserID:         user.ID,
-			Role:           types.OrganizationRoleOwner,
-		}, nil
-	}
-
-	// For non-admin users, proceed with the existing logic
-	membership, err := apiServer.Store.GetOrganizationMembership(ctx, &store.GetOrganizationMembershipQuery{
-		OrganizationID: orgID,
-		UserID:         user.ID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Both roles (owner or member) can list teams and members
-	return membership, nil
+	return apiServer.orgAuthorizer().AuthorizeOrgMember(ctx, user, orgID)
 }
 
 func (apiServer *HelixAPIServer) resolveOrgID(ctx context.Context, orgRef string) (string, error) {
@@ -347,76 +286,8 @@ func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, use
 	return apiServer.authorizeUserToResource(ctx, user, session.OrganizationID, session.ProjectID, types.ResourceProject, action)
 }
 
-// authorizeUserToResource loads RBAC configuration for the
+// authorizeUserToResource evaluates the user's team + direct access grants for a
+// resource. Delegates to the shared orgstore authorizer.
 func (apiServer *HelixAPIServer) authorizeUserToResource(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error {
-	// Load all authz configs for the user (teams, direct to user grants)
-	authzConfigs, err := getAuthzConfigs(ctx, apiServer.Store, user, orgID, resourceID)
-	if err != nil {
-		return err
-	}
-
-	if evaluate(resourceType, action, authzConfigs) {
-		return nil
-	}
-
-	return fmt.Errorf("user is not authorized to perform this action")
-}
-
-func getAuthzConfigs(ctx context.Context, db store.Store, user *types.User, orgID, resourceID string) ([]types.Config, error) {
-	var authzConfigs []types.Config
-
-	// Get all teams
-	teams, err := db.ListTeams(ctx, &store.ListTeamsQuery{
-		OrganizationID: orgID,
-		UserID:         user.ID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var teamIDs []string
-	for _, team := range teams {
-		teamIDs = append(teamIDs, team.ID)
-	}
-
-	// Check if the user is granted access directly
-	grants, err := db.ListAccessGrants(ctx, &store.ListAccessGrantsQuery{
-		OrganizationID: orgID,
-		UserID:         user.ID,
-		ResourceID:     resourceID,
-		TeamIDs:        teamIDs,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list access grants: %w", err)
-	}
-
-	for _, grant := range grants {
-		for _, role := range grant.Roles {
-			authzConfigs = append(authzConfigs, role.Config)
-		}
-	}
-
-	return authzConfigs, nil
-}
-
-func evaluate(requestedResource types.Resource, requestedAction types.Action, configs []types.Config) bool {
-	oneAllow := false
-
-	for _, config := range configs {
-		for _, rule := range config.Rules {
-			for _, resource := range rule.Resources {
-				if resource == requestedResource || resource == types.ResourceAny {
-					for _, ruleAction := range rule.Actions {
-						if ruleAction == requestedAction {
-							if rule.Effect == types.EffectDeny {
-								return false
-							}
-							oneAllow = true
-						}
-					}
-				}
-			}
-		}
-	}
-	return oneAllow
+	return apiServer.orgAuthorizer().AuthorizeUserToResource(ctx, user, orgID, resourceID, resourceType, action)
 }

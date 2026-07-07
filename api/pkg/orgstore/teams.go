@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type GetTeamQuery struct {
 }
 
 // CreateTeam creates a new team within an organization
-func (s *PostgresStore) CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
+func (s *Store) CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
 	if team.ID == "" {
 		team.ID = system.GenerateTeamID()
 	}
@@ -52,7 +52,7 @@ func (s *PostgresStore) CreateTeam(ctx context.Context, team *types.Team) (*type
 }
 
 // GetTeam retrieves a team by ID and optionally organization ID
-func (s *PostgresStore) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error) {
+func (s *Store) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Team, error) {
 	if q.ID == "" && (q.OrganizationID == "" || q.Name == "") {
 		return nil, fmt.Errorf("id or organization_id and name not specified")
 	}
@@ -83,7 +83,7 @@ func (s *PostgresStore) GetTeam(ctx context.Context, q *GetTeamQuery) (*types.Te
 }
 
 // ListTeams lists teams based on query parameters
-func (s *PostgresStore) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*types.Team, error) {
+func (s *Store) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*types.Team, error) {
 	query := s.gdb.WithContext(ctx)
 
 	// If user ID provided, get the team memberships for the user
@@ -117,7 +117,7 @@ func (s *PostgresStore) ListTeams(ctx context.Context, q *ListTeamsQuery) ([]*ty
 }
 
 // UpdateTeam updates an existing team
-func (s *PostgresStore) UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
+func (s *Store) UpdateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
 	if team.ID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
@@ -136,7 +136,7 @@ func (s *PostgresStore) UpdateTeam(ctx context.Context, team *types.Team) (*type
 }
 
 // DeleteTeam deletes a team by ID
-func (s *PostgresStore) DeleteTeam(ctx context.Context, id string) error {
+func (s *Store) DeleteTeam(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
 	}

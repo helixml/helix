@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -21,7 +21,7 @@ type ListAccessGrantsQuery struct {
 }
 
 // CreateAccessGrant creates a new resource access binding
-func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error) {
+func (s *Store) CreateAccessGrant(ctx context.Context, resourceAccess *types.AccessGrant, roles []*types.Role) (*types.AccessGrant, error) {
 	if resourceAccess.OrganizationID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
@@ -96,7 +96,7 @@ func (s *PostgresStore) CreateAccessGrant(ctx context.Context, resourceAccess *t
 }
 
 // ListAccessGrants retrieves access grants by resource type, resource ID and either user ID or team IDs
-func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error) {
+func (s *Store) ListAccessGrants(ctx context.Context, q *ListAccessGrantsQuery) ([]*types.AccessGrant, error) {
 	if q.ResourceID == "" {
 		return nil, fmt.Errorf("resource_id must be specified")
 	}
@@ -172,7 +172,7 @@ func (s *PostgresStore) ListAccessGrants(ctx context.Context, q *ListAccessGrant
 }
 
 // DeleteAccessGrant deletes a resource access binding
-func (s *PostgresStore) DeleteAccessGrant(ctx context.Context, id string) error {
+func (s *Store) DeleteAccessGrant(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id must be specified")
 	}

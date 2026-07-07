@@ -41,6 +41,13 @@ func (s *WebSocketSyncSuite) SetupTest() {
 	// Allow it anywhere without specific ordering.
 	s.store.EXPECT().TouchSession(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
+	// sendQueuedPromptToSession backfills any design-review comment linked to the
+	// prompt at dispatch (backfillCommentLinkageForPrompt). For non-comment
+	// prompts the lookup returns not-found; allow it anywhere by default. Tests
+	// that exercise a comment-linked prompt override this with a specific expect.
+	s.store.EXPECT().GetCommentByPromptID(gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("record not found")).AnyTimes()
+
 	s.server = &HelixAPIServer{
 		Cfg: &config.ServerConfig{
 			WebServer: config.WebServer{
@@ -1168,8 +1175,8 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 // error to a legacy HTTP-streaming response channel that doesn't exist for
 // WebSocket-driven chat — the interaction was silently left in Waiting, then
 // handleMessageCompleted's empty-response branch overwrote it with the
-// generic "Agent returned empty response (message bounced or content lost).
-// The prompt will be retried." which buries the actual cause.
+// generic "Agent unresponsive: it returned an empty response. Retrying
+// automatically." which buries the actual cause.
 //
 // This test pins the desired behaviour: when an active interaction exists for
 // the failing request_id, the agent's error message MUST land on the

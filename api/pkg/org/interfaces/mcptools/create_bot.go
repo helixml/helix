@@ -58,13 +58,14 @@ func (t *CreateBot) InputSchema() *jsonschema.Schema {
 	return s
 }
 func (t *CreateBot) Description() string {
-	return "Create a new Bot in one call. `content` is the bot's prompt. `tools` is an " +
-		"array of MCP tool names to grant (the universal read baseline is added " +
-		"automatically; pass [] for baseline only) — use attach_tool/detach_tool to " +
-		"change them later. `topics` is an array of existing Topic ids to subscribe the " +
-		"new Bot to immediately (pass [] for none) — use subscribe/unsubscribe to change " +
-		"them later. `parentId` is the manager this bot reports to — omit it only for the " +
-		"org owner.\n\n" +
+	return "Create a new Bot in one call. `content` is the bot's prompt. `name` is the " +
+		"human-readable display label shown in the UI (e.g. \"Chief of Staff\", \"Sales " +
+		"Lead\"). `tools` is an array of MCP tool names to grant (the universal read " +
+		"baseline is added automatically; pass [] for baseline only) — use " +
+		"attach_tool/detach_tool to change them later. `topics` is an array of existing " +
+		"Topic ids to subscribe the new Bot to immediately (pass [] for none) — use " +
+		"subscribe/unsubscribe to change them later. `parentId` is the manager this bot " +
+		"reports to — omit it only for the org owner.\n\n" +
 		"Supply `id` as a short, real-sounding handle: a lowercase given name prefixed " +
 		"with `b-`, e.g. `b-mark`, `b-priya`. Pick a name that fits and isn't taken. Do " +
 		"NOT pass a UUID and do NOT omit `id` to let the server invent one. If your first " +
@@ -73,6 +74,7 @@ func (t *CreateBot) Description() string {
 
 type createBotArgs struct {
 	ID       string   `json:"id,omitempty"`
+	Name     string   `json:"name,omitempty"`
 	Content  string   `json:"content"`
 	Tools    []string `json:"tools"`
 	Topics   []string `json:"topics"`
@@ -100,6 +102,7 @@ func (t *CreateBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMe
 	// dispatches the create activation through the Spawner.
 	res, err := t.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:       args.ID,
+		Name:     args.Name,
 		Content:  args.Content,
 		Tools:    args.Tools,
 		Topics:   args.Topics,

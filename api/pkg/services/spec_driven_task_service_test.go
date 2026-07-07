@@ -391,12 +391,12 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 	mockStore := store.NewMockStore(ctrl)
 	var mockPubsub pubsub.PubSub = nil
 
-	// messageSender is wired up so we can prove it is NOT called when the
+	// enqueuer is wired up so we can prove it is NOT called when the
 	// transition loses the race.
 	sendCalls := 0
-	sender := func(_ context.Context, _ *types.SpecTask, _, _ string, _ bool) (string, string, error) {
+	sender := func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
 		sendCalls++
-		return "", "", nil
+		return nil
 	}
 
 	service := NewSpecDrivenTaskService(
@@ -408,7 +408,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace(t *testing
 		nil, nil, nil,
 		NewDisabledKoditService(),
 	)
-	service.SendMessageToAgent = sender
+	service.EnqueueMessageToAgent = sender
 	// Note: testMode=false so the message-send path would actually fire if we
 	// reached it; the test asserts it does not.
 

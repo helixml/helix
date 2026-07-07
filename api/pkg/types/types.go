@@ -3313,8 +3313,11 @@ type SandboxInstance struct {
 	// leave these empty.
 
 	// Provider is the Name() of the compute.Provider that owns this host.
-	// E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
-	Provider string `json:"provider,omitempty" gorm:"type:varchar(50);index:idx_sandbox_provider_id,priority:1"`
+	// For pool-discovery providers this is a composite key baked from the
+	// deployment tag, worker tag and instance type (e.g.
+	// "yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34"), so it
+	// needs the same width as ProviderID. Empty for self-registered hosts.
+	Provider string `json:"provider,omitempty" gorm:"type:varchar(255);index:idx_sandbox_provider_id,priority:1"`
 
 	// ProviderID is the upstream system's opaque identifier for this
 	// host (e.g. a YellowDog work-requirement YDID). Forms a composite

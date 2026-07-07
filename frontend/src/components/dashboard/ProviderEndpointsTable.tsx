@@ -28,6 +28,10 @@ import ProviderEndpointUsageBarChart from './ProviderEndpointUsageBarChart';
 import { useApi } from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import { useListProviders } from '../../services/providersService';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import LMStudioModels from '../providers/LMStudioModels';
 import { getUserById } from '../../services/userService';
 import { useGetOrgById } from '../../services/orgService';
 
@@ -64,6 +68,7 @@ const ProviderEndpointsTable: FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [editModelsDialogOpen, setEditModelsDialogOpen] = useState(false);
+  const [localModelsDialogOpen, setLocalModelsDialogOpen] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<IProviderEndpoint | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({});
@@ -144,7 +149,11 @@ const ProviderEndpointsTable: FC = () => {
   };
 
   const isSystemEndpoint = (endpoint: IProviderEndpoint) => {
-    return endpoint.endpoint_type === 'global' && endpoint.owner === 'system';
+    // Only synthetic env-var endpoints are read-only. They are injected from
+    // config with a sentinel id of "-" (no DB row to edit). A real DB row —
+    // including a global one — always has a real id and is admin-editable, even
+    // if a past bug stamped its owner as "system".
+    return endpoint.id === '-';
   };
 
   // Helper function to render owner information
@@ -273,6 +282,12 @@ const ProviderEndpointsTable: FC = () => {
       >
         <MenuItem onClick={handleEditClick}>Edit Details</MenuItem>
         <MenuItem onClick={handleEditModelsClick}>Edit Models</MenuItem>
+        {selectedEndpoint && (selectedEndpoint.name === 'lmstudio' || selectedEndpoint.name === 'ollama' || selectedEndpoint.name?.includes('lmstudio') || selectedEndpoint.name?.includes('ollama')) && (
+          <MenuItem onClick={() => {
+            handleMenuClose();
+            setLocalModelsDialogOpen(true);
+          }}>Manage Local Models</MenuItem>
+        )}
         <MenuItem onClick={handleDeleteClick}>Delete</MenuItem>
       </Menu>
       <DeleteProviderEndpointDialog
@@ -298,6 +313,22 @@ const ProviderEndpointsTable: FC = () => {
         onClose={handleEditModelsDialogClose}
         refreshData={loadData}
       />
+      <Dialog
+        open={localModelsDialogOpen}
+        onClose={() => { setLocalModelsDialogOpen(false); setSelectedEndpoint(null); }}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { maxHeight: '85vh' } }}
+      >
+        <DialogTitle sx={{ fontSize: "1rem", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          Manage Local Models — {selectedEndpoint?.name}
+        </DialogTitle>
+        <DialogContent sx={{ overflow: "auto" }}>
+          {selectedEndpoint?.id && localModelsDialogOpen && (
+            <LMStudioModels endpointId={selectedEndpoint.id} />
+          )}
+        </DialogContent>
+      </Dialog>
     </Paper>
   );
 };

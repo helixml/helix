@@ -2258,10 +2258,13 @@ type SessionMessageRequest struct {
 }
 
 // SessionMessageResponse is returned from POST /sessions/{id}/messages.
-// interaction_id can be used to correlate streamed responses on /api/v1/ws/user.
+// The message is enqueued onto the session-scoped prompt queue and dispatched
+// asynchronously (deferred until the agent is idle, or cancel-then-send for
+// interrupt=true), so the interaction/request id are not known at return time.
+// prompt_id is the queue-entry handle; the streamed response arrives on
+// /api/v1/ws/user for the session.
 type SessionMessageResponse struct {
-	RequestID     string `json:"request_id"`
-	InteractionID string `json:"interaction_id"`
+	PromptID string `json:"prompt_id"`
 }
 
 // sendSessionMessage godoc
@@ -2321,15 +2324,17 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 		return nil, err
 	}
 
-	requestID, interactionID, err := s.sendMessageToSession(ctx, sessionID, body.Content, body.NotifyUserID, body.Interrupt)
+	// Enqueue onto the session-scoped prompt queue (the single sender path).
+	// interrupt honours the caller's request; org bots pass false and thereby get
+	// proper busy-defer (previously they hit the direct path with no busy-check).
+	promptID, err := s.enqueueAgentMessage(ctx, sessionID, body.Content, body.Interrupt, body.NotifyUserID, "")
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to queue session message")
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to queue session message: %v", err))
 	}
 
 	return &SessionMessageResponse{
-		RequestID:     requestID,
-		InteractionID: interactionID,
+		PromptID: promptID,
 	}, nil
 }
 

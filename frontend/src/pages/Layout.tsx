@@ -12,7 +12,9 @@ import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 import MuiSnackbar from "@mui/material/Snackbar";
+import { useDetectLocalProviders, useListProviders } from "../services/providersService";
 
 import Sidebar from "../components/system/Sidebar";
 import SessionsSidebar from "../components/session/SessionsSidebar";
@@ -258,6 +260,15 @@ const Layout: FC<{
   const apps = useApps();
   const floatingModal = useFloatingModal();
   const [showVersionBanner, setShowVersionBanner] = useState(true);
+  const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
+  const { data: detectedProviders } = useDetectLocalProviders(!!account.user);
+  const { data: allProviders } = useListProviders({ enabled: !!account.user });
+  const unconnectedLocal = useMemo(() => {
+    if (!detectedProviders || !allProviders) return [];
+    return detectedProviders.filter(
+      dp => !allProviders.some(e => e.name === dp.server_type)
+    );
+  }, [detectedProviders, allProviders]);
   const [licenseGracePeriodExpired, setLicenseGracePeriodExpired] =
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -505,6 +516,31 @@ const Layout: FC<{
             here
           </a>
           .
+        </Alert>
+      </MuiSnackbar>
+      <MuiSnackbar
+        open={showLocalProviderBanner && unconnectedLocal.length > 0}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setShowLocalProviderBanner(false)}
+          sx={{ width: "100%", bgcolor: "rgba(0,232,145,0.95)", color: "#000", "& .MuiAlert-icon": { color: "#000" } }}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                const orgId = account.organizationTools.organizations?.[0]?.id || account.organizationTools.organizations?.[0]?.name;
+                if (orgId) router.navigate("org_providers", { org_id: orgId });
+                setShowLocalProviderBanner(false);
+              }}
+              sx={{ color: "#000", fontWeight: 600, textTransform: "none", border: "1px solid rgba(0,0,0,0.3)", "&:hover": { bgcolor: "rgba(0,0,0,0.1)" } }}
+            >
+              Connect
+            </Button>
+          }
+        >
+          {unconnectedLocal.map(dp => dp.name).join(" and ")} detected on this machine with local AI models ready to use
         </Alert>
       </MuiSnackbar>
       <Box
