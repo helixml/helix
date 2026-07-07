@@ -24566,6 +24566,10 @@ const docTemplate = `{
         "server.ProjectWebServiceResponse": {
             "type": "object",
             "properties": {
+                "acme_challenge_target": {
+                    "description": "ACMEChallengeTarget is the fixed CNAME value customers point\n\"_acme-challenge.\u003ctheir-domain\u003e\" at when the domain is behind a\nproxy/CDN that hides the origin from Let's Encrypt. Empty when the\noperator has not configured delegation (HELIX_VHOST_ACME_CHALLENGE_TARGET).",
+                    "type": "string"
+                },
                 "cname_target": {
                     "description": "CNAMETarget is the hostname customers should add as the value of\ntheir CNAME record when registering a custom domain — i.e. the\ncanonical Helix hostname parsed from SERVER_URL. Empty when the\nvhost feature is not configured on this instance.",
                     "type": "string"
