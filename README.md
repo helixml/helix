@@ -81,11 +81,10 @@ Helix is a full private GenAI stack, so the pieces you'd expect are here too:
 - **Knowledge / RAG** — document ingestion (PDF, Word, text), a web scraper, multiple RAG backends (Kodit, LlamaIndex), PGVector embeddings, and vision RAG.
 - **Skills & tools** — REST/OpenAPI integrations, MCP server compatibility, GPTScript, OAuth token management, and a custom-tool SDK.
 - **Tracing & observability** — every agent step, requests/responses to LLMs, APIs, and MCP servers, token usage, and cost analysis.
-- **Multi-tenancy** — organizations, teams, and role-based access control.
+- **Multi-tenancy & auth** — organizations, teams, and role-based access control, with **OIDC** single sign-on (via Keycloak).
 - **Billing & metering** — track token usage and spend per user and per team, so you can see where the budget goes.
 - **Automation** — scheduled/cron tasks and webhook triggers.
 - **Notifications** — Slack, Discord, and email.
-- **Auth** — Keycloak with OAuth/OIDC.
 
 <img width="1768" alt="AI agents interface" src="https://github.com/user-attachments/assets/0e945ace-4f54-46a2-8d20-49485169486f" />
 
