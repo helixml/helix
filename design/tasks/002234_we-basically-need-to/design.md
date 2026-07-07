@@ -122,7 +122,7 @@ Rewrite top-to-bottom; keep practical sections lower down.
   (browser bookmark bar in the screenshot): "private agent fleet with
   spec-driven coding; each agent gets its own GPU-accelerated desktop; run
   Claude, Codex, Gemini and open models on a full private AI stack."
-- **Length.** README went from ~271 to ~232 lines (shorter, as intended).
+- **Length.** README went from 271 to 206 lines (shorter, as intended).
 - **Demoted sections** kept one existing GitHub user-attachment screenshot
   (AI agents interface); the other old screenshots were dropped to keep it
   scannable.

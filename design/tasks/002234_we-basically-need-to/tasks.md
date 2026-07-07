@@ -10,4 +10,4 @@
 - [x] Preserve and lightly edit Quick Start (Docker + Kubernetes), Configuration, Development, and Documentation sections.
 - [x] Preserve License, Contributing, Support, and Star History sections verbatim.
 - [x] Verify all links resolve (docs, Discord, launchpad, `./CONTRIBUTING.md`, `./local-development.md`) and images render in GitHub Markdown preview. Fixed two links that were already broken in the old README: removed dead `./api/pkg/agent/SPEC.md` and repointed `UPGRADING.md` → `./charts/helix-controlplane/UPGRADE.md`.
-- [x] Proofread the whole README against the Tone Guideline (concrete/technical, no unsubstantiated superlatives, developer-oriented) while keeping the helix-next message; confirm final length stays scannable (README shrank from ~271 to ~232 lines).
+- [x] Proofread the whole README against the Tone Guideline (concrete/technical, no unsubstantiated superlatives, developer-oriented) while keeping the helix-next message; confirm final length stays scannable (README shrank from 271 to 206 lines).
