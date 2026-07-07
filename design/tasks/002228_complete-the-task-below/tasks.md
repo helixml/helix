@@ -45,3 +45,14 @@
 - [x] Branch off `main`, conventional commits (regular merge at PR time — never squash)
 - [~] Pushed to feature branch. Drone CI runs when the PR is opened by the platform (branch not on GitHub until then); local build + unit tests + live E2E all green
 - [x] PR description (pull_request_helix.md) references https://github.com/helixml/helix/pull/2808 and calls out session-scoped queue, bot fix, deleted direct path, API contract change
+
+## Follow-on (same PR): org-chat queue visibility
+- [ ] Backend: `listPromptHistory` / `syncPromptHistory` accept `session_id` when `spec_task_id` is absent (session-scoped queue)
+- [ ] Frontend: `usePromptHistory` syncs/polls by `sessionId` when no `specTaskId`, so `RobustPromptInput` in `HelixOrgBotDetail` shows queued prompts
+- [ ] Live-verify: a bot/session mid-turn enqueue shows as queued in org chat, clears on delivery
+
+## Follow-on (same PR): zed e2e production-path (queue) coverage
+- [ ] memorystore: implement prompt-history methods needed by the queue path (`CreatePromptHistoryEntry`, `ListPromptHistoryBySession`, `GetNextPendingPrompt`, `GetNextInterruptPrompt`, plus any missing GetSession/CreateInteraction/ListInteractions)
+- [ ] zed test server: add Phase — queue defer (interrupt=false held while busy, delivered when idle)
+- [ ] zed test server: add Phase — queue interrupt (interrupt=true cancels-then-sends via processInterruptPrompt)
+- [ ] Bump `sandbox-versions.txt` ZED_COMMIT after committing zed changes (order per CLAUDE.md)
