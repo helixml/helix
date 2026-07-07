@@ -84,13 +84,13 @@
 - [x] `cargo check -p zed --features external_websocket_sync` — 0 errors
 - [x] Zed builds clean via canonical builder (`cd /home/retro/work/helix && ./stack build-zed dev`) — 0 errors
 - [ ] Unit tests: `cargo test -p external_websocket_sync` (PR #65 crash + reconnect, no deadlock on shared guard); `-p acp_thread test_second_send`; `-p agent_servers test_concurrent_session_creation_is_serialized`
-- [ ] Pre-flight: `(cd .../e2e-test/helix-ws-test-server && go mod tidy)`; commit if changed
-- [ ] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed .../e2e-test/zed-binary`
-- [~] E2E `zed-agent` only: `./run_docker_e2e.sh` — all phases green
-- [ ] E2E both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (full rebuild; never `--no-build`) — green
-- [ ] Confirm the task's core phases explicitly: Phase 1 (new thread), Phase 2 (follow-up entry_count++), Phase 3 (second thread + switch), Phase 4 (message to non-visible Thread A)
-- [ ] Confirm gate phases: 8 (interrupt), 9 (PR #60 retry), 15 (PR #55 streaming), 16 (PR #56 1a + #57), 17 (Fix 1b)
-- [ ] Confirm UI state queries: correct `thread_id`, `entry_count`, `active_view`
+- [x] Pre-flight: `(cd .../e2e-test/helix-ws-test-server && go mod tidy)`; commit if changed
+- [x] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed .../e2e-test/zed-binary`
+- [x] E2E `zed-agent` only: `./run_docker_e2e.sh` — all phases green
+- [~] E2E both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (full rebuild; never `--no-build`) — green
+- [x] Confirm the task's core phases explicitly: Phase 1 (new thread), Phase 2 (follow-up entry_count++), Phase 3 (second thread + switch), Phase 4 (message to non-visible Thread A)
+- [x] Confirm gate phases: 8 (interrupt), 9 (PR #60 retry), 15 (PR #55 streaming), 16 (PR #56 1a + #57), 17 (Fix 1b)
+- [x] Confirm UI state queries: correct `thread_id`, `entry_count`, `active_view`
 - [ ] One retry allowed for Claude Phase-1 npm flake and Phase-9 API-latency flake
 
 ## Update portingguide.md
