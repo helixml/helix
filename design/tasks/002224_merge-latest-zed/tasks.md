@@ -1,15 +1,15 @@
 # Implementation Tasks: Merge Latest Zed Upstream Into Helix Fork (002224)
 
 ## Setup & Baseline Measurement
-- [~] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference; note the top merge-history entry and the "Rebase Checklist" (44 items in the reference clone)
-- [ ] Read the closest predecessor spec `002153_merge-latest-zed/` end-to-end (requirements, design, tasks); skim `002100_merge-latest-zed/` and `002077_merge-latest-zed/`
-- [ ] Confirm the repo layout: working repo `/prod/home/luke/pm/zed-upstream` on `helix-fork` (or the in-cluster mirror). Record which applies
-- [ ] `git remote add upstream https://github.com/zed-industries/zed.git` (only if missing); `git fetch upstream`; fetch the fork remote
-- [ ] Checkout `helix-fork`, pull; record current fork HEAD; confirm it matches `sandbox-versions.txt` `ZED_COMMIT`
-- [ ] Identify the last-merged upstream fence from the top of `portingguide.md` (do NOT assume `e45e42af6e` — the reference clone is likely stale)
-- [ ] Measure delta: `git log --oneline helix-fork..upstream/main | wc -l`; record upstream HEAD SHA
-- [ ] Record `agent-client-protocol` / `-schema` versions from `Cargo.lock`; note if bumped vs 0.14.0 / 0.13.6
-- [ ] **Answer the open question**: has 002153 (and later merges) already landed? Reconcile fence + `git log`
+- [x] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference; note the top merge-history entry and the "Rebase Checklist" (44 items in the reference clone)
+- [x] Read the closest predecessor spec `002153_merge-latest-zed/` end-to-end (requirements, design, tasks); skim `002100_merge-latest-zed/` and `002077_merge-latest-zed/`
+- [x] Confirm the repo layout: working repo `/prod/home/luke/pm/zed-upstream` on `helix-fork` (or the in-cluster mirror). Record which applies
+- [x] `git remote add upstream https://github.com/zed-industries/zed.git` (only if missing); `git fetch upstream`; fetch the fork remote
+- [x] Checkout `helix-fork`, pull; record current fork HEAD; confirm it matches `sandbox-versions.txt` `ZED_COMMIT`
+- [x] Identify the last-merged upstream fence from the top of `portingguide.md` (do NOT assume `e45e42af6e` — the reference clone is likely stale)
+- [x] Measure delta: `git log --oneline helix-fork..upstream/main | wc -l`; record upstream HEAD SHA
+- [x] Record `agent-client-protocol` / `-schema` versions from `Cargo.lock`; note if bumped vs 0.14.0 / 0.13.6
+- [x] **Answer the open question**: has 002153 (and later merges) already landed? Reconcile fence + `git log`
 - [ ] Read PR #65 (`git show 9546054e68`) — understand the Error arm / `ChatResponseError` / `TEST_WEBSOCKET_SERVICE_GUARD` surface that must survive
 - [ ] Create branch `feature/002224-merge-latest-zed` from current fork HEAD
 

@@ -13,11 +13,29 @@
 - **Helix platform repo**: `sandbox-versions.txt` carries `ZED_COMMIT=` — must be bumped to the
   new merge HEAD after the Zed branch is pushed.
 
-## Current State — Measure at Execution Time
+## Current State — MEASURED AT EXECUTION TIME (2026-07-06)
+
+**Baseline confirmed — the reference clone was NOT stale.** Measured in `/home/retro/work/zed`:
+
+| | Value |
+|---|---|
+| Fork HEAD (`main`) | `9546054e68` — matches `sandbox-versions.txt` `ZED_COMMIT` |
+| Merge base / last fence | `e45e42af6e` (confirmed ancestor of `main`; `git merge-base main upstream/main`) |
+| Upstream HEAD (`upstream/main`) | `872ca8fef5` ("Add license symlinks to lint test fixture crates (#60505)") |
+| **Commits to merge** (`main..upstream/main`) | **289** |
+| **ACP bump** | `agent-client-protocol` **0.14.0 → 1.0.1** (MAJOR — expect builder + ErrorCode churn) |
+| 002153 landed here? | **No** — this environment's fork main is the pre-002153 base |
+| Repo layout | in-cluster mirror: `origin` = gitea, work in `/home/retro/work/zed`, branch `feature/002224-merge-latest-zed`, Helix UI opens PR |
+| Repo shallow? | Yes, but merge base + both tips present → 3-way merge is valid |
+
+289 commits + a major ACP bump makes this a **large, high-risk merge** (profile closer to
+002029/002077 than to the small 002100 rounds). Expect 6+ conflicts and ACP-driven breakage in
+`agent_servers/src/acp.rs` and any ACP struct-literal / ErrorCode sites.
+
+### (Original planning note) Reference-clone snapshot values
 
 The reference clone shows fork HEAD `9546054e68`, fence `e45e42af6e`, guide→002100-extension,
-ACP `0.14.0`/schema `0.13.6`, 17 E2E phases. **This snapshot is likely stale** (see
-requirements Open Questions). Before merging, in the real working repo:
+ACP `0.14.0`/schema `0.13.6`, 17 E2E phases. Before merging, in the real working repo:
 
 ```bash
 cd <working-repo>
