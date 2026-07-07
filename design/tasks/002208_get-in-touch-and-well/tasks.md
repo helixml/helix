@@ -11,3 +11,4 @@
 - [x] E2E-test both states in the inner Helix (env unset = fallback; env set = record block) and save before/after screenshots to `screenshots/`.
 - [x] Commit (conventional format), merge latest main, push feature branch `feature/002208-self-serve-acme`. (Drone CI runs once the platform opens the GitHub PR — not creatable from here.) — PR #2813, CI green.
 - [x] **Follow-up (user feedback):** drop the dedicated env var; gate the record on `VHostACMEDNSProvider == "cloudflare"` and derive the target from the CNAME target's registrable domain (`publicsuffix`), keeping `HELIX_VHOST_ACME_CHALLENGE_TARGET` as an optional override. Added unit tests; re-verified both states E2E.
+- [x] **Follow-up (user feedback):** add bottom padding (`pb: 3`) under "Recent deploys" so scrolling to the bottom of the Web Service settings modal feels finished. Verified in-browser (24px gap below content).

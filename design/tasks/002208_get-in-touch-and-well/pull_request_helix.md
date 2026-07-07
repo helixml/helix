@@ -31,7 +31,9 @@ from the CNAME target's registrable domain (`ingress.helix.ml` →
   differs from the CNAME target's domain).
 - **`frontend/src/components/project/WebServiceTab.tsx`** — when the target is
   present, render the concrete `_acme-challenge` CNAME record with copy buttons;
-  otherwise omit the proxy/delegation section entirely (no "get in touch").
+  otherwise omit the proxy/delegation section entirely (no "get in touch"). Also
+  added bottom padding under "Recent deploys" so the settings modal scrolls to a
+  clean bottom.
 - **`api/pkg/server/project_web_service_acme_test.go`** — unit tests for
   derivation, override precedence, provider gating, multi-level TLDs, and the
   no-registrable-domain case.
