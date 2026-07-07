@@ -148,3 +148,44 @@ built yet and the normal path will include the attachment.
 - Attachments are locked read-only past `spec_review`
   (`specTaskAttachmentsLocked`); staging only ever runs for uploads that pass
   that gate, so no interaction with locked states.
+
+## Implementation Notes (as built)
+
+- Implemented `StageUploadedAttachments(ctx, taskID)` in
+  `spec_task_attachments.go`. It snapshots which attachments are un-staged
+  (`CommittedSHA == ""`) BEFORE committing, then reuses `commitAttachmentsToHelixSpecs`.
+  The notify is gated on `len(newlyArrived) > 0` (not just session presence) so a
+  re-stage of already-committed files does not re-notify — this is what makes the
+  idempotency test pass and keeps the note tied to a genuinely new file.
+- The note is `buildAttachmentAddedNote` = a one-line preamble +
+  `BuildAttachmentsSection(newlyArrived, taskDir)`, so paths/wording match the
+  initial planning prompt.
+- Handler wiring: `uploadSpecTaskAttachments` calls it with a `detachContext(ctx, 60s)`.
+- **Test harness reuse**: the new tests are methods on the existing
+  `GitIntegrationSuite` (`git_integration_test.go`), which already stands up a real
+  bare upstream + middle repo and `WithExternalRepoWrite`. Set the unexported
+  `store`/`gitRepositoryService` fields directly (same package) and inject fake
+  `ReadAttachmentBlob` + capturing `EnqueueMessageToAgent`. Assert the file via
+  `git show helix-specs:<path>` on the upstream bare repo. Dynamic git args need
+  `gitcmd.NewCommand("show").AddDynamicArguments(ref)` — raw strings don't satisfy
+  the `CmdArg` type.
+
+## Live E2E result (dev Helix, 2026-07-07)
+
+Verified BOTH branches end-to-end against the running stack:
+
+- Onboarding auto-creates a project with a **local** (non-external) helix-hosted
+  repo — `DefaultRepoID` is set, so staging runs without any GitHub OAuth. This is
+  the easiest way to E2E the git side in a fresh inner Helix.
+- **Backlog upload** (no planning session): `committed_sha` set on the row; file
+  present at `design/tasks/000001_e2e-test-verify/attachments/e2e-attach-proof.png`.
+  Under the old code this file would never have been committed for a backlog task.
+- **Late upload with a planning session present**: staged AND a
+  `prompt_history_entries` row queued (status `pending`, `interrupt=false`,
+  content = the "A new attachment was added…" note).
+- Gotcha observed: the dev stack's `sandbox-nvidia` was in a crash loop
+  (`helix-ubuntu:<sha>` desktop image `manifest unknown`), so a full agent desktop
+  never booted. That did NOT block the test — `start-planning` sets
+  `PlanningSessionID` (creates the session row) BEFORE `StartDesktop`, so the
+  session persists even when the desktop boot fails, which is enough to exercise
+  the notify branch.
