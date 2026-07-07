@@ -90,5 +90,39 @@ Rewrite top-to-bottom; keep practical sections lower down.
 - Render the Markdown (GitHub preview or a local Markdown renderer) and confirm
   headings, images, and links resolve.
 - Confirm no broken relative links (`./CONTRIBUTING.md`,
-  `./local-development.md`, `api/pkg/agent/SPEC.md`).
+  `./local-development.md`).
 - Proofread for consistency with helix-next wording.
+
+## Implementation Notes (what actually happened)
+
+- **Hero screenshot delivery.** Spec-task attachments are stored server-side by
+  the Helix platform and are **NOT** synced into the agent's working directory.
+  The screenshot the user attached to the task never reached the sandbox
+  filesystem. The user re-uploaded it manually to `/home/retro/work/incoming/`,
+  where it was found (`Screenshot 2026-07-07 at 05.13.29.png`). Future clones:
+  don't assume task attachments are on disk — ask the user to drop them in
+  `work/incoming/` if missing.
+- **Committed image location:** `helix/docs/images/kanban-board.png`.
+- **.gitignore gotcha (IMPORTANT).** `helix/.gitignore` has a blanket `*.png`
+  rule (line ~144) that blocks *new* untracked PNGs. Committing the hero image
+  required adding a negation:
+  `!docs/images/` and `!docs/images/**`. Without it, `git add` silently
+  refuses the file. This is the single most likely thing to trip up a future
+  clone of this task.
+- **Real Kanban columns.** The live board columns are
+  **Backlog → Planning → Spec Review → In Progress → Pull Request → Merged**
+  (confirmed from the screenshot + `frontend/src/components/tasks/`), which is
+  more accurate than the docs' generic "Draft → … → Done" phrasing. Used the
+  real column names in the README.
+- **Broken links inherited from the old README** (fixed): `./UPGRADING.md`
+  (didn't exist → repointed to `./charts/helix-controlplane/UPGRADE.md`) and
+  `./api/pkg/agent/SPEC.md` (no SPEC.md anywhere in `api/pkg/agent/` → link
+  removed).
+- **Tagline source.** Reused the concrete framing already in the product
+  (browser bookmark bar in the screenshot): "private agent fleet with
+  spec-driven coding; each agent gets its own GPU-accelerated desktop; run
+  Claude, Codex, Gemini and open models on a full private AI stack."
+- **Length.** README went from ~271 to ~232 lines (shorter, as intended).
+- **Demoted sections** kept one existing GitHub user-attachment screenshot
+  (AI agents interface); the other old screenshots were dropped to keep it
+  scannable.
