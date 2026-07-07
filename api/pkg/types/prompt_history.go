@@ -79,7 +79,10 @@ func (p *PromptHistoryEntry) BeforeUpdate(tx *gorm.DB) error {
 type PromptHistorySyncRequest struct {
 	ProjectID  string                   `json:"project_id"`
 	SpecTaskID string                   `json:"spec_task_id"`
-	Entries    []PromptHistoryEntrySync `json:"entries"`
+	// SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+	// that have no spec task). Exactly one of SpecTaskID / SessionID is set.
+	SessionID string                   `json:"session_id,omitempty"`
+	Entries   []PromptHistoryEntrySync `json:"entries"`
 }
 
 // PromptHistoryEntrySync is a single entry in the sync request

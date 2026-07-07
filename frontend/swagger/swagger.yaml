@@ -7603,6 +7603,11 @@ definitions:
         type: array
       project_id:
         type: string
+      session_id:
+        description: |-
+          SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+          that have no spec task). Exactly one of SpecTaskID / SessionID is set.
+        type: string
       spec_task_id:
         type: string
     type: object
@@ -20433,10 +20438,14 @@ paths:
       - application/json
       description: Get prompt history entries for the current user
       parameters:
-      - description: Spec Task ID (required)
+      - description: Spec Task ID (required unless session_id is given)
         in: query
         name: spec_task_id
-        required: true
+        type: string
+      - description: Session ID for session-scoped queues (required unless spec_task_id
+          is given)
+        in: query
+        name: session_id
         type: string
       - description: Project ID (optional filter)
         in: query

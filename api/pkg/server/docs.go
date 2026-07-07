@@ -13139,10 +13139,15 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Spec Task ID (required)",
+                        "description": "Spec Task ID (required unless session_id is given)",
                         "name": "spec_task_id",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID for session-scoped queues (required unless spec_task_id is given)",
+                        "name": "session_id",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -31802,6 +31807,10 @@ const docTemplate = `{
                     }
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "SessionID is used for session-scoped queues (e.g. org-chat / bot sessions\nthat have no spec task). Exactly one of SpecTaskID / SessionID is set.",
                     "type": "string"
                 },
                 "spec_task_id": {

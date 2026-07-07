@@ -4755,6 +4755,11 @@ export interface TypesPromptHistoryListResponse {
 export interface TypesPromptHistorySyncRequest {
   entries?: TypesPromptHistoryEntrySync[];
   project_id?: string;
+  /**
+   * SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+   * that have no spec task). Exactly one of SpecTaskID / SessionID is set.
+   */
+  session_id?: string;
   spec_task_id?: string;
 }
 
@@ -13749,13 +13754,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1PromptHistoryList: (
-      query: {
-        /** Spec Task ID (required) */
-        spec_task_id: string;
-        /** Project ID (optional filter) */
-        project_id?: string;
+      query?: {
+        /** Spec Task ID (required unless session_id is given) */
+        spec_task_id?: string;
         /** Session ID (optional filter) */
         session_id?: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
         /** Only entries after this timestamp (Unix milliseconds) */
         since?: number;
         /** Max entries to return (default 100) */

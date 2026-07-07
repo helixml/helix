@@ -108,10 +108,18 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 	}
 
-	// Return all non-deleted entries for this user+spec_task so client can merge
+	// Return all non-deleted entries so the client can merge. Scope by spec_task
+	// (spec-task queue) or by session (org-chat / bot session queue with no spec
+	// task) depending on which the request carries.
+	scoped := s.gdb.WithContext(ctx).
+		Where("user_id = ? AND deleted_at IS NULL", userID)
+	if req.SpecTaskID != "" {
+		scoped = scoped.Where("spec_task_id = ?", req.SpecTaskID)
+	} else {
+		scoped = scoped.Where("session_id = ?", req.SessionID)
+	}
 	var allEntries []types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND spec_task_id = ? AND deleted_at IS NULL", userID, req.SpecTaskID).
+	err := scoped.
 		Order("created_at DESC").
 		Limit(100). // Reasonable limit
 		Find(&allEntries).Error

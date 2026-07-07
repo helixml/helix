@@ -75,9 +75,10 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("invalid request body")
 	}
 
-	// Validate required fields
-	if syncReq.SpecTaskID == "" {
-		return nil, system.NewHTTPError400("spec_task_id is required")
+	// Validate required fields. A queue is scoped either to a spec task
+	// (spec-task page) or to a session (org-chat / bot session with no spec task).
+	if syncReq.SpecTaskID == "" && syncReq.SessionID == "" {
+		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
 	response, err := apiServer.Store.SyncPromptHistory(ctx, user.ID, &syncReq)
@@ -97,19 +98,25 @@ func (apiServer *HelixAPIServer) syncPromptHistory(_ http.ResponseWriter, req *h
 		Int("total_entries", len(response.Entries)).
 		Msg("Synced prompt history")
 
-	// Synchronously mark the canonical session as "starting" if it's idle and
-	// has no live WebSocket. This closes the race that caused the
-	// "Starting Desktop..." spinner to flicker off: the frontend's first
-	// refetch after the optimistic cache write would otherwise overwrite
-	// "starting" with the still-stale "stopped" backend row, because the
-	// wake goroutine below has not yet had time to call StartDesktop and
-	// have hydra write status=starting to the DB. See spec
-	// design/tasks/002047_yet-again-sending-a/design.md.
-	apiServer.markCanonicalSessionStartingForSync(ctx, syncReq.SpecTaskID)
+	if syncReq.SpecTaskID != "" {
+		// Synchronously mark the canonical session as "starting" if it's idle and
+		// has no live WebSocket. This closes the race that caused the
+		// "Starting Desktop..." spinner to flicker off: the frontend's first
+		// refetch after the optimistic cache write would otherwise overwrite
+		// "starting" with the still-stale "stopped" backend row, because the
+		// wake goroutine below has not yet had time to call StartDesktop and
+		// have hydra write status=starting to the DB. See spec
+		// design/tasks/002047_yet-again-sending-a/design.md.
+		apiServer.markCanonicalSessionStartingForSync(ctx, syncReq.SpecTaskID)
 
-	// Process pending prompts in the background
-	// This runs on EVERY sync to catch prompts that may have been missed
-	go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+		// Process pending prompts in the background — spec-task queue path
+		// (resolves the canonical planning session + duplicate-session filter).
+		go apiServer.processPendingPromptsForIdleSessions(context.Background(), syncReq.SpecTaskID)
+	} else {
+		// Session-scoped queue (org-chat / bot session): nudge the session poller
+		// directly.
+		go apiServer.processPendingPromptsForSession(context.Background(), syncReq.SessionID)
+	}
 
 	return response, nil
 }
@@ -574,7 +581,8 @@ func (apiServer *HelixAPIServer) cancelCurrentTurnIfActive(ctx context.Context, 
 // @Tags PromptHistory
 // @Accept json
 // @Produce json
-// @Param spec_task_id query string true "Spec Task ID (required)"
+// @Param spec_task_id query string false "Spec Task ID (required unless session_id is given)"
+// @Param session_id query string false "Session ID for session-scoped queues (required unless spec_task_id is given)"
 // @Param project_id query string false "Project ID (optional filter)"
 // @Param session_id query string false "Session ID (optional filter)"
 // @Param since query int false "Only entries after this timestamp (Unix milliseconds)"
@@ -592,17 +600,19 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError401("user not found")
 	}
 
-	// Parse query parameters
+	// Parse query parameters. A queue is scoped either to a spec task
+	// (spec-task page) or to a session (org-chat / bot session with no spec task).
 	query := req.URL.Query()
 	specTaskID := query.Get("spec_task_id")
-	if specTaskID == "" {
-		return nil, system.NewHTTPError400("spec_task_id is required")
+	sessionID := query.Get("session_id")
+	if specTaskID == "" && sessionID == "" {
+		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
 	listReq := &types.PromptHistoryListRequest{
 		SpecTaskID: specTaskID,
 		ProjectID:  query.Get("project_id"),
-		SessionID:  query.Get("session_id"),
+		SessionID:  sessionID,
 	}
 
 	// Parse since (Unix ms)
@@ -630,10 +640,14 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list prompt history: %v", err))
 	}
 
-	// Process pending prompts in the background
-	// This runs on EVERY list call (which the frontend polls every 2s when there are pending messages)
-	// to catch prompts that may have been synced but never processed
-	go apiServer.processPendingPromptsForIdleSessions(context.Background(), specTaskID)
+	// Process pending prompts in the background on EVERY list call (the frontend
+	// polls every 2s while there are pending messages) to catch prompts synced
+	// but not yet processed. Nudge the matching poller for the queue's scope.
+	if specTaskID != "" {
+		go apiServer.processPendingPromptsForIdleSessions(context.Background(), specTaskID)
+	} else {
+		go apiServer.processPendingPromptsForSession(context.Background(), sessionID)
+	}
 
 	return response, nil
 }
