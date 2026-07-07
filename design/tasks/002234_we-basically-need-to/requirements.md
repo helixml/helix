@@ -33,6 +33,8 @@ that it's an old-school RAG appliance.
 **Acceptance Criteria:**
 - H1 / tagline reflect agentic engineering (fleets of coding agents in
   isolated desktops, spec-driven Kanban), not "AI Agents on a Private GenAI Stack".
+- Wording follows the **tone guideline** below: concrete and technical, not
+  marketing/business speak.
 - The first image below the header is a screenshot of the project Kanban board,
   committed into the helix repo (e.g. `docs/images/kanban-board.png`) and
   referenced with a **relative path** — not a hosted/external URL.
@@ -75,6 +77,23 @@ to remain,
   (edited for consistency, not deleted).
 - All existing external links (docs, Discord, launchpad, license) still work.
 
+## Tone Guideline (applies to the whole README)
+
+Keep the **same core message** as `helix-next` (agent control room; engineers'
+roles are changing; fleets of coding agents in isolated desktops on a
+spec-driven Kanban board) but tune the voice for GitHub's technical audience,
+which is allergic to marketing/business speak:
+
+- Prefer concrete, technical phrasing over slogans. Say what it *does* and how,
+  not how transformative it is. Lead with mechanism, back claims with specifics.
+- The "your role is changing" idea applies to **engineers**, not just managers —
+  frame it as: you go from writing every line to specifying, steering, and
+  reviewing fleets of agents. State it plainly, don't oversell it.
+- Drop superlatives that can't be substantiated in a README ("fundamentally
+  different", "blazing-fast"). If a number is real (e.g. density, speedup),
+  cite it; otherwise cut it.
+- No emoji-heavy hype; short, scannable, developer-oriented.
+
 ## Non-Goals
 - No changes to product code, docs site, or `helix-next`.
 - No new screenshots need to be produced by code. The Kanban hero image is the
@@ -94,9 +113,13 @@ to remain,
   short "Also included" section so existing users still find it, but demote it
   well below the agentic-engineering content.
 - **Tagline wording:** helix-next uses "Your Role Is Changing. Here's Your
-  Agent Control Room." Should the README reuse that exact tagline or a
-  README-specific variant? Assumption: use a consistent, README-appropriate
-  variant in the same spirit (agent control room / fleets of coding agents).
+  Agent Control Room." Per review feedback, keep this message but rephrase for a
+  technical audience (see Tone Guideline). Assumption: a concrete,
+  engineer-facing variant that carries the same idea — e.g. framing Helix as
+  the control room for a fleet of coding agents, with the "your role is
+  changing" point aimed at engineers (spec + steer + review, not write every
+  line). Exact wording is for implementation; is there a specific line you want
+  locked in, or is the direction enough?
 - **Cloud vs self-host framing:** Should the lead CTA point to Helix Cloud
   (app.helix.ml) or self-host? Assumption: mention both, keep the existing
   SaaS / Private Deployment link row.

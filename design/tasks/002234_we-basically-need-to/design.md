@@ -59,8 +59,11 @@ Rewrite top-to-bottom; keep practical sections lower down.
 - **Reposition, don't delete.** Existing capabilities (RAG, tracing,
   self-host, licensing) are demoted, not removed — current users still rely on
   them and the install flow is unchanged.
-- **Single source of positioning.** Copy tone/claims from `helix-next` so the
-  README, marketing site, and docs agree.
+- **Single source of positioning, retuned voice.** Keep the *message* from
+  `helix-next` (agent control room; engineers' roles changing; fleets of agents
+  on a spec-driven Kanban board) but rewrite the *voice* for GitHub's technical
+  audience per the requirements Tone Guideline — concrete and mechanism-first,
+  minimal marketing/business speak, unsubstantiated superlatives cut.
 - **Screenshots.** Commit the Kanban hero screenshot into the repo
   (`docs/images/kanban-board.png`) and reference it relatively — do not use a
   hosted/external URL for the hero (review feedback). The demoted feature
