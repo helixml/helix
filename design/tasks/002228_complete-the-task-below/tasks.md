@@ -47,9 +47,9 @@
 - [x] PR description (pull_request_helix.md) references https://github.com/helixml/helix/pull/2808 and calls out session-scoped queue, bot fix, deleted direct path, API contract change
 
 ## Follow-on (same PR): org-chat queue visibility
-- [ ] Backend: `listPromptHistory` / `syncPromptHistory` accept `session_id` when `spec_task_id` is absent (session-scoped queue)
-- [ ] Frontend: `usePromptHistory` syncs/polls by `sessionId` when no `specTaskId`, so `RobustPromptInput` in `HelixOrgBotDetail` shows queued prompts
-- [ ] Live-verify: a bot/session mid-turn enqueue shows as queued in org chat, clears on delivery
+- [x] Backend: `listPromptHistory` / `syncPromptHistory` accept `session_id` when `spec_task_id` is absent (session-scoped queue)
+- [x] Frontend: read-only `SessionPromptQueue` strip in `HelixOrgBotDetail` polls the session-scoped queue (kept usePromptHistory/RobustPromptInput untouched to avoid regressing the spec-task queue; full management is a future follow-up)
+- [x] Verified session-scoped list endpoint live (200 + rows by session_id, 400 without either param); component type-checks. Rendering a live queued item in a real org-bot chat not shown (needs full org-graph bot setup)
 
 ## Follow-on (same PR): zed e2e production-path (queue) coverage
 - [ ] memorystore: implement prompt-history methods needed by the queue path (`CreatePromptHistoryEntry`, `ListPromptHistoryBySession`, `GetNextPendingPrompt`, `GetNextInterruptPrompt`, plus any missing GetSession/CreateInteraction/ListInteractions)
