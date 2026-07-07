@@ -407,6 +407,14 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		}
 	}
 
+	// Tear down any running spec-task desktops for this org before deleting
+	// the rows that track them. DeleteOrganization only removes DB rows; the
+	// containers are owned by the sessions (which it does not delete), so
+	// without this they linger until the desktop idle reaper stops them
+	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h). Best-effort: the reaper is the
+	// backstop, so a teardown failure must not block the org delete.
+	apiServer.stopOrgDesktops(r.Context(), orgID)
+
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {
 		log.Err(err).Msg("error deleting organization")
@@ -415,6 +423,32 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	rw.WriteHeader(http.StatusOK)
+}
+
+// stopOrgDesktops stops and soft-deletes every running external-agent desktop
+// session in the org. Called on org delete so spec-task sandboxes are torn down
+// promptly instead of waiting for the idle reaper. Best-effort throughout —
+// every failure is logged and skipped; the idle reaper remains the backstop.
+func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) {
+	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
+		OrganizationID:        orgID,
+		IncludeExternalAgents: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Msg("org delete: could not list sessions for desktop teardown; idle reaper will clean up")
+		return
+	}
+	for _, session := range sessions {
+		if session.Metadata.DevContainerID == "" {
+			continue
+		}
+		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to stop desktop; idle reaper will clean up")
+		}
+		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to soft-delete desktop session")
+		}
+	}
 }
 
 // updateOrganization godoc
