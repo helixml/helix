@@ -77,6 +77,30 @@ to remain,
   (edited for consistency, not deleted).
 - All existing external links (docs, Discord, launchpad, license) still work.
 
+### US-5: Reader sees Helix is open and self-hostable (no lock-in)
+**As a** self-hosting engineer running models on my own GPUs,
+**I want** the README to state clearly which agent harnesses and LLM providers
+Helix works with — including self-hosted inference like vLLM,
+**so that** I trust Helix fits my Kubernetes/GPU stack without locking me into a
+single vendor.
+
+**Acceptance Criteria:**
+- States Helix works with **all major agent harnesses**: Claude Code, Codex,
+  Gemini CLI, Qwen Code, and **anything that supports ACP (Agent Client
+  Protocol)** — swap per task, no lock-in.
+- States Helix works with **all major LLM providers**, both hosted and
+  self-hosted:
+  - Hosted providers (OpenAI, Anthropic, etc.).
+  - **Anthropic** via Helix's proxy — including **Anthropic on Google Vertex
+    AI** and **Anthropic on AWS Bedrock**.
+  - **Self-hosted**: any OpenAI-compatible endpoint **attached as an external
+    provider**, calling out **vLLM** by name as a first-class target (point
+    Helix at the vLLM server's OpenAI-compatible URL).
+- Speaks to the self-hosting audience: run on your own **GPUs**, on
+  **Kubernetes** or directly, air-gapped/private deployment supported.
+- Frames both points as "no lock-in" — bring your own agent, bring your own
+  model, run it on your own infrastructure.
+
 ## Tone Guideline (applies to the whole README)
 
 Keep the **same core message** as `helix-next` (agent control room; engineers'

@@ -47,12 +47,22 @@ Rewrite top-to-bottom; keep practical sections lower down.
    isolated sandboxes.
 5. **Why Helix is different** — the five pillars condensed, each 1–2 lines,
    with existing screenshots where available.
-6. **Also included** (demoted) — RAG/knowledge, skills & tools, tracing,
+6. **Works with your stack (no lock-in)** — a short, explicit compatibility
+   section:
+   - **Agent harnesses:** Claude Code, Codex, Gemini CLI, Qwen Code, and any
+     **ACP (Agent Client Protocol)**-compatible agent — swap per task.
+   - **LLM providers:** all major hosted providers (OpenAI, Anthropic, …);
+     **Anthropic via Helix's proxy — including Anthropic on Google Vertex AI
+     and AWS Bedrock**; plus any **self-hosted, OpenAI-compatible** endpoint
+     attached as an external provider — calling out **vLLM** by name (point
+     Helix at your vLLM server's OpenAI-compatible URL; run it on your own GPUs,
+     on Kubernetes or directly; air-gapped OK).
+7. **Also included** (demoted) — RAG/knowledge, skills & tools, tracing,
    multi-tenancy, scheduled tasks/webhooks, notifications, auth. Short bullets.
-7. **Quick Start** — Docker installer + Kubernetes (keep as-is).
-8. **Configuration / Development / Documentation** — keep, light edits for
+8. **Quick Start** — Docker installer + Kubernetes (keep as-is).
+9. **Configuration / Development / Documentation** — keep, light edits for
    consistency.
-9. **License / Contributing / Support / Star history** — keep as-is.
+10. **License / Contributing / Support / Star history** — keep as-is.
 
 ## Key Decisions
 

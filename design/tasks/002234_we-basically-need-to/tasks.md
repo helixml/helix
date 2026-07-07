@@ -5,6 +5,7 @@
 - [ ] Commit the Kanban-board screenshot (the user's attachment) into the helix repo at `docs/images/kanban-board.png` and reference it in the README with a relative path, with descriptive alt text and a meta caption.
 - [ ] Write the new "Projects & Kanban" section explaining board stages (Draft → Planning → Approved → Implementing → Review → Done) and the spec → plan → approve → implement → review → PR flow, including parallel tasks in isolated sandboxes.
 - [ ] Write the "Why Helix is different" section condensing the five pillars (Agent Computer, speed, Fleet Visibility, Multiplayer, Density), reusing helix-next wording; keep existing screenshots where relevant.
+- [ ] Add a "Works with your stack (no lock-in)" compatibility section: agent harnesses (Claude Code, Codex, Gemini CLI, Qwen Code, any ACP-compatible agent) and LLM providers (hosted OpenAI/Anthropic; Anthropic via proxy including Vertex AI and Bedrock; self-hosted OpenAI-compatible endpoints attached as external providers, calling out vLLM on your own GPUs/Kubernetes).
 - [ ] Add a demoted "Also included" section for RAG/knowledge, skills & tools, tracing, multi-tenancy, scheduled tasks/webhooks, notifications, and auth.
 - [ ] Preserve and lightly edit Quick Start (Docker + Kubernetes), Configuration, Development, and Documentation sections.
 - [ ] Preserve License, Contributing, Support, and Star History sections verbatim.
