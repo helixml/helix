@@ -13139,10 +13139,15 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Spec Task ID (required)",
+                        "description": "Spec Task ID (required unless session_id is given)",
                         "name": "spec_task_id",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID for session-scoped queues (required unless spec_task_id is given)",
+                        "name": "session_id",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -24866,10 +24871,7 @@ const docTemplate = `{
         "server.SessionMessageResponse": {
             "type": "object",
             "properties": {
-                "interaction_id": {
-                    "type": "string"
-                },
-                "request_id": {
+                "prompt_id": {
                     "type": "string"
                 }
             }
@@ -31692,6 +31694,10 @@ const docTemplate = `{
                     "description": "When to retry (for exponential backoff)",
                     "type": "string"
                 },
+                "notify_user_id": {
+                    "description": "NotifyUserID, when set, is the user who should be streamed the agent's\nresponse (e.g. a design-review commenter). At dispatch the queue registers\nrequestToCommenterMapping/sessionToCommenterMapping from this field — the\nsame routing the old direct send set up synchronously.",
+                    "type": "string"
+                },
                 "organization_id": {
                     "description": "Organization scope for search",
                     "type": "string"
@@ -31713,10 +31719,11 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "session_id": {
-                    "description": "Optional - which session this was sent to",
+                    "description": "Which session this was sent to (the delivery unit)",
                     "type": "string"
                 },
                 "spec_task_id": {
+                    "description": "SpecTaskID is nullable: frontend queue-mode messages always carry it, but\nautomated/system and general session sends (e.g. org bots via\nPOST /sessions/{id}/messages) enqueue by SessionID with no spec task.",
                     "type": "string"
                 },
                 "status": {
@@ -31804,6 +31811,10 @@ const docTemplate = `{
                     }
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "SessionID is used for session-scoped queues (e.g. org-chat / bot sessions\nthat have no spec task). Exactly one of SpecTaskID / SessionID is set.",
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -33055,7 +33066,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider": {
-                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nFor pool-discovery providers this is a composite key baked from the\ndeployment tag, worker tag and instance type (e.g.\n\"yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34\"), so it\nneeds the same width as ProviderID. Empty for self-registered hosts.",
                     "type": "string"
                 },
                 "provider_id": {
@@ -34831,6 +34842,10 @@ const docTemplate = `{
                 "line_number": {
                     "description": "Optional line number",
                     "type": "integer"
+                },
+                "prompt_id": {
+                    "description": "Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch",
+                    "type": "string"
                 },
                 "queued_at": {
                     "description": "Database-backed queue for agent processing (restart-resilient)\nQueuedAt is set when comment is submitted for agent processing.\nProcessing order: QueuedAt ASC. Cleared when agent response is received.",

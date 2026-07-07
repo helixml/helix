@@ -48,6 +48,7 @@ import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import SessionPromptQueue from '../components/session/SessionPromptQueue'
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from '../components/session/EmbeddedSessionView'
@@ -367,6 +368,7 @@ const HelixOrgBotDetail: FC = () => {
                             sessionId={chatSessionId}
                             autoScrollOnMount
                           />
+                          <SessionPromptQueue sessionId={chatSessionId} />
                           <Box sx={{ p: 1.5, flexShrink: 0 }}>
                             <RobustPromptInput
                               sessionId={chatSessionId}

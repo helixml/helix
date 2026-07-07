@@ -25,7 +25,6 @@ import (
 type MockStore struct {
 	ctrl     *gomock.Controller
 	recorder *MockStoreMockRecorder
-	isgomock struct{}
 }
 
 // MockStoreMockRecorder is the mock recorder for MockStore.
@@ -758,6 +757,20 @@ func (m *MockStore) CreateProjectRepository(ctx context.Context, projectID, repo
 func (mr *MockStoreMockRecorder) CreateProjectRepository(ctx, projectID, repositoryID, organizationID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProjectRepository", reflect.TypeOf((*MockStore)(nil).CreateProjectRepository), ctx, projectID, repositoryID, organizationID)
+}
+
+// CreatePromptHistoryEntry mocks base method.
+func (m *MockStore) CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePromptHistoryEntry", ctx, entry)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreatePromptHistoryEntry indicates an expected call of CreatePromptHistoryEntry.
+func (mr *MockStoreMockRecorder) CreatePromptHistoryEntry(ctx, entry any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePromptHistoryEntry", reflect.TypeOf((*MockStore)(nil).CreatePromptHistoryEntry), ctx, entry)
 }
 
 // CreateProviderEndpoint mocks base method.
@@ -2510,6 +2523,21 @@ func (m *MockStore) GetCommentByInteractionID(ctx context.Context, interactionID
 func (mr *MockStoreMockRecorder) GetCommentByInteractionID(ctx, interactionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCommentByInteractionID", reflect.TypeOf((*MockStore)(nil).GetCommentByInteractionID), ctx, interactionID)
+}
+
+// GetCommentByPromptID mocks base method.
+func (m *MockStore) GetCommentByPromptID(ctx context.Context, promptID string) (*types.SpecTaskDesignReviewComment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCommentByPromptID", ctx, promptID)
+	ret0, _ := ret[0].(*types.SpecTaskDesignReviewComment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCommentByPromptID indicates an expected call of GetCommentByPromptID.
+func (mr *MockStoreMockRecorder) GetCommentByPromptID(ctx, promptID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCommentByPromptID", reflect.TypeOf((*MockStore)(nil).GetCommentByPromptID), ctx, promptID)
 }
 
 // GetCommentByRequestID mocks base method.
@@ -4807,6 +4835,21 @@ func (m *MockStore) ListPromptHistory(ctx context.Context, userID string, req *t
 func (mr *MockStoreMockRecorder) ListPromptHistory(ctx, userID, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistory", reflect.TypeOf((*MockStore)(nil).ListPromptHistory), ctx, userID, req)
+}
+
+// ListPromptHistoryBySession mocks base method.
+func (m *MockStore) ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPromptHistoryBySession", ctx, sessionID)
+	ret0, _ := ret[0].([]*types.PromptHistoryEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPromptHistoryBySession indicates an expected call of ListPromptHistoryBySession.
+func (mr *MockStoreMockRecorder) ListPromptHistoryBySession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromptHistoryBySession", reflect.TypeOf((*MockStore)(nil).ListPromptHistoryBySession), ctx, sessionID)
 }
 
 // ListPromptHistoryBySpecTask mocks base method.
