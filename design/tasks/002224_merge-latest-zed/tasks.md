@@ -86,7 +86,7 @@
 - [ ] Unit tests: `cargo test -p external_websocket_sync` (PR #65 crash + reconnect, no deadlock on shared guard); `-p acp_thread test_second_send`; `-p agent_servers test_concurrent_session_creation_is_serialized`
 - [ ] Pre-flight: `(cd .../e2e-test/helix-ws-test-server && go mod tidy)`; commit if changed
 - [ ] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed .../e2e-test/zed-binary`
-- [ ] E2E `zed-agent` only: `./run_docker_e2e.sh` — all phases green
+- [~] E2E `zed-agent` only: `./run_docker_e2e.sh` — all phases green
 - [ ] E2E both agents: `E2E_AGENTS="zed-agent,claude" ./run_docker_e2e.sh` (full rebuild; never `--no-build`) — green
 - [ ] Confirm the task's core phases explicitly: Phase 1 (new thread), Phase 2 (follow-up entry_count++), Phase 3 (second thread + switch), Phase 4 (message to non-visible Thread A)
 - [ ] Confirm gate phases: 8 (interrupt), 9 (PR #60 retry), 15 (PR #55 streaming), 16 (PR #56 1a + #57), 17 (Fix 1b)
@@ -100,7 +100,7 @@
 - [ ] PR #65 survival check; Helix-surface survival check; PR #60/#63/#64 survival check
 - [ ] Cargo.toml / Cargo.lock notes (incl. ACP bump if any)
 - [ ] `### Pre-existing Breakage Repaired` — only if a fix actually fired
-- [ ] Commit-history table extended; stale entries corrected/deleted
+- [x] Commit-history table extended; stale entries corrected/deleted
 - [ ] Porting-guide changes committed to the feature branch
 
 ## Re-merge Fork Main (if needed)
@@ -110,7 +110,7 @@
 ## Finalise
 - [ ] Push Zed branch `feature/002224-merge-latest-zed` to the fork; confirm `helixml/zed` CI green
 - [ ] Write `pull_request_zed.md` in this task directory
-- [ ] In helix repo: branch `feature/002224-merge-latest-zed`, bump `ZED_COMMIT` to the new merge HEAD; push
+- [x] In helix repo: branch `feature/002224-merge-latest-zed`, bump `ZED_COMMIT` to the new merge HEAD; push
 - [ ] Write `pull_request_helix.md` in this task directory
-- [ ] No force-push to `main`/`helix-fork` without explicit user approval
-- [ ] No agent-initiated PRs (Helix UI handles PR creation)
+- [x] No force-push to `main`/`helix-fork` without explicit user approval
+- [x] No agent-initiated PRs (Helix UI handles PR creation)
