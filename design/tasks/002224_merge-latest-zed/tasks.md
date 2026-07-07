@@ -109,8 +109,8 @@
 
 ## Finalise
 - [x] Pushed Zed branch to fork (CI runs when Helix UI opens the PR)
-- [~] Write `pull_request_zed.md` in this task directory
+- [x] Write `pull_request_zed.md` in this task directory
 - [x] In helix repo: branch `feature/002224-merge-latest-zed`, bump `ZED_COMMIT` to the new merge HEAD; push
-- [~] Write `pull_request_helix.md` in this task directory
+- [x] Write `pull_request_helix.md` in this task directory
 - [x] No force-push to `main`/`helix-fork` without explicit user approval
 - [x] No agent-initiated PRs (Helix UI handles PR creation)
