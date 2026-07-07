@@ -18,6 +18,7 @@ import (
 	_ "github.com/lib/pq" // enable postgres driver
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -31,6 +32,12 @@ type PostgresStore struct {
 
 	gdb    *gorm.DB
 	pubsub pubsub.PubSub
+
+	// Embedded org/tenant subsystem (Organizations, Teams, Memberships, Roles,
+	// Invitations, AccessGrants + RBAC). Its methods are promoted onto
+	// PostgresStore, satisfying the store.Store org methods. Single source of
+	// truth, shared with downstream services (HelixOS) via the orgstore package.
+	*orgstore.Store
 }
 
 // GormDB returns the underlying *gorm.DB so adjacent subsystems
@@ -71,6 +78,7 @@ func NewPostgresStore(
 		cfg:    cfg,
 		gdb:    gormDB,
 		pubsub: pubsub,
+		Store:  orgstore.New(gormDB),
 	}
 
 	if cfg.AutoMigrate {
@@ -256,7 +264,7 @@ func (s *PostgresStore) runMigrations() error {
 		}
 	}
 
-	err = s.autoMigrateRoleConfig(context.Background())
+	err = s.AutoMigrateRoleConfig(context.Background())
 	if err != nil {
 		return err
 	}

@@ -8,9 +8,14 @@ import (
 )
 
 // Bot is the single org-chart aggregate: the merge of the former Role
-// and Worker. A Bot has no identity beyond its name (ID) — there is no
-// kind (human/ai), no separate identity description, and no role
-// binding. A Bot *is* its own job description.
+// and Worker. There is no kind (human/ai) and no role binding — a Bot
+// *is* its own job description.
+//
+// ID is the stable, filesystem-safe handle (it names the runtime env,
+// repo and agent app, and is referenced by MCP tools). Name is the
+// human-readable display label shown in the UI; it is free text and may
+// be empty (callers fall back to the ID). Renaming a Bot changes Name,
+// never ID.
 //
 // Content is the canonical markdown the Bot's agent reads on activation
 // (it lands in role.md inside the Bot's runtime environment). Tools is
@@ -31,8 +36,12 @@ import (
 type Bot struct {
 	ID             BotID
 	OrganizationID string
-	Content        string
-	Tools          []tool.Name
+	// Name is the human-readable display label (e.g. "Chief of Staff").
+	// Free text, may be empty — the UI falls back to ID. Distinct from
+	// ID, which is the immutable handle.
+	Name    string
+	Content string
+	Tools   []tool.Name
 	// PreserveContext, when true, tells the runtime spawner NOT to wipe
 	// the Bot's chat session before each re-activation. The default
 	// (false) keeps the existing behaviour: every trigger starts on a
@@ -70,6 +79,13 @@ func NewBot(id BotID, content string, tools []tool.Name, now time.Time, orgID st
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
+}
+
+// WithName returns a copy of the Bot with Name (the display label)
+// replaced.
+func (b Bot) WithName(name string) Bot {
+	b.Name = name
+	return b
 }
 
 // WithContent returns a copy of the Bot with Content replaced. The

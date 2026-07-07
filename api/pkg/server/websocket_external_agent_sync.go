@@ -2750,7 +2750,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error and re-queuing")
 
 		targetInteraction.State = types.InteractionStateError
-		targetInteraction.Error = "Agent returned empty response (message bounced or content lost). The prompt will be retried."
+		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
 		targetInteraction.Updated = time.Now()
 
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {

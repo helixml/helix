@@ -109,14 +109,16 @@ const HelixOrgBotDetail: FC = () => {
 
   // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
+  const [name, setName] = useState('')
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
   const [preserveContext, setPreserveContext] = useState(false)
   useEffect(() => {
+    setName(bot?.name ?? '')
     setContent(bot?.content ?? '')
     setTools(bot?.tools ?? [])
     setPreserveContext(bot?.preserve_context ?? false)
-  }, [bot?.content, bot?.tools, bot?.preserve_context])
+  }, [bot?.name, bot?.content, bot?.tools, bot?.preserve_context])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -134,16 +136,17 @@ const HelixOrgBotDetail: FC = () => {
 
   const dirty = useMemo(() => {
     if (!bot) return false
+    if ((bot.name ?? '') !== name) return true
     if ((bot.content ?? '') !== content) return true
     if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
     if ((bot.preserve_context ?? false) !== preserveContext) return true
     return false
-  }, [bot, content, tools, preserveContext])
+  }, [bot, name, content, tools, preserveContext])
 
   const handleSave = async () => {
     if (!botId) return
     try {
-      await updateBot.mutateAsync({ id: botId, content, tools, preserve_context: preserveContext })
+      await updateBot.mutateAsync({ id: botId, name, content, tools, preserve_context: preserveContext })
       snackbar.success(`bot ${botId} saved`)
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
@@ -296,11 +299,16 @@ const HelixOrgBotDetail: FC = () => {
             <Grid item xs={12} md={9}>
               <Stack spacing={3}>
                 <Box>
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <SmartToyOutlinedIcon />
-                    <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>
-                      {bot.id}
+                  <Stack direction="row" alignItems="baseline" spacing={1}>
+                    <SmartToyOutlinedIcon sx={{ alignSelf: 'center' }} />
+                    <Typography variant="h5">
+                      {bot.name || bot.id}
                     </Typography>
+                    {bot.name && (
+                      <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                        {bot.id}
+                      </Typography>
+                    )}
                   </Stack>
                 </Box>
 
@@ -417,6 +425,18 @@ const HelixOrgBotDetail: FC = () => {
                     )}
                   </Stack>
                 </Paper>
+
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Name</Typography>
+                  <TextField
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={bot.id}
+                    fullWidth
+                    size="small"
+                    helperText="Human-readable display label. The id stays fixed."
+                  />
+                </Box>
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Content (markdown)</Typography>

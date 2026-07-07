@@ -19,6 +19,7 @@ import (
 // on the bot — read them via the topic/subscription read tools.
 type botView struct {
 	ID        orgchart.BotID   `json:"id"`
+	Name      string           `json:"name,omitempty"`
 	Content   string           `json:"content"`
 	Tools     []tool.Name      `json:"tools,omitempty"`
 	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
@@ -29,6 +30,7 @@ type botView struct {
 func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
 	return botView{
 		ID:        b.ID,
+		Name:      b.Name,
 		Content:   b.Content,
 		Tools:     b.Tools,
 		ParentIDs: managers,
