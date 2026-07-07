@@ -67,7 +67,7 @@
 - [x] PR #55 `EntryUpdated` emit occurrences in `acp_thread.rs`
 - [x] PR #56 Fix 1a deferred `UserCreatedThread` in `external_websocket_sync`
 - [x] PR #56 Fix 1b cfg-gated `return;` FIRST statement of `BaseView::Uninitialized`
-- [ ] PR #57 Phase-16 counter exclusion — `helix-ws-test-server/main.go`
+- [x] PR #57 Phase-16 counter exclusion — `helix-ws-test-server/main.go` (phase10 counters + Phase 16 regression intact)
 - [x] PR #60 `ede_diagnostic` retry loop — `thread_service.rs`
 - [x] PR #63 wedge recovery (`force_reset_session`, `clear_keep_alive`, agent_name) — `thread_service.rs`
 - [x] PR #64 `agent_ready` re-emit — `thread_service.rs`
@@ -75,9 +75,9 @@
 - [x] `fd26c1a113` `Dockerfile.ci` `helix-org` pull
 
 ## Walk the Rebase Checklist
-- [ ] Step through every numbered item in `portingguide.md` "Rebase Checklist"; record any fired
-- [ ] Special: items 9, 11, 12/12a, 31/31a/37, 39/39a, 40, 41/41a + PR #65 `fail_turn`
-- [ ] Assess whether any new rebase-checklist entry is warranted by this merge
+- [x] Walked the Rebase Checklist; item 11 (from_existing_thread field drift) FIRED — new ACP 1.0 elicitation fields added
+- [x] Special items verified: 9 (Fix 1b first-stmt), 11 (field drift — fired), 12/12a (fail_turn + tuple Stopped), 31/31a/37 (cancel/Stopped guards), 39/39a (headless/multi-instance), 40 (debug-embed), 41/41a (no smol::Timer, no non-tuple Stopped)
+- [x] Added rebase-checklist items 45 (ACP major-bump: schema::v1 alias + block_task) and 46 (from_existing_thread field drift) to portingguide
 
 ## Build & Test (hard gate)
 - [x] Feature build green (`cargo build --features external_websocket_sync` via stack). No-feature/local `cargo` not available in this env (Docker builder only builds with the feature); relying on the stricter feature build.
