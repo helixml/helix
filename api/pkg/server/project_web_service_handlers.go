@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -121,9 +123,36 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 		Domains:             domains,
 		Deploys:             deploys,
 		CNAMETarget:         cnameTarget,
-		ACMEChallengeTarget: strings.TrimSpace(s.Cfg.WebServer.VHostACMEChallengeTarget),
+		ACMEChallengeTarget: s.acmeChallengeTarget(cnameTarget),
 		Health:              s.webServiceController.Health(r.Context(), project.ID),
 	}, nil
+}
+
+// acmeChallengeTarget returns the CNAME value a customer points
+// "_acme-challenge.<their-domain>" at when their custom domain is behind a
+// proxy/CDN that hides the origin from Let's Encrypt.
+//
+// This is only meaningful when a DNS-01 solver is actually configured — CNAME
+// delegation can't work otherwise — so it returns "" unless the Cloudflare
+// DNS-01 provider is enabled, which hides the self-serve record in the UI.
+//
+// The value must live in the DNS zone Helix's Cloudflare token controls. By
+// default that's the registrable domain of the CNAME target (e.g.
+// ingress.helix.ml -> _acme-challenge.helix.ml). Operators whose ACME zone
+// differs from the CNAME target's domain set HELIX_VHOST_ACME_CHALLENGE_TARGET
+// to override the derived value.
+func (s *HelixAPIServer) acmeChallengeTarget(cnameTarget string) string {
+	if !strings.EqualFold(strings.TrimSpace(s.Cfg.WebServer.VHostACMEDNSProvider), "cloudflare") {
+		return ""
+	}
+	if override := strings.TrimSpace(s.Cfg.WebServer.VHostACMEChallengeTarget); override != "" {
+		return override
+	}
+	zone, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(cnameTarget, "."))
+	if err != nil || zone == "" {
+		return ""
+	}
+	return "_acme-challenge." + zone
 }
 
 // putProjectWebService godoc
