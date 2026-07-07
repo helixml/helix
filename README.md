@@ -50,7 +50,7 @@ Tasks run **in parallel** — each in its own sandbox — so you're not waiting 
 - **Fleet visibility.** See every running agent from a dashboard, zoom into any one's live screen, and jump in with pair programming when it gets stuck.
 - **Multiplayer.** Agent environments are shared. Teammates across time zones open the same task and keep going — full chat history and running state persist, no handoff summaries.
 - **High-density isolation.** Many fully isolated agent desktops run on a single machine, with a deduplicated filesystem and per-agent credential and network isolation.
-- **No lock-in.** Swap agent harnesses per task and point Helix at whatever models you run.
+- **No lock-in, and cheaper runs.** Swap agent harnesses per task and point Helix at whatever models you run. Because context carries across the switch, you can start a task on a cheap local model and escalate to an expensive one only when it's actually needed — instead of paying frontier prices for the whole run.
 
 ## Works with your stack (no lock-in)
 
@@ -82,6 +82,7 @@ Helix is a full private GenAI stack, so the pieces you'd expect are here too:
 - **Skills & tools** — REST/OpenAPI integrations, MCP server compatibility, GPTScript, OAuth token management, and a custom-tool SDK.
 - **Tracing & observability** — every agent step, requests/responses to LLMs, APIs, and MCP servers, token usage, and cost analysis.
 - **Multi-tenancy** — organizations, teams, and role-based access control.
+- **Billing & metering** — track token usage and spend per user and per team, so you can see where the budget goes.
 - **Automation** — scheduled/cron tasks and webhook triggers.
 - **Notifications** — Slack, Discord, and email.
 - **Auth** — Keycloak with OAuth/OIDC.
