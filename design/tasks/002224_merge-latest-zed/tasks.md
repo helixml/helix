@@ -20,59 +20,59 @@
 - [x] Check whether upstream added a session-list / resume UI that could collide with `from_existing_thread` (escalate if so)
 
 ## Merge Execution (update portingguide.md as you go)
-- [ ] Start the `## Merge 002224 (2026-07-06)` porting-guide entry BEFORE resolving conflicts
+- [x] Start the `## Merge 002224 (2026-07-06)` porting-guide entry BEFORE resolving conflicts
 - [x] `git merge upstream/main` — note all conflicts
 - [x] Resolve each conflict immediately; document each in the porting guide as resolved
 - [x] `Cargo.lock`: `git checkout --theirs Cargo.lock`
 - [x] `.github/workflows/` conflicts: `git checkout --theirs` (Helix doesn't use Zed CI) — but do NOT touch `.drone.yml --locked`
-- [~] If ACP bumped: convert `non_exhaustive` ACP struct literals to builders; re-check `ErrorCode` arms; fix `AgentConnection`/`StubAgentConnection` impls
+- [x] If ACP bumped: convert `non_exhaustive` ACP struct literals to builders; re-check `ErrorCode` arms; fix `AgentConnection`/`StubAgentConnection` impls
 - [x] `git diff --check` — no conflict markers remain
 - [x] Commit the merge; record merge SHA
 
 ## Auto-Merge Inspection (verify even when git says "auto-merged")
-- [ ] `agent_panel.rs` — read full `ensure_thread_initialized`; Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized`; ThreadDisplayNotification handler still calls `OnboardingUpsell::set_dismissed(true, cx)` and inits `NativeAgentSessionList`; Critical Fix #11 guard present; record new line numbers
-- [ ] `zed.rs` — `initialize_agent_panel` + WebSocket init intact
-- [ ] `thread_view.rs` — `from_existing_thread`, channel-based forwarding, no duplicate WS sends
-- [ ] `connection.rs` — `fail_turn()` on `StubAgentConnection` intact
-- [ ] `thread_service.rs` — Error arm + `chat_response_error` emit; PR #60/#63/#64 surface; windowless `cx.subscribe()` incremental streaming; `TEST_WEBSOCKET_SERVICE_GUARD`
-- [ ] `types.rs` — `SyncEvent::ChatResponseError` intact
-- [ ] `extensions_ui.rs` — 3× `// HELIX: External agent` markers (record new lines)
-- [ ] `assets/settings/default.json` — `trust_all_worktrees: true`, `show_sign_in: false`, branding/onboarding
-- [ ] Built-in agent hiding (Claude Code/Codex/Gemini) wrapped in `cfg(not(feature = "external_websocket_sync"))`
+- [x] `agent_panel.rs` — read full `ensure_thread_initialized`; Fix 1b cfg-gated `return;` is FIRST statement of `BaseView::Uninitialized`; ThreadDisplayNotification handler still calls `OnboardingUpsell::set_dismissed(true, cx)` and inits `NativeAgentSessionList`; Critical Fix #11 guard present; record new line numbers
+- [x] `zed.rs` — `initialize_agent_panel` + WebSocket init intact
+- [x] `thread_view.rs` — `from_existing_thread`, channel-based forwarding, no duplicate WS sends
+- [x] `connection.rs` — `fail_turn()` on `StubAgentConnection` intact
+- [x] `thread_service.rs` — Error arm + `chat_response_error` emit; PR #60/#63/#64 surface; windowless `cx.subscribe()` incremental streaming; `TEST_WEBSOCKET_SERVICE_GUARD`
+- [x] `types.rs` — `SyncEvent::ChatResponseError` intact
+- [x] `extensions_ui.rs` — 3× `// HELIX: External agent` markers (record new lines)
+- [x] `assets/settings/default.json` — `trust_all_worktrees: true`, `show_sign_in: false`, branding/onboarding
+- [x] Built-in agent hiding (Claude Code/Codex/Gemini) wrapped in `cfg(not(feature = "external_websocket_sync"))`
 
 ## Sweep for Silent Drift
-- [ ] `smol::Timer` in `agent.rs` — 0 hits (`wait_for_tools_ready` uses `cx.background_executor().timer()`)
-- [ ] `--allow-multiple-instances` / `--headless` / `build_application` / `initialize_headless` in `main.rs` — intact
-- [ ] `debug-embed` feature on `rust-embed` — intact
-- [ ] `session_creation_chain` + `_settings_subscription` — both in `agent_servers/src/acp.rs`
-- [ ] `AcpBetaFeatureFlag::enabled_for_all() -> true` — `feature_flags/src/flags.rs`
-- [ ] `render_restricted_mode` cfg-gated early return — `title_bar` (record new line)
-- [ ] `AcpThreadEvent::Stopped` non-tuple patterns — 0 hits (`grep -nE "AcpThreadEvent::Stopped\b([^(]|$)"`)
-- [ ] `helix-org` pull in `Dockerfile.ci`; `cargo build --locked` in `.drone.yml`
+- [x] `smol::Timer` in `agent.rs` — 0 hits (`wait_for_tools_ready` uses `cx.background_executor().timer()`)
+- [x] `--allow-multiple-instances` / `--headless` / `build_application` / `initialize_headless` in `main.rs` — intact
+- [x] `debug-embed` feature on `rust-embed` — intact
+- [x] `session_creation_chain` + `_settings_subscription` — both in `agent_servers/src/acp.rs`
+- [x] `AcpBetaFeatureFlag::enabled_for_all() -> true` — `feature_flags/src/flags.rs`
+- [x] `render_restricted_mode` cfg-gated early return — `title_bar` (record new line)
+- [x] `AcpThreadEvent::Stopped` non-tuple patterns — 0 hits (`grep -nE "AcpThreadEvent::Stopped\b([^(]|$)"`)
+- [x] `helix-org` pull in `Dockerfile.ci`; `cargo build --locked` in `.drone.yml`
 
 ## Verify Critical Fixes (portingguide.md "Critical Fixes")
-- [ ] #1 `pending_sessions` / `load_session` — `agent/src/agent.rs`
-- [ ] #2 no duplicate WS sends — `thread_view.rs`
-- [ ] #3 `content_only` — `acp_thread.rs`
-- [ ] #4 `notify_thread_display` — `thread_service.rs`
-- [ ] #5 flush stale pending — `thread_service.rs`
-- [ ] #6 `stopped_emitted_for_task` guard — `acp_thread.rs`
-- [ ] #7 `unregister_thread` on entity replacement
-- [ ] #8 `drop(turn.send_task)` — `acp_thread.rs`
-- [ ] #9 normal-completion `Stopped` guard — `acp_thread.rs`
-- [ ] #11 entity-identity guard via `ThreadMetadataStore` — `agent_panel.rs`
+- [x] #1 `pending_sessions` / `load_session` — `agent/src/agent.rs`
+- [x] #2 no duplicate WS sends — `thread_view.rs`
+- [x] #3 `content_only` — `acp_thread.rs`
+- [x] #4 `notify_thread_display` — `thread_service.rs`
+- [x] #5 flush stale pending — `thread_service.rs`
+- [x] #6 `stopped_emitted_for_task` guard — `acp_thread.rs`
+- [x] #7 `unregister_thread` on entity replacement
+- [x] #8 `drop(turn.send_task)` — `acp_thread.rs`
+- [x] #9 normal-completion `Stopped` guard — `acp_thread.rs`
+- [x] #11 entity-identity guard via `ThreadMetadataStore` — `agent_panel.rs`
 
 ## Verify Helix PR Surface (#50, #55, #56, #57, #60, #63, #64, #65 + fd26c1a113)
-- [ ] PR #50 `session_creation_chain` + `_settings_subscription` coexist; `test_concurrent_session_creation_is_serialized` passes
-- [ ] PR #55 `EntryUpdated` emit occurrences in `acp_thread.rs`
-- [ ] PR #56 Fix 1a deferred `UserCreatedThread` in `external_websocket_sync`
-- [ ] PR #56 Fix 1b cfg-gated `return;` FIRST statement of `BaseView::Uninitialized`
+- [x] PR #50 `session_creation_chain` + `_settings_subscription` coexist; `test_concurrent_session_creation_is_serialized` passes
+- [x] PR #55 `EntryUpdated` emit occurrences in `acp_thread.rs`
+- [x] PR #56 Fix 1a deferred `UserCreatedThread` in `external_websocket_sync`
+- [x] PR #56 Fix 1b cfg-gated `return;` FIRST statement of `BaseView::Uninitialized`
 - [ ] PR #57 Phase-16 counter exclusion — `helix-ws-test-server/main.go`
-- [ ] PR #60 `ede_diagnostic` retry loop — `thread_service.rs`
-- [ ] PR #63 wedge recovery (`force_reset_session`, `clear_keep_alive`, agent_name) — `thread_service.rs`
-- [ ] PR #64 `agent_ready` re-emit — `thread_service.rs`
-- [ ] PR #65 `fail_turn` / Error arm / `ChatResponseError` / shared `TEST_WEBSOCKET_SERVICE_GUARD`
-- [ ] `fd26c1a113` `Dockerfile.ci` `helix-org` pull
+- [x] PR #60 `ede_diagnostic` retry loop — `thread_service.rs`
+- [x] PR #63 wedge recovery (`force_reset_session`, `clear_keep_alive`, agent_name) — `thread_service.rs`
+- [x] PR #64 `agent_ready` re-emit — `thread_service.rs`
+- [x] PR #65 `fail_turn` / Error arm / `ChatResponseError` / shared `TEST_WEBSOCKET_SERVICE_GUARD`
+- [x] `fd26c1a113` `Dockerfile.ci` `helix-org` pull
 
 ## Walk the Rebase Checklist
 - [ ] Step through every numbered item in `portingguide.md` "Rebase Checklist"; record any fired
