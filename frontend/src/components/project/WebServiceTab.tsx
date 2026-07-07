@@ -318,20 +318,15 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                   of minutes once DNS has propagated. The HTTPS certificate
                   is issued and renewed for you, no extra steps.
                 </Typography>
-                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(0,0,0,0.12)' }}>
-                  <Typography variant="body2">
-                    <strong>Behind Cloudflare or another proxy/CDN?</strong> Point the proxy
-                    straight at <code>{cnameTarget}</code> and it still works. Because a proxy
-                    hides your server from Let's Encrypt, the certificate for the Helix ↔ proxy
-                    connection needs a one-time <strong>ACME challenge delegation</strong>
-                    {acmeChallengeTarget ? (
-                      <> — add this second record alongside the CNAME above:</>
-                    ) : (
-                      <> — get in touch and we'll give you the exact{' '}
-                      <code>_acme-challenge</code> record to add.</>
-                    )}
-                  </Typography>
-                  {acmeChallengeTarget && (
+                {acmeChallengeTarget && (
+                  <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(0,0,0,0.12)' }}>
+                    <Typography variant="body2">
+                      <strong>Behind Cloudflare or another proxy/CDN?</strong> Point the proxy
+                      straight at <code>{cnameTarget}</code> and it still works. Because a proxy
+                      hides your server from Let's Encrypt, the certificate for the Helix ↔ proxy
+                      connection needs a one-time <strong>ACME challenge delegation</strong> — add
+                      this second record alongside the CNAME above:
+                    </Typography>
                     <Box
                       sx={{
                         fontFamily: 'monospace',
@@ -374,12 +369,12 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                         </IconButton>
                       </span>
                     </Box>
-                  )}
-                  <Typography variant="body2">
-                    Domains pointed directly at <code>{cnameTarget}</code> (no proxy) need
-                    none of this.
-                  </Typography>
-                </Box>
+                    <Typography variant="body2">
+                      Domains pointed directly at <code>{cnameTarget}</code> (no proxy) need
+                      none of this.
+                    </Typography>
+                  </Box>
+                )}
               </Alert>
             )}
           </Box>
