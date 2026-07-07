@@ -81,7 +81,7 @@ Helix is a full private GenAI stack, so the pieces you'd expect are here too:
 - **Knowledge / RAG** — document ingestion (PDF, Word, text), a web scraper, multiple RAG backends (Kodit, LlamaIndex), PGVector embeddings, and vision RAG.
 - **Skills & tools** — REST/OpenAPI integrations, MCP server compatibility, GPTScript, OAuth token management, and a custom-tool SDK.
 - **Tracing & observability** — every agent step, requests/responses to LLMs, APIs, and MCP servers, token usage, and cost analysis.
-- **Multi-tenancy & auth** — organizations, teams, and role-based access control, with **OIDC** single sign-on (via Keycloak).
+- **Multi-tenancy & auth** — organizations, teams, and role-based access control, with **OIDC** single sign-on.
 - **Billing & metering** — track token usage and spend per user and per team, so you can see where the budget goes.
 - **Automation** — scheduled/cron tasks and webhook triggers.
 - **Notifications** — Slack, Discord, and email.
@@ -122,7 +122,6 @@ All server configuration is done via environment variables. You can find the com
 - `OPENAI_API_KEY` - OpenAI API credentials
 - `ANTHROPIC_API_KEY` - Anthropic API credentials
 - `POSTGRES_*` - Database connection settings
-- `KEYCLOAK_*` - Authentication settings
 - `SERVER_URL` - Public URL for the deployment
 - `RUNNER_*` - GPU runner configuration
 
@@ -146,7 +145,7 @@ git clone https://github.com/helixml/helix.git
 cd helix
 
 # Start supporting services
-docker-compose up -d postgres keycloak
+docker-compose up -d postgres
 
 # Run the backend
 cd api
