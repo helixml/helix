@@ -1,7 +1,7 @@
 # Implementation Tasks: Stage Spec-Task Attachments on Upload to Fix Planning Race
 
-- [ ] Create a feature branch off `main` in `helix` (conventional-commit workflow)
-- [ ] Add `StageUploadedAttachments(ctx, taskID)` to `SpecDrivenTaskService` in `api/pkg/services/spec_task_attachments.go`: load task+project+attachments, call the idempotent `commitAttachmentsToHelixSpecs` to stage into `helix-specs`
+- [x] Create a feature branch off `main` in `helix` (conventional-commit workflow)
+- [~] Add `StageUploadedAttachments(ctx, taskID)` to `SpecDrivenTaskService` in `api/pkg/services/spec_task_attachments.go`: load task+project+attachments, call the idempotent `commitAttachmentsToHelixSpecs` to stage into `helix-specs`
 - [ ] In `StageUploadedAttachments`, when `task.PlanningSessionID != ""` and `EnqueueMessageToAgent != nil`, enqueue a non-interrupt "attachment added — check `design/tasks/<taskDir>/attachments/`" note (use `GetTaskDirName`)
 - [ ] Call `StageUploadedAttachments` at the end of `uploadSpecTaskAttachments` (after rows are created): re-load the task for a fresh `PlanningSessionID`, use a detached context, warn (do not fail the 201) on staging error
 - [ ] Verify no dead code / no fallback paths introduced; confirm `commitAttachmentsToHelixSpecs` idempotency (skips rows with `CommittedSHA` set) still holds for the double-stage case
