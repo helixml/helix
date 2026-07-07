@@ -1,7 +1,7 @@
 # Implementation Tasks: Merge Latest Zed Upstream Into Helix Fork (002224)
 
 ## Setup & Baseline Measurement
-- [ ] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference; note the top merge-history entry and the "Rebase Checklist" (44 items in the reference clone)
+- [~] Read `/home/retro/work/zed/portingguide.md` in full — canonical reference; note the top merge-history entry and the "Rebase Checklist" (44 items in the reference clone)
 - [ ] Read the closest predecessor spec `002153_merge-latest-zed/` end-to-end (requirements, design, tasks); skim `002100_merge-latest-zed/` and `002077_merge-latest-zed/`
 - [ ] Confirm the repo layout: working repo `/prod/home/luke/pm/zed-upstream` on `helix-fork` (or the in-cluster mirror). Record which applies
 - [ ] `git remote add upstream https://github.com/zed-industries/zed.git` (only if missing); `git fetch upstream`; fetch the fork remote
