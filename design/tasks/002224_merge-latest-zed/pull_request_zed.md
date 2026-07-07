@@ -31,8 +31,16 @@ All 10 active Critical Fixes; PR #50/#55/#56(1a+1b)/#57/#60/#63/#64/#65 surface;
 ## Testing
 
 - **Build**: `./stack build-zed dev --features external_websocket_sync` — green (580 MB binary).
-- **E2E `zed-agent`**: **all 17 phases + store validations PASSED** (run twice), covering the ACP 1.0 fixes, PR #65 `chat_response_error`, cancel/Stopped invariants, streaming, and the queue interrupt path.
-- **E2E `claude`**: phases 1–16 pass; Phase 17 (queue interrupt redelivery) does not complete locally. This is **not a regression** — Phase 17 is new from PR #66 and was only ever validated for `zed-agent`; the failure is in `claude-agent-acp` post-cancel redelivery, amplified by a local model substitution (the local proxy 404s the intended `claude-sonnet-5`; ran with `claude-opus-4-8`, reverted). CI (real Anthropic model) is the authoritative `claude` gate.
+- **E2E `zed-agent`**: **all 17 phases + store validations PASSED** (run multiple times), covering the ACP 1.0 fixes, PR #65 `chat_response_error`, cancel/Stopped invariants, streaming, and the queue interrupt path.
+- **E2E `claude`**: **all 17 phases + store validations PASSED** after the interrupt-ordering fix below.
+
+## Interrupt-ordering fix (folded in — fixes claude E2E Phase 17)
+
+Phase 17 (queue interrupt) initially failed for the `claude` agent only: the interrupt cancelled the running turn but the follow-up message was never delivered (60 s timeout). Root-caused to a **pre-existing race** (not caused by the merge — the interrupt code is byte-for-byte unchanged; PR #66 only validated Phase 17 for `zed-agent`): on `interrupt=true`, Zed fired a blanket by-thread cancel on an *independent* task while dispatching the new message on the *sequential* loop, so for the slow `claude-agent-acp` subprocess the cancel landed on the new turn instead of the old one.
+
+Fix: thread an `interrupt` flag through `ThreadCreationRequest` and cancel the pre-existing turn **inline, in order, immediately before dispatch** (in the thread-creation handler) rather than via the racy independent cancel task. This deterministically targets the old turn; the new turn is never the cancel target. Verified: `claude` 17/17 pass, `zed-agent` 17/17 still pass (no regression to the shared cancel/interrupt path — Phases 8/9/13/17).
+
+(Local runs used `claude-opus-4-8` because the local proxy 404s the intended `claude-sonnet-5`; that `run_e2e.sh` edit was reverted and not committed. CI uses the real Anthropic model.)
 
 Release Notes:
 

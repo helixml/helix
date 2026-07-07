@@ -87,7 +87,7 @@
 - [x] Pre-flight: `(cd .../e2e-test/helix-ws-test-server && go mod tidy)`; commit if changed
 - [x] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed .../e2e-test/zed-binary`
 - [x] E2E `zed-agent` only: `./run_docker_e2e.sh` — all phases green
-- [x] E2E both agents run: `zed-agent` **17/17 PASSED**; `claude` phases 1–16 PASSED, **Phase 17 (queue interrupt) fails locally** — pre-existing gap (PR #66 only validated Phase 17 for zed-agent) + local model substitution, NOT a merge regression. See portingguide Validation section. CI (real model) is the authoritative claude gate.
+- [x] E2E both agents: `zed-agent` **17/17 PASSED**; `claude` **17/17 PASSED** after folding in the interrupt-ordering fix (commit ad863cb42b) that resolves the pre-existing Phase 17 race. No regression to zed-agent Phases 8/9/13/17. See portingguide 'Interrupt-ordering fix'.
 - [x] Confirm the task's core phases explicitly: Phase 1 (new thread), Phase 2 (follow-up entry_count++), Phase 3 (second thread + switch), Phase 4 (message to non-visible Thread A)
 - [x] Confirm gate phases: 8 (interrupt), 9 (PR #60 retry), 15 (PR #55 streaming), 16 (PR #56 1a + #57), 17 (Fix 1b)
 - [x] Confirm UI state queries: correct `thread_id`, `entry_count`, `active_view`
