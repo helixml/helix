@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -314,8 +315,14 @@ func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInter
 		cp := *i
 		result = append(result, &cp)
 	}
-	// Sort by ID ascending (creation order)
-	sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	// Honor the requested order. The prompt-queue busy-check relies on
+	// Order="id DESC" + PerPage=1 returning the NEWEST interaction (ULID IDs sort
+	// chronologically); the default is ascending (creation order).
+	if strings.Contains(strings.ToLower(query.Order), "desc") {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID > result[b].ID })
+	} else {
+		sort.Slice(result, func(a, b int) bool { return result[a].ID < result[b].ID })
+	}
 	// Apply PerPage limit
 	if query.PerPage > 0 && len(result) > query.PerPage {
 		result = result[:query.PerPage]
