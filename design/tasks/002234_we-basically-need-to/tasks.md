@@ -1,6 +1,6 @@
 # Implementation Tasks: Rewrite README Around Projects & Kanban Agentic Engineering
 
-- [ ] Draft new H1 title and tagline reflecting agentic engineering / agent control room (replace "AI Agents on a Private GenAI Stack"), in a concrete technical voice per the Tone Guideline (message kept, marketing-speak removed; "your role is changing" framed at engineers).
+- [~] Draft new H1 title and tagline reflecting agentic engineering / agent control room (replace "AI Agents on a Private GenAI Stack"), in a concrete technical voice per the Tone Guideline (message kept, marketing-speak removed; "your role is changing" framed at engineers).
 - [ ] Write the one-paragraph product pitch (fleets of coding agents, isolated desktops, spec-driven Kanban).
 - [ ] Commit the Kanban-board screenshot (the user's attachment) into the helix repo at `docs/images/kanban-board.png` and reference it in the README with a relative path, with descriptive alt text and a meta caption.
 - [ ] Write the new "Projects & Kanban" section explaining board stages (Draft → Planning → Approved → Implementing → Review → Done) and the spec → plan → approve → implement → review → PR flow, including parallel tasks in isolated sandboxes.
