@@ -87,82 +87,47 @@ func (s *SessionMessagesHandlerSuite) callHandler(sessionID string, body any, us
 	return rr
 }
 
-// TestQueuesWhenNoWS verifies that with no agent WebSocket connected,
-// the handler still creates a Waiting interaction and returns 200 — the
-// caller's contract is "queued, will deliver on reconnect" via
-// pickupWaitingInteraction. Also asserts that the dev container auto-start
-// fires (helixml/helix#2397) so that an exploratory zed_external session
-// with no live WS gets woken instead of hanging forever.
-func (s *SessionMessagesHandlerSuite) TestQueuesWhenNoWS() {
+// TestEnqueuesOntoQueue verifies the endpoint now ENQUEUES onto the
+// session-scoped prompt queue (the single sender path) rather than
+// immediately dispatching: it persists a pending prompt_history row and
+// returns its id. Delivery (interaction creation, auto-start, dispatch)
+// happens asynchronously in the poller — covered by the prompt-history
+// handler tests — so this asserts only the synchronous enqueue contract.
+func (s *SessionMessagesHandlerSuite) TestEnqueuesOntoQueue() {
 	user := &types.User{ID: "user-1"}
 	sessionID := "ses_noWs"
-	projectID := "prj_test"
 
-	// Exploratory zed_external session shape: project ID on metadata,
-	// no spec task. Auto-start should still fire (this is the regression
-	// case from helixml/helix#2397).
-	session := &types.Session{
-		ID:           sessionID,
-		Owner:        user.ID,
-		GenerationID: 0,
-		Metadata: types.SessionMetadata{
-			AgentType: "zed_external",
-			ProjectID: projectID,
-		},
-	}
-	// AnyTimes because sendCommandToExternalAgent fires autoStartDevContainerForSession
-	// in a goroutine — it does additional GetSession lookups.
+	session := &types.Session{ID: sessionID, Owner: user.ID}
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 
-	createdInteraction := &types.Interaction{ID: "int-1", SessionID: sessionID}
-	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, in *types.Interaction) (*types.Interaction, error) {
-			s.Equal(types.InteractionStateWaiting, in.State)
-			s.Equal("hello", in.PromptMessage)
-			return createdInteraction, nil
+	// The synchronous enqueue: a pending row keyed on the session.
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
 		},
 	)
-
-	// startDevContainerForSession looks up project repos and the project itself.
-	// Empty results are fine — agent build proceeds without RepositoryIDs.
-	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-
-	// UpdateSession is called from the post-StartDesktop metadata refresh.
-	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(&types.Session{}, nil).AnyTimes()
-
-	// THE CRITICAL ASSERTION: StartDesktop must be invoked exactly once.
-	// Use a channel to synchronise with the goroutine spawned by
-	// sendCommandToExternalAgent.
-	startCalled := make(chan *types.DesktopAgent, 1)
-	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, agent *types.DesktopAgent) (*types.DesktopAgentResponse, error) {
-			startCalled <- agent
-			return &types.DesktopAgentResponse{DevContainerID: "dev_test"}, nil
-		},
-	).Times(1)
+	// The background nudge lists the session's prompts; return none so the
+	// poller bails immediately and the test stays deterministic.
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
 	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "hello"}, user)
 	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 
 	var resp SessionMessageResponse
 	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &resp))
-	s.Equal("int-1", resp.InteractionID)
-	s.NotEmpty(resp.RequestID)
+	s.NotEmpty(resp.PromptID)
 
-	// request_id → interaction_id mapping is populated so callers can correlate
-	// streamed responses on /api/v1/ws/user.
-	s.server.contextMappingsMutex.Lock()
-	s.Equal("int-1", s.server.requestToInteractionMapping[resp.RequestID])
-	s.server.contextMappingsMutex.Unlock()
+	s.Require().NotNil(captured)
+	s.Equal(sessionID, captured.SessionID)
+	s.Equal("hello", captured.Content)
+	s.Equal("pending", captured.Status)
+	s.False(captured.Interrupt)
 
-	// Wait for the auto-start goroutine to fire StartDesktop.
-	select {
-	case agent := <-startCalled:
-		s.Equal(sessionID, agent.SessionID)
-		s.Equal(projectID, agent.ProjectID)
-	case <-time.After(2 * time.Second):
-		s.FailNow("StartDesktop was not called within 2s — auto-start did not fire")
-	}
+	// Let the background nudge run its single (AnyTimes) list call and exit
+	// before the controller is finished.
+	time.Sleep(100 * time.Millisecond)
 }
 
 // TestRejectsCrossUser verifies authorizeUserToSession blocks a different
@@ -186,47 +151,32 @@ func (s *SessionMessagesHandlerSuite) TestRejectsEmptyContent() {
 	s.Equal(http.StatusBadRequest, rr.Code)
 }
 
-// TestNotifyUserIDPropagatesAndClearsOnFailure verifies that when the underlying
-// send fails for a non-WS reason (e.g. CreateInteraction error → no interactionID,
-// then the WS dispatch returns ErrNoExternalAgentWS — handled as success). To
-// exercise the error-cleanup branch we'd need a non-WS failure; instead this
-// test asserts the success path: notify mapping is registered for the session.
-func (s *SessionMessagesHandlerSuite) TestNotifyUserIDRegisteredOnSuccess() {
+// TestNotifyUserIDCarriedOnRow verifies the commenter notify id is persisted on
+// the enqueued row (NotifyUserID). The queue registers the commenter streaming
+// mapping from this field at dispatch — see sendQueuedPromptToSession — rather
+// than synchronously at the endpoint as the old direct path did.
+func (s *SessionMessagesHandlerSuite) TestNotifyUserIDCarriedOnRow() {
 	user := &types.User{ID: "user-1"}
 	sessionID := "ses_notify"
 
 	session := &types.Session{ID: sessionID, Owner: user.ID}
-	// AnyTimes because sendCommandToExternalAgent fires autoStartDevContainerForSession
-	// in a goroutine when there's no WS connection — it does another GetSession lookup.
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
-	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(&types.Interaction{ID: "int-2"}, nil)
+	var captured *types.PromptHistoryEntry
+	s.store.EXPECT().CreatePromptHistoryEntry(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, e *types.PromptHistoryEntry) error {
+			captured = e
+			return nil
+		},
+	)
+	s.store.EXPECT().ListPromptHistoryBySession(gomock.Any(), sessionID).Return(nil, nil).AnyTimes()
 
 	rr := s.callHandler(sessionID, SessionMessageRequest{Content: "x", NotifyUserID: "commenter-9"}, user)
 	s.Require().Equal(http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 
-	var resp SessionMessageResponse
-	s.Require().NoError(json.Unmarshal(rr.Body.Bytes(), &resp))
+	s.Require().NotNil(captured)
+	s.Equal("commenter-9", captured.NotifyUserID)
 
-	s.server.contextMappingsMutex.Lock()
-	s.Equal("commenter-9", s.server.requestToCommenterMapping[resp.RequestID])
-	s.Equal("commenter-9", s.server.sessionToCommenterMapping[sessionID])
-	s.server.contextMappingsMutex.Unlock()
-}
-
-// TestErrNoExternalAgentWSIsSurfacedAsSuccess is a direct unit test on the
-// session-scoped helper. The interaction is persisted, so callers should see
-// a successful return value with both IDs populated even though the WS send
-// returned ErrNoExternalAgentWS.
-func (s *SessionMessagesHandlerSuite) TestErrNoExternalAgentWSIsSurfacedAsSuccess() {
-	sessionID := "ses_helper"
-	session := &types.Session{ID: sessionID, Owner: "user-1"}
-	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
-	s.store.EXPECT().CreateInteraction(gomock.Any(), gomock.Any()).Return(&types.Interaction{ID: "int-3"}, nil)
-
-	requestID, interactionID, err := s.server.sendMessageToSession(context.Background(), sessionID, "hi", "", false)
-	s.NoError(err)
-	s.NotEmpty(requestID)
-	s.Equal("int-3", interactionID)
+	time.Sleep(100 * time.Millisecond)
 }
 
 // Sanity: the sentinel error wrapping is what the helper depends on.

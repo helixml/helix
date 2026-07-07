@@ -415,7 +415,7 @@ func (s *AutoWakeWedgeBreakerSuite) TestBreakerTripsOnConsecutiveErrors() {
 
 	s.Require().NotNil(marked, "expected the stuck interaction to be marked")
 	s.Equal(types.InteractionStateError, marked.State)
-	s.Contains(marked.Error, "wedged")
+	s.Contains(marked.Error, "automatic retries stopped")
 }
 
 // TestBreakerDoesNotTripWhenRecentCompletion: a completion before the error run
@@ -450,5 +450,5 @@ func (s *AutoWakeWedgeBreakerSuite) TestBreakerDoesNotTripWhenRecentCompletion()
 
 	s.Require().NotNil(marked)
 	s.Equal(types.InteractionStateError, marked.State)
-	s.NotContains(marked.Error, "wedged", "should be the Gate 2 exhaustion error, not the breaker error")
+	s.NotContains(marked.Error, "automatic retries stopped", "should be the Gate 2 exhaustion error, not the breaker error")
 }

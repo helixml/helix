@@ -1943,15 +1943,17 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
-// sendChatMessageToExternalAgent is the canonical function for sending a message
-// to an external agent. It creates a waiting interaction, enqueues it for response
-// routing, and sends the WebSocket command. All callers that need to send a message
-// to an agent should use this function.
+// sendChatMessageToExternalAgent creates a waiting interaction with a
+// caller-supplied request_id and sends the WebSocket command directly, with no
+// busy-check.
 //
-// interrupt=true tells the agent to cancel its current turn before processing the
-// message, matching the semantic used by prompt-history queue messages. Used for
-// reactive feedback (e.g. design review comments) where the latest input should
-// take priority over in-flight work.
+// PRODUCTION SENDS DO NOT USE THIS. All production message sending now goes
+// through the session-scoped prompt queue (enqueueAgentMessage →
+// processPendingPromptsForSession → sendQueuedPromptToSession), which honours
+// interrupt as defer-until-idle (false) vs cancel-then-send (true). This
+// function is retained ONLY as the low-level primitive the WebSocket-sync e2e
+// test harness drives (test_helpers.go SendChatMessage, used by the cross-repo
+// Zed e2e server which passes its own request_id and asserts routing on it).
 func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string, interrupt bool) (interactionID string, err error) {
 	ctx := context.Background()
 
@@ -2750,7 +2752,7 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Msg("⚠️ [HELIX] message_completed with EMPTY response — marking as error and re-queuing")
 
 		targetInteraction.State = types.InteractionStateError
-		targetInteraction.Error = "Agent returned empty response (message bounced or content lost). The prompt will be retried."
+		targetInteraction.Error = "Agent unresponsive: it returned an empty response. Retrying automatically."
 		targetInteraction.Updated = time.Now()
 
 		if _, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction); err != nil {
@@ -3343,6 +3345,28 @@ func (apiServer *HelixAPIServer) sendQueuedPromptToSession(ctx context.Context, 
 
 	// Use interaction ID as request ID for better tracing
 	requestID := createdInteraction.ID
+
+	// Commenter response routing + design-review comment linkage. These carry the
+	// context the old synchronous direct send set up at call time; on the queue
+	// path we set them at dispatch, once the interaction (and its request_id)
+	// exist. NotifyUserID on the prompt row is the user the response should be
+	// streamed to (a design-review commenter); the comment linkage backfills the
+	// comment's RequestID/InteractionID so all the existing comment finalize /
+	// streaming / timeout / reconcile machinery (which keys off those fields)
+	// keeps working unchanged.
+	if prompt.NotifyUserID != "" {
+		apiServer.contextMappingsMutex.Lock()
+		if apiServer.requestToCommenterMapping == nil {
+			apiServer.requestToCommenterMapping = make(map[string]string)
+		}
+		apiServer.requestToCommenterMapping[requestID] = prompt.NotifyUserID
+		if apiServer.sessionToCommenterMapping == nil {
+			apiServer.sessionToCommenterMapping = make(map[string]string)
+		}
+		apiServer.sessionToCommenterMapping[sessionID] = prompt.NotifyUserID
+		apiServer.contextMappingsMutex.Unlock()
+	}
+	apiServer.backfillCommentLinkageForPrompt(ctx, prompt.ID, requestID, createdInteraction.ID)
 
 	// Store request_id->session mapping so thread_created can find the right session
 	// (needed for the FIRST message when ZedThreadID is empty and Zed will create a

@@ -89,6 +89,7 @@ func New(deps Deps) *Bots {
 // service creates them as (bot, topic) rows from its own CreateParams.
 type CreateParams struct {
 	ID              string
+	Name            string
 	Content         string
 	Tools           []tool.Name
 	PreserveContext bool
@@ -102,9 +103,20 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if id == "" {
 		id = orgchart.BotID("b-" + s.newID())
 	}
+	// Ensure the id is unique within the org, suffixing on conflict (base,
+	// base-1, base-2, ...) — mirrors org-name uniqueness. Without this a
+	// second bot whose id collides (two "Chief of Staff" both slugify to
+	// chief-of-staff) fails on the composite (id, org) primary key.
+	id, err := s.uniqueBotID(ctx, orgID, id)
+	if err != nil {
+		return orgchart.Bot{}, err
+	}
 	bot, err := orgchart.NewBot(id, p.Content, MergeTools(p.Tools, s.baseTools), s.now(), orgID)
 	if err != nil {
 		return orgchart.Bot{}, err
+	}
+	if p.Name != "" {
+		bot = bot.WithName(p.Name)
 	}
 	if p.PreserveContext {
 		bot = bot.WithPreserveContext(true)
@@ -115,10 +127,33 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	return bot, nil
 }
 
+// uniqueBotID returns base when it's free within the org, otherwise the
+// first free base-<n> (n from 1). Mirrors the org-name uniqueness
+// suffixing so a name-derived id collision (two bots named the same) is
+// resolved rather than erroring on the composite (id, org) primary key.
+// Bounded at 100 probes to avoid an unbounded loop on pathological input.
+func (s *Bots) uniqueBotID(ctx context.Context, orgID string, base orgchart.BotID) (orgchart.BotID, error) {
+	for i := 0; i < 100; i++ {
+		cand := base
+		if i > 0 {
+			cand = orgchart.BotID(fmt.Sprintf("%s-%d", base, i))
+		}
+		_, err := s.bots.Get(ctx, orgID, cand)
+		if errors.Is(err, store.ErrNotFound) {
+			return cand, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("check bot id uniqueness: %w", err)
+		}
+	}
+	return "", fmt.Errorf("could not derive a unique bot id from %q", base)
+}
+
 // UpdateParams patches the mutable fields of a Bot. A nil pointer
 // leaves the corresponding field unchanged — this is what preserves
 // Tools on a content-only update.
 type UpdateParams struct {
+	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
 	PreserveContext *bool
@@ -133,6 +168,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 		return orgchart.Bot{}, err
 	}
 	updated := existing
+	if p.Name != nil {
+		updated = updated.WithName(*p.Name)
+	}
 	if p.Content != nil {
 		updated = updated.WithContent(*p.Content)
 	}

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -59,7 +62,11 @@ func newStartCommand() *cobra.Command {
 	var projectID string
 	var agentID string
 	var prompt string
+	var promptFile string
+	var attachFiles []string
 	var quiet bool
+	var wait bool
+	var noWait bool
 
 	cmd := &cobra.Command{
 		Use:   "start [task-id]",
@@ -91,6 +98,20 @@ Example workflow:
 					fmt.Println("Creating new spec task...")
 				}
 				taskPrompt := prompt
+				// --prompt-file lets you dispatch an entire brief (e.g. a design
+				// doc) as the task prompt without committing it to the repo.
+				// Appended after --prompt when both are given.
+				if promptFile != "" {
+					data, readErr := os.ReadFile(promptFile)
+					if readErr != nil {
+						return fmt.Errorf("failed to read --prompt-file %q: %w", promptFile, readErr)
+					}
+					if taskPrompt != "" {
+						taskPrompt = taskPrompt + "\n\n" + string(data)
+					} else {
+						taskPrompt = string(data)
+					}
+				}
 				if taskPrompt == "" {
 					taskPrompt = "Testing RevDial connectivity"
 				}
@@ -103,6 +124,17 @@ Example workflow:
 					fmt.Printf("✅ Created spec task: %s (ID: %s)\n", task.Name, task.ID)
 					if agentID != "" {
 						fmt.Printf("   Agent: %s\n", agentID)
+					}
+				}
+				// Attach files (e.g. logfiles) — the agent reads them at
+				// design/tasks/<task>/attachments/<name>, keeping large context
+				// out of the prompt.
+				if len(attachFiles) > 0 {
+					if err := uploadSpecTaskAttachments(apiURL, token, taskID, attachFiles); err != nil {
+						return fmt.Errorf("failed to upload attachments: %w", err)
+					}
+					if !quiet {
+						fmt.Printf("📎 Uploaded %d attachment(s)\n", len(attachFiles))
 					}
 				}
 			}
@@ -119,12 +151,48 @@ Example workflow:
 				fmt.Printf("✅ Task status: %s\n", task.Status)
 			}
 
-			// Poll for session to be created (sandbox takes ~10-15s to start)
+			// Default: don't block on the sandbox. Creating the task and
+			// triggering planning is the durable outcome; the browser task page
+			// (known at creation time) shows the sandbox provisioning and streams
+			// the desktop as it comes up, so there is nothing for the CLI to wait
+			// on. --wait opts into blocking until the sandbox is up + printing
+			// session-level connect info. (--no-wait is now the default and kept
+			// only as a hidden no-op for back-compat.)
+			shouldWait := wait && !noWait
+			if !shouldWait {
+				if quiet {
+					fmt.Println(taskID)
+				} else {
+					fmt.Printf("\n✅ Task created — planning started: %s\n", taskID)
+					if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+						fmt.Printf("   Open in browser: %s\n", taskURL)
+					}
+					fmt.Printf("   The sandbox provisions in the background; the page shows it loading.\n")
+				}
+				return nil
+			}
+
+			// --wait: poll for the session to be created (sandbox takes ~10-15s).
 			if !quiet {
 				fmt.Printf("⏳ Waiting for sandbox to start (this takes ~15 seconds)...\n")
 			}
 			session, err := waitForTaskSession(apiURL, token, taskID, 3*time.Minute)
 			if err != nil {
+				// A wait-timeout is NOT a failure of `start`: the task was already
+				// created and is still provisioning (slow image pull / busy host).
+				// Surface the task id + URL and exit 0 rather than a misleading
+				// non-zero error. Real errors (HTTP failures etc.) still hard-fail.
+				if errors.Is(err, errSandboxWaitTimeout) {
+					if quiet {
+						fmt.Println(taskID)
+					} else {
+						fmt.Printf("\n⏳ Task created (%s) — sandbox still provisioning after 3m.\n", taskID)
+						if taskURL := buildTaskURL(apiURL, task, projectID); taskURL != "" {
+							fmt.Printf("   Open in browser: %s\n", taskURL)
+						}
+					}
+					return nil
+				}
 				return fmt.Errorf("failed waiting for session: %w", err)
 			}
 
@@ -150,7 +218,12 @@ Example workflow:
 	cmd.Flags().StringVarP(&projectID, "project", "p", "", "Project ID (required when creating new task)")
 	cmd.Flags().StringVarP(&agentID, "agent", "a", "", "Agent/App ID to use (e.g., app_01xxx)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt/description")
-	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output session ID")
+	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read the task prompt from a file (e.g. a design doc) — dispatch a full brief without committing it to the repo. Appended after --prompt if both are set.")
+	cmd.Flags().StringArrayVar(&attachFiles, "attach", nil, "Attach file(s) to the task (repeatable). Uploaded as spec-task attachments the agent reads at design/tasks/<task>/attachments/<name> — good for logs/large context without bloating the prompt.")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Only output the task ID (session ID with --wait)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Block until the sandbox has booted, then print session-level connect info (default: return immediately with the task URL — the browser page shows it loading)")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Deprecated: no-wait is now the default; kept as a no-op for back-compat")
+	_ = cmd.Flags().MarkHidden("no-wait")
 
 	return cmd
 }
@@ -382,10 +455,28 @@ func getToken() string {
 }
 
 type SpecTask struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Status         string `json:"status"`
+	OrganizationID string `json:"organization_id"`
+	ProjectID      string `json:"project_id"`
+}
+
+// buildTaskURL returns the frontend task-detail page URL, which is known the
+// instant the task is created — no need to wait for the sandbox. Opening it
+// shows the sandbox provisioning and streams the desktop as it comes up.
+// Returns "" if org/project can't be determined (caller prints the id alone).
+func buildTaskURL(apiURL string, task *SpecTask, projectFallback string) string {
+	proj := task.ProjectID
+	if proj == "" {
+		proj = projectFallback
+	}
+	if task.OrganizationID == "" || proj == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/orgs/%s/projects/%s/tasks/%s",
+		strings.TrimRight(apiURL, "/"), task.OrganizationID, proj, task.ID)
 }
 
 type Session struct {
@@ -447,6 +538,47 @@ func createSpecTask(apiURL, token, name, prompt, projectID, agentID string) (*Sp
 	return &task, nil
 }
 
+// uploadSpecTaskAttachments uploads local files as attachments on a spec task
+// (multipart, field name "files"). The agent can then read them inside the
+// sandbox at design/tasks/<task>/attachments/<name>.
+func uploadSpecTaskAttachments(apiURL, token, taskID string, files []string) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", f, err)
+		}
+		part, err := w.CreateFormFile("files", filepath.Base(f))
+		if err != nil {
+			return err
+		}
+		if _, err := part.Write(data); err != nil {
+			return err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/attachments", apiURL, taskID)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("attachments API returned %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // triggerStartPlanning starts planning for a task (returns task, not session)
 func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 	url := fmt.Sprintf("%s/api/v1/spec-tasks/%s/start-planning", apiURL, taskID)
@@ -475,6 +607,12 @@ func triggerStartPlanning(apiURL, token, taskID string) (*SpecTask, error) {
 
 	return &task, nil
 }
+
+// errSandboxWaitTimeout is returned by waitForTaskSession when the sandbox did
+// not come up within the poll window. The task itself was already created and
+// is still provisioning, so callers should treat this as a soft outcome (print
+// the task id, exit 0) rather than a hard `start` failure.
+var errSandboxWaitTimeout = errors.New("timeout waiting for sandbox to start")
 
 // waitForTaskSession polls for a session with dev_container_id to be created for the task
 func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*Session, error) {
@@ -523,7 +661,7 @@ func waitForTaskSession(apiURL, token, taskID string, timeout time.Duration) (*S
 		time.Sleep(pollInterval)
 	}
 
-	return nil, fmt.Errorf("timeout waiting for sandbox to start (task: %s)", taskID)
+	return nil, fmt.Errorf("%w (task: %s)", errSandboxWaitTimeout, taskID)
 }
 
 func newResumeCommand() *cobra.Command {

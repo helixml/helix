@@ -12740,6 +12740,71 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/vcs-connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project VCS connection status",
+                "operationId": "getProjectVCSConnections",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.VCSConnectionInfo"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/web-service": {
             "get": {
                 "security": [
@@ -13070,10 +13135,15 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Spec Task ID (required)",
+                        "description": "Spec Task ID (required unless session_id is given)",
                         "name": "spec_task_id",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID for session-scoped queues (required unless spec_task_id is given)",
+                        "name": "session_id",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -21164,6 +21234,10 @@
                 "id": {
                     "type": "string"
                 },
+                "name": {
+                    "description": "Name is the human-readable display label; empty means the UI falls\nback to ID. Distinct from ID, which is the immutable handle.",
+                    "type": "string"
+                },
                 "organization_id": {
                     "type": "string"
                 },
@@ -21235,6 +21309,10 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the human-readable display label (e.g. \"Chief of Staff\").\nOptional; the ID stays the immutable handle.",
                     "type": "string"
                 },
                 "owner": {
@@ -21776,6 +21854,9 @@
             "type": "object",
             "properties": {
                 "content": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "preserve_context": {
@@ -24782,10 +24863,7 @@
         "server.SessionMessageResponse": {
             "type": "object",
             "properties": {
-                "interaction_id": {
-                    "type": "string"
-                },
-                "request_id": {
+                "prompt_id": {
                     "type": "string"
                 }
             }
@@ -31608,6 +31686,10 @@
                     "description": "When to retry (for exponential backoff)",
                     "type": "string"
                 },
+                "notify_user_id": {
+                    "description": "NotifyUserID, when set, is the user who should be streamed the agent's\nresponse (e.g. a design-review commenter). At dispatch the queue registers\nrequestToCommenterMapping/sessionToCommenterMapping from this field — the\nsame routing the old direct send set up synchronously.",
+                    "type": "string"
+                },
                 "organization_id": {
                     "description": "Organization scope for search",
                     "type": "string"
@@ -31629,10 +31711,11 @@
                     "type": "integer"
                 },
                 "session_id": {
-                    "description": "Optional - which session this was sent to",
+                    "description": "Which session this was sent to (the delivery unit)",
                     "type": "string"
                 },
                 "spec_task_id": {
+                    "description": "SpecTaskID is nullable: frontend queue-mode messages always carry it, but\nautomated/system and general session sends (e.g. org bots via\nPOST /sessions/{id}/messages) enqueue by SessionID with no spec task.",
                     "type": "string"
                 },
                 "status": {
@@ -31720,6 +31803,10 @@
                     }
                 },
                 "project_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "SessionID is used for session-scoped queues (e.g. org-chat / bot sessions\nthat have no spec task). Exactly one of SpecTaskID / SessionID is set.",
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -31983,6 +32070,42 @@
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.PushError": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "description": "VCS account the push was attempted as, e.g. \"@linuxrecruit\"",
+                    "type": "string"
+                },
+                "cause": {
+                    "description": "translated human-readable cause",
+                    "type": "string"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "next_step": {
+                    "description": "translated actionable next step",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "e.g. \"github\"",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "raw_message": {
+                    "description": "verbatim provider error",
+                    "type": "string"
+                },
+                "repo": {
+                    "description": "e.g. \"helixml/find-ai\"",
+                    "type": "string"
                 }
             }
         },
@@ -32935,7 +33058,7 @@
                     "type": "string"
                 },
                 "provider": {
-                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nE.g. \"yellowdog\", \"gcp\", \"lambda\". Empty for self-registered hosts.",
+                    "description": "Provider is the Name() of the compute.Provider that owns this host.\nFor pool-discovery providers this is a composite key baked from the\ndeployment tag, worker tag and instance type (e.g.\n\"yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34\"), so it\nneeds the same width as ProviderID. Empty for self-registered hosts.",
                     "type": "string"
                 },
                 "provider_id": {
@@ -34388,6 +34511,14 @@
                     "description": "Git tracking",
                     "type": "string"
                 },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
+                },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
                     "type": "string"
@@ -34703,6 +34834,10 @@
                 "line_number": {
                     "description": "Optional line number",
                     "type": "integer"
+                },
+                "prompt_id": {
+                    "description": "Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch",
+                    "type": "string"
                 },
                 "queued_at": {
                     "description": "Database-backed queue for agent processing (restart-resilient)\nQueuedAt is set when comment is submitted for agent processing.\nProcessing order: QueuedAt ASC. Cleared when agent response is received.",
@@ -35169,6 +35304,14 @@
                 "last_push_commit_hash": {
                     "description": "Git tracking",
                     "type": "string"
+                },
+                "last_push_error": {
+                    "description": "Structured error from the last external (mirror) push. Set when a user-initiated\npush to the external repo fails and refs are rolled back; cleared (nil) on the\nnext successful push. Surfaced on the board so failures aren't silent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PushError"
+                        }
+                    ]
                 },
                 "merge_commit_hash": {
                     "description": "Merge commit hash",
@@ -37176,6 +37319,89 @@
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.VCSActingUser": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSConnectionInfo": {
+            "type": "object",
+            "properties": {
+                "acting_user": {
+                    "$ref": "#/definitions/types.VCSActingUser"
+                },
+                "missing_scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "$ref": "#/definitions/types.ExternalRepositoryType"
+                },
+                "pushing_as": {
+                    "$ref": "#/definitions/types.VCSPushingAs"
+                },
+                "repos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.VCSRepoAccess"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/types.VCSConnectionState"
+                }
+            }
+        },
+        "types.VCSConnectionState": {
+            "type": "string",
+            "enum": [
+                "verified",
+                "needs_attention",
+                "disconnected"
+            ],
+            "x-enum-varnames": [
+                "VCSConnectionVerified",
+                "VCSConnectionNeedsAttention",
+                "VCSConnectionDisconnected"
+            ]
+        },
+        "types.VCSPushingAs": {
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "description": "OAuthConnection ID (for switch/disconnect)",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "e.g. \"@tonychapman-prog\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.VCSRepoAccess": {
+            "type": "object",
+            "properties": {
+                "has_access": {
+                    "description": "true if the connection can reach it (or access is unverifiable for this provider)",
+                    "type": "boolean"
+                },
+                "repo": {
+                    "description": "\"owner/repo\"",
+                    "type": "string"
+                },
+                "verified": {
+                    "description": "true if we actually probed the provider (false = optimistic/unverifiable)",
+                    "type": "boolean"
                 }
             }
         },

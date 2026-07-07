@@ -135,11 +135,21 @@ type Service struct {
 // Topics are its capability/manifest.
 type CreateParams struct {
 	ID              string
+	Name            string
 	Content         string
 	Tools           []tool.Name
 	Topics          []streaming.TopicID
 	ParentID        orgchart.BotID
 	PreserveContext bool
+	// DeferActivation creates the Bot row (so it shows on the chart) and
+	// wires its topology, but skips the hire activation that provisions the
+	// Helix project + agent app + desktop. Callers set this when the org has
+	// no runtime configured yet, so a Bot is never provisioned with the
+	// seed-time default (claude_code/subscription/no-model, which Zed renders
+	// as its built-in gpt). The deferred Bot is provisioned later, with the
+	// correct config, when the operator sets the Default Bot Runtime
+	// (settings handler re-runs activation for provision-less bots).
+	DeferActivation bool
 }
 
 // CreateResult carries the new Bot and the pre-allocated
@@ -193,6 +203,7 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 
 	bot, err := s.Bots.Create(ctx, orgID, bots.CreateParams{
 		ID:              p.ID,
+		Name:            p.Name,
 		Content:         p.Content,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
@@ -248,6 +259,15 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		if err := s.HireHook.OnHire(ctx, orgID, id, uid); err != nil {
 			return CreateResult{}, fmt.Errorf("create handler: %w", err)
 		}
+	}
+
+	// DeferActivation: the Bot row + topology exist (so the chart isn't
+	// blank), but we skip provisioning entirely. The operator hasn't picked a
+	// runtime yet, so provisioning now would bake the seed-time default into
+	// the agent app and boot a gpt desktop; the settings handler activates
+	// this Bot later, once a runtime is configured.
+	if p.DeferActivation {
+		return CreateResult{Bot: bot}, nil
 	}
 
 	// Pre-create the create-Activation audit row so Create can return the

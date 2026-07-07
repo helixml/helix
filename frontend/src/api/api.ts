@@ -33,6 +33,11 @@ export interface ApiBotDTO {
   content?: string;
   created_at?: string;
   id?: string;
+  /**
+   * Name is the human-readable display label; empty means the UI falls
+   * back to ID. Distinct from ID, which is the immutable handle.
+   */
+  name?: string;
   organization_id?: string;
   parent_ids?: string[];
   /**
@@ -65,6 +70,11 @@ export interface ApiBotSubscriptionsResponse {
 export interface ApiCreateBotRequest {
   content?: string;
   id?: string;
+  /**
+   * Name is the human-readable display label (e.g. "Chief of Staff").
+   * Optional; the ID stays the immutable handle.
+   */
+  name?: string;
   /**
    * Owner makes this a manager Bot: it receives the canonical owner
    * tool set (every org-graph mutation - create_bot, delete_bot,
@@ -331,6 +341,7 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  name?: string;
   preserve_context?: boolean;
   tools?: string[];
 }
@@ -1648,8 +1659,7 @@ export interface ServerSessionMessageRequest {
 }
 
 export interface ServerSessionMessageResponse {
-  interaction_id?: string;
-  request_id?: string;
+  prompt_id?: string;
 }
 
 export interface ServerSessionSandboxStateResponse {
@@ -4677,6 +4687,13 @@ export interface TypesPromptHistoryEntry {
   last_used_at?: string;
   /** When to retry (for exponential backoff) */
   next_retry_at?: string;
+  /**
+   * NotifyUserID, when set, is the user who should be streamed the agent's
+   * response (e.g. a design-review commenter). At dispatch the queue registers
+   * requestToCommenterMapping/sessionToCommenterMapping from this field — the
+   * same routing the old direct send set up synchronously.
+   */
+  notify_user_id?: string;
   /** Organization scope for search */
   organization_id?: string;
   /** Library features for prompt reuse */
@@ -4690,8 +4707,13 @@ export interface TypesPromptHistoryEntry {
   queue_position?: number;
   /** Retry tracking for failed prompts */
   retry_count?: number;
-  /** Optional - which session this was sent to */
+  /** Which session this was sent to (the delivery unit) */
   session_id?: string;
+  /**
+   * SpecTaskID is nullable: frontend queue-mode messages always carry it, but
+   * automated/system and general session sends (e.g. org bots via
+   * POST /sessions/{id}/messages) enqueue by SessionID with no spec task.
+   */
   spec_task_id?: string;
   /**
    * Status tracks whether this was successfully sent
@@ -4733,6 +4755,11 @@ export interface TypesPromptHistoryListResponse {
 export interface TypesPromptHistorySyncRequest {
   entries?: TypesPromptHistoryEntrySync[];
   project_id?: string;
+  /**
+   * SessionID is used for session-scoped queues (e.g. org-chat / bot sessions
+   * that have no spec task). Exactly one of SpecTaskID / SessionID is set.
+   */
+  session_id?: string;
   spec_task_id?: string;
 }
 
@@ -4841,6 +4868,22 @@ export interface TypesPullResponse {
   message?: string;
   repository_id?: string;
   success?: boolean;
+}
+
+export interface TypesPushError {
+  /** VCS account the push was attempted as, e.g. "@linuxrecruit" */
+  account?: string;
+  /** translated human-readable cause */
+  cause?: string;
+  failed_at?: string;
+  /** translated actionable next step */
+  next_step?: string;
+  /** e.g. "github" */
+  provider?: TypesExternalRepositoryType;
+  /** verbatim provider error */
+  raw_message?: string;
+  /** e.g. "helixml/find-ai" */
+  repo?: string;
 }
 
 export interface TypesPushResponse {
@@ -5326,7 +5369,10 @@ export interface TypesSandboxInstance {
   profile_status?: string;
   /**
    * Provider is the Name() of the compute.Provider that owns this host.
-   * E.g. "yellowdog", "gcp", "lambda". Empty for self-registered hosts.
+   * For pool-discovery providers this is a composite key baked from the
+   * deployment tag, worker tag and instance type (e.g.
+   * "yellowdog-helix-development-worker-psamuel-g5-xlarge-164e3a34"), so it
+   * needs the same width as ProviderID. Empty for self-registered hosts.
    */
   provider?: string;
   /**
@@ -6029,6 +6075,12 @@ export interface TypesSpecTask {
   last_push_at?: string;
   /** Git tracking */
   last_push_commit_hash?: string;
+  /**
+   * Structured error from the last external (mirror) push. Set when a user-initiated
+   * push to the external repo fails and refs are rolled back; cleared (nil) on the
+   * next successful push. Surfaced on the board so failures aren't silent.
+   */
+  last_push_error?: TypesPushError;
   /** Merge commit hash */
   merge_commit_hash?: string;
   /** When merge happened */
@@ -6175,6 +6227,8 @@ export interface TypesSpecTaskDesignReviewComment {
   interaction_id?: string;
   /** Optional line number */
   line_number?: number;
+  /** Link to the prompt_history_entry enqueued for this comment; RequestID/InteractionID are backfilled from it at dispatch */
+  prompt_id?: string;
   /**
    * Database-backed queue for agent processing (restart-resilient)
    * QueuedAt is set when comment is submitted for agent processing.
@@ -6365,6 +6419,12 @@ export interface TypesSpecTaskWithProject {
   last_push_at?: string;
   /** Git tracking */
   last_push_commit_hash?: string;
+  /**
+   * Structured error from the last external (mirror) push. Set when a user-initiated
+   * push to the external repo fails and refs are rolled back; cleared (nil) on the
+   * next successful push. Surfaced on the board so failures aren't silent.
+   */
+  last_push_error?: TypesPushError;
   /** Merge commit hash */
   merge_commit_hash?: string;
   /** When merge happened */
@@ -7236,6 +7296,42 @@ export interface TypesUserTokenUsageResponse {
 export interface TypesUsersAggregatedUsageMetric {
   metrics?: TypesAggregatedUsageMetric[];
   user?: TypesUser;
+}
+
+export interface TypesVCSActingUser {
+  id?: string;
+  name?: string;
+}
+
+export interface TypesVCSConnectionInfo {
+  acting_user?: TypesVCSActingUser;
+  missing_scopes?: string[];
+  provider?: TypesExternalRepositoryType;
+  pushing_as?: TypesVCSPushingAs;
+  repos?: TypesVCSRepoAccess[];
+  state?: TypesVCSConnectionState;
+}
+
+export enum TypesVCSConnectionState {
+  VCSConnectionVerified = "verified",
+  VCSConnectionNeedsAttention = "needs_attention",
+  VCSConnectionDisconnected = "disconnected",
+}
+
+export interface TypesVCSPushingAs {
+  /** OAuthConnection ID (for switch/disconnect) */
+  connection_id?: string;
+  /** e.g. "@tonychapman-prog" */
+  username?: string;
+}
+
+export interface TypesVCSRepoAccess {
+  /** true if the connection can reach it (or access is unverifiable for this provider) */
+  has_access?: boolean;
+  /** "owner/repo" */
+  repo?: string;
+  /** true if we actually probed the provider (false = optimistic/unverifiable) */
+  verified?: boolean;
 }
 
 export interface TypesVHostRoute {
@@ -13454,6 +13550,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description One entry per distinct VCS provider present among the project's external repos, with the acting user, the account pushes are attributed to, and per-repo verified access. Backs the project board connection lozenge.
+     *
+     * @tags Projects
+     * @name GetProjectVcsConnections
+     * @summary Get project VCS connection status
+     * @request GET:/api/v1/projects/{id}/vcs-connections
+     * @secure
+     */
+    getProjectVcsConnections: (id: string, params: RequestParams = {}) =>
+      this.request<TypesVCSConnectionInfo[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/vcs-connections`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Return enable/disable state, hostnames, and recent deploys for a project's web service.
      *
      * @tags Projects
@@ -13639,13 +13754,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1PromptHistoryList: (
-      query: {
-        /** Spec Task ID (required) */
-        spec_task_id: string;
-        /** Project ID (optional filter) */
-        project_id?: string;
+      query?: {
+        /** Spec Task ID (required unless session_id is given) */
+        spec_task_id?: string;
         /** Session ID (optional filter) */
         session_id?: string;
+        /** Project ID (optional filter) */
+        project_id?: string;
         /** Only entries after this timestamp (Unix milliseconds) */
         since?: number;
         /** Max entries to return (default 100) */

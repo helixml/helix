@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -37,7 +37,7 @@ type GetOrganizationInvitationQuery struct {
 // normalised to lowercase so case-insensitive lookups at registration time
 // always hit. We enforce uniqueness (org_id, email) at the application layer
 // because empty placeholder rows can otherwise accumulate.
-func (s *PostgresStore) CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error) {
+func (s *Store) CreateOrganizationInvitation(ctx context.Context, inv *types.OrganizationInvitation) (*types.OrganizationInvitation, error) {
 	if inv.OrganizationID == "" {
 		return nil, fmt.Errorf("organization_id not specified")
 	}
@@ -78,7 +78,7 @@ func (s *PostgresStore) CreateOrganizationInvitation(ctx context.Context, inv *t
 	return inv, nil
 }
 
-func (s *PostgresStore) GetOrganizationInvitation(ctx context.Context, q *GetOrganizationInvitationQuery) (*types.OrganizationInvitation, error) {
+func (s *Store) GetOrganizationInvitation(ctx context.Context, q *GetOrganizationInvitationQuery) (*types.OrganizationInvitation, error) {
 	if q == nil || (q.ID == "" && (q.OrganizationID == "" || q.Email == "")) {
 		return nil, fmt.Errorf("either id or (organization_id, email) must be specified")
 	}
@@ -105,7 +105,7 @@ func (s *PostgresStore) GetOrganizationInvitation(ctx context.Context, q *GetOrg
 	return &inv, nil
 }
 
-func (s *PostgresStore) ListOrganizationInvitations(ctx context.Context, q *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error) {
+func (s *Store) ListOrganizationInvitations(ctx context.Context, q *ListOrganizationInvitationsQuery) ([]*types.OrganizationInvitation, error) {
 	query := s.gdb.WithContext(ctx).Order("created_at DESC")
 	if q != nil {
 		if q.OrganizationID != "" {
@@ -126,7 +126,7 @@ func (s *PostgresStore) ListOrganizationInvitations(ctx context.Context, q *List
 	return invitations, nil
 }
 
-func (s *PostgresStore) DeleteOrganizationInvitation(ctx context.Context, id string) error {
+func (s *Store) DeleteOrganizationInvitation(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id must be specified")
 	}
@@ -148,7 +148,7 @@ func (s *PostgresStore) DeleteOrganizationInvitation(ctx context.Context, id str
 // immediately. All work happens inside a single transaction so a partial
 // failure can't leave the invitation in an "accepted but not joined"
 // state. Returns the list of memberships that were created.
-func (s *PostgresStore) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
+func (s *Store) ConsumePendingInvitations(ctx context.Context, user *types.User) ([]*types.OrganizationMembership, error) {
 	if user == nil || user.ID == "" || user.Email == "" {
 		return nil, nil
 	}

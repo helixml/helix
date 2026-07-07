@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/projects"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
@@ -80,6 +81,10 @@ type Deps struct {
 	// spec-task tools (create/list/get/start/review/approve/request-changes/
 	// create-PRs) scoped to the calling Worker's own project.
 	SpecTasks *spectasks.Service
+	// Projects is the front-of-house application service backing the
+	// project-discovery tools (list_projects/get_project), scoped to the
+	// caller's org.
+	Projects *projects.Service
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
@@ -115,9 +120,17 @@ type Config struct {
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
-	SpecTasks           runtime.SpecTasks
+	SpecTasks runtime.SpecTasks
+	// Projects is the runtime port the project-discovery tools dispatch on.
+	// nil → Build defaults to runtime.NoopProjects{} so the tools return a
+	// clear "not wired" error instead of nil-derefing.
+	Projects            runtime.Projects
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
+	// Lifecycle, when set, is used verbatim instead of building a fresh one,
+	// so the MCP tools share the composition root's reconciler-complete
+	// service. nil → lifecycleService() builds a standalone service.
+	Lifecycle *lifecycle.Service
 }
 
 // Build assembles the application services from the config and returns
@@ -133,9 +146,26 @@ func (c Config) Build() Deps {
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
+		Projects:            c.projectsService(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
 	}
+}
+
+// projectsService builds the project-discovery application service over the
+// configured runtime port, defaulting to NoopProjects when none is wired.
+// Queries satisfies projects.MemberVerifier (GetBot); pass it so every
+// project read verifies the caller Bot is a member of its org.
+func (c Config) projectsService() *projects.Service {
+	port := c.Projects
+	if port == nil {
+		port = runtime.NoopProjects{}
+	}
+	var members projects.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return projects.New(port, members)
 }
 
 // specTasksService builds the spec-task application service over the
@@ -147,7 +177,14 @@ func (c Config) specTasksService() *spectasks.Service {
 	if port == nil {
 		port = runtime.NoopSpecTasks{}
 	}
-	return spectasks.New(port)
+	// Queries satisfies spectasks.MemberVerifier (GetBot); pass it so every
+	// spec-task call verifies the caller Bot is a member of its org. nil is
+	// tolerated (the check is then skipped — the MCP mount already enforces it).
+	var members spectasks.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return spectasks.New(port, members)
 }
 
 // subscriptionsService builds the subscription application service.
@@ -186,6 +223,9 @@ func (c Config) publishingService() *publishing.Publishing {
 // the REST POST /bots handler. The bots service is wired so the row
 // creation applies the base-read-tool union.
 func (c Config) lifecycleService() *lifecycle.Service {
+	if c.Lifecycle != nil {
+		return c.Lifecycle
+	}
 	svc := &lifecycle.Service{
 		Store:          c.Store,
 		Bots:           c.botsService(),
@@ -240,6 +280,7 @@ func DefaultDeps(s *store.Store) Config {
 		HireHook:            runtime.NoopHireHook{},
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		SpecTasks:           runtime.NoopSpecTasks{},
+		Projects:            runtime.NoopProjects{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
@@ -307,6 +348,11 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetBotProject{deps: deps},
+		// Project discovery — an org-wide PM Bot lists/reads the projects in
+		// its org before deciding which to manage. Org-scoped reads; granted
+		// per-Role (not in BaseReadTools).
+		NewListProjects(deps),
+		NewGetProject(deps),
 		NewListSpecTasks(deps),
 		NewGetSpecTask(deps),
 		NewReviewSpecTaskSpec(deps),

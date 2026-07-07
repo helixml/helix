@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -107,10 +108,18 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		}
 	}
 
-	// Return all non-deleted entries for this user+spec_task so client can merge
+	// Return all non-deleted entries so the client can merge. Scope by spec_task
+	// (spec-task queue) or by session (org-chat / bot session queue with no spec
+	// task) depending on which the request carries.
+	scoped := s.gdb.WithContext(ctx).
+		Where("user_id = ? AND deleted_at IS NULL", userID)
+	if req.SpecTaskID != "" {
+		scoped = scoped.Where("spec_task_id = ?", req.SpecTaskID)
+	} else {
+		scoped = scoped.Where("session_id = ?", req.SessionID)
+	}
 	var allEntries []types.PromptHistoryEntry
-	err := s.gdb.WithContext(ctx).
-		Where("user_id = ? AND spec_task_id = ? AND deleted_at IS NULL", userID, req.SpecTaskID).
+	err := scoped.
 		Order("created_at DESC").
 		Limit(100). // Reasonable limit
 		Find(&allEntries).Error
@@ -124,6 +133,20 @@ func (s *PostgresStore) SyncPromptHistory(ctx context.Context, userID string, re
 		Existing: updated, // Number of existing entries that were updated
 		Entries:  allEntries,
 	}, nil
+}
+
+// CreatePromptHistoryEntry inserts a single prompt history entry. This is the
+// server-side enqueue primitive used by automated/system and general session
+// sends (the frontend uses SyncPromptHistory instead). The BeforeCreate hook
+// stamps timestamps.
+func (s *PostgresStore) CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error {
+	if entry.ID == "" {
+		return fmt.Errorf("prompt history entry ID is required")
+	}
+	if entry.SessionID == "" {
+		return fmt.Errorf("prompt history entry SessionID is required")
+	}
+	return s.gdb.WithContext(ctx).Create(entry).Error
 }
 
 // GetPromptHistoryEntry returns a single prompt history entry by ID
@@ -239,6 +262,24 @@ func (s *PostgresStore) ListPromptHistoryBySpecTask(ctx context.Context, specTas
 	var entries []*types.PromptHistoryEntry
 	err := s.gdb.WithContext(ctx).
 		Where("spec_task_id = ? AND deleted_at IS NULL", specTaskID).
+		Order("created_at ASC").
+		Find(&entries).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+// ListPromptHistoryBySession returns all non-deleted prompt history entries for
+// a session. Used by the session-scoped queue processor to decide whether the
+// session has pending interrupt vs queue prompts (the claim/dispatch selectors
+// are session-scoped already).
+func (s *PostgresStore) ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error) {
+	var entries []*types.PromptHistoryEntry
+	err := s.gdb.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
 		Order("created_at ASC").
 		Find(&entries).Error
 

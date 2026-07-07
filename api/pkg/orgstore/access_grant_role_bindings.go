@@ -1,4 +1,4 @@
-package store
+package orgstore
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type GetAccessGrantRoleBindingsQuery struct {
 }
 
 // CreateAccessGrantRoleBinding creates a new role binding for an access grant
-func (s *PostgresStore) CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error) {
+func (s *Store) CreateAccessGrantRoleBinding(ctx context.Context, binding *types.AccessGrantRoleBinding) (*types.AccessGrantRoleBinding, error) {
 	if binding.AccessGrantID == "" {
 		return nil, fmt.Errorf("access_grant_id not specified")
 	}
@@ -42,7 +42,7 @@ func (s *PostgresStore) CreateAccessGrantRoleBinding(ctx context.Context, bindin
 }
 
 // DeleteAccessGrantRoleBinding deletes a role binding for an access grant
-func (s *PostgresStore) DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error {
+func (s *Store) DeleteAccessGrantRoleBinding(ctx context.Context, accessGrantID, roleID string) error {
 	if accessGrantID == "" {
 		return fmt.Errorf("access_grant_id must be specified")
 	}
@@ -57,7 +57,7 @@ func (s *PostgresStore) DeleteAccessGrantRoleBinding(ctx context.Context, access
 }
 
 // GetAccessGrantRoleBindings retrieves role bindings based on the provided query parameters
-func (s *PostgresStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error) {
+func (s *Store) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccessGrantRoleBindingsQuery) ([]*types.AccessGrantRoleBinding, error) {
 	query := s.gdb.WithContext(ctx)
 
 	if q.AccessGrantID == "" {

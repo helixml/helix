@@ -384,6 +384,39 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
 ```
 
+### Dispatch an investigation to a helix-in-helix spec task (from a local brief)
+When the **outer** instance can't be instrumented — e.g. Air won't hot-reload
+because the repo is a ZFS bind-mount (inotify doesn't cross it), or a headless
+browser/Google-auth is unavailable — hand the whole thing to a spec task. Its
+sandbox is a **full inner Helix at `localhost:8080` where Air hot-reload, Vite
+HMR, and the browser all work**. Do it end-to-end from the CLI, **no branch or
+merge needed** — pass the whole brief straight into the prompt:
+
+```bash
+export HELIX_URL=http://localhost:8080
+export HELIX_API_KEY=<key from api_keys for the session owner>
+
+# Write the brief to a local file (does NOT need to be committed), then:
+/tmp/helix-bin spectask start \
+  --project prj_01kg02vqqyg178c1n2ydscn5fb \
+  --agent app_01kw1n70xs2qq2y4ntzbqqmpff \
+  -n "<task name>" \
+  --prompt "Complete the task below end-to-end, testing live in this inner Helix." \
+  --prompt-file /path/to/brief.md \        # appended after --prompt; no repo commit required
+  --attach /path/to/big.log --attach /path/to/other.log   # repeatable
+```
+`--prompt-file` reads a file straight into the task prompt (skips the write-doc →
+branch → PR → merge dance). You can also just inline it: `--prompt "$(cat brief.md)"`.
+`--attach` (repeatable) uploads files as spec-task **attachments** — the agent
+reads them at `design/tasks/<task>/attachments/<name>` inside the sandbox, so
+non-trivial logfiles/large context go there instead of bloating the prompt.
+
+`spectask start` **provisions a sandbox and the CLI will time out (~short) — the
+task is still created**; confirm via `spec_tasks` (order by `created_at`, not
+`created`) and `docker exec helix-sandbox-nvidia-1 docker ps | grep ubuntu-external-<sid>`.
+Get an API key straight from the DB when `.env.usercreds` is stale:
+`SELECT key, owner FROM api_keys WHERE owner=(SELECT owner FROM sessions WHERE id='ses_…')`.
+
 ### Sandbox Service Names
 - `sandbox-nvidia` (Linux GPU), `sandbox` (Linux no-GPU), `sandbox-macos` (macOS, container: `helix-sandbox-macos-1`)
 
@@ -426,6 +459,21 @@ Look for: StreamInit received, video frames > 0, FPS > 0. Common issues: 0 frame
 From macOS host via SSH: `ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1 "export HELIX_API_KEY=... && /tmp/helix spectask list"`. Don't combine `run_in_background` with `&` in SSH.
 
 ## Zed WebSocket Sync E2E Testing
+
+**IF YOU TOUCH THE E2E TESTS, YOU MUST RUN THEM. NO EXCEPTIONS.**
+Adding, editing, or "compile-checking" an e2e phase is NOT done until you have
+actually run the full dockerized e2e (`run_docker_e2e.sh`) and seen it pass.
+Do not hand off e2e changes as "verified by CI" or "logically follows the
+pattern" — e2e tests are timing-sensitive and stateful, and the ONLY way to know
+a phase works is to run it. This is runnable in the dev sandbox: a prebuilt Zed
+binary lives at `zed-build/zed` (copy it to `e2e-test/zed-binary`), docker works,
+and the API key is in `.env`. Running it caught two bugs that compiling never
+would (a store-ordering bug and an interrupt-before-streaming race); assume yours
+has bugs too until the run is green. Don't claim you "can't run it" without first
+checking for the binary + docker + key. If the local Anthropic proxy rejects the
+default model, point the e2e at a model this environment serves (e.g.
+`claude-opus-4-8` in `run_e2e.sh`) for the run, then REVERT that local-only edit
+before committing (CI has real Anthropic secrets).
 
 The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that run a real Zed binary against a Go test server importing real production Helix server code.
 

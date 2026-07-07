@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
-import { useListProviders } from '../services/providersService';
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
+import { TypesProviderEndpointType } from '../api/api';
+import CircularProgress from '@mui/material/CircularProgress';
+import { Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
@@ -16,12 +19,18 @@ import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
+import LMStudioModels from '../components/providers/LMStudioModels';
 
 const Providers: React.FC = () => {
   const router = useRouter()
   const account = useAccount()
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
+  const [connectingDetected, setConnectingDetected] = useState<string>("");
+  const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
+  const { data: detectedProviders } = useDetectLocalProviders(true);
+  const createProvider = useCreateProviderEndpoint();
 
   const orgName = router.params.org_id
 
@@ -85,10 +94,10 @@ const Providers: React.FC = () => {
     return true
   }
 
-  const handleOpenDialog = (provider: Provider) => {
+  const handleOpenDialog = (provider: Provider, existingEndpoint?: any) => {
     if(!checkLoginStatus()) return
-    
-    if (!editAllowed) return;    
+    if (!editAllowed) return;
+
     setSelectedProvider(provider);
     setDialogOpen(true);
   };
@@ -101,9 +110,38 @@ const Providers: React.FC = () => {
   // Filter for user endpoints only
   const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
 
+  // All endpoints (user + global) — used for checking if a provider is configured
+  const allEndpoints = providerEndpoints;
+
+  // Local inference servers (LM Studio, Ollama) — check all endpoints
+  const localEndpoints = allEndpoints.filter(e =>
+    e.name === 'lmstudio' || e.name === 'ollama' || e.name?.includes('lmstudio') || e.name?.includes('ollama')
+  );
+
   // User-created custom endpoints: anything whose name doesn't match a predefined PROVIDERS id.
   const knownProviderIds = new Set(PROVIDERS.map(p => p.id));
   const customEndpoints = userEndpoints.filter(e => e.name && !knownProviderIds.has(e.name));
+
+  // Detected but not yet connected local providers
+  const unconnectedDetected = (detectedProviders || []).filter(
+    dp => !allEndpoints.some(e => e.name === dp.server_type)
+  );
+
+  const handleConnectDetected = async (dp: { server_type: string; base_url: string; name: string }) => {
+    setConnectingDetected(dp.server_type);
+    try {
+      await createProvider.mutateAsync({
+        name: dp.server_type,
+        base_url: dp.base_url,
+        api_key: "",
+        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeGlobal,
+        owner: "system",
+        owner_type: "system" as any,
+      });
+    } finally {
+      setConnectingDetected("");
+    }
+  };
 
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>
@@ -117,6 +155,42 @@ const Providers: React.FC = () => {
             : "View the AI providers configured for your organization. Contact your organization owner to add new providers."
           }
         </Typography>
+
+        {/* Detected local servers banner */}
+        {unconnectedDetected.length > 0 && (
+          <Box sx={{ mb: 4 }}>
+            {unconnectedDetected.map((dp) => (
+              <Alert
+                key={dp.server_type}
+                severity="success"
+                icon={<Server size={20} />}
+                sx={{
+                  mb: 1,
+                  border: '1px solid rgba(0,232,145,0.3)',
+                  bgcolor: 'rgba(0,232,145,0.05)',
+                  '& .MuiAlert-icon': { color: '#00e891' },
+                }}
+                action={
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={connectingDetected === dp.server_type}
+                    onClick={() => handleConnectDetected(dp)}
+                    sx={{
+                      bgcolor: '#00e891', color: '#000',
+                      '&:hover': { bgcolor: '#00cc7a' },
+                      textTransform: 'none',
+                    }}
+                  >
+                    {connectingDetected === dp.server_type ? <CircularProgress size={16} sx={{ color: '#000' }} /> : 'Connect'}
+                  </Button>
+                }
+              >
+                <strong>{dp.name}</strong> detected on this machine with {dp.models.length} model{dp.models.length !== 1 ? 's' : ''} available
+              </Alert>
+            ))}
+          </Box>
+        )}
 
         {/* Claude Subscription Section */}
         <Typography variant="h6" sx={{ mb: 1.5 }}>
@@ -171,6 +245,34 @@ const Providers: React.FC = () => {
           </Grid>
         </Grid>
 
+        {localEndpoints.length > 0 && (
+          <>
+            <Divider sx={{ mb: 3 }} />
+            <Typography variant="h6" sx={{ mb: 1.5 }}>
+              Local AI Servers
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Models running on this machine via LM Studio or Ollama.
+            </Typography>
+            {localEndpoints.map((ep) => (
+              <Box key={ep.id} sx={{ mb: 3 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {ep.name === 'lmstudio' ? 'LM Studio' : ep.name === 'ollama' ? 'Ollama' : ep.name}
+                  </Typography>
+                  {ep.status === 'error' ? (
+                    <Alert severity="error" sx={{ py: 0, px: 1, fontSize: '0.75rem' }}>{ep.error || 'Connection error'}</Alert>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: '#00e891' }}>Connected</Typography>
+                  )}
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontFamily: 'monospace' }}>{ep.base_url}</Typography>
+                </Box>
+                {ep.id && <LMStudioModels endpointId={ep.id} />}
+              </Box>
+            ))}
+          </>
+        )}
+
         <Divider sx={{ mb: 3 }} />
 
         <Typography variant="h6" sx={{ mb: 1.5 }}>
@@ -183,8 +285,8 @@ const Providers: React.FC = () => {
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
-            const isConfigured = !provider.is_custom && userEndpoints.some(endpoint => endpoint.name === provider.id);
-            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(endpoint => endpoint.name === provider.id);
+            const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
+            const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card

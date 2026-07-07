@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -472,6 +473,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.SpecTasks = specTasks
 
+	// Projects backs the project-discovery MCP tools (list_projects,
+	// get_project) — org-scoped reads so an org-wide PM Bot can find the
+	// projects it manages. The helix store satisfies the port directly.
+	projectsPort, err := runtimehelix.NewProjects(helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init projects: %w", err)
+	}
+	deps.Projects = projectsPort
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
@@ -628,11 +638,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init streamcron scheduler: %w", err)
 	}
 
-	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
-		return nil, fmt.Errorf("register helix-org builtins: %w", err)
-	}
-
 	// Prompts registry — drives slash-command typeahead in the chat
 	// composer (/help, /role, /worker, …) and surfaces the same set as
 	// MCP prompts on each per-Worker MCP server. Without this the chat
@@ -644,7 +649,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("register helix-org prompts: %w", err)
 	}
 
-	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+	// The MCP registry (reg) and orgServer are built later, after lifecycleSvc
+	// is assembled, so MCP create_bot shares the same reconciler-complete
+	// lifecycle as REST. See `deps.Lifecycle = lifecycleSvc` below.
 
 	// JSON handlers consumed by the React pages at
 	// /orgs/:org_id/helix-org/*. They mount under
@@ -706,15 +713,25 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// subscription use case (same as the subscribe tool) — one implementation.
 	lifecycleSvc.Subscriber = svc.Subscriptions
 
+	// The helixevents reconciler owns the org's single "Helix events"
+	// topic — created on org bootstrap and ensured defensively by the
+	// attention publisher for brand-new orgs. Shared by the publisher
+	// (below) and the bootstrap path (via the org scope) so both agree on
+	// the topic's identity.
+	helixEventsReconciler := helixevents.New(helixevents.Deps{
+		Topics: st.Topics,
+		Now:    deps.Now,
+		Logger: logger,
+	})
+
 	// Wire the spec-task attention-event sink: each AttentionEvent the
-	// Helix UI shows is also published onto the project's KindSpecTask
+	// Helix UI shows is also published onto the org's single Helix events
 	// topic, so subscribed Workers are triggered via the normal dispatch
-	// path. Reuses the configured id/clock seams.
+	// path. Routing to individual bots is done by filter processors over
+	// that one topic (keyed on domain / event_type / project_id).
 	cfg.APIServer.attentionService.SetEventSink(&attentionTopicPublisher{
-		topics:    st.Topics,
-		publisher: svc.Publishing,
-		newID:     deps.NewID,
-		now:       deps.Now,
+		reconciler: helixEventsReconciler,
+		publisher:  svc.Publishing,
 	})
 
 	// Slack inbound: one shared ingest serves both ingress sources. It
@@ -754,6 +771,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger:        logger,
 	})
 	lifecycleSvc.OrgReconcilers = append(lifecycleSvc.OrgReconcilers, slackRouteReconciler)
+
+	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
+	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
+	deps.Lifecycle = lifecycleSvc
+	reg := mcptools.NewRegistry()
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
+		return nil, fmt.Errorf("register helix-org builtins: %w", err)
+	}
+	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
+
 	// Thread-follow: the post-routing arm that records thread participation
 	// in the domain-event log and (when enabled) fans later thread messages
 	// out to existing participants. Registered late on the runner, like the
@@ -856,7 +883,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Str("root", orgRoot).
 		Int("json_api_routes", len(extras)).
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
-	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler)
+	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler, helixEventsReconciler)
 
 	// Public github webhook handler — mounted on the insecure router
 	// because GitHub deliveries authenticate via HMAC, not the helix

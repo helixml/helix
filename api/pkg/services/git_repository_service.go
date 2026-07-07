@@ -2737,6 +2737,62 @@ func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {
 	return ""
 }
 
+// OAuthProviderTypeForRepo maps a repo's external type to its OAuth provider type.
+func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProviderType {
+	switch t {
+	case types.ExternalRepositoryTypeGitHub:
+		return types.OAuthProviderTypeGitHub
+	case types.ExternalRepositoryTypeGitLab:
+		return types.OAuthProviderTypeGitLab
+	case types.ExternalRepositoryTypeADO:
+		return types.OAuthProviderTypeAzureDevOps
+	default:
+		return types.OAuthProviderTypeUnknown
+	}
+}
+
+// RepoOwnerName returns the "owner/repo" slug parsed from a repo's external URL,
+// or "" if it can't be parsed.
+func RepoOwnerName(repo *types.GitRepository) string {
+	if repo == nil || repo.ExternalURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(stripCredentialsFromURL(repo.ExternalURL))
+	if err != nil {
+		return ""
+	}
+	p := strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/")
+	parts := strings.Split(p, "/")
+	if len(parts) < 2 {
+		return p
+	}
+	return strings.Join(parts[len(parts)-2:], "/")
+}
+
+// GetActingAccountHandle returns the VCS account handle (e.g. "@login") that a
+// user-initiated push would be attributed to for this repo, mirroring the
+// acting-user-first credential resolution in getCredentialsForRepo. Best-effort:
+// returns "" if it can't be resolved. Used to label push-failure messages.
+func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRepo *types.GitRepository, actingUserID string) string {
+	providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
+	if actingUserID != "" {
+		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
+		if err == nil {
+			for _, conn := range conns {
+				if conn.Provider.Type == providerType && conn.ProviderUsername != "" {
+					return "@" + conn.ProviderUsername
+				}
+			}
+		}
+	}
+	if gitRepo.OAuthConnectionID != "" {
+		if conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID); err == nil && conn.ProviderUsername != "" {
+			return "@" + conn.ProviderUsername
+		}
+	}
+	return ""
+}
+
 // stripCredentialsFromURL removes username:password@ or username@ from a URL
 func stripCredentialsFromURL(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
