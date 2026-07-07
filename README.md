@@ -13,137 +13,72 @@
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
-# HelixML - AI Agents on a Private GenAI Stack
+# Helix — a private agent fleet with spec-driven coding
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
-**Deploy AI agents in your own data center or VPC and retain complete data security & control.**
+**Run a fleet of coding agents on your own infrastructure. Each agent gets its own GPU-accelerated desktop; you organize the work on a spec-driven Kanban board and review the pull requests.**
 
-HelixML is an enterprise-grade platform for building and deploying AI agents with support for RAG (Retrieval-Augmented Generation), API calling, vision, and multi-provider LLM support. Build and deploy LLM applications by writing a simple [`helix.yaml`](https://helix.ml/docs) configuration file.
+Helix runs many coding agents in parallel, each in an isolated sandbox with a full desktop (browser, terminal, filesystem, GUI apps) — not just a terminal. You describe an outcome as a **spec task**, an agent plans it, you approve the plan, and the agent implements it and opens a pull request. Your role shifts from writing every line to specifying, steering, and reviewing.
 
-Our intelligent GPU scheduler packs models efficiently into available GPU memory and dynamically loads and unloads models based on demand, optimizing resource utilization.
+It runs with the agent harnesses you already use (Claude Code, Codex, Gemini CLI, Qwen Code, or any ACP-compatible agent) against the LLM providers you already use — including self-hosted models on your own GPUs. Self-hostable end to end, including air-gapped.
 
-## ✨ Key Features
+![Helix Kanban board with a spec task being created — this README rewrite was itself one of these tasks](docs/images/kanban-board.png)
 
-### 🤖 AI Agents
-- **Easy-to-use Web UI** for agent interaction and management
-- **Session-based architecture** with pause/resume capabilities
-- **Multi-step reasoning** with tool orchestration
-- **Memory management** for context-aware interactions
-- **Support for multiple LLM providers** (OpenAI, Anthropic, and local models)
+<p align="center"><em>Yes, this is meta: the task that produced this README is the "New SpecTask" open on the right.</em></p>
 
-<img width="1768" height="1053" alt="AI Agents Interface" src="https://github.com/user-attachments/assets/0e945ace-4f54-46a2-8d20-49485169486f" />
+## Projects & the Kanban board
 
-### 🛠️ Skills and Tools
-- **REST API integration** with OpenAPI schema support
-- **MCP (Model Context Protocol) server** compatibility
-- **GPTScript integration** for advanced scripting
-- **OAuth token management** for secure third-party access
-- **Custom tool development** with flexible SDK
+Work lives in **projects**. Each project connects one or more git repositories and has a Kanban board where **spec tasks** move left to right:
 
-<img width="1767" height="1057" alt="Skills and Tools" src="https://github.com/user-attachments/assets/575330f7-cfda-4e68-acd2-31617690ae69" />
+**Backlog → Planning → Spec Review → In Progress → Pull Request → Merged**
 
-### 📚 Knowledge Management
-- **Built-in document ingestion** (PDFs, Word, text files)
-- **Web scraper** for automatic content extraction
-- **Multiple RAG backends**: Kodit, LlamaIndex
-- **Vector embeddings** with PGVector for semantic search
-- **Vision RAG support** for multimodal content
+1. **Backlog** — Create a task with a one-paragraph description of the outcome you want (what should be true when done, not how to do it).
+2. **Planning** — Click **Start Planning**. A planning agent reads the repo and writes a spec (requirements, design, task breakdown) to a `helix-specs` branch.
+3. **Spec Review** — Read the plan. Highlight text to request changes and the agent re-plans, or **Approve** to commit to it.
+4. **In Progress** — An implementation agent codes in its own isolated desktop sandbox. Watch it live, type into the task thread to steer it, or switch to a different agent mid-session — the new one picks up where the last left off.
+5. **Pull Request** — When it's done, a PR is opened in your repo. The PR is the real review gate.
+6. **Merged** — The task closes when the PR merges.
 
-<img width="1772" height="1055" alt="Knowledge Base" src="https://github.com/user-attachments/assets/c9112362-5f0e-4318-a648-4c478cd8d3fa" />
+Tasks run **in parallel** — each in its own sandbox — so you're not waiting for one to finish before starting the next. Per-column WIP limits keep the board honest. See [Manage your backlog on the Kanban board](https://helix.ml/docs).
 
-**Main use cases:**
-- Upload and analyze corporate documents
-- Add website documentation URLs to create instant customer support agents
-- Build knowledge bases from multiple sources
+## Why Helix is different
 
-### 🔍 Tracing and Observability
-Context is everything. Agents can process tens of thousands of tokens per step—Helix provides complete visibility under the hood:
+- **A full desktop per agent — not just a terminal.** Every agent gets a GPU-accelerated streaming desktop with a browser, terminal, filesystem, and GUI apps. You can watch any agent work in real time.
+- **Fleet visibility.** See every running agent from a dashboard, zoom into any one's live screen, and jump in with pair programming when it gets stuck.
+- **Multiplayer.** Agent environments are shared. Teammates across time zones open the same task and keep going — full chat history and running state persist, no handoff summaries.
+- **High-density isolation.** Many fully isolated agent desktops run on a single machine, with a deduplicated filesystem and per-agent credential and network isolation.
+- **No lock-in.** Swap agent harnesses per task and point Helix at whatever models you run.
 
-<img width="1767" height="1053" alt="Tracing Interface" src="https://github.com/user-attachments/assets/81539015-18ae-4818-b396-3d872e55907f" />
+## Works with your stack (no lock-in)
 
-**Tracing features:**
-- View all agent execution steps
-- Inspect requests and responses to LLM providers, third-party APIs, and MCP servers
-- Real-time token usage tracking
-- Pricing and cost analysis
-- Performance metrics and debugging
+**Agent harnesses** — use any of these per task, and swap between them mid-task:
 
-### 🚀 Additional Features
-- **Multi-tenancy** with organization, team, and role-based access control
-- **Scheduled tasks** and cron jobs
-- **Webhook triggers** for event-driven workflows
-- **Evaluation framework** for testing and quality assurance
-- **Payment integration** with Stripe support
-- **Notifications** via Slack, Discord, and email
-- **Keycloak authentication** with OAuth and OIDC support
+- Claude Code
+- OpenAI Codex
+- Gemini CLI
+- Qwen Code
+- Anything that speaks **ACP (Agent Client Protocol)**
 
-## 🏗️ Architecture
+**LLM providers** — hosted or self-hosted:
 
-HelixML uses a microservices architecture with the following components:
+- Major hosted providers (OpenAI, Anthropic, …)
+- **Anthropic via Helix's proxy**, including **Anthropic on Google Vertex AI** and **Anthropic on AWS Bedrock**
+- **Self-hosted models** — attach any OpenAI-compatible endpoint as an external provider. This includes **[vLLM](https://github.com/vllm-project/vllm)**: point Helix at your vLLM server's OpenAI-compatible URL and run open models on your own GPUs, on Kubernetes or bare metal, air-gapped if you need to.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Frontend (React)                    │
-│                     vite + TypeScript                    │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│                  API / Control Plane (Go)                │
-│  ┌──────────────┬──────────────┬──────────────────────┐ │
-│  │   Agents     │  Knowledge   │   Auth & Sessions    │ │
-│  │   Skills     │  RAG Pipeline│   Organizations      │ │
-│  │   Tools      │  Vector DB   │   Usage Tracking     │ │
-│  └──────────────┴──────────────┴──────────────────────┘ │
-└─────────┬──────────────────────────────────┬───────────┘
-          │                                  │
-┌─────────▼──────────┐            ┌─────────▼──────────┐
-│   PostgreSQL       │            │   GPU Runners      │
-│   + PGVector       │            │   Model Scheduler  │
-└────────────────────┘            └────────────────────┘
-          │
-┌─────────▼──────────────────────────────────────────────┐
-│  Supporting Services: Keycloak, Kodit, GPTScript       │
-│  Runner, Chrome/Rod, SearXNG                           │
-└────────────────────────────────────────────────────────┘
-```
+## Also included
 
-**Three-layer agent hierarchy:**
-1. **Session**: Manages agent lifecycle and state
-2. **Agent**: Coordinates skills and handles LLM interactions
-3. **Skills**: Group related tools for specific capabilities
-4. **Tools**: Individual actions (API calls, functions, scripts)
+Helix is a full private GenAI stack, so the pieces you'd expect are here too:
 
-## 💻 Tech Stack
+- **Knowledge / RAG** — document ingestion (PDF, Word, text), a web scraper, multiple RAG backends (Kodit, LlamaIndex), PGVector embeddings, and vision RAG.
+- **Skills & tools** — REST/OpenAPI integrations, MCP server compatibility, GPTScript, OAuth token management, and a custom-tool SDK.
+- **Tracing & observability** — every agent step, requests/responses to LLMs, APIs, and MCP servers, token usage, and cost analysis.
+- **Multi-tenancy** — organizations, teams, and role-based access control.
+- **Automation** — scheduled/cron tasks and webhook triggers.
+- **Notifications** — Slack, Discord, and email.
+- **Auth** — Keycloak with OAuth/OIDC.
 
-### Backend
-- **Go 1.24.0** - Main backend language
-- **PostgreSQL + PGVector** - Data storage and vector embeddings
-- **GORM** - ORM for database operations
-- **Gorilla Mux** - HTTP routing
-- **Keycloak** - Identity and access management
-- **NATS** - Message queue
-- **Zerolog** - Structured logging
-
-### Frontend
-- **React 18.3.1** - UI framework
-- **TypeScript** - Type-safe JavaScript
-- **Material-UI (MUI)** - Component library
-- **MobX** - State management
-- **Vite** - Build tool
-- **Monaco Editor** - Code editing
-
-### AI/ML
-- **OpenAI SDK** - GPT models integration
-- **Anthropic SDK** - Claude models integration
-- **LangChain Go** - LLM orchestration
-- **GPTScript** - Scripting capabilities
-- **Kodit / LlamaIndex** - RAG backends
-
-### Infrastructure
-- **Docker & Docker Compose** - Containerization
-- **Kubernetes + Helm** - Orchestration
-- **Flux** - GitOps operator
+<img width="1768" alt="AI agents interface" src="https://github.com/user-attachments/assets/0e945ace-4f54-46a2-8d20-49485169486f" />
 
 ## 🚀 Quick Start
 
@@ -163,7 +98,7 @@ For setting up a deployment with a DNS name, see `./install.sh --help` or read [
 
 **Next steps:**
 - Attach your own GPU runners per [runners docs](https://helix.ml/docs)
-- Use any [external OpenAI-compatible LLM](https://helix.ml/docs)
+- Use any [external OpenAI-compatible LLM](https://helix.ml/docs) (including self-hosted vLLM)
 
 ### Install on Kubernetes
 
@@ -221,12 +156,12 @@ See [`local-development.md`](./local-development.md) for comprehensive setup ins
 
 - **[Overview](https://helix.ml/docs)** - Platform introduction
 - **[Getting Started](https://helix.ml/docs)** - Build your first agent
+- **[Manage your backlog on the Kanban board](https://helix.ml/docs)** - Projects and spec tasks
 - **[Control Plane Deployment](https://helix.ml/docs)** - Production deployment guide
 - **[Runner Deployment](https://helix.ml/docs)** - GPU runner setup
-- **[Agent Architecture](./api/pkg/agent/SPEC.md)** - Technical specification
 - **[API Reference](https://helix.ml/docs)** - REST API documentation
 - **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute
-- **[Upgrading Guide](./UPGRADING.md)** - Migration instructions
+- **[Upgrading Guide](./charts/helix-controlplane/UPGRADE.md)** - Control plane upgrade instructions
 
 ## 🤝 Contributing
 
