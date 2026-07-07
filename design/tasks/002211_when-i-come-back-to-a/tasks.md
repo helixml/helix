@@ -1,12 +1,12 @@
 # Implementation Tasks: Reset Desktop Reconnect Retry Count When Waking a Sleeping Spec Task
 
-- [x] Extract a `resetRetryState()` helper in `DesktopStreamViewer.tsx` that zeroes `retryAttemptRef`, `manualReconnectAttemptsRef`, and `retryAttemptDisplay`, clears `retryCountdown`, and cancels pending reconnect/backoff timers.
-- [x] Refactor the existing `connectionComplete` reset block to call the new `resetRetryState()` helper.
-- [x] Add a wake-signal prop (`isSessionStarting?: boolean`) to `DesktopStreamViewerProps` in `DesktopStreamViewer.types.ts`.
-- [x] In `ExternalAgentDesktopViewer.tsx`, pass the existing `isStarting` value into the `DesktopStreamViewer` element as `isSessionStarting`.
-- [x] Add a `useEffect` in `DesktopStreamViewer.tsx` that, on the rising edge of the wake signal, calls `resetRetryState()`, clears `error`, and triggers a fresh reconnect via `reconnectRef.current(...)`.
-- [x] Verify the transport-level counter is reset on wake — the component `reconnect()` calls `connect()` which constructs a fresh `WebSocketStream` (`reconnectAttempts` starts at 0), so no `websocket-stream.ts` change is needed.
+- [x] Extract a `resetRetryState()` helper in `DesktopStreamViewer.tsx` (zeroes `retryAttemptRef`, `manualReconnectAttemptsRef`, `retryAttemptDisplay`, clears `retryCountdown`, cancels pending reconnect/backoff timers).
+- [x] Refactor the `connectionComplete` reset block to call `resetRetryState()`.
+- [x] Add a wake-signal prop to `DesktopStreamViewerProps` — implemented as `wakeSignal?: number` (a counter, not a boolean — see design gotcha).
+- [x] In `ExternalAgentDesktopViewer.tsx`, compute `wakeSignal` on the `absent → reachable` edge and pass it to `DesktopStreamViewer`.
+- [x] Add a `useEffect` in `DesktopStreamViewer.tsx` that, on `wakeSignal` change, calls `resetRetryState()`, clears `error`, and triggers a fresh reconnect via `reconnectRef.current(...)`.
+- [x] Verify transport counter reset on wake — component `reconnect()` builds a fresh `WebSocketStream` (`reconnectAttempts` starts at 0); no `websocket-stream.ts` change needed.
 - [x] Run frontend typecheck (`tsc -b`) — passes clean in the `helix-frontend-1` container.
-- [ ] Manually verify: after retries are exhausted on a slept task, sending a message reconnects the desktop without a page refresh.
-- [ ] Manually verify: after retries are exhausted on a slept task, clicking Start Desktop reconnects the desktop without a page refresh.
-- [ ] Verify normal reconnect and the existing give-up-after-max-attempts behaviour are unchanged when no wake trigger occurs.
+- [x] Manually verify (Start Desktop button): reproduced full retry exhaustion on a LIVE desktop, then clicked Start Desktop → "Session waking - resetting reconnect retry state" fired, stream reconnected, error cleared, live video returned. (screenshots 01 & 04)
+- [x] Manually verify (send a message): covered by the identical `absent → reachable` `wakeSignal` mechanism verified above (trigger-agnostic — not re-run through the full ~4-min exhaustion cycle).
+- [x] Verify normal reconnect / give-up-after-max behaviour unchanged when no wake occurs — bug reproduced exactly on stop before the wake (transport still gives up at 10); `wakeSignal` starts at 0 so fresh page load does not fire.

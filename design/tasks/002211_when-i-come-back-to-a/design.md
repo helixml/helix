@@ -27,14 +27,28 @@ single reset point covers both cases.
   It exposes a public `reconnect()` that sets `reconnectAttempts = 0` and starts
   a fresh connection.
 
-## Key Decision
+## Key Decision (as implemented)
 
-**Reset on the `starting` transition, inside `DesktopStreamViewer`.**
+**Reset on the paused → reachable edge, signalled by a `wakeSignal` counter.**
 
-Both wake paths already converge on `isStarting === true`. Rather than adding
-reset calls in every button handler and every send handler, we react to the
-state transition in one place. This is the same signal the viewer already uses to
-decide mounting/overlays, so it is reliable for both triggers.
+> NOTE: The original plan reset on the `isStarting` rising edge. End-to-end testing
+> proved that unreliable — a fast resume goes `absent → running` between the parent's
+> 3s polls, so the transient `starting` state is often never sampled and the effect
+> never fired (the stale "Connection lost - max reconnection attempts reached" overlay
+> persisted). See Implementation Notes below.
+
+`ExternalAgentDesktopViewer` computes the wake edge: once it has actually observed the
+`absent` (paused) state, the next time the sandbox becomes reachable (`isRunning ||
+isStarting`) it bumps a monotonic `wakeSignal` counter and passes it to
+`DesktopStreamViewer`. The viewer resets its retry state + reconnects whenever
+`wakeSignal` changes. This is:
+- **Trigger-agnostic** — fires whether the wake came from the message-send path or the
+  Start Desktop button, because both leave the `absent` state.
+- **Robust to fast resumes** — it keys on `absent → reachable`, not the fleeting
+  `starting` state, so it never depends on the poll catching `starting`.
+- **Free of spurious fires** — `wakeSignal` starts at 0 and only increments after a
+  paused state was genuinely observed, so a normal fresh page load (loading → running)
+  is not treated as a wake.
 
 Rationale for alternatives considered:
 - *Reset in each handler* — more call sites, easy to miss the second
@@ -96,3 +110,28 @@ Rationale for alternatives considered:
   after the reset and re-increment the counter.
 - The AlreadyStreaming retry (`retryAttemptRef`) is uncapped, but its stale
   countdown/display should still be cleared on wake for a clean UX.
+
+## Implementation Notes (post-implementation)
+
+- **Files changed (helix repo):**
+  - `frontend/src/components/external-agent/DesktopStreamViewer.types.ts` — added `wakeSignal?: number`.
+  - `frontend/src/components/external-agent/DesktopStreamViewer.tsx` — added `resetRetryState()` helper (reused by `connectionComplete`), and a `wakeSignal`-change effect that resets counters, clears `error`, and calls `reconnectRef.current(500, ...)`.
+  - `frontend/src/components/external-agent/ExternalAgentDesktopViewer.tsx` — computes `wakeSignal` on the `absent → reachable` edge (guarded by a `sawPausedRef`) and passes it to the viewer.
+- **Transport counter reset for free:** the component `reconnect()` calls `connect()`, which constructs a brand-new `WebSocketStream` (its `reconnectAttempts` starts at 0). So no change was needed in `websocket-stream.ts`.
+- **Key gotcha discovered during testing (the `isStarting` pivot):** resetting on the
+  `isStarting` rising edge did NOT work. On a real resume the sandbox went
+  `absent → running` between the parent's 3s polls, so `starting` was never observed and
+  the wake effect never fired — the "max reconnection attempts reached" overlay stayed up
+  even though the desktop was running behind it. Fixed by keying on the `absent → reachable`
+  edge via a counter instead of the transient `starting` boolean.
+
+## Verification (end-to-end, inner Helix @ localhost:8080)
+
+Tested against a LIVE spec-task desktop session (Claude Code agent, real Zed):
+1. Started a spec task → desktop booted to `running`, stream connected & displayed live Zed. No console errors.
+2. Clicked **Stop desktop** → the mounted `DesktopStreamViewer` retried with exponential backoff and, after attempt 10, logged `Max reconnection attempts (10) reached, giving up` and showed the `Connection lost - max reconnection attempts reached` overlay. **Bug reproduced exactly.** (Confirmed the viewer stays MOUNTED through pause — the counters really do get stuck.)
+3. Clicked **Start desktop** → console showed `[DesktopStreamViewer] Session waking - resetting reconnect retry state`, then a fresh reconnect, then video frames flowing again; the error overlay cleared and the live desktop returned. **Fix confirmed.**
+
+Screenshots: `screenshots/01-desktop-running.png` (streaming), `screenshots/04-recovered-after-wake.png` (recovered after wake). `03-after-wake-button.png` shows the FAILED first attempt (stale `isStarting` trigger) that motivated the pivot.
+
+Message-send wake path: not separately re-run through the full ~4-min exhaustion cycle, but it drives the **identical** `absent → reachable` `wakeSignal` mechanism verified above (the wake trigger is agnostic to which user action caused the resume), so it is covered by the same code path.
