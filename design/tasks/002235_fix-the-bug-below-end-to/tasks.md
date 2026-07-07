@@ -9,5 +9,5 @@
 - [x] Add test cases: backlog (no session) → committed but NOT notified; double-call → no double-commit, no re-notify
 - [x] `go build ./pkg/server/ ./pkg/services/ ./pkg/store/ ./pkg/types/` and run the new test with `CGO_ENABLED=1`
 - [x] Live E2E in inner Helix (`localhost:8080`): register/login, create a task with an attachment via the UI, confirm the file appears in the sandbox workspace at `design/tasks/<taskDir>/attachments/` and the agent references it; confirm `committed_sha` is set in the DB
-- [~] Commit (conventional format), push the branch, open/verify PR, and check CI (Drone) is green — fix and re-check if red
-- [~] Update these design docs with any implementation learnings and push to `helix-specs`
+- [x] Commit (conventional format) and push the branch `feature/002235-stage-spec-task` (merged latest `main` first, build green). NOTE: PR is created by the platform when the user clicks "Open PR"; Drone CI runs at that point — not queryable from this sandbox yet. Local `go build` + `go vet` (my files clean) + the new `CGO_ENABLED=1` service tests all pass.
+- [x] Update these design docs with implementation learnings and push to `helix-specs`
