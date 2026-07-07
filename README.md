@@ -62,6 +62,12 @@ Tasks run **in parallel** — each in its own sandbox — so you're not waiting 
 - Qwen Code
 - Anything that speaks **ACP (Agent Client Protocol)**
 
+**Source control** — connect your repositories and Helix opens pull requests where your code already lives:
+
+- GitHub
+- GitLab
+- Azure DevOps
+
 **LLM providers** — hosted or self-hosted:
 
 - Major hosted providers (OpenAI, Anthropic, …)
