@@ -81,8 +81,8 @@
 
 ## Build & Test (hard gate)
 - [ ] `cargo check -p zed` (no feature) — 0 errors
-- [~] `cargo check -p zed --features external_websocket_sync` — 0 errors
-- [~] Zed builds clean via canonical builder (`cd /home/retro/work/helix && ./stack build-zed dev`) — 0 errors
+- [x] `cargo check -p zed --features external_websocket_sync` — 0 errors
+- [x] Zed builds clean via canonical builder (`cd /home/retro/work/helix && ./stack build-zed dev`) — 0 errors
 - [ ] Unit tests: `cargo test -p external_websocket_sync` (PR #65 crash + reconnect, no deadlock on shared guard); `-p acp_thread test_second_send`; `-p agent_servers test_concurrent_session_creation_is_serialized`
 - [ ] Pre-flight: `(cd .../e2e-test/helix-ws-test-server && go mod tidy)`; commit if changed
 - [ ] Copy fresh binary: `cp /home/retro/work/helix/zed-build/zed .../e2e-test/zed-binary`
