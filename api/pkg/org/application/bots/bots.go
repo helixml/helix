@@ -99,6 +99,11 @@ type CreateParams struct {
 	Kind        orgchart.BotKind
 	HelixUserID string
 	Identity    map[string]string
+	// NoSuffix uses ID exactly as given — an id collision returns an error
+	// instead of deriving base-1/base-2. For deterministic, idempotent ids
+	// (human nodes `h-<userID>`, `chief-of-staff`) where a collision means
+	// "already exists", not "pick a new name".
+	NoSuffix bool
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -112,10 +117,15 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	// Ensure the id is unique within the org, suffixing on conflict (base,
 	// base-1, base-2, ...) — mirrors org-name uniqueness. Without this a
 	// second bot whose id collides (two "Chief of Staff" both slugify to
-	// chief-of-staff) fails on the composite (id, org) primary key.
-	id, err := s.uniqueBotID(ctx, orgID, id)
-	if err != nil {
-		return orgchart.Bot{}, err
+	// chief-of-staff) fails on the composite (id, org) primary key. Skipped
+	// for NoSuffix callers with deterministic ids where a collision means
+	// "already exists" (they handle the conflict).
+	if !p.NoSuffix {
+		unique, err := s.uniqueBotID(ctx, orgID, id)
+		if err != nil {
+			return orgchart.Bot{}, err
+		}
+		id = unique
 	}
 	// A human placeholder gets no tools — it never makes an MCP request.
 	// An agent gets the caller's tools unioned with the read baseline.

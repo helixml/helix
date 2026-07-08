@@ -966,6 +966,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// lifecycle (CoS runs) and bots (human nodes never run) services the REST
 	// create path uses; botStore backs idempotency checks.
 	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Bots, botStore: st.Bots}
+	// Bootstrap-time reconcile: converge human nodes against org membership.
+	// The correctness backstop for the inline hooks (which miss OIDC-driven
+	// joins and existing orgs). Runs once per org per process via ensureBootstrap.
+	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+		members, err := listOrgMemberUsers(ctx, helixStore, orgID)
+		if err != nil {
+			return err
+		}
+		return seeder.ReconcileHumans(ctx, orgID, members)
+	}
 
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),

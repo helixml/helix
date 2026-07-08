@@ -17,8 +17,10 @@ type BotKind = string
 const BotKindHuman BotKind = "human"
 
 // Bot is the single org-chart aggregate: the merge of the former Role
-// and Worker. There is no kind (human/ai) and no role binding — a Bot
-// *is* its own job description.
+// and Worker. A Bot *is* its own job description (no role binding). Kind
+// distinguishes an ordinary agent Bot (the default) from a human
+// placeholder (BotKindHuman) — see Kind below; there is otherwise no
+// per-Bot subtype.
 //
 // ID is the stable, filesystem-safe handle (it names the runtime env,
 // repo and agent app, and is referenced by MCP tools). Name is the

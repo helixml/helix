@@ -168,11 +168,13 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       {/* Target handle = where a manager's edge LANDS, marking this bot as
           the subordinate. Source handle = where the user drags FROM when
           this bot becomes the manager. */}
-      <Handle
-        type="target"
-        position={RFPosition.Top}
-        style={{ background: handleColor, width: 12, height: 12 }}
-      />
+      {!isHuman && (
+        <Handle
+          type="target"
+          position={RFPosition.Top}
+          style={{ background: handleColor, width: 12, height: 12 }}
+        />
+      )}
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
           {isHuman
@@ -185,50 +187,61 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             {data.botName || data.botId}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={0.25}>
-          <Tooltip title="New bot reporting to this one">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
-            >
-              <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete bot">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
-            >
-              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
+        {/* Human nodes are membership-driven and stay out of the reporting
+            graph — no "new report", no manual delete. */}
+        {!isHuman && (
+          <Stack direction="row" spacing={0.25}>
+            <Tooltip title="New bot reporting to this one">
+              <IconButton
+                className={NO_DRAG_NO_PAN}
+                size="small"
+                onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
+                sx={{ p: 0.25, color: muted }}
+              >
+                <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete bot">
+              <IconButton
+                className={NO_DRAG_NO_PAN}
+                size="small"
+                onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
+                sx={{ p: 0.25, color: muted }}
+              >
+                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        )}
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
         {isHuman ? 'Human' : 'Bot'}
       </Typography>
-      <Handle
-        type="source"
-        position={RFPosition.Bottom}
-        style={{ background: handleColor, width: 12, height: 12 }}
-      />
-      {/* Dedicated source handle for topic/subscription edges, anchored on
-          the right side of the card. Decoupling topic edges from the
-          bottom-center reporting handle means a subscription edge and a
-          manager → subordinate edge can never share the same geometry.
-          id="topic" is what buildGraph passes as sourceHandle when
-          emitting subscription edges. */}
-      <Handle
-        id="topic"
-        type="source"
-        position={RFPosition.Right}
-        isConnectable
-        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
-      />
+      {/* Reporting + subscription source handles are omitted for human
+          nodes — they don't manage bots or subscribe to topics (they stay
+          out of the reporting graph; reach is delivery, not edges). */}
+      {!isHuman && (
+        <>
+          <Handle
+            type="source"
+            position={RFPosition.Bottom}
+            style={{ background: handleColor, width: 12, height: 12 }}
+          />
+          {/* Dedicated source handle for topic/subscription edges, anchored on
+              the right side of the card. Decoupling topic edges from the
+              bottom-center reporting handle means a subscription edge and a
+              manager → subordinate edge can never share the same geometry.
+              id="topic" is what buildGraph passes as sourceHandle when
+              emitting subscription edges. */}
+          <Handle
+            id="topic"
+            type="source"
+            position={RFPosition.Right}
+            isConnectable
+            style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
+          />
+        </>
+      )}
     </Box>
   )
 }
