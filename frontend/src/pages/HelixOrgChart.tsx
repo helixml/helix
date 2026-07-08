@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
+import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import TransformIcon from '@mui/icons-material/Transform'
 
@@ -93,6 +94,8 @@ type FlatBot = {
   name: string
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
+  // "" for an agent Bot (the default) or "human" for a person placeholder.
+  kind: string
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -100,6 +103,9 @@ type FlatBot = {
 type BotNodeData = {
   botId: string
   botName: string
+  // "" for an agent Bot or "human" for a person placeholder — the node
+  // renders with a person icon and "Human" label when human.
+  kind: string
   onSelectBot: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
@@ -131,8 +137,11 @@ const NO_DRAG_NO_PAN = 'nodrag nopan'
 
 const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
+  const isHuman = data.kind === 'human'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  const border = isHuman
+    ? (lightTheme.isLight ? 'rgba(30,110,180,0.45)' : 'rgba(90,160,230,0.5)')
+    : (lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)')
   const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
   const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
@@ -166,7 +175,9 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
+          {isHuman
+            ? <PersonOutlineIcon sx={{ fontSize: 18, color: 'rgba(60,140,210,0.9)' }} />
+            : <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />}
           <Typography
             variant="body2"
             sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -198,7 +209,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         </Stack>
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
-        Bot
+        {isHuman ? 'Human' : 'Bot'}
       </Typography>
       <Handle
         type="source"
@@ -428,6 +439,7 @@ const buildGraph = (
       data: {
         botId: b.id,
         botName: b.name,
+        kind: b.kind,
         onSelectBot: handlers.onSelectBot,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
@@ -1004,6 +1016,7 @@ const HelixOrgChart: FC = () => {
 
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? []).map((b: BotDTO) => ({
+      kind: b.kind ?? '',
       id: b.id ?? '',
       name: b.name ?? '',
       parentIds: b.parent_ids ?? [],

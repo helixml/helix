@@ -571,6 +571,9 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
+		Kind:            b.Kind,
+		HelixUserID:     b.HelixUserID,
+		Identity:        b.Identity,
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)

@@ -263,6 +263,10 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.Store.UpdateUser(ctx, createdUser); err != nil {
 			log.Warn().Err(err).Str("user_id", createdUser.ID).Msg("failed to mark invited user as onboarded")
 		}
+		// Represent the newly-joined user in each org's graph as a human node.
+		for _, m := range consumed {
+			s.ensureOrgHumanNode(ctx, m.OrganizationID, createdUser.ID)
+		}
 	}
 
 	// Notify admins about new waitlisted signup
