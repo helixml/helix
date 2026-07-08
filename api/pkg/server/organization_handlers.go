@@ -321,6 +321,19 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// Seed the org graph: represent the creator as a human node and give the
+	// org a Chief of Staff bot. They are peers — no reporting line (humans
+	// stay out of the reporting graph). Best-effort: a failure must not block
+	// org creation (the graph re-converges on later bootstrap).
+	if apiServer.orgSeeder != nil {
+		if err := apiServer.orgSeeder.EnsureHumanNode(ctx, createdOrg.ID, user); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed creator human node failed")
+		}
+		if err := apiServer.orgSeeder.SeedChiefOfStaff(ctx, createdOrg.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed chief of staff failed")
+		}
+	}
+
 	// Seed the roles
 	err = apiServer.seedOrganizationRoles(ctx, createdOrg)
 	if err != nil {

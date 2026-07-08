@@ -93,6 +93,12 @@ type CreateParams struct {
 	Content         string
 	Tools           []tool.Name
 	PreserveContext bool
+	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
+	// orgchart.BotKindHuman. A human gets no base tools (it never makes an
+	// MCP request) and is never spawned.
+	Kind        orgchart.BotKind
+	HelixUserID string
+	Identity    map[string]string
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -111,7 +117,13 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
-	bot, err := orgchart.NewBot(id, p.Content, MergeTools(p.Tools, s.baseTools), s.now(), orgID)
+	// A human placeholder gets no tools — it never makes an MCP request.
+	// An agent gets the caller's tools unioned with the read baseline.
+	tools := p.Tools
+	if p.Kind != orgchart.BotKindHuman {
+		tools = MergeTools(p.Tools, s.baseTools)
+	}
+	bot, err := orgchart.NewBot(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
@@ -120,6 +132,15 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	}
 	if p.PreserveContext {
 		bot = bot.WithPreserveContext(true)
+	}
+	if p.Kind != "" {
+		bot = bot.WithKind(p.Kind)
+	}
+	if p.HelixUserID != "" {
+		bot = bot.WithHelixUserID(p.HelixUserID)
+	}
+	if len(p.Identity) > 0 {
+		bot = bot.WithIdentity(p.Identity)
 	}
 	if err := s.bots.Create(ctx, bot); err != nil {
 		return orgchart.Bot{}, err

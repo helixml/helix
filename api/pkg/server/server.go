@@ -108,6 +108,10 @@ type HelixAPIServer struct {
 	// Topic reconciler and the Socket Mode manager — live inside it, not
 	// as fields on this struct.
 	helixOrg *helixOrgHandlers
+	// orgSeeder creates membership-driven human nodes + the per-org Chief
+	// of Staff bot. Set by mountHelixOrg; nil when helix-org is disabled
+	// (the seeder's methods are nil-safe no-ops).
+	orgSeeder *orgGraphSeeder
 	// onServiceConnectionChange is an optional post-mutation hook a
 	// subsystem registers (helix-org, in mountHelixOrg) so it can react to
 	// the connection types it owns without the generic service-connection

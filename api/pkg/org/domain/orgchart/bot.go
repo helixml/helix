@@ -7,6 +7,15 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
+// BotKind distinguishes an ordinary agent Bot from a human placeholder.
+// A Go alias (not a named type) so it stays a plain string at the
+// boundary, matching BotID.
+type BotKind = string
+
+// BotKindHuman marks a Bot as a human placeholder — never activated,
+// reachable via its Identity handles. The empty kind is an agent Bot.
+const BotKindHuman BotKind = "human"
+
 // Bot is the single org-chart aggregate: the merge of the former Role
 // and Worker. There is no kind (human/ai) and no role binding — a Bot
 // *is* its own job description.
@@ -29,6 +38,15 @@ import (
 // to its initial topics by creating those rows; subscribe/unsubscribe
 // change them later.
 //
+// Kind is "" for an ordinary agent Bot (the default) or BotKindHuman for
+// a human placeholder — a real person represented in the graph. A human
+// Bot is never spawned/activated: its Content is the person's
+// responsibility description, its Identity holds their cross-system
+// handles (Slack, GitHub, email, …), and HelixUserID optionally links it
+// to a real Helix org member so that signed-in user receives the in-app
+// asks addressed to this node. See
+// design/2026-07-07-humans-in-the-org.md.
+//
 // Reporting lines (who reports to whom), subscriptions, the per-Bot
 // transcript/team/DM streams, and the runtime project/agent are all
 // anchored on the Bot — see ReportingLine, streaming.Subscription, and
@@ -50,8 +68,19 @@ type Bot struct {
 	// Slack), at the cost of the session growing toward the model's
 	// context limit. See infrastructure/runtime/helix/spawner.go.
 	PreserveContext bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// Kind is "" (agent, the default) or BotKindHuman. A human Bot is
+	// never spawned — the dispatcher delivers to it instead of activating.
+	Kind BotKind
+	// HelixUserID optionally links a human Bot to a real Helix org member.
+	// Set → that signed-in user receives the in-app asks addressed here.
+	// Empty for agent Bots and for humans with no Helix account.
+	HelixUserID string
+	// Identity maps a channel name (slack, github, email, discord, …) to
+	// the person's handle on that channel — how the org reaches them.
+	// Only meaningful for a human Bot; nil for agents.
+	Identity  map[string]string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewBot validates and constructs a Bot. Treat the returned value as
@@ -115,3 +144,24 @@ func (b Bot) WithPreserveContext(preserve bool) Bot {
 	b.PreserveContext = preserve
 	return b
 }
+
+// WithKind returns a copy of the Bot with Kind replaced.
+func (b Bot) WithKind(kind BotKind) Bot {
+	b.Kind = kind
+	return b
+}
+
+// WithHelixUserID returns a copy of the Bot with HelixUserID replaced.
+func (b Bot) WithHelixUserID(userID string) Bot {
+	b.HelixUserID = userID
+	return b
+}
+
+// WithIdentity returns a copy of the Bot with Identity replaced.
+func (b Bot) WithIdentity(identity map[string]string) Bot {
+	b.Identity = identity
+	return b
+}
+
+// IsHuman reports whether this Bot is a human placeholder.
+func (b Bot) IsHuman() bool { return b.Kind == BotKindHuman }

@@ -33,7 +33,20 @@ definitions:
         type: string
       created_at:
         type: string
+      helix_user_id:
+        type: string
       id:
+        type: string
+      identity:
+        additionalProperties:
+          type: string
+        type: object
+      kind:
+        description: |-
+          Kind is "" (agent) or "human". A human node is a person placeholder,
+          never activated; Identity holds their cross-system handles and
+          HelixUserID optionally links them to a Helix org member. Identity is
+          omitted for agent bots.
         type: string
       name:
         description: |-

@@ -31,8 +31,13 @@ type botRow struct {
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
 	PreserveContext bool     `gorm:"not null;default:false"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// Kind is "" (agent) or "human". HelixUserID / Identity are only
+	// populated for human placeholder rows.
+	Kind        string            `gorm:"not null;default:'';index"`
+	HelixUserID string            `gorm:"not null;default:''"`
+	Identity    map[string]string `gorm:"serializer:json"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func (botRow) TableName() string { return "org_bots" }
@@ -54,6 +59,9 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 		Content:         b.Content,
 		Tools:           tools,
 		PreserveContext: b.PreserveContext,
+		Kind:            b.Kind,
+		HelixUserID:     b.HelixUserID,
+		Identity:        b.Identity,
 		CreatedAt:       b.CreatedAt,
 		UpdatedAt:       b.UpdatedAt,
 	}, nil
@@ -74,6 +82,9 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 		Content:         row.Content,
 		Tools:           tools,
 		PreserveContext: row.PreserveContext,
+		Kind:            row.Kind,
+		HelixUserID:     row.HelixUserID,
+		Identity:        row.Identity,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil

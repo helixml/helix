@@ -21235,7 +21235,20 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "helix_user_id": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
                     "type": "string"
                 },
                 "name": {
