@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/rs/zerolog/log"
@@ -48,22 +49,34 @@ func (s *orgGraphSeeder) EnsureHumanNode(ctx context.Context, orgID string, user
 		return nil
 	}
 	id := humanNodeID(user.ID)
-	if _, err := s.botStore.Get(ctx, orgID, id); err == nil {
+	// Only create when the node is genuinely absent. A transient Get error
+	// must NOT fall through to Create — that could mint a suffixed duplicate.
+	_, err := s.botStore.Get(ctx, orgID, id)
+	if err == nil {
 		return nil // already represented
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("check human node for user %s: %w", user.ID, err)
 	}
 	identity := map[string]string{}
 	if user.Email != "" {
 		identity["email"] = user.Email
 	}
-	_, err := s.bots.Create(ctx, orgID, bots.CreateParams{
+	// NoSuffix: the id is deterministic (h-<userID>); a collision means
+	// "already exists", not "pick a new name". On a create race the loser
+	// gets a conflict, which we treat as success (the node now exists).
+	if _, err := s.bots.Create(ctx, orgID, bots.CreateParams{
 		ID:          string(id),
 		Name:        humanDisplayName(user),
 		Content:     "Org member.",
 		Kind:        orgchart.BotKindHuman,
 		HelixUserID: user.ID,
 		Identity:    identity,
-	})
-	if err != nil {
+		NoSuffix:    true,
+	}); err != nil {
+		if _, getErr := s.botStore.Get(ctx, orgID, id); getErr == nil {
+			return nil // lost a create race; the node exists — fine
+		}
 		return fmt.Errorf("ensure human node for user %s: %w", user.ID, err)
 	}
 	return nil
@@ -76,7 +89,7 @@ func (s *orgGraphSeeder) RemoveHumanNode(ctx context.Context, orgID, userID stri
 		return nil
 	}
 	err := s.botStore.Delete(ctx, orgID, humanNodeID(userID))
-	if err != nil && err != store.ErrNotFound {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("remove human node for user %s: %w", userID, err)
 	}
 	return nil
@@ -90,19 +103,86 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	if s == nil {
 		return nil
 	}
-	if _, err := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); err == nil {
+	_, err := s.botStore.Get(ctx, orgID, chiefOfStaffBotID)
+	if err == nil {
 		return nil // already seeded
 	}
-	_, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
-		ID:      string(chiefOfStaffBotID),
-		Name:    "Chief of Staff",
-		Content: chiefOfStaffContent,
-		Tools:   mcptools.OwnerBotTools(),
-	})
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("check chief of staff: %w", err)
+	}
+	// DeferActivation: a brand-new org has no bot runtime configured yet.
+	// Activating now would provision CoS on the seed-time default
+	// (claude_code/subscription/no-model → renders as gpt). The deferred bot
+	// shows on the chart and is provisioned correctly once the operator sets
+	// the Default Bot Runtime (reapplyBotsAfterRuntimeChange). NoSuffix keeps
+	// the id exactly `chief-of-staff` (a collision means already-seeded).
+	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
+		ID:              string(chiefOfStaffBotID),
+		Name:            "Chief of Staff",
+		Content:         chiefOfStaffContent,
+		Tools:           mcptools.OwnerBotTools(),
+		DeferActivation: true,
+		NoSuffix:        true,
+	}); err != nil {
+		if _, getErr := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); getErr == nil {
+			return nil // lost a seed race; CoS exists — fine
+		}
 		return fmt.Errorf("seed chief of staff: %w", err)
 	}
 	return nil
+}
+
+// ReconcileHumans makes the org's human nodes match its membership: ensure a
+// node for every member, and remove human nodes whose user is no longer a
+// member. Idempotent. This is the correctness backstop for the inline
+// membership hooks — several membership-granting paths (notably OIDC login /
+// domain auto-join, which run in a layer that can't reach the seeder) don't
+// hook inline, and existing orgs pre-date the feature. Run on org bootstrap.
+func (s *orgGraphSeeder) ReconcileHumans(ctx context.Context, orgID string, members []*types.User) error {
+	if s == nil {
+		return nil
+	}
+	want := make(map[orgchart.BotID]bool, len(members))
+	for _, u := range members {
+		if u == nil || u.ID == "" {
+			continue
+		}
+		want[humanNodeID(u.ID)] = true
+		if err := s.EnsureHumanNode(ctx, orgID, u); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("user_id", u.ID).Msg("reconcile: ensure human node failed")
+		}
+	}
+	all, err := s.botStore.List(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("reconcile humans: list bots: %w", err)
+	}
+	for _, b := range all {
+		if b.IsHuman() && !want[b.ID] {
+			if err := s.botStore.Delete(ctx, orgID, b.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				log.Warn().Err(err).Str("org_id", orgID).Str("bot", string(b.ID)).Msg("reconcile: remove orphan human node failed")
+			}
+		}
+	}
+	return nil
+}
+
+// listOrgMemberUsers loads the *types.User for every member of an org — the
+// input ReconcileHumans reconciles against.
+func listOrgMemberUsers(ctx context.Context, hs helixstore.Store, orgID string) ([]*types.User, error) {
+	memberships, err := hs.ListOrganizationMemberships(ctx, &helixstore.ListOrganizationMembershipsQuery{OrganizationID: orgID})
+	if err != nil {
+		return nil, fmt.Errorf("list org memberships: %w", err)
+	}
+	users := make([]*types.User, 0, len(memberships))
+	for _, m := range memberships {
+		u, err := hs.GetUser(ctx, &helixstore.GetUserQuery{ID: m.UserID})
+		if err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("user_id", m.UserID).Msg("reconcile: load member user failed")
+			continue
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }
 
 // ensureOrgHumanNode represents an org member as a human node, loading the

@@ -123,6 +123,13 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	if err != nil {
 		return fmt.Errorf("marshal tools: %w", err)
 	}
+	// Pre-marshal identity for the same reason as tools: the serializer:json
+	// tag does not apply on a map[string]any Updates, so pgx can't infer the
+	// jsonb column type from a bare map[string]string parameter.
+	identityJSON, err := json.Marshal(row.Identity)
+	if err != nil {
+		return fmt.Errorf("marshal identity: %w", err)
+	}
 	return r.Repository.Update(ctx,
 		store.WithOrg(row.OrgID),
 		store.WithID(row.ID),
@@ -131,6 +138,9 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
 			"preserve_context": row.PreserveContext,
+			"kind":             row.Kind,
+			"helix_user_id":    row.HelixUserID,
+			"identity":         string(identityJSON),
 			"updated_at":       row.UpdatedAt,
 		}),
 	)
