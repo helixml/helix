@@ -50,7 +50,8 @@ const HelixOrgBots: FC = () => {
   const { data, isLoading } = useListHelixOrgBots()
   const deleteBot = useDeleteBot()
 
-  const bots = data ?? []
+  // People (kind=human) live in the chart's People panel, not the Bots list.
+  const bots = (data ?? []).filter((b) => b.kind !== 'human')
   const [deleting, setDeleting] = useState<BotDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentBot, setCurrentBot] = useState<BotDTO | null>(null)
