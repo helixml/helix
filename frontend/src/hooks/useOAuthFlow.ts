@@ -1,12 +1,10 @@
 import { useState, useCallback } from 'react'
 import useApi from './useApi'
 
-// Full GitHub scope set to request on EVERY VCS connect. GitHub REPLACES (does
-// not union) a token's scopes on re-authorization, so requesting a subset here
-// silently downgrades an existing full-scope grant — which strands repos that
-// need workflow/read:org/etc. and breaks push. Keep every GitHub VCS connect
-// entry point on this single set.
-export const GITHUB_VCS_SCOPES = ['repo', 'workflow', 'read:org', 'read:user', 'user:email']
+// Re-exported from utils/oauthProviders (single source of truth) so the many
+// callers that import it from this hook keep working. See vcsScopesForProvider
+// there for the per-provider connect scope sets.
+export { GITHUB_VCS_SCOPES } from '../utils/oauthProviders'
 
 interface StartOAuthFlowOptions {
   providerId: string

@@ -33,6 +33,7 @@ import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import { useSettingsDialog } from '../../contexts/settingsDialog'
 import { formatDate } from '../../utils/format'
+import { vcsScopesForProvider } from '../../utils/oauthProviders'
 import { 
   PROVIDER_ICONS,
   PROVIDER_COLORS,
@@ -278,8 +279,18 @@ const OAuthConnections: React.FC<{}> = () => {
       const normalizedProviderId = providerId.toLowerCase();
       console.log('🍅 TOMATO: Using normalized provider ID:', normalizedProviderId);
       
-      console.log('🍅 TOMATO: Calling API endpoint:', `/api/v1/oauth/flow/start/${normalizedProviderId}`);
-      const response = await api.get(`/api/v1/oauth/flow/start/${normalizedProviderId}`)
+      // Request the full VCS scope set for the provider. GitHub (and other VCS
+      // providers) REPLACE a token's scopes on re-auth, so reconnecting here
+      // without scopes would downgrade an existing grant. Non-VCS providers get
+      // undefined → no scopes param → unchanged default behaviour.
+      const vcsScopes = vcsScopesForProvider(providerDetails?.type, providerDetails?.name);
+      let flowUrl = `/api/v1/oauth/flow/start/${normalizedProviderId}`;
+      if (vcsScopes && vcsScopes.length > 0) {
+        flowUrl += `?scopes=${encodeURIComponent(vcsScopes.join(','))}`;
+      }
+
+      console.log('🍅 TOMATO: Calling API endpoint:', flowUrl);
+      const response = await api.get(flowUrl)
       console.log('🍅 TOMATO: API response for OAuth flow:', response);
       
       // If the response is null or undefined, the provider likely doesn't exist in the database
