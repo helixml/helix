@@ -40,6 +40,10 @@ const (
 	AttentionEventSpecFailed                AttentionEventType = "spec_failed"
 	AttentionEventImplementationFailed      AttentionEventType = "implementation_failed"
 	AttentionEventPRReady                   AttentionEventType = "pr_ready"
+	// AttentionEventOrgMessage is a helix-org bot messaging a person (the
+	// "ask_human" in-app inbox). It has no spec task / project — ProjectID
+	// and SpecTaskID are empty.
+	AttentionEventOrgMessage AttentionEventType = "org_message"
 	AttentionEventCIPassed                  AttentionEventType = "ci_passed"
 	AttentionEventCIFailed                  AttentionEventType = "ci_failed"
 )

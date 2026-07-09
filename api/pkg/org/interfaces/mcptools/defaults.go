@@ -57,6 +57,7 @@ func OwnerBotTools() []tool.Name {
 		UnsubscribeName,
 		PublishName,
 		DMName,
+		AskHumanName,
 	}
 	return MergeBaseReadTools(ownerMutations)
 }

@@ -781,6 +781,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
 	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
+	// ask_human delivers to a person's in-app inbox via the main Helix
+	// attention-event service (the notification bell).
+	deps.HumanInbox = humanInbox{store: helixStore}
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
