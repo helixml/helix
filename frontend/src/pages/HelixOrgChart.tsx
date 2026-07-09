@@ -198,7 +198,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         </Stack>
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
-        {isHuman ? 'Human' : 'Bot'}
+        Bot
       </Typography>
       <Handle
         type="source"
