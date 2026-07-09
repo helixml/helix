@@ -280,6 +280,12 @@ func TestDeleteOrganization_DeletesRepositoriesBeforeOrganization(t *testing.T) 
 		mockStore.EXPECT().DeleteGitRepository(gomock.Any(), repo1.ID).Return(nil),
 		mockStore.EXPECT().GetGitRepository(gomock.Any(), repo2.ID).Return(repo2, nil),
 		mockStore.EXPECT().DeleteGitRepository(gomock.Any(), repo2.ID).Return(nil),
+		// Desktop teardown sweep runs before the org rows are deleted; no
+		// running desktops here, so no StopDesktop/DeleteSession follow.
+		mockStore.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+			OrganizationID:        orgID,
+			IncludeExternalAgents: true,
+		}).Return([]*types.Session{}, int64(0), nil),
 		mockStore.EXPECT().DeleteOrganization(gomock.Any(), orgID).Return(nil),
 	)
 

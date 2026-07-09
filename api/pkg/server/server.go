@@ -1536,6 +1536,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.putProjectWebService)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/web-service/active-sandbox", system.Wrapper(apiServer.setActiveWebServiceSandbox)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/deploy", system.Wrapper(apiServer.deployProjectWebService)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/logs", system.Wrapper(apiServer.getProjectWebServiceLogs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains", system.Wrapper(apiServer.addProjectWebServiceDomain)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains/{domain_id}", system.Wrapper(apiServer.deleteProjectWebServiceDomain)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)

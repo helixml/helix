@@ -2669,19 +2669,22 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 		}
 	}
 
-	// Repo-level credentials: check for OAuth connection
+	// Repo-level credentials: use the pinned OAuth connection.
 	if gitRepo.OAuthConnectionID != "" {
 		conn, err := s.store.GetOAuthConnection(ctx, gitRepo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
-			switch gitRepo.ExternalType {
-			case types.ExternalRepositoryTypeGitHub:
-				return "x-access-token", conn.AccessToken
-			case types.ExternalRepositoryTypeGitLab:
-				return "oauth2", conn.AccessToken
-			case types.ExternalRepositoryTypeADO:
-				return "oauth2", conn.AccessToken
-			default:
-				return "oauth2", conn.AccessToken
+			return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
+		}
+		// The pinned connection is gone (GetOAuthConnection excludes soft-deleted
+		// rows). Disconnecting and reconnecting a provider soft-deletes the old
+		// connection and creates a new one, leaving OAuthConnectionID a dangling
+		// pointer that silently breaks auth — git then prompts for a username and
+		// fails with "could not read Username", which surfaces as a 409 on push.
+		// Self-heal to the repo owner's newest live connection for the same
+		// provider instead of stranding the repo.
+		if gitRepo.OwnerID != "" {
+			if token := s.newestLiveOAuthToken(ctx, gitRepo.OwnerID, gitRepo.ExternalType); token != "" {
+				return oauthGitUsername(gitRepo.ExternalType), token
 			}
 		}
 	}
@@ -2716,6 +2719,41 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 	}
 
 	return "", ""
+}
+
+// oauthGitUsername returns the basic-auth username git expects when an OAuth
+// access token is embedded as the password, per provider.
+func oauthGitUsername(t types.ExternalRepositoryType) string {
+	if t == types.ExternalRepositoryTypeGitHub {
+		return "x-access-token"
+	}
+	return "oauth2"
+}
+
+// newestLiveOAuthToken returns the access token of the most-recently-updated,
+// non-deleted OAuth connection owned by userID whose provider matches the repo's
+// external type, or "" if none exists. Used to recover from a dangling
+// OAuthConnectionID after the repo owner disconnects/reconnects a provider (the
+// reconnect creates a new connection row and soft-deletes the pinned one).
+func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID string, externalType types.ExternalRepositoryType) string {
+	wantType := OAuthProviderTypeForRepo(externalType)
+	conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
+	if err != nil {
+		return ""
+	}
+	var newest *types.OAuthConnection
+	for _, conn := range conns {
+		if conn.Provider.Type != wantType || conn.AccessToken == "" {
+			continue
+		}
+		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
+			newest = conn
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	return newest.AccessToken
 }
 
 func GetPullRequestURL(repo *types.GitRepository, pullRequestID string) string {

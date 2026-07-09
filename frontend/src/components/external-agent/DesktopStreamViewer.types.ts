@@ -19,6 +19,14 @@ export interface DesktopStreamViewerProps {
   suppressOverlay?: boolean;
   showLoadingOverlay?: boolean;
   isRestart?: boolean;
+  // Monotonic counter bumped by the parent each time the session is woken from a
+  // paused/absent state (user sent a message or clicked "Start Desktop" on a slept
+  // task). Whenever this value changes the viewer resets its exhausted reconnect retry
+  // counters, clears any stale error, and starts a fresh connect — so a freshly-woken
+  // desktop gets a full retry budget instead of showing the old "gave up" error.
+  // A counter (not a boolean) is used so the wake is caught even when the transient
+  // "starting" state is never sampled by the parent's polling (fast resume).
+  wakeSignal?: number;
 }
 
 // Stats for video streaming

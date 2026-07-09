@@ -12,8 +12,11 @@ import Typography from '@mui/material/Typography'
 import { TypesOrganization } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import BotRuntimeForm, { BotRuntimeValue } from '../helix-org/BotRuntimeForm'
+import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 
 export interface EditOrgWindowProps {
   open: boolean
@@ -43,6 +46,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
 }) => {
   const account = useAccount()
   const api = useApi()
+  const router = useRouter()
   const snackbar = useSnackbar()
   const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
 
@@ -180,6 +184,13 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
         } catch (e) {
           snackbar.error('Organization created, but seeding the starter bot failed - add one from the Org Chart.')
         }
+      }
+
+      // Land the operator on the freshly created org: the org chart when
+      // helix-org is enabled, otherwise projects.
+      if (!org && created && created.name) {
+        localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
+        router.navigate(orgLandingRoute(account.user), { org_id: created.name })
       }
 
       onClose()

@@ -60,6 +60,8 @@ Tasks run **in parallel** — each in its own sandbox — so you're not waiting 
 - OpenAI Codex
 - Gemini CLI
 - Qwen Code
+- Goose
+- Zed Agent
 - Anything that speaks **ACP (Agent Client Protocol)**
 
 **Source control** — connect your repositories and Helix opens pull requests where your code already lives:

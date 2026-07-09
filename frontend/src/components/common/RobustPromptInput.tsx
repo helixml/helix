@@ -73,6 +73,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
+import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
 
 // Attachment that's pending to be sent with the message
 // Supports offline queueing - file data is stored until upload completes
@@ -180,55 +181,15 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   }
 
   const isFailed = entry.status === 'failed'
-
-  // A transient failure is one we expect to recover from automatically: the
-  // agent is sleeping/booting, the prior turn hasn't drained yet, the WebSocket
-  // is mid-reconnect, etc. The retry will land soon and the message will get
-  // through. These should look like a soft "still working on it" rather than a
-  // hard red error — they're not the user's problem and we don't want them to
-  // act on the warning. Anything else (auth failures, malformed payloads) stays
-  // red so it's visually distinct.
-  const transientErrorMarkers = [
-    'no WebSocket',
-    'no external agent WebSocket',
-    'became busy',
-    'deferring queue prompt',
-    'channel full',
-    'connection replaced',
-    'empty response',
-  ]
-  // A *crashed* failure is the terminal Claude Agent process death case. The
-  // backend detects these strings in handleThreadLoadError and calls
-  // MarkPromptAsCrashed (pinning next_retry_at far in the future) so the
-  // queue's auto-retry stops. The user has to click Restart to recover —
-  // restart clears ZedThreadID + re-sends, causing Zed to spawn a fresh thread
-  // and Claude Agent process. Detected by error_message marker (authoritative)
-  // rather than nextRetryAt timestamp comparison so the UI reacts immediately
-  // even before the polled prompt sync lands the new next_retry_at value.
-  // Authoritative crash signal: the backend's MarkPromptAsCrashed pins
-  // next_retry_at to a far-future sentinel (year 9999) to suppress auto-retry.
-  // Detecting that is robust to the many transport/wrapper error wordings a wedged
-  // or dead agent connection produces ("ede_diagnostic …", "response channel
-  // cancelled", "send failed because receiver is gone", …) — we don't have to
-  // enumerate them. See design/2026-06-15-wedged-acp-thread-autowake-flood.md.
-  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
-  const crashedBySentinel = isFailed && !!entry.nextRetryAt && entry.nextRetryAt > Date.now() + ONE_YEAR_MS
-  // Fast-path string markers (kept in sync with the backend agentCrashErrorMarkers)
-  // so the Restart affordance can render on the first failure, before the crashed
-  // next_retry_at sentinel has synced to the client.
-  const crashedErrorMarkers = [
-    'Claude Agent process exited',
-    'Session not found',
-    'ede_diagnostic',
-    'response channel cancelled',
-    'receiver is gone',
-  ]
-  const crashedByMarker = isFailed && !!entry.errorMessage &&
-    crashedErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const isCrashed = crashedBySentinel || crashedByMarker
-  const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
-    transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
+  // Classification (transient vs crashed vs stuck → Restart) is shared with
+  // SessionPromptQueue via classifyPromptQueueEntry so both queues agree.
+  const { isCrashed, isTransientFailure, isStuckTransient, showRestart } = classifyPromptQueueEntry({
+    status: entry.status,
+    errorMessage: entry.errorMessage,
+    nextRetryAtMs: entry.nextRetryAt,
+    retryCount: entry.retryCount,
+  })
+  const failColor = showRestart ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
 
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
@@ -257,7 +218,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             ? (theme) => alpha(theme.palette.info.main, 0.12)
             : isFailed
               ? (theme) => alpha(
-                  isTransientFailure ? theme.palette.warning.main : theme.palette.error.main,
+                  (isTransientFailure && !showRestart) ? theme.palette.warning.main : theme.palette.error.main,
                   0.08,
                 )
               : 'transparent',
@@ -404,26 +365,28 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Box>
-              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: isCrashed ? 600 : 'inherit' }}>
+              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: showRestart ? 600 : 'inherit' }}>
                 {isCrashed ? (
-                  'Agent crashed. Click restart to attempt to recover.'
+                  'The assistant stopped unexpectedly. Click Restart to recover.'
+                ) : isStuckTransient ? (
+                  "The assistant isn't responding. Click Restart to recover."
                 ) : entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
                     if (isTransientFailure) {
                       return secondsUntilRetry > 0
-                        ? `Waiting for agent — retrying in ${secondsUntilRetry}s`
-                        : 'Waiting for agent — retrying now...'
+                        ? `Waiting for the assistant — retrying in ${secondsUntilRetry}s`
+                        : 'Waiting for the assistant — retrying now...'
                     }
                     return secondsUntilRetry > 0
                       ? `Failed - retrying in ${secondsUntilRetry}s`
                       : 'Failed - retrying now...'
                   })()
                 ) : (
-                  isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
+                  isTransientFailure ? 'Waiting for the assistant' : 'Failed - will retry'
                 )}
               </Typography>
-              {isCrashed && (
+              {showRestart && (
                 <Box sx={{ mt: 0.5 }}>
                   <Box
                     component="button"
@@ -1260,8 +1223,11 @@ const RobustPromptInput: FC<RobustPromptInputProps> = ({
       data-prompt-input="true"
       sx={{ position: 'relative', width: '100%', minWidth: 0 }}
     >
-      {/* Queued messages display */}
-      <Collapse in={showQueue && queuedMessages.length > 0}>
+      {/* Queued messages display. Only rendered when this is an authoritative
+          backend-backed queue (spec-task). For plain sessions (org-chat,
+          team desktop) the local queue is a non-authoritative ghost — the
+          session-keyed SessionPromptQueue is the single source there. */}
+      <Collapse in={backendQueueEnabled && showQueue && queuedMessages.length > 0}>
         <Box
           sx={{
             mb: 1.5,

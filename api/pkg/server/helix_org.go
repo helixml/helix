@@ -495,6 +495,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		cfg:        configReg,
 		projectSvc: inProcClient,
 		Store:      st,
+		helixStore: helixStore,
 		workspace:  orgWorkspace,
 		logger:     logger,
 	}
@@ -996,6 +997,9 @@ type dynamicProjectApplier struct {
 	cfg        *configregistry.Registry
 	projectSvc runtimehelix.ProjectService
 	Store      *helixorgstore.Store
+	// helixStore is the main Helix store, used only to resolve the org's
+	// display name for the `<Bot> @ <Org>` project label.
+	helixStore helixstore.Store
 	// workspace is the single on-branch Workspace shared with the
 	// update_role/update_identity tools. Injected here (rather than read
 	// from a package global) so initialisation order is explicit. nil is
@@ -1021,6 +1025,7 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 	if err != nil {
 		return "", "", "", err
 	}
+	applier.OrgDisplayName = orgDisplayName(ctx, d.helixStore, orgID)
 	projectID, agentAppID, repoID, err = applier.Ensure(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", err
@@ -1052,6 +1057,24 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 // fallback bearer when no per-request bearer is on ctx. The bearer
 // is no longer carried on WorkerProject because Ensure doesn't touch
 // MCPs — MCP attachment is a separate, explicit step.
+// orgDisplayName resolves an org's human label for the `<Bot> @ <Org>`
+// project name. Prefers DisplayName, falls back to the slug Name, then
+// to "" (which makes WorkerProject use a bare bot label). Best-effort:
+// a lookup failure yields "" rather than breaking activation.
+func orgDisplayName(ctx context.Context, s helixstore.Store, orgID string) string {
+	if s == nil || orgID == "" {
+		return ""
+	}
+	org, err := s.GetOrganization(ctx, &helixstore.GetOrganizationQuery{ID: orgID})
+	if err != nil || org == nil {
+		return ""
+	}
+	if org.DisplayName != "" {
+		return org.DisplayName
+	}
+	return org.Name
+}
+
 func buildHelixOrgProjectApplier(
 	ctx context.Context,
 	orgID string,
@@ -1221,6 +1244,7 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 		ProjectService: d.ProjectSvc,
 		HelixOrgURL:    helixOrgURL,
 		OrgID:          orgID,
+		OrgDisplayName: orgDisplayName(ctx, d.HelixStore, orgID),
 		Runtime:        runtime,
 		Credentials:    credentials,
 		Provider:       provider,

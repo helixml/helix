@@ -52,7 +52,7 @@ import {
 } from "../../api/api";
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
@@ -872,7 +872,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             snackbar.info("Connect GitHub to start planning this task.");
             startOAuthFlow({
               providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              scopes: GITHUB_VCS_SCOPES,
               onSuccess: () => {
                 snackbar.success(
                   "GitHub connected. Click Start Planning again to continue.",

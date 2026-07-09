@@ -1,5 +1,16 @@
 import { TypesOrganization, TypesOrganizationRole, TypesOrganizationMembership } from '../api/api'
 
+// True when the user has the helix-org alpha feature (the Org Chart surface).
+export function isHelixOrgEnabled(user?: { alpha_features?: string[] } | null): boolean {
+  return user?.alpha_features?.includes('helix-org') ?? false
+}
+
+// Route to land on after creating or selecting an org: the org chart when
+// helix-org is enabled, otherwise projects.
+export function orgLandingRoute(user?: { alpha_features?: string[] } | null): string {
+  return isHelixOrgEnabled(user) ? 'helix_org_chart' : 'org_projects'
+}
+
 /**
  * Gets a user's membership in an organization
  * @param organization - An organization object with memberships
