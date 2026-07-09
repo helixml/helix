@@ -2415,12 +2415,13 @@ func (s *HelixAPIServer) foregroundSessionThread(_ http.ResponseWriter, r *http.
 // restartCrashedAgentThread godoc
 // @Summary Restart the external agent after an in-container crash
 // @Description Tears down the half-dead desktop container and brings up a fresh one
-// @Description via the same resume path used by /sessions/{id}/resume. The session's
-// @Description ZedThreadID is preserved, so Zed reloads the existing thread from the
-// @Description persistent threads.db in the workspace volume and the underlying agent
-// @Description (claude-code, qwen, etc.) reloads its session from disk — prior
-// @Description conversation context is restored. Crashed prompts are reset to pending
-// @Description and the queue is kicked so they re-dispatch on the new container.
+// @Description via the resume path. The session's ZedThreadID is cleared so Zed opens
+// @Description a fresh thread: a crash often poisons the thread itself, so reattaching
+// @Description reproduces the wedge; use /sessions/{id}/resume to restart while keeping
+// @Description the thread. The workspace volume persists, so files and the agent's own
+// @Description state survive; only the conversation thread resets. Crashed prompts are
+// @Description reset to pending and the queue is kicked so they re-dispatch on the new
+// @Description container.
 // @Description Requires the session to be an external Zed agent. Returns the count of
 // @Description prompts that were reset.
 // @Tags Sessions

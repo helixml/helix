@@ -383,7 +383,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                       : 'Failed - retrying now...'
                   })()
                 ) : (
-                  isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
+                  isTransientFailure ? 'Waiting for the assistant' : 'Failed - will retry'
                 )}
               </Typography>
               {showRestart && (

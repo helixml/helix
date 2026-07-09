@@ -152,18 +152,19 @@ func (s *RestartSessionContainerSuite) TestRestartClearsZedThread() {
 	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
 
-	// The load-bearing assertion: the thread is cleared and persisted.
+	// The load-bearing assertion: the thread is cleared and persisted BEFORE the
+	// container is recreated. Ordering matters — a clear after StartDesktop would
+	// let the reconnect reload the stale thread from the DB, so pin it in the
+	// InOrder chain (StopDesktop → clear → StartDesktop), not as a bare EXPECT.
 	var clearedTo = "unset"
-	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
+	clearThread := s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, meta types.SessionMetadata) error {
 			clearedTo = meta.ZedThreadID
 			return nil
 		}).Times(1)
-
-	gomock.InOrder(
-		s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1),
-		s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1),
-	)
+	stopDesktop := s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1)
+	startDesktop := s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1)
+	gomock.InOrder(stopDesktop, clearThread, startDesktop)
 	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), sessionID).Return(1, nil).Times(1)
 
 	pumped := make(chan struct{})

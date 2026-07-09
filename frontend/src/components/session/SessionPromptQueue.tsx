@@ -131,7 +131,9 @@ const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) =>
                       ? 'The assistant stopped unexpectedly. Click Restart to recover.'
                       : status.isStuckTransient
                         ? "The assistant isn't responding. Click Restart to recover."
-                        : 'Waiting for the assistant — retrying…'}
+                        : status.isTransientFailure
+                          ? 'Waiting for the assistant — retrying…'
+                          : 'This message failed to send.'}
                   </Typography>
                   {status.showRestart && (
                     <Button
