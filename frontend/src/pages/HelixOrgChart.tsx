@@ -1105,9 +1105,15 @@ const HelixOrgChart: FC = () => {
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
+      // A human node is a person, not a bot — open the dedicated person view
+      // (identity + responsibility) instead of the agent bot-detail page.
+      if (flat.find((x) => x.id === botId)?.kind === 'human') {
+        router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
+        return
+      }
       router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
     },
-    [router, orgSlug],
+    [router, orgSlug, flat],
   )
   const onNewBot = useCallback((parentBotId: string) => setSelection({ kind: 'newBot', parentBotId }), [])
   const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])

@@ -107,6 +107,10 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
+  // A human node is a person placeholder — it never runs, so the agent-only
+  // surfaces (Project Desktop session, tools, preserve-context, restart) make
+  // no sense for it and are hidden below.
+  const isHuman = bot?.kind === 'human'
 
   // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
@@ -120,6 +124,16 @@ const HelixOrgBotDetail: FC = () => {
     setTools(bot?.tools ?? [])
     setPreserveContext(bot?.preserve_context ?? false)
   }, [bot?.name, bot?.content, bot?.tools, bot?.preserve_context])
+
+  // A human node is a person, not a bot — the agent detail page (desktop,
+  // tools, activation) makes no sense for it. Redirect a direct hit on
+  // /bots/h-<userId> to the dedicated person view. The render below also
+  // guards on isHuman so the agent surfaces never flash before the redirect.
+  useEffect(() => {
+    if (isHuman && orgSlug && botId) {
+      router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
+    }
+  }, [isHuman, orgSlug, botId, router])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -292,7 +306,7 @@ const HelixOrgBotDetail: FC = () => {
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
-        {isLoading || !bot ? (
+        {isLoading || !bot || isHuman ? (
           <LoadingSpinner />
         ) : (
           <>
