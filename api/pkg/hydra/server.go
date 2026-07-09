@@ -581,7 +581,11 @@ func (s *Server) handleDevContainerProxy(w http.ResponseWriter, r *http.Request)
 			Int("port", port).
 			Str("target_url", targetURL).
 			Msg("Failed to proxy request to dev container")
-		http.Error(w, fmt.Sprintf("failed to connect to service: %s", err), http.StatusBadGateway)
+		// Signal upstream-unavailable to the API proxy (which serves a branded
+		// page on the public host) and NEVER echo the raw dial error — it carries
+		// the internal container IP. Detail stays in the log above.
+		w.Header().Set("X-Helix-Upstream-Unavailable", "1")
+		http.Error(w, "web service temporarily unavailable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()

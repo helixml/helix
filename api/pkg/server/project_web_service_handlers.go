@@ -335,6 +335,38 @@ func (s *HelixAPIServer) deployProjectWebService(_ http.ResponseWriter, r *http.
 	return deploy, nil
 }
 
+// ProjectWebServiceLogsResponse carries the tail of the deploy/startup log.
+type ProjectWebServiceLogsResponse struct {
+	// Log is the combined stdout/stderr of the project's startup script — build
+	// output, app logs, and the reason a deploy did or didn't come up. Empty
+	// when the service isn't deployed yet.
+	Log string `json:"log"`
+}
+
+// getProjectWebServiceLogs godoc
+// @Summary Get web service deploy/startup logs
+// @Description Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} ProjectWebServiceLogsResponse
+// @Router  /api/v1/projects/{id}/web-service/logs [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProjectWebServiceLogs(_ http.ResponseWriter, r *http.Request) (*ProjectWebServiceLogsResponse, *system.HTTPError) {
+	project, herr := s.requireProjectAccess(r, types.ActionGet)
+	if herr != nil {
+		return nil, herr
+	}
+	if s.webServiceController == nil {
+		return nil, system.NewHTTPError500("web service controller not initialised")
+	}
+	logText, err := s.webServiceController.DeployLog(r.Context(), project.ID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return &ProjectWebServiceLogsResponse{Log: logText}, nil
+}
+
 // addProjectWebServiceDomain godoc
 // @Summary Add a custom domain to a project web service
 // @Description Insert an unverified domain row. Verification happens out-of-band via the .well-known endpoint.

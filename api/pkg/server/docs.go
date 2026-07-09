@@ -13068,6 +13068,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/projects/{id}/web-service/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get web service deploy/startup logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.ProjectWebServiceLogsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{projectId}/labels": {
             "get": {
                 "description": "Returns a sorted list of unique labels across all spec tasks in a project",
@@ -24559,6 +24593,15 @@ const docTemplate = `{
                     }
                 },
                 "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ProjectWebServiceLogsResponse": {
+            "type": "object",
+            "properties": {
+                "log": {
+                    "description": "Log is the combined stdout/stderr of the project's startup script — build\noutput, app logs, and the reason a deploy did or didn't come up. Empty\nwhen the service isn't deployed yet.",
                     "type": "string"
                 }
             }

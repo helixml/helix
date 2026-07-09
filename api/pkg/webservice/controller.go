@@ -358,6 +358,48 @@ func (c *Controller) Health(ctx context.Context, projectID string) string {
 	return "unhealthy"
 }
 
+// DeployLog returns the tail of the web-service startup/deploy log
+// (/data/.helix-webservice.log) from the project's active sandbox. That file is
+// the combined stdout/stderr of .helix/startup.sh — build output, app logs, and
+// the reason a stack failed to come up. The startup mechanism is intentionally
+// generic (it is NOT assumed to be docker-compose), so this just returns whatever
+// the project's startup script logged. Authorized callers only (project access is
+// enforced by the handler). Returns "" (no error) when the service isn't deployed.
+func (c *Controller) DeployLog(ctx context.Context, projectID string) (string, error) {
+	st, err := c.store.GetProjectWebServiceState(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	if st == nil || st.ActiveSandboxID == "" {
+		return "", nil
+	}
+	sb, err := c.sandboxes.Get(ctx, st.ActiveSandboxID)
+	if err != nil {
+		return "", fmt.Errorf("get sandbox: %w", err)
+	}
+	hydraClient, err := c.sandboxes.HydraClient(sb)
+	if err != nil {
+		return "", err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	// Cap the tail (256 KiB) so a runaway log can't blow up the response.
+	resp, err := hydraClient.RunSandboxCommand(cctx, sb.ID, &hydra.ExecRequest{
+		SandboxID:      sb.ID,
+		Cmd:            "/bin/sh",
+		Args:           []string{"-c", "tail -c 262144 /data/.helix-webservice.log 2>/dev/null || true"},
+		Cwd:            "/",
+		TimeoutSeconds: 15,
+	})
+	if err != nil {
+		return "", fmt.Errorf("read deploy log: %w", err)
+	}
+	if resp == nil {
+		return "", nil
+	}
+	return resp.Stdout, nil
+}
+
 // RecoverWebService brings a project's web service back to a serving state
 // after the health-monitor detects it down. It escalates:
 //  1. active sandbox row gone → Redeploy (provisions a fresh sandbox).
@@ -772,10 +814,16 @@ func (c *Controller) waitForReady(ctx context.Context, sandboxID string, port in
 		case <-time.After(c.readinessPoll):
 		}
 	}
+	// User-facing message: don't leak the raw hydra/proxy error (it carries
+	// internal container IPs). Log the detail; tell the user what happened and
+	// where to look. The deploy log is surfaced in the Web Service tab.
 	if lastErr != nil {
-		return fmt.Errorf("app did not bind to port %d within %s: %w", port, c.readinessWait, lastErr)
+		log.Warn().Err(lastErr).Str("sandbox_id", sandboxID).Int("port", port).
+			Msg("web service: app never bound to its port within the readiness window")
 	}
-	return fmt.Errorf("app did not bind to port %d within %s", port, c.readinessWait)
+	return fmt.Errorf("the app never started listening on port %d (waited %s). "+
+		"This usually means the stack failed to build or crashed on startup, or it binds a "+
+		"different port. Check the deploy logs in the Web Service tab for the cause", port, c.readinessWait)
 }
 
 // resolvePrimaryRepo finds the project's primary git repository.

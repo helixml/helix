@@ -1516,6 +1516,15 @@ export interface ServerProjectGooseRecipe {
   title?: string;
 }
 
+export interface ServerProjectWebServiceLogsResponse {
+  /**
+   * Log is the combined stdout/stderr of the project's startup script — build
+   * output, app logs, and the reason a deploy did or didn't come up. Empty
+   * when the service isn't deployed yet.
+   */
+  log?: string;
+}
+
 export interface ServerProjectWebServiceResponse {
   /**
    * ACMEChallengeTarget is the fixed CNAME value customers point
@@ -13690,6 +13699,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, boolean>, any>({
         path: `/api/v1/projects/${id}/web-service/domains/${domainId}`,
         method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.
+     *
+     * @tags projects
+     * @name V1ProjectsWebServiceLogsDetail
+     * @summary Get web service deploy/startup logs
+     * @request GET:/api/v1/projects/{id}/web-service/logs
+     * @secure
+     */
+    v1ProjectsWebServiceLogsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerProjectWebServiceLogsResponse, any>({
+        path: `/api/v1/projects/${id}/web-service/logs`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,
