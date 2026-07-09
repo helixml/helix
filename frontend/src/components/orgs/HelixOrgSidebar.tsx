@@ -1,5 +1,5 @@
 import { FC } from 'react'
-import { Bot, Network, Radio, Settings, Users } from 'lucide-react'
+import { Bot, Network, Radio, Settings } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -40,13 +40,6 @@ const HelixOrgSidebar: FC = () => {
           icon: <Bot size={18} />,
           isActive: isBotsRoute,
           onClick: () => navigateTo('helix_org_bots'),
-        },
-        {
-          id: 'people',
-          label: 'People',
-          icon: <Users size={18} />,
-          isActive: currentRouteName === 'helix_org_people' || currentRouteName === 'helix_org_human_detail',
-          onClick: () => navigateTo('helix_org_people'),
         },
         {
           id: 'topics',

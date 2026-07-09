@@ -24,7 +24,7 @@ const HelixOrgHumanDetail: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Chart', routeName: 'helix_org_chart' })
   const { data, isLoading } = useHelixOrgBot(botId)
   const bot = data?.bot
 
