@@ -811,6 +811,14 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 		if err == nil && conn.AccessToken != "" {
 			return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
 		}
+		// Pinned connection is gone (owner disconnected/reconnected). Self-heal to
+		// the repo owner's newest live connection, matching getGitHubClient and the
+		// git-credential path in getCredentialsForRepo.
+		if repo.OwnerID != "" {
+			if token := s.newestLiveOAuthToken(ctx, repo.OwnerID, repo.ExternalType); token != "" {
+				return gitlab.NewClientWithOAuth(baseURL, token)
+			}
+		}
 	}
 
 	// Check for GitLab-specific PAT
