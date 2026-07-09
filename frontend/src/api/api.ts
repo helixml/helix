@@ -350,6 +350,12 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  /**
+   * Identity is the per-channel handle map for a human node (slack/github/
+   * email/…). When present it replaces the stored map; absent leaves it
+   * unchanged. Only meaningful for kind=human bots.
+   */
+  identity?: Record<string, string>;
   name?: string;
   preserve_context?: boolean;
   tools?: string[];

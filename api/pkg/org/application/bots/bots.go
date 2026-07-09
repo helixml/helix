@@ -188,6 +188,9 @@ type UpdateParams struct {
 	Content         *string
 	Tools           *[]tool.Name
 	PreserveContext *bool
+	// Identity, when non-nil, replaces the bot's per-channel handle map
+	// (human nodes only). nil leaves it unchanged.
+	Identity *map[string]string
 }
 
 // Update reads the existing Bot, applies the patch via the domain's
@@ -210,6 +213,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	}
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
+	}
+	if p.Identity != nil {
+		updated = updated.WithIdentity(*p.Identity)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.bots.Update(ctx, updated); err != nil {

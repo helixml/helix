@@ -125,6 +125,10 @@ type UpdateBotRequest struct {
 	Content         *string  `json:"content,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
+	// Identity is the per-channel handle map for a human node (slack/github/
+	// email/…). When present it replaces the stored map; absent leaves it
+	// unchanged. Only meaningful for kind=human bots.
+	Identity map[string]string `json:"identity,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID

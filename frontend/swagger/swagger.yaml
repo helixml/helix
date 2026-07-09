@@ -507,6 +507,14 @@ definitions:
     properties:
       content:
         type: string
+      identity:
+        additionalProperties:
+          type: string
+        description: |-
+          Identity is the per-channel handle map for a human node (slack/github/
+          email/…). When present it replaces the stored map; absent leaves it
+          unchanged. Only meaningful for kind=human bots.
+        type: object
       name:
         type: string
       preserve_context:
