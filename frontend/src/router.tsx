@@ -50,6 +50,7 @@ import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgBots from './pages/HelixOrgBots'
 import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
 import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
+import HelixOrgPeople from './pages/HelixOrgPeople'
 import HelixOrgSettings from './pages/HelixOrgSettings'
 import HelixOrgTopics from './pages/HelixOrgTopics'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
@@ -582,6 +583,11 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/humans/:bot_id',
   meta: { drawer: true, title: 'Helix Org · Person' },
   render: () => <HelixOrgHumanDetail />,
+}, {
+  name: 'helix_org_people',
+  path: '/orgs/:org_id/helix-org/people',
+  meta: { drawer: true, title: 'Helix Org · People' },
+  render: () => <HelixOrgPeople />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
