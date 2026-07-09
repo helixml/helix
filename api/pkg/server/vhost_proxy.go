@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,12 @@ import (
 	"github.com/helixml/helix/api/pkg/hydra"
 	"github.com/rs/zerolog/log"
 )
+
+// errUpstreamUnavailable signals that hydra reached us but could not reach the
+// app container (app down / still starting). ModifyResponse raises it so the
+// ErrorHandler serves the branded holding page instead of leaking hydra's 502
+// body (which carries the internal container IP) to the public.
+var errUpstreamUnavailable = errors.New("web service upstream unavailable")
 
 // proxyToContainer forwards an HTTP request to a port inside a sandbox
 // container via the hydra dev-container proxy, reached over RevDial.
@@ -68,6 +75,17 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 		apiServer:  apiServer,
 		sandboxID:  sandboxID,
 		dialTimeout: 60 * time.Second,
+	}
+
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// hydra reached us but couldn't reach the app container. Its 502 body
+		// names the internal container IP — never surface that on a customer's
+		// site. Signal the ErrorHandler to serve the branded holding page.
+		if resp.Header.Get("X-Helix-Upstream-Unavailable") != "" {
+			_ = resp.Body.Close()
+			return errUpstreamUnavailable
+		}
+		return nil
 	}
 
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
