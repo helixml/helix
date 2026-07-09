@@ -20,11 +20,16 @@ func (s *PostgresStore) CreateAttentionEvent(ctx context.Context, event *types.A
 	if event.UserID == "" {
 		return nil, fmt.Errorf("user ID is required")
 	}
-	if event.ProjectID == "" {
-		return nil, fmt.Errorf("project ID is required")
-	}
-	if event.SpecTaskID == "" {
-		return nil, fmt.Errorf("spec task ID is required")
+	// ProjectID / SpecTaskID are required for spec-task events but empty for
+	// org_message events (a bot messaging a person has no task). The columns
+	// are NOT NULL but empty string is a valid non-null value.
+	if event.EventType != types.AttentionEventOrgMessage {
+		if event.ProjectID == "" {
+			return nil, fmt.Errorf("project ID is required")
+		}
+		if event.SpecTaskID == "" {
+			return nil, fmt.Errorf("spec task ID is required")
+		}
 	}
 	if event.EventType == "" {
 		return nil, fmt.Errorf("event type is required")

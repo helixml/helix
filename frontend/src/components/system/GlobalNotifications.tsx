@@ -6,7 +6,7 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink } from 'lucide-react'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -29,6 +29,7 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'spec_failed':
     case 'implementation_failed': return <AlertCircle {...props} />
     case 'pr_ready': return <GitMerge {...props} />
+    case 'org_message': return <MessageSquare {...props} />
     default: return <Bell {...props} />
   }
 }
@@ -44,6 +45,7 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'
+    case 'org_message': return '#14b8a6'
     default: return '#6b7280'
   }
 }
@@ -237,6 +239,9 @@ const AttentionEventItem: React.FC<{
   onDismiss: (eventId: string) => void
 }> = ({ event, groupedWith, onNavigate, onDismiss }) => {
   const accentColor = eventAccentColor(event.event_type)
+  // org_message (a bot messaging a person) has no spec task/project — its
+  // headline is the title ("Message from …") and the body is the message.
+  const isOrgMessage = event.event_type === 'org_message'
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
@@ -268,9 +273,9 @@ const AttentionEventItem: React.FC<{
       <Tooltip
         title={
           <span style={{ whiteSpace: 'pre-wrap' }}>
-            {event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}
-            {'\n'}
-            {groupedWith ? 'Spec ready & agent finished' : event.title}
+            {isOrgMessage
+              ? `${event.title}\n${event.description || ''}`
+              : `${event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}\n${groupedWith ? 'Spec ready & agent finished' : event.title}`}
           </span>
         }
         placement="left"
@@ -291,7 +296,7 @@ const AttentionEventItem: React.FC<{
               lineHeight: 1.4,
             }}
           >
-            {event.spec_task_name || event.spec_task_id}
+            {isOrgMessage ? event.title : (event.spec_task_name || event.spec_task_id)}
           </Typography>
           <Typography
             variant="caption"
@@ -306,7 +311,9 @@ const AttentionEventItem: React.FC<{
               mt: 0.25,
             }}
           >
-            {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
+            {isOrgMessage
+              ? (event.description || '')
+              : `${groupedWith ? 'Spec ready & agent finished' : event.title} · ${event.project_name || event.project_id}`}
           </Typography>
         </Box>
       </Tooltip>
@@ -417,12 +424,15 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         )
       } else {
         const { event } = group
+        const isOrgMessage = event.event_type === 'org_message'
         fireNotification(
           event.id,
           `Helix: ${event.title}`,
-          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          isOrgMessage ? (event.description || '') : `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
+            // org_message has no task to open (reply surface is a later stage).
+            if (isOrgMessage) return
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -447,6 +457,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
     // Mark as read on explicit click
     acknowledge(event.id)
+
+    // org_message (a bot messaging a person) has no session/task to open yet —
+    // the reply surface is a later stage. Clicking just marks it read.
+    if (event.event_type === 'org_message') return
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {

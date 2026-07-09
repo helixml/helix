@@ -97,6 +97,11 @@ type Deps struct {
 	// RegisterBuiltins to read the live registry; nil → the tools fall
 	// back to an unconstrained string array (still valid, just no enum).
 	ToolNames func() []tool.Name
+
+	// HumanInbox delivers ask_human messages to a person's in-app inbox
+	// (the notification bell). Wired at the composition root over the main
+	// Helix attention-event service; nil → ask_human reports unavailable.
+	HumanInbox HumanInbox
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -131,6 +136,9 @@ type Config struct {
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
 	Lifecycle *lifecycle.Service
+	// HumanInbox delivers ask_human messages to a person's in-app inbox.
+	// nil → ask_human reports the inbox as unavailable.
+	HumanInbox HumanInbox
 }
 
 // Build assembles the application services from the config and returns
@@ -149,6 +157,7 @@ func (c Config) Build() Deps {
 		Projects:            c.projectsService(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
+		HumanInbox:          c.HumanInbox,
 	}
 }
 
@@ -333,6 +342,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Unsubscribe{deps: deps},
 		&Publish{deps: deps},
 		&DM{deps: deps},
+		&AskHuman{deps: deps},
 		&ConfigureBotProject{deps: deps},
 		// Spec-task management — a Bot managing the spec tasks in its own
 		// Helix project. Granted per-Role (not in BaseReadTools).
