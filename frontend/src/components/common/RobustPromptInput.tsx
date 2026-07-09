@@ -367,16 +367,16 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             <Box>
               <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: showRestart ? 600 : 'inherit' }}>
                 {isCrashed ? (
-                  'Agent crashed. Click restart to attempt to recover.'
+                  'The assistant stopped unexpectedly. Click Restart to recover.'
                 ) : isStuckTransient ? (
-                  "Agent isn't responding — click Restart to recover."
+                  "The assistant isn't responding. Click Restart to recover."
                 ) : entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
                     if (isTransientFailure) {
                       return secondsUntilRetry > 0
-                        ? `Waiting for agent — retrying in ${secondsUntilRetry}s`
-                        : 'Waiting for agent — retrying now...'
+                        ? `Waiting for the assistant — retrying in ${secondsUntilRetry}s`
+                        : 'Waiting for the assistant — retrying now...'
                     }
                     return secondsUntilRetry > 0
                       ? `Failed - retrying in ${secondsUntilRetry}s`
