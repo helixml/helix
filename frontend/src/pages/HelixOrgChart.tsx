@@ -13,7 +13,6 @@ import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
-import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import TransformIcon from '@mui/icons-material/Transform'
 
@@ -94,8 +93,6 @@ type FlatBot = {
   name: string
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
-  // "" for an agent Bot (the default) or "human" for a person placeholder.
-  kind: string
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -103,9 +100,6 @@ type FlatBot = {
 type BotNodeData = {
   botId: string
   botName: string
-  // "" for an agent Bot or "human" for a person placeholder — the node
-  // renders with a person icon and "Human" label when human.
-  kind: string
   onSelectBot: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
@@ -137,11 +131,8 @@ const NO_DRAG_NO_PAN = 'nodrag nopan'
 
 const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
-  const isHuman = data.kind === 'human'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const border = isHuman
-    ? (lightTheme.isLight ? 'rgba(30,110,180,0.45)' : 'rgba(90,160,230,0.5)')
-    : (lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)')
+  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
   const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
   const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
@@ -168,18 +159,14 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       {/* Target handle = where a manager's edge LANDS, marking this bot as
           the subordinate. Source handle = where the user drags FROM when
           this bot becomes the manager. */}
-      {!isHuman && (
-        <Handle
-          type="target"
-          position={RFPosition.Top}
-          style={{ background: handleColor, width: 12, height: 12 }}
-        />
-      )}
+      <Handle
+        type="target"
+        position={RFPosition.Top}
+        style={{ background: handleColor, width: 12, height: 12 }}
+      />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          {isHuman
-            ? <PersonOutlineIcon sx={{ fontSize: 18, color: 'rgba(60,140,210,0.9)' }} />
-            : <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />}
+          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
           <Typography
             variant="body2"
             sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -187,61 +174,50 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             {data.botName || data.botId}
           </Typography>
         </Stack>
-        {/* Human nodes are membership-driven and stay out of the reporting
-            graph — no "new report", no manual delete. */}
-        {!isHuman && (
-          <Stack direction="row" spacing={0.25}>
-            <Tooltip title="New bot reporting to this one">
-              <IconButton
-                className={NO_DRAG_NO_PAN}
-                size="small"
-                onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
-                sx={{ p: 0.25, color: muted }}
-              >
-                <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete bot">
-              <IconButton
-                className={NO_DRAG_NO_PAN}
-                size="small"
-                onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
-                sx={{ p: 0.25, color: muted }}
-              >
-                <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        )}
+        <Stack direction="row" spacing={0.25}>
+          <Tooltip title="New bot reporting to this one">
+            <IconButton
+              className={NO_DRAG_NO_PAN}
+              size="small"
+              onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
+              sx={{ p: 0.25, color: muted }}
+            >
+              <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete bot">
+            <IconButton
+              className={NO_DRAG_NO_PAN}
+              size="small"
+              onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
+              sx={{ p: 0.25, color: muted }}
+            >
+              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
         {isHuman ? 'Human' : 'Bot'}
       </Typography>
-      {/* Reporting + subscription source handles are omitted for human
-          nodes — they don't manage bots or subscribe to topics (they stay
-          out of the reporting graph; reach is delivery, not edges). */}
-      {!isHuman && (
-        <>
-          <Handle
-            type="source"
-            position={RFPosition.Bottom}
-            style={{ background: handleColor, width: 12, height: 12 }}
-          />
-          {/* Dedicated source handle for topic/subscription edges, anchored on
-              the right side of the card. Decoupling topic edges from the
-              bottom-center reporting handle means a subscription edge and a
-              manager → subordinate edge can never share the same geometry.
-              id="topic" is what buildGraph passes as sourceHandle when
-              emitting subscription edges. */}
-          <Handle
-            id="topic"
-            type="source"
-            position={RFPosition.Right}
-            isConnectable
-            style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
-          />
-        </>
-      )}
+      <Handle
+        type="source"
+        position={RFPosition.Bottom}
+        style={{ background: handleColor, width: 12, height: 12 }}
+      />
+      {/* Dedicated source handle for topic/subscription edges, anchored on
+          the right side of the card. Decoupling topic edges from the
+          bottom-center reporting handle means a subscription edge and a
+          manager → subordinate edge can never share the same geometry.
+          id="topic" is what buildGraph passes as sourceHandle when
+          emitting subscription edges. */}
+      <Handle
+        id="topic"
+        type="source"
+        position={RFPosition.Right}
+        isConnectable
+        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
+      />
     </Box>
   )
 }
@@ -452,7 +428,6 @@ const buildGraph = (
       data: {
         botId: b.id,
         botName: b.name,
-        kind: b.kind,
         onSelectBot: handlers.onSelectBot,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
@@ -1028,12 +1003,15 @@ const HelixOrgChart: FC = () => {
   const unsubscribe = useUnsubscribeBotAtChart()
 
   const flat = useMemo<FlatBot[]>(
-    () => (botsData ?? []).map((b: BotDTO) => ({
-      kind: b.kind ?? '',
-      id: b.id ?? '',
-      name: b.name ?? '',
-      parentIds: b.parent_ids ?? [],
-    })),
+    () => (botsData ?? [])
+      // People (kind=human) are managed in the People tab, not on the agent
+      // chart — the chart is for agent relationships (reporting, subscriptions).
+      .filter((b: BotDTO) => b.kind !== 'human')
+      .map((b: BotDTO) => ({
+        id: b.id ?? '',
+        name: b.name ?? '',
+        parentIds: b.parent_ids ?? [],
+      })),
     [botsData],
   )
 
@@ -1105,15 +1083,9 @@ const HelixOrgChart: FC = () => {
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
-      // A human node is a person, not a bot — open the dedicated person view
-      // (identity + responsibility) instead of the agent bot-detail page.
-      if (flat.find((x) => x.id === botId)?.kind === 'human') {
-        router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
-        return
-      }
       router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
     },
-    [router, orgSlug, flat],
+    [router, orgSlug],
   )
   const onNewBot = useCallback((parentBotId: string) => setSelection({ kind: 'newBot', parentBotId }), [])
   const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])
