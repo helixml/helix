@@ -228,7 +228,16 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
   const isCrashed = crashedBySentinel || crashedByMarker
   const isTransientFailure = !isCrashed && isFailed && !!entry.errorMessage &&
     transientErrorMarkers.some(marker => entry.errorMessage!.includes(marker))
-  const failColor = isCrashed ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
+  // A transient failure that has retried this many times is NOT recovering —
+  // the agent thread is wedged (e.g. an "empty response" / upstream ACP
+  // buffering that never drains). Left as a plain transient it shows "Waiting
+  // for agent" forever with no way out, which is what strands the user.
+  // Escalate: surface the Restart affordance so they can recover. Auto-retry
+  // keeps running underneath; Restart is the manual escape hatch.
+  const STUCK_TRANSIENT_RETRY_THRESHOLD = 4
+  const isStuckTransient = isTransientFailure && (entry.retryCount ?? 0) >= STUCK_TRANSIENT_RETRY_THRESHOLD
+  const showRestart = isCrashed || isStuckTransient
+  const failColor = showRestart ? 'error.main' : isTransientFailure ? 'warning.main' : 'error.main'
 
   // Force re-render every second for failed items with retry countdown
   const [, forceUpdate] = useState(0)
@@ -257,7 +266,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
             ? (theme) => alpha(theme.palette.info.main, 0.12)
             : isFailed
               ? (theme) => alpha(
-                  isTransientFailure ? theme.palette.warning.main : theme.palette.error.main,
+                  (isTransientFailure && !showRestart) ? theme.palette.warning.main : theme.palette.error.main,
                   0.08,
                 )
               : 'transparent',
@@ -404,9 +413,11 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
           </Box>
           {isFailed && (
             <Box>
-              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: isCrashed ? 600 : 'inherit' }}>
+              <Typography variant="caption" sx={{ color: failColor, display: 'block', fontWeight: showRestart ? 600 : 'inherit' }}>
                 {isCrashed ? (
                   'Agent crashed. Click restart to attempt to recover.'
+                ) : isStuckTransient ? (
+                  "Agent isn't responding — click Restart to recover."
                 ) : entry.nextRetryAt ? (
                   (() => {
                     const secondsUntilRetry = Math.max(0, Math.ceil((entry.nextRetryAt - Date.now()) / 1000))
@@ -423,7 +434,7 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
                   isTransientFailure ? 'Waiting for agent' : 'Failed - will retry'
                 )}
               </Typography>
-              {isCrashed && (
+              {showRestart && (
                 <Box sx={{ mt: 0.5 }}>
                   <Box
                     component="button"
