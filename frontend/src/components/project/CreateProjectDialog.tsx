@@ -40,6 +40,7 @@ import { useListOAuthConnections, useListOAuthProviders, useListOAuthConnectionR
 import useAccount from '../../hooks/useAccount'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import { GITHUB_VCS_SCOPES } from '../../hooks/useOAuthFlow'
 import { AppsContext, CodeAgentRuntime, generateAgentName } from '../../contexts/apps'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { findOAuthConnectionForProvider, findOAuthProviderForType, hasRequiredScopes, PROVIDER_TYPES } from '../../utils/oauthProviders'
@@ -185,7 +186,7 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
   const openOAuthPopup = useCallback(async (providerId: string) => {
     try {
       const response = await api.get(
-        `/api/v1/oauth/flow/start/${providerId}?scopes=repo,read:org,read:user,user:email`
+        `/api/v1/oauth/flow/start/${providerId}?scopes=${GITHUB_VCS_SCOPES.join(',')}`
       )
       const authUrl = response.auth_url || response?.data?.auth_url
       if (authUrl) {
