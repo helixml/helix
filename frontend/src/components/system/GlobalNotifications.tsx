@@ -541,9 +541,25 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         onClick={(e) => { e.stopPropagation(); drawerOpen ? handleDrawerClose() : handleDrawerOpen() }}
         sx={{
           ml: 0.5,
-          color: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)',
+          // When there's something unread the whole bell lights up red and
+          // periodically nudges — a grey bell + grey count reads as "nothing
+          // to see". Read/idle falls back to the muted default.
+          color: deduplicatedHasNew
+            ? '#ef4444'
+            : (lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)'),
+          transformOrigin: 'top center',
+          ...(deduplicatedHasNew && {
+            animation: 'bellNudge 2.4s ease-in-out infinite',
+            '@keyframes bellNudge': {
+              '0%, 70%, 100%': { transform: 'rotate(0deg)' },
+              '75%': { transform: 'rotate(-14deg)' },
+              '82%': { transform: 'rotate(11deg)' },
+              '89%': { transform: 'rotate(-6deg)' },
+              '95%': { transform: 'rotate(3deg)' },
+            },
+          }),
           '&:hover': {
-            color: lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)',
+            color: deduplicatedHasNew ? '#dc2626' : (lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)'),
             backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
           },
         }}
@@ -551,11 +567,22 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         <Badge
           badgeContent={deduplicatedHasNew ? deduplicatedUnreadCount : deduplicatedTotalCount}
           color={deduplicatedHasNew ? 'error' : 'default'}
+          overlap="circular"
           sx={{
             '& .MuiBadge-badge': {
-              fontSize: '0.6rem',
-              height: 15,
-              minWidth: 15,
+              fontSize: '0.62rem',
+              fontWeight: 700,
+              height: 16,
+              minWidth: 16,
+              // Make the unread count pop: solid red with a soft glow + pulse.
+              ...(deduplicatedHasNew && {
+                boxShadow: '0 0 0 2px rgba(239,68,68,0.35)',
+                animation: 'badgePulse 2s ease-in-out infinite',
+                '@keyframes badgePulse': {
+                  '0%, 100%': { boxShadow: '0 0 0 2px rgba(239,68,68,0.35)' },
+                  '50%': { boxShadow: '0 0 0 5px rgba(239,68,68,0.0)' },
+                },
+              }),
               ...(!deduplicatedHasNew && deduplicatedTotalCount > 0 && {
                 backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
                 color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
@@ -563,7 +590,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             },
           }}
         >
-          {drawerOpen ? <BellRing size={18} /> : <Bell size={18} />}
+          {(drawerOpen || deduplicatedHasNew) ? <BellRing size={18} /> : <Bell size={18} />}
         </Badge>
       </IconButton>
 
