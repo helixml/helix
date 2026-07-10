@@ -263,7 +263,8 @@ const AttentionEventItem: React.FC<{
   groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
+  onReplied: (eventId: string) => Promise<void>
+}> = ({ event, groupedWith, onNavigate, onDismiss, onReplied }) => {
   const accentColor = eventAccentColor(event.event_type)
   // org_message (a bot messaging a person) has no spec task/project — its
   // headline is the title ("Message from …") and the body is the message.
@@ -299,7 +300,9 @@ const AttentionEventItem: React.FC<{
         await replyToOrgMessage(api.getApiClient(), event, text)
         setReply('')
         setReplyOpen(false)
-        onDismiss(event.id)
+        // Keep the message in the panel, marked "Replied", so the user has a
+        // record it came through and was answered (don't dismiss it).
+        await onReplied(event.id)
         snackbar.success('Reply sent')
       } catch (e: any) {
         snackbar.error(e?.message || 'Failed to send reply')
@@ -308,16 +311,17 @@ const AttentionEventItem: React.FC<{
       }
     }
     const meta = event.metadata as { bot_id?: string; no_reply?: unknown } | undefined
+    const isReplied = !!event.replied_at
     // Informational messages (e.g. "Chief of Staff is starting up") carry
     // no_reply and have no repliable session — render them read-only.
-    const canReply = !!meta?.bot_id && meta?.no_reply !== true && meta?.no_reply !== 'true'
+    const canReply = !isReplied && !!meta?.bot_id && meta?.no_reply !== true && meta?.no_reply !== 'true'
     return (
       <Box
         sx={{
           px: 1.5,
           py: 1.25,
           borderLeft: `3px solid ${accentColor}`,
-          ...(isAcknowledged ? { opacity: 0.7 } : {}),
+          ...(isReplied || isAcknowledged ? { opacity: 0.7 } : {}),
         }}
       >
         <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mb: 0.75 }}>
@@ -362,6 +366,14 @@ const AttentionEventItem: React.FC<{
         >
           <ReactMarkdown>{event.description || ''}</ReactMarkdown>
         </Box>
+        {isReplied && (
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1, color: accentColor }}>
+            <CornerUpLeft size={12} />
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+              Replied
+            </Typography>
+          </Stack>
+        )}
         {canReply && (!replyOpen ? (
           <Button
             size="small"
@@ -556,6 +568,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     acknowledge,
+    markReplied,
     dismiss,
     snooze,
     dismissAll,
@@ -662,6 +675,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
   }, [dismiss])
+
+  const handleReplied = useCallback((eventId: string) => {
+    return markReplied(eventId)
+  }, [markReplied])
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -953,6 +970,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                         dismiss(group.secondary.id)
                         handleDismiss(id)
                       }}
+                      onReplied={handleReplied}
                     />
                   )
                 }
@@ -962,6 +980,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                     event={group.event}
                     onNavigate={handleNavigate}
                     onDismiss={handleDismiss}
+                    onReplied={handleReplied}
                   />
                 )
               })}

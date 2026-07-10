@@ -94,16 +94,19 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 		args = append(args, userID, userID)
 	}
 
+	// Dedup key: spec_task_id for task events, but fall back to the event id for
+	// org_messages (which have an empty spec_task_id) so every org_message is
+	// kept — otherwise DISTINCT ON collapses them all into the single latest one.
 	result := s.gdb.WithContext(ctx).Raw(`
 		SELECT * FROM (
-			SELECT DISTINCT ON (spec_task_id) *
+			SELECT DISTINCT ON (COALESCE(NULLIF(spec_task_id, ''), id)) *
 			FROM attention_events
 			WHERE user_id = ?
 			  AND dismissed_at IS NULL
 			  AND (snoozed_until IS NULL OR snoozed_until < ?)
 			  `+orgFilter+`
 			  `+mineFilter+`
-			ORDER BY spec_task_id, created_at DESC
+			ORDER BY COALESCE(NULLIF(spec_task_id, ''), id), created_at DESC
 		) AS deduped
 		ORDER BY created_at DESC
 	`, args...).Scan(&events)
@@ -135,6 +138,11 @@ func (s *PostgresStore) UpdateAttentionEvent(ctx context.Context, id string, upd
 		now := time.Now()
 		updates["acknowledged_at"] = &now
 	}
+	if update.Reply {
+		now := time.Now()
+		updates["replied_at"] = &now
+		updates["acknowledged_at"] = &now
+	}
 	if update.SnoozedUntil != nil {
 		updates["snoozed_until"] = update.SnoozedUntil
 	}
@@ -153,10 +161,17 @@ func (s *PostgresStore) UpdateAttentionEvent(ctx context.Context, id string, upd
 			return fmt.Errorf("failed to fetch attention event for dismiss: %w", err)
 		}
 		now := time.Now()
-		result := s.gdb.WithContext(ctx).
-			Model(&types.AttentionEvent{}).
-			Where("spec_task_id = ? AND user_id = ?", event.SpecTaskID, event.UserID).
-			Update("dismissed_at", &now)
+		q := s.gdb.WithContext(ctx).Model(&types.AttentionEvent{})
+		if event.SpecTaskID != "" {
+			// Task events: dismiss the whole task's group so deduplicated older
+			// events don't resurface after the cache invalidates.
+			q = q.Where("spec_task_id = ? AND user_id = ?", event.SpecTaskID, event.UserID)
+		} else {
+			// org_messages have no spec task — dismiss only this one, not every
+			// org_message for the user.
+			q = q.Where("id = ?", id)
+		}
+		result := q.Update("dismissed_at", &now)
 		if result.Error != nil {
 			return fmt.Errorf("failed to dismiss attention events: %w", result.Error)
 		}
