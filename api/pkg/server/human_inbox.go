@@ -19,18 +19,18 @@ type humanInbox struct {
 	store store.Store
 }
 
-func (h humanInbox) Notify(ctx context.Context, orgID, userID, fromBot, personName, message string) error {
+func (h humanInbox) Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string) error {
 	if userID == "" {
 		return fmt.Errorf("person has no linked Helix user")
 	}
 	id := system.GenerateAttentionEventID()
-	meta, _ := json.Marshal(map[string]string{"bot_id": fromBot, "person": personName})
+	meta, _ := json.Marshal(map[string]string{"bot_id": fromBotID, "person": personName})
 	ev := &types.AttentionEvent{
 		ID:             id,
 		UserID:         userID,
 		OrganizationID: orgID,
 		EventType:      types.AttentionEventOrgMessage,
-		Title:          fmt.Sprintf("Message from %s", fromBot),
+		Title:          fmt.Sprintf("Message from %s", fromBotName),
 		Description:    message,
 		CreatedAt:      time.Now(),
 		// Unique key per message so every ask_human is a distinct inbox item

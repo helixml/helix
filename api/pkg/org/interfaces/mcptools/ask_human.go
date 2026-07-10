@@ -17,7 +17,9 @@ import (
 // nil, ask_human reports the inbox as unavailable.
 type HumanInbox interface {
 	// Notify writes an inbox item for the person's linked Helix user.
-	Notify(ctx context.Context, orgID, userID, fromBot, personName, message string) error
+	// fromBotID is the sending bot's id (routing / reply target); fromBotName is
+	// its display name (shown in the notification title).
+	Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string) error
 }
 
 // AskHuman lets a bot reach a real person directly: it delivers the message to
@@ -78,7 +80,13 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if name == "" {
 		name = string(person.ID)
 	}
-	if err := t.deps.HumanInbox.Notify(ctx, orgID, person.HelixUserID, inv.Caller.ID(), name, args.Message); err != nil {
+	// Prefer the sending bot's display name for the notification title (e.g.
+	// "Chief of Staff", not "chief-of-staff"); fall back to its id.
+	fromBotName := inv.Caller.ID()
+	if caller, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(inv.Caller.ID())); err == nil && caller.Name != "" {
+		fromBotName = caller.Name
+	}
+	if err := t.deps.HumanInbox.Notify(ctx, orgID, person.HelixUserID, inv.Caller.ID(), fromBotName, name, args.Message); err != nil {
 		return nil, fmt.Errorf("deliver to %q: %w", args.PersonID, err)
 	}
 	return json.Marshal(map[string]string{"delivered": "inbox", "person": args.PersonID})
