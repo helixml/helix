@@ -23,6 +23,8 @@ import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
+import Collapse from '@mui/material/Collapse'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -215,6 +217,9 @@ const HelixOrgBotDetail: FC = () => {
   // The session panel toggles between the inline Chat transcript and the
   // live Desktop stream — both bound to the same exploratory session.
   const [sessionTab, setSessionTab] = useState<'chat' | 'desktop'>('chat')
+  // The raw agent session/desktop is secondary — collapsed by default so it
+  // doesn't compete with the conversation (the pending-question card above).
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false)
 
   // Desktop resolution / fps for the stream, derived from the bot's agent
   // app config (same helper the spec-task desktop uses). Falls back to
@@ -332,7 +337,22 @@ const HelixOrgBotDetail: FC = () => {
                     ask_human). Its own section above the chat so it doesn't eat
                     the transcript's space; the reply box is the chat below. */}
                 {botId ? (
-                  <BotPendingQuestions botId={botId} botName={bot.name} />
+                  <BotPendingQuestions
+                    botId={botId}
+                    botName={bot.name}
+                    onReply={
+                      chatSessionId
+                        ? async (message: string) => {
+                            await streaming.NewInference({
+                              type: SESSION_TYPE_TEXT,
+                              message,
+                              sessionId: chatSessionId,
+                              interrupt: true,
+                            })
+                          }
+                        : undefined
+                    }
+                  />
                 ) : null}
 
                 {/* Session panel — Chat | Desktop toggle, both bound to the
@@ -347,24 +367,44 @@ const HelixOrgBotDetail: FC = () => {
                       alignItems="center"
                       sx={{ width: '100%' }}
                     >
-                      <Typography variant="subtitle1">
-                        {sessionTab === 'chat' ? 'Chat with this bot' : 'Bot desktop'}
-                      </Typography>
-                      <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        value={sessionTab}
-                        onChange={(_e, value) => { if (value) setSessionTab(value) }}
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={0.5}
+                        onClick={() => setAgentPanelOpen((o) => !o)}
+                        sx={{ cursor: 'pointer', userSelect: 'none' }}
                       >
-                        <ToggleButton value="chat">Chat</ToggleButton>
-                        <ToggleButton value="desktop">Desktop</ToggleButton>
-                      </ToggleButtonGroup>
+                        {agentPanelOpen ? (
+                          <ExpandLessIcon fontSize="small" />
+                        ) : (
+                          <ExpandMoreIcon fontSize="small" />
+                        )}
+                        <Typography variant="subtitle1">Agent activity</Typography>
+                        {!agentPanelOpen && (
+                          <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                            watch or drive what the agent is doing
+                          </Typography>
+                        )}
+                      </Stack>
+                      {agentPanelOpen && (
+                        <ToggleButtonGroup
+                          size="small"
+                          exclusive
+                          value={sessionTab}
+                          onChange={(_e, value) => { if (value) setSessionTab(value) }}
+                        >
+                          <ToggleButton value="chat">Transcript</ToggleButton>
+                          <ToggleButton value="desktop">Desktop</ToggleButton>
+                        </ToggleButtonGroup>
+                      )}
                     </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      {sessionTab === 'chat'
-                        ? "The conversation below is the bot's Project Desktop session — the same transcript you'd see in the desktop view, including its MCP tool calls. Send a message to drive it from here."
-                        : "The live desktop of the bot's Project Desktop session — watch and drive what its agent is doing in real time."}
-                    </Typography>
+                    <Collapse in={agentPanelOpen} timeout="auto" unmountOnExit sx={{ width: '100%' }}>
+                      <Stack spacing={2} alignItems="flex-start" sx={{ width: '100%' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {sessionTab === 'chat'
+                            ? "The bot's raw agent session — the same transcript as the desktop view, including its MCP tool calls. Your replies above appear here too."
+                            : "The live desktop of the bot's agent session — watch and drive what it is doing in real time."}
+                        </Typography>
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches
                         the session + interactions and live-tails in-flight
@@ -447,6 +487,8 @@ const HelixOrgBotDetail: FC = () => {
                         </Typography>
                       )
                     )}
+                      </Stack>
+                    </Collapse>
                   </Stack>
                 </Paper>
 
