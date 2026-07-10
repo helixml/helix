@@ -32,7 +32,16 @@ export interface ApiBotChatDTO {
 export interface ApiBotDTO {
   content?: string;
   created_at?: string;
+  helix_user_id?: string;
   id?: string;
+  identity?: Record<string, string>;
+  /**
+   * Kind is "" (agent) or "human". A human node is a person placeholder,
+   * never activated; Identity holds their cross-system handles and
+   * HelixUserID optionally links them to a Helix org member. Identity is
+   * omitted for agent bots.
+   */
+  kind?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
    * back to ID. Distinct from ID, which is the immutable handle.
@@ -341,6 +350,12 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  /**
+   * Identity is the per-channel handle map for a human node (slack/github/
+   * email/…). When present it replaces the stored map; absent leaves it
+   * unchanged. Only meaningful for kind=human bots.
+   */
+  identity?: Record<string, string>;
   name?: string;
   preserve_context?: boolean;
   tools?: string[];

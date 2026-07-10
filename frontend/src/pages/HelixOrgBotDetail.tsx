@@ -107,6 +107,10 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
+  // A human node is a person placeholder — it never runs, so the agent-only
+  // surfaces (Project Desktop session, tools, preserve-context, restart) make
+  // no sense for it and are hidden below.
+  const isHuman = bot?.kind === 'human'
 
   // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
@@ -120,6 +124,16 @@ const HelixOrgBotDetail: FC = () => {
     setTools(bot?.tools ?? [])
     setPreserveContext(bot?.preserve_context ?? false)
   }, [bot?.name, bot?.content, bot?.tools, bot?.preserve_context])
+
+  // A human node is a person, not a bot — the agent detail page (desktop,
+  // tools, activation) makes no sense for it. Redirect a direct hit on
+  // /bots/h-<userId> to the dedicated person view. The render below also
+  // guards on isHuman so the agent surfaces never flash before the redirect.
+  useEffect(() => {
+    if (isHuman && orgSlug && botId) {
+      router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
+    }
+  }, [isHuman, orgSlug, botId, router])
 
   // The Autocomplete needs Option objects, but the bot's tool list is
   // just a string[] of names. Render every catalogue entry plus any
@@ -292,7 +306,7 @@ const HelixOrgBotDetail: FC = () => {
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
-        {isLoading || !bot ? (
+        {isLoading || !bot || isHuman ? (
           <LoadingSpinner />
         ) : (
           <>
@@ -320,28 +334,27 @@ const HelixOrgBotDetail: FC = () => {
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Stack spacing={2} alignItems="flex-start">
                     <Stack
-                      direction="row"
+                      direction={{ xs: 'column', sm: 'row' }}
                       justifyContent="space-between"
-                      alignItems="center"
+                      alignItems={{ xs: 'flex-start', sm: 'center' }}
+                      spacing={1}
                       sx={{ width: '100%' }}
                     >
-                      <Typography variant="subtitle1">
-                        {sessionTab === 'chat' ? 'Chat with this bot' : 'Bot desktop'}
-                      </Typography>
+                      <Typography variant="subtitle1">Agent activity</Typography>
                       <ToggleButtonGroup
                         size="small"
                         exclusive
                         value={sessionTab}
                         onChange={(_e, value) => { if (value) setSessionTab(value) }}
                       >
-                        <ToggleButton value="chat">Chat</ToggleButton>
+                        <ToggleButton value="chat">Transcript</ToggleButton>
                         <ToggleButton value="desktop">Desktop</ToggleButton>
                       </ToggleButtonGroup>
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                       {sessionTab === 'chat'
-                        ? "The conversation below is the bot's Project Desktop session — the same transcript you'd see in the desktop view, including its MCP tool calls. Send a message to drive it from here."
-                        : "The live desktop of the bot's Project Desktop session — watch and drive what its agent is doing in real time."}
+                        ? "The bot's agent session — the transcript of what it's doing, including its MCP tool calls. Send a message to drive it."
+                        : "The live desktop of the bot's agent session — watch and drive what it is doing in real time."}
                     </Typography>
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches

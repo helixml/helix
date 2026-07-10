@@ -152,6 +152,11 @@ func (a *apiHandler) reapplyBotsAfterRuntimeChange(ctx context.Context, orgID st
 		return
 	}
 	for _, b := range bs {
+		// A human node is never provisioned/activated — skip it, or the
+		// runtime-change sweep would spin up a desktop for every person.
+		if b.IsHuman() {
+			continue
+		}
 		provisioned := true
 		if a.deps.BotRuntime != nil {
 			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)

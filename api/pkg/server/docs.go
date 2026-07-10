@@ -21269,7 +21269,20 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "helix_user_id": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
                     "type": "string"
                 },
                 "name": {
@@ -21893,6 +21906,13 @@ const docTemplate = `{
             "properties": {
                 "content": {
                     "type": "string"
+                },
+                "identity": {
+                    "description": "Identity is the per-channel handle map for a human node (slack/github/\nemail/…). When present it replaces the stored map; absent leaves it\nunchanged. Only meaningful for kind=human bots.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "name": {
                     "type": "string"

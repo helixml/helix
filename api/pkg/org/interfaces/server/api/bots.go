@@ -211,11 +211,16 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
+	var identityPatch *map[string]string
+	if req.Identity != nil {
+		identityPatch = &req.Identity
+	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
 		Name:            req.Name,
 		Content:         req.Content,
 		Tools:           toolsPatch,
 		PreserveContext: req.PreserveContext,
+		Identity:        identityPatch,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -571,6 +576,9 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
+		Kind:            b.Kind,
+		HelixUserID:     b.HelixUserID,
+		Identity:        b.Identity,
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)

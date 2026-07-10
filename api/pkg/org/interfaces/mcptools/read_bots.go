@@ -18,8 +18,11 @@ import (
 // place in the reporting graph (parentIds). A Bot's subscriptions are not
 // on the bot — read them via the topic/subscription read tools.
 type botView struct {
-	ID        orgchart.BotID   `json:"id"`
-	Name      string           `json:"name,omitempty"`
+	ID   orgchart.BotID `json:"id"`
+	Name string         `json:"name,omitempty"`
+	// Kind is "" for an agent bot or "human" for a person (a human node).
+	// Use ask_human to reach a person; do not try to dm/manage them.
+	Kind      string           `json:"kind,omitempty"`
 	Content   string           `json:"content"`
 	Tools     []tool.Name      `json:"tools,omitempty"`
 	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
@@ -31,6 +34,7 @@ func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
 	return botView{
 		ID:        b.ID,
 		Name:      b.Name,
+		Kind:      b.Kind,
 		Content:   b.Content,
 		Tools:     b.Tools,
 		ParentIDs: managers,
@@ -53,8 +57,9 @@ type listBotsArgs struct{}
 func (t *ListBots) Name() tool.Name                 { return ListBotsName }
 func (t *ListBots) InputSchema() *jsonschema.Schema { return listBotsSchema }
 func (t *ListBots) Description() string {
-	return "List every Bot: id, markdown content, tools, reporting parents, and " +
-		"timestamps. Use this to discover what bots exist."
+	return "List every Bot: id, name, kind, markdown content, tools, reporting parents, " +
+		"and timestamps. Use this to discover what bots exist. `kind` is \"\" for an agent " +
+		"bot or \"human\" for a person (a human node) — reach a person with `ask_human`."
 }
 
 func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {

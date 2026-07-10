@@ -5,11 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// repoEnsureMu serialises per-Worker repo creation across all activations. Two
+// activations for the same bot otherwise both observe DefaultRepoID=="" and each
+// create+attach a same-named repo — duplicates the desktop workspace setup then
+// clones into one path and fails on. A single global lock is fine: activation is
+// low-throughput and the critical section is a check-create-attach.
+// ponytail: global lock; shard per-org if activation throughput ever grows.
+var repoEnsureMu sync.Mutex
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return
 // when GetProject is called against a project that no longer exists on
@@ -296,27 +305,10 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	// it, the operator sees it in the snackbar instead of "Still
 	// waiting for external agent to connect".
 	if repoID == "" {
-		ownerID, _ := a.Service.WhoAmI(ctx)
-		if ownerID == "" {
-			return "", "", "", fmt.Errorf("apply project for %s: cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)", workerID)
-		}
-		repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
-			Name:           string(workerID),
-			OwnerID:        ownerID,
-			OrganizationID: projOrgID,
-			InitialFiles: map[string]string{
-				"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix bot `" + string(workerID) + "`. Files in `job/` carry the bot's role prompt.\n",
-			},
-		})
-		if err != nil {
-			return "", "", "", fmt.Errorf("apply project for %s: create per-Worker repo: %w", workerID, err)
-		}
-		if err := a.Service.AttachRepoToProject(ctx, resp.ProjectID, repo.ID, true); err != nil {
-			return "", "", "", fmt.Errorf("apply project for %s: attach repo %s to project %s: %w", workerID, repo.ID, resp.ProjectID, err)
-		}
-		repoID = repo.ID
-		if a.Logger != nil {
-			a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
+		var rerr error
+		repoID, rerr = a.ensureWorkerRepo(ctx, resp.ProjectID, projOrgID, workerID)
+		if rerr != nil {
+			return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, rerr)
 		}
 	}
 	a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
@@ -347,6 +339,43 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 // separate identity — its Content IS its prompt, written to role.md.
 // Best-effort: errors are logged, not returned — a single failed file
 // shouldn't block the rest of the apply.
+// ensureWorkerRepo returns the project's per-Worker repo, creating and attaching
+// one only if the project truly has none. Serialised on repoEnsureMu and
+// re-checks GetProject inside the lock, so two concurrent activations for the
+// same bot cannot each create a duplicate same-named repo (which the desktop
+// workspace setup would then clone into the same path and fail on).
+func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID string, workerID orgchart.BotID) (string, error) {
+	repoEnsureMu.Lock()
+	defer repoEnsureMu.Unlock()
+	// A concurrent activation may have created+attached the repo since the
+	// caller read DefaultRepoID; re-check under the lock before creating.
+	if proj, err := a.Service.GetProject(ctx, projectID); err == nil && proj.DefaultRepoID != "" {
+		return proj.DefaultRepoID, nil
+	}
+	ownerID, _ := a.Service.WhoAmI(ctx)
+	if ownerID == "" {
+		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)")
+	}
+	repo, err := a.Service.CreateGitRepo(ctx, types.GitRepositoryCreateRequest{
+		Name:           string(workerID),
+		OwnerID:        ownerID,
+		OrganizationID: orgID,
+		InitialFiles: map[string]string{
+			"README.md": "# " + string(workerID) + "\n\nWorkspace for Helix bot `" + string(workerID) + "`. Files in `job/` carry the bot's role prompt.\n",
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("create per-Worker repo: %w", err)
+	}
+	if err := a.Service.AttachRepoToProject(ctx, projectID, repo.ID, true); err != nil {
+		return "", fmt.Errorf("attach repo %s to project %s: %w", repo.ID, projectID, err)
+	}
+	if a.Logger != nil {
+		a.Logger.Info("helix repo created and attached", "worker", workerID, "repo", repo.ID)
+	}
+	return repo.ID, nil
+}
+
 func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return

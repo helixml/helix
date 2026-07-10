@@ -61,6 +61,10 @@ import (
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
+	// seeder creates the membership-driven human nodes + the per-org Chief
+	// of Staff bot. Copied onto HelixAPIServer by mountHelixOrg so the
+	// org-lifecycle handlers (org create, membership add/remove) can drive it.
+	seeder *orgGraphSeeder
 	// streamCron is the in-process scheduler that fires events on
 	// KindCron topics. The server's run loop calls Start on it in a
 	// goroutine so it runs for the lifetime of the API process.
@@ -262,6 +266,7 @@ func (s *HelixAPIServer) mountHelixOrg(ctx context.Context, insecureRouter, auth
 	// the generic service-connection handlers can stay helix-org-agnostic
 	// while a slack_app change still reconciles Socket Mode / cascades.
 	s.helixOrg = orgHandlers
+	s.orgSeeder = orgHandlers.seeder
 	s.onServiceConnectionChange = s.reactToServiceConnectionChange
 
 	// Stream-cron scheduler runs for the lifetime of ctx
@@ -776,6 +781,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
 	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
+	// ask_human delivers to a person's in-app inbox via the main Helix
+	// attention-event service (the notification bell).
+	deps.HumanInbox = humanInbox{store: helixStore}
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
@@ -957,9 +965,25 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
 
+	// Membership-driven human-node + Chief of Staff seeder. Reuses the same
+	// lifecycle (CoS runs) and bots (human nodes never run) services the REST
+	// create path uses; botStore backs idempotency checks.
+	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Bots, botStore: st.Bots}
+	// Bootstrap-time reconcile: converge human nodes against org membership.
+	// The correctness backstop for the inline hooks (which miss OIDC-driven
+	// joins and existing orgs). Runs once per org per process via ensureBootstrap.
+	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+		members, err := listOrgMemberUsers(ctx, helixStore, orgID)
+		if err != nil {
+			return err
+		}
+		return seeder.ReconcileHumans(ctx, orgID, members)
+	}
+
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
+		seeder:                       seeder,
 		streamCron:                   streamCronScheduler,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,

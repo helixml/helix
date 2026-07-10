@@ -8,11 +8,13 @@ import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
+import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
+import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import TransformIcon from '@mui/icons-material/Transform'
 
@@ -986,6 +988,65 @@ type Selection =
   | { kind: 'none' }
   | { kind: 'newBot'; parentBotId: string }
 
+// PeoplePanel is the docked list of the org's people, pinned to the bottom-
+// right of the chart canvas. People (kind=human) are NOT graph nodes — the
+// chart is for agents — but they're shown here alongside the agents with the
+// contact channels the org reaches them on plus their responsibility. Click
+// a person to open their profile.
+const PeoplePanel: FC<{ people: BotDTO[]; onSelect: (botId: string) => void }> = ({ people, onSelect }) => {
+  const lightTheme = useLightTheme()
+  if (people.length === 0) return null
+  const bg = lightTheme.isLight ? 'rgba(255,255,255,0.96)' : 'rgba(28,28,32,0.96)'
+  const border = lightTheme.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.14)'
+  const hover = lightTheme.isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)'
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        position: 'absolute', bottom: 12, right: 12, zIndex: 5,
+        width: 300, maxHeight: '48%', display: 'flex', flexDirection: 'column',
+        border: `1px solid ${border}`, borderRadius: 1.5, backgroundColor: bg,
+        backdropFilter: 'blur(4px)',
+      }}
+    >
+      <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${border}` }}>
+        <Stack direction="row" alignItems="center" spacing={0.75}>
+          <PersonOutlineIcon sx={{ fontSize: 16, color: 'rgba(60,140,210,0.9)' }} />
+          <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            People
+          </Typography>
+        </Stack>
+      </Box>
+      <Box sx={{ p: 0.5, overflowY: 'auto' }}>
+        {people.map((p) => {
+          const channels = Object.entries(p.identity ?? {}).filter(([, v]) => !!v)
+          const responsibility = (p.content || '').split('\n').find((l) => l.trim() !== '')?.trim()
+          return (
+            <Box
+              key={p.id}
+              className="nodrag nopan"
+              onClick={() => onSelect(p.id ?? '')}
+              sx={{ px: 1, py: 0.75, borderRadius: 1, cursor: 'pointer', '&:hover': { backgroundColor: hover } }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name || p.id}</Typography>
+              {channels.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {channels.map(([k, v]) => `${k}: ${v}`).join('  ·  ')}
+                </Typography>
+              )}
+              {responsibility && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {responsibility}
+                </Typography>
+              )}
+            </Box>
+          )
+        })}
+      </Box>
+    </Paper>
+  )
+}
+
 const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
@@ -1003,11 +1064,22 @@ const HelixOrgChart: FC = () => {
   const unsubscribe = useUnsubscribeBotAtChart()
 
   const flat = useMemo<FlatBot[]>(
-    () => (botsData ?? []).map((b: BotDTO) => ({
-      id: b.id ?? '',
-      name: b.name ?? '',
-      parentIds: b.parent_ids ?? [],
-    })),
+    () => (botsData ?? [])
+      // People (kind=human) are managed in the People tab, not on the agent
+      // chart — the chart is for agent relationships (reporting, subscriptions).
+      .filter((b: BotDTO) => b.kind !== 'human')
+      .map((b: BotDTO) => ({
+        id: b.id ?? '',
+        name: b.name ?? '',
+        parentIds: b.parent_ids ?? [],
+      })),
+    [botsData],
+  )
+
+  // People (kind=human) — shown in the docked PeoplePanel on the chart, not
+  // as graph nodes.
+  const people = useMemo<BotDTO[]>(
+    () => (botsData ?? []).filter((b: BotDTO) => b.kind === 'human'),
     [botsData],
   )
 
@@ -1080,6 +1152,13 @@ const HelixOrgChart: FC = () => {
     (botId: string) => {
       if (!orgSlug) return
       router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
+    },
+    [router, orgSlug],
+  )
+  const onSelectPerson = useCallback(
+    (botId: string) => {
+      if (!orgSlug) return
+      router.navigate('helix_org_human_detail', { org_id: orgSlug, bot_id: botId })
     },
     [router, orgSlug],
   )
@@ -1316,6 +1395,7 @@ const HelixOrgChart: FC = () => {
               />
             </ReactFlowProvider>
           )}
+          <PeoplePanel people={people} onSelect={onSelectPerson} />
         </Box>
       </Box>
 
