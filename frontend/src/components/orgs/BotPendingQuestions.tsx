@@ -13,7 +13,10 @@ import useLightTheme from '../../hooks/useLightTheme'
 // (markdown, good contrast) so the human sees exactly what to respond to, with
 // the reply box directly below. "Mark answered" dismisses the attention event.
 const BotPendingQuestions: React.FC<{ botId: string; botName?: string }> = ({ botId, botName }) => {
-  const { events, dismiss } = useAttentionEvents(true, true) // mine, active (not dismissed)
+  // Default (non-"mine") query: the user's own active (not dismissed) events —
+  // exactly the org_messages addressed to this user. The "mine" variant filters
+  // these out, so don't use it here.
+  const { events, dismiss } = useAttentionEvents(true, false)
   const lightTheme = useLightTheme()
 
   const questions = (events || []).filter(
