@@ -753,7 +753,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           top: 0,
           right: 0,
           bottom: 0,
-          width: PANEL_WIDTH,
+          width: { xs: '100%', sm: PANEL_WIDTH },
           maxWidth: '100vw',
           textAlign: 'left',
           backgroundColor: lightTheme.panelColor,
