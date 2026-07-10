@@ -272,10 +272,19 @@ const AttentionEventItem: React.FC<{
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
   const api = useApi()
+  const account = useAccount()
   const snackbar = useSnackbar()
   const [replyOpen, setReplyOpen] = useState(false)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
+
+  // Which org this org_message is from — several orgs each have a Chief of
+  // Staff, so "Message from chief-of-staff" alone is ambiguous. Resolve the
+  // org's display name from the user's org list (the recipient is a member).
+  const orgForEvent = account.organizationTools?.organizations?.find(
+    (o) => o.id === event.organization_id,
+  )
+  const orgName = orgForEvent?.display_name || orgForEvent?.name
 
   // org_message (a bot's ask_human) is read and answered inline here — the
   // message rendered as markdown, with a Respond form that posts the reply to
@@ -311,12 +320,19 @@ const AttentionEventItem: React.FC<{
           ...(isAcknowledged ? { opacity: 0.7 } : {}),
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
-          <MessageSquare size={14} style={{ color: accentColor, flexShrink: 0 }} />
-          <Typography variant="caption" sx={{ fontWeight: 700, color: lightTheme.textColor, flex: 1, minWidth: 0 }}>
-            {event.title}
-          </Typography>
-          <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mb: 0.75 }}>
+          <MessageSquare size={14} style={{ color: accentColor, flexShrink: 0, marginTop: 2 }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: lightTheme.textColor, display: 'block', lineHeight: 1.3 }}>
+              {event.title}
+            </Typography>
+            {orgName && (
+              <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.64rem', display: 'block', lineHeight: 1.2 }}>
+                in {orgName}
+              </Typography>
+            )}
+          </Box>
+          <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0, mt: 0.25 }}>
             {timeAgo(event.created_at)}
           </Typography>
           <Tooltip title="Dismiss">
