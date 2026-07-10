@@ -287,15 +287,23 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if err != nil {
 		return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, err)
 	}
-	// Project secrets — env-var injection.
-	_ = a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL)
-	_ = a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID))
-	// Discover the project's primary repo and its org.
+	// Project secrets — env-var injection. The worker needs these to reach
+	// the org runtime, so a failure is worth surfacing (logged, not fatal:
+	// a re-apply on the next activation retries the upsert).
+	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_ORG_URL", a.HelixOrgURL); err != nil && a.Logger != nil {
+		a.Logger.Warn("put project secret HELIX_ORG_URL", "worker", workerID, "project", resp.ProjectID, "err", err)
+	}
+	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID)); err != nil && a.Logger != nil {
+		a.Logger.Warn("put project secret HELIX_WORKER_ID", "worker", workerID, "project", resp.ProjectID, "err", err)
+	}
+	// Discover the project's primary repo. A GetProject failure here just
+	// means we fall through to ensureWorkerRepo (which re-reads under the
+	// lock) — log it so the cause is visible if a repo is then created.
 	repoID = ""
-	var projOrgID string
 	if proj, err := a.Service.GetProject(ctx, resp.ProjectID); err == nil {
 		repoID = proj.DefaultRepoID
-		projOrgID = proj.OrganizationID
+	} else if a.Logger != nil {
+		a.Logger.Warn("discover project repo: GetProject failed", "worker", workerID, "project", resp.ProjectID, "err", err)
 	}
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
@@ -313,8 +321,13 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	// it, the operator sees it in the snackbar instead of "Still
 	// waiting for external agent to connect".
 	if repoID == "" {
+		// Use the authoritative orgID (the org the project was applied into),
+		// NOT an org read back from GetProject — that read may have failed
+		// above, leaving an empty org that would create an org-less repo and
+		// then be rejected by AttachRepoToProject ("must be in the same org"),
+		// leaking the just-created repo.
 		var rerr error
-		repoID, rerr = a.ensureWorkerRepo(ctx, resp.ProjectID, projOrgID, workerID)
+		repoID, rerr = a.ensureWorkerRepo(ctx, resp.ProjectID, orgID, workerID)
 		if rerr != nil {
 			return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, rerr)
 		}
@@ -354,7 +367,10 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	if proj, err := a.Service.GetProject(ctx, projectID); err == nil && proj.DefaultRepoID != "" {
 		return proj.DefaultRepoID, nil
 	}
-	ownerID, _ := a.Service.WhoAmI(ctx)
+	ownerID, err := a.Service.WhoAmI(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI failed: %w", err)
+	}
 	if ownerID == "" {
 		return "", fmt.Errorf("cannot create per-Worker repo — WhoAmI returned empty owner id (host wiring forgot to supply a service user?)")
 	}
