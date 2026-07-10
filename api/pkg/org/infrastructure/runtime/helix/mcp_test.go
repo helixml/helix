@@ -213,6 +213,10 @@ func (noopProjectService) PutProjectSecret(_ context.Context, _, _, _ string) er
 func (noopProjectService) CreateGitRepo(_ context.Context, _ types.GitRepositoryCreateRequest) (types.GitRepository, error) {
 	return types.GitRepository{}, nil
 }
+func (noopProjectService) GetGitRepo(_ context.Context, repoID string) (types.GitRepository, error) {
+	return types.GitRepository{ID: repoID, Name: repoID}, nil
+}
+func (noopProjectService) DeleteGitRepo(_ context.Context, _ string) error { return nil }
 func (noopProjectService) AttachRepoToProject(_ context.Context, _, _ string, _ bool) error {
 	return nil
 }

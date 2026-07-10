@@ -287,6 +287,46 @@ func (c *inProcHelixClient) CreateGitRepo(ctx context.Context, req types.GitRepo
 	return repo, nil
 }
 
+// GetGitRepo returns a repo by ID, mapping a 404 to ErrRepoNotFound so the
+// worker-project fast path can detect a deleted repo and re-provision.
+func (c *inProcHelixClient) GetGitRepo(ctx context.Context, repoID string) (types.GitRepository, error) {
+	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/git/repositories/"+repoID, nil, map[string]string{"id": repoID})
+	if err != nil {
+		return types.GitRepository{}, err
+	}
+	rec := httptest.NewRecorder()
+	c.server.getGitRepository(rec, r)
+	if rec.Code == http.StatusNotFound {
+		return types.GitRepository{}, fmt.Errorf("%w: %s", runtimehelix.ErrRepoNotFound, strings.TrimSpace(rec.Body.String()))
+	}
+	if rec.Code >= 400 {
+		return types.GitRepository{}, fmt.Errorf("get git repo %s: %s: %s", repoID, rec.Result().Status, strings.TrimSpace(rec.Body.String()))
+	}
+	var repo types.GitRepository
+	if err := json.Unmarshal(rec.Body.Bytes(), &repo); err != nil {
+		return types.GitRepository{}, fmt.Errorf("decode git repo response: %w", err)
+	}
+	return repo, nil
+}
+
+// DeleteGitRepo removes a repo by ID. A missing repo is treated as success
+// (the goal is that it's gone).
+func (c *inProcHelixClient) DeleteGitRepo(ctx context.Context, repoID string) error {
+	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/git/repositories/"+repoID, nil, map[string]string{"id": repoID})
+	if err != nil {
+		return err
+	}
+	rec := httptest.NewRecorder()
+	c.server.deleteGitRepository(rec, r)
+	if rec.Code == http.StatusNotFound {
+		return nil
+	}
+	if rec.Code >= 400 {
+		return fmt.Errorf("delete git repo %s: %s: %s", repoID, rec.Result().Status, strings.TrimSpace(rec.Body.String()))
+	}
+	return nil
+}
+
 // AttachRepoToProject attaches a repo to a project, optionally marking
 // it primary. Two underlying handlers (attachRepositoryToProject +
 // setProjectPrimaryRepository) are called in sequence to mirror the

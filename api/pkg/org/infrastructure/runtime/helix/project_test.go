@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -22,29 +23,33 @@ import (
 type fakeProjectService struct {
 	mu sync.Mutex
 
-	applyCalls             int
-	lastApplyReq           types.ProjectApplyRequest
-	applyResponse          types.ProjectApplyResponse
-	applyErr               error
-	getProjectCalls        int
-	getProjectResp         types.Project
-	getProjectErr          error
-	updateProjectCalls     int
-	updateProjectPatchLast types.ProjectUpdateRequest
-	updateProjectErr       error
-	putSecretCalls         int
-	putSecretLast          map[string]string
-	createGitRepoCalls     int
-	createGitRepoErr       error
-	attachRepoErr          error
-	attachRepoCalls        int
-	getAppCalls            int
-	appConfig              types.AppConfig
-	updateAppCalls         int
-	updateAppLastCfg       types.AppConfig
-	whoAmIResp             string
-	deleteProjectIDs       []string
-	deleteAppIDs           []string
+	applyCalls              int
+	lastApplyReq            types.ProjectApplyRequest
+	applyResponse           types.ProjectApplyResponse
+	applyErr                error
+	getProjectCalls         int
+	getProjectResp          types.Project
+	getProjectErr           error
+	updateProjectCalls      int
+	updateProjectPatchLast  types.ProjectUpdateRequest
+	updateProjectErr        error
+	putSecretCalls          int
+	putSecretLast           map[string]string
+	createGitRepoCalls      int
+	createGitRepoErr        error
+	createGitRepoNameReturn string // when set, CreateGitRepo returns this name (simulates auto-increment on collision)
+	getGitRepoCalls         int
+	getGitRepoErr           error
+	deleteGitRepoIDs        []string
+	attachRepoErr           error
+	attachRepoCalls         int
+	getAppCalls             int
+	appConfig               types.AppConfig
+	updateAppCalls          int
+	updateAppLastCfg        types.AppConfig
+	whoAmIResp              string
+	deleteProjectIDs        []string
+	deleteAppIDs            []string
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -112,7 +117,28 @@ func (f *fakeProjectService) CreateGitRepo(_ context.Context, req types.GitRepos
 	if f.createGitRepoErr != nil {
 		return types.GitRepository{}, f.createGitRepoErr
 	}
-	return types.GitRepository{ID: "repo-" + req.Name, Name: req.Name}, nil
+	name := req.Name
+	if f.createGitRepoNameReturn != "" {
+		name = f.createGitRepoNameReturn
+	}
+	return types.GitRepository{ID: "repo-" + name, Name: name}, nil
+}
+
+func (f *fakeProjectService) GetGitRepo(_ context.Context, repoID string) (types.GitRepository, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.getGitRepoCalls++
+	if f.getGitRepoErr != nil {
+		return types.GitRepository{}, f.getGitRepoErr
+	}
+	return types.GitRepository{ID: repoID, Name: repoID}, nil
+}
+
+func (f *fakeProjectService) DeleteGitRepo(_ context.Context, repoID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteGitRepoIDs = append(f.deleteGitRepoIDs, repoID)
+	return nil
 }
 
 func (f *fakeProjectService) AttachRepoToProject(_ context.Context, _, _ string, _ bool) error {
@@ -351,6 +377,90 @@ func TestEnsureRequiresRepoToBeAttached(t *testing.T) {
 			t.Fatal("Ensure returned nil error when WhoAmI gave an empty owner; without an owner we can't create a repo at all, so this must fail loudly")
 		}
 	})
+}
+
+// TestEnsureDeletesOrphanRepoOnAttachFailure: a repo created but not
+// attachable is an orphan with nothing pointing at it. It must be deleted so a
+// retry doesn't leak it (CreateGitRepo auto-increments, so a retry would make
+// `<worker>-2` beside the orphan).
+func TestEnsureDeletesOrphanRepoOnAttachFailure(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.attachRepoErr = errors.New("attach nope")
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err == nil {
+		t.Fatal("Ensure must fail when attach fails")
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng" {
+		t.Fatalf("orphan repo not deleted: deleteGitRepoIDs = %v, want [repo-w-eng]", svc.deleteGitRepoIDs)
+	}
+}
+
+// TestEnsureDeletesRacedDuplicateRepo: when CreateGitRepo returns a name we
+// didn't ask for (it auto-incremented because a same-named repo already
+// existed — a lost cross-process create race), the duplicate must be deleted,
+// not kept.
+func TestEnsureDeletesRacedDuplicateRepo(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.createGitRepoNameReturn = "w-eng-2" // simulate auto-increment on collision
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	if _, _, _, err := a.Ensure(context.Background(), "org-test", wid); err == nil {
+		t.Fatal("Ensure must fail (retry) when it loses a create race")
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.deleteGitRepoIDs) != 1 || svc.deleteGitRepoIDs[0] != "repo-w-eng-2" {
+		t.Fatalf("raced duplicate not deleted: deleteGitRepoIDs = %v, want [repo-w-eng-2]", svc.deleteGitRepoIDs)
+	}
+	if svc.attachRepoCalls != 0 {
+		t.Errorf("must not attach a raced duplicate; attachRepoCalls = %d", svc.attachRepoCalls)
+	}
+}
+
+// TestEnsureFastPathReprovisionsDeletedRepo: on the persisted-project fast
+// path, a DefaultRepoID/state repo that has been deleted out-of-band must be
+// re-provisioned, not handed back as a dead id.
+func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
+	t.Parallel()
+	st, wid := newProjectTestStore(t, "# Role v1")
+	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_gone"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	svc := newFakeProjectService()
+	svc.getProjectResp = types.Project{ID: "prj_existing", DefaultRepoID: "repo_gone"}
+	svc.getGitRepoErr = fmt.Errorf("%w: deleted out of band", ErrRepoNotFound)
+	git := newFakeGitForProject()
+	a := newApplierGit(svc, git, st)
+
+	_, _, rid, err := a.Ensure(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if rid != "repo-w-eng" {
+		t.Fatalf("fast path did not re-provision the deleted repo: rid = %q, want repo-w-eng", rid)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.createGitRepoCalls != 1 {
+		t.Errorf("deleted repo must be re-created; createGitRepoCalls = %d, want 1", svc.createGitRepoCalls)
+	}
+	// The new repo id must be persisted so the next activation is clean.
+	state, err := LoadState(context.Background(), st, "org-test", wid)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if state.RepoID != "repo-w-eng" {
+		t.Errorf("re-provisioned repo id not persisted: state.RepoID = %q, want repo-w-eng", state.RepoID)
+	}
 }
 
 // TestEnsureWithPersistedProjectFastPaths checks the persisted-project
