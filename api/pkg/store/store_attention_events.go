@@ -86,11 +86,14 @@ func (s *PostgresStore) ListAttentionEvents(ctx context.Context, userID, organiz
 
 	mineFilter := ""
 	if filters.MineOnly {
-		// Assignee takes priority; fall back to created_by when no assignee is set.
-		mineFilter = "AND spec_task_id IN (" +
+		// Task events: mine when I'm the assignee (priority) or the creator.
+		// Org messages have no spec task but are addressed straight at this user
+		// (the outer user_id = ? already scopes them), so an ask_human sent to me
+		// is always "mine" — include every event that has no spec task.
+		mineFilter = "AND (spec_task_id = '' OR spec_task_id IN (" +
 			"SELECT id FROM spec_tasks " +
 			"WHERE assignee_id = ? " +
-			"OR ((assignee_id IS NULL OR assignee_id = '') AND created_by = ?))"
+			"OR ((assignee_id IS NULL OR assignee_id = '') AND created_by = ?)))"
 		args = append(args, userID, userID)
 	}
 
