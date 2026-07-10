@@ -49,6 +49,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import SessionPromptQueue from '../components/session/SessionPromptQueue'
+import BotPendingQuestions from '../components/orgs/BotPendingQuestions'
 import EmbeddedSessionView, {
   EmbeddedSessionViewHandle,
 } from '../components/session/EmbeddedSessionView'
@@ -377,6 +378,9 @@ const HelixOrgBotDetail: FC = () => {
                             overflow: 'hidden',
                           }}
                         >
+                          {botId ? (
+                            <BotPendingQuestions botId={botId} botName={bot?.name} />
+                          ) : null}
                           <EmbeddedSessionView
                             ref={sessionViewRef}
                             sessionId={chatSessionId}
