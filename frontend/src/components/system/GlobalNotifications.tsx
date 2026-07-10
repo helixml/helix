@@ -6,15 +6,21 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare } from 'lucide-react'
+import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
+import CircularProgress from '@mui/material/CircularProgress'
+import ReactMarkdown from 'react-markdown'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, CornerUpLeft } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
 import router from '../../router'
+import { Api } from '../../api/api'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -38,24 +44,24 @@ function timeAgoMs(ms: number): string {
   return timeAgo(new Date(ms).toISOString())
 }
 
-// navigateToOrgMessageBot routes an org_message notification (a bot reaching a
-// person via ask_human) into that bot's chat panel. The bot's agent runs in the
-// bot's exploratory session — the same session the chat panel drives — so a
-// reply typed there reaches the exact agent that asked, closing the loop. No
-// separate DM surface is needed. The route's :org_id is the org slug, which we
-// resolve from the event's organization_id via the user's org list.
-function navigateToOrgMessageBot(
+// replyToOrgMessage sends the human's reply to the bot that asked (via
+// ask_human) without leaving the notification. It resolves the bot's
+// exploratory session (bot → project → session) and posts the reply there —
+// the same session the agent runs in, so it lands as the agent's next turn.
+async function replyToOrgMessage(
+  apiClient: Api<unknown>['api'],
   event: AttentionEvent,
-  organizations: { id?: string; name?: string }[],
-): void {
+  text: string,
+): Promise<void> {
   const botId = (event.metadata as { bot_id?: string } | undefined)?.bot_id
-  if (!botId || !event.organization_id) return
-  // The route's :org_id resolves as either the org slug or the org id (backend
-  // lookupOrg accepts both). Prefer the slug for a readable URL when the org is
-  // in the user's list, but fall back to the id so routing never depends on the
-  // list being loaded/complete.
-  const orgSlug = organizations.find((o) => o.id === event.organization_id)?.name
-  router.navigate('helix_org_bot_detail', { org_id: orgSlug || event.organization_id, bot_id: botId })
+  if (!botId || !event.organization_id) throw new Error('missing bot or org on notification')
+  const bot = await apiClient.v1OrgsBotsDetail2(botId, event.organization_id)
+  const projectId = bot.data?.project_id
+  if (!projectId) throw new Error('could not resolve the bot’s project')
+  const session = await apiClient.v1ProjectsExploratorySessionDetail(projectId)
+  const sessionId = session.data?.id
+  if (!sessionId) throw new Error('the bot has no active session yet')
+  await apiClient.v1SessionsMessagesCreate(sessionId, { content: text, interrupt: true })
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
@@ -265,6 +271,131 @@ const AttentionEventItem: React.FC<{
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
+  const api = useApi()
+  const snackbar = useSnackbar()
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [reply, setReply] = useState('')
+  const [sending, setSending] = useState(false)
+
+  // org_message (a bot's ask_human) is read and answered inline here — the
+  // message rendered as markdown, with a Respond form that posts the reply to
+  // the bot's session. Everything stays in the notification (no navigation),
+  // which keeps it usable on mobile / small screens.
+  if (isOrgMessage) {
+    const sendReply = async () => {
+      const text = reply.trim()
+      if (!text || sending) return
+      setSending(true)
+      try {
+        await replyToOrgMessage(api.getApiClient(), event, text)
+        setReply('')
+        setReplyOpen(false)
+        onDismiss(event.id)
+        snackbar.success('Reply sent')
+      } catch (e: any) {
+        snackbar.error(e?.message || 'Failed to send reply')
+      } finally {
+        setSending(false)
+      }
+    }
+    return (
+      <Box
+        sx={{
+          px: 1.5,
+          py: 1.25,
+          borderLeft: `3px solid ${accentColor}`,
+          ...(isAcknowledged ? { opacity: 0.7 } : {}),
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
+          <MessageSquare size={14} style={{ color: accentColor, flexShrink: 0 }} />
+          <Typography variant="caption" sx={{ fontWeight: 700, color: lightTheme.textColor, flex: 1, minWidth: 0 }}>
+            {event.title}
+          </Typography>
+          <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {timeAgo(event.created_at)}
+          </Typography>
+          <Tooltip title="Dismiss">
+            <IconButton size="small" onClick={() => onDismiss(event.id)} sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded }}>
+              <X size={13} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Box
+          sx={{
+            color: lightTheme.textColor,
+            fontSize: '0.8rem',
+            lineHeight: 1.5,
+            wordBreak: 'break-word',
+            '& p': { m: 0, mb: 0.75 },
+            '& p:last-child': { mb: 0 },
+            '& ol, & ul': { pl: 2.5, m: 0, mb: 0.75 },
+            '& li': { mb: 0.25 },
+            '& strong': { fontWeight: 700 },
+            '& code': {
+              px: 0.5,
+              borderRadius: 0.5,
+              fontSize: '0.85em',
+              backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
+            },
+          }}
+        >
+          <ReactMarkdown>{event.description || ''}</ReactMarkdown>
+        </Box>
+        {!replyOpen ? (
+          <Button
+            size="small"
+            startIcon={<CornerUpLeft size={13} />}
+            onClick={() => setReplyOpen(true)}
+            sx={{ mt: 1, textTransform: 'none' }}
+          >
+            Respond
+          </Button>
+        ) : (
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={6}
+              size="small"
+              autoFocus
+              placeholder="Type your reply…"
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void sendReply()
+                }
+              }}
+              disabled={sending}
+            />
+            <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1 }}>
+              <Button
+                size="small"
+                onClick={() => { setReplyOpen(false); setReply('') }}
+                disabled={sending}
+                sx={{ textTransform: 'none' }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => void sendReply()}
+                disabled={!reply.trim() || sending}
+                startIcon={sending ? <CircularProgress size={13} color="inherit" /> : undefined}
+                sx={{ textTransform: 'none' }}
+              >
+                {sending ? 'Sending…' : 'Send reply'}
+              </Button>
+            </Stack>
+          </Box>
+        )}
+      </Box>
+    )
+  }
 
   return (
     <Box
@@ -451,11 +582,8 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           isOrgMessage ? (event.description || '') : `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
-            // org_message opens the bot's chat panel to reply (see handleNavigate).
-            if (isOrgMessage) {
-              navigateToOrgMessageBot(event, account.organizationTools.organizations || [])
-              return
-            }
+            // org_message is read/replied inline in the panel — just mark read.
+            if (isOrgMessage) return
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -481,12 +609,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     // Mark as read on explicit click
     acknowledge(event.id)
 
-    // org_message (a bot messaging a person): open the bot's chat panel, where
-    // the bot's agent receives the reply as its next turn — closing the loop.
-    if (event.event_type === 'org_message') {
-      navigateToOrgMessageBot(event, account.organizationTools.organizations || [])
-      return
-    }
+    // org_message (a bot messaging a person) is read and replied to inline in
+    // the notification itself (see AttentionEventItem) — clicking the row just
+    // marks it read, no navigation.
+    if (event.event_type === 'org_message') return
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
