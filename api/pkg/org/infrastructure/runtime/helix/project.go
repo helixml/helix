@@ -17,7 +17,15 @@ import (
 // create+attach a same-named repo — duplicates the desktop workspace setup then
 // clones into one path and fails on. A single global lock is fine: activation is
 // low-throughput and the critical section is a check-create-attach.
-// ponytail: global lock; shard per-org if activation throughput ever grows.
+//
+// ponytail: this lock is process-local — it only closes the window within one
+// API process. It does NOT protect against two API replicas racing the same
+// activation (each would still create a repo, and CreateGitRepo auto-increments
+// the name rather than erroring, so the loser silently makes `<worker>-2`). The
+// real fix is a store-level uniqueness constraint on (owner/org, repo name) so
+// the create fails cleanly and the loser re-fetches — that removes this lock
+// entirely and holds across replicas. Prod is single-replica today, so the lock
+// suffices for now.
 var repoEnsureMu sync.Mutex
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return
@@ -333,12 +341,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	return resp.ProjectID, resp.AgentAppID, repoID, nil
 }
 
-// republishWorkerFiles writes the bot's role.md file on the bot's
-// helix-specs branch through the Workspace, so the on-branch path
-// layout is owned in exactly one place (workspace.go). A bot has no
-// separate identity — its Content IS its prompt, written to role.md.
-// Best-effort: errors are logged, not returned — a single failed file
-// shouldn't block the rest of the apply.
 // ensureWorkerRepo returns the project's per-Worker repo, creating and attaching
 // one only if the project truly has none. Serialised on repoEnsureMu and
 // re-checks GetProject inside the lock, so two concurrent activations for the
@@ -376,6 +378,12 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	return repo.ID, nil
 }
 
+// republishWorkerFiles writes the bot's role.md file on the bot's
+// helix-specs branch through the Workspace, so the on-branch path
+// layout is owned in exactly one place (workspace.go). A bot has no
+// separate identity — its Content IS its prompt, written to role.md.
+// Best-effort: errors are logged, not returned — a single failed file
+// shouldn't block the rest of the apply.
 func (a *WorkerProject) republishWorkerFiles(ctx context.Context, workerID orgchart.BotID, repoID, roleContent string) {
 	if repoID == "" || a.Workspace == nil {
 		return
