@@ -35,6 +35,11 @@ var repoEnsureMu sync.Mutex
 // fast-path verification can clear stale state and re-apply.
 var ErrProjectNotFound = errors.New("helix project: not found")
 
+// ErrRepoNotFound is the sentinel a ProjectService impl must return (wrapped)
+// when GetGitRepo is called against a repo that no longer exists. WorkerProject
+// compares with errors.Is to decide whether to re-provision the repo.
+var ErrRepoNotFound = errors.New("helix git repo: not found")
+
 // ProjectService is the slice of Helix's project/git/app API that the
 // per-Worker WorkerProject depends on. The wiring in api/pkg/server
 // provides an in-process impl that calls the HelixAPIServer's handler
@@ -73,6 +78,16 @@ type ProjectService interface {
 	// CreateGitRepo creates a Helix-internal git repository. Used when
 	// project-apply doesn't auto-create one.
 	CreateGitRepo(ctx context.Context, req types.GitRepositoryCreateRequest) (types.GitRepository, error)
+
+	// GetGitRepo returns a repo by ID. Returns ErrRepoNotFound (wrapped if
+	// needed) when the repo no longer exists, so the fast path can detect a
+	// deleted repo and re-provision instead of handing back a dead id.
+	GetGitRepo(ctx context.Context, repoID string) (types.GitRepository, error)
+
+	// DeleteGitRepo removes a repo by ID. Used to reclaim a just-created repo
+	// that could not be attached (or that lost a create race), so a retry
+	// doesn't accumulate duplicates. A missing repo is not an error.
+	DeleteGitRepo(ctx context.Context, repoID string) error
 
 	// AttachRepoToProject attaches an existing repo as a project's
 	// primary (or secondary) repository.
@@ -274,13 +289,37 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
 				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
 			}
+			// Self-heal a deleted repo: the project is live but its repo may
+			// have been removed out-of-band. The project self-heals above (via
+			// ErrProjectNotFound); give the repo the same treatment so the
+			// worker isn't left pointing at a dead repo id. Only re-provision
+			// on a definitive not-found — a transient read error keeps the
+			// existing id rather than risk a needless recreate.
+			repoID := state.RepoID
+			if repoID != "" {
+				if _, gerr := a.Service.GetGitRepo(ctx, repoID); errors.Is(gerr, ErrRepoNotFound) {
+					if a.Logger != nil {
+						a.Logger.Info("project applier: persisted repo missing, re-provisioning", "worker", workerID, "stale_repo_id", repoID)
+					}
+					newRepoID, rerr := a.ensureWorkerRepo(ctx, state.ProjectID, orgID, workerID)
+					if rerr != nil {
+						return "", "", "", fmt.Errorf("re-provision missing repo for %s: %w", workerID, rerr)
+					}
+					repoID = newRepoID
+					if serr := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, state.AgentAppID, repoID); serr != nil {
+						return "", "", "", fmt.Errorf("persist re-provisioned repo for %s: %w", workerID, serr)
+					}
+				} else if gerr != nil && a.Logger != nil {
+					a.Logger.Warn("verify persisted repo failed; keeping existing id", "worker", workerID, "repo", repoID, "err", gerr)
+				}
+			}
 			// Re-publish canonical files so DB edits to the bot's content
 			// (role.md) and agent.md propagate to the helix-specs branch on
 			// every activation — that's the contract DefaultHelixSpecsMandate
 			// promises every Bot. Idempotent and cheap: CreateBranch
 			// and CreateOrUpdateFileContents both no-op on unchanged input.
-			a.republishWorkerFiles(ctx, workerID, state.RepoID, roleContent)
-			return state.ProjectID, state.AgentAppID, state.RepoID, nil
+			a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
+			return state.ProjectID, state.AgentAppID, repoID, nil
 		}
 	}
 	resp, err := a.Service.ApplyProject(ctx, applyReq)
@@ -365,7 +404,16 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	// A concurrent activation may have created+attached the repo since the
 	// caller read DefaultRepoID; re-check under the lock before creating.
 	if proj, err := a.Service.GetProject(ctx, projectID); err == nil && proj.DefaultRepoID != "" {
-		return proj.DefaultRepoID, nil
+		// Trust the attached repo only if it still exists — a DefaultRepoID
+		// pointing at a deleted repo must be re-provisioned, not handed back.
+		// On a transient (non-not-found) read error, do NOT fall through to
+		// create: that would risk a duplicate. Surface it and let the caller
+		// retry.
+		if _, gerr := a.Service.GetGitRepo(ctx, proj.DefaultRepoID); gerr == nil {
+			return proj.DefaultRepoID, nil
+		} else if !errors.Is(gerr, ErrRepoNotFound) {
+			return "", fmt.Errorf("verify attached repo %s: %w", proj.DefaultRepoID, gerr)
+		}
 	}
 	ownerID, err := a.Service.WhoAmI(ctx)
 	if err != nil {
@@ -385,7 +433,25 @@ func (a *WorkerProject) ensureWorkerRepo(ctx context.Context, projectID, orgID s
 	if err != nil {
 		return "", fmt.Errorf("create per-Worker repo: %w", err)
 	}
+	// CreateGitRepo auto-increments the name on collision (`<worker>` ->
+	// `<worker>-2`) rather than erroring. A name we didn't ask for means a
+	// same-named repo already existed — i.e. another process (a second API
+	// replica, which repoEnsureMu can't serialise) won the create race. Don't
+	// keep the duplicate: delete it and error, so the caller retries and the
+	// outer re-check picks up the winner's now-attached repo.
+	if repo.Name != string(workerID) {
+		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
+			a.Logger.Warn("delete raced duplicate repo", "worker", workerID, "repo", repo.ID, "err", derr)
+		}
+		return "", fmt.Errorf("per-Worker repo %q already exists (create race); retrying", string(workerID))
+	}
 	if err := a.Service.AttachRepoToProject(ctx, projectID, repo.ID, true); err != nil {
+		// The repo was created but couldn't be attached — it's an orphan with
+		// nothing pointing at it. Delete it so a retry starts clean instead of
+		// creating `<worker>-2` alongside the leaked one.
+		if derr := a.Service.DeleteGitRepo(ctx, repo.ID); derr != nil && a.Logger != nil {
+			a.Logger.Warn("delete orphaned repo after failed attach", "worker", workerID, "repo", repo.ID, "err", derr)
+		}
 		return "", fmt.Errorf("attach repo %s to project %s: %w", repo.ID, projectID, err)
 	}
 	if a.Logger != nil {
