@@ -339,11 +339,6 @@ const AttentionEventItem: React.FC<{
           <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0, mt: 0.25 }}>
             {timeAgo(event.created_at)}
           </Typography>
-          <Tooltip title="Dismiss">
-            <IconButton size="small" onClick={() => onDismiss(event.id)} sx={{ p: 0.25, flexShrink: 0, color: lightTheme.textColorFaded }}>
-              <X size={13} />
-            </IconButton>
-          </Tooltip>
         </Stack>
         <Box
           sx={{
