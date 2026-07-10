@@ -7,18 +7,18 @@
 - [x] Add a Go unit test: comment on markdown-formatted text is NOT auto-resolved; comment on genuinely removed text IS auto-resolved
 
 ## Frontend — robust anchoring
-- [~] In `findQuotedTextPosition`, search `markdownRef.current` (rendered markdown) instead of `documentRef.current`
-- [~] Normalize whitespace on both the searched text and `quoted_text` before matching so cross-block selections resolve
-- [~] Disambiguate repeated phrases so a bubble anchors to the intended occurrence
+- [x] In `findQuotedTextPosition`, search `markdownRef.current` (rendered markdown) instead of `documentRef.current`
+- [x] Normalize whitespace on both the searched text and `quoted_text` before matching so cross-block selections resolve
+- [x] Disambiguate repeated phrases so a bubble anchors to the intended occurrence
 
 ## Frontend — fail-safe rendering
-- [~] Stop silently dropping unresolved comments that lack an inline position; guarantee they remain visible in `CommentLogSidebar`
-- [~] Flag comments whose quoted text could not be located ("couldn't locate quoted text")
+- [x] Stop silently dropping unresolved comments that lack an inline position; render them (stacked at top) instead of `return null`
+- [x] Flag comments whose quoted text could not be located ("⚠ couldn't locate the quoted text")
 
 ## Optional (recommended) — stable offsets
-- [ ] Compute the selection's character offset into the normalized rendered document in `handleCreateComment` and send `start_offset`
-- [ ] Use stored `start_offset` as the tiebreaker/fallback when disambiguating occurrences
+- [x] Compute the selection's character offset into the normalized rendered document in `handleCreateComment` and send `start_offset`
+- [x] Use stored `start_offset` as the tiebreaker/fallback when disambiguating occurrences
 
 ## Verification
-- [ ] End-to-end test in inner Helix: comment on plain, formatted, repeated, and multi-paragraph text; trigger an agent push; confirm none disappear or mis-anchor
-- [ ] `cd frontend && yarn build` passes; `go build ./pkg/services/ ./pkg/server/` passes
+- [~] End-to-end test in inner Helix: comment on plain, formatted, repeated, and multi-paragraph text; trigger an agent push; confirm none disappear or mis-anchor
+- [x] `tsc --noEmit` passes (0 errors); `go build ./pkg/services/` + unit test pass (vite build blocked only by read-only `dist/` bind mount, unrelated to code)

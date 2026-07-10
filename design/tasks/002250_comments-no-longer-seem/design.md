@@ -77,6 +77,29 @@ Frontend `handleCreateComment` would compute and send `start_offset`; backend
 handler already stores it. This is the cleanest long-term anchor but is optional
 for the first fix.
 
+## Implementation Notes (as built)
+
+- **Backend** (`api/pkg/services/git_http_server.go`): added `normalizeForCommentMatch`
+  (resolves `![alt](url)`/`[text](url)` to visible text, strips `*_`` `~#>` tokens,
+  collapses whitespace) and applied it to both the doc and each `quoted_text`
+  before `strings.Contains`. Fail-safe: a quote that normalizes to empty is kept.
+  Unit test: `git_http_server_comment_resolution_test.go`.
+- **Frontend** (`DesignReviewContent.tsx`): `findQuotedTextPosition` now builds a
+  whitespace-normalized text + char→(node,offset) map over **`markdownRef`** (not
+  `documentRef`, which included the bubbles). It collects all occurrences and
+  picks by nearest stored `start_offset`, else the Nth occurrence for the Nth
+  same-text comment. Selection capture stores `start_offset`/`end_offset` via
+  `normalizedOffsetOfPoint`. Fail-safe: after retries a still-unlocated comment is
+  stacked at the top of the gutter (baseY 0) and flagged, never dropped.
+- **Bubble** (`InlineCommentBubble.tsx`): new `unlocated` prop renders a "⚠
+  couldn't locate the quoted text" caption.
+- **Plumbing discovery**: the service `useCreateComment` already forwarded
+  `start_offset`/`end_offset` (passed as `any`) and the backend handler already
+  stored them, so no swagger/openapi regen was needed.
+- **Gotcha**: `frontend/dist` is a read-only bind mount here, so `vite build`
+  fails at the copy step *after* a successful transform. Type-check with
+  `node_modules/.bin/tsc --noEmit -p tsconfig.json` instead (0 errors).
+
 ## Testing Strategy
 
 Per CLAUDE.md, test end-to-end in the inner Helix (`localhost:8080`):
