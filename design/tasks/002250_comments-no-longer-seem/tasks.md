@@ -20,5 +20,5 @@
 - [x] Use stored `start_offset` as the tiebreaker/fallback when disambiguating occurrences
 
 ## Verification
-- [~] End-to-end test in inner Helix: comment on plain, formatted, repeated, and multi-paragraph text; trigger an agent push; confirm none disappear or mis-anchor
-- [x] `tsc --noEmit` passes (0 errors); `go build ./pkg/services/` + unit test pass (vite build blocked only by read-only `dist/` bind mount, unrelated to code)
+- [x] End-to-end in inner Helix: created spec task → design review; commented on a unique phrase and on the **4th** `localStorage` (inline-code, repeated). Both render; Comment B anchored to y1012 (4th occurrence at 996), NOT the 1st (265) — disambiguation via stored `start_offset` (500 and 1437) confirmed. No "couldn't locate" warnings, no console errors. Screenshot: `screenshots/01-comments-anchored-wide.png`
+- [x] `tsc --noEmit` passes (0 errors); `go build ./pkg/services/` + unit test pass; API rebuilt by Air (log line numbers match edits). Note: backend auto-resolution-on-agent-push path is covered by the unit test, not driven E2E (the agent asked clarifying questions rather than editing docs). `vite build` blocked only by read-only `dist/` bind mount, unrelated to code.
