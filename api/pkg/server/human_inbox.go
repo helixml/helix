@@ -43,3 +43,31 @@ func (h humanInbox) Notify(ctx context.Context, orgID, userID, fromBot, personNa
 	}
 	return nil
 }
+
+// NotifyInfo writes an informational, no-reply message to a person's inbox (the
+// notification bell) — e.g. "the Chief of Staff is starting up". Unlike Notify
+// (an ask_human that expects a reply), the metadata carries no_reply so the UI
+// renders it as a read-only status, not a message to answer. Best-effort at the
+// call site: a failure must not block whatever it hangs off (e.g. org create).
+func (h humanInbox) NotifyInfo(ctx context.Context, orgID, userID, fromBot, title, message string) error {
+	if userID == "" {
+		return fmt.Errorf("person has no linked Helix user")
+	}
+	id := system.GenerateAttentionEventID()
+	meta, _ := json.Marshal(map[string]string{"bot_id": fromBot, "no_reply": "true"})
+	ev := &types.AttentionEvent{
+		ID:             id,
+		UserID:         userID,
+		OrganizationID: orgID,
+		EventType:      types.AttentionEventOrgMessage,
+		Title:          title,
+		Description:    message,
+		CreatedAt:      time.Now(),
+		IdempotencyKey: id,
+		Metadata:       meta,
+	}
+	if _, err := h.store.CreateAttentionEvent(ctx, ev); err != nil {
+		return fmt.Errorf("create attention event: %w", err)
+	}
+	return nil
+}

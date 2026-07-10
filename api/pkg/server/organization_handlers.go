@@ -332,6 +332,14 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		if err := apiServer.orgSeeder.SeedChiefOfStaff(ctx, createdOrg.ID); err != nil {
 			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed chief of staff failed")
 		}
+		// Tell the creator their Chief of Staff is coming online, so a brand-new
+		// org isn't a silent wait while the agent boots before it asks its first
+		// question. Informational (no reply) — best-effort.
+		if err := (humanInbox{store: apiServer.Store}).NotifyInfo(ctx, createdOrg.ID, user.ID, string(chiefOfStaffBotID),
+			"Chief of Staff is starting up",
+			"I'm coming online now and setting things up. I'll reach out with a few questions once I'm ready — no action needed yet."); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("notify chief-of-staff starting-up failed")
+		}
 	}
 
 	// Seed the roles

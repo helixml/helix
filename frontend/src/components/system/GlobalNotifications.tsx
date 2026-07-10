@@ -298,6 +298,10 @@ const AttentionEventItem: React.FC<{
         setSending(false)
       }
     }
+    const meta = event.metadata as { bot_id?: string; no_reply?: unknown } | undefined
+    // Informational messages (e.g. "Chief of Staff is starting up") carry
+    // no_reply and have no repliable session — render them read-only.
+    const canReply = !!meta?.bot_id && meta?.no_reply !== true && meta?.no_reply !== 'true'
     return (
       <Box
         sx={{
@@ -342,7 +346,7 @@ const AttentionEventItem: React.FC<{
         >
           <ReactMarkdown>{event.description || ''}</ReactMarkdown>
         </Box>
-        {!replyOpen ? (
+        {canReply && (!replyOpen ? (
           <Button
             size="small"
             startIcon={<CornerUpLeft size={13} />}
@@ -392,7 +396,7 @@ const AttentionEventItem: React.FC<{
               </Button>
             </Stack>
           </Box>
-        )}
+        ))}
       </Box>
     )
   }
