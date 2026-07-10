@@ -1,9 +1,9 @@
 # Implementation Tasks: Fix Spec Review Comments Disappearing and Mis-Anchoring
 
 ## Backend — conservative auto-resolution
-- [ ] Add a normalization helper (collapse whitespace runs to single space; strip common inline markdown tokens) in `api/pkg/services/git_http_server.go`
-- [ ] Update `checkCommentResolution` to compare normalized `quoted_text` against the normalized document instead of raw `strings.Contains`
-- [ ] Ensure auto-resolution fails safe: keep the comment when the anchor can't be confidently matched
+- [~] Add a normalization helper (collapse whitespace runs to single space; strip common inline markdown tokens) in `api/pkg/services/git_http_server.go`
+- [~] Update `checkCommentResolution` to compare normalized `quoted_text` against the normalized document instead of raw `strings.Contains`
+- [~] Ensure auto-resolution fails safe: keep the comment when the anchor can't be confidently matched
 - [ ] Add a Go unit test: comment on markdown-formatted text is NOT auto-resolved; comment on genuinely removed text IS auto-resolved
 
 ## Frontend — robust anchoring
