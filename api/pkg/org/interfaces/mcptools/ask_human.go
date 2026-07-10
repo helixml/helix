@@ -18,8 +18,10 @@ import (
 type HumanInbox interface {
 	// Notify writes an inbox item for the person's linked Helix user.
 	// fromBotID is the sending bot's id (routing / reply target); fromBotName is
-	// its display name (shown in the notification title).
-	Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string) error
+	// its display name (shown in the notification title). expectsReply=false
+	// delivers it as a read-only FYI (no Respond affordance) — for status
+	// updates and confirmations that don't need an answer.
+	Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string, expectsReply bool) error
 }
 
 // AskHuman lets a bot reach a real person directly: it delivers the message to
@@ -43,12 +45,17 @@ func (t *AskHuman) Description() string {
 		"bell). Use this when you need a human's input, a decision, or to flag something to " +
 		"them. `personId` is a person in the org — a human node whose id looks like `h-…`; " +
 		"find people with `read_bots` (they have kind=human). Unlike `dm`, any bot can reach " +
-		"any person directly — no reporting line needed. `message` is what to tell them."
+		"any person directly — no reporting line needed. `message` is what to tell them. " +
+		"Set `expectsReply` to false for status updates, confirmations, and FYIs that do NOT " +
+		"need an answer — those are delivered as read-only notices with no reply prompt. " +
+		"Leave it unset (default true) only when you genuinely want the person to respond."
 }
 
 type askHumanArgs struct {
 	PersonID string `json:"personId"`
 	Message  string `json:"message"`
+	// ExpectsReply defaults to true when omitted. Set false for FYIs.
+	ExpectsReply *bool `json:"expectsReply,omitempty"`
 }
 
 func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -86,7 +93,8 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if caller, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(inv.Caller.ID())); err == nil && caller.Name != "" {
 		fromBotName = caller.Name
 	}
-	if err := t.deps.HumanInbox.Notify(ctx, orgID, person.HelixUserID, inv.Caller.ID(), fromBotName, name, args.Message); err != nil {
+	expectsReply := args.ExpectsReply == nil || *args.ExpectsReply
+	if err := t.deps.HumanInbox.Notify(ctx, orgID, person.HelixUserID, inv.Caller.ID(), fromBotName, name, args.Message, expectsReply); err != nil {
 		return nil, fmt.Errorf("deliver to %q: %w", args.PersonID, err)
 	}
 	return json.Marshal(map[string]string{"delivered": "inbox", "person": args.PersonID})

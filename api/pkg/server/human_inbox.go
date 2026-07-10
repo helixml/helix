@@ -19,12 +19,17 @@ type humanInbox struct {
 	store store.Store
 }
 
-func (h humanInbox) Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string) error {
+func (h humanInbox) Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string, expectsReply bool) error {
 	if userID == "" {
 		return fmt.Errorf("person has no linked Helix user")
 	}
 	id := system.GenerateAttentionEventID()
-	meta, _ := json.Marshal(map[string]string{"bot_id": fromBotID, "person": personName})
+	metaMap := map[string]string{"bot_id": fromBotID, "person": personName}
+	if !expectsReply {
+		// Delivered as a read-only FYI — the UI shows no Respond affordance.
+		metaMap["no_reply"] = "true"
+	}
+	meta, _ := json.Marshal(metaMap)
 	ev := &types.AttentionEvent{
 		ID:             id,
 		UserID:         userID,
