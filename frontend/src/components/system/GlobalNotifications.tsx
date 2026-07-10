@@ -38,6 +38,23 @@ function timeAgoMs(ms: number): string {
   return timeAgo(new Date(ms).toISOString())
 }
 
+// navigateToOrgMessageBot routes an org_message notification (a bot reaching a
+// person via ask_human) into that bot's chat panel. The bot's agent runs in the
+// bot's exploratory session — the same session the chat panel drives — so a
+// reply typed there reaches the exact agent that asked, closing the loop. No
+// separate DM surface is needed. The route's :org_id is the org slug, which we
+// resolve from the event's organization_id via the user's org list.
+function navigateToOrgMessageBot(
+  event: AttentionEvent,
+  organizations: { id?: string; name?: string }[],
+): void {
+  const botId = (event.metadata as { bot_id?: string } | undefined)?.bot_id
+  const orgSlug = organizations.find((o) => o.id === event.organization_id)?.name
+  if (botId && orgSlug) {
+    router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
+  }
+}
+
 function eventAccentColor(eventType: AttentionEventType): string {
   switch (eventType) {
     case 'spec_failed':
@@ -431,8 +448,11 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           isOrgMessage ? (event.description || '') : `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
-            // org_message has no task to open (reply surface is a later stage).
-            if (isOrgMessage) return
+            // org_message opens the bot's chat panel to reply (see handleNavigate).
+            if (isOrgMessage) {
+              navigateToOrgMessageBot(event, account.organizationTools.organizations || [])
+              return
+            }
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -458,9 +478,12 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     // Mark as read on explicit click
     acknowledge(event.id)
 
-    // org_message (a bot messaging a person) has no session/task to open yet —
-    // the reply surface is a later stage. Clicking just marks it read.
-    if (event.event_type === 'org_message') return
+    // org_message (a bot messaging a person): open the bot's chat panel, where
+    // the bot's agent receives the reply as its next turn — closing the loop.
+    if (event.event_type === 'org_message') {
+      navigateToOrgMessageBot(event, account.organizationTools.organizations || [])
+      return
+    }
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
