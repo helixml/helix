@@ -328,6 +328,13 @@ const HelixOrgBotDetail: FC = () => {
                   </Stack>
                 </Box>
 
+                {/* Questions this bot has asked the current user (via
+                    ask_human). Its own section above the chat so it doesn't eat
+                    the transcript's space; the reply box is the chat below. */}
+                {botId ? (
+                  <BotPendingQuestions botId={botId} botName={bot.name} />
+                ) : null}
+
                 {/* Session panel — Chat | Desktop toggle, both bound to the
                     bot's Project Desktop exploratory session (the same views
                     the spec-task page uses). Auto-loads when the bot already
@@ -378,9 +385,6 @@ const HelixOrgBotDetail: FC = () => {
                             overflow: 'hidden',
                           }}
                         >
-                          {botId ? (
-                            <BotPendingQuestions botId={botId} botName={bot?.name} />
-                          ) : null}
                           <EmbeddedSessionView
                             ref={sessionViewRef}
                             sessionId={chatSessionId}
