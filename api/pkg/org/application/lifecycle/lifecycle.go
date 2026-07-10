@@ -141,9 +141,6 @@ type CreateParams struct {
 	Topics          []streaming.TopicID
 	ParentID        orgchart.BotID
 	PreserveContext bool
-	// NoSuffix uses ID exactly as given — a collision errors instead of
-	// deriving base-1. For deterministic, idempotent seeds (`chief-of-staff`).
-	NoSuffix bool
 	// DeferActivation creates the Bot row (so it shows on the chart) and
 	// wires its topology, but skips the hire activation that provisions the
 	// Helix project + agent app + desktop. Callers set this when the org has
@@ -210,7 +207,6 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		Content:         p.Content,
 		Tools:           p.Tools,
 		PreserveContext: p.PreserveContext,
-		NoSuffix:        p.NoSuffix,
 	})
 	if err != nil {
 		return CreateResult{}, err

@@ -76,9 +76,9 @@ func (s *orgGraphSeeder) EnsureHumanNode(ctx context.Context, orgID string, user
 	if user.Email != "" {
 		identity["email"] = user.Email
 	}
-	// NoSuffix: the id is deterministic (h-<userID>); a collision means
-	// "already exists", not "pick a new name". On a create race the loser
-	// gets a conflict, which we treat as success (the node now exists).
+	// The id is deterministic (h-<userID>) and used exactly. On a create race
+	// the loser gets a conflict, which we treat as success below (the node
+	// now exists).
 	if _, err := s.bots.Create(ctx, orgID, bots.CreateParams{
 		ID:          string(id),
 		Name:        humanDisplayName(user),
@@ -86,7 +86,6 @@ func (s *orgGraphSeeder) EnsureHumanNode(ctx context.Context, orgID string, user
 		Kind:        orgchart.BotKindHuman,
 		HelixUserID: user.ID,
 		Identity:    identity,
-		NoSuffix:    true,
 	}); err != nil {
 		if _, getErr := s.botStore.Get(ctx, orgID, id); getErr == nil {
 			return nil // lost a create race; the node exists — fine
@@ -128,15 +127,14 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	// Activating now would provision CoS on the seed-time default
 	// (claude_code/subscription/no-model → renders as gpt). The deferred bot
 	// shows on the chart and is provisioned correctly once the operator sets
-	// the Default Bot Runtime (reapplyBotsAfterRuntimeChange). NoSuffix keeps
-	// the id exactly `chief-of-staff` (a collision means already-seeded).
+	// the Default Bot Runtime (reapplyBotsAfterRuntimeChange). The id is used
+	// exactly (`chief-of-staff`); a collision means already-seeded.
 	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              string(chiefOfStaffBotID),
 		Name:            "Chief of Staff",
 		Content:         chiefOfStaffContent,
 		Tools:           mcptools.OwnerBotTools(),
 		DeferActivation: true,
-		NoSuffix:        true,
 	}); err != nil {
 		if _, getErr := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); getErr == nil {
 			return nil // lost a seed race; CoS exists — fine

@@ -99,11 +99,6 @@ type CreateParams struct {
 	Kind        orgchart.BotKind
 	HelixUserID string
 	Identity    map[string]string
-	// NoSuffix uses ID exactly as given — an id collision returns an error
-	// instead of deriving base-1/base-2. For deterministic, idempotent ids
-	// (human nodes `h-<userID>`, `chief-of-staff`) where a collision means
-	// "already exists", not "pick a new name".
-	NoSuffix bool
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -114,18 +109,14 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if id == "" {
 		id = orgchart.BotID("b-" + s.newID())
 	}
-	// Ensure the id is unique within the org, suffixing on conflict (base,
-	// base-1, base-2, ...) — mirrors org-name uniqueness. Without this a
-	// second bot whose id collides (two "Chief of Staff" both slugify to
-	// chief-of-staff) fails on the composite (id, org) primary key. Skipped
-	// for NoSuffix callers with deterministic ids where a collision means
-	// "already exists" (they handle the conflict).
-	if !p.NoSuffix {
-		unique, err := s.uniqueBotID(ctx, orgID, id)
-		if err != nil {
-			return orgchart.Bot{}, err
-		}
-		id = unique
+	// The id is used exactly as given. It is unique within the org (composite
+	// (id, org) primary key), so a clash means the id is already taken — return
+	// a clear error rather than silently mutating it. Deterministic-id callers
+	// (seeds) treat this as "already exists" after a Get.
+	if _, err := s.bots.Get(ctx, orgID, id); err == nil {
+		return orgchart.Bot{}, fmt.Errorf("bot id %q already exists in this org", id)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return orgchart.Bot{}, fmt.Errorf("check bot id %q: %w", id, err)
 	}
 	// A human placeholder gets no tools — it never makes an MCP request.
 	// An agent gets the caller's tools unioned with the read baseline.
@@ -156,28 +147,6 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 		return orgchart.Bot{}, err
 	}
 	return bot, nil
-}
-
-// uniqueBotID returns base when it's free within the org, otherwise the
-// first free base-<n> (n from 1). Mirrors the org-name uniqueness
-// suffixing so a name-derived id collision (two bots named the same) is
-// resolved rather than erroring on the composite (id, org) primary key.
-// Bounded at 100 probes to avoid an unbounded loop on pathological input.
-func (s *Bots) uniqueBotID(ctx context.Context, orgID string, base orgchart.BotID) (orgchart.BotID, error) {
-	for i := 0; i < 100; i++ {
-		cand := base
-		if i > 0 {
-			cand = orgchart.BotID(fmt.Sprintf("%s-%d", base, i))
-		}
-		_, err := s.bots.Get(ctx, orgID, cand)
-		if errors.Is(err, store.ErrNotFound) {
-			return cand, nil
-		}
-		if err != nil {
-			return "", fmt.Errorf("check bot id uniqueness: %w", err)
-		}
-	}
-	return "", fmt.Errorf("could not derive a unique bot id from %q", base)
 }
 
 // UpdateParams patches the mutable fields of a Bot. A nil pointer
