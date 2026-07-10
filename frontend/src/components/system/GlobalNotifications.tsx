@@ -49,10 +49,13 @@ function navigateToOrgMessageBot(
   organizations: { id?: string; name?: string }[],
 ): void {
   const botId = (event.metadata as { bot_id?: string } | undefined)?.bot_id
+  if (!botId || !event.organization_id) return
+  // The route's :org_id resolves as either the org slug or the org id (backend
+  // lookupOrg accepts both). Prefer the slug for a readable URL when the org is
+  // in the user's list, but fall back to the id so routing never depends on the
+  // list being loaded/complete.
   const orgSlug = organizations.find((o) => o.id === event.organization_id)?.name
-  if (botId && orgSlug) {
-    router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
-  }
+  router.navigate('helix_org_bot_detail', { org_id: orgSlug || event.organization_id, bot_id: botId })
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
