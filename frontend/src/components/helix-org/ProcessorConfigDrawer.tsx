@@ -46,7 +46,25 @@ const KINDS = [
   { value: 'template', label: 'Rewrite — change the message text using a template' },
   { value: 'truncate', label: 'Shorten — cut the message if it is too long' },
   { value: 'filter', label: 'Sort / route — send each message down one or more branches' },
+  { value: 'js', label: 'JavaScript — transform, route, and call HTTP APIs' },
 ]
+
+const DEFAULT_JS_CODE = `// process runs once per inbound message.
+// Return the event to publish, null to drop, or { out: "label", event } to route.
+function process(event, ctx) {
+  // Example: enrich via HTTP, then rewrite the body.
+  // const res = http.get("https://api.example.com/lookup", {
+  //   query: { email: event.from },
+  //   headers: { "Authorization": "Bearer …" },
+  // });
+  // if (!res.ok) return null;
+  // const data = res.json();
+  // event.extra = Object.assign({}, event.extra || {}, data);
+
+  event.body = event.body || "";
+  return event;
+}
+`
 
 type FilterRow = { label: string; match: string }
 const DEFAULT_FILTER_ROWS: FilterRow[] = [
@@ -67,9 +85,74 @@ function prettyJson(raw?: string): string {
   }
 }
 
-// SyntaxHelp — plain-English reference for rewrite templates and route rules.
+// SyntaxHelp — plain-English reference for rewrite templates, route rules, and JS.
 const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
   const mono = { fontFamily: 'monospace', fontSize: '0.72rem' as const }
+
+  if (kind === 'js') {
+    const eventFields: [string, string][] = [
+      ['event.from', 'who sent it'],
+      ['event.subject', 'subject line'],
+      ['event.body', 'main message text'],
+      ['event.to', 'array of recipients'],
+      ['event.thread_id', 'conversation / thread id'],
+      ['event.message_id', 'this message’s id'],
+      ['event.extra', 'object of extra fields (or null)'],
+      ['event.reply_hint', 'how to reply via the origin transport'],
+    ]
+    const httpFns: [string, string][] = [
+      ['http.get(url, opts?)', 'GET request'],
+      ['http.post(url, opts?)', 'POST (opts.json / opts.body)'],
+      ['http.put / patch / delete', 'same options shape'],
+      ['http.request(method, url, opts?)', 'any method'],
+      ['res.status / res.ok', 'status code / 2xx flag'],
+      ['res.body / res.json()', 'raw body or parsed JSON'],
+      ['res.headers', 'response headers (lowercase keys)'],
+    ]
+    return (
+      <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.015)' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+          Required entrypoint
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          Define <code>function process(event, ctx)</code>. Return the event to publish,
+          <code> null</code> to drop, <code>{'{ out: "label", event }'}</code> to route to a branch,
+          or an array to fan out.
+        </Typography>
+        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
+          Event fields
+        </Typography>
+        {eventFields.map(([f, d]) => (
+          <Box key={f} sx={{ display: 'flex', gap: 1 }}>
+            <Typography sx={{ ...mono, color: 'primary.main', minWidth: 150 }}>{f}</Typography>
+            <Typography variant="caption" color="text.secondary">{d}</Typography>
+          </Box>
+        ))}
+        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
+          HTTP client
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          Also available as <code>ctx.http</code>. Options: headers, query, body, json, timeout_ms
+          (default 10s, max 30s).
+        </Typography>
+        {httpFns.map(([f, d]) => (
+          <Box key={f} sx={{ display: 'flex', gap: 1 }}>
+            <Typography sx={{ ...mono, color: 'primary.main', minWidth: 200 }}>{f}</Typography>
+            <Typography variant="caption" color="text.secondary">{d}</Typography>
+          </Box>
+        ))}
+        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
+          Routing
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Create labeled branches below (or leave one default output). In code:
+          <code>{' return { out: "vip", event }; '}</code>
+          or by index <code>{' { out: 0, event } '}</code>.
+        </Typography>
+      </Box>
+    )
+  }
+
   const fields: [string, string][] = [
     ['.Message.from', 'who sent it (e.g. alice@vip.com)'],
     ['.Message.subject', 'subject line'],
@@ -157,6 +240,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [kind, setKind] = useState('template')
   const [inputTopicId, setInputTopicId] = useState('')
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE)
+  const [jsCode, setJsCode] = useState(DEFAULT_JS_CODE)
   const [maxBytes, setMaxBytes] = useState('500')
   const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
   const [threadFollow, setThreadFollow] = useState(false)
@@ -173,6 +257,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setKind(processor.kind ?? 'template')
       setInputTopicId(processor.input_topic_id ?? '')
       setTemplate((processor.config?.template as string) ?? DEFAULT_TEMPLATE)
+      setJsCode((processor.config?.code as string) ?? DEFAULT_JS_CODE)
       setMaxBytes(String((processor.config?.max_bytes as number) ?? 500))
       const rows = (processor.outputs ?? []).map((o) => ({ label: o.label ?? '', match: o.match ?? '' }))
       setFilterRows(rows.length > 0 ? rows : DEFAULT_FILTER_ROWS)
@@ -182,6 +267,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setKind('template')
       setInputTopicId(presetInputTopicId ?? '')
       setTemplate(DEFAULT_TEMPLATE)
+      setJsCode(DEFAULT_JS_CODE)
       setMaxBytes('500')
       setFilterRows(DEFAULT_FILTER_ROWS)
       setThreadFollow(false)
@@ -193,8 +279,9 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const config = useMemo<Record<string, unknown>>(() => {
     if (kind === 'truncate') return { max_bytes: parseInt(maxBytes, 10) || 0 }
     if (kind === 'filter') return { thread_follow: threadFollow }
+    if (kind === 'js') return { code: jsCode }
     return { template }
-  }, [kind, template, maxBytes, threadFollow])
+  }, [kind, template, jsCode, maxBytes, threadFollow])
 
   // Thread-follow is only meaningful for the Slack auto-router (an
   // automated filter): it routes later messages in a thread to everyone
@@ -202,10 +289,18 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   // hand-built filters, where it has no effect.
   const showThreadFollow = kind === 'filter' && Boolean(processor?.automated)
 
-  // Filter outputs carry the per-branch predicates; transforms have a
-  // single auto-provisioned output (undefined → server defaults to one).
+  // Filter/js multi-branch outputs carry labels (and filter predicates).
+  // Transforms with a single output omit this (server defaults to one).
   const outputs = useMemo(() => {
-    if (kind !== 'filter') return undefined
+    if (kind !== 'filter' && kind !== 'js') return undefined
+    // js with a single default branch needs no explicit outputs.
+    if (kind === 'js' && filterRows.length === 1 && !filterRows[0].label && !filterRows[0].match) {
+      return undefined
+    }
+    if (kind === 'js') {
+      // Labels only — js routes via return { out: label }; match is unused.
+      return filterRows.map((rw) => ({ label: rw.label, match: '' }))
+    }
     return filterRows.map((rw) => ({ label: rw.label, match: rw.match }))
   }, [kind, filterRows])
 
@@ -236,7 +331,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { backgroundImage: 'none' } }}>
-      <Box sx={{ p: 2.5, width: 460 }}>
+      <Box sx={{ p: 2.5, width: kind === 'js' ? 560 : 460 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
           <Typography variant="h6">{isEdit ? 'Edit processor' : 'New processor'}</Typography>
           <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
@@ -244,7 +339,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
         <Stack spacing={1.5}>
           <Typography variant="body2" color="text.secondary">
             A processor sits between topics: it reads messages from one topic,
-            then rewrites, shortens, or sorts them onto new topics that bots can subscribe to.
+            then rewrites, shortens, sorts, or runs JavaScript on them onto new topics that bots can subscribe to.
           </Typography>
           <TextField
             size="small" label="Name" value={name} fullWidth required
@@ -254,7 +349,15 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           />
           <TextField
             select size="small" label="What should it do?" value={kind} fullWidth
-            onChange={(e) => setKind(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value
+              setKind(next)
+              // Reset branch defaults when switching kinds on create.
+              if (!isEdit) {
+                if (next === 'filter') setFilterRows(DEFAULT_FILTER_ROWS)
+                else if (next === 'js') setFilterRows([{ label: '', match: '' }])
+              }
+            }}
             helperText="Pick how messages are handled as they pass through."
           >
             {KINDS.map((k) => <MenuItem key={k.value} value={k.value}>{k.label}</MenuItem>)}
@@ -278,6 +381,15 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               multiline minRows={4}
               InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
               helperText="This text is filled in from the message fields. The result becomes the new message body. Open “How to write rules” below for examples."
+            />
+          )}
+          {kind === 'js' && (
+            <TextField
+              size="small" label="JavaScript (function process)" value={jsCode} fullWidth
+              onChange={(e) => setJsCode(e.target.value)}
+              multiline minRows={12}
+              InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+              helperText="Must define process(event, ctx). Use http.get/post/… for outbound calls. Open help below for the full API."
             />
           )}
           {kind === 'truncate' && (
@@ -319,6 +431,35 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                     onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, match: e.target.value } : r))}
                     InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
                     placeholder={'{{ hasSuffix "@vip.com" .Message.from }}'}
+                  />
+                  {!isEdit && filterRows.length > 1 && (
+                    <IconButton size="small" onClick={() => setFilterRows((rs) => rs.filter((_, j) => j !== i))} aria-label="Remove branch">
+                      <CloseIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  )}
+                </Stack>
+              ))}
+              {!isEdit && (
+                <Button size="small" onClick={() => setFilterRows((rs) => [...rs, { label: '', match: '' }])} sx={{ alignSelf: 'flex-start' }}>
+                  Add branch
+                </Button>
+              )}
+            </Stack>
+          )}
+          {kind === 'js' && (
+            <Stack spacing={1}>
+              <Typography variant="body2" color="text.secondary">
+                Optional labeled outputs for routing (<code>{'{ out: "label" }'}</code> in process).
+                Leave as a single blank branch for a simple 1→1 transform.
+                {isEdit ? ' Branches cannot be changed after create — make a new processor to redesign them.' : ''}
+              </Typography>
+              {filterRows.map((row, i) => (
+                <Stack key={i} direction="row" spacing={0.5} alignItems="flex-start">
+                  <TextField
+                    size="small" label="Branch name" value={row.label} fullWidth disabled={isEdit}
+                    onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                    placeholder="default"
+                    helperText={i === 0 ? 'Used as return { out: "name", event }' : undefined}
                   />
                   {!isEdit && filterRows.length > 1 && (
                     <IconButton size="small" onClick={() => setFilterRows((rs) => rs.filter((_, j) => j !== i))} aria-label="Remove branch">

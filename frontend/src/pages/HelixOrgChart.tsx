@@ -6,6 +6,7 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
+import GlobalStyles from '@mui/material/GlobalStyles'
 import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -15,6 +16,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
@@ -98,8 +100,8 @@ import {
 //
 // Reporting is many-to-many: each (subordinate → manager) "reports to"
 // line is a closest-side Bot → Bot edge with an arrow at the manager.
-// Topics hang off the right of the tree; an edge from a Bot to a Topic is
-// a subscription.
+// Topics hang off the right of the tree; a solid edge from a Topic to a
+// Bot is a subscription (pulse animates topic → bot = consume direction).
 //
 // Layout: dagre runs over the bot graph (edges = reporting lines) to get
 // global (x, y) for each Bot node. Saved free-placed coordinates from
@@ -112,7 +114,21 @@ const BOT_H = 96
 const BOT_GAP_X = 32
 const BOT_GAP_Y = 90
 const STREAM_W = 180
+// Minimum topic card height; actual height grows with wrapped name/id.
 const STREAM_H = 80
+
+// Rough height used by auto-layout before RF measures the real node.
+// Keeps stacked topics from overlapping when names wrap to multiple lines.
+const estimateTopicCardHeight = (name: string, id: string): number => {
+  const padY = 16
+  const statsH = 16
+  const gaps = 8
+  const nameInnerW = STREAM_W - 16 - 22 - 20 // pad − icon − menu gutter
+  const idInnerW = STREAM_W - 16
+  const nameLines = Math.max(1, Math.ceil((name || id || 'x').length / Math.max(8, nameInnerW / 7.2)))
+  const idLines = Math.max(1, Math.ceil((id || 'x').length / Math.max(10, idInnerW / 6.5)))
+  return Math.max(STREAM_H, Math.ceil(padY + nameLines * 16 + idLines * 13 + statsH + gaps))
+}
 
 // ---- Flatten -----------------------------------------------------------
 
@@ -244,7 +260,13 @@ const nodeCardRect = (n: Node, fallbackW: number, fallbackH: number): CardRect =
 }
 
 const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
-  if (n.type === 'topic') return { w: STREAM_W, h: STREAM_H }
+  if (n.type === 'topic') {
+    const d = n.data as TopicNodeData | undefined
+    return {
+      w: STREAM_W,
+      h: estimateTopicCardHeight(d?.name ?? '', d?.topicId ?? ''),
+    }
+  }
   if (n.type === 'processor') {
     const outs = (n.data as ProcessorNodeData | undefined)?.outputs?.length ?? 1
     return { w: PROC_W, h: procNodeHeight(outs) }
@@ -252,11 +274,12 @@ const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
   return { w: BOT_W, h: BOT_H }
 }
 
-// Orange handles on all four sides so the user can drag a subscription
-// wire from/to any side. Outward (source) + inward (target) share a side
-// so ConnectionMode.Loose can start and end a connection on either end.
-// Reporting lines keep the default (id-less) top target / bottom source.
-const SubSideHandles: FC<{ color: string; size?: number }> = ({ color, size = 12 }) => (
+// Invisible handles on all four sides so the user can still drag a
+// subscription wire from/to any side — no visible port dots. Outward
+// (source) + inward (target) share a side so ConnectionMode.Loose can
+// start and end a connection on either end. Reporting lines keep the
+// default (id-less) top target / bottom source.
+const SubSideHandles: FC<{ size?: number }> = ({ size = 16 }) => (
   <Fragment>
     {([
       [RFPosition.Left, 'left'],
@@ -270,14 +293,32 @@ const SubSideHandles: FC<{ color: string; size?: number }> = ({ color, size = 12
           type="source"
           position={pos}
           isConnectable
-          style={{ background: color, border: 'none', width: size, height: size, zIndex: 5 }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            opacity: 0,
+            width: size,
+            height: size,
+            minWidth: size,
+            minHeight: size,
+            zIndex: 5,
+          }}
         />
         <Handle
           id={`sub-${side}-in`}
           type="target"
           position={pos}
           isConnectable
-          style={{ background: color, border: 'none', opacity: 0, width: size + 4, height: size + 4, zIndex: 4 }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            opacity: 0,
+            width: size + 4,
+            height: size + 4,
+            minWidth: size + 4,
+            minHeight: size + 4,
+            zIndex: 4,
+          }}
         />
       </Fragment>
     ))}
@@ -288,10 +329,10 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
-  const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
-  const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
+  // Fully opaque cards so the graph reads as solid nodes, not glass.
+  const bg = lightTheme.isLight ? '#ffffff' : '#2a2a2e'
+  const hoverBg = lightTheme.isLight ? '#f7f7f8' : '#323236'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
-  const subColor = 'rgba(180,100,0,0.85)'
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
 
   const online = data.agentStatus === 'running'
@@ -309,7 +350,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         border: `1px solid ${border}`,
         borderRadius: 1.5,
         backgroundColor: bg,
-        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)',
         p: 1.5,
         display: 'flex',
         flexDirection: 'column',
@@ -321,13 +362,13 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
       }}
     >
       {/* Reporting: top = land as subordinate, bottom = drag as manager.
-          Subscriptions use the orange sub-* handles on all four sides. */}
+          Subscriptions use invisible sub-* handles on all four sides. */}
       <Handle
         type="target"
         position={RFPosition.Top}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
-      <SubSideHandles color={subColor} size={14} />
+      <SubSideHandles size={16} />
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
           <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted, flexShrink: 0 }} />
@@ -454,14 +495,17 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   )
 }
 
-// TopicNode is a small pseudo-node — narrower than a Bot card — rendered
-// beside the org tree to anchor subscription edges. Clicking the body
-// navigates to the per-topic detail page; the trash icon deletes the
-// Topic row (irreversible).
+// TopicNode is a solid card — same chrome family as BotNode — rendered
+// beside the org tree to anchor subscription edges. Height grows with
+// wrapped name/id so long labels aren't clipped. Clicking the body
+// navigates to the per-topic detail page; the ⋮ menu deletes the Topic.
 const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
-  const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
-  const bg = 'rgba(255,180,80,0.06)'
+  const accent = lightTheme.isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)'
+  const border = lightTheme.isLight ? 'rgba(180,100,0,0.45)' : 'rgba(255,180,80,0.45)'
+  // Fully opaque warm card (not glass / dashed outline).
+  const bg = lightTheme.isLight ? '#fff8eb' : '#2f281c'
+  const hoverBg = lightTheme.isLight ? '#fff1d6' : '#3a3122'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
   const closeMenu = () => setMenuEl(null)
@@ -470,25 +514,43 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
       onClick={(e) => { e.stopPropagation(); data.onSelectTopic(data.topicId) }}
       sx={{
         width: STREAM_W,
-        height: STREAM_H,
-        border: `1px dashed ${accent}`,
+        minHeight: STREAM_H,
+        height: 'auto',
+        boxSizing: 'border-box',
+        border: `1px solid ${border}`,
         borderRadius: 1.5,
         backgroundColor: bg,
+        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)',
         p: 1,
         display: 'flex',
         flexDirection: 'column',
-        gap: 0.25,
+        gap: 0.5,
         cursor: 'grab',
         position: 'relative',
-        '&:hover': { backgroundColor: 'rgba(255,180,80,0.12)' },
+        '&:hover': { backgroundColor: hoverBg },
         '&:active': { cursor: 'grabbing' },
       }}
     >
-      {/* All four sides: drag to/from a bot to subscribe, or to a
+      {/* Invisible ports: drag to/from a bot to subscribe, or to a
           processor IN port (right side also carries id "src" for the
           legacy processor-wiring path). */}
-      <SubSideHandles color={accent} size={10} />
-      <Handle id="src" type="source" position={RFPosition.Right} isConnectable style={{ background: accent, width: 10, height: 10, zIndex: 6 }} />
+      <SubSideHandles size={16} />
+      <Handle
+        id="src"
+        type="source"
+        position={RFPosition.Right}
+        isConnectable
+        style={{
+          background: 'transparent',
+          border: 'none',
+          opacity: 0,
+          width: 16,
+          height: 16,
+          minWidth: 16,
+          minHeight: 16,
+          zIndex: 6,
+        }}
+      />
       {data.ownedByProcessor ? (
         <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
           <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
@@ -534,14 +596,37 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           </Menu>
         </Box>
       )}
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2.5 }}>
+      <Stack direction="row" alignItems="flex-start" spacing={0.75} sx={{ minWidth: 0, pr: 2.5 }}>
+        <HubOutlinedIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        <Typography
+          variant="body2"
+          sx={{
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            color: accent,
+            lineHeight: 1.3,
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {data.name}
+        </Typography>
+      </Stack>
+      <Typography
+        variant="caption"
+        sx={{
+          fontFamily: 'monospace',
+          fontSize: '0.65rem',
+          color: muted,
+          pl: 0.25,
+          lineHeight: 1.3,
+          wordBreak: 'break-all',
+        }}
+      >
         {data.topicId}
       </Typography>
-      <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {data.name}
-      </Typography>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto' }}>
-        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5} sx={{ mt: 0.25 }}>
+        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, minWidth: 0 }}>
           {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
         </Typography>
         {/* Waiting-message count. Kept deliberately tiny — the card is
@@ -550,7 +635,7 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
         <Tooltip title={`${data.messageCount} message${data.messageCount === 1 ? '' : 's'} waiting`}>
           <Typography
             variant="caption"
-            sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1 }}
+            sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1, flexShrink: 0 }}
           >
             {data.messageCount} msg
           </Typography>
@@ -583,45 +668,45 @@ type ProcessorSummary = {
   outputs: { topicId: string; label: string; match: string; owned: boolean }[]
 }
 
-// layoutTopicColumns positions bot-anchored topic pseudo-nodes to the
-// right of the org tree without overlaps. Each topic prefers to sit at its
-// subject Bot's y (so the subscription edge is short and roughly
-// horizontal), but two topics may never occupy the same space.
+// layoutTopicColumns positions bot-anchored topic nodes to the right of
+// the org tree without overlaps. Each topic prefers to sit at its subject
+// Bot's y (so the subscription edge is short and roughly horizontal), but
+// two topics may never occupy the same space. Heights are estimated from
+// label length so multi-line cards get enough vertical room.
 //
 // Algorithm:
 //  1. Sort topics by their anchor y (then id, for a stable order).
-//  2. Decide how many vertical columns are needed: a single column can
-//     hold `floor((band + gap) / slot)` topics within the tree's vertical
-//     extent. More topics than that spill into extra columns to the right.
+//  2. Decide how many vertical columns are needed using min card height.
 //  3. Split the sorted list into balanced, contiguous column chunks.
 //  4. Within a column, place each topic at `max(anchorY, cursor)` and
-//     advance the cursor past it — anchor-biased greedy packing.
+//     advance the cursor past its estimated height — anchor-biased greedy.
 const STREAM_VERTICAL_GAP = 16
 const layoutTopicColumns = (
   items: { topic: TopicSummary; anchorY: number }[],
   opts: { columnX: number; columnGap: number; top: number; bottom: number },
-): { topic: TopicSummary; x: number; y: number }[] => {
+): { topic: TopicSummary; x: number; y: number; h: number }[] => {
   if (items.length === 0) return []
   const sorted = items
     .slice()
     .sort((a, b) => a.anchorY - b.anchorY || a.topic.id.localeCompare(b.topic.id))
 
-  const slot = STREAM_H + STREAM_VERTICAL_GAP
+  const minSlot = STREAM_H + STREAM_VERTICAL_GAP
   const MIN_PER_COLUMN = 6
-  const band = Math.max(opts.bottom - opts.top, slot)
-  const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / slot))
+  const band = Math.max(opts.bottom - opts.top, minSlot)
+  const perColumn = Math.max(MIN_PER_COLUMN, Math.floor((band + STREAM_VERTICAL_GAP) / minSlot))
   const columnCount = Math.ceil(sorted.length / perColumn)
   const chunkSize = Math.ceil(sorted.length / columnCount)
 
-  const out: { topic: TopicSummary; x: number; y: number }[] = []
+  const out: { topic: TopicSummary; x: number; y: number; h: number }[] = []
   for (let col = 0; col < columnCount; col++) {
     const x = opts.columnX + col * (STREAM_W + opts.columnGap)
     let cursor = -Infinity
     const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
     for (const it of chunk) {
+      const h = estimateTopicCardHeight(it.topic.name, it.topic.id)
       const y = Math.max(it.anchorY, cursor)
-      out.push({ topic: it.topic, x, y })
-      cursor = y + slot
+      out.push({ topic: it.topic, x, y, h })
+      cursor = y + h + STREAM_VERTICAL_GAP
     }
   }
   return out
@@ -751,13 +836,13 @@ const buildGraph = (
     }
   }
 
-  // 4. Topic pseudo-nodes + subscription edges. Subscriptions are
-  //    bot-anchored, so subscribers carries Bot ids — one dashed edge per
-  //    subscribed Bot. Topics sit in column(s) to the right of the org
-  //    tree. Each topic is vertically anchored to the "subject" Bot: for
-  //    transcripts (`s-transcript-<id>`) that's the encoded bot;
-  //    otherwise created_by. Topics whose subject isn't on the chart park
-  //    in an orphan strip below.
+  // 4. Topic nodes + subscription edges. Subscriptions are bot-anchored:
+  //    one solid edge per subscribed Bot, drawn topic → bot so the pulse
+  //    animates in the consume direction. Topics sit in column(s) to the
+  //    right of the org tree. Each topic is vertically anchored to the
+  //    "subject" Bot: for transcripts (`s-transcript-<id>`) that's the
+  //    encoded bot; otherwise created_by. Topics whose subject isn't on
+  //    the chart park in an orphan strip below.
   //
   //    Processor-owned output topics are collapsed into their processor
   //    node (rendered as labelled branch ports), so they are not drawn as
@@ -821,7 +906,7 @@ const buildGraph = (
     let streamsBottom = maxBottom
     for (const p of placed) {
       topicPos.set(p.topic.id, { x: p.x, y: p.y })
-      if (p.y + STREAM_H > streamsBottom) streamsBottom = p.y + STREAM_H
+      if (p.y + p.h > streamsBottom) streamsBottom = p.y + p.h
     }
 
     // Orphans: a centred strip below everything else.
@@ -863,19 +948,19 @@ const buildGraph = (
       const subscribingBots = (s.subscribers ?? []).filter((bid) => botAbs.has(bid))
       for (const bid of subscribingBots) {
         // type 'closest' draws between the nearest sides of the two
-        // cards; handles are omitted so the edge path is free of the
-        // fixed right→left bias.
+        // cards. Source is the topic so the pulse travels topic → bot
+        // (consume direction). Narrow solid stroke; dash/pulse is drawn
+        // as an overlay inside ClosestSideEdge.
         edges.push({
-          id: `sub:${bid}->${s.id}`,
-          source: `bot:${bid}`,
-          target: `topic:${s.id}`,
+          id: `sub:${s.id}->${bid}`,
+          source: `topic:${s.id}`,
+          target: `bot:${bid}`,
           type: 'closest',
           animated: false,
           data: { kind: 'sub', botId: bid, topicId: s.id },
           style: {
-            stroke: isLight ? 'rgba(180,100,0,0.7)' : 'rgba(255,180,80,0.7)',
-            strokeWidth: 1.25,
-            strokeDasharray: '6 4',
+            stroke: isLight ? 'rgba(180,100,0,0.75)' : 'rgba(255,180,80,0.75)',
+            strokeWidth: 1,
           },
         })
       }
@@ -1036,8 +1121,10 @@ const ConfirmDeleteDialog: FC<{
 //
 // ClosestSideEdge: same chrome, but endpoints are recomputed from the
 // live node rects as the nearest side-midpoint pair. Used for bot↔bot
-// reporting lines, bot↔topic subscriptions, and branch→bot wires so
+// reporting lines, topic→bot subscriptions, and branch→bot wires so
 // free-placed cards don't force a fixed-side cable that crosses cards.
+// Subscription edges (kind 'sub') get a medium-speed pulse overlay that
+// travels source → target (topic → bot).
 
 const EdgeDeleteButton: FC<{
   id: string
@@ -1265,9 +1352,37 @@ const ClosestSideEdge: FC<EdgeProps> = ({
     targetPosition: tPos,
   })
   const showDelete = hover || selected
+  // Solid base cable + a short packet that travels source → target.
+  // pathLength normalises dash units so speed is independent of edge length.
+  const isSub = kind === 'sub'
+  const pulseColor = (style as { stroke?: string } | undefined)?.stroke
+    ?? 'rgba(255,180,80,0.95)'
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={isSub ? { ...style, strokeDasharray: undefined, strokeWidth: (style as { strokeWidth?: number })?.strokeWidth ?? 1 } : style}
+        markerEnd={markerEnd}
+        interactionWidth={20}
+      />
+      {isSub && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke={pulseColor}
+          strokeWidth={2}
+          strokeLinecap="round"
+          // Short packet + long gap so pulses are rare; multi-second
+          // cycle keeps travel slow (topic → bot).
+          pathLength={100}
+          strokeDasharray="5 95"
+          style={{
+            pointerEvents: 'none',
+            animation: 'helixSubPulse 4.2s linear infinite',
+          }}
+        />
+      )}
       <path
         d={edgePath}
         fill="none"
@@ -1515,47 +1630,57 @@ const ChartCanvas: FC<{
   )
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
-      onEdgesDelete={onEdgesDelete}
-      onNodeDragStop={onNodeDragStop}
-      onMoveEnd={onMoveEnd}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      // Snap a dropped connection to the nearest handle within this radius,
-      // so wiring into a bot / processor port doesn't require pixel-perfect
-      // aim.
-      connectionRadius={55}
-      // Loose mode lets a connection END on any handle regardless of
-      // source/target type. Needed because a Bot's only target handle is on
-      // top, but a processor's output approaches from the right (a source
-      // handle) — in strict mode that drop is rejected and the wire
-      // silently fails. onConnect validates which combos are real.
-      connectionMode={ConnectionMode.Loose}
-      // Match persisted edges: curved while the user is still dragging a wire.
-      connectionLineType={ConnectionLineType.Bezier}
-      // Camera is restored from localStorage (or fitView) in the init effect —
-      // do not fitView on every mount prop, or it fights the saved viewport.
-      fitViewOptions={{ padding: 0.2 }}
-      proOptions={{ hideAttribution: true }}
-      colorMode={lightTheme.isLight ? 'light' : 'dark'}
-      nodesDraggable
-      nodesConnectable
-      elementsSelectable
-      // @xyflow/react v12's deleteKeyCode defaults to Backspace only, so
-      // Linux/Windows users hitting Delete on a selected edge get nothing.
-      // Accept both.
-      deleteKeyCode={['Backspace', 'Delete']}
-      panOnDrag
-      zoomOnScroll
-    >
-      <Background gap={20} size={1} />
-      <Controls showInteractive={false} position="top-left" />
-    </ReactFlow>
+    <>
+      {/* Medium-speed packet travelling topic → bot on subscription edges. */}
+      <GlobalStyles
+        styles={{
+          '@keyframes helixSubPulse': {
+            to: { strokeDashoffset: -100 },
+          },
+        }}
+      />
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onEdgesDelete={onEdgesDelete}
+        onNodeDragStop={onNodeDragStop}
+        onMoveEnd={onMoveEnd}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        // Snap a dropped connection to the nearest handle within this radius,
+        // so wiring into a bot / processor port doesn't require pixel-perfect
+        // aim.
+        connectionRadius={55}
+        // Loose mode lets a connection END on any handle regardless of
+        // source/target type. Needed because a Bot's only target handle is on
+        // top, but a processor's output approaches from the right (a source
+        // handle) — in strict mode that drop is rejected and the wire
+        // silently fails. onConnect validates which combos are real.
+        connectionMode={ConnectionMode.Loose}
+        // Match persisted edges: curved while the user is still dragging a wire.
+        connectionLineType={ConnectionLineType.Bezier}
+        // Camera is restored from localStorage (or fitView) in the init effect —
+        // do not fitView on every mount prop, or it fights the saved viewport.
+        fitViewOptions={{ padding: 0.2 }}
+        proOptions={{ hideAttribution: true }}
+        colorMode={lightTheme.isLight ? 'light' : 'dark'}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        // @xyflow/react v12's deleteKeyCode defaults to Backspace only, so
+        // Linux/Windows users hitting Delete on a selected edge get nothing.
+        // Accept both.
+        deleteKeyCode={['Backspace', 'Delete']}
+        panOnDrag
+        zoomOnScroll
+      >
+        <Background gap={20} size={1} />
+        <Controls showInteractive={false} position="top-left" />
+      </ReactFlow>
+    </>
   )
 }
 

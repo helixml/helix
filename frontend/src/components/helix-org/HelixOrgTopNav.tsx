@@ -5,7 +5,8 @@ import { FC } from 'react'
 import Box from '@mui/material/Box'
 import ButtonBase from '@mui/material/ButtonBase'
 import Tooltip from '@mui/material/Tooltip'
-import { Bot, Network, Radio, Settings } from 'lucide-react'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import { Bot, Network, Settings } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -38,7 +39,8 @@ const ITEMS: NavItem[] = [
     id: 'topics',
     label: 'Topics',
     route: 'helix_org_topics',
-    icon: <Radio size={16} />,
+    // Same hub glyph as topic cards on the org chart.
+    icon: <HubOutlinedIcon sx={{ fontSize: 16 }} />,
     isActive: (n) => n === 'helix_org_topics' || n === 'helix_org_topic_detail',
   },
   {
