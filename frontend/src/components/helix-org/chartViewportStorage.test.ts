@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+
 import { loadChartViewport, saveChartViewport } from './chartViewportStorage'
 
 describe('chartViewportStorage', () => {

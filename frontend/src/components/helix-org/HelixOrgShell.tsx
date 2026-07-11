@@ -73,7 +73,9 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
       breadcrumbShowHome={false}
       organizationId={account.organizationTools.organization?.id}
       disableContentScroll
-      px={0}
+      // AppBar horizontal padding only (content is full-bleed). Default Page
+      // px=3; without it breadcrumbs sit flush against the left sidebar.
+      px={3}
       sx={{
         height: '100%',
         minHeight: 0,

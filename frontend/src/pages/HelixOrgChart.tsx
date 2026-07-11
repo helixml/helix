@@ -1387,8 +1387,10 @@ const ChartCanvas: FC<{
     [userId, orgId],
   )
 
+  // xyflow's OnNodeDrag first arg is a native MouseEvent|TouchEvent — do not
+  // type it as React.MouseEvent or tsc rejects the prop assignment.
   const onNodeDragStop = useCallback(
-    (_: React.MouseEvent, dragged: Node, allNodes?: Node[]) => {
+    (_event: unknown, dragged: Node, allNodes?: Node[]) => {
       // Prefer the nodes array ReactFlow passes (includes the final
       // drag position); fall back to local state with the dragged node
       // patched in.
