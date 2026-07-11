@@ -37,7 +37,7 @@ export type BotBadge = ApiBotBadge
 // client): "running" when the bot's desktop sandbox is online, "stopped"
 // otherwise. Drives the org-chart presence dots.
 export type BotDTO = ApiBotDTO & { agent_status?: 'running' | 'stopped' | string }
-export type BotDetailDTO = ApiBotDetailDTO
+export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
@@ -236,16 +236,11 @@ export function useEnsureBotChat() {
   })
 }
 
-// useActivateBot manually triggers an activation for a Bot. The click
-// goes through the full activation pipeline (ensureProject →
-// AttachHelixOrgMCP → ensureSession → container start) instead of the
-// generic /sessions/{id}/resume — which doesn't re-attach the helix-org
-// MCP and so leaves the desktop without the org-graph tools.
-//
-// Accepts an orgID override so callers that aren't running inside the
-// helix-org base context can pass the org slug explicitly.
+// useActivateBot starts (or wakes) a bot's agent desktop via the full
+// activation pipeline. Used as "Start" when agent_status is stopped.
 export function useActivateBot(orgIDOverride?: string) {
   const api = useApi()
+  const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
@@ -253,24 +248,51 @@ export function useActivateBot(orgIDOverride?: string) {
       const res = await api.getApiClient().v1OrgsBotsActivateCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
   })
 }
 
-// useRestartBotAgent recreates the bot's desktop container from scratch.
-// Wired to the bot page's "Restart agent session" button. Unlike
-// useActivateBot (which continues the existing session via SendMessage),
-// this hits the dedicated bot restart endpoint, which fully removes the
-// bot's current session (stop desktop → delete session → clear pointer)
-// and then activates a brand-new one — a fresh desktop, thread and MCP
-// surface. When the bot has no live session it just activates.
+// useStopBotAgent stops the bot's desktop sandbox; session + transcript stay.
+export function useStopBotAgent(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (botId: string) => {
+      // Not yet on the generated OpenAPI client.
+      await axios.post(
+        `${base || `/api/v1/orgs/${encodeURIComponent(orgID)}`}/bots/${encodeURIComponent(botId)}/stop-agent`,
+        null,
+        { withCredentials: true },
+      )
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
+// useRestartBotAgent fully tears down the current session and starts a
+// brand-new one (fresh desktop + thread). When there is no session it
+// just activates.
 export function useRestartBotAgent(orgIDOverride?: string) {
   const api = useApi()
+  const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
       const res = await api.getApiClient().v1OrgsBotsRestartAgentCreate(botId, orgID)
       return res.data as BotActivateDTO
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
     },
   })
 }

@@ -14,9 +14,6 @@
 // infra by itself; sessions are provisioned by the bot's activation flow.
 
 import { FC, Key, useEffect, useMemo, useRef, useState } from 'react'
-import Accordion from '@mui/material/Accordion'
-import AccordionDetails from '@mui/material/AccordionDetails'
-import AccordionSummary from '@mui/material/AccordionSummary'
 import Autocomplete from '@mui/material/Autocomplete'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -27,7 +24,10 @@ import Container from '@mui/material/Container'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Grid from '@mui/material/Grid'
+import IconButton from '@mui/material/IconButton'
 import Link from '@mui/material/Link'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import Switch from '@mui/material/Switch'
@@ -38,11 +38,14 @@ import Typography from '@mui/material/Typography'
 import CheckBoxIcon from '@mui/icons-material/CheckBox'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SaveIcon from '@mui/icons-material/Save'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import StopIcon from '@mui/icons-material/Stop'
+import Tooltip from '@mui/material/Tooltip'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -67,12 +70,14 @@ import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
 import {
   ToolDTO,
+  useActivateBot,
   useDeleteBot,
   useHelixOrgBot,
   useListBotSubscriptions,
   useListHelixOrgTools,
   useListHelixOrgTopics,
   useRestartBotAgent,
+  useStopBotAgent,
   useSubscribeBot,
   useUnsubscribeBot,
   useUpdateBot,
@@ -95,14 +100,17 @@ const HelixOrgBotDetail: FC = () => {
   // Stop polling/refetching this bot once a delete is in flight or done —
   // the row is being torn down, so a refetch would only hit a 404. The
   // page navigates to the bots list on success.
-  const { data, isLoading } = useHelixOrgBot(botId, {
+  const { data, isLoading, refetch: refetchBot } = useHelixOrgBot(botId, {
     enabled: !del.isPending && !del.isSuccess,
   })
   const streaming = useStreaming()
   const updateBot = useUpdateBot()
+  const activateAgent = useActivateBot()
+  const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
 
   const bot = data?.bot
   const projectID = data?.project_id
@@ -111,6 +119,13 @@ const HelixOrgBotDetail: FC = () => {
   // surfaces (Project Desktop session, tools, preserve-context, restart) make
   // no sense for it and are hidden below.
   const isHuman = bot?.kind === 'human'
+  // agent_status from GET /bots/{id}; poll detail so the presence control stays fresh.
+  const agentOnline = bot?.agent_status === 'running'
+  useEffect(() => {
+    if (!botId || isHuman) return
+    const t = window.setInterval(() => { void refetchBot() }, 5000)
+    return () => window.clearInterval(t)
+  }, [botId, isHuman, refetchBot])
 
   // Editable content markdown + tools. Seeded from the bot every time it
   // loads/refreshes so a cancelled edit re-syncs to server state.
@@ -168,13 +183,48 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
-  // handleRestartSession gives the Bot a genuinely fresh session: the
-  // backend stops + deletes the current session and enqueues a brand-new
-  // one (new desktop, new thread, current MCP services), which the spawner
-  // provisions asynchronously. We drop the stale transcript immediately,
-  // switch to Chat, then poll the project's exploratory session until the
-  // new one appears and bind the chat/desktop panels to it. Tucked behind
-  // the Advanced accordion; destructive to in-flight work.
+  const pollForSession = async (previousSessionId: string | null, requireDifferent: boolean) => {
+    if (!projectID) return
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      let sid: string | null = null
+      try {
+        sid = await fetchExistingWorkerSession(projectID, chatApi)
+      } catch {
+        sid = null
+      }
+      if (!sid) continue
+      if (!requireDifferent || sid !== previousSessionId) {
+        setChatSessionId(sid)
+        return
+      }
+    }
+  }
+
+  const handleStartSession = async () => {
+    if (!botId || activateAgent.isPending) return
+    try {
+      await activateAgent.mutateAsync(botId)
+      snackbar.success('Starting agent…')
+      await pollForSession(chatSessionId, false)
+      void refetchBot()
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'start failed')
+    }
+  }
+
+  const handleStopSession = async () => {
+    if (!botId || stopAgent.isPending) return
+    try {
+      await stopAgent.mutateAsync(botId)
+      snackbar.success('Agent stopped')
+      void refetchBot()
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'stop failed')
+    }
+  }
+
+  // Full reset: stop + delete session, then activate a brand-new one.
   const handleRestartSession = async () => {
     if (!botId || restartAgent.isPending) return
     const previousSessionId = chatSessionId
@@ -182,24 +232,9 @@ const HelixOrgBotDetail: FC = () => {
       await restartAgent.mutateAsync(botId)
       setChatSessionId(null)
       setSessionTab('chat')
-      snackbar.success('Fresh agent session started — it will come up shortly')
-      // The new session is created asynchronously; poll the project's
-      // exploratory session until a different (fresh) one is resolvable.
-      if (projectID) {
-        for (let attempt = 0; attempt < 20; attempt++) {
-          await new Promise((resolve) => setTimeout(resolve, 1500))
-          let sid: string | null = null
-          try {
-            sid = await fetchExistingWorkerSession(projectID, chatApi)
-          } catch {
-            sid = null
-          }
-          if (sid && sid !== previousSessionId) {
-            setChatSessionId(sid)
-            break
-          }
-        }
-      }
+      snackbar.success('Restarting agent — a fresh session will come up shortly')
+      await pollForSession(previousSessionId, true)
+      void refetchBot()
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
@@ -340,22 +375,109 @@ const HelixOrgBotDetail: FC = () => {
                       spacing={1}
                       sx={{ width: '100%' }}
                     >
-                      <Typography variant="subtitle1">Agent activity</Typography>
-                      <ToggleButtonGroup
-                        size="small"
-                        exclusive
-                        value={sessionTab}
-                        onChange={(_e, value) => { if (value) setSessionTab(value) }}
-                      >
-                        <ToggleButton value="chat">Transcript</ToggleButton>
-                        <ToggleButton value="desktop">Desktop</ToggleButton>
-                      </ToggleButtonGroup>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+                          <Box
+                            sx={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              backgroundColor: agentOnline ? 'rgb(46, 160, 67)' : 'rgba(0,0,0,0.28)',
+                              boxShadow: agentOnline ? '0 0 0 2px rgba(46,160,67,0.2)' : 'none',
+                              flexShrink: 0,
+                            }}
+                          />
+                        </Tooltip>
+                        <Typography variant="subtitle1">Agent activity</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {agentOnline ? 'Running' : 'Stopped'}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <ToggleButtonGroup
+                          size="small"
+                          exclusive
+                          value={sessionTab}
+                          onChange={(_e, value) => { if (value) setSessionTab(value) }}
+                        >
+                          <ToggleButton value="chat">Chat</ToggleButton>
+                          <ToggleButton value="desktop">Desktop</ToggleButton>
+                        </ToggleButtonGroup>
+                        <IconButton
+                          size="small"
+                          aria-label="Agent session actions"
+                          onClick={(e) => setAgentMenuEl(e.currentTarget)}
+                          disabled={activateAgent.isPending || stopAgent.isPending || restartAgent.isPending}
+                        >
+                          {(activateAgent.isPending || stopAgent.isPending || restartAgent.isPending)
+                            ? <CircularProgress size={16} />
+                            : <MoreVertIcon />}
+                        </IconButton>
+                        <Menu
+                          anchorEl={agentMenuEl}
+                          open={Boolean(agentMenuEl)}
+                          onClose={() => setAgentMenuEl(null)}
+                          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                        >
+                          {agentOnline ? (
+                            <>
+                              <MenuItem
+                                onClick={() => {
+                                  setAgentMenuEl(null)
+                                  void handleStopSession()
+                                }}
+                              >
+                                <StopIcon sx={{ mr: 1, fontSize: 20 }} />
+                                Stop agent
+                              </MenuItem>
+                              <MenuItem
+                                onClick={() => {
+                                  setAgentMenuEl(null)
+                                  void handleRestartSession()
+                                }}
+                              >
+                                <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
+                                Restart agent
+                              </MenuItem>
+                            </>
+                          ) : (
+                            <MenuItem
+                              onClick={() => {
+                                setAgentMenuEl(null)
+                                void handleStartSession()
+                              }}
+                            >
+                              <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
+                              Start agent
+                            </MenuItem>
+                          )}
+                        </Menu>
+                      </Stack>
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                       {sessionTab === 'chat'
-                        ? "The bot's agent session — the transcript of what it's doing, including its MCP tool calls. Send a message to drive it."
-                        : "The live desktop of the bot's agent session — watch and drive what it is doing in real time."}
+                        ? "Chat with this bot’s agent — messages include tool calls. Use the menu to start, stop, or restart the agent."
+                        : "Live desktop of the bot’s agent. Use the menu to start, stop, or restart the agent."}
                     </Typography>
+
+                    {!agentOnline && !chatSessionId && (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          py: 4,
+                          px: 2,
+                          textAlign: 'center',
+                          border: (theme) =>
+                            `1px dashed ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'}`,
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          The agent is not running. Open the ⋮ menu and choose <strong>Start agent</strong> to begin.
+                        </Typography>
+                      </Box>
+                    )}
 
                     {/* Inline transcript. EmbeddedSessionView self-fetches
                         the session + interactions and live-tails in-flight
@@ -400,16 +522,12 @@ const HelixOrgBotDetail: FC = () => {
                             />
                           </Box>
                         </Box>
-                      ) : (
+                      ) : agentOnline ? (
                         <Typography variant="body2" color="text.secondary">
-                          No conversation yet for this bot.
+                          Agent is starting — the transcript will appear when the session is ready.
                         </Typography>
-                      )
+                      ) : null
                     ) : (
-                      // Desktop stream — same widget as the spec-task page.
-                      // ExternalAgentDesktopViewer handles the sandbox
-                      // lifecycle (starting/running/paused) internally; it
-                      // needs a bounded, flex-column container to fill.
                       chatSessionId ? (
                         <Box
                           sx={{
@@ -432,11 +550,11 @@ const HelixOrgBotDetail: FC = () => {
                             displayFps={displaySettings.fps}
                           />
                         </Box>
-                      ) : (
+                      ) : agentOnline ? (
                         <Typography variant="body2" color="text.secondary">
-                          No desktop yet for this bot.
+                          Agent is starting — the desktop will appear when ready.
                         </Typography>
-                      )
+                      ) : null
                     )}
                   </Stack>
                 </Paper>
@@ -642,41 +760,6 @@ const HelixOrgBotDetail: FC = () => {
             </Grid>
           </Grid>
 
-          {/* Advanced — collapsed by default. Houses destructive
-              maintenance actions kept out of the main flow. */}
-          <Accordion
-            disableGutters
-            elevation={0}
-            sx={{
-              mt: 3,
-              border: (theme) => `1px solid ${theme.palette.mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: 1,
-              '&:before': { display: 'none' },
-              backgroundImage: 'none',
-            }}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle2">Advanced</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1.5} alignItems="flex-start">
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  startIcon={restartAgent.isPending ? <CircularProgress size={16} color="inherit" /> : <RestartAltIcon />}
-                  onClick={handleRestartSession}
-                  disabled={restartAgent.isPending}
-                >
-                  {restartAgent.isPending ? 'Restarting…' : 'Restart agent session'}
-                </Button>
-                <Typography variant="caption" color="text.secondary">
-                  Deletes the current session and starts a brand-new one — a fresh
-                  desktop, thread and tools. Any in-progress work in the current
-                  session will be lost.
-                </Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
           </>
         )}
       </Container>

@@ -18,7 +18,10 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import StopIcon from '@mui/icons-material/Stop'
 import TransformIcon from '@mui/icons-material/Transform'
 
 import dagre from 'dagre'
@@ -38,6 +41,7 @@ import {
   Position as RFPosition,
   ReactFlow,
   ReactFlowProvider,
+  Viewport,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -46,9 +50,14 @@ import '@xyflow/react/dist/style.css'
 
 import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import {
+  loadChartViewport,
+  saveChartViewport,
+} from '../components/helix-org/chartViewportStorage'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -57,6 +66,7 @@ import {
   ChartPositionMap,
   chartPositionKey,
   ProcessorDTO,
+  useActivateBot,
   useClearChartPositions,
   useDeleteBot,
   useDeleteHelixOrgTopic,
@@ -69,6 +79,8 @@ import {
   useUpdateHelixOrgProcessor,
   useAddBotParent,
   useRemoveBotParent,
+  useRestartBotAgent,
+  useStopBotAgent,
   useSubscribeBotAtChart,
   useUnsubscribeBotAtChart,
   useUpsertChartPositions,
@@ -90,7 +102,8 @@ import {
 // Layout: dagre runs over the bot graph (edges = reporting lines) to get
 // global (x, y) for each Bot node. Saved free-placed coordinates from
 // GET /chart/positions override auto-layout per node; nodes without a
-// saved row stay on the auto-layout position.
+// saved row stay on the auto-layout position. Camera (pan/zoom) is
+// personal — localStorage keyed by user id + org id, not shared.
 
 const BOT_W = 220
 const BOT_H = 96
@@ -121,6 +134,9 @@ type BotNodeData = {
   onSelectBot: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
+  onStartBot: (botId: string) => void
+  onStopBot: (botId: string) => void
+  onRestartBot: (botId: string) => void
 }
 
 // TopicNodeData drives the small pseudo-nodes the chart renders for each
@@ -343,6 +359,38 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
+            {online ? (
+              <>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onStopBot(data.botId)
+                  }}
+                >
+                  <StopIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Stop agent
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onRestartBot(data.botId)
+                  }}
+                >
+                  <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Restart agent
+                </MenuItem>
+              </>
+            ) : (
+              <MenuItem
+                onClick={() => {
+                  closeMenu()
+                  data.onStartBot(data.botId)
+                }}
+              >
+                <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
+                Start agent
+              </MenuItem>
+            )}
             <MenuItem
               onClick={() => {
                 closeMenu()
@@ -555,6 +603,9 @@ const buildGraph = (
     onSelectBot: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
     onSelectProcessor: (processorId: string) => void
@@ -624,6 +675,9 @@ const buildGraph = (
         onSelectBot: handlers.onSelectBot,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
+        onStartBot: handlers.onStartBot,
+        onStopBot: handlers.onStopBot,
+        onRestartBot: handlers.onRestartBot,
       } as BotNodeData,
       draggable: true,
       connectable: true,
@@ -1155,6 +1209,9 @@ const ChartCanvas: FC<{
     onSelectBot: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
     onSelectProcessor: (processorId: string) => void
@@ -1183,10 +1240,18 @@ const ChartCanvas: FC<{
   savedPositions: ChartPositionMap
 }> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, topics, messageCounts, processors, savedPositions }) => {
   const lightTheme = useLightTheme()
-  const { fitView } = useReactFlow()
-  // fitView only once after the first graph build so a drag-persist
-  // doesn't yank the viewport back to the whole graph.
-  const didFitRef = useRef(false)
+  const account = useAccount()
+  const userId = account.user?.id ?? ''
+  // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
+  const orgId = account.organizationTools.organization?.id ?? ''
+  const { fitView, setViewport } = useReactFlow()
+  // Apply camera once after the first graph build: restore this user's
+  // saved pan/zoom for the org, or fitView when nothing is stored yet.
+  // Node-drag persistence must not re-run this (would yank the camera).
+  const didInitViewportRef = useRef(false)
+  // Track which user+org the init applied to so a mid-session org switch
+  // re-loads that org's camera.
+  const viewportScopeRef = useRef('')
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
     () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions),
@@ -1198,11 +1263,31 @@ const ChartCanvas: FC<{
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
-    if (!didFitRef.current && computedNodes.length > 0) {
-      didFitRef.current = true
-      requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
+    const scope = userId && orgId ? `${userId}:${orgId}` : ''
+    if (scope && scope !== viewportScopeRef.current) {
+      viewportScopeRef.current = scope
+      didInitViewportRef.current = false
     }
-  }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
+    if (didInitViewportRef.current || computedNodes.length === 0 || !userId || !orgId) return
+    didInitViewportRef.current = true
+    const saved = loadChartViewport(userId, orgId)
+    requestAnimationFrame(() => {
+      if (saved) {
+        setViewport(saved, { duration: 0 })
+      } else {
+        fitView({ padding: 0.2, duration: 250 })
+      }
+    })
+  }, [computedNodes, computedEdges, fitView, setViewport, setNodes, setEdges, userId, orgId])
+
+  // Personal camera: pan/zoom only — node layout is server-side shared.
+  const onMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      if (!userId || !orgId) return
+      saveChartViewport(userId, orgId, viewport)
+    },
+    [userId, orgId],
+  )
 
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, dragged: Node, allNodes?: Node[]) => {
@@ -1329,6 +1414,7 @@ const ChartCanvas: FC<{
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
       onNodeDragStop={onNodeDragStop}
+      onMoveEnd={onMoveEnd}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       // Snap a dropped connection to the nearest handle within this radius,
@@ -1343,7 +1429,8 @@ const ChartCanvas: FC<{
       connectionMode={ConnectionMode.Loose}
       // Match persisted edges: curved while the user is still dragging a wire.
       connectionLineType={ConnectionLineType.Bezier}
-      fitView
+      // Camera is restored from localStorage (or fitView) in the init effect —
+      // do not fitView on every mount prop, or it fights the saved viewport.
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
       colorMode={lightTheme.isLight ? 'light' : 'dark'}
@@ -1448,6 +1535,9 @@ const HelixOrgChart: FC = () => {
   const removeParent = useRemoveBotParent()
   const subscribe = useSubscribeBotAtChart()
   const unsubscribe = useUnsubscribeBotAtChart()
+  const activateBot = useActivateBot()
+  const stopBot = useStopBotAgent()
+  const restartBot = useRestartBotAgent()
 
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? [])
@@ -1551,6 +1641,30 @@ const HelixOrgChart: FC = () => {
   )
   const onNewBot = useCallback((parentBotId: string) => setSelection({ kind: 'newBot', parentBotId }), [])
   const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])
+  const onStartBot = useCallback(async (botId: string) => {
+    try {
+      await activateBot.mutateAsync(botId)
+      snackbar.success(`Starting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'start failed')
+    }
+  }, [activateBot, snackbar])
+  const onStopBot = useCallback(async (botId: string) => {
+    try {
+      await stopBot.mutateAsync(botId)
+      snackbar.success(`Stopped ${botId}`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'stop failed')
+    }
+  }, [stopBot, snackbar])
+  const onRestartBot = useCallback(async (botId: string) => {
+    try {
+      await restartBot.mutateAsync(botId)
+      snackbar.success(`Restarting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
+    }
+  }, [restartBot, snackbar])
   const onSelectTopic = useCallback(
     (topicId: string) => {
       if (!orgSlug) return
@@ -1568,8 +1682,11 @@ const HelixOrgChart: FC = () => {
   )
   const onDeleteProcessor = useCallback((processorId: string) => setConfirmDelete({ kind: 'processor', id: processorId }), [])
   const handlers = useMemo(
-    () => ({ onSelectBot, onNewBot, onDeleteBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor }),
-    [onSelectBot, onNewBot, onDeleteBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
+    () => ({
+      onSelectBot, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
+      onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor,
+    }),
+    [onSelectBot, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
   )
 
   const onAddParent = useCallback(
