@@ -16,6 +16,7 @@ import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
@@ -54,6 +55,7 @@ import {
   loadChartViewport,
   saveChartViewport,
 } from '../components/helix-org/chartViewportStorage'
+import { focusChatBot } from '../components/helix-org/chatBotFocus'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
@@ -130,7 +132,10 @@ type BotNodeData = {
   botName: string
   // running = desktop sandbox online; stopped (or missing) = offline.
   agentStatus: 'running' | 'stopped'
+  /** Card body click — focus the left chat rail on this bot. */
   onSelectBot: (botId: string) => void
+  /** ⋮ → Details — open the bot detail page. */
+  onOpenBotDetails: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
   onStartBot: (botId: string) => void
@@ -374,6 +379,15 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onOpenBotDetails(data.botId)
+              }}
+            >
+              <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
+              Details
+            </MenuItem>
             {online ? (
               <>
                 <MenuItem
@@ -616,6 +630,7 @@ const buildGraph = (
   flat: FlatBot[],
   handlers: {
     onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
     onStartBot: (botId: string) => void
@@ -688,6 +703,7 @@ const buildGraph = (
         botName: b.name,
         agentStatus: b.agentStatus,
         onSelectBot: handlers.onSelectBot,
+        onOpenBotDetails: handlers.onOpenBotDetails,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
         onStartBot: handlers.onStartBot,
@@ -1287,6 +1303,7 @@ const ChartCanvas: FC<{
   flat: FlatBot[]
   handlers: {
     onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
     onStartBot: (botId: string) => void
@@ -1714,7 +1731,16 @@ const HelixOrgChart: FC = () => {
   const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
 
   const orgSlug = (router.params.org_id as string | undefined) ?? ''
+  // Card body click → focus left chat rail on this bot (stay on chart).
   const onSelectBot = useCallback(
+    (botId: string) => {
+      if (!orgSlug) return
+      focusChatBot(orgSlug, botId)
+    },
+    [orgSlug],
+  )
+  // ⋮ → Details → bot detail page.
+  const onOpenBotDetails = useCallback(
     (botId: string) => {
       if (!orgSlug) return
       router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
@@ -1772,10 +1798,10 @@ const HelixOrgChart: FC = () => {
   const onDeleteProcessor = useCallback((processorId: string) => setConfirmDelete({ kind: 'processor', id: processorId }), [])
   const handlers = useMemo(
     () => ({
-      onSelectBot, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
+      onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
       onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor,
     }),
-    [onSelectBot, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
+    [onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
   )
 
   const onAddParent = useCallback(

@@ -44,8 +44,12 @@ import {
   WorkerChatReader,
   fetchExistingWorkerSession,
 } from '../../services/workerChatSession'
-
-const storageKey = (orgId: string) => `helix-org-chat-bot:${orgId}`
+import {
+  CHAT_BOT_FOCUS_EVENT,
+  ChatBotFocusDetail,
+  chatBotStorageKey,
+  focusChatBot,
+} from './chatBotFocus'
 
 const HelixOrgChatPanel: FC = () => {
   const lightTheme = useLightTheme()
@@ -65,7 +69,7 @@ const HelixOrgChatPanel: FC = () => {
   // Restore last-used bot (or pick a sensible default once the list loads).
   useEffect(() => {
     if (agents.length === 0) return
-    const saved = orgId ? localStorage.getItem(storageKey(orgId)) : null
+    const saved = orgId ? localStorage.getItem(chatBotStorageKey(orgId)) : null
     if (saved && agents.some((b) => b.id === saved)) {
       setSelectedBotId(saved)
       return
@@ -78,9 +82,23 @@ const HelixOrgChatPanel: FC = () => {
     }
   }, [agents, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Chart node click (and any other focusChatBot caller) switches the rail.
+  useEffect(() => {
+    const onFocus = (ev: Event) => {
+      const detail = (ev as CustomEvent<ChatBotFocusDetail>).detail
+      if (!detail || detail.orgId !== orgId || !detail.botId) return
+      setSelectedBotId(detail.botId)
+    }
+    window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+    return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+  }, [orgId])
+
   useEffect(() => {
     if (!orgId || !selectedBotId) return
-    localStorage.setItem(storageKey(orgId), selectedBotId)
+    // Keep storage in sync when the user picks from the select (chart uses focusChatBot).
+    try {
+      localStorage.setItem(chatBotStorageKey(orgId), selectedBotId)
+    } catch { /* ignore */ }
   }, [orgId, selectedBotId])
 
   const selectedBot = agents.find((b) => b.id === selectedBotId)
@@ -188,6 +206,12 @@ const HelixOrgChatPanel: FC = () => {
     router.navigate('helix_org_bot_detail', { org_id: orgId, bot_id: selectedBotId })
   }
 
+  // Selecting in the dropdown also broadcasts so other surfaces stay in sync.
+  const handleSelectChange = (botId: string) => {
+    setSelectedBotId(botId)
+    if (orgId && botId) focusChatBot(orgId, botId)
+  }
+
   const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
   const statusColor = agentOnline ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
@@ -222,7 +246,7 @@ const HelixOrgChatPanel: FC = () => {
                 variant="standard"
                 disableUnderline
                 value={selectedBotId}
-                onChange={(e) => setSelectedBotId(e.target.value)}
+                onChange={(e) => handleSelectChange(e.target.value)}
                 sx={{
                   width: '100%',
                   fontWeight: 600,
