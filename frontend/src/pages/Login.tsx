@@ -53,15 +53,31 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
+// Resolve a post-login redirect to a same-origin path only. Values come
+// from localStorage and must never drive navigation to an external URL
+// (CodeQL: DOM text / open-redirect on location assignment).
+function safePostLoginPath(raw: string | null): string {
+  if (!raw) return '/'
+  if (raw === '/notfound' || raw === '/login' || raw === '/') return '/'
+  try {
+    // Parse relative to current origin — absolute/foreign hosts fail the origin check.
+    const url = new URL(raw, window.location.origin)
+    if (url.origin !== window.location.origin) return '/'
+    // Rebuild from pathname/search/hash only (drop any userinfo/host).
+    const path = `${url.pathname}${url.search}${url.hash}`
+    if (!path.startsWith('/') || path.startsWith('//')) return '/'
+    return path
+  } catch {
+    return '/'
+  }
+}
+
 function performPostLoginRedirect() {
   const redirectUrl = localStorage.getItem(LOGIN_REDIRECT_KEY)
   localStorage.removeItem(LOGIN_REDIRECT_KEY)
-
-  if (redirectUrl && redirectUrl !== '/notfound' && redirectUrl !== '/login' && redirectUrl !== '/') {
-    window.location.href = redirectUrl
-  } else {
-    window.location.href = '/'
-  }
+  const path = safePostLoginPath(redirectUrl)
+  // Assign a same-origin path we just validated — never the raw storage value.
+  window.location.assign(path)
 }
 
 export default function Login() {

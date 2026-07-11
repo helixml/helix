@@ -47,8 +47,9 @@ import {
 import {
   CHAT_BOT_FOCUS_EVENT,
   ChatBotFocusDetail,
-  chatBotStorageKey,
   focusChatBot,
+  isValidBotId,
+  loadFocusedBotId,
 } from './chatBotFocus'
 
 const HelixOrgChatPanel: FC = () => {
@@ -66,10 +67,19 @@ const HelixOrgChatPanel: FC = () => {
   )
 
   const [selectedBotId, setSelectedBotId] = useState<string>('')
+  // Persist only bot ids that exist in this org's agent list and match the
+  // chart-handle charset (CodeQL: no free-form / secret-like localStorage).
+  const persistSelection = useCallback((botId: string) => {
+    if (!orgId || !isValidBotId(botId)) return
+    if (!agents.some((b) => b.id === botId)) return
+    focusChatBot(orgId, botId)
+  }, [orgId, agents])
+
   // Restore last-used bot (or pick a sensible default once the list loads).
   useEffect(() => {
     if (agents.length === 0) return
-    const saved = orgId ? localStorage.getItem(chatBotStorageKey(orgId)) : null
+    const saved = orgId ? loadFocusedBotId(orgId) : null
+    // Only restore ids that still exist in this org's bot list.
     if (saved && agents.some((b) => b.id === saved)) {
       setSelectedBotId(saved)
       return
@@ -78,7 +88,9 @@ const HelixOrgChatPanel: FC = () => {
       const preferred =
         agents.find((b) => (b.id ?? '').includes('chief') || (b.id ?? '').includes('owner'))
         ?? agents[0]
-      setSelectedBotId(preferred.id ?? '')
+      const id = preferred.id ?? ''
+      setSelectedBotId(id)
+      if (id) persistSelection(id)
     }
   }, [agents, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -86,20 +98,14 @@ const HelixOrgChatPanel: FC = () => {
   useEffect(() => {
     const onFocus = (ev: Event) => {
       const detail = (ev as CustomEvent<ChatBotFocusDetail>).detail
-      if (!detail || detail.orgId !== orgId || !detail.botId) return
+      if (!detail || detail.orgId !== orgId || !isValidBotId(detail.botId)) return
+      // Only focus bots that exist in the current list (ignore stale events).
+      if (agents.length > 0 && !agents.some((b) => b.id === detail.botId)) return
       setSelectedBotId(detail.botId)
     }
     window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
     return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
-  }, [orgId])
-
-  useEffect(() => {
-    if (!orgId || !selectedBotId) return
-    // Keep storage in sync when the user picks from the select (chart uses focusChatBot).
-    try {
-      localStorage.setItem(chatBotStorageKey(orgId), selectedBotId)
-    } catch { /* ignore */ }
-  }, [orgId, selectedBotId])
+  }, [orgId, agents])
 
   const selectedBot = agents.find((b) => b.id === selectedBotId)
   const agentOnline = selectedBot?.agent_status === 'running'
@@ -209,7 +215,7 @@ const HelixOrgChatPanel: FC = () => {
   // Selecting in the dropdown also broadcasts so other surfaces stay in sync.
   const handleSelectChange = (botId: string) => {
     setSelectedBotId(botId)
-    if (orgId && botId) focusChatBot(orgId, botId)
+    persistSelection(botId)
   }
 
   const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
