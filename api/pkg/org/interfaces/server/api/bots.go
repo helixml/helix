@@ -56,7 +56,16 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
-		out = append(out, botDTO(b, managersByReport[b.ID]))
+		dto := botDTO(b, managersByReport[b.ID])
+		// Humans never run an agent sandbox — always "stopped". Agents
+		// get status from the runtime sidecar + session metadata.
+		dto.AgentStatus = "stopped"
+		if b.Kind != orgchart.BotKindHuman && a.deps.BotRuntime != nil {
+			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil && info.AgentStatus != "" {
+				dto.AgentStatus = info.AgentStatus
+			}
+		}
+		out = append(out, dto)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

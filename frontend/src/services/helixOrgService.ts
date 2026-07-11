@@ -33,7 +33,10 @@ import {
 // optional; consumers use them as if fields are present. strict
 // null checks are off project-wide so plain aliases suffice.
 export type BotBadge = ApiBotBadge
-export type BotDTO = ApiBotDTO
+// agent_status is populated by GET /bots (not yet in the generated OpenAPI
+// client): "running" when the bot's desktop sandbox is online, "stopped"
+// otherwise. Drives the org-chart presence dots.
+export type BotDTO = ApiBotDTO & { agent_status?: 'running' | 'stopped' | string }
 export type BotDetailDTO = ApiBotDetailDTO
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
@@ -272,7 +275,7 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   })
 }
 
-export function useListHelixOrgBots(options?: { enabled?: boolean }) {
+export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
@@ -282,6 +285,7 @@ export function useListHelixOrgBots(options?: { enabled?: boolean }) {
       return (res.data ?? []) as BotDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
   })
 }
 

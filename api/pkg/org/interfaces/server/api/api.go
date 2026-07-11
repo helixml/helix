@@ -191,12 +191,16 @@ type Deps struct {
 }
 
 // BotRuntimeInfo is the subset of a Bot's runtime-state sidecar the
-// REST adapter surfaces: the per-project deep-link ids and the current
-// desktop session id.
+// REST adapter surfaces: the per-project deep-link ids, the current
+// desktop session id, and whether that sandbox is online.
 type BotRuntimeInfo struct {
 	ProjectID  string
 	AgentAppID string
 	SessionID  string
+	// AgentStatus is "running" when the bot's exploratory-session
+	// desktop is online (external_agent_status == running), else
+	// "stopped". Empty when the status could not be resolved.
+	AgentStatus string
 }
 
 // BotRuntime resolves a Bot's runtime-state sidecar. Declared here

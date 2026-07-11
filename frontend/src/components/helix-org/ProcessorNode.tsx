@@ -8,13 +8,15 @@
 // the dot sits exactly on the edge next to its label — never floating
 // off the node. Clear "in" / "out" cues mark direction.
 
-import { FC } from 'react'
+import { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
-import Tooltip from '@mui/material/Tooltip'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import TransformIcon from '@mui/icons-material/Transform'
 import { Handle, Node, NodeProps, Position } from '@xyflow/react'
 
@@ -58,6 +60,8 @@ const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
   const cardBg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.04)'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)'
   const border = lightTheme.isLight ? 'rgba(90,60,170,0.4)' : 'rgba(180,150,255,0.4)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+  const closeMenu = () => setMenuEl(null)
 
   const outputs = data.outputs.length > 0 ? data.outputs : [{ topicId: '', label: 'out', match: '' }]
   const height = procNodeHeight(outputs.length)
@@ -105,23 +109,50 @@ const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
           '&:hover': { backgroundColor: lightTheme.isLight ? 'rgba(140,110,230,0.06)' : 'rgba(255,255,255,0.06)' },
         }}
       >
-        <Tooltip title="Delete processor (and its output topics)">
+        <Box
+          className={NO_DRAG_NO_PAN}
+          sx={{ position: 'absolute', top: 2, right: 2, zIndex: 2 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <IconButton
             className={NO_DRAG_NO_PAN}
             size="small"
-            onClick={(e) => { e.stopPropagation(); data.onDeleteProcessor(data.processorId) }}
-            sx={{ position: 'absolute', top: 4, right: 4, p: 0.25, color: muted }}
+            aria-label="Processor actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
           >
-            <DeleteOutlineIcon sx={{ fontSize: 15 }} />
+            <MoreVertIcon sx={{ fontSize: 15 }} />
           </IconButton>
-        </Tooltip>
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2 }}>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteProcessor(data.processorId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete processor
+            </MenuItem>
+          </Menu>
+        </Box>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pr: 2.5 }}>
           <TransformIcon sx={{ fontSize: 15, color: accent }} />
           <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {data.name}
           </Typography>
         </Stack>
-        <Typography sx={{ fontSize: '0.6rem', color: muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Typography sx={{ fontSize: '0.6rem', color: muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', pr: 2.5 }}>
           {data.kind} · {data.processorId}
         </Typography>
       </Box>

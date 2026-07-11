@@ -54,6 +54,10 @@ type BotDTO struct {
 	Kind        string            `json:"kind,omitempty"`
 	HelixUserID string            `json:"helix_user_id,omitempty"`
 	Identity    map[string]string `json:"identity,omitempty"`
+	// AgentStatus is "running" when the bot's desktop sandbox is online,
+	// "stopped" otherwise (no session, paused, never activated). Drives
+	// the green/grey presence dot on the org chart.
+	AgentStatus string `json:"agent_status,omitempty"`
 	CreatedAt   string            `json:"created_at,omitempty"`
 	UpdatedAt   string            `json:"updated_at,omitempty"`
 }

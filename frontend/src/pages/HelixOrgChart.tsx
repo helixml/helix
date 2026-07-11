@@ -7,12 +7,15 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
@@ -104,6 +107,8 @@ type FlatBot = {
   name: string
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
+  // Desktop sandbox online-ness for the presence dot.
+  agentStatus: 'running' | 'stopped'
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -111,6 +116,8 @@ type FlatBot = {
 type BotNodeData = {
   botId: string
   botName: string
+  // running = desktop sandbox online; stopped (or missing) = offline.
+  agentStatus: 'running' | 'stopped'
   onSelectBot: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
@@ -248,6 +255,13 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
   const subColor = 'rgba(180,100,0,0.85)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+
+  const online = data.agentStatus === 'running'
+  const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
+
+  const closeMenu = () => setMenuEl(null)
 
   return (
     <Box
@@ -264,6 +278,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         flexDirection: 'column',
         gap: 1,
         cursor: 'grab',
+        position: 'relative',
         '&:hover': { backgroundColor: hoverBg },
         '&:active': { cursor: 'grabbing' },
       }}
@@ -276,9 +291,9 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         style={{ background: handleColor, width: 12, height: 12 }}
       />
       <SubSideHandles color={subColor} size={14} />
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
+          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted, flexShrink: 0 }} />
           <Typography
             variant="body2"
             sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -286,27 +301,67 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             {data.botName || data.botId}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={0.25}>
-          <Tooltip title="New bot reporting to this one">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
-            >
-              <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
-            </IconButton>
+        {/* Top-right: status dot + ⋮ menu (same pattern as table/card lists). */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          className={NO_DRAG_NO_PAN}
+          sx={{ flexShrink: 0, mt: -0.25, mr: -0.5 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Tooltip title={statusLabel}>
+            <Box
+              sx={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                backgroundColor: statusColor,
+                boxShadow: online ? `0 0 0 2px ${lightTheme.isLight ? 'rgba(46,160,67,0.2)' : 'rgba(46,160,67,0.35)'}` : 'none',
+                flexShrink: 0,
+              }}
+            />
           </Tooltip>
-          <Tooltip title="Delete bot">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            aria-label="Bot actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
+          >
+            <MoreVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onNewBot(data.botId)
+              }}
             >
-              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
+              <PersonAddOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+              New bot reporting here
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteBot(data.botId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete bot
+            </MenuItem>
+          </Menu>
         </Stack>
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
@@ -330,6 +385,8 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
   const bg = 'rgba(255,180,80,0.06)'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+  const closeMenu = () => setMenuEl(null)
   return (
     <Box
       onClick={(e) => { e.stopPropagation(); data.onSelectTopic(data.topicId) }}
@@ -361,18 +418,45 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           </Box>
         </Tooltip>
       ) : (
-        <Tooltip title="Delete topic">
+        <Box
+          className={NO_DRAG_NO_PAN}
+          sx={{ position: 'absolute', top: 0, right: 0, zIndex: 2 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <IconButton
             className={NO_DRAG_NO_PAN}
             size="small"
-            onClick={(e) => { e.stopPropagation(); data.onDeleteTopic(data.topicId) }}
-            sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+            aria-label="Topic actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
           >
-            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+            <MoreVertIcon sx={{ fontSize: 14 }} />
           </IconButton>
-        </Tooltip>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteTopic(data.topicId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete topic
+            </MenuItem>
+          </Menu>
+        </Box>
       )}
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2.5 }}>
         {data.topicId}
       </Typography>
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -536,6 +620,7 @@ const buildGraph = (
       data: {
         botId: b.id,
         botName: b.name,
+        agentStatus: b.agentStatus,
         onSelectBot: handlers.onSelectBot,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
@@ -1347,7 +1432,9 @@ const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
-  const { data: botsData, isLoading } = useListHelixOrgBots()
+  // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
+  // the chart is open — desktops start/stop without other chart mutations.
+  const { data: botsData, isLoading } = useListHelixOrgBots({ refetchInterval: 5000 })
   const { data: streamsData } = useListHelixOrgTopics()
   const { data: processorsData } = useListHelixOrgProcessors()
   const { data: savedPositions = {} } = useListChartPositions()
@@ -1371,6 +1458,7 @@ const HelixOrgChart: FC = () => {
         id: b.id ?? '',
         name: b.name ?? '',
         parentIds: b.parent_ids ?? [],
+        agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
       })),
     [botsData],
   )

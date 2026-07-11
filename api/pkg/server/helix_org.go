@@ -53,6 +53,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
@@ -144,19 +145,37 @@ type helixOrgHandlers struct {
 // orgWorkerRuntime adapts runtimehelix.LoadState into the api package's
 // WorkerRuntime port, so the REST worker-detail / activate handlers read
 // the project / agent-app / session ids without the api adapter touching
-// the store.
-type orgWorkerRuntime struct{ st *helixorgstore.Store }
+// the store. sessions is the Helix session store used to resolve whether
+// the bot's desktop sandbox is online (agent_status for the chart).
+type orgWorkerRuntime struct {
+	st       *helixorgstore.Store
+	sessions interface {
+		GetSession(ctx context.Context, id string) (*types.Session, error)
+	}
+}
 
 func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.BotID) (helixorgapi.BotRuntimeInfo, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
 		return helixorgapi.BotRuntimeInfo{}, err
 	}
-	return helixorgapi.BotRuntimeInfo{
-		ProjectID:  s.ProjectID,
-		AgentAppID: s.AgentAppID,
-		SessionID:  s.SessionID,
-	}, nil
+	info := helixorgapi.BotRuntimeInfo{
+		ProjectID:   s.ProjectID,
+		AgentAppID:  s.AgentAppID,
+		SessionID:   s.SessionID,
+		AgentStatus: "stopped",
+	}
+	// Resolve sandbox online-ness from the session metadata the desktop
+	// stack already maintains (external_agent_status). Missing session
+	// or lookup failure keeps the default "stopped".
+	if s.SessionID != "" && o.sessions != nil {
+		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
+			if sess.Metadata.ExternalAgentStatus == "running" {
+				info.AgentStatus = "running"
+			}
+		}
+	}
+	return info, nil
 }
 
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
@@ -813,7 +832,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		NewID:      deps.NewID,
 		Ensurer:    projectApplier,
 		Dispatcher: dispatcher,
-		Sessions:   orgWorkerRuntime{st: st},
+		Sessions:   orgWorkerRuntime{st: st, sessions: helixStore},
 	})
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
@@ -824,7 +843,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
-		BotRuntime:    orgWorkerRuntime{st: st},
+		BotRuntime:    orgWorkerRuntime{st: st, sessions: helixStore},
 		// BotSessionResetter tears the worker's current session fully down
 		// (stop desktop → delete session → clear pointer) so the bot-page
 		// "Restart agent session" button then Activates onto a brand-new

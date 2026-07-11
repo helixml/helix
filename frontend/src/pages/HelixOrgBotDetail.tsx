@@ -454,9 +454,9 @@ const HelixOrgBotDetail: FC = () => {
                 </Box>
 
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Content (markdown)</Typography>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Instructions</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    The bot's prompt / identity markdown. Read on every activation.
+                    Instructions to follow, set on every interaction.
                     Cmd/Ctrl+S inside the editor saves.
                   </Typography>
                   <MonacoEditor
