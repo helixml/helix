@@ -182,6 +182,22 @@ const sideMidpoint = (r: CardRect, side: CardSide): { x: number; y: number } => 
   }
 }
 
+// Point just outside a card side. Used so arrowheads sit in the gap
+// between nodes (nodes paint above edges and would otherwise clip them).
+const sideOutward = (r: CardRect, side: CardSide, dist: number): { x: number; y: number } => {
+  const p = sideMidpoint(r, side)
+  switch (side) {
+    case 'left': return { x: p.x - dist, y: p.y }
+    case 'right': return { x: p.x + dist, y: p.y }
+    case 'top': return { x: p.x, y: p.y - dist }
+    case 'bottom': return { x: p.x, y: p.y + dist }
+  }
+}
+
+// How far outside the target card to park the path end when an arrow
+// marker is drawn — keeps the full head visible above the node z-order.
+const ARROW_CLEARANCE_PX = 12
+
 // Pick the (fromSide, toSide) pair whose midpoints are closest.
 const closestSidePair = (a: CardRect, b: CardRect): { from: CardSide; to: CardSide } => {
   let bestFrom: CardSide = 'right'
@@ -710,8 +726,8 @@ const buildGraph = (
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 16,
-          height: 16,
+          width: 24,
+          height: 24,
           color: reportStroke,
         },
       })
@@ -1196,9 +1212,14 @@ const ClosestSideEdge: FC<EdgeProps> = ({
     // already resolved (the labelled branch port), only free the target
     // side to the closest bot side. Pure bot↔bot / bot↔topic edges free
     // both ends.
+    //
+    // When the edge has an arrow (reporting lines), park the target end
+    // slightly outside the card so the marker isn't clipped under the
+    // node layer.
+    const hasArrow = Boolean(markerEnd)
     if (kind === 'proc_out' && sourceHandleId) {
       const { to } = closestSidePair(sRect, tRect)
-      const p2 = sideMidpoint(tRect, to)
+      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
       sx = sourceX
       sy = sourceY
       sPos = sourcePosition ?? RFPosition.Right
@@ -1208,7 +1229,7 @@ const ClosestSideEdge: FC<EdgeProps> = ({
     } else {
       const { from, to } = closestSidePair(sRect, tRect)
       const p1 = sideMidpoint(sRect, from)
-      const p2 = sideMidpoint(tRect, to)
+      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
       sx = p1.x
       sy = p1.y
       sPos = sideToPosition(from)

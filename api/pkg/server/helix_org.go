@@ -519,6 +519,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	deps.Projects = projectsPort
 
+	// Repositories backs list_repositories / attach_repository /
+	// detach_repository — org git repos attached to Bot projects so
+	// sandboxes can clone the code. Chief of Staff gets these by default.
+	reposPort, err := runtimehelix.NewRepositories(st, helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init repositories: %w", err)
+	}
+	deps.Repositories = reposPort
+
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
 	// `worker.runtime` (default `claude_code`) and the same MCP
@@ -816,6 +825,24 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// ask_human delivers to a person's in-app inbox via the main Helix
 	// attention-event service (the notification bell).
 	deps.HumanInbox = humanInbox{store: helixStore}
+
+	// Activations owns start/stop/restart for REST and MCP. Built before
+	// RegisterBuiltins so start_bot / stop_bot / restart_bot share the same
+	// service instance as POST /bots/{id}/activate|stop-agent|restart-agent.
+	sessionResetter := botSessionResetter{client: inProcClient, st: st}
+	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore}
+	svc.Activations = activations.New(activations.Deps{
+		Repo:       st.Activations,
+		Now:        deps.Now,
+		NewID:      deps.NewID,
+		Ensurer:    projectApplier,
+		Dispatcher: dispatcher,
+		Sessions:   workerRuntime,
+		Stopper:    sessionResetter,
+		Resetter:   sessionResetter,
+	})
+	deps.Activations = svc.Activations
+
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
@@ -834,18 +861,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger:    logger,
 	}))
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
-	// The activations service owns the manual-activate command (REST
-	// activateWorker delegates to it). Built here because it needs the
-	// project ensurer, the dispatcher's DispatchManual, and a session
-	// resolver — collaborators only assembled at the composition root.
-	svc.Activations = activations.New(activations.Deps{
-		Repo:       st.Activations,
-		Now:        deps.Now,
-		NewID:      deps.NewID,
-		Ensurer:    projectApplier,
-		Dispatcher: dispatcher,
-		Sessions:   orgWorkerRuntime{st: st, sessions: helixStore},
-	})
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
 		Bots:          svc.Bots,
@@ -855,15 +870,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
-		BotRuntime:    orgWorkerRuntime{st: st, sessions: helixStore},
-		// BotSessionResetter tears the worker's current session fully down
-		// (stop desktop → delete session → clear pointer) so the bot-page
-		// "Restart agent session" button then Activates onto a brand-new
-		// session, desktop and thread with the bot's current MCP services —
-		// instead of resuming the old container and thread.
-		// Same concrete type also implements BotDesktopStopper (stop only).
-		BotSessionResetter: botSessionResetter{client: inProcClient, st: st},
-		BotDesktopStopper:  botSessionResetter{client: inProcClient, st: st},
+		BotRuntime:    workerRuntime,
+		// Kept on apiDeps so legacy/tests that poke the ports directly still
+		// work; REST stop/restart now go through Activations.
+		BotSessionResetter: sessionResetter,
+		BotDesktopStopper:  sessionResetter,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.
@@ -1004,15 +1015,19 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// lifecycle (CoS runs) and bots (human nodes never run) services the REST
 	// create path uses; botStore backs idempotency checks.
 	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Bots, botStore: st.Bots}
-	// Bootstrap-time reconcile: converge human nodes against org membership.
-	// The correctness backstop for the inline hooks (which miss OIDC-driven
-	// joins and existing orgs). Runs once per org per process via ensureBootstrap.
+	// Bootstrap-time reconcile: converge human nodes against org membership,
+	// and re-seed / tool-backfill Chief of Staff (idempotent — unions any
+	// new OwnerBotTools entries onto existing CoS). Runs once per org per
+	// process via ensureBootstrap.
 	scope.humanReconcile = func(ctx context.Context, orgID string) error {
 		members, err := listOrgMemberUsers(ctx, helixStore, orgID)
 		if err != nil {
 			return err
 		}
-		return seeder.ReconcileHumans(ctx, orgID, members)
+		if err := seeder.ReconcileHumans(ctx, orgID, members); err != nil {
+			return err
+		}
+		return seeder.SeedChiefOfStaff(ctx, orgID)
 	}
 
 	return &helixOrgHandlers{

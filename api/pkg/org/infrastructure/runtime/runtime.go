@@ -350,3 +350,66 @@ func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
 // ErrProjectsUnsupported is what the noop impl returns. Tools translate it
 // into a friendly MCP error.
 var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")
+
+// Repositories is the port the org MCP repository tools use to list the
+// Helix git repositories in the caller's org and attach/detach them on a
+// Bot's project so that Bot's sandbox can clone and work in them.
+//
+// List is always org-scoped. Attach/Detach/ListForBot resolve the Bot's
+// Helix project via runtime state (a Bot with no project yet — never
+// activated — returns ErrBotProjectNotReady). Other runtimes plug in
+// NoopRepositories and the tools surface ErrRepositoriesUnsupported.
+type Repositories interface {
+	// List returns every git repository belonging to the org.
+	List(ctx context.Context, orgID string) ([]RepoView, error)
+	// ListForBot returns the repositories currently attached to the Bot's
+	// Helix project. Primary is marked when the project default_repo_id
+	// matches.
+	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]RepoView, error)
+	// AttachToBot attaches an org repository to the Bot's project.
+	// primary=true also sets it as the project's default/primary repo.
+	AttachToBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string, primary bool) ([]RepoView, error)
+	// DetachFromBot removes a repository from the Bot's project.
+	DetachFromBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string) ([]RepoView, error)
+}
+
+// RepoView is the tool-facing projection of a Helix git repository.
+// Append-only from the JSON wire format.
+type RepoView struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	CloneURL      string `json:"clone_url,omitempty"`
+	ExternalURL   string `json:"external_url,omitempty"`
+	ExternalType  string `json:"external_type,omitempty"`
+	IsExternal    bool   `json:"is_external,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Primary is only meaningful when the view is returned for a Bot
+	// (ListForBot / Attach / Detach): true when this repo is the project's
+	// default_repo_id.
+	Primary bool `json:"primary,omitempty"`
+}
+
+// NoopRepositories is the default for tools.Deps so unwired runtimes
+// don't crash.
+type NoopRepositories struct{}
+
+func (NoopRepositories) List(_ context.Context, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) ListForBot(_ context.Context, _ string, _ orgchart.BotID) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) AttachToBot(_ context.Context, _ string, _ orgchart.BotID, _ string, _ bool) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) DetachFromBot(_ context.Context, _ string, _ orgchart.BotID, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+
+// ErrRepositoriesUnsupported is what the noop impl returns.
+var ErrRepositoriesUnsupported = errors.New("repository access not wired on this runtime")
+
+// ErrBotProjectNotReady means the Bot has no Helix project yet (typically
+// never activated). Tools surface a clear "activate the bot first" message.
+var ErrBotProjectNotReady = errors.New("bot has no helix project yet — activate it first")

@@ -482,6 +482,7 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 // stopBotAgent stops the bot's desktop sandbox without deleting the
 // session (transcript stays). The chart / bot-detail "Stop" control hits
 // this. No-op (204) when there is no session or the desktop is already down.
+// Delegates to activations.Stop — same path as the MCP stop_bot tool.
 //
 // @Summary Helix-org: stop a bot's agent desktop
 // @Tags HelixOrg
@@ -493,7 +494,7 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/orgs/{org}/bots/{id}/stop-agent [post]
 func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if a.deps.BotDesktopStopper == nil {
+	if a.deps.Activations == nil {
 		writeError(w, http.StatusNotImplemented, errors.New("stop is not wired in this deployment"))
 		return
 	}
@@ -511,17 +512,11 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
 		return
 	}
-	var sessionID string
-	if a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			sessionID = info.SessionID
+	if _, err := a.deps.Activations.Stop(ctx, orgID, id); err != nil {
+		if errors.Is(err, activations.ErrStopUnavailable) {
+			writeError(w, http.StatusNotImplemented, err)
+			return
 		}
-	}
-	if sessionID == "" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if err := a.deps.BotDesktopStopper.StopDesktop(ctx, sessionID); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("stop bot %s desktop: %w", id, err))
 		return
 	}
@@ -529,14 +524,8 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // restartBotAgent gives the bot a genuinely fresh session — the bot-page
-// "Restart agent session" button. It does NOT resume/recover the existing
-// session (that would keep the old desktop and thread, which is the bug
-// operators hit). Instead it fully tears the current session down via
-// BotSessionResetter (stop desktop → delete session row → clear the
-// persisted pointer) and then Activates, which provisions a brand-new
-// session, desktop and thread that pick up the bot's current tools / MCP
-// services. If the bot has no live session yet, the reset is skipped and
-// the Activate alone handles first-time start.
+// "Restart agent session" button. Delegates to activations.Restart (reset
+// session then Activate) — same path as the MCP restart_bot tool.
 //
 // @Summary Helix-org: restart a bot's agent session (fresh session + desktop)
 // @Tags HelixOrg
@@ -549,6 +538,10 @@ func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/orgs/{org}/bots/{id}/restart-agent [post]
 func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
+		return
+	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -559,39 +552,11 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
 	}
-	// Confirm the Bot exists for a clean 404 before any side effects.
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
 		return
 	}
-
-	// Resolve the bot's current desktop session. Empty means the bot has
-	// never activated — there's nothing to tear down, so we skip straight
-	// to the activation below (first-time start).
-	var sessionID string
-	if a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			sessionID = info.SessionID
-		}
-	}
-
-	// Fully remove the current session (stop desktop → delete session →
-	// clear pointer) so the Activate below mints a brand-new one instead of
-	// reusing the old exploratory session or resuming the old desktop.
-	if sessionID != "" && a.deps.BotSessionResetter != nil {
-		if err := a.deps.BotSessionResetter.ResetSession(ctx, orgID, id, sessionID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("reset bot %s session: %w", id, err))
-			return
-		}
-	}
-
-	// Provision the project (fast-path if it exists) and start a fresh
-	// session + desktop. Also the first-time-start path.
-	if a.deps.Activations == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
-		return
-	}
-	res, err := a.deps.Activations.Activate(ctx, orgID, id)
+	res, err := a.deps.Activations.Restart(ctx, orgID, id)
 	if err != nil {
 		if errors.Is(err, activations.ErrActivateUnavailable) {
 			writeError(w, http.StatusNotImplemented, err)

@@ -38,12 +38,15 @@ var BaseReadTools = []tool.Name{
 }
 
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
-// receives: every mutation in the system plus the universal base read
-// set (via MergeBaseReadTools). It lives here — beside the tool name
-// constants and BaseReadTools — so the owner-seed policy references the
-// typed names directly and bootstrap (application) can be handed the
-// list without importing this package. mint_credential arrives through
-// BaseReadTools, so it is not repeated in the mutation list.
+// (Chief of Staff) receives: every mutation in the system plus the
+// universal base read set (via MergeBaseReadTools). It lives here —
+// beside the tool name constants and BaseReadTools — so the owner-seed
+// policy references the typed names directly and bootstrap can be handed
+// the list without importing this package. mint_credential arrives
+// through BaseReadTools, so it is not repeated in the mutation list.
+//
+// Repository tools (list/attach/detach) are here so CoS can equip the
+// bots it creates with the codebases they need to do real work.
 func OwnerBotTools() []tool.Name {
 	ownerMutations := []tool.Name{
 		CreateBotName,
@@ -58,6 +61,15 @@ func OwnerBotTools() []tool.Name {
 		PublishName,
 		DMName,
 		AskHumanName,
+		// Git repositories: discover org repos and wire them onto bot projects.
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		AttachRepositoryName,
+		DetachRepositoryName,
+		// Agent desktop lifecycle (same as chart Start / Stop / Restart).
+		StartBotName,
+		StopBotName,
+		RestartBotName,
 	}
 	return MergeBaseReadTools(ownerMutations)
 }
