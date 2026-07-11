@@ -43,9 +43,9 @@ export type ProcessorConfigDrawerProps = {
 }
 
 const KINDS = [
-  { value: 'template', label: 'template — rewrite the body via Go text/template' },
-  { value: 'truncate', label: 'truncate — cap the body to N bytes' },
-  { value: 'filter', label: 'filter / router — route by predicate to 1..N outputs' },
+  { value: 'template', label: 'Rewrite — change the message text using a template' },
+  { value: 'truncate', label: 'Shorten — cut the message if it is too long' },
+  { value: 'filter', label: 'Sort / route — send each message down one or more branches' },
 ]
 
 type FilterRow = { label: string; match: string }
@@ -67,33 +67,36 @@ function prettyJson(raw?: string): string {
   }
 }
 
-// SyntaxHelp is the in-drawer reference for the template / filter
-// languages — the available message fields, the function set (shared by
-// both kinds), and, for filters, how a predicate "matches".
+// SyntaxHelp — plain-English reference for rewrite templates and route rules.
 const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
   const mono = { fontFamily: 'monospace', fontSize: '0.72rem' as const }
   const fields: [string, string][] = [
-    ['.Message.from', 'sender, e.g. "alice@vip.com"'],
+    ['.Message.from', 'who sent it (e.g. alice@vip.com)'],
     ['.Message.subject', 'subject line'],
-    ['.Message.body', 'message body'],
-    ['.Message.to', 'recipients (list)'],
-    ['.Message.thread_id', 'conversation id'],
-    ['.Message.message_id', 'unique message id'],
-    ['.Message.in_reply_to', 'parent message id'],
-    ['.Message.extra', 'transport-specific extras'],
+    ['.Message.body', 'main message text'],
+    ['.Message.to', 'who it was sent to'],
+    ['.Message.thread_id', 'conversation / thread id'],
+    ['.Message.message_id', 'this message’s id'],
+    ['.Message.in_reply_to', 'id of the message it replies to'],
+    ['.Message.extra', 'extra fields from the source (Slack, email, …)'],
   ]
   const funcs: [string, string][] = [
-    ['upper S', 'UPPERCASE'],
-    ['lower S', 'lowercase'],
-    ['trunc N S', 'cap S to N bytes'],
-    ['default "x" S', '"x" when S is empty'],
-    ['contains "bug" S', 'S contains "bug"'],
-    ['hasPrefix "RE:" S', 'S starts with "RE:"'],
-    ['hasSuffix "@vip.com" S', 'S ends with "@vip.com"'],
+    ['upper S', 'make uppercase'],
+    ['lower S', 'make lowercase'],
+    ['trunc N S', 'keep only the first N characters of S'],
+    ['default "x" S', 'use "x" if S is empty'],
+    ['contains "bug" S', 'true if S contains "bug"'],
+    ['hasPrefix "RE:" S', 'true if S starts with "RE:"'],
+    ['hasSuffix "@vip.com" S', 'true if S ends with "@vip.com"'],
   ]
   return (
     <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.015)' }}>
-      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Fields — the {'{{ .Message.* }}'} context</Typography>
+      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+        Message fields you can use
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+        Write them as {'{{ .Message.from }}'}, {'{{ .Message.subject }}'}, and so on.
+      </Typography>
       {fields.map(([f, d]) => (
         <Box key={f} sx={{ display: 'flex', gap: 1 }}>
           <Typography sx={{ ...mono, color: 'primary.main', minWidth: 150 }}>{f}</Typography>
@@ -101,7 +104,11 @@ const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
         </Box>
       ))}
       <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
-        Functions — note the test string comes FIRST, the field LAST
+        Handy helpers
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+        Order matters: the fixed text comes first, the field last
+        (e.g. {'{{ hasSuffix "@vip.com" .Message.from }}'}).
       </Typography>
       {funcs.map(([f, d]) => (
         <Box key={f} sx={{ display: 'flex', gap: 1 }}>
@@ -111,26 +118,28 @@ const SyntaxHelp: FC<{ kind: string }> = ({ kind }) => {
       ))}
       {kind === 'filter' && (
         <>
-          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>Matching</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mt: 1 }}>
+            When does a branch get a message?
+          </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            A branch receives a message when its predicate renders to a <b>truthy</b> value — anything
-            except empty, <code>false</code>, <code>0</code>, or <code>no</code>.
+            The rule is a small template. If it comes out as “yes” (anything except empty,
+            <code> false</code>, <code>0</code>, or <code>no</code>), that branch receives the message.
           </Typography>
           <Box sx={{ ...mono, mt: 0.5, whiteSpace: 'pre-wrap' }}>
-            {'simplest:  {{ hasSuffix "@vip.com" .Message.from }}   → true / false\n'}
-            {'or:        {{ if contains "bug" (lower .Message.subject) }}1{{ end }}\n'}
-            {'              → "1" (match) when it contains "bug", else "" (no match)'}
+            {'simple:   {{ hasSuffix "@vip.com" .Message.from }}\n'}
+            {'          → true for VIP senders, false otherwise\n\n'}
+            {'or:       {{ if contains "bug" (lower .Message.subject) }}yes{{ end }}\n'}
+            {'          → "yes" when the subject mentions bug, empty otherwise'}
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            The <code>1</code> is just "output something truthy" — any non-empty token works.
-            An <b>empty</b> predicate is the default/catch-all (matches every message). A message can
-            match several branches at once.
+            Leave a rule <b>blank</b> for a catch-all that gets every message.
+            One message can match several branches at once.
           </Typography>
         </>
       )}
       {kind === 'template' && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-          The rendered text becomes the new message <b>body</b>.
+          Whatever the template prints becomes the new message text.
         </Typography>
       )}
     </Box>
@@ -233,22 +242,27 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
         </Stack>
         <Stack spacing={1.5}>
+          <Typography variant="body2" color="text.secondary">
+            A processor sits between topics: it reads messages from one topic,
+            then rewrites, shortens, or sorts them onto new topics that bots can subscribe to.
+          </Typography>
           <TextField
             size="small" label="Name" value={name} fullWidth required
             onChange={(e) => setName(e.target.value)}
-            placeholder="Inbox formatter"
+            placeholder="e.g. Support triage"
+            helperText="Shown on the chart."
           />
           <TextField
-            select size="small" label="Kind" value={kind} fullWidth
+            select size="small" label="What should it do?" value={kind} fullWidth
             onChange={(e) => setKind(e.target.value)}
-            helperText="A new kind is one Go file — template, truncate and filter ship in v1."
+            helperText="Pick how messages are handled as they pass through."
           >
             {KINDS.map((k) => <MenuItem key={k.value} value={k.value}>{k.label}</MenuItem>)}
           </TextField>
           <TextField
-            select size="small" label="Input topic" value={inputTopicId} fullWidth required
+            select size="small" label="Read messages from" value={inputTopicId} fullWidth required
             onChange={(e) => setInputTopicId(e.target.value)}
-            helperText="The topic this processor reads. An output topic is auto-created; subscribe workers to it on the chart. (You can also re-wire this on the chart by dragging a Topic into the IN port.)"
+            helperText="The topic this processor listens to. You can also connect a topic to the IN port on the chart."
           >
             {topics.map((tp) => (
               <MenuItem key={tp.id} value={tp.id ?? ''} sx={{ fontFamily: 'monospace' }}>
@@ -259,52 +273,55 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
           <Divider sx={{ my: 0.5 }} />
           {kind === 'template' && (
             <TextField
-              size="small" label="Template (Go text/template)" value={template} fullWidth
+              size="small" label="How to rewrite the message" value={template} fullWidth
               onChange={(e) => setTemplate(e.target.value)}
               multiline minRows={4}
               InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.8rem' } }}
-              helperText="The rendered text becomes the new body. See “syntax help” below for fields & functions."
+              helperText="This text is filled in from the message fields. The result becomes the new message body. Open “How to write rules” below for examples."
             />
           )}
           {kind === 'truncate' && (
             <TextField
-              size="small" label="Max bytes" value={maxBytes} fullWidth
+              size="small" label="Maximum length (characters)" value={maxBytes} fullWidth
               onChange={(e) => setMaxBytes(e.target.value.replace(/[^0-9]/g, ''))}
-              helperText="Cap the body to this many bytes (rune-safe)."
+              helperText="Longer messages are cut down to this length."
             />
           )}
           {showThreadFollow && (
             <Box sx={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1, p: 1, backgroundColor: 'rgba(0,0,0,0.015)' }}>
               <FormControlLabel
                 control={<Switch size="small" checked={threadFollow} onChange={(e) => setThreadFollow(e.target.checked)} />}
-                label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Follow threads</Typography>}
+                label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Keep people in the thread</Typography>}
               />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                When on, once a Worker is pulled into a Slack thread (by being named), every later message
-                in that thread also reaches them — even when their name isn't repeated. On by default.
+                After a bot is pulled into a Slack thread (for example because they were named),
+                later messages in that same thread also go to them — even if they are not named again.
               </Typography>
             </Box>
           )}
           {kind === 'filter' && (
             <Stack spacing={1}>
-              <Typography variant="caption" color="text.secondary">
-                Outputs — each is one branch: a predicate + a destination topic (auto-created). A message
-                goes to every branch whose predicate is truthy; an empty predicate is the default/catch-all.
-                See “syntax help” below. {isEdit && '(Branches are immutable on edit — recreate to change.)'}
+              <Typography variant="body2" color="text.secondary">
+                Add branches like a sorting tray. Each branch has a short name and a rule.
+                When a message arrives, every branch whose rule matches gets a copy
+                (we create a topic per branch automatically). Leave a rule blank to catch everything else.
+                {isEdit ? ' Branches cannot be changed after create — make a new processor to redesign them.' : ''}
               </Typography>
               {filterRows.map((row, i) => (
                 <Stack key={i} direction="row" spacing={0.5} alignItems="flex-start">
                   <TextField
-                    size="small" label="label" value={row.label} sx={{ width: 110 }} disabled={isEdit}
+                    size="small" label="Branch name" value={row.label} sx={{ width: 110 }} disabled={isEdit}
                     onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                    placeholder="vip"
                   />
                   <TextField
-                    size="small" label="predicate (empty = default)" value={row.match} fullWidth disabled={isEdit}
+                    size="small" label="Rule (blank = catch-all)" value={row.match} fullWidth disabled={isEdit}
                     onChange={(e) => setFilterRows((rs) => rs.map((r, j) => j === i ? { ...r, match: e.target.value } : r))}
                     InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
+                    placeholder={'{{ hasSuffix "@vip.com" .Message.from }}'}
                   />
                   {!isEdit && filterRows.length > 1 && (
-                    <IconButton size="small" onClick={() => setFilterRows((rs) => rs.filter((_, j) => j !== i))}>
+                    <IconButton size="small" onClick={() => setFilterRows((rs) => rs.filter((_, j) => j !== i))} aria-label="Remove branch">
                       <CloseIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   )}
@@ -312,17 +329,16 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
               ))}
               {!isEdit && (
                 <Button size="small" onClick={() => setFilterRows((rs) => [...rs, { label: '', match: '' }])} sx={{ alignSelf: 'flex-start' }}>
-                  + branch
+                  Add branch
                 </Button>
               )}
             </Stack>
           )}
 
-          {/* Syntax reference (template + filter share the same engine). */}
           {kind !== 'truncate' && (
             <Box>
               <Link component="button" type="button" underline="hover" variant="caption" onClick={() => setShowHelp((v) => !v)}>
-                {showHelp ? '▾ Hide syntax help' : '▸ Show syntax help (fields, functions, matching)'}
+                {showHelp ? '▾ Hide: how to write rules' : '▸ How to write rules (fields & examples)'}
               </Link>
               <Collapse in={showHelp}>
                 <Box sx={{ mt: 0.5 }}><SyntaxHelp kind={kind} /></Box>
@@ -330,16 +346,15 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             </Box>
           )}
 
-          {/* Most recent real message on the input topic, shown as the raw
-              canonical JSON so the operator can see exactly which fields
-              are available to template / filter on. */}
           <Box sx={{ mt: 0.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Latest message {inputTopicId ? `on ${inputTopicId}` : ''} — the raw {'{{ .Message }}'} JSON
+              {inputTopicId
+                ? `Example: latest real message on ${inputTopicId}`
+                : 'Example message'}
             </Typography>
             {!inputTopicId ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                Select an input topic to see its latest message.
+                Choose a topic above to preview a recent message.
               </Typography>
             ) : sampleLoading ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
