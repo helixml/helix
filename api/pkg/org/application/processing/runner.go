@@ -112,7 +112,7 @@ func (r *Runner) Run(ctx context.Context, e streaming.Event, msg streaming.Messa
 		return
 	}
 	for _, p := range procs {
-		results, err := p.Process(msg)
+		results, err := p.Process(ctx, msg)
 		if err != nil {
 			r.logger.Warn("processing: process failed — dropping",
 				"processor", p.ID, "topic", e.TopicID, "event", e.ID, "err", err)

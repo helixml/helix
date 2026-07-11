@@ -12,18 +12,20 @@
 //     strategies map, KindValues, and the Kind-agnostic Validate /
 //     Process dispatch.
 //   - Each Kind lives in its own sibling file (template.go,
-//     truncate.go, filter.go) holding its Config type, that Config's
-//     Validate rules, and its Process implementation.
+//     truncate.go, filter.go, js.go) holding its Config type, that
+//     Config's Validate rules, and its Process implementation.
 //   - Adding a new Kind = a new file + a new constant + one map entry
 //     (in strategies AND kindOrder). No edits to Processor.Validate.
 //
-// Transforms are pure domain functions (text/template, byte caps) with
-// no I/O, so they live here in the domain layer and unit-test with no
-// store or HTTP. Contrast transports, which do real network I/O and
-// live in infrastructure/.
+// Most transforms are pure domain functions (text/template, byte caps)
+// with no I/O. The js Kind is intentionally side-effecting: scripts may
+// call an embedded HTTP client, so Process carries a context for
+// cancellation and timeouts. Contrast transports (sources/sinks), which
+// do real network I/O and live in infrastructure/.
 package processor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,18 +92,20 @@ type Strategy interface {
 // Config is the parsed, Kind-specific configuration. Validate enforces
 // the Kind's rules against the Processor's Outputs; Process turns one
 // input Message into zero or more Results. This single interface serves
-// transform (always 1 result), filter (0/1), and router (N) — the
-// runner just publishes whatever comes back.
+// transform (always 1 result), filter (0/1), router (N), and js (0..N
+// with optional HTTP side effects) — the runner just publishes whatever
+// comes back. ctx is for cancellation/timeouts (used by KindJS HTTP);
+// pure kinds ignore it.
 type Config interface {
 	Validate(outputs []Output) error
-	Process(in streaming.Message, outputs []Output) ([]Result, error)
+	Process(ctx context.Context, in streaming.Message, outputs []Output) ([]Result, error)
 }
 
 // kindOrder pins the canonical display order of Kinds, mirroring
 // transport.kindOrder. It is part of the public surface — JSON Schema
 // enum lists and "(valid: …)" error messages read from it. Tests pin
 // it explicitly.
-var kindOrder = []Kind{KindTemplate, KindTruncate, KindFilter}
+var kindOrder = []Kind{KindTemplate, KindTruncate, KindFilter, KindJS}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means a new file defining its Kind constant + Config, plus one entry
@@ -110,6 +114,7 @@ var strategies = map[Kind]Strategy{
 	KindTemplate: template{},
 	KindTruncate: truncate{},
 	KindFilter:   filter{},
+	KindJS:       js{},
 }
 
 // KindValues lists every registered Kind in canonical display order.
@@ -185,12 +190,15 @@ func (p Processor) Validate() error {
 	if p.ID == "" {
 		return errors.New("processor id is empty")
 	}
+
 	if p.OrganizationID == "" {
 		return errors.New("processor orgID is empty")
 	}
+
 	if p.Name == "" {
 		return errors.New("processor name is empty")
 	}
+
 	// InputTopicID may be empty: a processor with no input is valid but
 	// inert — it sits on the chart unwired until a Topic (or another
 	// processor's output branch) is connected to its IN port. Deleting
@@ -218,18 +226,21 @@ func (p Processor) Validate() error {
 }
 
 // Process applies the Processor's Kind to one input Message, returning
-// zero or more Results. Pure — no I/O, no store. The caller (the
-// execution runner) publishes each Result.
-func (p Processor) Process(in streaming.Message) ([]Result, error) {
+// zero or more Results. Most kinds are pure (no I/O); KindJS may issue
+// HTTP from the script. The caller (the execution runner) publishes
+// each Result. ctx is threaded for cancellation and HTTP timeouts.
+func (p Processor) Process(ctx context.Context, in streaming.Message) ([]Result, error) {
 	s, ok := strategies[p.Kind]
 	if !ok {
 		return nil, fmt.Errorf("unknown processor kind %q", p.Kind)
 	}
+
 	c, err := s.ParseConfig(p.Config)
 	if err != nil {
 		return nil, err
 	}
-	return c.Process(in, p.Outputs)
+
+	return c.Process(ctx, in, p.Outputs)
 }
 
 // quotedKinds renders a slice of Kind values as a comma-separated list

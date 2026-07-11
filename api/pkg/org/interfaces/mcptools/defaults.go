@@ -35,6 +35,10 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	BotLogName,
 	MintCredentialName,
+	// Processor introspection — safe reads so any bot can discover the
+	// transform/filter/js nodes feeding topics it may subscribe to.
+	ListProcessorsName,
+	GetProcessorName,
 }
 
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
@@ -61,6 +65,10 @@ func OwnerBotTools() []tool.Name {
 		PublishName,
 		DMName,
 		AskHumanName,
+		// Processors: define topic transforms/filters/js and rewire them.
+		CreateProcessorName,
+		UpdateProcessorName,
+		DeleteProcessorName,
 		// Git repositories: discover org repos and wire them onto bot projects.
 		ListRepositoriesName,
 		ListBotRepositoriesName,
