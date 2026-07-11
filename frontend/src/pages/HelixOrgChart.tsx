@@ -1880,6 +1880,7 @@ const HelixOrgChart: FC = () => {
             <Button
               size="small"
               variant="contained"
+              color="secondary"
               startIcon={<AddIcon />}
               onClick={() => setBotDialogOpen(true)}
             >

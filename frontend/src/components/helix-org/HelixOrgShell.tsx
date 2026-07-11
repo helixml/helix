@@ -22,14 +22,41 @@ export type HelixOrgShellProps = {
   title?: string
   /** Optional action buttons next to the top nav (before theme toggle). */
   topbarActions?: ReactNode
+  /**
+   * Show the left chat rail. Default true (chart / bots / topics).
+   * Set false on bot detail and settings — those pages either have their
+   * own session UI or don't need a co-pilot chat.
+   */
+  showChat?: boolean
   children: ReactNode
 }
 
-const HelixOrgShell: FC<HelixOrgShellProps> = ({ title, topbarActions, children }) => {
+const HelixOrgShell: FC<HelixOrgShellProps> = ({
+  title,
+  topbarActions,
+  showChat = true,
+  children,
+}) => {
   const account = useAccount()
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
+
+  const content = (
+    <Box
+      sx={{
+        height: '100%',
+        width: '100%',
+        minHeight: 0,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {children}
+    </Box>
+  )
 
   // react-resizable-panels v4: numbers = pixels, strings = percentages.
   // Use "32%" not 32, or the chat rail collapses to ~32px.
@@ -54,7 +81,7 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({ title, topbarActions, children 
         </Box>
       )}
     >
-      {isBigScreen ? (
+      {isBigScreen && showChat ? (
         <Box
           sx={{
             flex: 1,
@@ -99,25 +126,13 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({ title, topbarActions, children 
               minSize="40%"
               style={{ overflow: 'hidden', minWidth: 0, minHeight: 0 }}
             >
-              <Box
-                sx={{
-                  height: '100%',
-                  width: '100%',
-                  minHeight: 0,
-                  minWidth: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }}
-              >
-                {children}
-              </Box>
+              {content}
             </Panel>
           </PanelGroup>
         </Box>
       ) : (
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {children}
+        <Box sx={{ flex: 1, minHeight: 0, overflow: showChat ? 'auto' : 'hidden', height: '100%' }}>
+          {content}
         </Box>
       )}
     </Page>

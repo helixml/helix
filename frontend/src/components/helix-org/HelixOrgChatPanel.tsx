@@ -178,7 +178,9 @@ const HelixOrgChatPanel: FC = () => {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: `1px solid ${border}` }}>
-      {/* Header: bot name + switcher + status + start/stop */}
+      {/* Header: [icon] [name select  v] [stop/restart]
+                       [status]  — select + actions share one row so the
+                       dropdown chevron lines up with the icon buttons. */}
       <Box
         sx={{
           px: 1.5,
@@ -186,74 +188,90 @@ const HelixOrgChatPanel: FC = () => {
           minHeight: 52,
           borderBottom: `1px solid ${border}`,
           display: 'flex',
-          alignItems: 'center',
-          gap: 1,
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 0.25,
           flexShrink: 0,
           backgroundColor: 'background.paper',
         }}
       >
-        <SmartToyOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {agents.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No bots yet</Typography>
-          ) : (
-            <Select
-              size="small"
-              variant="standard"
-              disableUnderline
-              value={selectedBotId}
-              onChange={(e) => setSelectedBotId(e.target.value)}
-              sx={{
-                width: '100%',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-                '& .MuiSelect-select': { py: 0.25, pr: '24px !important' },
-              }}
-            >
-              {agents.map((b) => (
-                <MenuItem key={b.id} value={b.id ?? ''}>
-                  {b.name || b.id}
-                </MenuItem>
-              ))}
-            </Select>
-          )}
-          <Stack direction="row" alignItems="center" spacing={0.75}>
-            <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, flexShrink: 0 }} />
-            </Tooltip>
-            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
-              {agentOnline ? 'Running' : 'Stopped'}
-              {selectedBotId ? ` · ${selectedBotId}` : ''}
-            </Typography>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {agents.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">No bots yet</Typography>
+            ) : (
+              <Select
+                size="small"
+                variant="standard"
+                disableUnderline
+                value={selectedBotId}
+                onChange={(e) => setSelectedBotId(e.target.value)}
+                sx={{
+                  width: '100%',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  '& .MuiSelect-select': {
+                    py: 0.5,
+                    pr: '28px !important',
+                    display: 'flex',
+                    alignItems: 'center',
+                  },
+                  '& .MuiSelect-icon': {
+                    // Vertically center the chevron with the label + action buttons.
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    right: 0,
+                  },
+                }}
+              >
+                {agents.map((b) => (
+                  <MenuItem key={b.id} value={b.id ?? ''}>
+                    {b.name || b.id}
+                  </MenuItem>
+                ))}
+              </Select>
+            )}
+          </Box>
+          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ flexShrink: 0 }}>
+            {agentOnline ? (
+              <>
+                <Tooltip title="Stop agent">
+                  <span>
+                    <IconButton size="small" onClick={() => void handleStop()} disabled={busy}>
+                      {stopAgent.isPending ? <CircularProgress size={16} /> : <StopIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Restart agent">
+                  <span>
+                    <IconButton size="small" onClick={() => void handleRestart()} disabled={busy}>
+                      {restartAgent.isPending ? <CircularProgress size={16} /> : <RestartAltIcon fontSize="small" />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </>
+            ) : (
+              <Tooltip title="Start agent">
+                <span>
+                  <IconButton size="small" color="primary" onClick={() => void handleStart()} disabled={busy || !selectedBotId}>
+                    {activateAgent.isPending ? <CircularProgress size={16} /> : <PlayArrowIcon fontSize="small" />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
           </Stack>
-        </Box>
-        <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0 }}>
-          {agentOnline ? (
-            <>
-              <Tooltip title="Stop agent">
-                <span>
-                  <IconButton size="small" onClick={() => void handleStop()} disabled={busy}>
-                    {stopAgent.isPending ? <CircularProgress size={16} /> : <StopIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Restart agent">
-                <span>
-                  <IconButton size="small" onClick={() => void handleRestart()} disabled={busy}>
-                    {restartAgent.isPending ? <CircularProgress size={16} /> : <RestartAltIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </>
-          ) : (
-            <Tooltip title="Start agent">
-              <span>
-                <IconButton size="small" color="primary" onClick={() => void handleStart()} disabled={busy || !selectedBotId}>
-                  {activateAgent.isPending ? <CircularProgress size={16} /> : <PlayArrowIcon fontSize="small" />}
-                </IconButton>
-              </span>
-            </Tooltip>
-          )}
+        </Stack>
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ pl: 3.5 }}>
+          <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: statusColor, flexShrink: 0 }} />
+          </Tooltip>
+          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+            {agentOnline ? 'Running' : 'Stopped'}
+            {selectedBotId ? ` · ${selectedBotId}` : ''}
+          </Typography>
         </Stack>
       </Box>
 

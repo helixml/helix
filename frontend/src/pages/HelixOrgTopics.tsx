@@ -196,32 +196,30 @@ const HelixOrgTopics: FC = () => {
   }
 
   return (
-    <HelixOrgShell
-      title="Topics"
-      topbarActions={(
-        <Button
-          variant="contained"
-          color="secondary"
-          size="small"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateOpen(true)}
-        >
-          New Topic
-        </Button>
-      )}
-    >
+    <HelixOrgShell title="Topics">
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Topics</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Named event channels Workers can subscribe to. Each topic carries a Transport (local
-              pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
-              the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
-              edges as dashed lines.
-            </Typography>
-          </Box>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="h5" sx={{ mb: 1 }}>Topics</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Named event channels Workers can subscribe to. Each topic carries a Transport (local
+                pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
+                the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
+                edges as dashed lines.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateOpen(true)}
+              sx={{ flexShrink: 0, mt: 0.5 }}
+            >
+              New topic
+            </Button>
+          </Stack>
 
           {isLoading ? (
             <LoadingSpinner />
@@ -237,7 +235,7 @@ const HelixOrgTopics: FC = () => {
                 onClick={() => setCreateOpen(true)}
                 sx={{ mt: 1 }}
               >
-                Create your first topic
+                New topic
               </Button>
             </Box>
           ) : (

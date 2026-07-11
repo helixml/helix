@@ -320,6 +320,7 @@ const HelixOrgBotDetail: FC = () => {
   return (
     <HelixOrgShell
       title={botId ?? 'Bot'}
+      showChat={false}
       topbarActions={(
         <Button
           variant="contained"

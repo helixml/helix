@@ -160,6 +160,7 @@ const HelixOrgBots: FC = () => {
             </Box>
             <Button
               variant="contained"
+              color="secondary"
               startIcon={<AddIcon />}
               onClick={() => setNewBotOpen(true)}
               sx={{ flexShrink: 0, mt: 0.5 }}
@@ -177,6 +178,7 @@ const HelixOrgBots: FC = () => {
               </Typography>
               <Button
                 variant="contained"
+                color="secondary"
                 startIcon={<AddIcon />}
                 onClick={() => setNewBotOpen(true)}
                 sx={{ mt: 1 }}
