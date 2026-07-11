@@ -42,9 +42,13 @@ Bots only see git repositories attached to their Helix project. After you create
 
 1. Call ` + "`list_repositories`" + ` to see every repo in this organization.
 2. Call ` + "`attach_repository`" + ` with ` + "`bot_id`" + ` + ` + "`repo_id`" + ` (and ` + "`primary: true`" + ` when it should be their main working repo).
-3. Use ` + "`list_bot_repositories`" + ` / ` + "`detach_repository`" + ` to audit or remove attachments.
+3. To **check** what a bot has attached: call ` + "`list_bot_repositories`" + ` with that ` + "`bot_id`" + `, or ` + "`get_bot`" + ` (the response includes a ` + "`repositories`" + ` array). Do **not** guess from memory of who attached what — the UI or another agent may have attached repos.
+4. Use ` + "`detach_repository`" + ` to remove an attachment.
 
 Without attached repos a coding bot has nothing to clone and cannot do real work.
+
+## How to call your tools
+Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as soon as they appear on your bot's tool list — call them **directly** by name (e.g. ` + "`mcp__helix__list_bot_repositories`" + `). Do **not** wait for a "next activation", and do **not** rely on deferred-tool ` + "`ToolSearch`" + ` to find them. If ` + "`tools/list`" + ` / your tool list shows a name, invoke it now.
 
 ## Start, stop, and restart bots
 Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).`
