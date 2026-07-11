@@ -74,7 +74,6 @@ const HelixOrgHumanDetail: FC = () => {
 
   return (
     <HelixOrgShell
-      title={bot?.name || botId || 'Person'}
       topbarActions={(
         <Button
           variant="contained"

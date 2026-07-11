@@ -35,6 +35,7 @@ import {
   ConnectionLineType,
   getBezierPath,
   Handle,
+  MarkerType,
   Node,
   NodeProps,
   ConnectionMode,
@@ -89,13 +90,11 @@ import {
 // The chart visualises the org as a ReactFlow graph. Bots are plain
 // nodes wired by reporting edges:
 //
-//   [b-owner]
-//      │ (bot-to-bot reporting edge, from a reporting line)
-//      ↓
-//   [b-alice]  [b-bob]  [b-carol]
+//   [b-alice] ──reports to──▶ [b-owner]
+//   [b-bob]   ──reports to──▶ [b-owner]
 //
-// Reporting is a many-to-many relation: each (manager → report) reporting
-// line becomes a Bot → Bot edge (a Bot may have several incoming edges).
+// Reporting is many-to-many: each (subordinate → manager) "reports to"
+// line is a closest-side Bot → Bot edge with an arrow at the manager.
 // Topics hang off the right of the tree; an edge from a Bot to a Topic is
 // a subscription.
 //
@@ -684,23 +683,36 @@ const buildGraph = (
     })
   }
 
-  // 3. Reporting edges: manager → subordinate, one per reporting line (a
-  //    Bot may report to several). Bezier (the default) gives every pair
-  //    its own arc so multiple reports from one manager never overlap.
+  // 3. Reporting edges: subordinate → manager ("reports to"), one per
+  //    reporting line. Closest-side bezier so free-placed cards attach
+  //    from the nearest sides; arrow points at the manager.
   const edges: Edge[] = []
+  const reportStroke = isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.4)'
   for (const b of flat) {
     for (const parentId of b.parentIds) {
       if (!parentId || !flatByID.has(parentId)) continue
       edges.push({
         id: `report:${parentId}->${b.id}`,
-        source: `bot:${parentId}`,
-        target: `bot:${b.id}`,
-        type: 'deletable',
+        // Source = who reports, target = who they report to (arrow end).
+        source: `bot:${b.id}`,
+        target: `bot:${parentId}`,
+        type: 'closest',
         animated: false,
-        data: { kind: 'report', childBotId: b.id, parentBotId: parentId },
+        data: {
+          kind: 'report',
+          childBotId: b.id,
+          parentBotId: parentId,
+          label: 'reports to',
+        },
         style: {
-          stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
+          stroke: reportStroke,
           strokeWidth: 1.5,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 16,
+          height: 16,
+          color: reportStroke,
         },
       })
     }
@@ -985,14 +997,14 @@ const ConfirmDeleteDialog: FC<{
 
 // ---- Custom edges ------------------------------------------------------
 //
-// DeletableEdge: straight path between the RF-supplied handle endpoints,
-// with a hover × that routes through deleteElements → onEdgesDelete.
-// Used for reporting lines and processor input wires (fixed ports).
+// DeletableEdge: path between the RF-supplied handle endpoints, with a
+// hover × that routes through deleteElements → onEdgesDelete. Used for
+// processor input wires (fixed ports).
 //
 // ClosestSideEdge: same chrome, but endpoints are recomputed from the
-// live node rects as the nearest side-midpoint pair. Used for bot↔topic
-// subscriptions (and branch→bot wires) so free-placed cards don't force
-// a right→left cable that crosses the cards.
+// live node rects as the nearest side-midpoint pair. Used for bot↔bot
+// reporting lines, bot↔topic subscriptions, and branch→bot wires so
+// free-placed cards don't force a fixed-side cable that crosses cards.
 
 const EdgeDeleteButton: FC<{
   id: string
@@ -1034,6 +1046,7 @@ const EdgeDeleteButton: FC<{
           boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
           fontSize: 14,
           lineHeight: 1,
+          zIndex: 1,
         }}
         onFocus={(e) => {
           e.currentTarget.style.outline = '2px solid #1976d2'
@@ -1045,6 +1058,44 @@ const EdgeDeleteButton: FC<{
       >
         ×
       </button>
+    </EdgeLabelRenderer>
+  )
+}
+
+// Mid-edge caption (e.g. "reports to"). Hidden while the delete control
+// is shown so the two don't stack on the same point.
+const EdgeCaption: FC<{
+  labelX: number
+  labelY: number
+  text: string
+  show: boolean
+}> = ({ labelX, labelY, text, show }) => {
+  const lightTheme = useLightTheme()
+  if (!show || !text) return null
+  const isLight = lightTheme.isLight
+  return (
+    <EdgeLabelRenderer>
+      <div
+        style={{
+          position: 'absolute',
+          transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          pointerEvents: 'none',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.01em',
+          color: isLight ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.8)',
+          background: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(30,30,30,0.92)',
+          border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 4,
+          padding: '1px 6px',
+          whiteSpace: 'nowrap',
+          boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+          lineHeight: 1.4,
+        }}
+        className="nodrag nopan"
+      >
+        {text}
+      </div>
     </EdgeLabelRenderer>
   )
 }
@@ -1124,6 +1175,9 @@ const ClosestSideEdge: FC<EdgeProps> = ({
   const { getNode } = useReactFlow()
   const sourceNode = getNode(source)
   const targetNode = getNode(target)
+  const edgeData = data as { kind?: string; label?: string } | undefined
+  const kind = edgeData?.kind
+  const caption = edgeData?.label
 
   let sx = sourceX
   let sy = sourceY
@@ -1140,8 +1194,8 @@ const ClosestSideEdge: FC<EdgeProps> = ({
 
     // Processor branch ports: leave the edge at the source handle RF
     // already resolved (the labelled branch port), only free the target
-    // side to the closest bot side. Pure bot↔topic edges free both ends.
-    const kind = (data as { kind?: string } | undefined)?.kind
+    // side to the closest bot side. Pure bot↔bot / bot↔topic edges free
+    // both ends.
     if (kind === 'proc_out' && sourceHandleId) {
       const { to } = closestSidePair(sRect, tRect)
       const p2 = sideMidpoint(tRect, to)
@@ -1172,8 +1226,7 @@ const ClosestSideEdge: FC<EdgeProps> = ({
     sourcePosition: sPos,
     targetPosition: tPos,
   })
-  const kind = (data as { kind?: string } | undefined)?.kind
-  const show = hover || selected
+  const showDelete = hover || selected
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
@@ -1187,12 +1240,18 @@ const ClosestSideEdge: FC<EdgeProps> = ({
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       />
+      <EdgeCaption
+        labelX={labelX}
+        labelY={labelY}
+        text={caption ?? ''}
+        show={!showDelete}
+      />
       <EdgeDeleteButton
         id={id}
         labelX={labelX}
         labelY={labelY}
         ariaLabel={edgeAriaLabel(kind)}
-        show={show}
+        show={showDelete}
         onHover={setHover}
       />
     </>
@@ -1313,7 +1372,9 @@ const ChartCanvas: FC<{
   )
 
   // onConnect handles wire shapes:
-  //   - bot→bot:     manager wires their report (reporting line)
+  //   - bot→bot:     drag manager → report creates a "reports to" line
+  //                  (stored as subordinate reports_to manager; drawn
+  //                  subordinate → manager with arrow + label)
   //   - bot→topic OR topic→bot: subscribe (either direction)
   //   - topic→processor / processor-branch→…: processor wiring
   const onConnect = useCallback(
@@ -1394,12 +1455,19 @@ const ChartCanvas: FC<{
           onUnsubscribeBot(d.botId, d.topicId)
           continue
         }
-        // Reporting edge: remove the specific manager line. Fall back to
-        // parsing "report:<parent>-><child>" from the edge id when data is
-        // missing (e.g. an edge synthesised by ReactFlow).
-        const childId = d?.childBotId ?? (e.target ?? '').replace(/^bot:/, '')
-        const parentId = d?.parentBotId ?? (e.source ?? '').replace(/^bot:/, '')
-        if (childId && parentId && (e.target ?? '').startsWith('bot:')) onRemoveParent(childId, parentId)
+        // Reporting edge (subordinate → manager, "reports to"). Prefer
+        // data; fall back to id "report:<parent>-><child>".
+        let childId = d?.childBotId
+        let parentId = d?.parentBotId
+        if ((!childId || !parentId) && typeof e.id === 'string' && e.id.startsWith('report:')) {
+          const rest = e.id.slice('report:'.length)
+          const arrow = rest.indexOf('->')
+          if (arrow > 0) {
+            parentId = parentId || rest.slice(0, arrow)
+            childId = childId || rest.slice(arrow + 2)
+          }
+        }
+        if (childId && parentId) onRemoveParent(childId, parentId)
       }
     },
     [onRemoveParent, onUnsubscribeBot, onSetProcessorInput],
@@ -1846,7 +1914,7 @@ const HelixOrgChart: FC = () => {
   }, [confirmDelete, flat, streamsData, processorsData])
 
   return (
-    <HelixOrgShell title="Chart">
+    <HelixOrgShell>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <Box
           sx={{

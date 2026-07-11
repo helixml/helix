@@ -104,7 +104,7 @@ const HelixOrgTopicDetail: FC = () => {
   }
 
   return (
-    <HelixOrgShell title="Topic">
+    <HelixOrgShell>
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>

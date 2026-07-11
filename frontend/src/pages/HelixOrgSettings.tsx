@@ -46,7 +46,7 @@ const HelixOrgSettings: FC = () => {
   const { data, isLoading } = useHelixOrgSettings()
 
   return (
-    <HelixOrgShell title="Settings" showChat={false}>
+    <HelixOrgShell showChat={false}>
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={3}>
