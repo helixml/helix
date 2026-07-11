@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
 )
 
 // botView is the on-the-wire shape returned by list_bots / get_bot. A
@@ -17,6 +19,10 @@ import (
 // merged), so this carries both its definition (content, tools) and its
 // place in the reporting graph (parentIds). A Bot's subscriptions are not
 // on the bot — read them via the topic/subscription read tools.
+//
+// get_bot also fills Repositories (git repos attached to the Bot's Helix
+// project) when the repositories port is wired — so "what can this bot
+// work on?" is answered without a second tool call.
 type botView struct {
 	ID   orgchart.BotID `json:"id"`
 	Name string         `json:"name,omitempty"`
@@ -26,8 +32,14 @@ type botView struct {
 	Content   string           `json:"content"`
 	Tools     []tool.Name      `json:"tools,omitempty"`
 	ParentIDs []orgchart.BotID `json:"parentIds,omitempty"`
-	CreatedAt time.Time        `json:"createdAt"`
-	UpdatedAt time.Time        `json:"updatedAt"`
+	// Repositories is only set by get_bot (not list_bots). Nil means the
+	// field was not loaded; empty slice means loaded and none attached.
+	Repositories []runtime.RepoView `json:"repositories,omitempty"`
+	// RepositoriesNote explains why repositories could not be loaded
+	// (e.g. bot never activated — no Helix project yet).
+	RepositoriesNote string    `json:"repositories_note,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
@@ -106,7 +118,11 @@ type getBotArgs struct {
 func (t *GetBot) Name() tool.Name                 { return GetBotName }
 func (t *GetBot) InputSchema() *jsonschema.Schema { return getBotSchema }
 func (t *GetBot) Description() string {
-	return "Fetch one Bot by id and return its content, tools, and reporting parents."
+	return "Fetch one Bot by id: content, tools, reporting parents, and the git " +
+		"repositories attached to its Helix project (the code its sandbox clones). " +
+		"Use this to inspect a bot before editing it or attaching work. To change " +
+		"repo attachments use attach_repository / detach_repository / list_bot_repositories; " +
+		"to change tools use attach_tool / detach_tool."
 }
 
 func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
@@ -132,5 +148,29 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 			return nil, fmt.Errorf("list managers for %q: %w", args.ID, err)
 		}
 	}
-	return json.Marshal(botViewOf(b, managers))
+	view := botViewOf(b, managers)
+	// Best-effort: surface attached repos so callers don't have to know
+	// about list_bot_repositories. Humans never have a project.
+	if b.Kind != orgchart.BotKindHuman && t.deps.Repositories != nil {
+		repos, rerr := t.deps.Repositories.ListForBot(ctx, orgID, b.ID)
+		switch {
+		case rerr == nil:
+			// Always set the slice (even empty) so JSON shows
+			// "repositories": [] rather than omitting the field —
+			// agents must not confuse "omitted" with "none".
+			if repos == nil {
+				repos = []runtime.RepoView{}
+			}
+			view.Repositories = repos
+		case errors.Is(rerr, runtime.ErrBotProjectNotReady):
+			view.Repositories = []runtime.RepoView{}
+			view.RepositoriesNote = "bot has no Helix project yet — call start_bot first, then attach_repository"
+		case errors.Is(rerr, runtime.ErrRepositoriesUnsupported):
+			// Port not wired; leave field omitted.
+		default:
+			view.Repositories = []runtime.RepoView{}
+			view.RepositoriesNote = fmt.Sprintf("could not load repositories: %v", rerr)
+		}
+	}
+	return json.Marshal(view)
 }

@@ -76,7 +76,9 @@ func (t *ListBotRepositories) InputSchema() *jsonschema.Schema { return listBotR
 func (t *ListBotRepositories) Description() string {
 	return "List the git repositories currently attached to a Bot's Helix project " +
 		"(the ones its sandbox will clone). Marks primary=true on the project's default " +
-		"repo. The Bot must have been activated at least once so its project exists."
+		"repo. Prefer this (or get_bot, which also returns repositories) when asked " +
+		"\"what repos does this bot have?\". The Bot must have been activated at least " +
+		"once so its project exists."
 }
 func (t *ListBotRepositories) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args listBotRepositoriesArgs

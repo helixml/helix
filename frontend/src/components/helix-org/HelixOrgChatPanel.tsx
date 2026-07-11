@@ -2,18 +2,21 @@
 // spec-task chat (EmbeddedSessionView + RobustPromptInput), scoped to one
 // bot at a time. Header shows which bot you are talking to.
 
-import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 
@@ -94,6 +97,7 @@ const HelixOrgChatPanel: FC = () => {
 
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
   const [view, setView] = useState<'chat' | 'desktop'>('chat')
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   const chatApi: WorkerChatReader = useMemo(() => ({
@@ -172,15 +176,27 @@ const HelixOrgChatPanel: FC = () => {
     }
   }
 
+  const closeMenu = () => setMenuAnchor(null)
+  const openMenu = (e: MouseEvent<HTMLElement>) => {
+    e.stopPropagation()
+    setMenuAnchor(e.currentTarget)
+  }
+
+  const handleOpenSettings = () => {
+    closeMenu()
+    if (!orgId || !selectedBotId) return
+    router.navigate('helix_org_bot_detail', { org_id: orgId, bot_id: selectedBotId })
+  }
+
   const busy = activateAgent.isPending || stopAgent.isPending || restartAgent.isPending
   const border = lightTheme.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
   const statusColor = agentOnline ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const menuIconSx = { mr: 1, fontSize: 20 }
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: `1px solid ${border}` }}>
-      {/* Header: [icon] [name select  v] [stop/restart]
-                       [status]  — select + actions share one row so the
-                       dropdown chevron lines up with the icon buttons. */}
+      {/* Header: [icon] [name select  v] [⋮ menu]
+                       [status] */}
       <Box
         sx={{
           px: 1.5,
@@ -220,7 +236,6 @@ const HelixOrgChatPanel: FC = () => {
                     alignItems: 'center',
                   },
                   '& .MuiSelect-icon': {
-                    // Vertically center the chevron with the label + action buttons.
                     top: '50%',
                     transform: 'translateY(-50%)',
                     right: 0,
@@ -235,34 +250,64 @@ const HelixOrgChatPanel: FC = () => {
               </Select>
             )}
           </Box>
-          <Stack direction="row" alignItems="center" spacing={0.25} sx={{ flexShrink: 0 }}>
-            {agentOnline ? (
-              <>
-                <Tooltip title="Stop agent">
-                  <span>
-                    <IconButton size="small" onClick={() => void handleStop()} disabled={busy}>
-                      {stopAgent.isPending ? <CircularProgress size={16} /> : <StopIcon fontSize="small" />}
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Restart agent">
-                  <span>
-                    <IconButton size="small" onClick={() => void handleRestart()} disabled={busy}>
-                      {restartAgent.isPending ? <CircularProgress size={16} /> : <RestartAltIcon fontSize="small" />}
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </>
-            ) : (
-              <Tooltip title="Start agent">
-                <span>
-                  <IconButton size="small" color="primary" onClick={() => void handleStart()} disabled={busy || !selectedBotId}>
-                    {activateAgent.isPending ? <CircularProgress size={16} /> : <PlayArrowIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-          </Stack>
+          {selectedBotId && (
+            <>
+              <IconButton
+                size="small"
+                aria-label="Bot actions"
+                onClick={openMenu}
+                disabled={!selectedBotId}
+                sx={{ flexShrink: 0 }}
+              >
+                {busy ? <CircularProgress size={16} /> : <MoreVertIcon sx={{ fontSize: 18 }} />}
+              </IconButton>
+              <Menu
+                anchorEl={menuAnchor}
+                open={Boolean(menuAnchor)}
+                onClose={closeMenu}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                {agentOnline ? (
+                  <MenuItem
+                    disabled={busy}
+                    onClick={() => {
+                      closeMenu()
+                      void handleStop()
+                    }}
+                  >
+                    <StopIcon sx={menuIconSx} />
+                    Stop agent
+                  </MenuItem>
+                ) : (
+                  <MenuItem
+                    disabled={busy || !selectedBotId}
+                    onClick={() => {
+                      closeMenu()
+                      void handleStart()
+                    }}
+                  >
+                    <PlayArrowIcon sx={menuIconSx} />
+                    Start agent
+                  </MenuItem>
+                )}
+                <MenuItem
+                  disabled={busy || !selectedBotId}
+                  onClick={() => {
+                    closeMenu()
+                    void handleRestart()
+                  }}
+                >
+                  <RestartAltIcon sx={menuIconSx} />
+                  Restart agent
+                </MenuItem>
+                <MenuItem onClick={handleOpenSettings} disabled={!selectedBotId}>
+                  <SettingsOutlinedIcon sx={menuIconSx} />
+                  Settings
+                </MenuItem>
+              </Menu>
+            </>
+          )}
         </Stack>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ pl: 3.5 }}>
           <Tooltip title={agentOnline ? 'Agent sandbox online' : 'Agent sandbox stopped'}>
