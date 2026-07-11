@@ -552,9 +552,11 @@ const routes: IApplicationRoute[] = [
   // helix-org alpha — Other resources (bots, topics, settings) are
   // operated via MCP tools / API; the overview is the visual entry
   // point.
+  // drawer: false — secondary context sidebar is unused; Chart/Bots/Topics/
+  // Settings live in the AppBar (HelixOrgTopNav). The 64px org rail still shows.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
-  meta: { drawer: true, title: 'Helix Org' },
+  meta: { drawer: false, title: 'Helix Org' },
   render: () => {
     const { navigateReplace, params } = useRouter()
     React.useEffect(() => {
@@ -565,37 +567,37 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_chart',
   path: '/orgs/:org_id/helix-org/chart',
-  meta: { drawer: true, title: 'Helix Org · Chart' },
+  meta: { drawer: false, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_bots',
   path: '/orgs/:org_id/helix-org/bots',
-  meta: { drawer: true, title: 'Helix Org · Bots' },
+  meta: { drawer: false, title: 'Helix Org · Bots' },
   render: () => <HelixOrgBots />,
 }, {
   name: 'helix_org_bot_detail',
   path: '/orgs/:org_id/helix-org/bots/:bot_id',
-  meta: { drawer: true, title: 'Helix Org · Bot' },
+  meta: { drawer: false, title: 'Helix Org · Bot' },
   render: () => <HelixOrgBotDetail />,
 }, {
   name: 'helix_org_human_detail',
   path: '/orgs/:org_id/helix-org/humans/:bot_id',
-  meta: { drawer: true, title: 'Helix Org · Person' },
+  meta: { drawer: false, title: 'Helix Org · Person' },
   render: () => <HelixOrgHumanDetail />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
-  meta: { drawer: true, title: 'Helix Org · Settings' },
+  meta: { drawer: false, title: 'Helix Org · Settings' },
   render: () => <HelixOrgSettings />,
 }, {
   name: 'helix_org_topics',
   path: '/orgs/:org_id/helix-org/topics',
-  meta: { drawer: true, title: 'Helix Org · Topics' },
+  meta: { drawer: false, title: 'Helix Org · Topics' },
   render: () => <HelixOrgTopics />,
 }, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',
-  meta: { drawer: true, title: 'Helix Org · Topic' },
+  meta: { drawer: false, title: 'Helix Org · Topic' },
   render: () => <HelixOrgTopicDetail />,
 }, NOT_FOUND_ROUTE]
 

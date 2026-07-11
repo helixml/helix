@@ -26,11 +26,10 @@ import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
 
 import useAccount from '../hooks/useAccount'
@@ -53,7 +52,6 @@ const HelixOrgTopicDetail: FC = () => {
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const topicId = router.params.topic_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
 
   const { data: topic, isLoading } = useHelixOrgTopic(topicId)
   const { data: messageCount } = useTopicMessageCount(topicId)
@@ -106,11 +104,8 @@ const HelixOrgTopicDetail: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle={topic?.name || topicId || 'Topic'}
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell title="Topic">
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           {isLoading ? (
@@ -198,7 +193,8 @@ const HelixOrgTopicDetail: FC = () => {
           )}
         </Stack>
       </Container>
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

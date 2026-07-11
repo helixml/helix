@@ -47,7 +47,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -57,10 +57,8 @@ import EmbeddedSessionView, {
 } from '../components/session/EmbeddedSessionView'
 import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import RobustPromptInput from '../components/common/RobustPromptInput'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 
 import router5 from '../router'
-import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
@@ -89,12 +87,10 @@ import {
 
 const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
-  const account = useAccount()
   const snackbar = useSnackbar()
   const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
 
   const del = useDeleteBot()
   // Stop polling/refetching this bot once a delete is in flight or done —
@@ -322,24 +318,22 @@ const HelixOrgBotDetail: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle={botId ?? 'Bot'}
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<SaveIcon />}
-            disabled={!dirty || updateBot.isPending}
-            onClick={handleSave}
-          >
-            {updateBot.isPending ? 'Saving…' : 'Save'}
-          </Button>
-        </Stack>
+    <HelixOrgShell
+      title={botId ?? 'Bot'}
+      topbarActions={(
+        <Button
+          variant="contained"
+          color="secondary"
+          size="small"
+          startIcon={<SaveIcon />}
+          disabled={!dirty || updateBot.isPending}
+          onClick={handleSave}
+        >
+          {updateBot.isPending ? 'Saving…' : 'Save'}
+        </Button>
       )}
     >
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         {isLoading || !bot || isHuman ? (
           <LoadingSpinner />
@@ -777,7 +771,8 @@ const HelixOrgBotDetail: FC = () => {
           </Typography>
         </DeleteConfirmWindow>
       )}
-    </Page>
+          </Box>
+    </HelixOrgShell>
   )
 }
 

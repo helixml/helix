@@ -27,13 +27,11 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
-import Page from '../components/system/Page'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
-import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
@@ -86,9 +84,7 @@ export const topicRowId = (topicId: string) => `topic-row-${topicId}`
 const HIGHLIGHT_DURATION_MS = 2400
 
 const HelixOrgTopics: FC = () => {
-  const account = useAccount()
   const router = useRouter()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
 
@@ -200,14 +196,13 @@ const HelixOrgTopics: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle="Topics"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
+    <HelixOrgShell
+      title="Topics"
+      topbarActions={(
         <Button
           variant="contained"
           color="secondary"
+          size="small"
           startIcon={<AddIcon />}
           onClick={() => setCreateOpen(true)}
         >
@@ -215,6 +210,7 @@ const HelixOrgTopics: FC = () => {
         </Button>
       )}
     >
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Box>
@@ -290,7 +286,8 @@ const HelixOrgTopics: FC = () => {
       )}
 
       <NewTopicDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

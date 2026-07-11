@@ -23,9 +23,8 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -41,8 +40,6 @@ import {
 
 const HelixOrgBots: FC = () => {
   const router = useRouter()
-  const account = useAccount()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
@@ -149,21 +146,16 @@ const HelixOrgBots: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle="Bots"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell title="Bots">
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="h5" sx={{ mb: 1 }}>Bots</Typography>
               <Typography variant="body2" color="text.secondary">
-                A Bot is an agent in the org. Its markdown content is the prompt it reads on
-                activation, its tools list is its MCP tool surface, and it reports to other
-                bots (its managers). Click a bot to open its detail page — chat to it inline,
-                edit its content and tools, and manage its subscriptions.
+                Agents in this org. Click a bot to open its detail page — edit instructions,
+                tools and subscriptions. Chat lives in the left panel.
               </Typography>
             </Box>
             <Button
@@ -248,7 +240,8 @@ const HelixOrgBots: FC = () => {
       )}
 
       <NewBotDialog open={newBotOpen} onClose={() => setNewBotOpen(false)} />
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

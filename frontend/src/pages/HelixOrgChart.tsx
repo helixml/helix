@@ -48,12 +48,12 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import {
   loadChartViewport,
   saveChartViewport,
 } from '../components/helix-org/chartViewportStorage'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
@@ -1846,31 +1846,13 @@ const HelixOrgChart: FC = () => {
   }, [confirmDelete, flat, streamsData, processorsData])
 
   return (
-    <Page breadcrumbTitle="Chart">
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
-        <Box sx={{ px: 4, pt: 4, pb: 2 }}>
-          <Box>
-            <Typography
-              variant="h4"
-              sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
-            >
-              Chart
-            </Typography>
-            <Typography variant="body2" sx={{ color: subtitleColor }}>
-              Bots are wired by reporting lines. Drag nodes to rearrange the chart (positions
-              are saved). Drag a manager's bottom handle to a subordinate for reporting, or
-              drag between a bot and a topic (either direction) to subscribe — the wire
-              attaches to the closest sides of each card.
-            </Typography>
-          </Box>
-        </Box>
-
+    <HelixOrgShell title="Chart">
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
-            mx: 4,
-            mb: 4,
+            m: 1.5,
             position: 'relative',
             border: `1px solid ${canvasBorder}`,
             borderRadius: 1,
@@ -1878,12 +1860,9 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          {/* New bot lives on the canvas (floating top-right) rather than
-              in the page header — it reads as a canvas action, and keeps
-              the header to title + description. zIndex sits above the
-              ReactFlow surface / controls. */}
           <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <Button
+              size="small"
               variant="outlined"
               onClick={onResetLayout}
               disabled={clearPositions.isPending || Object.keys(savedPositions).length === 0}
@@ -1891,6 +1870,7 @@ const HelixOrgChart: FC = () => {
               Reset layout
             </Button>
             <Button
+              size="small"
               variant="outlined"
               startIcon={<TransformIcon />}
               onClick={() => setProcessorDrawer({ open: true, processor: null })}
@@ -1898,6 +1878,7 @@ const HelixOrgChart: FC = () => {
               Processor
             </Button>
             <Button
+              size="small"
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setBotDialogOpen(true)}
@@ -1959,7 +1940,7 @@ const HelixOrgChart: FC = () => {
         processor={processorDrawer.processor}
         onClose={() => setProcessorDrawer({ open: false, processor: null })}
       />
-    </Page>
+    </HelixOrgShell>
   )
 }
 
