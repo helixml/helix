@@ -200,6 +200,18 @@ type botSessionResetter struct {
 	st     *helixorgstore.Store
 }
 
+// StopDesktop stops the external-agent container for a session without
+// deleting the session row (bot-detail / chart "Stop" control).
+func (r botSessionResetter) StopDesktop(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	if err := r.client.StopExternalAgent(ctx, sessionID); err != nil {
+		return fmt.Errorf("stop desktop %s: %w", sessionID, err)
+	}
+	return nil
+}
+
 func (r botSessionResetter) ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error {
 	if sessionID == "" {
 		return nil
@@ -849,7 +861,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		// "Restart agent session" button then Activates onto a brand-new
 		// session, desktop and thread with the bot's current MCP services —
 		// instead of resuming the old container and thread.
+		// Same concrete type also implements BotDesktopStopper (stop only).
 		BotSessionResetter: botSessionResetter{client: inProcClient, st: st},
+		BotDesktopStopper:  botSessionResetter{client: inProcClient, st: st},
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.

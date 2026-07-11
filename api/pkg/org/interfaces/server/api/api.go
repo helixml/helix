@@ -106,6 +106,9 @@ type Deps struct {
 	// brand-new session on a fresh desktop with newly added MCP services.
 	// nil → restartBotAgent skips the reset and just re-activates.
 	BotSessionResetter BotSessionResetter
+	// BotDesktopStopper stops the desktop only (session + transcript kept).
+	// nil → stopBotAgent returns 501.
+	BotDesktopStopper BotDesktopStopper
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching topics + appends events). Built at
@@ -224,6 +227,13 @@ type BotSessionResetter interface {
 	ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error
 }
 
+// BotDesktopStopper stops a bot's desktop container without deleting the
+// session row (so the transcript survives and the next start can resume).
+// nil → stopBotAgent returns 501.
+type BotDesktopStopper interface {
+	StopDesktop(ctx context.Context, sessionID string) error
+}
+
 // GitHubIdentity is the resolved GitHub identity for an org. Mirrors
 // server.OrgGitHubIdentity (kept local to avoid a dependency cycle).
 type GitHubIdentity struct {
@@ -269,6 +279,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /bots/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeBot)},
 		{Pattern: "POST /bots/{id}/chat", Handler: http.HandlerFunc(a.ensureBotChat)},
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
+		{Pattern: "POST /bots/{id}/stop-agent", Handler: http.HandlerFunc(a.stopBotAgent)},
 		{Pattern: "POST /bots/{id}/restart-agent", Handler: http.HandlerFunc(a.restartBotAgent)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.

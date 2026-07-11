@@ -170,19 +170,25 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detail := BotDetailDTO{Bot: botDTO(b, a.managerIDs(ctx, orgID, id))}
+	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
+	dto.AgentStatus = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
 	// per-project Human Desktop session. Missing state = the bot
 	// hasn't activated yet; we leave the fields empty and the UI
-	// shows a disabled button.
+	// shows a disabled button. AgentStatus drives the green/grey
+	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			detail.AgentAppID = info.AgentAppID
-			detail.ProjectID = info.ProjectID
+			detail := BotDetailDTO{Bot: dto, AgentAppID: info.AgentAppID, ProjectID: info.ProjectID}
+			if info.AgentStatus != "" {
+				detail.Bot.AgentStatus = info.AgentStatus
+			}
+			writeJSON(w, http.StatusOK, detail)
+			return
 		}
 	}
-	writeJSON(w, http.StatusOK, detail)
+	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto})
 }
 
 // updateBot rewrites a Bot's content / tools / topics. A nil field is
@@ -471,6 +477,55 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 		AgentAppID:   res.AgentAppID,
 		SessionID:    res.SessionID,
 	})
+}
+
+// stopBotAgent stops the bot's desktop sandbox without deleting the
+// session (transcript stays). The chart / bot-detail "Stop" control hits
+// this. No-op (204) when there is no session or the desktop is already down.
+//
+// @Summary Helix-org: stop a bot's agent desktop
+// @Tags HelixOrg
+// @Param id path string true "Bot ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/stop-agent [post]
+func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.BotDesktopStopper == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("stop is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.BotID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
+		return
+	}
+	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	var sessionID string
+	if a.deps.BotRuntime != nil {
+		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
+			sessionID = info.SessionID
+		}
+	}
+	if sessionID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := a.deps.BotDesktopStopper.StopDesktop(ctx, sessionID); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("stop bot %s desktop: %w", id, err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // restartBotAgent gives the bot a genuinely fresh session — the bot-page
