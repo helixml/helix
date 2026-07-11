@@ -57,6 +57,7 @@ import {
 } from '../components/helix-org/chartViewportStorage'
 import { focusChatBot } from '../components/helix-org/chatBotFocus'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
@@ -1625,6 +1626,8 @@ const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
+  // Chart is the org root of helix-org — breadcrumb is just the org name.
+  const breadcrumbs = useHelixOrgBreadcrumbs()
   // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
   // the chart is open — desktops start/stop without other chart mutations.
   const { data: botsData, isLoading } = useListHelixOrgBots({ refetchInterval: 5000 })
@@ -1961,7 +1964,7 @@ const HelixOrgChart: FC = () => {
   }, [confirmDelete, flat, streamsData, processorsData])
 
   return (
-    <HelixOrgShell>
+    <HelixOrgShell showChat breadcrumbs={breadcrumbs}>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <Box
           sx={{

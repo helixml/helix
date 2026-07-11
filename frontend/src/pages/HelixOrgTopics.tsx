@@ -28,6 +28,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -87,6 +88,7 @@ const HelixOrgTopics: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const theme = useTheme()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useListHelixOrgTopics()
   const deleteTopic = useDeleteHelixOrgTopic()
@@ -196,13 +198,12 @@ const HelixOrgTopics: FC = () => {
   }
 
   return (
-    <HelixOrgShell>
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Topics">
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h5" sx={{ mb: 1 }}>Topics</Typography>
               <Typography variant="body2" color="text.secondary">
                 Named event channels Workers can subscribe to. Each topic carries a Transport (local
                 pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via

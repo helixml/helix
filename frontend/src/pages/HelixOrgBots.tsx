@@ -24,6 +24,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
@@ -43,6 +44,7 @@ const HelixOrgBots: FC = () => {
   const snackbar = useSnackbar()
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useListHelixOrgBots()
   const deleteBot = useDeleteBot()
@@ -146,16 +148,15 @@ const HelixOrgBots: FC = () => {
   }
 
   return (
-    <HelixOrgShell>
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Bots">
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h5" sx={{ mb: 1 }}>Bots</Typography>
               <Typography variant="body2" color="text.secondary">
                 Agents in this org. Click a bot to open its detail page — edit instructions,
-                tools and subscriptions. Chat lives in the left panel.
+                tools and subscriptions.
               </Typography>
             </Box>
             <Button

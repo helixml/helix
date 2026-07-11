@@ -27,6 +27,7 @@ import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
@@ -103,8 +104,11 @@ const HelixOrgTopicDetail: FC = () => {
     return d.toLocaleString()
   }
 
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
+  const leafTitle = topic?.name || topic?.id || topicId || 'Topic'
+
   return (
-    <HelixOrgShell>
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle={leafTitle}>
       <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>

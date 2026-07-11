@@ -48,6 +48,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -91,6 +92,7 @@ const HelixOrgBotDetail: FC = () => {
   const api = useApi()
   const orgSlug = router.params.org_id as string | undefined
   const botId = router.params.bot_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
 
   const del = useDeleteBot()
   // Stop polling/refetching this bot once a delete is in flight or done —
@@ -317,9 +319,13 @@ const HelixOrgBotDetail: FC = () => {
     }
   }
 
+  const leafTitle = bot?.name || botId || 'Bot'
+
   return (
     <HelixOrgShell
       showChat={false}
+      breadcrumbs={breadcrumbs}
+      breadcrumbTitle={leafTitle}
       topbarActions={(
         <Button
           variant="contained"

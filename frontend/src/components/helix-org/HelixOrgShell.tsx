@@ -1,8 +1,9 @@
 // Shared chrome for every helix-org page: top-bar nav (Chart/Bots/Topics/
-// Settings) + left chat rail + right content, matching the spec-task
-// chat/desktop split pattern.
+// Settings) + optional left chat rail + right content.
 //
-// No left-side page title — the top nav tabs already name the active section.
+// Breadcrumbs sit on the left of the AppBar (same pattern as SpecTasks /
+// Sandbox detail): org → section → leaf. Build them with
+// useHelixOrgBreadcrumbs and pass via breadcrumbs + breadcrumbTitle.
 
 import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
@@ -18,22 +19,28 @@ import HelixOrgTopNav from './HelixOrgTopNav'
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
+import { IPageBreadcrumb } from '../../types'
 
 export type HelixOrgShellProps = {
+  /** Leading crumbs (org + optional section). Leaf goes in breadcrumbTitle. */
+  breadcrumbs?: IPageBreadcrumb[]
+  /** Current page leaf (e.g. "Bots", "Settings", or a bot/topic name). */
+  breadcrumbTitle?: string
   /** Optional action buttons next to the top nav (before theme toggle). */
   topbarActions?: ReactNode
   /**
-   * Show the left chat rail. Default true (chart / bots / topics).
-   * Set false on bot detail and settings — those pages either have their
-   * own session UI or don't need a co-pilot chat.
+   * Show the left chat rail. Only the Chart page sets this true —
+   * Bots / Topics / Settings / detail pages use the full width.
    */
   showChat?: boolean
   children: ReactNode
 }
 
 const HelixOrgShell: FC<HelixOrgShellProps> = ({
+  breadcrumbs,
+  breadcrumbTitle,
   topbarActions,
-  showChat = true,
+  showChat = false,
   children,
 }) => {
   const account = useAccount()
@@ -61,6 +68,8 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
   // Use "32%" not 32, or the chat rail collapses to ~32px.
   return (
     <Page
+      breadcrumbs={breadcrumbs}
+      breadcrumbTitle={breadcrumbTitle}
       breadcrumbShowHome={false}
       organizationId={account.organizationTools.organization?.id}
       disableContentScroll

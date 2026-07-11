@@ -11,6 +11,7 @@ import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SaveIcon from '@mui/icons-material/Save'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -32,6 +33,7 @@ const HelixOrgHumanDetail: FC = () => {
   const router = useRouter()
   const snackbar = useSnackbar()
   const botId = router.params.bot_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
   const { data, isLoading } = useHelixOrgBot(botId)
   const bot = data?.bot
   const updateBot = useUpdateBot()
@@ -72,8 +74,12 @@ const HelixOrgHumanDetail: FC = () => {
     }
   }
 
+  const leafTitle = bot?.name || botId || 'Person'
+
   return (
     <HelixOrgShell
+      breadcrumbs={breadcrumbs}
+      breadcrumbTitle={leafTitle}
       topbarActions={(
         <Button
           variant="contained"
