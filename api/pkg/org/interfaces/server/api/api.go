@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -80,6 +81,9 @@ type Deps struct {
 	// Processors owns the processor CRUD + preview use cases. nil →
 	// the /processors routes return 503 (test wirings that skip it).
 	Processors *processors.Processors
+	// ChartLayout owns free-placed canvas coordinates for the org chart
+	// UI. nil → /chart/positions routes return 503.
+	ChartLayout *chartlayout.Service
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
@@ -284,6 +288,10 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
 		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
 		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},
+		// Chart free-placed layout (bots / topics / processors).
+		{Pattern: "GET /chart/positions", Handler: http.HandlerFunc(a.getChartPositions)},
+		{Pattern: "PUT /chart/positions", Handler: http.HandlerFunc(a.putChartPositions)},
+		{Pattern: "DELETE /chart/positions", Handler: http.HandlerFunc(a.deleteChartPositions)},
 		// Inbound webhook for the GitHub transport. The transport
 		// resolves orgID from the request context (set by the org
 		// middleware) and reads transport.github from the org's

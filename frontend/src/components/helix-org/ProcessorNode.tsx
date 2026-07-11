@@ -74,6 +74,8 @@ const ProcessorNode: FC<NodeProps<Node<ProcessorNodeData>>> = ({ data }) => {
         border: `1px solid ${border}`,
         backgroundColor: bg,
         boxShadow: lightTheme.isLight ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+        cursor: 'grab',
+        '&:active': { cursor: 'grabbing' },
       }}
     >
       {/* INPUT port — pinned to the left border, level with the header. */}

@@ -190,6 +190,26 @@ type Configs interface {
 	Delete(ctx context.Context, orgID, key string) error
 }
 
+// ChartPositions persists free-placed (x, y) canvas coordinates for
+// org-chart nodes (bots, topics, processors). Keyed by
+// (orgID, kind, id). Pure UI layout — the chart falls back to
+// auto-layout when no row exists for a node.
+type ChartPositions interface {
+	// List returns every saved position for the org. Empty slice when
+	// none exist; never ErrNotFound for "no rows".
+	List(ctx context.Context, orgID string) ([]orgchart.ChartPosition, error)
+	// Upsert inserts or replaces the position for (org, kind, id).
+	Upsert(ctx context.Context, pos orgchart.ChartPosition) error
+	// UpsertMany inserts or replaces multiple positions in one call.
+	// Implementations may loop; atomicity is not required.
+	UpsertMany(ctx context.Context, positions []orgchart.ChartPosition) error
+	// Delete removes one position. Returns ErrNotFound when absent.
+	Delete(ctx context.Context, orgID, kind, id string) error
+	// Clear removes every position for the org (reset to auto-layout).
+	// No-op (nil error) when the org has no saved positions.
+	Clear(ctx context.Context, orgID string) error
+}
+
 // Store bundles all repositories a single concrete implementation provides.
 // Handlers and tools depend on the narrower interfaces above; Store is the
 // wiring point.
@@ -208,6 +228,8 @@ type Store struct {
 	Configs         Configs
 	Activations     activation.Repository
 	Processors      Processors
+	// ChartPositions is the free-placed canvas layout for the org chart UI.
+	ChartPositions ChartPositions
 	// DomainEvents is the append-only decision/audit log (e.g. Slack
 	// thread participation). Typed port defined beside its aggregate,
 	// like Activations.

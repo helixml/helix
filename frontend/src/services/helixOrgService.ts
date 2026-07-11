@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -80,6 +81,7 @@ export const QUERY_KEYS = {
   botSubs: (orgID: string, botID: string) => ['helix-org', orgID, 'bots', botID, 'subscriptions'] as const,
   processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
   processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
+  chartPositions: (orgID: string) => ['helix-org', orgID, 'chart-positions'] as const,
 }
 
 // ---- Processors ---------------------------------------------------------
@@ -946,6 +948,92 @@ export function useDeleteHelixOrgProcessor() {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.processors(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+// ---- Chart positions (free-placed canvas layout) ------------------------
+// Nodes without a saved position fall back to the chart's auto-layout
+// (dagre for bots, topic columns, processor strip). The OpenAPI client
+// is not regenerated for this yet — raw axios via useApi matches the
+// providers pattern until `./stack update_openapi` picks up the swagger
+// annotations on chart_positions.go.
+
+export type ChartNodeKind = 'bot' | 'topic' | 'processor'
+
+export interface ChartPositionDTO {
+  kind: ChartNodeKind | string
+  id: string
+  x: number
+  y: number
+}
+
+export interface ChartPositionsResponse {
+  positions: ChartPositionDTO[]
+}
+
+/** Map key is `${kind}:${id}` → {x,y}. */
+export type ChartPositionMap = Record<string, { x: number; y: number }>
+
+export function chartPositionKey(kind: string, id: string): string {
+  return `${kind}:${id}`
+}
+
+export function useListChartPositions(options?: { enabled?: boolean }) {
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.chartPositions(orgID),
+    queryFn: async (): Promise<ChartPositionMap> => {
+      // axios directly so 4xx/5xx throw into react-query (useApi.get
+      // swallows errors and returns null).
+      const res = await axios.get<ChartPositionsResponse>(`${base}/chart/positions`, {
+        withCredentials: true,
+      })
+      const map: ChartPositionMap = {}
+      for (const p of res.data?.positions ?? []) {
+        if (!p.kind || !p.id) continue
+        map[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+      }
+      return map
+    },
+    enabled: !!orgID && !!base && (options?.enabled ?? true),
+  })
+}
+
+export function useUpsertChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (positions: ChartPositionDTO[]) => {
+      // Optimistically merge so the node stays put even if the
+      // response is slow / the graph rebuilds mid-flight.
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), (prev) => {
+        const next: ChartPositionMap = { ...(prev ?? {}) }
+        for (const p of positions) {
+          if (!p.kind || !p.id) continue
+          next[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+        }
+        return next
+      })
+      const res = await axios.put<ChartPositionsResponse>(
+        `${base}/chart/positions`,
+        { positions },
+        { withCredentials: true },
+      )
+      return res.data
+    },
+  })
+}
+
+export function useClearChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async () => {
+      await axios.delete(`${base}/chart/positions`, { withCredentials: true })
+    },
+    onSuccess: () => {
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), {})
     },
   })
 }

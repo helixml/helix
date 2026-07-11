@@ -48,8 +48,78 @@ func New() *store.Store {
 		Configs:         &configsRepo{rows: map[orgKey]config.Config{}},
 		Activations:     &activationsRepo{rows: map[orgKey]*activation.Activation{}},
 		Processors:      &processorsRepo{rows: map[orgKey]processor.Processor{}},
+		ChartPositions:  &chartPositionsRepo{rows: map[chartPosKey]orgchart.ChartPosition{}},
 		DomainEvents:    &domainEventsRepo{},
 	}
+}
+
+// ---- ChartPositions -----------------------------------------------------
+
+type chartPosKey struct {
+	orgID string
+	kind  string
+	id    string
+}
+
+type chartPositionsRepo struct {
+	mu   sync.RWMutex
+	rows map[chartPosKey]orgchart.ChartPosition
+}
+
+func (r *chartPositionsRepo) List(_ context.Context, orgID string) ([]orgchart.ChartPosition, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]orgchart.ChartPosition, 0)
+	for k, p := range r.rows {
+		if k.orgID == orgID {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (r *chartPositionsRepo) Upsert(_ context.Context, pos orgchart.ChartPosition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rows[chartPosKey{orgID: pos.OrganizationID, kind: pos.Kind, id: pos.ID}] = pos
+	return nil
+}
+
+func (r *chartPositionsRepo) UpsertMany(ctx context.Context, positions []orgchart.ChartPosition) error {
+	for _, p := range positions {
+		if err := r.Upsert(ctx, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *chartPositionsRepo) Delete(_ context.Context, orgID, kind, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := chartPosKey{orgID: orgID, kind: kind, id: id}
+	if _, ok := r.rows[k]; !ok {
+		return fmt.Errorf("chart_position: %w", store.ErrNotFound)
+	}
+	delete(r.rows, k)
+	return nil
+}
+
+func (r *chartPositionsRepo) Clear(_ context.Context, orgID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k := range r.rows {
+		if k.orgID == orgID {
+			delete(r.rows, k)
+		}
+	}
+	return nil
 }
 
 // ---- DomainEvents -------------------------------------------------------

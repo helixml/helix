@@ -18,6 +18,7 @@ import (
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
@@ -822,6 +823,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
+		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
 		BotRuntime:    orgWorkerRuntime{st: st},
 		// BotSessionResetter tears the worker's current session fully down
 		// (stop desktop → delete session → clear pointer) so the bot-page
