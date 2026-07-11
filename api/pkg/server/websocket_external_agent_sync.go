@@ -2681,8 +2681,24 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("helix_session_id", helixSessionID).
 			Str("request_id", messageRequestID).
 			Msg("⚠️ [HELIX] No matching interaction found for message_completed — skipping")
+		// Still unblock any waiter registered under this request_id so the
+		// HTTP path cannot hang until the 180s timeout.
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
 		return nil
 	}
+
+	// Always unblock waitForExternalAgentResponse for this turn, even on early
+	// returns below (already-complete, interrupted, empty-response bounce).
+	// Missing this signal is what left the /sessions/chat waiter blocked for
+	// 180s after a successful stream and then clobbered the reply.
+	// Signal under both the event's request_id and the interaction id — they
+	// are usually the same after the fix, but may differ for in-flight turns.
+	defer func() {
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
+		if targetInteractionID != "" && targetInteractionID != messageRequestID {
+			apiServer.signalExternalAgentResponseDone(helixSessionID, targetInteractionID)
+		}
+	}()
 
 	// Now that we have the target, flush the streaming context to DB.
 	// This ensures the latest streamed content is persisted before we reload.
@@ -3022,22 +3038,8 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
-	// Signal the waiting HTTP handler that this interaction is complete.
-	// This is needed for non-streaming (blocking) requests that call waitForExternalAgentResponse.
-	// In the normal case, chat_response_done sends the signal. But for Stopped/cancelled turns,
-	// Zed sends message_completed without chat_response_done, so we must signal here.
-	// The doneChan is buffered(1) so a double-send (normal case) is harmless.
-	if messageRequestID != "" {
-		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, messageRequestID)
-		if exists {
-			select {
-			case doneChan <- true:
-				log.Debug().Str("request_id", messageRequestID).Msg("✅ [HELIX] Sent done signal from message_completed")
-			default:
-				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
-			}
-		}
-	}
+	// doneChan is signaled via the defer above (covers this success path and
+	// every early return after targetInteractionID is resolved).
 
 	// Process next non-interrupt prompt from queue (if any)
 	go apiServer.processPromptQueue(context.Background(), helixSessionID)

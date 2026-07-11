@@ -10,10 +10,9 @@ import Typography from '@mui/material/Typography'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import SaveIcon from '@mui/icons-material/Save'
 
-import Page from '../components/system/Page'
-import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
-import useAccount from '../hooks/useAccount'
+import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import { useHelixOrgBot, useUpdateBot } from '../services/helixOrgService'
@@ -32,10 +31,9 @@ const CHANNELS: { key: string; label: string; placeholder: string }[] = [
 // surfaces — a human never runs.
 const HelixOrgHumanDetail: FC = () => {
   const router = useRouter()
-  const account = useAccount()
   const snackbar = useSnackbar()
   const botId = router.params.bot_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Chart', routeName: 'helix_org_chart' })
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Bots', routeName: 'helix_org_bots' })
   const { data, isLoading } = useHelixOrgBot(botId)
   const bot = data?.bot
   const updateBot = useUpdateBot()
@@ -76,15 +74,17 @@ const HelixOrgHumanDetail: FC = () => {
     }
   }
 
+  const leafTitle = bot?.name || botId || 'Person'
+
   return (
-    <Page
-      breadcrumbTitle={bot?.name || botId || 'Person'}
+    <HelixOrgShell
       breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
+      breadcrumbTitle={leafTitle}
+      topbarActions={(
         <Button
           variant="contained"
           color="secondary"
+          size="small"
           startIcon={<SaveIcon />}
           disabled={!dirty || updateBot.isPending}
           onClick={handleSave}
@@ -93,6 +93,7 @@ const HelixOrgHumanDetail: FC = () => {
         </Button>
       )}
     >
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
         {isLoading || !bot ? (
           <LoadingSpinner />
@@ -146,7 +147,8 @@ const HelixOrgHumanDetail: FC = () => {
           </Stack>
         )}
       </Container>
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

@@ -27,13 +27,12 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
-import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
@@ -86,11 +85,10 @@ export const topicRowId = (topicId: string) => `topic-row-${topicId}`
 const HIGHLIGHT_DURATION_MS = 2400
 
 const HelixOrgTopics: FC = () => {
-  const account = useAccount()
   const router = useRouter()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useListHelixOrgTopics()
   const deleteTopic = useDeleteHelixOrgTopic()
@@ -200,32 +198,29 @@ const HelixOrgTopics: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle="Topics"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-      topbarContent={(
-        <Button
-          variant="contained"
-          color="secondary"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateOpen(true)}
-        >
-          New Topic
-        </Button>
-      )}
-    >
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Topics">
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Topics</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Named event channels Workers can subscribe to. Each topic carries a Transport (local
-              pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
-              the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
-              edges as dashed lines.
-            </Typography>
-          </Box>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Named event channels Workers can subscribe to. Each topic carries a Transport (local
+                pub/sub, GitHub webhooks, Postmark inbound email, plain webhooks). Workers subscribe via
+                the <code>subscribe</code> MCP tool; the chart shows the resulting (worker → topic)
+                edges as dashed lines.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateOpen(true)}
+              sx={{ flexShrink: 0, mt: 0.5 }}
+            >
+              New topic
+            </Button>
+          </Stack>
 
           {isLoading ? (
             <LoadingSpinner />
@@ -241,7 +236,7 @@ const HelixOrgTopics: FC = () => {
                 onClick={() => setCreateOpen(true)}
                 sx={{ mt: 1 }}
               >
-                Create your first topic
+                New topic
               </Button>
             </Box>
           ) : (
@@ -290,7 +285,8 @@ const HelixOrgTopics: FC = () => {
       )}
 
       <NewTopicDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

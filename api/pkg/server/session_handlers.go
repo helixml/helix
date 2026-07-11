@@ -712,21 +712,34 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 	}
 
-	// Notify external agents ONLY of NEW interactions (not replaying history)
-	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
-		interaction := session.Interactions[i]
-		// DIAGNOSTIC: Log when we're about to call NotifyExternalAgentOfNewInteraction
-		log.Warn().
+	// Notify external agents ONLY of NEW interactions (not replaying history).
+	//
+	// For zed_external sessions, /sessions/chat routes the prompt through
+	// handleStreamingSession → RunExternalAgent, which is the sole chat_message
+	// sender. Calling Notify here as well double-sends the same prompt under
+	// two request_ids (int_… vs req_…), so the waiter never sees done and the
+	// 180s timeout clobbers the finished reply. Fire-and-forget paths
+	// (POST /sessions/{id}/messages, queue drain) still use Notify alone.
+	if session.Metadata.AgentType == "zed_external" {
+		log.Info().
 			Str("session_id", session.ID).
-			Str("interaction_id", interaction.ID).
-			Str("agent_type", agentType).
-			Int("interaction_index", i).
-			Msg("🟠 [DIAG] About to call NotifyExternalAgentOfNewInteraction")
-		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
-			log.Warn().Err(err).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("skipping NotifyExternalAgentOfNewInteraction; RunExternalAgent will send chat_message")
+	} else {
+		for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
+			interaction := session.Interactions[i]
+			log.Debug().
 				Str("session_id", session.ID).
 				Str("interaction_id", interaction.ID).
-				Msg("Failed to notify external agent of new interaction")
+				Str("agent_type", agentType).
+				Int("interaction_index", i).
+				Msg("NotifyExternalAgentOfNewInteraction")
+			if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
+				log.Warn().Err(err).
+					Str("session_id", session.ID).
+					Str("interaction_id", interaction.ID).
+					Msg("Failed to notify external agent of new interaction")
+			}
 		}
 	}
 
@@ -1739,6 +1752,31 @@ func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
 			delete(doneChannels, sessionID)
 			delete(errorChannels, sessionID)
 		}
+	}
+}
+
+// signalExternalAgentResponseDone unblocks waitForExternalAgentResponse for the
+// given request. Safe to call when no channel is registered (no-op) and when
+// done was already signaled (buffered channel / default branch).
+func (s *HelixAPIServer) signalExternalAgentResponseDone(sessionID, requestID string) {
+	if sessionID == "" || requestID == "" {
+		return
+	}
+	_, doneChan, _, exists := s.getResponseChannel(sessionID, requestID)
+	if !exists || doneChan == nil {
+		return
+	}
+	select {
+	case doneChan <- true:
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("sent done signal to external agent waiter")
+	default:
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("done channel already full (waiter already signaled)")
 	}
 }
 

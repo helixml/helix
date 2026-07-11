@@ -1,4 +1,4 @@
-import { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { FC, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -7,15 +7,22 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonAddOutlinedIcon from '@mui/icons-material/PersonAddOutlined'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import StopIcon from '@mui/icons-material/Stop'
 import TransformIcon from '@mui/icons-material/Transform'
 
 import dagre from 'dagre'
@@ -26,34 +33,48 @@ import {
   Edge,
   EdgeLabelRenderer,
   EdgeProps,
-  getStraightPath,
+  ConnectionLineType,
+  getBezierPath,
   Handle,
-  MiniMap,
+  MarkerType,
   Node,
   NodeProps,
   ConnectionMode,
   Position as RFPosition,
   ReactFlow,
   ReactFlowProvider,
+  Viewport,
   useEdgesState,
   useNodesState,
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import {
+  loadChartViewport,
+  saveChartViewport,
+} from '../components/helix-org/chartViewportStorage'
+import { focusChatBot } from '../components/helix-org/chatBotFocus'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
-import ProcessorNode, { ProcessorNodeData, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import {
   BotDTO,
+  ChartPositionMap,
+  chartPositionKey,
   ProcessorDTO,
+  useActivateBot,
+  useClearChartPositions,
   useDeleteBot,
   useDeleteHelixOrgTopic,
+  useListChartPositions,
   useListHelixOrgBots,
   useListHelixOrgTopics,
   useTopicMessageCounts,
@@ -62,30 +83,36 @@ import {
   useUpdateHelixOrgProcessor,
   useAddBotParent,
   useRemoveBotParent,
+  useRestartBotAgent,
+  useStopBotAgent,
   useSubscribeBotAtChart,
   useUnsubscribeBotAtChart,
+  useUpsertChartPositions,
 } from '../services/helixOrgService'
 
 // The chart visualises the org as a ReactFlow graph. Bots are plain
 // nodes wired by reporting edges:
 //
-//   [b-owner]
-//      │ (bot-to-bot reporting edge, from a reporting line)
-//      ↓
-//   [b-alice]  [b-bob]  [b-carol]
+//   [b-alice] ──reports to──▶ [b-owner]
+//   [b-bob]   ──reports to──▶ [b-owner]
 //
-// Reporting is a many-to-many relation: each (manager → report) reporting
-// line becomes a Bot → Bot edge (a Bot may have several incoming edges).
+// Reporting is many-to-many: each (subordinate → manager) "reports to"
+// line is a closest-side Bot → Bot edge with an arrow at the manager.
 // Topics hang off the right of the tree; an edge from a Bot to a Topic is
 // a subscription.
 //
 // Layout: dagre runs over the bot graph (edges = reporting lines) to get
-// global (x, y) for each Bot node.
+// global (x, y) for each Bot node. Saved free-placed coordinates from
+// GET /chart/positions override auto-layout per node; nodes without a
+// saved row stay on the auto-layout position. Camera (pan/zoom) is
+// personal — localStorage keyed by user id + org id, not shared.
 
 const BOT_W = 220
 const BOT_H = 96
 const BOT_GAP_X = 32
 const BOT_GAP_Y = 90
+const STREAM_W = 180
+const STREAM_H = 80
 
 // ---- Flatten -----------------------------------------------------------
 
@@ -95,6 +122,8 @@ type FlatBot = {
   name: string
   // Reporting is many-to-many: a Bot may report to several managers.
   parentIds: string[]
+  // Desktop sandbox online-ness for the presence dot.
+  agentStatus: 'running' | 'stopped'
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -102,9 +131,17 @@ type FlatBot = {
 type BotNodeData = {
   botId: string
   botName: string
+  // running = desktop sandbox online; stopped (or missing) = offline.
+  agentStatus: 'running' | 'stopped'
+  /** Card body click — focus the left chat rail on this bot. */
   onSelectBot: (botId: string) => void
+  /** ⋮ → Details — open the bot detail page. */
+  onOpenBotDetails: (botId: string) => void
   onNewBot: (parentBotId: string) => void
   onDeleteBot: (botId: string) => void
+  onStartBot: (botId: string) => void
+  onStopBot: (botId: string) => void
+  onRestartBot: (botId: string) => void
 }
 
 // TopicNodeData drives the small pseudo-nodes the chart renders for each
@@ -131,6 +168,122 @@ type TopicNodeData = {
 // and form inputs inside custom nodes work correctly.
 const NO_DRAG_NO_PAN = 'nodrag nopan'
 
+// ---- Closest-side geometry ---------------------------------------------
+// Subscription (and similar free-form) edges should attach to whichever
+// sides of the two cards are nearest, not a fixed right→left pair. The
+// edge renderer recomputes this every frame from live node positions so
+// it stays correct while cards are dragged.
+
+type CardSide = 'left' | 'right' | 'top' | 'bottom'
+type CardRect = { x: number; y: number; w: number; h: number }
+
+const CARD_SIDES: CardSide[] = ['left', 'right', 'top', 'bottom']
+
+const sideMidpoint = (r: CardRect, side: CardSide): { x: number; y: number } => {
+  switch (side) {
+    case 'left': return { x: r.x, y: r.y + r.h / 2 }
+    case 'right': return { x: r.x + r.w, y: r.y + r.h / 2 }
+    case 'top': return { x: r.x + r.w / 2, y: r.y }
+    case 'bottom': return { x: r.x + r.w / 2, y: r.y + r.h }
+  }
+}
+
+// Point just outside a card side. Used so arrowheads sit in the gap
+// between nodes (nodes paint above edges and would otherwise clip them).
+const sideOutward = (r: CardRect, side: CardSide, dist: number): { x: number; y: number } => {
+  const p = sideMidpoint(r, side)
+  switch (side) {
+    case 'left': return { x: p.x - dist, y: p.y }
+    case 'right': return { x: p.x + dist, y: p.y }
+    case 'top': return { x: p.x, y: p.y - dist }
+    case 'bottom': return { x: p.x, y: p.y + dist }
+  }
+}
+
+// How far outside the target card to park the path end when an arrow
+// marker is drawn — keeps the full head visible above the node z-order.
+const ARROW_CLEARANCE_PX = 12
+
+// Pick the (fromSide, toSide) pair whose midpoints are closest.
+const closestSidePair = (a: CardRect, b: CardRect): { from: CardSide; to: CardSide } => {
+  let bestFrom: CardSide = 'right'
+  let bestTo: CardSide = 'left'
+  let bestD = Infinity
+  for (const from of CARD_SIDES) {
+    const p1 = sideMidpoint(a, from)
+    for (const to of CARD_SIDES) {
+      const p2 = sideMidpoint(b, to)
+      const dx = p1.x - p2.x
+      const dy = p1.y - p2.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) {
+        bestD = d
+        bestFrom = from
+        bestTo = to
+      }
+    }
+  }
+  return { from: bestFrom, to: bestTo }
+}
+
+// Map a card side to the RF Position so bezier control points leave /
+// enter perpendicular to that edge (rounder, more natural curves).
+const sideToPosition = (side: CardSide): RFPosition => {
+  switch (side) {
+    case 'left': return RFPosition.Left
+    case 'right': return RFPosition.Right
+    case 'top': return RFPosition.Top
+    case 'bottom': return RFPosition.Bottom
+  }
+}
+
+const nodeCardRect = (n: Node, fallbackW: number, fallbackH: number): CardRect => {
+  const w = (n.measured?.width ?? n.width ?? fallbackW) as number
+  const h = (n.measured?.height ?? n.height ?? fallbackH) as number
+  return { x: n.position.x, y: n.position.y, w, h }
+}
+
+const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
+  if (n.type === 'topic') return { w: STREAM_W, h: STREAM_H }
+  if (n.type === 'processor') {
+    const outs = (n.data as ProcessorNodeData | undefined)?.outputs?.length ?? 1
+    return { w: PROC_W, h: procNodeHeight(outs) }
+  }
+  return { w: BOT_W, h: BOT_H }
+}
+
+// Orange handles on all four sides so the user can drag a subscription
+// wire from/to any side. Outward (source) + inward (target) share a side
+// so ConnectionMode.Loose can start and end a connection on either end.
+// Reporting lines keep the default (id-less) top target / bottom source.
+const SubSideHandles: FC<{ color: string; size?: number }> = ({ color, size = 12 }) => (
+  <Fragment>
+    {([
+      [RFPosition.Left, 'left'],
+      [RFPosition.Right, 'right'],
+      [RFPosition.Top, 'top'],
+      [RFPosition.Bottom, 'bottom'],
+    ] as const).map(([pos, side]) => (
+      <Fragment key={side}>
+        <Handle
+          id={`sub-${side}`}
+          type="source"
+          position={pos}
+          isConnectable
+          style={{ background: color, border: 'none', width: size, height: size, zIndex: 5 }}
+        />
+        <Handle
+          id={`sub-${side}-in`}
+          type="target"
+          position={pos}
+          isConnectable
+          style={{ background: color, border: 'none', opacity: 0, width: size + 4, height: size + 4, zIndex: 4 }}
+        />
+      </Fragment>
+    ))}
+  </Fragment>
+)
+
 const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
@@ -138,10 +291,17 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const bg = lightTheme.isLight ? '#fff' : 'rgba(255,255,255,0.05)'
   const hoverBg = lightTheme.isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.08)'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+  const subColor = 'rgba(180,100,0,0.85)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+
+  const online = data.agentStatus === 'running'
+  const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
+  const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
+
+  const closeMenu = () => setMenuEl(null)
 
   return (
     <Box
-      className={NO_DRAG_NO_PAN}
       onClick={(e) => { e.stopPropagation(); data.onSelectBot(data.botId) }}
       sx={{
         width: BOT_W,
@@ -154,21 +314,23 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        cursor: 'pointer',
+        cursor: 'grab',
+        position: 'relative',
         '&:hover': { backgroundColor: hoverBg },
+        '&:active': { cursor: 'grabbing' },
       }}
     >
-      {/* Target handle = where a manager's edge LANDS, marking this bot as
-          the subordinate. Source handle = where the user drags FROM when
-          this bot becomes the manager. */}
+      {/* Reporting: top = land as subordinate, bottom = drag as manager.
+          Subscriptions use the orange sub-* handles on all four sides. */}
       <Handle
         type="target"
         position={RFPosition.Top}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted }} />
+      <SubSideHandles color={subColor} size={14} />
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
+          <SmartToyOutlinedIcon sx={{ fontSize: 18, color: muted, flexShrink: 0 }} />
           <Typography
             variant="body2"
             sx={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -176,27 +338,108 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
             {data.botName || data.botId}
           </Typography>
         </Stack>
-        <Stack direction="row" spacing={0.25}>
-          <Tooltip title="New bot reporting to this one">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onNewBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
-            >
-              <PersonAddOutlinedIcon sx={{ fontSize: 16 }} />
-            </IconButton>
+        {/* Top-right: status dot + ⋮ menu (same pattern as table/card lists). */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          className={NO_DRAG_NO_PAN}
+          sx={{ flexShrink: 0, mt: -0.25, mr: -0.5 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Tooltip title={statusLabel}>
+            <Box
+              sx={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                backgroundColor: statusColor,
+                boxShadow: online ? `0 0 0 2px ${lightTheme.isLight ? 'rgba(46,160,67,0.2)' : 'rgba(46,160,67,0.35)'}` : 'none',
+                flexShrink: 0,
+              }}
+            />
           </Tooltip>
-          <Tooltip title="Delete bot">
-            <IconButton
-              className={NO_DRAG_NO_PAN}
-              size="small"
-              onClick={(e) => { e.stopPropagation(); data.onDeleteBot(data.botId) }}
-              sx={{ p: 0.25, color: muted }}
+          <IconButton
+            className={NO_DRAG_NO_PAN}
+            size="small"
+            aria-label="Bot actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
+          >
+            <MoreVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onOpenBotDetails(data.botId)
+              }}
             >
-              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
+              <OpenInNewIcon sx={{ mr: 1, fontSize: 20 }} />
+              Details
+            </MenuItem>
+            {online ? (
+              <>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onStopBot(data.botId)
+                  }}
+                >
+                  <StopIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Stop agent
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    closeMenu()
+                    data.onRestartBot(data.botId)
+                  }}
+                >
+                  <RestartAltIcon sx={{ mr: 1, fontSize: 20 }} />
+                  Restart agent
+                </MenuItem>
+              </>
+            ) : (
+              <MenuItem
+                onClick={() => {
+                  closeMenu()
+                  data.onStartBot(data.botId)
+                }}
+              >
+                <PlayArrowIcon sx={{ mr: 1, fontSize: 20 }} />
+                Start agent
+              </MenuItem>
+            )}
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onNewBot(data.botId)
+              }}
+            >
+              <PersonAddOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
+              New bot reporting here
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteBot(data.botId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete bot
+            </MenuItem>
+          </Menu>
         </Stack>
       </Stack>
       <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
@@ -207,19 +450,6 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
         position={RFPosition.Bottom}
         style={{ background: handleColor, width: 12, height: 12 }}
       />
-      {/* Dedicated source handle for topic/subscription edges, anchored on
-          the right side of the card. Decoupling topic edges from the
-          bottom-center reporting handle means a subscription edge and a
-          manager → subordinate edge can never share the same geometry.
-          id="topic" is what buildGraph passes as sourceHandle when
-          emitting subscription edges. */}
-      <Handle
-        id="topic"
-        type="source"
-        position={RFPosition.Right}
-        isConnectable
-        style={{ background: 'rgba(180,100,0,0.85)', border: 'none', width: 14, height: 14, zIndex: 5 }}
-      />
     </Box>
   )
 }
@@ -228,14 +458,13 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
 // beside the org tree to anchor subscription edges. Clicking the body
 // navigates to the per-topic detail page; the trash icon deletes the
 // Topic row (irreversible).
-const STREAM_W = 180
-const STREAM_H = 80
 const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const accent = lightTheme.isLight ? 'rgba(180,100,0,0.85)' : 'rgba(255,180,80,0.85)'
   const bg = 'rgba(255,180,80,0.06)'
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const handleColor = lightTheme.isLight ? 'rgba(180,100,0,0.55)' : 'rgba(255,180,80,0.55)'
+  const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
+  const closeMenu = () => setMenuEl(null)
   return (
     <Box
       onClick={(e) => { e.stopPropagation(); data.onSelectTopic(data.topicId) }}
@@ -249,15 +478,17 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: 0.25,
-        cursor: 'pointer',
+        cursor: 'grab',
         position: 'relative',
         '&:hover': { backgroundColor: 'rgba(255,180,80,0.12)' },
+        '&:active': { cursor: 'grabbing' },
       }}
     >
-      <Handle type="target" position={RFPosition.Left} style={{ background: handleColor, width: 8, height: 8 }} />
-      {/* Source handle on the right — drag from a Topic into a Processor's
-          IN port to make that Processor read this Topic. */}
-      <Handle id="src" type="source" position={RFPosition.Right} isConnectable style={{ background: accent, width: 10, height: 10 }} />
+      {/* All four sides: drag to/from a bot to subscribe, or to a
+          processor IN port (right side also carries id "src" for the
+          legacy processor-wiring path). */}
+      <SubSideHandles color={accent} size={10} />
+      <Handle id="src" type="source" position={RFPosition.Right} isConnectable style={{ background: accent, width: 10, height: 10, zIndex: 6 }} />
       {data.ownedByProcessor ? (
         <Tooltip title={`Output of processor ${data.ownedByProcessor} — delete the processor to remove this topic`}>
           <Box sx={{ position: 'absolute', top: 2, right: 4, fontSize: '0.6rem', color: muted, fontFamily: 'monospace' }}>
@@ -265,18 +496,45 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           </Box>
         </Tooltip>
       ) : (
-        <Tooltip title="Delete topic">
+        <Box
+          className={NO_DRAG_NO_PAN}
+          sx={{ position: 'absolute', top: 0, right: 0, zIndex: 2 }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <IconButton
             className={NO_DRAG_NO_PAN}
             size="small"
-            onClick={(e) => { e.stopPropagation(); data.onDeleteTopic(data.topicId) }}
-            sx={{ position: 'absolute', top: 2, right: 2, p: 0.25, color: muted }}
+            aria-label="Topic actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuEl(e.currentTarget)
+            }}
+            sx={{ p: 0.25, color: muted }}
           >
-            <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+            <MoreVertIcon sx={{ fontSize: 14 }} />
           </IconButton>
-        </Tooltip>
+          <Menu
+            className={NO_DRAG_NO_PAN}
+            anchorEl={menuEl}
+            open={Boolean(menuEl)}
+            onClose={closeMenu}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                closeMenu()
+                data.onDeleteTopic(data.topicId)
+              }}
+            >
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
+              Delete topic
+            </MenuItem>
+          </Menu>
+        </Box>
       )}
-      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2 }}>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: muted, pr: 2.5 }}>
         {data.topicId}
       </Typography>
       <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -373,8 +631,12 @@ const buildGraph = (
   flat: FlatBot[],
   handlers: {
     onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
     onSelectProcessor: (processorId: string) => void
@@ -384,7 +646,12 @@ const buildGraph = (
   topics: TopicSummary[],
   messageCounts: Record<string, number>,
   processors: ProcessorSummary[],
+  // Saved free-placed coordinates keyed by `${kind}:${id}`. Missing
+  // entries keep the auto-layout position for that node.
+  savedPositions: ChartPositionMap = {},
 ): { nodes: Node[]; edges: Edge[] } => {
+  const place = (kind: string, id: string, auto: { x: number; y: number }) =>
+    savedPositions[chartPositionKey(kind, id)] ?? auto
   const flatByID = new Map<string, FlatBot>()
   for (const b of flat) flatByID.set(b.id, b)
 
@@ -415,47 +682,70 @@ const buildGraph = (
   dagre.layout(g)
 
   // 2. Emit bot nodes.
+  // botAutoAbs = pure dagre coords (used to auto-place topics so free-
+  // placing a bot does NOT reflow unpinned yellow topic cards).
+  // botAbs = rendered coords (saved override or auto) for bounds / edges.
   const nodes: Node[] = []
   const botAbs = new Map<string, { x: number; y: number }>()
+  const botAutoAbs = new Map<string, { x: number; y: number }>()
   for (const b of flat) {
     const ln = g.node(`bot:${b.id}`)
     if (!ln) continue
-    const x = ln.x - BOT_W / 2
-    const y = ln.y - BOT_H / 2
-    botAbs.set(b.id, { x, y })
+    const auto = { x: ln.x - BOT_W / 2, y: ln.y - BOT_H / 2 }
+    botAutoAbs.set(b.id, auto)
+    const pos = place('bot', b.id, auto)
+    botAbs.set(b.id, pos)
     nodes.push({
       id: `bot:${b.id}`,
       type: 'bot',
-      position: { x, y },
+      position: pos,
       data: {
         botId: b.id,
         botName: b.name,
+        agentStatus: b.agentStatus,
         onSelectBot: handlers.onSelectBot,
+        onOpenBotDetails: handlers.onOpenBotDetails,
         onNewBot: handlers.onNewBot,
         onDeleteBot: handlers.onDeleteBot,
+        onStartBot: handlers.onStartBot,
+        onStopBot: handlers.onStopBot,
+        onRestartBot: handlers.onRestartBot,
       } as BotNodeData,
-      draggable: false,
+      draggable: true,
       connectable: true,
     })
   }
 
-  // 3. Reporting edges: manager → subordinate, one per reporting line (a
-  //    Bot may report to several). Bezier (the default) gives every pair
-  //    its own arc so multiple reports from one manager never overlap.
+  // 3. Reporting edges: subordinate → manager ("reports to"), one per
+  //    reporting line. Closest-side bezier so free-placed cards attach
+  //    from the nearest sides; arrow points at the manager.
   const edges: Edge[] = []
+  const reportStroke = isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.4)'
   for (const b of flat) {
     for (const parentId of b.parentIds) {
       if (!parentId || !flatByID.has(parentId)) continue
       edges.push({
         id: `report:${parentId}->${b.id}`,
-        source: `bot:${parentId}`,
-        target: `bot:${b.id}`,
-        type: 'deletable',
+        // Source = who reports, target = who they report to (arrow end).
+        source: `bot:${b.id}`,
+        target: `bot:${parentId}`,
+        type: 'closest',
         animated: false,
-        data: { kind: 'report', childBotId: b.id, parentBotId: parentId },
+        data: {
+          kind: 'report',
+          childBotId: b.id,
+          parentBotId: parentId,
+          label: 'reports to',
+        },
         style: {
-          stroke: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.35)',
+          stroke: reportStroke,
           strokeWidth: 1.5,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 24,
+          height: 24,
+          color: reportStroke,
         },
       })
     }
@@ -484,9 +774,12 @@ const buildGraph = (
     if (o.topicId) branchOwner.set(o.topicId, p.id)
   }
 
+  // Bounds for the topic-column auto-layout use *dagre* bot positions,
+  // not free-placed ones — otherwise dragging a bot would slide every
+  // still-auto-laid topic by the same delta (the bug users hit).
   let maxRight = -Infinity
   let minTop = Infinity, maxBottom = -Infinity, minLeft = Infinity
-  for (const pos of botAbs.values()) {
+  for (const pos of botAutoAbs.values()) {
     if (pos.x + BOT_W > maxRight) maxRight = pos.x + BOT_W
     if (pos.x < minLeft) minLeft = pos.x
     if (pos.y < minTop) minTop = pos.y
@@ -512,14 +805,16 @@ const buildGraph = (
       } else if (s.created_by) {
         subjectBot = s.created_by
       }
-      const onChart = subjectBot && botAbs.has(subjectBot) ? subjectBot : null
+      const onChart = subjectBot && botAutoAbs.has(subjectBot) ? subjectBot : null
       resolved.push({ topic: s, subjectBot: onChart })
     }
 
-    // Anchored topics: lay them out beside their subject Bot.
+    // Anchored topics: auto-layout beside the *dagre* y of the subject
+    // bot (not its free-placed y). Free-placing a bot must not reflow
+    // unpinned topics.
     const anchored = resolved.filter((r) => r.subjectBot)
     const placed = layoutTopicColumns(
-      anchored.map((r) => ({ topic: r.topic, anchorY: botAbs.get(r.subjectBot!)!.y })),
+      anchored.map((r) => ({ topic: r.topic, anchorY: botAutoAbs.get(r.subjectBot!)!.y })),
       { columnX: maxRight + STREAM_COLUMN_GAP, columnGap: STREAM_COLUMN_GAP, top: minTop, bottom: maxBottom },
     )
     const topicPos = new Map<string, { x: number; y: number }>()
@@ -542,12 +837,15 @@ const buildGraph = (
     }
 
     for (const { topic: s } of resolved) {
-      const pos = topicPos.get(s.id)!
-      const { x, y } = pos
+      const auto = topicPos.get(s.id)!
+      const pos = place('topic', s.id, auto)
+      // Keep topicPosById (used for processor placement) in sync with
+      // the rendered position when a topic has been free-placed.
+      topicPos.set(s.id, pos)
       nodes.push({
         id: `topic:${s.id}`,
         type: 'topic',
-        position: { x, y },
+        position: pos,
         data: {
           topicId: s.id,
           name: s.name,
@@ -558,18 +856,20 @@ const buildGraph = (
           onSelectTopic: handlers.onSelectTopic,
           onDeleteTopic: handlers.onDeleteTopic,
         } as TopicNodeData,
-        draggable: false,
+        draggable: true,
         connectable: true,
         selectable: true,
       })
       const subscribingBots = (s.subscribers ?? []).filter((bid) => botAbs.has(bid))
       for (const bid of subscribingBots) {
+        // type 'closest' draws between the nearest sides of the two
+        // cards; handles are omitted so the edge path is free of the
+        // fixed right→left bias.
         edges.push({
           id: `sub:${bid}->${s.id}`,
           source: `bot:${bid}`,
-          sourceHandle: 'topic',
           target: `topic:${s.id}`,
-          type: 'deletable',
+          type: 'closest',
           animated: false,
           data: { kind: 'sub', botId: bid, topicId: s.id },
           style: {
@@ -625,11 +925,21 @@ const buildGraph = (
     for (const p of processors) {
       const inPos = p.inputTopicId ? topicPosById.get(p.inputTopicId) : undefined
       const h = procNodeHeight(p.outputs.length)
-      const py = placeY(inPos ? inPos.y : minTop, h)
+      const saved = savedPositions[chartPositionKey('processor', p.id)]
+      let pos: { x: number; y: number }
+      if (saved) {
+        // Free-placed: keep the saved coords as-is. Reserve the vertical
+        // band without clash-shifting (placeY would move a free-placed
+        // node if a sibling already occupied that y).
+        pos = saved
+        used.push({ y: saved.y, h })
+      } else {
+        pos = { x: PROC_COL_X, y: placeY(inPos ? inPos.y : minTop, h) }
+      }
       nodes.push({
         id: `processor:${p.id}`,
         type: 'processor',
-        position: { x: PROC_COL_X, y: py },
+        position: pos,
         data: {
           processorId: p.id,
           name: p.name,
@@ -639,7 +949,7 @@ const buildGraph = (
           onDeleteProcessor: handlers.onDeleteProcessor,
           onInspectBranch: handlers.onSelectTopic,
         } as ProcessorNodeData,
-        draggable: false,
+        draggable: true,
         connectable: true,
         selectable: true,
       })
@@ -680,8 +990,9 @@ const buildGraph = (
             source: `processor:${p.id}`,
             sourceHandle: o.topicId,
             target: `bot:${bid}`,
-            targetHandle: 'topic',
-            type: 'deletable',
+            // Closest-side path between branch and bot; sourceHandle still
+            // names the branch port so the edge leaves the right port.
+            type: 'closest',
             data: { kind: 'proc_out', processorId: p.id, topicId: o.topicId, botId: bid },
             style: { stroke: procStroke, strokeWidth: 1.25, strokeDasharray: '6 4' },
           })
@@ -717,38 +1028,143 @@ const ConfirmDeleteDialog: FC<{
   </Dialog>
 )
 
-// ---- Custom edge: deletable on hover -----------------------------------
+// ---- Custom edges ------------------------------------------------------
 //
-// Wraps the default straight edge with a hover affordance: a small ×
-// button appears at the edge midpoint while the pointer is over the edge
-// (or the button), and clicking it routes through ReactFlow's
-// deleteElements API so the existing onEdgesDelete dispatch fires
-// unchanged. A transparent wider stroke overlay widens the hover hit-area.
+// DeletableEdge: path between the RF-supplied handle endpoints, with a
+// hover × that routes through deleteElements → onEdgesDelete. Used for
+// processor input wires (fixed ports).
+//
+// ClosestSideEdge: same chrome, but endpoints are recomputed from the
+// live node rects as the nearest side-midpoint pair. Used for bot↔bot
+// reporting lines, bot↔topic subscriptions, and branch→bot wires so
+// free-placed cards don't force a fixed-side cable that crosses cards.
+
+const EdgeDeleteButton: FC<{
+  id: string
+  labelX: number
+  labelY: number
+  ariaLabel: string
+  show: boolean
+  onHover: (v: boolean) => void
+}> = ({ id, labelX, labelY, ariaLabel, show, onHover }) => {
+  const { deleteElements } = useReactFlow()
+  if (!show) return null
+  return (
+    <EdgeLabelRenderer>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        title={ariaLabel}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
+        onClick={(e) => {
+          e.stopPropagation()
+          deleteElements({ edges: [{ id }] })
+        }}
+        style={{
+          position: 'absolute',
+          transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          pointerEvents: 'all',
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          border: '1px solid rgba(0,0,0,0.2)',
+          background: '#ffffff',
+          color: '#444',
+          padding: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+          fontSize: 14,
+          lineHeight: 1,
+          zIndex: 1,
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.outline = '2px solid #1976d2'
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.outline = 'none'
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        ×
+      </button>
+    </EdgeLabelRenderer>
+  )
+}
+
+// Mid-edge caption (e.g. "reports to"). Hidden while the delete control
+// is shown so the two don't stack on the same point.
+const EdgeCaption: FC<{
+  labelX: number
+  labelY: number
+  text: string
+  show: boolean
+}> = ({ labelX, labelY, text, show }) => {
+  const lightTheme = useLightTheme()
+  if (!show || !text) return null
+  const isLight = lightTheme.isLight
+  return (
+    <EdgeLabelRenderer>
+      <div
+        style={{
+          position: 'absolute',
+          transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          pointerEvents: 'none',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.01em',
+          color: isLight ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.8)',
+          background: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(30,30,30,0.92)',
+          border: isLight ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 4,
+          padding: '1px 6px',
+          whiteSpace: 'nowrap',
+          boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+          lineHeight: 1.4,
+        }}
+        className="nodrag nopan"
+      >
+        {text}
+      </div>
+    </EdgeLabelRenderer>
+  )
+}
+
+const edgeAriaLabel = (kind?: string) =>
+  kind === 'sub' || kind === 'proc_out' ? 'Remove subscription'
+    : kind === 'proc_in' ? 'Disconnect input'
+      : 'Remove reporting line'
+
 const DeletableEdge: FC<EdgeProps> = ({
   id,
   sourceX,
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   style,
   markerEnd,
   data,
   selected,
 }) => {
   const [hover, setHover] = useState(false)
-  const { deleteElements } = useReactFlow()
-  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  })
   const kind = (data as { kind?: string } | undefined)?.kind
-  const ariaLabel =
-    kind === 'sub' || kind === 'proc_out' ? 'Remove subscription'
-      : kind === 'proc_in' ? 'Disconnect input'
-        : 'Remove reporting line'
   const show = hover || selected
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
-      {/* invisible wider hit-area; must NOT inherit strokeDasharray or
-          hover becomes spotty between dashes on subscription edges */}
       <path
         d={edgePath}
         fill="none"
@@ -759,54 +1175,128 @@ const DeletableEdge: FC<EdgeProps> = ({
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       />
-      {show && (
-        <EdgeLabelRenderer>
-          <button
-            type="button"
-            aria-label={ariaLabel}
-            title={ariaLabel}
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
-            onClick={(e) => {
-              e.stopPropagation()
-              deleteElements({ edges: [{ id }] })
-            }}
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: 'all',
-              width: 18,
-              height: 18,
-              borderRadius: '50%',
-              border: '1px solid rgba(0,0,0,0.2)',
-              background: '#ffffff',
-              color: '#444',
-              padding: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-              fontSize: 14,
-              lineHeight: 1,
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.outline = '2px solid #1976d2'
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.outline = 'none'
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            ×
-          </button>
-        </EdgeLabelRenderer>
-      )}
+      <EdgeDeleteButton
+        id={id}
+        labelX={labelX}
+        labelY={labelY}
+        ariaLabel={edgeAriaLabel(kind)}
+        show={show}
+        onHover={setHover}
+      />
     </>
   )
 }
 
-const edgeTypes = { deletable: DeletableEdge }
+// Subscription-style edge: attach to the closest sides of the two cards.
+// Re-reads node positions from the store so the path updates live while
+// either end is dragged (handle-based endpoints would stick to a fixed side).
+// Uses a bezier so the cable leaves/enters perpendicular to each side.
+const ClosestSideEdge: FC<EdgeProps> = ({
+  id,
+  source,
+  target,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  style,
+  markerEnd,
+  data,
+  selected,
+  sourceHandleId,
+}) => {
+  const [hover, setHover] = useState(false)
+  const { getNode } = useReactFlow()
+  const sourceNode = getNode(source)
+  const targetNode = getNode(target)
+  const edgeData = data as { kind?: string; label?: string } | undefined
+  const kind = edgeData?.kind
+  const caption = edgeData?.label
+
+  let sx = sourceX
+  let sy = sourceY
+  let tx = sourceX
+  let ty = sourceY
+  let sPos = sourcePosition ?? RFPosition.Right
+  let tPos = RFPosition.Left
+
+  if (sourceNode && targetNode) {
+    const sf = fallbackSizeForNode(sourceNode)
+    const tf = fallbackSizeForNode(targetNode)
+    const sRect = nodeCardRect(sourceNode, sf.w, sf.h)
+    const tRect = nodeCardRect(targetNode, tf.w, tf.h)
+
+    // Processor branch ports: leave the edge at the source handle RF
+    // already resolved (the labelled branch port), only free the target
+    // side to the closest bot side. Pure bot↔bot / bot↔topic edges free
+    // both ends.
+    //
+    // When the edge has an arrow (reporting lines), park the target end
+    // slightly outside the card so the marker isn't clipped under the
+    // node layer.
+    const hasArrow = Boolean(markerEnd)
+    if (kind === 'proc_out' && sourceHandleId) {
+      const { to } = closestSidePair(sRect, tRect)
+      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
+      sx = sourceX
+      sy = sourceY
+      sPos = sourcePosition ?? RFPosition.Right
+      tx = p2.x
+      ty = p2.y
+      tPos = sideToPosition(to)
+    } else {
+      const { from, to } = closestSidePair(sRect, tRect)
+      const p1 = sideMidpoint(sRect, from)
+      const p2 = hasArrow ? sideOutward(tRect, to, ARROW_CLEARANCE_PX) : sideMidpoint(tRect, to)
+      sx = p1.x
+      sy = p1.y
+      sPos = sideToPosition(from)
+      tx = p2.x
+      ty = p2.y
+      tPos = sideToPosition(to)
+    }
+  }
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX: sx,
+    sourceY: sy,
+    targetX: tx,
+    targetY: ty,
+    sourcePosition: sPos,
+    targetPosition: tPos,
+  })
+  const showDelete = hover || selected
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} interactionWidth={20} />
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeDasharray="none"
+        style={{ cursor: 'pointer' }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+      <EdgeCaption
+        labelX={labelX}
+        labelY={labelY}
+        text={caption ?? ''}
+        show={!showDelete}
+      />
+      <EdgeDeleteButton
+        id={id}
+        labelX={labelX}
+        labelY={labelY}
+        ariaLabel={edgeAriaLabel(kind)}
+        show={showDelete}
+        onHover={setHover}
+      />
+    </>
+  )
+}
+
+const edgeTypes = { deletable: DeletableEdge, closest: ClosestSideEdge }
 
 // ---- ReactFlow canvas --------------------------------------------------
 
@@ -814,8 +1304,12 @@ const ChartCanvas: FC<{
   flat: FlatBot[]
   handlers: {
     onSelectBot: (botId: string) => void
+    onOpenBotDetails: (botId: string) => void
     onNewBot: (parentBotId: string) => void
     onDeleteBot: (botId: string) => void
+    onStartBot: (botId: string) => void
+    onStopBot: (botId: string) => void
+    onRestartBot: (botId: string) => void
     onSelectTopic: (topicId: string) => void
     onDeleteTopic: (topicId: string) => void
     onSelectProcessor: (processorId: string) => void
@@ -833,16 +1327,33 @@ const ChartCanvas: FC<{
   // onSetProcessorInput fires when the user wires a Topic (or another
   // processor's output branch) into a processor's IN port.
   onSetProcessorInput: (processorId: string, topicId: string) => void
+  // onLayoutSnapshot fires after the user finishes dragging a node with
+  // the FULL set of node positions currently on the canvas. Saving only
+  // the dragged node lets unpinned topics re-auto-layout and "follow"
+  // the bot; pinning everything freezes the layout.
+  onLayoutSnapshot: (positions: { kind: string; id: string; x: number; y: number }[]) => void
   topics: TopicSummary[]
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, topics, messageCounts, processors }) => {
+  savedPositions: ChartPositionMap
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, topics, messageCounts, processors, savedPositions }) => {
   const lightTheme = useLightTheme()
-  const { fitView } = useReactFlow()
+  const account = useAccount()
+  const userId = account.user?.id ?? ''
+  // Canonical org id (not the URL slug) so a rename doesn't lose the camera.
+  const orgId = account.organizationTools.organization?.id ?? ''
+  const { fitView, setViewport } = useReactFlow()
+  // Apply camera once after the first graph build: restore this user's
+  // saved pan/zoom for the org, or fitView when nothing is stored yet.
+  // Node-drag persistence must not re-run this (would yank the camera).
+  const didInitViewportRef = useRef(false)
+  // Track which user+org the init applied to so a mid-session org switch
+  // re-loads that org's camera.
+  const viewportScopeRef = useRef('')
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors),
-    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors],
+    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions),
+    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -850,14 +1361,63 @@ const ChartCanvas: FC<{
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
-    requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
-  }, [computedNodes, computedEdges, fitView, setNodes, setEdges])
+    const scope = userId && orgId ? `${userId}:${orgId}` : ''
+    if (scope && scope !== viewportScopeRef.current) {
+      viewportScopeRef.current = scope
+      didInitViewportRef.current = false
+    }
+    if (didInitViewportRef.current || computedNodes.length === 0 || !userId || !orgId) return
+    didInitViewportRef.current = true
+    const saved = loadChartViewport(userId, orgId)
+    requestAnimationFrame(() => {
+      if (saved) {
+        setViewport(saved, { duration: 0 })
+      } else {
+        fitView({ padding: 0.2, duration: 250 })
+      }
+    })
+  }, [computedNodes, computedEdges, fitView, setViewport, setNodes, setEdges, userId, orgId])
 
-  // onConnect handles both wire shapes:
-  //   - bot→bot:   manager wires their report. Source = manager, target =
-  //     subordinate. Persists by adding a reporting line.
-  //   - bot→topic: the bot consumes a topic. Persists by POSTing a (bot,
-  //     topic) subscription.
+  // Personal camera: pan/zoom only — node layout is server-side shared.
+  const onMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+      if (!userId || !orgId) return
+      saveChartViewport(userId, orgId, viewport)
+    },
+    [userId, orgId],
+  )
+
+  // xyflow's OnNodeDrag first arg is a native MouseEvent|TouchEvent — do not
+  // type it as React.MouseEvent or tsc rejects the prop assignment.
+  const onNodeDragStop = useCallback(
+    (_event: unknown, dragged: Node, allNodes?: Node[]) => {
+      // Prefer the nodes array ReactFlow passes (includes the final
+      // drag position); fall back to local state with the dragged node
+      // patched in.
+      const source = allNodes && allNodes.length > 0
+        ? allNodes
+        : nodes.map((n) => (n.id === dragged.id ? { ...n, position: dragged.position } : n))
+      const positions: { kind: string; id: string; x: number; y: number }[] = []
+      for (const n of source) {
+        const colon = n.id.indexOf(':')
+        if (colon <= 0) continue
+        const kind = n.id.slice(0, colon)
+        const id = n.id.slice(colon + 1)
+        if (!id || (kind !== 'bot' && kind !== 'topic' && kind !== 'processor')) continue
+        positions.push({ kind, id, x: n.position.x, y: n.position.y })
+      }
+      if (positions.length === 0) return
+      onLayoutSnapshot(positions)
+    },
+    [nodes, onLayoutSnapshot],
+  )
+
+  // onConnect handles wire shapes:
+  //   - bot→bot:     drag manager → report creates a "reports to" line
+  //                  (stored as subordinate reports_to manager; drawn
+  //                  subordinate → manager with arrow + label)
+  //   - bot→topic OR topic→bot: subscribe (either direction)
+  //   - topic→processor / processor-branch→…: processor wiring
   const onConnect = useCallback(
     ({ source, sourceHandle, target }: { source: string | null; sourceHandle?: string | null; target: string | null }) => {
       if (!source || !target) return
@@ -886,20 +1446,28 @@ const ChartCanvas: FC<{
         return
       }
 
-      // Bot → Topic (subscribe) | Bot → Bot (reporting).
-      if (!source.startsWith('bot:')) return
-      const sourceId = source.replace(/^bot:/, '')
-      if (!sourceId) return
-      if (target.startsWith('topic:')) {
-        const topicId = target.replace(/^topic:/, '')
-        if (!topicId) return
-        onSubscribeBot(sourceId, topicId)
+      // Topic → Bot: subscribe (drag from a topic onto a bot).
+      if (source.startsWith('topic:') && target.startsWith('bot:')) {
+        const topicId = source.replace(/^topic:/, '')
+        const botId = target.replace(/^bot:/, '')
+        if (topicId && botId) onSubscribeBot(botId, topicId)
         return
       }
-      if (target.startsWith('bot:')) {
-        const targetId = target.replace(/^bot:/, '')
-        if (!targetId || sourceId === targetId) return
-        onAddParent(targetId, sourceId)
+
+      // Bot → Topic: subscribe.
+      if (source.startsWith('bot:') && target.startsWith('topic:')) {
+        const botId = source.replace(/^bot:/, '')
+        const topicId = target.replace(/^topic:/, '')
+        if (botId && topicId) onSubscribeBot(botId, topicId)
+        return
+      }
+
+      // Bot → Bot: reporting line (manager → subordinate).
+      if (source.startsWith('bot:') && target.startsWith('bot:')) {
+        const managerId = source.replace(/^bot:/, '')
+        const reportId = target.replace(/^bot:/, '')
+        if (!managerId || !reportId || managerId === reportId) return
+        onAddParent(reportId, managerId)
       }
     },
     [onAddParent, onSubscribeBot, onSetProcessorInput],
@@ -928,12 +1496,19 @@ const ChartCanvas: FC<{
           onUnsubscribeBot(d.botId, d.topicId)
           continue
         }
-        // Reporting edge: remove the specific manager line. Fall back to
-        // parsing "report:<parent>-><child>" from the edge id when data is
-        // missing (e.g. an edge synthesised by ReactFlow).
-        const childId = d?.childBotId ?? (e.target ?? '').replace(/^bot:/, '')
-        const parentId = d?.parentBotId ?? (e.source ?? '').replace(/^bot:/, '')
-        if (childId && parentId && (e.target ?? '').startsWith('bot:')) onRemoveParent(childId, parentId)
+        // Reporting edge (subordinate → manager, "reports to"). Prefer
+        // data; fall back to id "report:<parent>-><child>".
+        let childId = d?.childBotId
+        let parentId = d?.parentBotId
+        if ((!childId || !parentId) && typeof e.id === 'string' && e.id.startsWith('report:')) {
+          const rest = e.id.slice('report:'.length)
+          const arrow = rest.indexOf('->')
+          if (arrow > 0) {
+            parentId = parentId || rest.slice(0, arrow)
+            childId = childId || rest.slice(arrow + 2)
+          }
+        }
+        if (childId && parentId) onRemoveParent(childId, parentId)
       }
     },
     [onRemoveParent, onUnsubscribeBot, onSetProcessorInput],
@@ -947,6 +1522,8 @@ const ChartCanvas: FC<{
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
+      onNodeDragStop={onNodeDragStop}
+      onMoveEnd={onMoveEnd}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       // Snap a dropped connection to the nearest handle within this radius,
@@ -959,10 +1536,14 @@ const ChartCanvas: FC<{
       // handle) — in strict mode that drop is rejected and the wire
       // silently fails. onConnect validates which combos are real.
       connectionMode={ConnectionMode.Loose}
-      fitView
+      // Match persisted edges: curved while the user is still dragging a wire.
+      connectionLineType={ConnectionLineType.Bezier}
+      // Camera is restored from localStorage (or fitView) in the init effect —
+      // do not fitView on every mount prop, or it fights the saved viewport.
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
       colorMode={lightTheme.isLight ? 'light' : 'dark'}
+      nodesDraggable
       nodesConnectable
       elementsSelectable
       // @xyflow/react v12's deleteKeyCode defaults to Backspace only, so
@@ -973,11 +1554,7 @@ const ChartCanvas: FC<{
       zoomOnScroll
     >
       <Background gap={20} size={1} />
-      {/* Both overlays anchored bottom-left so they never sit on top of the
-          topic / processor column on the right (whose ports must stay
-          grabbable). */}
       <Controls showInteractive={false} position="top-left" />
-      <MiniMap pannable zoomable position="bottom-left" maskColor={lightTheme.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.6)'} />
     </ReactFlow>
   )
 }
@@ -1051,9 +1628,16 @@ const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
-  const { data: botsData, isLoading } = useListHelixOrgBots()
+  // Chart is the org root of helix-org — breadcrumb is just the org name.
+  const breadcrumbs = useHelixOrgBreadcrumbs()
+  // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
+  // the chart is open — desktops start/stop without other chart mutations.
+  const { data: botsData, isLoading } = useListHelixOrgBots({ refetchInterval: 5000 })
   const { data: streamsData } = useListHelixOrgTopics()
   const { data: processorsData } = useListHelixOrgProcessors()
+  const { data: savedPositions = {} } = useListChartPositions()
+  const upsertPositions = useUpsertChartPositions()
+  const clearPositions = useClearChartPositions()
   const deleteBot = useDeleteBot()
   const deleteTopic = useDeleteHelixOrgTopic()
   const deleteProcessor = useDeleteHelixOrgProcessor()
@@ -1062,6 +1646,9 @@ const HelixOrgChart: FC = () => {
   const removeParent = useRemoveBotParent()
   const subscribe = useSubscribeBotAtChart()
   const unsubscribe = useUnsubscribeBotAtChart()
+  const activateBot = useActivateBot()
+  const stopBot = useStopBotAgent()
+  const restartBot = useRestartBotAgent()
 
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? [])
@@ -1072,6 +1659,7 @@ const HelixOrgChart: FC = () => {
         id: b.id ?? '',
         name: b.name ?? '',
         parentIds: b.parent_ids ?? [],
+        agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
       })),
     [botsData],
   )
@@ -1148,7 +1736,16 @@ const HelixOrgChart: FC = () => {
   const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
 
   const orgSlug = (router.params.org_id as string | undefined) ?? ''
+  // Card body click → focus left chat rail on this bot (stay on chart).
   const onSelectBot = useCallback(
+    (botId: string) => {
+      if (!orgSlug) return
+      focusChatBot(orgSlug, botId)
+    },
+    [orgSlug],
+  )
+  // ⋮ → Details → bot detail page.
+  const onOpenBotDetails = useCallback(
     (botId: string) => {
       if (!orgSlug) return
       router.navigate('helix_org_bot_detail', { org_id: orgSlug, bot_id: botId })
@@ -1164,6 +1761,30 @@ const HelixOrgChart: FC = () => {
   )
   const onNewBot = useCallback((parentBotId: string) => setSelection({ kind: 'newBot', parentBotId }), [])
   const onDeleteBot = useCallback((botId: string) => setConfirmDelete({ kind: 'bot', id: botId }), [])
+  const onStartBot = useCallback(async (botId: string) => {
+    try {
+      await activateBot.mutateAsync(botId)
+      snackbar.success(`Starting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'start failed')
+    }
+  }, [activateBot, snackbar])
+  const onStopBot = useCallback(async (botId: string) => {
+    try {
+      await stopBot.mutateAsync(botId)
+      snackbar.success(`Stopped ${botId}`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'stop failed')
+    }
+  }, [stopBot, snackbar])
+  const onRestartBot = useCallback(async (botId: string) => {
+    try {
+      await restartBot.mutateAsync(botId)
+      snackbar.success(`Restarting ${botId}…`)
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
+    }
+  }, [restartBot, snackbar])
   const onSelectTopic = useCallback(
     (topicId: string) => {
       if (!orgSlug) return
@@ -1181,8 +1802,11 @@ const HelixOrgChart: FC = () => {
   )
   const onDeleteProcessor = useCallback((processorId: string) => setConfirmDelete({ kind: 'processor', id: processorId }), [])
   const handlers = useMemo(
-    () => ({ onSelectBot, onNewBot, onDeleteBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor }),
-    [onSelectBot, onNewBot, onDeleteBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
+    () => ({
+      onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot,
+      onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor,
+    }),
+    [onSelectBot, onOpenBotDetails, onNewBot, onDeleteBot, onStartBot, onStopBot, onRestartBot, onSelectTopic, onDeleteTopic, onSelectProcessor, onDeleteProcessor],
   )
 
   const onAddParent = useCallback(
@@ -1254,6 +1878,29 @@ const HelixOrgChart: FC = () => {
     [processorsData, updateProcessor, snackbar],
   )
 
+  // Persist the full canvas after a drag. Saving only the moved node
+  // left topics/processors on auto-layout, which re-anchored them to
+  // the bot and made them "follow" the drag. Snapshot freezes everyone.
+  const onLayoutSnapshot = useCallback(
+    (positions: { kind: string; id: string; x: number; y: number }[]) => {
+      upsertPositions.mutate(positions, {
+        onError: (err: any) => {
+          snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save position failed')
+        },
+      })
+    },
+    [upsertPositions, snackbar],
+  )
+
+  const onResetLayout = useCallback(async () => {
+    try {
+      await clearPositions.mutateAsync()
+      snackbar.success('layout reset to auto')
+    } catch (err: any) {
+      snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reset layout failed')
+    }
+  }, [clearPositions, snackbar])
+
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
     try {
@@ -1319,30 +1966,13 @@ const HelixOrgChart: FC = () => {
   }, [confirmDelete, flat, streamsData, processorsData])
 
   return (
-    <Page breadcrumbTitle="Chart">
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', minHeight: 0 }}>
-        <Box sx={{ px: 4, pt: 4, pb: 2 }}>
-          <Box>
-            <Typography
-              variant="h4"
-              sx={{ fontWeight: 700, mb: 1, color: titleColor, letterSpacing: '-0.02em' }}
-            >
-              Chart
-            </Typography>
-            <Typography variant="body2" sx={{ color: subtitleColor }}>
-              Bots are wired by reporting lines. Create bots, then drag from a manager's
-              bottom handle to a subordinate to set who reports to whom, or from a bot's
-              right handle to a Topic to subscribe.
-            </Typography>
-          </Box>
-        </Box>
-
+    <HelixOrgShell showChat breadcrumbs={breadcrumbs}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
-            mx: 4,
-            mb: 4,
+            m: 1.5,
             position: 'relative',
             border: `1px solid ${canvasBorder}`,
             borderRadius: 1,
@@ -1350,12 +1980,17 @@ const HelixOrgChart: FC = () => {
             overflow: 'hidden',
           }}
         >
-          {/* New bot lives on the canvas (floating top-right) rather than
-              in the page header — it reads as a canvas action, and keeps
-              the header to title + description. zIndex sits above the
-              ReactFlow surface / controls. */}
           <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <Button
+              size="small"
+              variant="outlined"
+              onClick={onResetLayout}
+              disabled={clearPositions.isPending || Object.keys(savedPositions).length === 0}
+            >
+              Reset layout
+            </Button>
+            <Button
+              size="small"
               variant="outlined"
               startIcon={<TransformIcon />}
               onClick={() => setProcessorDrawer({ open: true, processor: null })}
@@ -1363,7 +1998,9 @@ const HelixOrgChart: FC = () => {
               Processor
             </Button>
             <Button
+              size="small"
               variant="contained"
+              color="secondary"
               startIcon={<AddIcon />}
               onClick={() => setBotDialogOpen(true)}
             >
@@ -1389,9 +2026,11 @@ const HelixOrgChart: FC = () => {
                 onSubscribeBot={onSubscribeBot}
                 onUnsubscribeBot={onUnsubscribeBot}
                 onSetProcessorInput={onSetProcessorInput}
+                onLayoutSnapshot={onLayoutSnapshot}
                 topics={topics}
                 messageCounts={messageCounts}
                 processors={processorSummaries}
+                savedPositions={savedPositions}
               />
             </ReactFlowProvider>
           )}
@@ -1422,7 +2061,7 @@ const HelixOrgChart: FC = () => {
         processor={processorDrawer.processor}
         onClose={() => setProcessorDrawer({ open: false, processor: null })}
       />
-    </Page>
+    </HelixOrgShell>
   )
 }
 

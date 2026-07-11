@@ -17,6 +17,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
@@ -87,8 +88,9 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
 			Now:        clock, NewID: newID,
 		}),
-		Configs: reg,
-		Hub:     hub,
+		ChartLayout: chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: clock}),
+		Configs:     reg,
+		Hub:         hub,
 	}
 	return deps, st, reg
 }

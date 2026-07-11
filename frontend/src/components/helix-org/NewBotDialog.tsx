@@ -159,14 +159,14 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
             </TextField>
           )}
           <TextField
-            label="Content (markdown)"
+            label="Instructions"
             placeholder="# Engineer&#10;Builds and ships software."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             multiline
             minRows={6}
             fullWidth
-            helperText="The bot's prompt / identity. Read on every activation."
+            helperText="Instructions to follow, set on every interaction."
           />
         </Stack>
       </DialogContent>

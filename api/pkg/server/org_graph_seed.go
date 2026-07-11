@@ -35,7 +35,23 @@ On your first activation you do not yet know what this organization is for. Find
 Keep it to a single, concise message - you can follow up once they reply.
 
 ## Then set things up
-When the owner answers, use what they told you to build the org: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself. Reach the owner again with ` + "`ask_human`" + ` whenever you need a decision or their input.`
+When the owner answers, use what they told you to build the org: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself. Reach the owner again with ` + "`ask_human`" + ` whenever you need a decision or their input.
+
+## Give bots the code they need
+Bots only see git repositories attached to their Helix project. After you create a bot (and it has been activated so its project exists):
+
+1. Call ` + "`list_repositories`" + ` to see every repo in this organization.
+2. Call ` + "`attach_repository`" + ` with ` + "`bot_id`" + ` + ` + "`repo_id`" + ` (and ` + "`primary: true`" + ` when it should be their main working repo).
+3. To **check** what a bot has attached: call ` + "`list_bot_repositories`" + ` with that ` + "`bot_id`" + `, or ` + "`get_bot`" + ` (the response includes a ` + "`repositories`" + ` array). Do **not** guess from memory of who attached what — the UI or another agent may have attached repos.
+4. Use ` + "`detach_repository`" + ` to remove an attachment.
+
+Without attached repos a coding bot has nothing to clone and cannot do real work.
+
+## How to call your tools
+Your tools are helix MCP tools (` + "`mcp__helix__…`" + `). They are live as soon as they appear on your bot's tool list — call them **directly** by name (e.g. ` + "`mcp__helix__list_bot_repositories`" + `). Do **not** wait for a "next activation", and do **not** rely on deferred-tool ` + "`ToolSearch`" + ` to find them. If ` + "`tools/list`" + ` / your tool list shows a name, invoke it now.
+
+## Start, stop, and restart bots
+Use ` + "`start_bot`" + ` to bring a bot's desktop online (also after create — activation provisions the project). Use ` + "`stop_bot`" + ` to shut the desktop down without losing the transcript. Use ` + "`restart_bot`" + ` when you need a brand-new session (e.g. after changing tools or repo attachments).`
 
 const chiefOfStaffBotID orgchart.BotID = "chief-of-staff"
 
@@ -112,13 +128,23 @@ func (s *orgGraphSeeder) RemoveHumanNode(ctx context.Context, orgID, userID stri
 // Idempotent on the CoS id. There is deliberately NO reporting line to the
 // creator: humans stay entirely out of the reporting graph — CoS reaches
 // the owner via the inbox (Stage 2 delivery), not a manager/report edge.
+//
+// When CoS already exists, OwnerBotTools is unioned onto its tool list so
+// upgrades (e.g. new repository tools) land without recreating the bot.
 func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) error {
 	if s == nil {
 		return nil
 	}
-	_, err := s.botStore.Get(ctx, orgID, chiefOfStaffBotID)
+	existing, err := s.botStore.Get(ctx, orgID, chiefOfStaffBotID)
 	if err == nil {
-		return nil // already seeded
+		// Already seeded — backfill any new OwnerBotTools entries.
+		if s.bots != nil {
+			if _, attErr := s.bots.AttachTools(ctx, orgID, chiefOfStaffBotID, mcptools.OwnerBotTools()); attErr != nil {
+				log.Warn().Err(attErr).Str("org_id", orgID).Msg("chief-of-staff tool backfill failed")
+			}
+		}
+		_ = existing
+		return nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("check chief of staff: %w", err)

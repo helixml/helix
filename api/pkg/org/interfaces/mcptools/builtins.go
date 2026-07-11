@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/application/projects"
@@ -69,6 +70,10 @@ type Deps struct {
 	// Lifecycle owns Create (the MCP create_bot tool delegates here, the
 	// same service the REST POST /bots handler drives).
 	Lifecycle *lifecycle.Service
+	// Activations owns start/stop/restart of a Bot's agent desktop
+	// (start_bot / stop_bot / restart_bot). Same service as the REST
+	// activate / stop-agent / restart-agent endpoints.
+	Activations *activations.Activations
 
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
@@ -85,6 +90,10 @@ type Deps struct {
 	// project-discovery tools (list_projects/get_project), scoped to the
 	// caller's org.
 	Projects *projects.Service
+	// Repositories backs list_repositories / list_bot_repositories /
+	// attach_repository / detach_repository — org git repos attached to
+	// Bot projects so sandboxes can clone the code.
+	Repositories runtime.Repositories
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
@@ -129,13 +138,20 @@ type Config struct {
 	// Projects is the runtime port the project-discovery tools dispatch on.
 	// nil → Build defaults to runtime.NoopProjects{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
-	Projects            runtime.Projects
+	Projects runtime.Projects
+	// Repositories is the runtime port for org git-repo list/attach/detach.
+	// nil → Build defaults to runtime.NoopRepositories{}.
+	Repositories        runtime.Repositories
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
 	// Lifecycle, when set, is used verbatim instead of building a fresh one,
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
 	Lifecycle *lifecycle.Service
+	// Activations, when set, is used by start_bot / stop_bot / restart_bot.
+	// Built at the composition root (needs project ensurer + stop/reset
+	// ports). nil → those tools report "not wired".
+	Activations *activations.Activations
 	// HumanInbox delivers ask_human messages to a person's in-app inbox.
 	// nil → ask_human reports the inbox as unavailable.
 	HumanInbox HumanInbox
@@ -151,14 +167,25 @@ func (c Config) Build() Deps {
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.publishingService(),
 		Lifecycle:           c.lifecycleService(),
+		Activations:         c.Activations,
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
 		Projects:            c.projectsService(),
+		Repositories:        c.repositoriesPort(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
 		HumanInbox:          c.HumanInbox,
 	}
+}
+
+// repositoriesPort returns the configured Repositories port, defaulting to
+// NoopRepositories when none is wired.
+func (c Config) repositoriesPort() runtime.Repositories {
+	if c.Repositories == nil {
+		return runtime.NoopRepositories{}
+	}
+	return c.Repositories
 }
 
 // projectsService builds the project-discovery application service over the
@@ -290,6 +317,7 @@ func DefaultDeps(s *store.Store) Config {
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		SpecTasks:           runtime.NoopSpecTasks{},
 		Projects:            runtime.NoopProjects{},
+		Repositories:        runtime.NoopRepositories{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
@@ -344,6 +372,11 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DM{deps: deps},
 		&AskHuman{deps: deps},
 		&ConfigureBotProject{deps: deps},
+		// Agent desktop lifecycle — same as REST activate / stop-agent /
+		// restart-agent. OwnerBotTools grants these to Chief of Staff.
+		NewStartBot(deps),
+		NewStopBot(deps),
+		NewRestartBot(deps),
 		// Spec-task management — a Bot managing the spec tasks in its own
 		// Helix project. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),
@@ -363,6 +396,13 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		// per-Role (not in BaseReadTools).
 		NewListProjects(deps),
 		NewGetProject(deps),
+		// Git repositories — list org repos and attach/detach them on Bot
+		// projects so sandboxes clone the code. OwnerBotTools grants these
+		// to Chief of Staff by default.
+		NewListRepositories(deps),
+		NewListBotRepositories(deps),
+		NewAttachRepository(deps),
+		NewDetachRepository(deps),
 		NewListSpecTasks(deps),
 		NewGetSpecTask(deps),
 		NewReviewSpecTaskSpec(deps),

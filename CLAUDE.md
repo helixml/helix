@@ -382,6 +382,8 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ### Key Commands
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
+/tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
 
 ### Dispatch an investigation to a helix-in-helix spec task (from a local brief)
@@ -547,7 +549,21 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
-Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/` (spec tasks) or `api/pkg/cli/org/` (helix-org).
+
+### Helix-org CLI
+Skill: [`skills/helix-org-cli/SKILL.md`](skills/helix-org-cli/SKILL.md) (also linked from AGENTS.md via this file).
+
+```bash
+export HELIX_URL=http://localhost:8080 HELIX_API_KEY=… HELIX_ORG=unmanned-org
+cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .
+
+helix org bots list|get|start|stop|restart|chat …
+helix org topics list
+helix org processors list
+helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
+helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
+```
 
 ## Sandboxes API
 
