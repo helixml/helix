@@ -24,11 +24,11 @@ const (
 )
 
 type ExternalAgentHooks struct {
-	WaitForExternalAgentReady func(ctx context.Context, sessionID string, timeout time.Duration) error
-	GetAgentNameForSession    func(ctx context.Context, session *types.Session) string
-	SendCommand               func(sessionID string, command types.ExternalAgentCommand) error
-	StoreResponseChannel      func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
-	CleanupResponseChannel    func(sessionID, requestID string)
+	WaitForExternalAgentReady    func(ctx context.Context, sessionID string, timeout time.Duration) error
+	GetAgentNameForSession       func(ctx context.Context, session *types.Session) string
+	SendCommand                  func(sessionID string, command types.ExternalAgentCommand) error
+	StoreResponseChannel         func(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error)
+	CleanupResponseChannel       func(sessionID, requestID string)
 	SetRequestInteractionMapping func(requestID, interactionID string)
 	SetRequestSessionMapping     func(requestID, sessionID string)
 }
@@ -114,11 +114,16 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 		Msg("sending message to external agent")
 
 	if err := hooks.WaitForExternalAgentReady(ctx, req.Session.ID, req.ReadyTimeout); err != nil {
-		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()))
+		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, fmt.Sprintf("External agent not ready: %s", err.Error()), "")
 		return nil, fmt.Errorf("external agent not ready: %w", err)
 	}
 
-	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+	// Use the interaction ID as request_id so completion events map 1:1 with
+	// the waiter channels and with NotifyExternalAgentOfNewInteraction's
+	// convention. A synthetic req_<nano> id diverged from the int_… id used
+	// by the notify path, which caused message_completed to miss doneChan
+	// and the 180s timeout to clobber a finished reply.
+	requestID := interaction.ID
 	agentName := "zed-agent"
 	if hooks.GetAgentNameForSession != nil {
 		agentName = hooks.GetAgentNameForSession(ctx, req.Session)
@@ -144,7 +149,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 
 	if err := hooks.SendCommand(req.Session.ID, command); err != nil {
 		hooks.CleanupResponseChannel(req.Session.ID, requestID)
-		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error())
+		c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), "")
 		return nil, fmt.Errorf("failed to send command to external agent: %w", err)
 	}
 
@@ -255,8 +260,25 @@ func (c *Controller) waitForExternalAgentResponse(
 			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
 			reloadedInteraction, err := c.Options.Store.GetInteraction(reloadCtx, interaction.ID)
 			cancelReload()
-			if err == nil {
-				interaction.ResponseMessage = reloadedInteraction.ResponseMessage
+			if err == nil && reloadedInteraction != nil {
+				// Prefer DB content written by the message_added pipeline; it
+				// is the authoritative stream. Only fall back to channel
+				// accumulation when the DB is still empty.
+				if reloadedInteraction.ResponseMessage != "" {
+					interaction.ResponseMessage = reloadedInteraction.ResponseMessage
+				} else if interaction.ResponseMessage == "" {
+					interaction.ResponseMessage = fullResponse
+				}
+				if len(reloadedInteraction.ResponseEntries) > 0 {
+					interaction.ResponseEntries = reloadedInteraction.ResponseEntries
+				}
+				// If message_completed already finalized the row, do not
+				// re-write state (avoids racing / clobbering).
+				if reloadedInteraction.State == types.InteractionStateComplete ||
+					reloadedInteraction.State == types.InteractionStateInterrupted {
+					*interaction = *reloadedInteraction
+					return interaction.ResponseMessage, nil
+				}
 			} else if interaction.ResponseMessage == "" {
 				interaction.ResponseMessage = fullResponse
 			}
@@ -264,6 +286,7 @@ func (c *Controller) waitForExternalAgentResponse(
 			interaction.Completed = time.Now()
 			interaction.State = types.InteractionStateComplete
 			interaction.DurationMs = int(time.Since(req.Start).Milliseconds())
+			interaction.Error = ""
 
 			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			updateErr := c.UpdateInteraction(updateCtx, req.Session, interaction)
@@ -274,23 +297,75 @@ func (c *Controller) waitForExternalAgentResponse(
 
 			return interaction.ResponseMessage, nil
 		case err := <-errorChan:
-			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error())
+			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), fullResponse)
 			return "", fmt.Errorf("external agent error: %w", err)
 		case <-timeout.C:
-			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, "External agent response timeout")
+			// message_completed may have already completed the interaction
+			// without unblocking this waiter (request_id mismatch). Treat
+			// an already-complete row as success rather than erroring it.
+			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
+			reloaded, reloadErr := c.Options.Store.GetInteraction(reloadCtx, interaction.ID)
+			cancelReload()
+			if reloadErr == nil && reloaded != nil && reloaded.State == types.InteractionStateComplete {
+				log.Info().
+					Str("session_id", req.Session.ID).
+					Str("interaction_id", interaction.ID).
+					Str("request_id", requestID).
+					Int("response_len", len(reloaded.ResponseMessage)).
+					Msg("external agent wait timed out but interaction already complete — treating as success")
+				*interaction = *reloaded
+				return reloaded.ResponseMessage, nil
+			}
+
+			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, "External agent response timeout", fullResponse)
 			return "", fmt.Errorf("external agent response timeout")
 		}
 	}
 }
 
-func (c *Controller) markExternalAgentInteractionError(session *types.Session, interaction *types.Interaction, start time.Time, errorMessage string) {
+// markExternalAgentInteractionError records an error on the interaction without
+// destroying any streamed content already persisted by the WebSocket sync path.
+// The waiter holds a stale in-memory interaction (empty ResponseMessage from
+// request start); a full Save of that object would wipe the real reply. Always
+// reload from the store first and only mutate state/error fields.
+//
+// streamedResponse is any content accumulated via the legacy response channel;
+// it is used only when the DB row still has an empty ResponseMessage.
+//
+// Already-terminal interactions (complete / interrupted) are never demoted to
+// error — the streamed reply stays put.
+func (c *Controller) markExternalAgentInteractionError(session *types.Session, interaction *types.Interaction, start time.Time, errorMessage string, streamedResponse string) {
+	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	reloaded, err := c.Options.Store.GetInteraction(updateCtx, interaction.ID)
+	if err == nil && reloaded != nil {
+		if reloaded.State == types.InteractionStateComplete || reloaded.State == types.InteractionStateInterrupted {
+			log.Info().
+				Str("session_id", session.ID).
+				Str("interaction_id", interaction.ID).
+				Str("state", string(reloaded.State)).
+				Str("would_be_error", errorMessage).
+				Int("response_len", len(reloaded.ResponseMessage)).
+				Msg("skipping external agent error mark; interaction already terminal")
+			*interaction = *reloaded
+			return
+		}
+		// Base the write on the DB row so Save+UpdateAll cannot blank fields
+		// the streaming path already filled in.
+		*interaction = *reloaded
+	}
+
+	if interaction.ResponseMessage == "" && streamedResponse != "" {
+		interaction.ResponseMessage = streamedResponse
+	}
+
 	interaction.Error = errorMessage
 	interaction.State = types.InteractionStateError
 	interaction.Completed = time.Now()
 	interaction.DurationMs = int(time.Since(start).Milliseconds())
+	interaction.Updated = time.Now()
 
-	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if err := c.UpdateInteraction(updateCtx, session, interaction); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("failed to update interaction")
 	}

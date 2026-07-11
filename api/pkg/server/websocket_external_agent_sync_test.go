@@ -1165,6 +1165,117 @@ func (s *WebSocketSyncSuite) TestMessageCompleted_EmitsAttentionWhenNoFollowup()
 // handleChatResponseError tests
 // ──────────────────────────────────────────────────────────────────────────────
 
+// TestMessageCompleted_AlreadyCompleteStillSignalsDone is the second half of
+// the ses_01kx8knjxsa8rap7fxpe1bzafs regression: a first message_completed
+// finalizes the interaction; a second one (or any late message_completed for a
+// turn the transition logic already completed) must still poke doneChan so
+// waitForExternalAgentResponse unblocks instead of hanging until the 180s
+// timeout and clobbering the reply.
+func (s *WebSocketSyncSuite) TestMessageCompleted_AlreadyCompleteStillSignalsDone() {
+	const (
+		helixSessionID = "ses_already_done"
+		interactionID  = "int_already_done"
+		requestID      = "req_waiter"
+	)
+
+	s.server.contextMappings["thread-already"] = helixSessionID
+	s.server.requestToInteractionMapping[requestID] = interactionID
+
+	// Register a waiter the same way RunExternalAgent does.
+	doneChan := make(chan bool, 1)
+	s.server.storeResponseChannel(helixSessionID, requestID, make(chan string, 1), doneChan, make(chan error, 1))
+	defer s.server.cleanupResponseChannel(helixSessionID, requestID)
+
+	session := &types.Session{ID: helixSessionID, Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(&types.Interaction{
+		ID:              interactionID,
+		SessionID:       helixSessionID,
+		State:           types.InteractionStateComplete,
+		ResponseMessage: "full reply already in DB",
+	}, nil)
+	// No UpdateInteraction — early return on already-complete.
+
+	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
+		EventType: "message_completed",
+		SessionID: helixSessionID,
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-already",
+			"message_id":    "0",
+			"request_id":    requestID,
+		},
+	})
+	s.NoError(err)
+
+	select {
+	case <-doneChan:
+		// expected
+	case <-time.After(500 * time.Millisecond):
+		s.Fail("doneChan was not signaled on already-complete message_completed")
+	}
+}
+
+// TestMessageCompleted_SignalsDoneUnderInteractionID covers the case where the
+// waiter registered under interaction.ID (the post-fix request_id convention)
+// and message_completed carries that same id.
+func (s *WebSocketSyncSuite) TestMessageCompleted_SignalsDoneUnderInteractionID() {
+	const (
+		helixSessionID = "ses_int_id"
+		interactionID  = "int_is_request"
+	)
+
+	s.server.contextMappings["thread-intid"] = helixSessionID
+	s.server.requestToInteractionMapping[interactionID] = interactionID
+
+	doneChan := make(chan bool, 1)
+	s.server.storeResponseChannel(helixSessionID, interactionID, make(chan string, 1), doneChan, make(chan error, 1))
+	defer s.server.cleanupResponseChannel(helixSessionID, interactionID)
+
+	session := &types.Session{ID: helixSessionID, Owner: "user-1"}
+	s.store.EXPECT().GetSession(gomock.Any(), helixSessionID).Return(session, nil).AnyTimes()
+
+	waiting := &types.Interaction{
+		ID:              interactionID,
+		SessionID:       helixSessionID,
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "streamed content",
+	}
+	s.store.EXPECT().GetInteraction(gomock.Any(), interactionID).Return(waiting, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{waiting}, int64(1), nil,
+	).AnyTimes()
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, i *types.Interaction) (*types.Interaction, error) {
+			s.Equal(types.InteractionStateComplete, i.State)
+			s.Equal("streamed content", i.ResponseMessage)
+			return i, nil
+		},
+	)
+	s.store.EXPECT().GetNextPendingPrompt(gomock.Any(), helixSessionID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), helixSessionID).Return(nil, nil).AnyTimes()
+	s.store.EXPECT().GetCommentByRequestID(gomock.Any(), interactionID).
+		Return(nil, fmt.Errorf("record not found")).AnyTimes()
+
+	err := s.server.handleMessageCompleted("agent-1", &types.SyncMessage{
+		EventType: "message_completed",
+		SessionID: helixSessionID,
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-intid",
+			"message_id":    "0",
+			"request_id":    interactionID,
+		},
+	})
+	s.NoError(err)
+
+	select {
+	case <-doneChan:
+	case <-time.After(500 * time.Millisecond):
+		s.Fail("doneChan was not signaled for interaction-id request_id")
+	}
+
+	time.Sleep(50 * time.Millisecond) // drain processPromptQueue goroutine
+}
+
 // TestChatResponseError_PersistsAgentErrorToInteraction is the red-then-green
 // regression test for the "user sees nothing when the agent fails" bug.
 //
@@ -3415,7 +3526,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_NewThread_RegistersSessionMappi
 	// A live WS connection so sendCommandToExternalAgent succeeds (no auto-start path).
 	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
 		SessionID: sessionID,
-		SendChan: make(chan types.ExternalAgentCommand, 10),
+		SendChan:  make(chan types.ExternalAgentCommand, 10),
 	})
 
 	session := &types.Session{
@@ -3449,7 +3560,7 @@ func (s *WebSocketSyncSuite) TestSendChatMessage_ExistingThread_NoSessionMapping
 
 	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
 		SessionID: sessionID,
-		SendChan: make(chan types.ExternalAgentCommand, 10),
+		SendChan:  make(chan types.ExternalAgentCommand, 10),
 	})
 
 	session := &types.Session{

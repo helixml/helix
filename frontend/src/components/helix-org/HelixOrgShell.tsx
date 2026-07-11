@@ -4,6 +4,7 @@
 
 import { FC, ReactNode } from 'react'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
 import {
   Panel,
   Group as PanelGroup,
@@ -14,11 +15,12 @@ import Page from '../system/Page'
 import HelixOrgChatPanel from './HelixOrgChatPanel'
 import HelixOrgTopNav from './HelixOrgTopNav'
 import useAccount from '../../hooks/useAccount'
+import useDocumentTitle from '../../hooks/useDocumentTitle'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 
 export type HelixOrgShellProps = {
-  /** Shown as the page breadcrumb title (e.g. "Chart"). */
+  /** Page title shown large on the left of the top bar (e.g. "Chart"). */
   title?: string
   /** Optional action buttons next to the top nav (before theme toggle). */
   topbarActions?: ReactNode
@@ -42,6 +44,10 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
 
+  // Render title as a real page heading (h5) rather than the small breadcrumb
+  // trail style Page applies to breadcrumbTitle (~0.875rem).
+  useDocumentTitle(title ? [title] : [])
+
   const content = (
     <Box
       sx={{
@@ -62,7 +68,6 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
   // Use "32%" not 32, or the chat rail collapses to ~32px.
   return (
     <Page
-      breadcrumbTitle={title}
       breadcrumbShowHome={false}
       organizationId={account.organizationTools.organization?.id}
       disableContentScroll
@@ -74,6 +79,22 @@ const HelixOrgShell: FC<HelixOrgShellProps> = ({
         display: 'flex',
         flexDirection: 'column',
       }}
+      topbarLeftContent={
+        title ? (
+          <Typography
+            component="h1"
+            variant="h5"
+            noWrap
+            sx={{
+              fontWeight: 700,
+              color: 'text.primary',
+              lineHeight: 1.25,
+            }}
+          >
+            {title}
+          </Typography>
+        ) : undefined
+      }
       topbarContent={(
         <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
           <HelixOrgTopNav />
