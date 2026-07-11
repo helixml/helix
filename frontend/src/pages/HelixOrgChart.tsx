@@ -1,4 +1,4 @@
-import { FC, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FC, Fragment, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
@@ -26,6 +26,8 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import StopIcon from '@mui/icons-material/Stop'
 import TransformIcon from '@mui/icons-material/Transform'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 
 import dagre from 'dagre'
 import {
@@ -61,6 +63,7 @@ import { focusChatBot } from '../components/helix-org/chatBotFocus'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
+import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
 import useAccount from '../hooks/useAccount'
@@ -1447,11 +1450,13 @@ const ChartCanvas: FC<{
   // the dragged node lets unpinned topics re-auto-layout and "follow"
   // the bot; pinning everything freezes the layout.
   onLayoutSnapshot: (positions: { kind: string; id: string; x: number; y: number }[]) => void
+  // Right-click on empty pane (or a node) → create menu in parent.
+  onCanvasContextMenu: (clientX: number, clientY: number) => void
   topics: TopicSummary[]
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
   savedPositions: ChartPositionMap
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, topics, messageCounts, processors, savedPositions }) => {
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
@@ -1676,6 +1681,18 @@ const ChartCanvas: FC<{
         deleteKeyCode={['Backspace', 'Delete']}
         panOnDrag
         zoomOnScroll
+        onPaneContextMenu={(e) => {
+          e.preventDefault()
+          onCanvasContextMenu(e.clientX, e.clientY)
+        }}
+        onNodeContextMenu={(e) => {
+          e.preventDefault()
+          onCanvasContextMenu(e.clientX, e.clientY)
+        }}
+        onEdgeContextMenu={(e) => {
+          e.preventDefault()
+          onCanvasContextMenu(e.clientX, e.clientY)
+        }}
       >
         <Background gap={20} size={1} />
         <Controls showInteractive={false} position="top-left" />
@@ -1846,6 +1863,7 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
   // Processor drawer: { open, processor } — processor null = create mode.
   const [processorDrawer, setProcessorDrawer] = useState<{ open: boolean; processor: ProcessorDTO | null }>({ open: false, processor: null })
   const [confirmDelete, setConfirmDelete] = useState<
@@ -1854,6 +1872,12 @@ const HelixOrgChart: FC = () => {
     | { kind: 'processor'; id: string }
     | null
   >(null)
+  // Right-click create menu (client coords for MUI Menu positioning).
+  const [ctxMenu, setCtxMenu] = useState<{ mouseX: number; mouseY: number } | null>(null)
+  const openCtxMenu = useCallback((clientX: number, clientY: number) => {
+    setCtxMenu({ mouseX: clientX, mouseY: clientY })
+  }, [])
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), [])
 
   const titleColor = lightTheme.isLight ? 'rgba(0,0,0,0.87)' : 'rgba(255,255,255,0.95)'
   const subtitleColor = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
@@ -2124,6 +2148,14 @@ const HelixOrgChart: FC = () => {
             </Button>
             <Button
               size="small"
+              variant="outlined"
+              startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setTopicDrawerOpen(true)}
+            >
+              Topic
+            </Button>
+            <Button
+              size="small"
               variant="contained"
               color="secondary"
               startIcon={<AddIcon />}
@@ -2136,9 +2168,15 @@ const HelixOrgChart: FC = () => {
           {isLoading ? (
             <Box sx={{ p: 4 }}><LoadingSpinner /></Box>
           ) : flat.length === 0 ? (
-            <Box sx={{ p: 4 }}>
+            <Box
+              sx={{ p: 4, height: '100%', boxSizing: 'border-box' }}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                openCtxMenu(e.clientX, e.clientY)
+              }}
+            >
               <Typography variant="body1" sx={{ color: subtitleColor }}>
-                No bots yet. Click <strong>New bot</strong> to get started.
+                No bots yet. Right-click the canvas or click <strong>New bot</strong> to get started.
               </Typography>
             </Box>
           ) : (
@@ -2152,6 +2190,7 @@ const HelixOrgChart: FC = () => {
                 onUnsubscribeBot={onUnsubscribeBot}
                 onSetProcessorInput={onSetProcessorInput}
                 onLayoutSnapshot={onLayoutSnapshot}
+                onCanvasContextMenu={openCtxMenu}
                 topics={topics}
                 messageCounts={messageCounts}
                 processors={processorSummaries}
@@ -2163,10 +2202,58 @@ const HelixOrgChart: FC = () => {
         </Box>
       </Box>
 
+      <Menu
+        open={ctxMenu !== null}
+        onClose={closeCtxMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={ctxMenu ? { top: ctxMenu.mouseY, left: ctxMenu.mouseX } : undefined}
+        // MUI v5: componentsProps (slotProps is v6+)
+        componentsProps={{
+          root: {
+            onContextMenu: (e: ReactMouseEvent) => {
+              e.preventDefault()
+              closeCtxMenu()
+            },
+          },
+        }}
+      >
+        <MenuItem
+          onClick={() => {
+            closeCtxMenu()
+            setBotDialogOpen(true)
+          }}
+        >
+          <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New bot</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            closeCtxMenu()
+            setTopicDrawerOpen(true)
+          }}
+        >
+          <ListItemIcon><HubOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New topic</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            closeCtxMenu()
+            setProcessorDrawer({ open: true, processor: null })
+          }}
+        >
+          <ListItemIcon><TransformIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>New processor</ListItemText>
+        </MenuItem>
+      </Menu>
+
       <NewBotDialog
         open={botDialogOpen || selection.kind === 'newBot'}
         onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }) }}
         presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
+      />
+      <NewTopicDrawer
+        open={topicDrawerOpen}
+        onClose={() => setTopicDrawerOpen(false)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}

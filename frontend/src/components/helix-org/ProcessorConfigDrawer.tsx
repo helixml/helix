@@ -13,7 +13,6 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
-import Drawer from '@mui/material/Drawer'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import IconButton from '@mui/material/IconButton'
 import Switch from '@mui/material/Switch'
@@ -25,6 +24,8 @@ import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
 
 import useSnackbar from '../../hooks/useSnackbar'
+import MonacoEditor from '../widgets/MonacoEditor'
+import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 import {
   ProcessorDTO,
   useCreateHelixOrgProcessor,
@@ -330,12 +331,12 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const busy = createProc.isPending || updateProc.isPending
 
   return (
-    <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { backgroundImage: 'none' } }}>
-      <Box sx={{ p: 2.5, width: kind === 'js' ? 560 : 460 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h6">{isEdit ? 'Edit processor' : 'New processor'}</Typography>
-          <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
-        </Stack>
+    <HelixOrgSideDrawer
+      open={open}
+      onClose={onClose}
+      title={isEdit ? 'Edit processor' : 'New processor'}
+      width={kind === 'js' ? 560 : 460}
+    >
         <Stack spacing={1.5}>
           <Typography variant="body2" color="text.secondary">
             A processor sits between topics: it reads messages from one topic,
@@ -384,13 +385,31 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             />
           )}
           {kind === 'js' && (
-            <TextField
-              size="small" label="JavaScript (function process)" value={jsCode} fullWidth
-              onChange={(e) => setJsCode(e.target.value)}
-              multiline minRows={12}
-              InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.75rem' } }}
-              helperText="Must define process(event, ctx). Use http.get/post/… for outbound calls. Open help below for the full API."
-            />
+            <Box>
+              <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>
+                JavaScript (function process)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                Must define process(event, ctx). Use http.get/post/… for outbound calls. Open help below for the full API.
+              </Typography>
+              <MonacoEditor
+                value={jsCode}
+                onChange={setJsCode}
+                language="javascript"
+                theme="helix-dark"
+                height={320}
+                minHeight={240}
+                options={{
+                  minimap: { enabled: false },
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                  fontSize: 12,
+                  tabSize: 2,
+                  automaticLayout: true,
+                }}
+              />
+            </Box>
           )}
           {kind === 'truncate' && (
             <TextField
@@ -513,7 +532,11 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                   border: '1px solid rgba(0,0,0,0.08)', borderRadius: 1,
                   backgroundColor: 'rgba(0,0,0,0.025)',
                   fontFamily: 'monospace', fontSize: '0.72rem', lineHeight: 1.4,
-                  whiteSpace: 'pre', overflow: 'auto', maxHeight: 220,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
+                  overflow: 'auto',
+                  maxHeight: 220,
                 }}
               >
                 {prettyJson(sample.raw) || JSON.stringify({ from: sample.from, subject: sample.subject, body: sample.body }, null, 2)}
@@ -528,8 +551,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             <Button variant="text" onClick={onClose}>Cancel</Button>
           </Stack>
         </Stack>
-      </Box>
-    </Drawer>
+    </HelixOrgSideDrawer>
   )
 }
 
