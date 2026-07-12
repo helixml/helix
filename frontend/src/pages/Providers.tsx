@@ -17,7 +17,10 @@ import CustomLogo from '../components/providers/logos/custom';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
+import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
+import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
+import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 
@@ -58,6 +61,8 @@ const Providers: React.FC = () => {
     ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
     : null
   const claudeIsExpired = claudeExpiry?.isExpired ?? false
+  const { data: codexSubscriptions } = useCodexSubscriptions()
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
 
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
@@ -240,6 +245,32 @@ const Providers: React.FC = () => {
               </CardContent>
               <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                 <ClaudeSubscriptionConnect variant="button" />
+              </CardActions>
+            </Card>
+          </Grid>
+        </Grid>
+
+        <Typography variant="h6" sx={{ mb: 1.5 }}>
+          ChatGPT Subscription
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Sign in with ChatGPT to use Codex CLI as the coding agent in desktop sessions.
+        </Typography>
+        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
+          <Grid item xs={12} sm={6} md={4} display="flex" justifyContent="center">
+            <Card sx={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 2, borderStyle: 'dashed', borderWidth: 1, borderColor: hasCodexSubscription ? 'success.main' : 'divider' }}>
+              <CardHeader
+                avatar={<Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}><OpenAILogo style={{ width: 40, height: 40 }} /></Avatar>}
+                title="ChatGPT Subscription"
+                titleTypographyProps={{ variant: 'h6', align: 'center' }}
+              />
+              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  Use your ChatGPT account with Codex CLI inside desktop agents. Not an API key provider.
+                </Typography>
+              </CardContent>
+              <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                <CodexSubscriptionConnect orgId={org?.id} />
               </CardActions>
             </Card>
           </Grid>
@@ -455,4 +486,4 @@ const Providers: React.FC = () => {
   );
 };
 
-export default Providers; 
+export default Providers;
