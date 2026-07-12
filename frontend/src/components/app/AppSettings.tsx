@@ -43,6 +43,7 @@ import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
 
@@ -279,8 +280,11 @@ const AppSettings: FC<AppSettingsProps> = ({
     enabled: true,
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
+  const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
+  const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
   // Advanced settings state. Defaults must match the useEffect re-init below
   // and DEFAULT_VALUES (which mirrors api/pkg/store/store_apps.go).
@@ -626,13 +630,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
                     onUpdate({ code_agent_runtime: newRuntime });
                   }}
                   disabled={readOnly}
                   renderValue={(value) => {
                     if (value === 'claude_code') return 'Claude Code'
+                    if (value === 'codex_cli') return 'Codex'
                     if (value === 'qwen_code') return 'Qwen Code'
                     if (value === 'goose_code') return 'Goose'
                     return 'Zed Agent'
@@ -662,6 +667,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                       </Typography>
                     </Box>
                   </MenuItem>
+                  <MenuItem value="codex_cli">
+                    <Box>
+                      <Typography variant="body2">Codex</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        OpenAI's coding agent
+                      </Typography>
+                    </Box>
+                  </MenuItem>
                   <MenuItem value="goose_code">
                     <Box>
                       <Typography variant="body2">Goose</Typography>
@@ -674,7 +687,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               </FormControl>
             </Box>
 
-            {code_agent_runtime === 'claude_code' ? (
+            {code_agent_runtime === 'claude_code' || code_agent_runtime === 'codex_cli' ? (
               <>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -687,13 +700,19 @@ const AppSettings: FC<AppSettingsProps> = ({
                         const mode = e.target.value as 'subscription' | 'api_key'
                         setClaudeCodeMode(mode)
                         if (mode === 'subscription') {
-                          setGenerationModel('')
-                          setGenerationModelProvider('')
-                          onUpdate({
-                            code_agent_credential_type: 'subscription',
-                            generation_model: '',
-                            generation_model_provider: '',
-                          })
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel('')
+                            setGenerationModelProvider('')
+                            onUpdate({
+                              code_agent_credential_type: 'subscription',
+                              generation_model: '',
+                              generation_model_provider: '',
+                            })
+                          } else {
+                            setModel('')
+                            setProvider('')
+                            onUpdate({ code_agent_credential_type: 'subscription', model: '', provider: '' })
+                          }
                         } else {
                           onUpdate({ code_agent_credential_type: 'api_key' })
                         }
@@ -702,11 +721,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="subscription"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasClaudeSubscription}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasClaudeSubscription : !hasCodexSubscription)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Claude Subscription</Typography>
-                            {hasClaudeSubscription ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Claude Subscription' : 'ChatGPT Subscription'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasClaudeSubscription : hasCodexSubscription) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
@@ -717,11 +738,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="api_key"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasAnthropicProvider}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasAnthropicProvider : !hasOpenAIProvider)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Anthropic API Key</Typography>
-                            {hasAnthropicProvider ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Anthropic API Key' : 'OpenAI API Key'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasAnthropicProvider : hasOpenAIProvider) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not configured)</Typography>
@@ -731,12 +754,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                       />
                     </RadioGroup>
                   </FormControl>
-                  {!hasClaudeSubscription && !hasAnthropicProvider && (
+                  {!(code_agent_runtime === 'claude_code' ? hasClaudeSubscription || hasAnthropicProvider : hasCodexSubscription || hasOpenAIProvider) && (
                     <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
-                      Connect a Claude subscription or add an Anthropic API key in Settings &gt; Providers.
+                      Connect a {code_agent_runtime === 'claude_code' ? 'Claude' : 'ChatGPT'} subscription or add an {code_agent_runtime === 'claude_code' ? 'Anthropic' : 'OpenAI'} API key in Settings &gt; Providers.
                     </Typography>
                   )}
-                  {claudeCodeMode === 'subscription' && (
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
                     <Box sx={{ mt: 1.5 }}>
                       <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                         Model
@@ -770,16 +793,19 @@ const AppSettings: FC<AppSettingsProps> = ({
                     </Typography>
                     <AdvancedModelPicker
                       recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                      hint="Select the Claude model for code generation"
-                      selectedProvider={generation_model_provider}
-                      selectedModelId={generation_model}
+                      hint={`Select the ${code_agent_runtime === 'claude_code' ? 'Claude' : 'OpenAI'} model for code generation`}
+                      selectedProvider={code_agent_runtime === 'claude_code' ? generation_model_provider : provider}
+                      selectedModelId={code_agent_runtime === 'claude_code' ? generation_model : model}
                       onSelectModel={(provider, modelId) => {
-                        setGenerationModel(modelId);
-                        setGenerationModelProvider(provider);
-                        onUpdate({
-                          generation_model: modelId,
-                          generation_model_provider: provider,
-                        });
+                        if (code_agent_runtime === 'claude_code') {
+                          setGenerationModel(modelId)
+                          setGenerationModelProvider(provider)
+                          onUpdate({ generation_model: modelId, generation_model_provider: provider })
+                        } else {
+                          setModel(modelId)
+                          setProvider(provider)
+                          onUpdate({ model: modelId, provider })
+                        }
                       }}
                       currentType="text"
                       displayMode="short"
