@@ -17,13 +17,15 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // SettingsPath and KeymapPath are vars (not consts) so unit tests can point
 // them at a tempdir without touching the real Zed config.
 var (
-	SettingsPath = "/home/retro/.config/zed/settings.json"
-	KeymapPath   = "/home/retro/.config/zed/keymap.json"
+	SettingsPath    = "/home/retro/.config/zed/settings.json"
+	KeymapPath      = "/home/retro/.config/zed/keymap.json"
+	CodexConfigPath = "/home/retro/.codex/config.toml"
 )
 
 const (
@@ -254,6 +256,10 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 
 	case "codex_cli":
+		if err := ensureCodexNonInteractiveConfig(CodexConfigPath); err != nil {
+			log.Printf("Failed to configure Codex non-interactive permissions: %v", err)
+			return nil
+		}
 		env := map[string]interface{}{
 			"CODEX_HOME": "/home/retro/.codex",
 		}
@@ -368,6 +374,36 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		log.Printf("Using zed_agent runtime (no agent_servers needed), api_type=%s", d.codeAgentConfig.APIType)
 		return nil
 	}
+}
+
+func ensureCodexNonInteractiveConfig(path string) error {
+	config := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := toml.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("parse existing Codex config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing Codex config: %w", err)
+	}
+
+	config["approval_policy"] = "never"
+	config["sandbox_mode"] = "danger-full-access"
+	data, err = toml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal Codex config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create Codex config directory: %w", err)
+	}
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("write Codex config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install Codex config: %w", err)
+	}
+	return nil
 }
 
 // writeGooseConfig writes ${xdgConfigHome}/goose/config.yaml so the goose acp
