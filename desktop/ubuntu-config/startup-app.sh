@@ -70,6 +70,16 @@ mkdir -p $QWEN_DATA_DIR
 rm -rf ~/.qwen && ln -sf $QWEN_DATA_DIR ~/.qwen
 gow_log "[start] Qwen data directory set: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
+# Codex stores ACP rollouts under ~/.codex. Keep them with the session
+# workspace so a recreated desktop can resume the Zed thread it advertises.
+CODEX_STATE_DIR=$WORK_DIR/.codex-state
+mkdir -p $CODEX_STATE_DIR
+if [ -d ~/.codex ] && [ ! -L ~/.codex ]; then
+    cp -a ~/.codex/. $CODEX_STATE_DIR/
+fi
+rm -rf ~/.codex && ln -sf $CODEX_STATE_DIR ~/.codex
+gow_log "[start] Codex state directory set: $CODEX_STATE_DIR"
+
 # Note: RevDial client is now integrated into desktop-bridge
 
 # Disable IBus Input Method Framework
