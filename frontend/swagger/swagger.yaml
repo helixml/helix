@@ -29,6 +29,10 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      agent_model:
+        type: string
+      agent_runtime:
+        type: string
       agent_status:
         description: |-
           AgentStatus is "running" when the bot's desktop sandbox is online,

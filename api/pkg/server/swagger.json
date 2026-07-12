@@ -21644,6 +21644,12 @@
         "api.BotDTO": {
             "type": "object",
             "properties": {
+                "agent_model": {
+                    "type": "string"
+                },
+                "agent_runtime": {
+                    "type": "string"
+                },
                 "agent_status": {
                     "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
                     "type": "string"

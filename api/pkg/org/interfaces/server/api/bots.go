@@ -61,8 +61,12 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 		// get status from the runtime sidecar + session metadata.
 		dto.AgentStatus = "stopped"
 		if b.Kind != orgchart.BotKindHuman && a.deps.BotRuntime != nil {
-			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil && info.AgentStatus != "" {
-				dto.AgentStatus = info.AgentStatus
+			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
+				if info.AgentStatus != "" {
+					dto.AgentStatus = info.AgentStatus
+				}
+				dto.AgentRuntime = info.Runtime
+				dto.AgentModel = info.Model
 			}
 		}
 		out = append(out, dto)
@@ -184,6 +188,8 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 			if info.AgentStatus != "" {
 				detail.Bot.AgentStatus = info.AgentStatus
 			}
+			detail.Bot.AgentRuntime = info.Runtime
+			detail.Bot.AgentModel = info.Model
 			writeJSON(w, http.StatusOK, detail)
 			return
 		}

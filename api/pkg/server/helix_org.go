@@ -151,6 +151,7 @@ type orgWorkerRuntime struct {
 	st       *helixorgstore.Store
 	sessions interface {
 		GetSession(ctx context.Context, id string) (*types.Session, error)
+		GetApp(ctx context.Context, id string) (*types.App, error)
 	}
 }
 
@@ -164,6 +165,13 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 		AgentAppID:  s.AgentAppID,
 		SessionID:   s.SessionID,
 		AgentStatus: "stopped",
+	}
+	if s.AgentAppID != "" && o.sessions != nil {
+		if app, err := o.sessions.GetApp(ctx, s.AgentAppID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
+			assistant := app.Config.Helix.Assistants[0]
+			info.Runtime = string(assistant.CodeAgentRuntime)
+			info.Model = assistant.Model
+		}
 	}
 	// Resolve sandbox online-ness from the session metadata the desktop
 	// stack already maintains (external_agent_status). Missing session

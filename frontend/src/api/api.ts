@@ -30,6 +30,8 @@ export interface ApiBotChatDTO {
 }
 
 export interface ApiBotDTO {
+  agent_model?: string;
+  agent_runtime?: string;
   /**
    * AgentStatus is "running" when the bot's desktop sandbox is online,
    * "stopped" otherwise (no session, paused, never activated). Drives

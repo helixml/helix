@@ -57,9 +57,11 @@ type BotDTO struct {
 	// AgentStatus is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.
-	AgentStatus string `json:"agent_status,omitempty"`
-	CreatedAt   string            `json:"created_at,omitempty"`
-	UpdatedAt   string            `json:"updated_at,omitempty"`
+	AgentStatus  string `json:"agent_status,omitempty"`
+	AgentRuntime string `json:"agent_runtime,omitempty"`
+	AgentModel   string `json:"agent_model,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 // BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
