@@ -205,6 +205,27 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
+		{
+			name: "codex_cli subscription mode",
+			assistant: &types.AssistantConfig{
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			want: &types.CodeAgentConfig{AgentName: "codex", Runtime: types.CodeAgentRuntimeCodexCLI},
+		},
+		{
+			name: "codex_cli api key mode",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "openai",
+				GenerationModel:         "gpt-5.3-codex",
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "gpt-5.3-codex", AgentName: "codex",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeCodexCLI,
+			},
+		},
 	}
 
 	for _, tt := range tests {
