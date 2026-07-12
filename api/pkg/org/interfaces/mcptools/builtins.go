@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/projects"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -74,6 +75,10 @@ type Deps struct {
 	// (start_bot / stop_bot / restart_bot). Same service as the REST
 	// activate / stop-agent / restart-agent endpoints.
 	Activations *activations.Activations
+	// Processors owns create/update/delete/list of Topic processors
+	// (template, truncate, filter, js). Same service as the REST
+	// /processors handlers. nil → processor tools report "not wired".
+	Processors *processors.Processors
 
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
@@ -152,6 +157,10 @@ type Config struct {
 	// Built at the composition root (needs project ensurer + stop/reset
 	// ports). nil → those tools report "not wired".
 	Activations *activations.Activations
+	// Processors, when set, is used by create/list/get/update/delete
+	// processor tools. Built at the composition root (needs topics
+	// provisioners). nil → Build() constructs one from Store when possible.
+	Processors *processors.Processors
 	// HumanInbox delivers ask_human messages to a person's in-app inbox.
 	// nil → ask_human reports the inbox as unavailable.
 	HumanInbox HumanInbox
@@ -168,6 +177,7 @@ func (c Config) Build() Deps {
 		Publishing:          c.publishingService(),
 		Lifecycle:           c.lifecycleService(),
 		Activations:         c.Activations,
+		Processors:          c.processorsService(),
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
@@ -177,6 +187,24 @@ func (c Config) Build() Deps {
 		Hub:                 c.Hub,
 		HumanInbox:          c.HumanInbox,
 	}
+}
+
+// processorsService returns the pre-built Processors service when the
+// composition root supplied one; otherwise builds a standalone service
+// over the store (tests / DefaultDeps).
+func (c Config) processorsService() *processors.Processors {
+	if c.Processors != nil {
+		return c.Processors
+	}
+	if c.Store == nil {
+		return nil
+	}
+	return processors.New(processors.Deps{
+		Processors: c.Store.Processors,
+		Topics:     c.topicsService(),
+		Now:        c.Now,
+		NewID:      c.NewID,
+	})
 }
 
 // repositoriesPort returns the configured Repositories port, defaulting to
@@ -372,6 +400,11 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&DM{deps: deps},
 		&AskHuman{deps: deps},
 		&ConfigureBotProject{deps: deps},
+		// Processors — topic transforms/filters/js. Mutations are
+		// OwnerBotTools; list/get are BaseReadTools.
+		&CreateProcessor{deps: deps},
+		&UpdateProcessor{deps: deps},
+		&DeleteProcessor{deps: deps},
 		// Agent desktop lifecycle — same as REST activate / stop-agent /
 		// restart-agent. OwnerBotTools grants these to Chief of Staff.
 		NewStartBot(deps),
@@ -411,6 +444,8 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&ListTopicEvents{deps: deps},
 		&ReadEvents{deps: deps},
 		&BotLog{deps: deps},
+		&ListProcessors{deps: deps},
+		&GetProcessor{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {

@@ -842,6 +842,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Resetter:   sessionResetter,
 	})
 	deps.Activations = svc.Activations
+	// Share the processors service with MCP tools so create_processor uses
+	// the same auto-provision + cycle-check path as REST /processors.
+	deps.Processors = svc.Processors
 
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {

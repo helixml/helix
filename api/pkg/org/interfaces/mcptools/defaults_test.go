@@ -24,6 +24,8 @@ func TestBaseReadToolsGolden(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		ListProcessorsName,
+		GetProcessorName,
 	}
 	if !reflect.DeepEqual(BaseReadTools, want) {
 		t.Fatalf("BaseReadTools drifted from golden list.\n got: %v\nwant: %v", BaseReadTools, want)
@@ -54,6 +56,8 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 		ReadEventsName:      &ReadEvents{deps: deps},
 		BotLogName:          &BotLog{deps: deps},
 		MintCredentialName:  &MintCredential{deps: deps},
+		ListProcessorsName:  &ListProcessors{deps: deps},
+		GetProcessorName:    &GetProcessor{deps: deps},
 	}
 	for _, name := range BaseReadTools {
 		impl, ok := baselineImpls[name]
@@ -101,6 +105,8 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		ListProcessorsName,
+		GetProcessorName,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("merge drifted.\n got: %v\nwant: %v", got, want)

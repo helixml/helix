@@ -11,9 +11,17 @@ import (
 )
 
 const (
-	defaultExternalAgentModel        = "gpt-4"
+	defaultExternalAgentModel = "gpt-4"
 	defaultExternalAgentReadyTimeout = 300 * time.Second
-	defaultExternalAgentWaitTimeout  = 180 * time.Second
+	// Idle bound for an in-flight external-agent turn. Each stream chunk and
+	// each recent DB update (message_added / tool_call streaming) resets the
+	// timer. Agent turns routinely run for many minutes to hours (ticket
+	// batches, test suites, large refactors); the previous 180s absolute
+	// timeout marked productive turns as "External agent response timeout"
+	// while the agent was still working (see ses_01kx9j19 / int_01kx9n95).
+	defaultExternalAgentWaitTimeout = 2 * time.Hour
+	// Hard cap on a single wait regardless of activity — runaway guard only.
+	defaultExternalAgentMaxWait = 24 * time.Hour
 )
 
 type ExternalAgentMode string
@@ -122,7 +130,7 @@ func (c *Controller) RunExternalAgent(ctx context.Context, req RunExternalAgentR
 	// the waiter channels and with NotifyExternalAgentOfNewInteraction's
 	// convention. A synthetic req_<nano> id diverged from the int_… id used
 	// by the notify path, which caused message_completed to miss doneChan
-	// and the 180s timeout to clobber a finished reply.
+	// and the idle timeout to clobber a finished reply.
 	requestID := interaction.ID
 	agentName := "zed-agent"
 	if hooks.GetAgentNameForSession != nil {
@@ -241,9 +249,38 @@ func (c *Controller) waitForExternalAgentResponse(
 	errorChan chan error,
 	onChunk func(chunk string) error,
 ) (string, error) {
-	timeout := time.NewTimer(req.ResponseTimeout)
-	defer timeout.Stop()
+	idleTimeout := req.ResponseTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultExternalAgentWaitTimeout
+	}
+	// Poll the DB periodically so activity that only lands via the
+	// message_added / tool_call path (no responseChan chunk) still extends
+	// the idle timer. Interval is a fraction of the idle bound, floor 15s.
+	activityPollEvery := idleTimeout / 4
+	if activityPollEvery > 30*time.Second {
+		activityPollEvery = 30 * time.Second
+	}
+	if activityPollEvery < 15*time.Second {
+		activityPollEvery = 15 * time.Second
+	}
 
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+	resetIdle := func() {
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idleTimeout)
+	}
+
+	activityTicker := time.NewTicker(activityPollEvery)
+	defer activityTicker.Stop()
+
+	lastSeenLen := 0
+	var lastSeenUpdated time.Time
 	var fullResponse string
 	for {
 		select {
@@ -251,6 +288,7 @@ func (c *Controller) waitForExternalAgentResponse(
 			return "", ctx.Err()
 		case chunk := <-responseChan:
 			fullResponse += chunk
+			resetIdle()
 			if onChunk != nil {
 				if err := onChunk(chunk); err != nil {
 					return "", err
@@ -299,22 +337,76 @@ func (c *Controller) waitForExternalAgentResponse(
 		case err := <-errorChan:
 			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, err.Error(), fullResponse)
 			return "", fmt.Errorf("external agent error: %w", err)
-		case <-timeout.C:
+		case <-activityTicker.C:
+			// Soft check: if the interaction is still growing via the WS
+			// path, keep waiting. Absolute runaway is enforced on idle fire.
+			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
+			reloaded, reloadErr := c.Options.Store.GetInteraction(reloadCtx, interaction.ID)
+			cancelReload()
+			if reloadErr != nil || reloaded == nil {
+				continue
+			}
+			if reloaded.State == types.InteractionStateComplete ||
+				reloaded.State == types.InteractionStateInterrupted {
+				log.Info().
+					Str("session_id", req.Session.ID).
+					Str("interaction_id", interaction.ID).
+					Str("request_id", requestID).
+					Str("state", string(reloaded.State)).
+					Msg("external agent wait: interaction already terminal on activity poll")
+				*interaction = *reloaded
+				return reloaded.ResponseMessage, nil
+			}
+			grew := len(reloaded.ResponseMessage) > lastSeenLen ||
+				(!reloaded.Updated.IsZero() && reloaded.Updated.After(lastSeenUpdated))
+			if grew {
+				lastSeenLen = len(reloaded.ResponseMessage)
+				lastSeenUpdated = reloaded.Updated
+				if reloaded.ResponseMessage != "" {
+					fullResponse = reloaded.ResponseMessage
+				}
+				resetIdle()
+			}
+		case <-idleTimer.C:
 			// message_completed may have already completed the interaction
 			// without unblocking this waiter (request_id mismatch). Treat
 			// an already-complete row as success rather than erroring it.
 			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
 			reloaded, reloadErr := c.Options.Store.GetInteraction(reloadCtx, interaction.ID)
 			cancelReload()
-			if reloadErr == nil && reloaded != nil && reloaded.State == types.InteractionStateComplete {
-				log.Info().
-					Str("session_id", req.Session.ID).
-					Str("interaction_id", interaction.ID).
-					Str("request_id", requestID).
-					Int("response_len", len(reloaded.ResponseMessage)).
-					Msg("external agent wait timed out but interaction already complete — treating as success")
-				*interaction = *reloaded
-				return reloaded.ResponseMessage, nil
+			if reloadErr == nil && reloaded != nil {
+				if reloaded.State == types.InteractionStateComplete ||
+					reloaded.State == types.InteractionStateInterrupted {
+					log.Info().
+						Str("session_id", req.Session.ID).
+						Str("interaction_id", interaction.ID).
+						Str("request_id", requestID).
+						Int("response_len", len(reloaded.ResponseMessage)).
+						Msg("external agent wait timed out but interaction already terminal — treating as success")
+					*interaction = *reloaded
+					return reloaded.ResponseMessage, nil
+				}
+				// Still actively streaming via DB (tool calls, message_added)
+				// without responseChan chunks — extend idle rather than fail.
+				stillActive := len(reloaded.ResponseMessage) > lastSeenLen ||
+					(!reloaded.Updated.IsZero() && time.Since(reloaded.Updated) < idleTimeout)
+				if stillActive && time.Since(req.Start) < defaultExternalAgentMaxWait {
+					lastSeenLen = len(reloaded.ResponseMessage)
+					lastSeenUpdated = reloaded.Updated
+					if reloaded.ResponseMessage != "" {
+						fullResponse = reloaded.ResponseMessage
+					}
+					log.Info().
+						Str("session_id", req.Session.ID).
+						Str("interaction_id", interaction.ID).
+						Str("request_id", requestID).
+						Int("response_len", len(reloaded.ResponseMessage)).
+						Time("interaction_updated", reloaded.Updated).
+						Dur("elapsed", time.Since(req.Start)).
+						Msg("external agent still active — extending idle wait")
+					resetIdle()
+					continue
+				}
 			}
 
 			c.markExternalAgentInteractionError(req.Session, interaction, req.Start, "External agent response timeout", fullResponse)

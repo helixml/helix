@@ -1,6 +1,7 @@
 package processor_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ func newTemplateProc(t *testing.T, tmpl string) processor.Processor {
 
 func TestTemplateRendersBody(t *testing.T) {
 	p := newTemplateProc(t, "BODY: {{ .Message.body }}")
-	res, err := p.Process(streaming.Message{Body: "hello world"})
+	res, err := p.Process(context.Background(), streaming.Message{Body: "hello world"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestTemplateRendersBody(t *testing.T) {
 
 func TestTemplateRendersFromAndSubject(t *testing.T) {
 	p := newTemplateProc(t, "From {{ .Message.from }}: {{ .Message.subject }}")
-	res, err := p.Process(streaming.Message{From: "alice@x.com", Subject: "Invoice #7"})
+	res, err := p.Process(context.Background(), streaming.Message{From: "alice@x.com", Subject: "Invoice #7"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestTemplateUnknownKeyRendersPlaceholder(t *testing.T) {
 	// rather than erroring — surfacing a typo without dropping the
 	// message. (Set-but-empty *known* fields render "", see below.)
 	p := newTemplateProc(t, "[{{ .Message.nonexistent }}]")
-	res, err := p.Process(streaming.Message{Body: "x"})
+	res, err := p.Process(context.Background(), streaming.Message{Body: "x"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestTemplateUnknownKeyRendersPlaceholder(t *testing.T) {
 func TestTemplateSetButEmptyFieldRendersEmpty(t *testing.T) {
 	// An omitempty field that is unset is still a present key (renders "").
 	p := newTemplateProc(t, "s=[{{ .Message.subject }}]")
-	res, err := p.Process(streaming.Message{Body: "x"})
+	res, err := p.Process(context.Background(), streaming.Message{Body: "x"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestTemplateSetButEmptyFieldRendersEmpty(t *testing.T) {
 
 func TestTemplateFuncMap(t *testing.T) {
 	p := newTemplateProc(t, `{{ upper .Message.from }}|{{ default "anon" .Message.subject }}|{{ trunc 3 .Message.body }}`)
-	res, err := p.Process(streaming.Message{From: "bob", Body: "abcdef"})
+	res, err := p.Process(context.Background(), streaming.Message{From: "bob", Body: "abcdef"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -189,7 +190,7 @@ func TestEmptyInputIsValid(t *testing.T) {
 
 func TestKindValuesCanonicalOrder(t *testing.T) {
 	got := processor.KindValues()
-	want := []processor.Kind{processor.KindTemplate, processor.KindTruncate, processor.KindFilter}
+	want := []processor.Kind{processor.KindTemplate, processor.KindTruncate, processor.KindFilter, processor.KindJS}
 	if len(got) != len(want) {
 		t.Fatalf("KindValues len = %d, want %d", len(got), len(want))
 	}
