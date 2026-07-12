@@ -171,15 +171,16 @@ func buildParameters(inputSchema mcp.ToolInputSchema) jsonschema.Definition {
 	}
 
 	// Always ensure we return an object type schema with properties
-	// This is required by the OpenAI function calling API
-	// Even if the MCP tool doesn't specify a type, we must return "object"
+	// This is required by the OpenAI/Anthropic function calling API: the
+	// parameters object MUST declare "type": "object" even when the tool
+	// takes no arguments. Setting it only when properties exist makes
+	// zero-argument MCP tools serialize without a type, which the model API
+	// rejects with `tools.N.function.parameters.type: Field required`,
+	// poisoning the entire tools array for the request.
 	result := jsonschema.Definition{
+		Type:       jsonschema.Object,
 		Properties: properties,
 		Required:   required,
-	}
-
-	if len(result.Properties) > 0 {
-		result.Type = jsonschema.Object
 	}
 
 	log.Debug().
