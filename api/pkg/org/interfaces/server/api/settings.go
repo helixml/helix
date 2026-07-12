@@ -186,9 +186,9 @@ func (a *apiHandler) reapplyBotsAfterRuntimeChange(ctx context.Context, orgID st
 
 // runtimeConfigComplete reports whether the org's Default Bot Runtime has
 // every field a Bot needs to provision. It mirrors resolveWorkerAgentConfig's
-// coercion (server package): a non-claude runtime is always api_key and needs
-// a provider + model; claude_code defaults to subscription (no provider/model
-// needed) unless credentials is explicitly api_key. Used to hold off
+// coercion (server package): runtimes without subscription support are always
+// api_key and need a provider + model; claude_code and codex_cli default to
+// subscription unless credentials is explicitly api_key. Used to hold off
 // provisioning until a half-written config is fully in place.
 func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bool {
 	if a.deps.Configs == nil {
@@ -199,17 +199,21 @@ func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bo
 		return false
 	}
 	credentials, _ := a.deps.Configs.GetString(ctx, orgID, "worker.credentials")
-	if runtime != "claude_code" {
-		credentials = "api_key" // subscription is only meaningful for claude_code
+	if !runtimeSupportsSubscription(runtime) {
+		credentials = "api_key"
 	} else if credentials == "" {
 		credentials = "subscription"
 	}
 	if credentials == "subscription" {
-		return true // claude_code via OAuth — no provider/model needed
+		return true
 	}
 	provider, _ := a.deps.Configs.GetString(ctx, orgID, "worker.provider")
 	model, _ := a.deps.Configs.GetString(ctx, orgID, "worker.model")
 	return provider != "" && model != ""
+}
+
+func runtimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // deleteSetting removes the config row for the given key, falling back to defaults.

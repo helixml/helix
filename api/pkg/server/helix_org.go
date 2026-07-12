@@ -1195,7 +1195,7 @@ func buildHelixOrgProjectApplier(
 // them into the (runtime, credentials, provider, model) tuple that
 // matches Helix's per-agent UI:
 //
-//   - claude_code + subscription → no provider/model (CLI authenticates via OAuth)
+//   - claude_code/codex_cli + subscription → no provider/model (CLI authenticates via OAuth)
 //   - claude_code + api_key       → provider+model required, inference via Helix's anthropic provider
 //   - zed_agent (or other)        → provider+model required, always Helix-routed (credentials forced to "api_key")
 //
@@ -1211,14 +1211,18 @@ func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregi
 	if credentials == "" {
 		credentials = "subscription"
 	}
-	if runtime != "claude_code" {
-		credentials = "api_key" // subscription is only meaningful for claude_code
+	if !workerRuntimeSupportsSubscription(runtime) {
+		credentials = "api_key"
 	}
 	if credentials == "api_key" {
 		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
 		model, _ = cfg.GetString(ctx, orgID, "worker.model")
 	}
 	return runtime, credentials, provider, model
+}
+
+func workerRuntimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // buildInProcHelixClient resolves the service-account *types.User and
