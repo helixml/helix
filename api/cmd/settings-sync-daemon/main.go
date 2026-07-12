@@ -261,7 +261,8 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 			return nil
 		}
 		env := map[string]interface{}{
-			"CODEX_HOME": "/home/retro/.codex",
+			"CODEX_HOME":         "/home/retro/.codex",
+			"INITIAL_AGENT_MODE": "agent-full-access",
 		}
 		if d.codeAgentConfig.BaseURL != "" {
 			env["OPENAI_BASE_URL"] = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
@@ -278,7 +279,7 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 		config := map[string]interface{}{
 			"type":         "registry",
-			"default_mode": "full-access",
+			"default_mode": "agent-full-access",
 			"env":          env,
 		}
 		if d.codeAgentConfig.Model != "" {

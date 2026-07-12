@@ -570,7 +570,10 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	cfg := d.generateAgentServerConfig()
 	codex, ok := cfg["codex-acp"].(map[string]interface{})
 	assert.True(t, ok)
-	assert.Equal(t, "full-access", codex["default_mode"])
+	assert.Equal(t, "agent-full-access", codex["default_mode"])
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "agent-full-access", env["INITIAL_AGENT_MODE"])
 
 	data, err := os.ReadFile(CodexConfigPath)
 	assert.NoError(t, err)
