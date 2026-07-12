@@ -563,6 +563,12 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publ
 	for {
 		out, err := c.Client.GetOutput(ctx, sessionID)
 		if err != nil {
+			// Restart deletes the old session before enqueueing a replacement
+			// activation. The old activation must release its per-bot queue
+			// lane instead of polling a session that can never reappear.
+			if errors.Is(err, ErrSessionNotFound) {
+				return nil
+			}
 			// Don't fail the activation on a transient poll error; just
 			// back off and retry until the timeout fires.
 			if c.Logger != nil {

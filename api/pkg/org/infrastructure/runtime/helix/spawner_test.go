@@ -46,6 +46,7 @@ type fakeHelixClient struct {
 	// prior conversation ahead of dispatching the new prompt.
 	clearedBeforeSend bool
 	clearErr          error
+	outputErr         error
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -96,6 +97,9 @@ func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) erro
 }
 
 func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
+	if f.outputErr != nil {
+		return types.SessionOutputResponse{}, f.outputErr
+	}
 	i := int(atomic.AddInt32(&f.outputCalls, 1)) - 1
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -505,6 +509,21 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenRestartDeletesSession(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_deleted",
+		outputErr:      fmt.Errorf("poll: %w", ErrSessionNotFound),
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sp := Spawner(cfg)
+
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("deleted session should end the superseded activation cleanly: %v", err)
 	}
 }
 
