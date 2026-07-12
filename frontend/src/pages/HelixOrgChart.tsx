@@ -60,7 +60,13 @@ import {
   loadChartViewport,
   saveChartViewport,
 } from '../components/helix-org/chartViewportStorage'
-import { focusChatBot } from '../components/helix-org/chatBotFocus'
+import {
+  CHAT_BOT_FOCUS_EVENT,
+  ChatBotFocusDetail,
+  focusChatBot,
+  isValidBotId,
+  loadFocusedBotId,
+} from '../components/helix-org/chatBotFocus'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
@@ -162,6 +168,8 @@ type BotNodeData = {
   botName: string
   // running = desktop sandbox online; stopped (or missing) = offline.
   agentStatus: 'running' | 'stopped'
+  /** True when the left chat rail is focused on this bot. */
+  selected: boolean
   /** Card body click — focus the left chat rail on this bot. */
   onSelectBot: (botId: string) => void
   /** ⋮ → Details — open the bot detail page. */
@@ -345,14 +353,20 @@ const SubSideHandles: FC<{ size?: number }> = ({ size = 16 }) => (
 const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
-  const border = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  const idleBorder = lightTheme.isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+  // Cyan accent matches chat-focus / brand highlight (sidebar active, search selected).
+  const selectedBorder = lightTheme.isLight ? 'rgba(14,116,144,0.9)' : 'rgba(0,213,255,0.75)'
+  const selectedRing = lightTheme.isLight ? 'rgba(14,116,144,0.18)' : 'rgba(0,213,255,0.22)'
   // Fully opaque cards so the graph reads as solid nodes, not glass.
   const bg = lightTheme.isLight ? '#ffffff' : '#2a2a2e'
+  const selectedBg = lightTheme.isLight ? '#f0fafc' : '#1e2a30'
   const hoverBg = lightTheme.isLight ? '#f7f7f8' : '#323236'
+  const selectedHoverBg = lightTheme.isLight ? '#e8f6f9' : '#243440'
   const handleColor = lightTheme.isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
   const [menuEl, setMenuEl] = useState<null | HTMLElement>(null)
 
   const online = data.agentStatus === 'running'
+  const selected = !!data.selected
   const statusColor = online ? 'rgb(46, 160, 67)' : (lightTheme.isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.28)')
   const statusLabel = online ? 'Agent sandbox online' : 'Agent sandbox stopped'
 
@@ -361,20 +375,25 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   return (
     <Box
       onClick={(e) => { e.stopPropagation(); data.onSelectBot(data.botId) }}
+      aria-selected={selected}
       sx={{
         width: BOT_W,
         height: BOT_H,
-        border: `1px solid ${border}`,
+        boxSizing: 'border-box',
+        border: selected ? `2px solid ${selectedBorder}` : `1px solid ${idleBorder}`,
         borderRadius: 1.5,
-        backgroundColor: bg,
-        boxShadow: lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)',
+        backgroundColor: selected ? selectedBg : bg,
+        boxShadow: selected
+          ? `0 0 0 3px ${selectedRing}, ${lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.06)' : '0 1px 2px rgba(0,0,0,0.4)'}`
+          : (lightTheme.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 2px rgba(0,0,0,0.35)'),
         p: 1.5,
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
         cursor: 'grab',
         position: 'relative',
-        '&:hover': { backgroundColor: hoverBg },
+        transition: 'border-color 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease',
+        '&:hover': { backgroundColor: selected ? selectedHoverBg : hoverBg },
         '&:active': { cursor: 'grabbing' },
       }}
     >
@@ -775,6 +794,8 @@ const buildGraph = (
   // Saved free-placed coordinates keyed by `${kind}:${id}`. Missing
   // entries keep the auto-layout position for that node.
   savedPositions: ChartPositionMap = {},
+  // Bot id currently focused in the left chat rail (highlights that card).
+  selectedBotId: string = '',
 ): { nodes: Node[]; edges: Edge[] } => {
   const place = (kind: string, id: string, auto: { x: number; y: number }) =>
     savedPositions[chartPositionKey(kind, id)] ?? auto
@@ -829,6 +850,7 @@ const buildGraph = (
         botId: b.id,
         botName: b.name,
         agentStatus: b.agentStatus,
+        selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
         onNewBot: handlers.onNewBot,
@@ -1497,7 +1519,9 @@ const ChartCanvas: FC<{
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
   savedPositions: ChartPositionMap
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions }) => {
+  /** Bot id currently focused in the left chat rail. */
+  selectedBotId: string
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions, selectedBotId }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
@@ -1513,8 +1537,8 @@ const ChartCanvas: FC<{
   const viewportScopeRef = useRef('')
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions),
-    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions],
+    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions, selectedBotId),
+    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions, selectedBotId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -1931,10 +1955,34 @@ const HelixOrgChart: FC = () => {
   const canvasBg = lightTheme.isLight ? '#fafafa' : 'rgba(255,255,255,0.02)'
 
   const orgSlug = (router.params.org_id as string | undefined) ?? ''
+  // Which bot card shows the active/selected chrome — kept in sync with the
+  // left chat rail via focusChatBot (click, dropdown, or restore).
+  const [selectedBotId, setSelectedBotId] = useState<string>(() =>
+    orgSlug ? (loadFocusedBotId(orgSlug) ?? '') : '',
+  )
+  // Re-read storage when org changes (same component instance, different slug).
+  useEffect(() => {
+    if (!orgSlug) {
+      setSelectedBotId('')
+      return
+    }
+    setSelectedBotId(loadFocusedBotId(orgSlug) ?? '')
+  }, [orgSlug])
+  // Chart click, chat dropdown, and any other focusChatBot caller.
+  useEffect(() => {
+    const onFocus = (ev: Event) => {
+      const detail = (ev as CustomEvent<ChatBotFocusDetail>).detail
+      if (!detail || detail.orgId !== orgSlug || !isValidBotId(detail.botId)) return
+      setSelectedBotId(detail.botId)
+    }
+    window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+    return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
+  }, [orgSlug])
   // Card body click → focus left chat rail on this bot (stay on chart).
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
+      setSelectedBotId(botId)
       focusChatBot(orgSlug, botId)
     },
     [orgSlug],
@@ -2241,6 +2289,7 @@ const HelixOrgChart: FC = () => {
                 messageCounts={messageCounts}
                 processors={processorSummaries}
                 savedPositions={savedPositions}
+                selectedBotId={selectedBotId}
               />
             </ReactFlowProvider>
           )}

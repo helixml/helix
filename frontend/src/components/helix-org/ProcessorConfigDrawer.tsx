@@ -407,6 +407,12 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                   fontSize: 12,
                   tabSize: 2,
                   automaticLayout: true,
+                  // Custom runtime (http.*, process(event, ctx)) is not browser JS.
+                  // Hide Monaco validation decorations so the overview ruler doesn't
+                  // show a red error mark beside the scrollbar for false positives.
+                  renderValidationDecorations: 'off',
+                  overviewRulerLanes: 0,
+                  hideCursorInOverviewRuler: true,
                 }}
               />
             </Box>
