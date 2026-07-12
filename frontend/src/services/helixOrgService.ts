@@ -33,10 +33,7 @@ import {
 // optional; consumers use them as if fields are present. strict
 // null checks are off project-wide so plain aliases suffice.
 export type BotBadge = ApiBotBadge
-// agent_status is populated by GET /bots (not yet in the generated OpenAPI
-// client): "running" when the bot's desktop sandbox is online, "stopped"
-// otherwise. Drives the org-chart presence dots.
-export type BotDTO = ApiBotDTO & { agent_status?: 'running' | 'stopped' | string }
+export type BotDTO = ApiBotDTO
 export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
@@ -1063,4 +1060,3 @@ export function useClearChartPositions() {
     },
   })
 }
-

@@ -77,6 +77,7 @@ import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { CODE_AGENT_RUNTIME_DISPLAY_NAMES, CodeAgentRuntime, getModelDisplayName } from '../contexts/apps'
 import {
   BotDTO,
   ChartPositionMap,
@@ -159,6 +160,8 @@ type FlatBot = {
   parentIds: string[]
   // Desktop sandbox online-ness for the presence dot.
   agentStatus: 'running' | 'stopped'
+  agentRuntime: string
+  agentModel: string
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -168,6 +171,8 @@ type BotNodeData = {
   botName: string
   // running = desktop sandbox online; stopped (or missing) = offline.
   agentStatus: 'running' | 'stopped'
+  agentRuntime: string
+  agentModel: string
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
   /** Card body click — focus the left chat rail on this bot. */
@@ -519,8 +524,14 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
           </Menu>
         </Stack>
       </Stack>
-      <Typography variant="caption" sx={{ color: muted, fontSize: '0.65rem', mt: 'auto' }}>
-        Bot
+      <Typography
+        variant="caption"
+        sx={{ color: muted, fontSize: '0.65rem', mt: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
+        {data.agentRuntime
+          ? CODE_AGENT_RUNTIME_DISPLAY_NAMES[data.agentRuntime as CodeAgentRuntime] ?? data.agentRuntime
+          : 'Not provisioned'}
+        {data.agentModel ? ` · ${getModelDisplayName(data.agentModel)}` : ''}
       </Typography>
       <Handle
         type="source"
@@ -850,6 +861,8 @@ const buildGraph = (
         botId: b.id,
         botName: b.name,
         agentStatus: b.agentStatus,
+        agentRuntime: b.agentRuntime,
+        agentModel: b.agentModel,
         selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
@@ -1867,6 +1880,8 @@ const HelixOrgChart: FC = () => {
         name: b.name ?? '',
         parentIds: b.parent_ids ?? [],
         agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
+        agentRuntime: b.agent_runtime ?? '',
+        agentModel: b.agent_model ?? '',
       })),
     [botsData],
   )
