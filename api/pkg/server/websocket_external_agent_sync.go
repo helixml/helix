@@ -56,6 +56,10 @@ func isAgentCrashError(errMsg string) bool {
 	return false
 }
 
+func isMissingCodexRolloutError(errMsg string) bool {
+	return strings.Contains(errMsg, "no rollout found for thread id")
+}
+
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have
 // accumulated before a recurring thread_load_error is treated as terminal
 // (crash-marked, surfacing Restart) rather than retried again. A thread_load_error
@@ -3602,6 +3606,21 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
+			// Older Codex desktops did not persist ~/.codex, so Zed can retain an
+			// ACP thread whose rollout disappeared with the previous container.
+			// Invalidate that thread before the normal prompt retry; the retry then
+			// sends first_message=true and Zed creates a fresh Codex rollout.
+			if isMissingCodexRolloutError(errorMsg) && helixSession.Metadata.ZedThreadID == acpThreadID {
+				helixSession.Metadata.ZedThreadID = ""
+				if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(context.Background(), helixSessionID, helixSession.Metadata); err != nil {
+					return fmt.Errorf("clear missing Codex rollout thread: %w", err)
+				}
+				apiServer.contextMappingsMutex.Lock()
+				delete(apiServer.contextMappings, acpThreadID)
+				apiServer.contextMappingsMutex.Unlock()
+				log.Info().Str("session_id", helixSessionID).Str("acp_thread_id", acpThreadID).
+					Msg("Cleared stale Codex thread after missing rollout")
+			}
 			// A hard agent crash ("Claude Agent process exited", "Session not
 			// found") on an autonomous session must auto-recover regardless of how
 			// the crashing turn was sent — a queued planning prompt (PromptID set)
