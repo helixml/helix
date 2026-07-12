@@ -453,23 +453,22 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	// Parse our known-working API URL to get the host
 	apiParsed, err := url.Parse(d.apiURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		log.Printf("Warning: failed to parse API URL")
 		return originalURL
 	}
 
 	// Parse the original URL
 	origParsed, err := url.Parse(originalURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		log.Printf("Warning: failed to parse model endpoint URL")
 		return originalURL
 	}
 
 	// Replace the host with our working API host
 	origParsed.Host = apiParsed.Host
 
-	rewritten := origParsed.String()
-	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
-	return rewritten
+	log.Printf("Rewrote localhost URL for container networking")
+	return origParsed.String()
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.

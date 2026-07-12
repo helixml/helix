@@ -53,6 +53,6 @@ func TestNormalizeCodexSubscriptionCredentialsRemovesAPIKey(t *testing.T) {
 func TestCodexDeviceAuthOutputPatterns(t *testing.T) {
 	output := "\x1b[94mhttps://auth.openai.com/codex/device\x1b[0m code \x1b[94m2E5J-JKA6Q\x1b[0m"
 	clean := ansiEscapePattern.ReplaceAllString(output, "")
-	require.Equal(t, "https://auth.openai.com/codex/device", codexDeviceURLPattern.FindString(clean))
+	require.Contains(t, clean, codexDeviceURL)
 	require.Equal(t, "2E5J-JKA6Q", codexDeviceCodePattern.FindString(clean))
 }

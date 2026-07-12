@@ -22,9 +22,9 @@ import (
 )
 
 const maxCodexCredentialsBytes = 64 << 10
+const codexDeviceURL = "https://auth.openai.com/codex/device"
 
 var codexDeviceCodePattern = regexp.MustCompile(`\b[A-Z0-9]{4}-[A-Z0-9]{5}\b`)
-var codexDeviceURLPattern = regexp.MustCompile(`https://auth\.openai\.com/codex/device`)
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func decodeCodexCredentials(body io.Reader) (types.CodexAuthCredentials, error) {
@@ -398,8 +398,8 @@ func (apiServer *HelixAPIServer) pollCodexLogin(_ http.ResponseWriter, req *http
 	response := &CodexPollLoginResponse{}
 	for _, line := range strings.Split(output, "\n") {
 		clean := ansiEscapePattern.ReplaceAllString(strings.TrimSpace(strings.ReplaceAll(line, "\r", "")), "")
-		if deviceURL := codexDeviceURLPattern.FindString(clean); deviceURL != "" {
-			response.URL = deviceURL
+		if strings.Contains(clean, codexDeviceURL) {
+			response.URL = codexDeviceURL
 		}
 		if code := codexDeviceCodePattern.FindString(clean); code != "" {
 			response.Code = code
