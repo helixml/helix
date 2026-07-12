@@ -36,6 +36,7 @@ import {
   BaseEdge,
   Controls,
   Edge,
+  EdgeChange,
   EdgeLabelRenderer,
   EdgeProps,
   ConnectionLineType,
@@ -1556,6 +1557,15 @@ const ChartCanvas: FC<{
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
 
+  // Edges are derived from reporting lines, subscriptions, and processors.
+  // React Flow may emit remove changes while reconciling refreshed node
+  // objects; applying those changes would erase valid server-backed edges.
+  // Explicit deletes are persisted by onEdgesDelete and disappear on refetch.
+  const onCanonicalEdgesChange = useCallback(
+    (changes: EdgeChange[]) => onEdgesChange(changes.filter((change) => change.type !== 'remove')),
+    [onEdgesChange],
+  )
+
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
@@ -1726,7 +1736,7 @@ const ChartCanvas: FC<{
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={onCanonicalEdgesChange}
         onConnect={onConnect}
         onEdgesDelete={onEdgesDelete}
         onNodeDragStop={onNodeDragStop}
