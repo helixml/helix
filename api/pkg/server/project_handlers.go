@@ -2789,12 +2789,13 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		// When omitted, a plain chat agent (helix_basic) is created.
 		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
 
-		// Default to api_key when the spec doesn't say otherwise. Only
-		// claude_code can legitimately carry "subscription"; everything else
+		// Default to api_key when the spec doesn't say otherwise. Claude Code
+		// and Codex can legitimately carry "subscription"; everything else
 		// must be api_key so GenerateZedMCPConfig writes agent.default_model
 		// (start-zed-helix.sh greps for that literal key before launching Zed).
 		credType := types.CodeAgentCredentialTypeAPIKey
-		if agentSpec.Credentials == "subscription" && codeRuntime == types.CodeAgentRuntimeClaudeCode {
+		if agentSpec.Credentials == "subscription" &&
+			(codeRuntime == types.CodeAgentRuntimeClaudeCode || codeRuntime == types.CodeAgentRuntimeCodexCLI) {
 			credType = types.CodeAgentCredentialTypeSubscription
 		}
 

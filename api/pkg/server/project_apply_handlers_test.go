@@ -514,10 +514,9 @@ func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
 			Description: "role content",
 			Agent: &types.ProjectAgentSpec{
 				Name:        "b-mason",
-				Runtime:     "zed_agent",
-				Provider:    "anthropic",
-				Model:       "claude-opus-4-6",
-				Credentials: "api_key",
+				Runtime:     "codex_cli",
+				Model:       "gpt-5.6-sol",
+				Credentials: "subscription",
 				// Tools intentionally nil — org Ensure path does not set them.
 			},
 		},
@@ -550,8 +549,9 @@ func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
 	s.Require().Len(updated.Config.Helix.Assistants, 1)
 
 	asst := updated.Config.Helix.Assistants[0]
-	s.Equal("claude-opus-4-6", asst.Model)
-	s.Equal("anthropic", asst.Provider)
+	s.Equal("gpt-5.6-sol", asst.Model)
+	s.Equal(types.CodeAgentRuntimeCodexCLI, asst.CodeAgentRuntime)
+	s.Equal(types.CodeAgentCredentialTypeSubscription, asst.CodeAgentCredentialType)
 	s.Equal("you are the macroplane eng", asst.SystemPrompt)
 	s.Require().Len(asst.MCPs, 2)
 	s.Equal("helix", asst.MCPs[0].Name)
@@ -598,8 +598,8 @@ func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {
 			Agent: &types.ProjectAgentSpec{
 				Name: "agent",
 				Tools: &types.ProjectAgentTools{
-					WebSearch: false,
-					Browser:   false,
+					WebSearch:  false,
+					Browser:    false,
 					Calculator: true,
 				},
 			},

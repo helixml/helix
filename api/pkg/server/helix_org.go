@@ -1063,9 +1063,8 @@ type helixOrgConfig struct {
 // `worker.*` and `helix.*` from the config registry on every Ensure
 // call. Building the underlying runtimehelix.WorkerProject at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
-// `provider`/`model` at boot time — operators changing those via
-// the settings page then had to restart the API container for the new
-// values to take effect. Resolving per-call removes that surprise.
+// `provider`/`model` at boot time. These values provision new apps;
+// existing apps own their runtime configuration after creation.
 //
 // Store is exposed directly because helix_org_chat.go needs it to
 // load/save the per-Worker session pointer on the same row the
@@ -1363,8 +1362,8 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 // design/2026-06-09-org-multitenancy-spawner-leak.md.)
 //
 // Building per activation is cheap (a handful of config-registry
-// reads) and also keeps worker.runtime/credentials/provider/model
-// current without any "drift" handling. The one thing the old cache
+// reads) and ensures newly provisioned apps use current org defaults.
+// Existing apps retain their own configuration. The one thing the old cache
 // legitimately provided — a single process-wide inflight cap — is
 // preserved by minting one shared semaphore here and injecting it into
 // each per-activation config via SpawnerConfig.Sem.

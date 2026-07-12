@@ -127,7 +127,7 @@ type ProjectService interface {
 // needs a per-Worker project so the org-graph MCP server can be wired
 // in via the project's auto-provisioned Agent App.
 //
-// Idempotent: re-applying for a Bot that already has a project is
+// Idempotent: ensuring a Bot that already has a project is
 // a no-op for the project itself, but always re-pushes the canonical
 // role.md file so update_role changes land.
 //
@@ -257,8 +257,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 			// the tracked project's current name — an existing worker whose
 			// project predates the `<Bot> @ <Org>` scheme, or an org/bot
 			// rename — a bare ApplyProject would match nothing and FORK an
-			// orphan project, and the settings-drift refresh below would then
-			// target the orphan instead of the live agent app. Rename in place
+			// orphan project. Rename in place
 			// by ID first so ApplyProject matches the same project.
 			if existing.Name != projectName {
 				renamed := projectName
@@ -273,22 +272,10 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					return state.ProjectID, state.AgentAppID, state.RepoID, nil
 				}
 			}
-			// We DO re-call ApplyProject so worker.* changes (runtime,
-			// credentials, provider, model) made on the Settings page
-			// after this worker was first provisioned propagate to the
-			// helix-side agent app on the next activation. ApplyProject
-			// is upsert-by-name and idempotent — without this re-apply,
-			// the agent app's Runtime/Credentials/Provider/Model stay
-			// frozen at first-apply time and operators have to fire +
-			// re-hire every worker to pick up settings drift. That gap
-			// surfaced when the chart UI's owner-chat hit
-			// "Authentication required" because the org had been
-			// flipped to api_key mode but w-owner's agent app still
-			// thought it was in subscription mode.
-			//
-			if _, err := a.Service.ApplyProject(ctx, applyReq); err != nil {
-				return "", "", "", fmt.Errorf("refresh project spec for %s: %w", workerID, err)
-			}
+			// Runtime/model configuration is owned by the generated Helix app
+			// after initial provisioning. Do not re-apply the provisioning
+			// spec here: doing so would overwrite edits made through the app
+			// settings UI/API with worker.* defaults on every bot start.
 			// Self-heal a deleted repo: the project is live but its repo may
 			// have been removed out-of-band. The project self-heals above (via
 			// ErrProjectNotFound); give the repo the same treatment so the
