@@ -38,7 +38,12 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
-import { CLAUDE_SUBSCRIPTION_MODELS, DEFAULT_CLAUDE_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
+import {
+  CLAUDE_SUBSCRIPTION_MODELS,
+  CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+} from '../agent/CodingAgentForm'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
@@ -632,7 +637,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                   onChange={(e) => {
                     const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
-                    onUpdate({ code_agent_runtime: newRuntime });
+                    if (newRuntime === 'codex_cli' && !model) {
+                      setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
+                      onUpdate({ code_agent_runtime: newRuntime, model: DEFAULT_CODEX_SUBSCRIPTION_MODEL })
+                    } else {
+                      onUpdate({ code_agent_runtime: newRuntime })
+                    }
                   }}
                   disabled={readOnly}
                   renderValue={(value) => {
@@ -709,9 +719,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                               generation_model_provider: '',
                             })
                           } else {
-                            setModel('')
                             setProvider('')
-                            onUpdate({ code_agent_credential_type: 'subscription', model: '', provider: '' })
+                            const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+                            setModel(codexModel)
+                            onUpdate({ code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
                           }
                         } else {
                           onUpdate({ code_agent_credential_type: 'api_key' })
@@ -778,6 +789,31 @@ const AppSettings: FC<AppSettingsProps> = ({
                           {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
                             <MenuItem key={m.id} value={m.id}>
                               <Typography variant="body2">{m.label}</Typography>
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Box>
+                  )}
+                  {code_agent_runtime === 'codex_cli' && claudeCodeMode === 'subscription' && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Model
+                      </Typography>
+                      <FormControl fullWidth>
+                        <Select
+                          size="small"
+                          value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                          disabled={readOnly}
+                          onChange={(e) => {
+                            const nextModel = e.target.value
+                            setModel(nextModel)
+                            onUpdate({ model: nextModel })
+                          }}
+                        >
+                          {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                            <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                              <Typography variant="body2">{supportedModel.label}</Typography>
                             </MenuItem>
                           ))}
                         </Select>

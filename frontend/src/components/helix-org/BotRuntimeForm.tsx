@@ -19,6 +19,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
+import { CODEX_SUBSCRIPTION_MODELS, DEFAULT_CODEX_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
 import { useHelixModelsForProvider, useHelixProviders } from '../../services/helixOrgService'
 
 export interface BotRuntimeValue {
@@ -58,6 +59,9 @@ export const BotRuntimeForm: FC<{
 
   const onRuntime = (v: string) => {
     const patch: Partial<BotRuntimeValue> = { runtime: v }
+    if (v === 'codex_cli' && !value.model) {
+      patch.model = DEFAULT_CODEX_SUBSCRIPTION_MODEL
+    }
     // Runtimes without subscription support are always API-key routed; keep the stored value
     // consistent with what the server coerces to.
     if (v !== 'claude_code' && v !== 'codex_cli' && value.credentials !== 'api_key') {
@@ -186,9 +190,27 @@ export const BotRuntimeForm: FC<{
           />
         </Box>
       ) : hasRuntimeSubscription ? (
-        <Typography variant="caption" color="text.secondary">
-          Uses your connected {isClaude ? 'Claude' : 'ChatGPT'} subscription — no model selection needed.
-        </Typography>
+        isCodex ? (
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
+            <FormControl fullWidth size="small">
+              <Select
+                value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                onChange={(event) => onChange({ model: event.target.value })}
+              >
+                {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                  <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                    <Typography variant="body2">{supportedModel.label}</Typography>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            Uses your connected Claude subscription — no model selection needed.
+          </Typography>
+        )
       ) : null}
     </Stack>
   )

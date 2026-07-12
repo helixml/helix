@@ -19,6 +19,17 @@ export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
 ]
 export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus'
 
+export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
+  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+  { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
+]
+export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-5.6-sol'
+
 export interface CodingAgentFormValue {
   codeAgentRuntime: CodeAgentRuntime
   claudeCodeMode: ClaudeCodeMode
@@ -116,6 +127,7 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
   // Claude subscription mode has a fixed three-tier model choice (Opus/Sonnet/Haiku),
   // kept local because the create-form parents don't round-trip extra value fields.
   const [claudeSubscriptionModel, setClaudeSubscriptionModel] = useState(DEFAULT_CLAUDE_SUBSCRIPTION_MODEL)
+  const [codexSubscriptionModel, setCodexSubscriptionModel] = useState(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
   const { hasAnthropicProvider, hasClaudeSubscription, hasCodexSubscription } = useCodingAgentProviderState(value, onChange)
   const isSubscriptionRuntime = (value.codeAgentRuntime === 'claude_code' || value.codeAgentRuntime === 'codex_cli') && value.claudeCodeMode === 'subscription'
   const showModelPicker = !isSubscriptionRuntime
@@ -132,7 +144,9 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
       return null
     }
 
-    const modelToUse = isSubscriptionRuntime ? '' : (value.selectedModel || '')
+    const modelToUse = value.codeAgentRuntime === 'codex_cli' && value.claudeCodeMode === 'subscription'
+      ? codexSubscriptionModel
+      : isSubscriptionRuntime ? '' : (value.selectedModel || '')
     const providerToUse = isSubscriptionRuntime ? '' : (value.selectedProvider || '')
 
     if (!isSubscriptionRuntime && (!modelToUse || !providerToUse)) {
@@ -353,6 +367,27 @@ const CodingAgentForm = forwardRef<CodingAgentFormHandle, CodingAgentFormProps>(
             <FormControlLabel value="api_key" control={<Radio size="small" />} label="OpenAI API Key" />
           </RadioGroup>
           {!hasCodexSubscription && value.claudeCodeMode === 'subscription' && <Alert severity="warning" sx={{ mt: 1 }}>Connect a ChatGPT subscription in Providers.</Alert>}
+          {value.claudeCodeMode === 'subscription' && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, ...labelSx }}>Model</Typography>
+              <FormControl fullWidth>
+                <Select
+                  size="small"
+                  value={codexSubscriptionModel}
+                  disabled={disabled}
+                  onChange={(event) => setCodexSubscriptionModel(event.target.value)}
+                  sx={selectSx}
+                  MenuProps={{ PaperProps: { sx: menuPaperSx } }}
+                >
+                  {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                    <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                      <Typography variant="body2">{supportedModel.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
         </Box>
       )}
 

@@ -1217,6 +1217,8 @@ func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregi
 	if credentials == "api_key" {
 		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
 		model, _ = cfg.GetString(ctx, orgID, "worker.model")
+	} else if runtime == "codex_cli" {
+		model, _ = cfg.GetString(ctx, orgID, "worker.model")
 	}
 	return runtime, credentials, provider, model
 }

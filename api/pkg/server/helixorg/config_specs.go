@@ -37,7 +37,7 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         "worker.model",
 		Type:        configregistry.TypeString,
-		Description: "Model ID for the chosen provider (e.g. `claude-sonnet-4-5`, `gpt-4o-mini`). Required alongside `worker.provider` whenever inference routes through Helix. Ignored for subscription-backed `claude_code` and `codex_cli` runtimes.",
+		Description: "Model ID for the chosen provider or Codex subscription (e.g. `claude-sonnet-4-5`, `gpt-5.6-sol`). Required alongside `worker.provider` whenever inference routes through Helix. For subscription-backed `codex_cli`, selects the Codex default model; ignored for subscription-backed `claude_code`.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",
