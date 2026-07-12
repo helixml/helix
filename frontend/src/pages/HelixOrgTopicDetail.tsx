@@ -29,9 +29,11 @@ import CloseIcon from '@mui/icons-material/Close'
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
+import { generateCronSummary } from '../utils/cronUtils'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -236,6 +238,7 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
   // owned by GitHub's webhook UI), webhook_id, webhook_html_url —
   // survive the round-trip instead of being wiped.
   const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
+  const [cronSchedule, setCronSchedule] = useState('')
 
   const enterEdit = () => {
     setName(topic.name)
@@ -245,6 +248,9 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
       setGhOriginalConfig(cfg)
       setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
       setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
+    } else if (topic.kind === 'cron') {
+      const cfg = (topic.config ?? {}) as Record<string, unknown>
+      setCronSchedule(typeof cfg.schedule === 'string' ? cfg.schedule : '')
     } else if (topic.config) {
       setConfigText(JSON.stringify(topic.config, null, 2))
     } else {
@@ -284,6 +290,13 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
         delete ghConfig.branches
       }
       payload.transport = { config: ghConfig }
+    } else if (topic.kind === 'cron') {
+      const sched = cronSchedule.trim()
+      if (!sched) {
+        snackbar.error('Schedule is required')
+        return
+      }
+      payload.transport = { config: { schedule: sched } }
     } else if (topic.kind !== 'local' && configText.trim()) {
       try {
         const parsed = JSON.parse(configText)
@@ -307,6 +320,9 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
   const configPreview = useMemo(() => {
     if (topic.kind === 'local') return null
     if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
+    if (topic.kind === 'cron' && typeof topic.config.schedule === 'string') {
+      return generateCronSummary(topic.config.schedule)
+    }
     return JSON.stringify(topic.config, null, 2)
   }, [topic.kind, topic.config])
 
@@ -328,19 +344,31 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
           <ReadOnlyRow label="Transport" value={topic.kind} mono />
           {topic.kind !== 'local' && (
             <Box>
-              <Typography variant="caption" color="text.secondary">Config</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {topic.kind === 'cron' ? 'Schedule' : 'Config'}
+              </Typography>
               <Typography
                 component="pre"
                 variant="body2"
                 sx={{
                   mt: 0.5, mb: 0, p: 1, borderRadius: 1,
                   backgroundColor: 'action.hover',
-                  fontFamily: 'monospace', fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                  fontFamily: topic.kind === 'cron' ? 'inherit' : 'monospace',
+                  fontSize: topic.kind === 'cron' ? '0.875rem' : '0.75rem',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}
               >
                 {configPreview}
               </Typography>
+              {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 0.5, fontFamily: 'monospace' }}
+                >
+                  {topic.config.schedule}
+                </Typography>
+              )}
             </Box>
           )}
         </Stack>
@@ -373,7 +401,14 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
               </Typography>
             </>
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && (
+          {topic.kind === 'cron' && (
+            <CronScheduleFields
+              key={editing ? 'cron-edit' : 'cron-view'}
+              value={cronSchedule}
+              onChange={setCronSchedule}
+            />
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
               value={configText}

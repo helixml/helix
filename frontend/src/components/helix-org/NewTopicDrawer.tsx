@@ -2,9 +2,7 @@
 // Chart right-click menu / toolbar and the Topics list "+ New topic" action.
 
 import { FC, useEffect, useRef, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
@@ -21,6 +19,8 @@ import {
   useInstallGitHubWebhook,
   useListGitHubRepos,
 } from '../../services/helixOrgService'
+import { getUserTimezone } from '../../utils/cronUtils'
+import CronScheduleFields, { buildSpecificTimeCron } from './CronScheduleFields'
 import { GitHubAppConnect } from './GitHubAppPanel'
 import { GitHubBranchesField, GitHubEventsField } from './GitHubTopicConfigFields'
 import GitHubRepoPicker from './GitHubRepoPicker'
@@ -34,19 +34,9 @@ const TRANSPORT_KINDS = [
   { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this topic at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
 ]
 
-// CRON_PRESETS are one-click chips that inject a standard 5-field
-// cron expression into the schedule field. We keep the UI on the
-// literal cron grammar — no @-aliases — so users see exactly what's
-// stored, and there's one syntax to learn rather than two.
-const CRON_PRESETS: Array<{ label: string; value: string }> = [
-  { label: 'Hourly', value: '0 * * * *' },
-  { label: 'Daily 00:00', value: '0 0 * * *' },
-  { label: 'Weekly Sun 00:00', value: '0 0 * * 0' },
-  { label: 'Weekdays 00:00', value: '0 0 * * 1-5' },
-  { label: 'Weekends 00:00', value: '0 0 * * 0,6' },
-  { label: 'Mon 09:00', value: '0 9 * * 1' },
-  { label: 'Fri 18:00', value: '0 18 * * 5' },
-]
+// Default create-time schedule: weekdays at 09:00 in the operator's timezone.
+const defaultCronSchedule = () =>
+  buildSpecificTimeCron([1, 2, 3, 4, 5], 9, 0, getUserTimezone())
 
 export type NewTopicDrawerProps = {
   open: boolean
@@ -73,10 +63,10 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
   // delete to specific branches. Both editable here; also on the detail page.
   const [ghEvents, setGhEvents] = useState<string[]>(['*'])
   const [ghBranches, setGhBranches] = useState<string[]>(['*'])
-  // Cron schedule — free text accepting either a 5-field cron expression
-  // or one of the @aliases the backend recognises (@hourly, @daily, …).
-  // CRON_PRESETS populate it via one-click chips.
-  const [cronSchedule, setCronSchedule] = useState<string>('0 0 * * *')
+  // Cron schedule — human-friendly builder (weekdays + time / interval /
+  // advanced cron). Stored as a standard 5-field expression (+ optional
+  // CRON_TZ= prefix) on the topic config.
+  const [cronSchedule, setCronSchedule] = useState<string>(defaultCronSchedule)
 
   // Probe GitHub on open — the result tells us whether to disable the
   // `github` transport option (no app install → operator gets a
@@ -115,7 +105,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhRepo('')
     setGhEvents(['*'])
     setGhBranches(['*'])
-    setCronSchedule('0 0 * * *')
+    setCronSchedule(defaultCronSchedule())
   }, [open])
 
   const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
@@ -136,7 +126,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhRepo('')
     setGhEvents(['*'])
     setGhBranches(['*'])
-    setCronSchedule('0 0 * * *')
+    setCronSchedule(defaultCronSchedule())
     onClose()
   }
 
@@ -294,63 +284,13 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
           </>
         )}
         {kind === 'cron' && (
-          <Box>
-            <TextField
-              label="Schedule"
-              placeholder="0 9 * * 1"
-              value={cronSchedule}
-              onChange={(e) => setCronSchedule(e.target.value)}
-              fullWidth
-              size="small"
-              helperText="Standard 5-field cron: minute hour day-of-month month day-of-week. Prefix with CRON_TZ=<zone> to pin the timezone (defaults to UTC). Minimum interval: 90 seconds."
-            />
-            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>
-              {CRON_PRESETS.map((p) => (
-                <Chip
-                  key={p.value}
-                  label={p.label}
-                  size="small"
-                  variant={cronSchedule === p.value ? 'filled' : 'outlined'}
-                  onClick={() => setCronSchedule(p.value)}
-                  sx={{ fontFamily: 'monospace' }}
-                />
-              ))}
-            </Stack>
-            <Box
-              sx={{
-                mt: 1.5,
-                px: 1.5,
-                py: 1,
-                borderRadius: 1,
-                border: '1px solid rgba(0,0,0,0.08)',
-                bgcolor: 'rgba(0,0,0,0.02)',
-              }}
-            >
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                Examples
-              </Typography>
-              {[
-                { value: '0 0 * * *', description: 'every day at midnight' },
-                { value: '0 9 * * 1', description: 'every Monday at 09:00' },
-                { value: '0 18 * * 5', description: 'every Friday at 18:00' },
-                { value: '0 0 * * 1-5', description: 'weekdays at midnight' },
-                { value: '*/15 * * * *', description: 'every 15 minutes' },
-                { value: '0 0 1 * *', description: 'first day of every month at 00:00' },
-                { value: 'CRON_TZ=America/New_York 30 14 * * 1-5', description: 'weekdays at 14:30 New York time' },
-              ].map((ex) => (
-                <Typography
-                  key={ex.value}
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', lineHeight: 1.6 }}
-                >
-                  <code style={{ fontFamily: 'monospace', fontWeight: 600 }}>{ex.value}</code>
-                  {' — '}
-                  {ex.description}
-                </Typography>
-              ))}
-            </Box>
-          </Box>
+          <CronScheduleFields
+            // Remount when the drawer opens so weekday/time state matches the seed schedule.
+            key={open ? 'cron-open' : 'cron-closed'}
+            value={cronSchedule}
+            onChange={setCronSchedule}
+            defaultMode="specific_time"
+          />
         )}
         {kind !== 'local' && kind !== 'github' && kind !== 'cron' && (
           <TextField

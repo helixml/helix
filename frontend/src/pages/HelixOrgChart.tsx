@@ -14,6 +14,7 @@ import Stack from '@mui/material/Stack'
 import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
@@ -94,6 +95,7 @@ import {
   useUnsubscribeBotAtChart,
   useUpsertChartPositions,
 } from '../services/helixOrgService'
+import { generateCronShortSummary } from '../utils/cronUtils'
 
 // The chart visualises the org as a ReactFlow graph. Bots are plain
 // nodes wired by reporting edges:
@@ -122,15 +124,23 @@ const STREAM_H = 80
 
 // Rough height used by auto-layout before RF measures the real node.
 // Keeps stacked topics from overlapping when names wrap to multiple lines.
-const estimateTopicCardHeight = (name: string, id: string): number => {
+// `subtitle` is the second line (topic id, or cron schedule summary).
+const estimateTopicCardHeight = (name: string, subtitle: string): number => {
   const padY = 16
   const statsH = 16
   const gaps = 8
   const nameInnerW = STREAM_W - 16 - 22 - 20 // pad − icon − menu gutter
-  const idInnerW = STREAM_W - 16
-  const nameLines = Math.max(1, Math.ceil((name || id || 'x').length / Math.max(8, nameInnerW / 7.2)))
-  const idLines = Math.max(1, Math.ceil((id || 'x').length / Math.max(10, idInnerW / 6.5)))
-  return Math.max(STREAM_H, Math.ceil(padY + nameLines * 16 + idLines * 13 + statsH + gaps))
+  const subInnerW = STREAM_W - 16
+  const nameLines = Math.max(1, Math.ceil((name || subtitle || 'x').length / Math.max(8, nameInnerW / 7.2)))
+  // Cron summaries use proportional text (~7.2px/char); ids use monospace (~6.5).
+  const subChar = subtitle && !subtitle.startsWith('s-') ? 7.2 : 6.5
+  const subLines = Math.max(1, Math.ceil((subtitle || 'x').length / Math.max(10, subInnerW / subChar)))
+  return Math.max(STREAM_H, Math.ceil(padY + nameLines * 16 + subLines * 13 + statsH + gaps))
+}
+
+const topicCardSubtitle = (t: { id: string; kind: string; schedule?: string }): string => {
+  if (t.kind === 'cron' && t.schedule) return generateCronShortSummary(t.schedule)
+  return t.id
 }
 
 // ---- Flatten -----------------------------------------------------------
@@ -173,6 +183,9 @@ type TopicNodeData = {
   kind: string
   subscriberCount: number
   messageCount: number
+  // Human-readable cron schedule (only set for kind=cron). Shown in place
+  // of the topic id on the card so operators see when it fires.
+  scheduleSummary?: string
   // When set, this topic is a processor's auto-provisioned output — it is
   // managed by that processor and must not be deleted independently
   // (delete the processor instead, which cascades it).
@@ -265,9 +278,10 @@ const nodeCardRect = (n: Node, fallbackW: number, fallbackH: number): CardRect =
 const fallbackSizeForNode = (n: Node): { w: number; h: number } => {
   if (n.type === 'topic') {
     const d = n.data as TopicNodeData | undefined
+    const sub = d?.scheduleSummary || d?.topicId || ''
     return {
       w: STREAM_W,
-      h: estimateTopicCardHeight(d?.name ?? '', d?.topicId ?? ''),
+      h: estimateTopicCardHeight(d?.name ?? '', sub),
     }
   }
   if (n.type === 'processor') {
@@ -600,7 +614,11 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
         </Box>
       )}
       <Stack direction="row" alignItems="flex-start" spacing={0.75} sx={{ minWidth: 0, pr: 2.5 }}>
-        <HubOutlinedIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        {data.kind === 'cron' ? (
+          <AccessTimeIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        ) : (
+          <HubOutlinedIcon sx={{ fontSize: 16, color: accent, flexShrink: 0, mt: '2px' }} />
+        )}
         <Typography
           variant="body2"
           sx={{
@@ -615,19 +633,37 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
           {data.name}
         </Typography>
       </Stack>
-      <Typography
-        variant="caption"
-        sx={{
-          fontFamily: 'monospace',
-          fontSize: '0.65rem',
-          color: muted,
-          pl: 0.25,
-          lineHeight: 1.3,
-          wordBreak: 'break-all',
-        }}
-      >
-        {data.topicId}
-      </Typography>
+      {data.kind === 'cron' && data.scheduleSummary ? (
+        <Tooltip title={data.topicId}>
+          <Typography
+            variant="caption"
+            sx={{
+              fontSize: '0.65rem',
+              color: muted,
+              pl: 0.25,
+              lineHeight: 1.3,
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {data.scheduleSummary}
+          </Typography>
+        </Tooltip>
+      ) : (
+        <Typography
+          variant="caption"
+          sx={{
+            fontFamily: 'monospace',
+            fontSize: '0.65rem',
+            color: muted,
+            pl: 0.25,
+            lineHeight: 1.3,
+            wordBreak: 'break-all',
+          }}
+        >
+          {data.topicId}
+        </Typography>
+      )}
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5} sx={{ mt: 0.25 }}>
         <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, minWidth: 0 }}>
           {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
@@ -658,6 +694,8 @@ type TopicSummary = {
   kind: string
   created_by?: string
   subscribers?: string[]
+  // Raw cron expression from transport config (kind=cron only).
+  schedule?: string
   // Set to the owning processor id when this topic is that processor's
   // auto-provisioned output (managed; not independently deletable).
   ownedByProcessor?: string
@@ -706,7 +744,7 @@ const layoutTopicColumns = (
     let cursor = -Infinity
     const chunk = sorted.slice(col * chunkSize, (col + 1) * chunkSize)
     for (const it of chunk) {
-      const h = estimateTopicCardHeight(it.topic.name, it.topic.id)
+      const h = estimateTopicCardHeight(it.topic.name, topicCardSubtitle(it.topic))
       const y = Math.max(it.anchorY, cursor)
       out.push({ topic: it.topic, x, y, h })
       cursor = y + h + STREAM_VERTICAL_GAP
@@ -940,6 +978,9 @@ const buildGraph = (
           kind: s.kind,
           subscriberCount: s.subscribers?.length ?? 0,
           messageCount: messageCounts[s.id] ?? 0,
+          scheduleSummary: s.kind === 'cron' && s.schedule
+            ? generateCronShortSummary(s.schedule)
+            : undefined,
           ownedByProcessor: s.ownedByProcessor,
           onSelectTopic: handlers.onSelectTopic,
           onDeleteTopic: handlers.onDeleteTopic,
@@ -1826,14 +1867,19 @@ const HelixOrgChart: FC = () => {
   }, [processorsData])
 
   const topics = useMemo<TopicSummary[]>(
-    () => (streamsData?.topics ?? []).map((s) => ({
-      id: s.id ?? '',
-      name: s.name ?? '',
-      kind: s.kind ?? '',
-      created_by: s.created_by,
-      subscribers: s.subscribers,
-      ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
-    })),
+    () => (streamsData?.topics ?? []).map((s) => {
+      const cfg = (s.config ?? {}) as Record<string, unknown>
+      const schedule = typeof cfg.schedule === 'string' ? cfg.schedule : undefined
+      return {
+        id: s.id ?? '',
+        name: s.name ?? '',
+        kind: s.kind ?? '',
+        created_by: s.created_by,
+        subscribers: s.subscribers,
+        schedule,
+        ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
+      }
+    }),
     [streamsData, ownedOutputTopics],
   )
 
