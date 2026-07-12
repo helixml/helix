@@ -568,6 +568,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 // terminal status is reported or ctx fires.
 func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorInteractionID string, publish func(string)) error {
 	delay := c.PollInitial
+	observedCurrentInteraction := false
 	for {
 		out, err := c.Client.GetOutput(ctx, sessionID)
 		if err != nil {
@@ -582,11 +583,16 @@ func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorIntera
 			if c.Logger != nil {
 				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
 			}
-		} else if out.InteractionID != "" && out.InteractionID != priorInteractionID && IsTerminalOutput(out) {
-			if out.Status == "error" {
-				return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
-			}
+		} else if observedCurrentInteraction && out.InteractionID == "" {
 			return nil
+		} else if out.InteractionID != "" && out.InteractionID != priorInteractionID {
+			observedCurrentInteraction = true
+			if IsTerminalOutput(out) {
+				if out.Status == "error" {
+					return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
+				}
+				return nil
+			}
 		}
 		select {
 		case <-ctx.Done():

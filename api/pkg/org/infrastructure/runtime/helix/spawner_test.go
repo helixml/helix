@@ -47,6 +47,7 @@ type fakeHelixClient struct {
 	clearedBeforeSend bool
 	clearErr          error
 	outputErr         error
+	preserveEmptyIDs  bool
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -109,7 +110,7 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 	} else {
 		out = f.outputs[i]
 	}
-	if out.InteractionID == "" {
+	if out.InteractionID == "" && !f.preserveEmptyIDs {
 		if atomic.LoadInt32(&f.sendCalls) == 0 {
 			out.InteractionID = "int-prior"
 		} else {
@@ -561,6 +562,33 @@ func TestSpawnerIgnoresPreviousInterruptedInteraction(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&fc.outputCalls); got < 4 {
 		t.Fatalf("poll returned on the previous interrupted interaction; output calls = %d", got)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenStoppedInteractionDisappears(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID:   "ses-existing",
+		preserveEmptyIDs: true,
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "complete"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "", Status: "complete"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 3 {
+		t.Fatalf("poll did not observe the stopped interaction disappear; output calls = %d", got)
 	}
 }
 
