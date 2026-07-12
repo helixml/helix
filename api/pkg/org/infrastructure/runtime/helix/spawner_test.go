@@ -103,10 +103,20 @@ func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionO
 	i := int(atomic.AddInt32(&f.outputCalls, 1)) - 1
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var out types.SessionOutputResponse
 	if i >= len(f.outputs) {
-		return f.outputs[len(f.outputs)-1], nil
+		out = f.outputs[len(f.outputs)-1]
+	} else {
+		out = f.outputs[i]
 	}
-	return f.outputs[i], nil
+	if out.InteractionID == "" {
+		if atomic.LoadInt32(&f.sendCalls) == 0 {
+			out.InteractionID = "int-prior"
+		} else {
+			out.InteractionID = "int-current"
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
@@ -524,6 +534,33 @@ func TestSpawnerReleasesQueueWhenRestartDeletesSession(t *testing.T) {
 
 	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
 		t.Fatalf("deleted session should end the superseded activation cleanly: %v", err)
+	}
+}
+
+func TestSpawnerIgnoresPreviousInterruptedInteraction(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses-existing",
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "int-new", Status: "complete", Output: "ok"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 4 {
+		t.Fatalf("poll returned on the previous interrupted interaction; output calls = %d", got)
 	}
 }
 

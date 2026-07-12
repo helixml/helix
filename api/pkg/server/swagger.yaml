@@ -9508,13 +9508,15 @@ definitions:
     properties:
       duration_ms:
         type: integer
+      interaction_id:
+        type: string
       output:
         description: Last interaction's response text
         type: string
       session_id:
         type: string
       status:
-        description: '"waiting", "complete", "error"'
+        description: '"waiting", "complete", "error", "interrupted"'
         type: string
     type: object
   types.SessionRAGResult:

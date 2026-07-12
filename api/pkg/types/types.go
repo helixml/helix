@@ -2500,7 +2500,7 @@ type CreateSecretRequest struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
 	AppID     string `json:"app_id"`
-	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
+	ProjectID string `json:"project_id"`      // optional, if set, the secret will be available to the specified project
 	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "dev"
 }
 
@@ -3104,10 +3104,11 @@ type OrgInvitationNotification struct {
 
 // SessionOutputResponse is returned by GET /sessions/{id}/output
 type SessionOutputResponse struct {
-	SessionID  string `json:"session_id"`
-	Status     string `json:"status"` // "waiting", "complete", "error"
-	Output     string `json:"output"` // Last interaction's response text
-	DurationMs int64  `json:"duration_ms"`
+	SessionID     string `json:"session_id"`
+	InteractionID string `json:"interaction_id,omitempty"`
+	Status        string `json:"status"` // "waiting", "complete", "error", "interrupted"
+	Output        string `json:"output"` // Last interaction's response text
+	DurationMs    int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

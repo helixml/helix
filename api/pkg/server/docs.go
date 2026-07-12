@@ -34686,6 +34686,9 @@ const docTemplate = `{
                 "duration_ms": {
                     "type": "integer"
                 },
+                "interaction_id": {
+                    "type": "string"
+                },
                 "output": {
                     "description": "Last interaction's response text",
                     "type": "string"
@@ -34694,7 +34697,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "description": "\"waiting\", \"complete\", \"error\"",
+                    "description": "\"waiting\", \"complete\", \"error\", \"interrupted\"",
                     "type": "string"
                 }
             }

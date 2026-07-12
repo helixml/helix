@@ -5994,10 +5994,11 @@ export enum TypesSessionMode {
 
 export interface TypesSessionOutputResponse {
   duration_ms?: number;
+  interaction_id?: string;
   /** Last interaction's response text */
   output?: string;
   session_id?: string;
-  /** "waiting", "complete", "error" */
+  /** "waiting", "complete", "error", "interrupted" */
   status?: string;
 }
 
