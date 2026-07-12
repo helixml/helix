@@ -2804,6 +2804,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	} else {
 		targetInteraction.State = types.InteractionStateComplete
 	}
+	// Clear a premature waiter timeout (or any non-fatal error stamp) once the
+	// agent actually finishes. The HTTP/SSE waiter used to mark
+	// "External agent response timeout" at 180s while the WS path kept
+	// streaming for many more minutes — leaving Error set on a complete row.
+	targetInteraction.Error = ""
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 

@@ -478,20 +478,22 @@ func TestWaitTimeoutPreservesStreamedContent(t *testing.T) {
 		GetSession("session-timeout").
 		Return(&external_agent.ZedSession{SessionID: "session-timeout", Status: "ready"}, nil)
 
-	// First GetInteraction: timeout path checking for already-complete.
-	// Second GetInteraction: markExternalAgentInteractionError reload.
-	// Both see Waiting + full streamed content.
+	// Idle-timeout path may reload more than once: first fire sees content and
+	// extends (activity), second fire sees no further growth and errors. The
+	// markExternalAgentInteractionError path reloads once more.
 	streamed := &types.Interaction{
 		ID:              "int-timeout",
 		SessionID:       "session-timeout",
 		UserID:          "user-1",
 		State:           types.InteractionStateWaiting,
 		ResponseMessage: "I am the Chief of Staff with full capabilities...",
+		// Zero Updated so the second idle check does not treat this as
+		// "recent activity" after lastSeenLen has caught up.
 	}
 	mockStore.EXPECT().
 		GetInteraction(gomock.Any(), "int-timeout").
 		Return(streamed, nil).
-		Times(2)
+		AnyTimes()
 
 	var written *types.Interaction
 	mockStore.EXPECT().
@@ -532,6 +534,88 @@ func TestWaitTimeoutPreservesStreamedContent(t *testing.T) {
 	assert.Equal(t, "External agent response timeout", written.Error)
 	// Critical: the streamed reply must survive the error write.
 	assert.Equal(t, "I am the Chief of Staff with full capabilities...", written.ResponseMessage)
+}
+
+// TestWaitExtendsWhileInteractionStillUpdating: a productive long turn whose
+// DB row keeps growing (message_added / tool_call path, no responseChan
+// chunks) must not be failed by the idle timer.
+func TestWaitExtendsWhileInteractionStillUpdating(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockExecutor := external_agent.NewMockExecutor(ctrl)
+	c := &Controller{
+		Options: Options{
+			Store:                 mockStore,
+			ExternalAgentExecutor: mockExecutor,
+		},
+	}
+
+	session := &types.Session{
+		ID: "session-long",
+		Metadata: types.SessionMetadata{
+			ZedThreadID: "thread-long",
+		},
+		Interactions: []*types.Interaction{
+			{ID: "int-long", SessionID: "session-long", UserID: "user-1"},
+		},
+	}
+
+	mockExecutor.EXPECT().
+		GetSession("session-long").
+		Return(&external_agent.ZedSession{SessionID: "session-long", Status: "ready"}, nil)
+
+	// Sequence: growing content on first idle → extend; complete on next reload.
+	call := 0
+	mockStore.EXPECT().
+		GetInteraction(gomock.Any(), "int-long").
+		DoAndReturn(func(context.Context, string) (*types.Interaction, error) {
+			call++
+			if call == 1 {
+				return &types.Interaction{
+					ID:              "int-long",
+					SessionID:       "session-long",
+					State:           types.InteractionStateWaiting,
+					ResponseMessage: "working on tickets…",
+					Updated:         time.Now(),
+				}, nil
+			}
+			return &types.Interaction{
+				ID:              "int-long",
+				SessionID:       "session-long",
+				State:           types.InteractionStateComplete,
+				ResponseMessage: "fixed the high-severity ones",
+				Updated:         time.Now(),
+			}, nil
+		}).
+		AnyTimes()
+
+	// No error write expected — turn completes successfully after extension.
+	c.SetExternalAgentHooks(ExternalAgentHooks{
+		WaitForExternalAgentReady:    func(_ context.Context, _ string, _ time.Duration) error { return nil },
+		GetAgentNameForSession:       func(_ context.Context, _ *types.Session) string { return "zed-agent" },
+		SendCommand:                  func(_ string, _ types.ExternalAgentCommand) error { return nil },
+		StoreResponseChannel:         func(_ string, _ string, _ chan string, _ chan bool, _ chan error) {},
+		CleanupResponseChannel:       func(_ string, _ string) {},
+		SetRequestInteractionMapping: func(_, _ string) {},
+		SetRequestSessionMapping:     func(_, _ string) {},
+	})
+
+	result, err := c.RunExternalAgent(context.Background(), RunExternalAgentRequest{
+		Session: session,
+		ChatCompletionRequest: openai.ChatCompletionRequest{
+			Messages: []openai.ChatCompletionMessage{
+				{Role: openai.ChatMessageRoleUser, Content: "fix them"},
+			},
+		},
+		Mode:            ExternalAgentModeBlocking,
+		Start:           time.Now(),
+		ResponseTimeout: 40 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "fixed the high-severity ones", result.FullResponse)
 }
 
 // TestWaitTimeoutAlreadyCompleteIsSuccess: if message_completed finished the
