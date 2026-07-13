@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 	// differ in model / credentials / system prompt, so an app change alone
 	// justifies the switch.
 	sameApp := targetAppID == "" || targetAppID == session.ParentApp
-	sameRuntime := targetRuntime == session.Metadata.CodeAgentRuntime
+	sameRuntime := sessionUsesAgentRuntime(session, targetRuntime)
 	if sameApp && sameRuntime {
 		return nil, system.NewHTTPError400(
 			fmt.Sprintf("session is already using %s in this app; pick a different agent or runtime", targetRuntime))
@@ -126,6 +126,11 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 		HelixAppID:   targetAppID,
 		AgentRuntime: targetRuntime,
 	}, nil
+}
+
+func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRuntime) bool {
+	return session.Metadata.CodeAgentRuntime == runtime &&
+		session.Metadata.ZedAgentName == runtime.ZedAgentName()
 }
 
 // switchAgentInPlace performs the in-place switch: snapshot the current

@@ -86,6 +86,7 @@ import {
   WorkerChatReader,
   fetchExistingWorkerSession,
 } from '../services/workerChatSession'
+import { useSwitchAgent } from '../services/sessionService'
 
 const HelixOrgBotDetail: FC = () => {
   const router = useRouter()
@@ -111,6 +112,12 @@ const HelixOrgBotDetail: FC = () => {
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
+  // The bot owns one durable exploratory session. Runtime edits must switch
+  // that session through the canonical lifecycle instead of leaving it bound
+  // to an agent server that the updated app config no longer registers.
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null)
+  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
+  const switchAgent = useSwitchAgent(chatSessionId ?? '')
 
   const bot = data?.bot
   const projectID = data?.project_id
@@ -196,6 +203,8 @@ const HelixOrgBotDetail: FC = () => {
 
   const handleSave = async () => {
     if (!botId) return
+    const runtimeChanged =
+      (assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime
     try {
       await updateBot.mutateAsync({ id: botId, name, content, tools, preserve_context: preserveContext })
       if (agentAppID && agentApp && assistant) {
@@ -219,7 +228,12 @@ const HelixOrgBotDetail: FC = () => {
           },
         })
       }
-      snackbar.success(`bot ${botId} saved`)
+      if (runtimeChanged && chatSessionId && agentAppID) {
+        await switchAgent.mutateAsync({ helix_app_id: agentAppID })
+        snackbar.success(`bot ${botId} saved — switching the active session to ${runtimeConfig.runtime}`)
+      } else {
+        snackbar.success(`bot ${botId} saved`)
+      }
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
     }
@@ -281,12 +295,6 @@ const HelixOrgBotDetail: FC = () => {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'restart failed')
     }
   }
-
-  // chatSessionId is the bot's long-lived "Project Desktop" exploratory
-  // session — the transcript we render inline. Null until we've resolved
-  // one (or there isn't one yet).
-  const [chatSessionId, setChatSessionId] = useState<string | null>(null)
-  const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
   // The session panel toggles between the inline Chat transcript and the
   // live Desktop stream — both bound to the same exploratory session.
