@@ -238,14 +238,14 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	}
 }
 
-// mountHelixOrg brings up the optional helix-org subsystem and registers
+// registerHelixOrgRoutes brings up the helix-org subsystem and registers
 // its entire HTTP surface: the public GitHub/Slack webhooks + OAuth
 // callbacks on the insecure router, the org-scoped Slack endpoints and
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
-// org-shaped route + lifecycle hook lives here; registerRoutes only
-// decides whether to call this (HelixOrgEnabled).
-func (s *HelixAPIServer) mountHelixOrg(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
+// org-shaped route + lifecycle hook lives here. Access is gated per-user
+// by the `helix-org` alpha feature on the /orgs/{org}/ route.
+func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
 	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
 		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
 		GitRepositoryService: s.gitRepositoryService,
