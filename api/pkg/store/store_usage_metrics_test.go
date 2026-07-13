@@ -76,6 +76,34 @@ func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
 	suite.Len(metrics, 15, "Should have 15 metrics total")
 }
 
+func (suite *UsageMetricsTestSuite) TestCreateUsageMetricIdempotentBySource() {
+	appID := "test-" + system.GenerateAppID()
+	metric := &types.UsageMetric{
+		AppID:       appID,
+		Source:      types.UsageMetricSourceACP,
+		SourceID:    appID + ":int_test",
+		UsageKnown:  true,
+		TotalTokens: 100,
+	}
+
+	first, err := suite.db.CreateUsageMetric(suite.ctx, metric)
+	suite.NoError(err)
+	second, err := suite.db.CreateUsageMetric(suite.ctx, &types.UsageMetric{
+		AppID:       appID,
+		Source:      types.UsageMetricSourceACP,
+		SourceID:    appID + ":int_test",
+		UsageKnown:  true,
+		TotalTokens: 200,
+	})
+	suite.NoError(err)
+	suite.Equal(first.ID, second.ID)
+	suite.Equal(100, second.TotalTokens)
+
+	metrics, err := suite.db.GetAppUsageMetrics(suite.ctx, appID, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	suite.NoError(err)
+	suite.Len(metrics, 1)
+}
+
 func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	appID := "test-" + system.GenerateAppID()
 

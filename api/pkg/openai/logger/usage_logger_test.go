@@ -33,6 +33,8 @@ func TestUsageLogger_CreateLLMCall_SetsAllIDs(t *testing.T) {
 
 	mockStore.EXPECT().CreateUsageMetric(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
+			assert.Equal(t, types.UsageMetricSourceHelixProxy, metric.Source)
+			assert.True(t, metric.UsageKnown)
 			assert.Equal(t, "org_123", metric.OrganizationID)
 			assert.Equal(t, "app_456", metric.AppID)
 			assert.Equal(t, "interaction_789", metric.InteractionID)
