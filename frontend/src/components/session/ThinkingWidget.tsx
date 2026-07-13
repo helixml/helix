@@ -7,6 +7,7 @@ import { useTheme } from '@mui/material/styles'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
+import { preserveDisclosureExpansion } from './disclosureScroll'
 
 interface ThinkingWidgetProps {
   text: string
@@ -56,7 +57,10 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       }}
     >
       <Box
-        onClick={() => setExpanded((value) => !value)}
+        onClick={(event) => {
+          if (!expanded) preserveDisclosureExpansion(event.currentTarget)
+          setExpanded((value) => !value)
+        }}
         sx={{
           display: 'flex',
           alignItems: 'center',

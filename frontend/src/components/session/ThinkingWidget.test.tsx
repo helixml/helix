@@ -12,13 +12,20 @@ const renderWidget = (isStreaming = false) => render(
 
 describe('ThinkingWidget', () => {
   it('uses a collapsed disclosure and reveals the thought on click', () => {
-    renderWidget()
+    const { container } = render(
+      <div data-session-scroll-container>
+        <ThemeProvider theme={createTheme()}>
+          <ThinkingWidget text="Inspect the current subscription state" isStreaming={false} />
+        </ThemeProvider>
+      </div>,
+    )
 
     expect(screen.getByText('Thoughts')).toBeInTheDocument()
     expect(screen.queryByText('Inspect the current subscription state')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Thoughts'))
 
+    expect(container.firstElementChild).toHaveAttribute('data-preserve-disclosure-expansion', 'true')
     expect(screen.getByText('Inspect the current subscription state')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Collapse thoughts' })).toBeInTheDocument()
   })
