@@ -192,7 +192,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_provider_detail',
   path: '/orgs/:org_id/providers/:provider_id',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <ProviderDetail />
@@ -201,7 +202,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_providers',
   path: '/orgs/:org_id/providers',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <Providers />

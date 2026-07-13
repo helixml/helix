@@ -470,6 +470,7 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_provider_detail":
       case "org_qa":
       case "org_qa-results":
       case "team_people":

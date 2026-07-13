@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
-import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
-import { TypesProviderEndpointType } from '../api/api';
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint, useDeleteProviderEndpoint } from '../services/providersService';
+import { TypesProviderEndpoint, TypesProviderEndpointType } from '../api/api';
 import CircularProgress from '@mui/material/CircularProgress';
 import { Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
@@ -23,6 +23,7 @@ import CodexSubscriptionConnect from '../components/account/CodexSubscriptionCon
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
+import useSnackbar from '../hooks/useSnackbar';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -31,9 +32,12 @@ const Providers: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
+  const [disconnectingProvider, setDisconnectingProvider] = useState<TypesProviderEndpoint | null>(null);
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
+  const snackbar = useSnackbar();
   const { data: detectedProviders } = useDetectLocalProviders(true);
   const createProvider = useCreateProviderEndpoint();
+  const deleteProvider = useDeleteProviderEndpoint();
 
   const orgName = router.params.org_id
 
@@ -64,10 +68,22 @@ const Providers: React.FC = () => {
   const { data: codexSubscriptions } = useCodexSubscriptions()
   const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
 
+  const pageProps = {
+    breadcrumbTitle: 'AI providers',
+    breadcrumbParent: {
+      title: 'Organizations',
+      routeName: 'orgs',
+      useOrgRouter: false,
+    },
+    breadcrumbShowHome: true,
+    orgBreadcrumbs: true,
+    topbarContent: null,
+  }
+
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
     return (
-      <Page breadcrumbTitle="Providers" topbarContent={null}>
+      <Page {...pageProps}>
         <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
             AI Providers
@@ -148,8 +164,19 @@ const Providers: React.FC = () => {
     }
   };
 
+  const handleDisconnectProvider = async () => {
+    if (!disconnectingProvider?.id) return;
+    try {
+      await deleteProvider.mutateAsync(disconnectingProvider.id);
+      snackbar.success(`${disconnectingProvider.name || 'Provider'} disconnected`);
+      setDisconnectingProvider(null);
+    } catch (error) {
+      snackbar.error(error instanceof Error ? error.message : 'Failed to disconnect provider');
+    }
+  };
+
   return (
-    <Page breadcrumbTitle="Providers" topbarContent={null}>
+    <Page {...pageProps}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
         <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
           AI Providers
@@ -197,15 +224,14 @@ const Providers: React.FC = () => {
           </Box>
         )}
 
-        {/* Claude Subscription Section */}
         <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Claude Subscription
+          Subscriptions
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Sign in with your Claude account to use Claude Code as the coding agent in desktop sessions.
+          Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
         </Typography>
         <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={4} display="flex" justifyContent="center">
+          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card
               sx={{
                 width: 320,
@@ -235,7 +261,7 @@ const Providers: React.FC = () => {
                     <AnthropicLogo style={{ width: 40, height: 40 }} />
                   </Avatar>
                 }
-                title="Claude Subscription"
+                title="Anthropic"
                 titleTypographyProps={{ variant: 'h6', align: 'center' }}
               />
               <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
@@ -243,25 +269,16 @@ const Providers: React.FC = () => {
                   Use your Claude account with Claude Code inside desktop agents. Not an API key provider.
                 </Typography>
               </CardContent>
-              <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
                 <ClaudeSubscriptionConnect variant="button" />
               </CardActions>
             </Card>
           </Grid>
-        </Grid>
-
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          ChatGPT Subscription
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Sign in with ChatGPT to use Codex CLI as the coding agent in desktop sessions.
-        </Typography>
-        <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={4} display="flex" justifyContent="center">
+          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card sx={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 2, borderStyle: 'dashed', borderWidth: 1, borderColor: hasCodexSubscription ? 'success.main' : 'divider' }}>
               <CardHeader
                 avatar={<Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}><OpenAILogo style={{ width: 40, height: 40 }} /></Avatar>}
-                title="ChatGPT Subscription"
+                title="ChatGPT"
                 titleTypographyProps={{ variant: 'h6', align: 'center' }}
               />
               <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
@@ -269,7 +286,7 @@ const Providers: React.FC = () => {
                   Use your ChatGPT account with Codex CLI inside desktop agents. Not an API key provider.
                 </Typography>
               </CardContent>
-              <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
                 <CodexSubscriptionConnect orgId={org?.id} />
               </CardActions>
             </Card>
@@ -307,7 +324,7 @@ const Providers: React.FC = () => {
         <Divider sx={{ mb: 3 }} />
 
         <Typography variant="h6" sx={{ mb: 1.5 }}>
-          API Key Providers
+          AI Providers
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
@@ -318,6 +335,7 @@ const Providers: React.FC = () => {
             // providers can coexist, and each existing one is shown as its own card below.
             const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
+            const userProvider = userEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
@@ -391,6 +409,17 @@ const Providers: React.FC = () => {
                         </Button>
                       </span>
                     </Tooltip>
+                    {editAllowed && userProvider?.id && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="error"
+                        onClick={() => setDisconnectingProvider(userProvider)}
+                        disabled={deleteProvider.isPending}
+                      >
+                        Disconnect
+                      </Button>
+                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -466,6 +495,17 @@ const Providers: React.FC = () => {
                     >
                       {endpoint.status === 'error' ? 'Fix Connection' : 'Connected'}
                     </Button>
+                    {editAllowed && endpoint.id && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="error"
+                        onClick={() => setDisconnectingProvider(endpoint)}
+                        disabled={deleteProvider.isPending}
+                      >
+                        Disconnect
+                      </Button>
+                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -481,6 +521,22 @@ const Providers: React.FC = () => {
             existingProvider={userEndpoints.find(endpoint => endpoint.name === selectedProvider.id)}
           />
         )}
+        <Dialog open={!!disconnectingProvider} onClose={() => setDisconnectingProvider(null)} maxWidth="xs" fullWidth>
+          <DialogTitle>Disconnect provider?</DialogTitle>
+          <DialogContent>
+            <Typography color="text.secondary">
+              Helix will stop using {disconnectingProvider?.name || 'this provider'} and remove its stored credentials.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDisconnectingProvider(null)} disabled={deleteProvider.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleDisconnectProvider} color="error" disabled={deleteProvider.isPending}>
+              {deleteProvider.isPending ? 'Disconnecting…' : 'Disconnect'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </Page>
   );

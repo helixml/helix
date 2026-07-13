@@ -105,7 +105,7 @@ const OrgSidebar: FC = () => {
           id: 'providers',
           label: 'Providers',
           icon: <Plug size={20} />,
-          isActive: currentRouteName === 'org_providers',
+          isActive: currentRouteName === 'org_providers' || currentRouteName === 'org_provider_detail',
           onClick: () => handleNavigationClick('org_providers'),
         },
       ],
