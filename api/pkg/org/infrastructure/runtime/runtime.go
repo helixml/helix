@@ -208,9 +208,15 @@ type SpecTasks interface {
 	List(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, filter ListSpecTasksFilter) ([]SpecTaskView, error)
 	// Get returns one spec task; it must belong to the target project.
 	Get(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
+	// Update changes a task's editable metadata without bypassing its
+	// lifecycle workflow.
+	Update(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string, in UpdateSpecTaskInput) (SpecTaskView, error)
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
 	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
+	// StopAgent stops the task's running desktop, if any. It leaves the task
+	// and session records intact so work can be resumed.
+	StopAgent(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
 	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecReviewView, error)
@@ -236,6 +242,17 @@ type CreateSpecTaskInput struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+}
+
+// UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state
+// changes use the dedicated start/review/approve/stop verbs instead.
+type UpdateSpecTaskInput struct {
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Type         *string   `json:"type,omitempty"`
+	Priority     *string   `json:"priority,omitempty"`
+	SkipPlanning *bool     `json:"skip_planning,omitempty"`
+	DependsOn    *[]string `json:"depends_on,omitempty"`
 }
 
 // ListSpecTasksFilter narrows a List call. Empty fields = no filter.
@@ -290,7 +307,13 @@ func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ strin
 func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
+func (NoopSpecTasks) Update(_ context.Context, _ string, _ orgchart.BotID, _, _ string, _ UpdateSpecTaskInput) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
 func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecReviewView, error) {

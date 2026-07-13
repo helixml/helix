@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 	// differ in model / credentials / system prompt, so an app change alone
 	// justifies the switch.
 	sameApp := targetAppID == "" || targetAppID == session.ParentApp
-	sameRuntime := targetRuntime == session.Metadata.CodeAgentRuntime
+	sameRuntime := sessionUsesAgentRuntime(session, targetRuntime)
 	if sameApp && sameRuntime {
 		return nil, system.NewHTTPError400(
 			fmt.Sprintf("session is already using %s in this app; pick a different agent or runtime", targetRuntime))
@@ -126,6 +126,11 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 		HelixAppID:   targetAppID,
 		AgentRuntime: targetRuntime,
 	}, nil
+}
+
+func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRuntime) bool {
+	return session.Metadata.CodeAgentRuntime == runtime &&
+		session.Metadata.ZedAgentName == runtime.ZedAgentName()
 }
 
 // switchAgentInPlace performs the in-place switch: snapshot the current
@@ -143,6 +148,54 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	session *types.Session,
 	targetRuntime types.CodeAgentRuntime,
 	targetAppID string,
+) *system.HTTPError {
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, targetAppID, true)
+}
+
+// reconcileSessionAgentWithApp repairs sessions whose persisted ACP binding
+// no longer matches their app. This can happen when an app runtime is edited
+// while a durable org-bot or spec-task session is offline. Reconciliation runs
+// before the next user turn, so that turn itself becomes the first message on
+// the replacement thread; no synthetic handoff turn is needed.
+func (apiServer *HelixAPIServer) reconcileSessionAgentWithApp(ctx context.Context, session *types.Session) *system.HTTPError {
+	if session == nil || session.Metadata.AgentType != string(types.AgentTypeZedExternal) || session.ParentApp == "" {
+		return nil
+	}
+
+	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+	if err != nil {
+		return system.NewHTTPError500(fmt.Sprintf("failed to load session app for agent reconciliation: %v", err))
+	}
+	assistant := data.GetAssistant(app, session.Metadata.AssistantID)
+	if assistant == nil || assistant.AgentType != types.AgentTypeZedExternal {
+		return nil
+	}
+	targetRuntime := assistant.CodeAgentRuntime
+	if targetRuntime == "" {
+		targetRuntime = types.CodeAgentRuntimeZedAgent
+	}
+	if sessionUsesAgentRuntime(session, targetRuntime) {
+		return nil
+	}
+
+	log.Warn().
+		Str("session_id", session.ID).
+		Str("app_id", session.ParentApp).
+		Str("stored_runtime", string(session.Metadata.CodeAgentRuntime)).
+		Str("stored_agent_name", session.Metadata.ZedAgentName).
+		Str("target_runtime", string(targetRuntime)).
+		Str("target_agent_name", targetRuntime.ZedAgentName()).
+		Msg("reconciling stale session agent binding before next turn")
+
+	return apiServer.switchAgentInPlaceForNextTurn(ctx, session, targetRuntime, session.ParentApp, false)
+}
+
+func (apiServer *HelixAPIServer) switchAgentInPlaceForNextTurn(
+	ctx context.Context,
+	session *types.Session,
+	targetRuntime types.CodeAgentRuntime,
+	targetAppID string,
+	createHandoff bool,
 ) *system.HTTPError {
 	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
@@ -225,32 +278,34 @@ func (apiServer *HelixAPIServer) switchAgentInPlace(
 	// "review the whole transcript and acknowledge" instruction made the model
 	// generate a big summary before the user could continue, which is the bulk
 	// of the perceived switch latency.
-	prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
-	newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
-	handoffPrompt := fmt.Sprintf(
-		"[System: you are now %s, taking over this session from %s. The environment, "+
-			"files, and workspace are unchanged, and the prior conversation is included above "+
-			"for context. Do not summarise or restate it — just reply with a single short line "+
-			"confirming you're ready, then wait for the user's next message.]",
-		newLabel, prevLabel,
-	)
-	handoffInteraction := &types.Interaction{
-		Created:       now,
-		Updated:       now,
-		SessionID:     session.ID,
-		UserID:        session.Owner,
-		GenerationID:  session.GenerationID,
-		Mode:          types.SessionModeInference,
-		Trigger:       types.InteractionTriggerForkHandoff,
-		State:         types.InteractionStateWaiting,
-		PromptMessage: handoffPrompt,
-	}
-	if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
-		// Best-effort: a failed handoff just degrades to "cold until the
-		// user's first message after the switch". Don't fail the switch.
-		log.Warn().Err(err).
-			Str("session_id", session.ID).
-			Msg("switch-agent: failed to create handoff interaction; agent will warm up on user's first message instead")
+	if createHandoff {
+		prevLabel := apiServer.agentDescriptor(ctx, prevAppID, prevRuntime, session.ModelName, "the previous agent")
+		newLabel := apiServer.agentDescriptor(ctx, childAppID, targetRuntime, session.ModelName, "the new agent")
+		handoffPrompt := fmt.Sprintf(
+			"[System: you are now %s, taking over this session from %s. The environment, "+
+				"files, and workspace are unchanged, and the prior conversation is included above "+
+				"for context. Do not summarise or restate it — just reply with a single short line "+
+				"confirming you're ready, then wait for the user's next message.]",
+			newLabel, prevLabel,
+		)
+		handoffInteraction := &types.Interaction{
+			Created:       now,
+			Updated:       now,
+			SessionID:     session.ID,
+			UserID:        session.Owner,
+			GenerationID:  session.GenerationID,
+			Mode:          types.SessionModeInference,
+			Trigger:       types.InteractionTriggerForkHandoff,
+			State:         types.InteractionStateWaiting,
+			PromptMessage: handoffPrompt,
+		}
+		if _, err := apiServer.Store.CreateInteraction(ctx, handoffInteraction); err != nil {
+			// Best-effort: a failed handoff just degrades to "cold until the
+			// user's first message after the switch". Don't fail the switch.
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Msg("switch-agent: failed to create handoff interaction; agent will warm up on user's first message instead")
+		}
 	}
 
 	// Tell the daemon to rewrite Zed's config for the new agent. field="agent"

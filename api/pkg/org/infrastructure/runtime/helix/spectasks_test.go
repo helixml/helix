@@ -78,6 +78,7 @@ type fakeSpecTaskWorkflow struct {
 	requestChangesCalls []string
 	lastComment         string
 	lastRequestUserID   string
+	stopCalls           []string
 }
 
 func (f *fakeSpecTaskWorkflow) ApproveSpecs(_ context.Context, task *types.SpecTask) error {
@@ -96,6 +97,10 @@ func (f *fakeSpecTaskWorkflow) RequestChanges(_ context.Context, task *types.Spe
 	f.requestChangesCalls = append(f.requestChangesCalls, task.ID)
 	f.lastComment = comment
 	f.lastRequestUserID = userID
+	return nil
+}
+func (f *fakeSpecTaskWorkflow) StopAgent(_ context.Context, task *types.SpecTask) error {
+	f.stopCalls = append(f.stopCalls, task.ID)
 	return nil
 }
 
@@ -236,6 +241,51 @@ func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 	}
 	if _, err := st.Get(context.Background(), "org-test", wid, "prj_foreign", "task_f"); err == nil {
 		t.Error("expected cross-org rejection when targeting another org's project")
+	}
+}
+
+func TestSpecTasks_UpdateMetadata(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", Name: "Old", Description: "Old description", Priority: types.SpecTaskPriorityMedium}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	name, priority, skip := "New", "high", true
+	view, err := st.Update(context.Background(), "org-test", wid, "", "task_1", runtime.UpdateSpecTaskInput{
+		Name: &name, Priority: &priority, SkipPlanning: &skip,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if view.Name != "New" || view.Priority != "high" || !fs.tasks["task_1"].JustDoItMode {
+		t.Errorf("updated task = %+v, skip=%v", view, fs.tasks["task_1"].JustDoItMode)
+	}
+}
+
+func TestSpecTasks_StopAgentDelegates(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+
+	fs := newFakeSpecTaskStore()
+	fs.tasks["task_1"] = &types.SpecTask{ID: "task_1", ProjectID: "prj_mine", PlanningSessionID: "ses_task"}
+	wf := &fakeSpecTaskWorkflow{}
+	st, err := NewSpecTasks(&wrap.Store, fs, wf)
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.StopAgent(context.Background(), "org-test", wid, "", "task_1"); err != nil {
+		t.Fatalf("StopAgent: %v", err)
+	}
+	if len(wf.stopCalls) != 1 || wf.stopCalls[0] != "task_1" {
+		t.Errorf("stop calls = %v", wf.stopCalls)
 	}
 }
 

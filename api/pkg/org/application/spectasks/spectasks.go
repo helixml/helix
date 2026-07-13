@@ -91,12 +91,28 @@ func (s *Service) Get(ctx context.Context, caller tool.Caller, projectID, taskID
 	return s.port.Get(ctx, orgID, workerID, projectID, taskID)
 }
 
+func (s *Service) Update(ctx context.Context, caller tool.Caller, projectID, taskID string, in runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	return s.port.Update(ctx, orgID, workerID, projectID, taskID, in)
+}
+
 func (s *Service) StartPlanning(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
 	orgID, workerID, err := s.callerIdentity(ctx, caller)
 	if err != nil {
 		return runtime.SpecTaskView{}, err
 	}
 	return s.port.StartPlanning(ctx, orgID, workerID, projectID, taskID)
+}
+
+func (s *Service) StopAgent(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecTaskView, error) {
+	orgID, workerID, err := s.callerIdentity(ctx, caller)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	return s.port.StopAgent(ctx, orgID, workerID, projectID, taskID)
 }
 
 func (s *Service) ReviewSpec(ctx context.Context, caller tool.Caller, projectID, taskID string) (runtime.SpecReviewView, error) {
