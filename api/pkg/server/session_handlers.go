@@ -558,6 +558,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
+		if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+			http.Error(rw, reconcileErr.Message, reconcileErr.StatusCode)
+			return
+		}
+
 		// Load interactions for the session
 		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    session.ID,
@@ -2360,6 +2365,10 @@ func (s *HelixAPIServer) sendSessionMessage(_ http.ResponseWriter, r *http.Reque
 
 	if err := requireUnpaused(session); err != nil {
 		return nil, err
+	}
+
+	if reconcileErr := s.reconcileSessionAgentWithApp(ctx, session); reconcileErr != nil {
+		return nil, reconcileErr
 	}
 
 	// Enqueue onto the session-scoped prompt queue (the single sender path).

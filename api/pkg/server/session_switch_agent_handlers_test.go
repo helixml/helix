@@ -116,6 +116,49 @@ func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	assert.Empty(t, updated.Metadata.ZedThreadID)
 }
 
+func TestReconcileSessionAgentWithApp_RepairsBeforeUserTurn(t *testing.T) {
+	srv, mem := newForkTestServer(t)
+	ctx := context.Background()
+
+	mem.SeedApp(&types.App{ID: "app_codex", Config: types.AppConfig{Helix: types.AppHelixConfig{
+		Assistants: []types.AssistantConfig{{
+			ID: "0", AgentType: types.AgentTypeZedExternal, CodeAgentRuntime: types.CodeAgentRuntimeCodexCLI,
+		}},
+	}}})
+	session := newTestParentSession("user_a")
+	session.ParentApp = "app_codex"
+	session.Metadata.AssistantID = "0"
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeClaudeCode
+	session.Metadata.ZedAgentName = types.CodeAgentRuntimeClaudeCode.ZedAgentName()
+	session.Metadata.ZedThreadID = "thread_from_claude"
+	seedParentWithInteractions(t, mem, session, 1)
+
+	httpErr := srv.reconcileSessionAgentWithApp(ctx, session)
+	require.Nil(t, httpErr)
+
+	updated, err := mem.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, types.CodeAgentRuntimeCodexCLI, updated.Metadata.CodeAgentRuntime)
+	assert.Equal(t, types.CodeAgentRuntimeCodexCLI.ZedAgentName(), updated.Metadata.ZedAgentName)
+	assert.Empty(t, updated.Metadata.ZedThreadID)
+	assert.False(t, updated.Metadata.AgentSwitchedAt.IsZero())
+
+	interactions, _, err := mem.ListInteractions(ctx, &types.ListInteractionsQuery{SessionID: session.ID})
+	require.NoError(t, err)
+	var seedCount, handoffCount int
+	for _, interaction := range interactions {
+		switch interaction.Trigger {
+		case types.InteractionTriggerForkSeed:
+			seedCount++
+		case types.InteractionTriggerForkHandoff:
+			handoffCount++
+		}
+	}
+	assert.Equal(t, 1, seedCount)
+	assert.Zero(t, handoffCount, "the real user turn replaces the synthetic handoff during reconciliation")
+	assert.Contains(t, srv.maybePrependTranscript(ctx, updated, "next user turn"), "next user turn")
+}
+
 // maybePrependTranscript must seed the new thread on an in-place switch (where
 // ParentSessionID is empty but AgentSwitchedAt is set).
 func TestMaybePrependTranscript_PrependsAfterInPlaceSwitch(t *testing.T) {
