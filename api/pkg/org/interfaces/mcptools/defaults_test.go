@@ -24,6 +24,7 @@ func TestBaseReadToolsGolden(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,
 	}
@@ -56,6 +57,7 @@ func TestBaseReadToolsAllRegistered(t *testing.T) {
 		ReadEventsName:      &ReadEvents{deps: deps},
 		BotLogName:          &BotLog{deps: deps},
 		MintCredentialName:  &MintCredential{deps: deps},
+		ListSecretsName:     &ListSecrets{deps: deps},
 		ListProcessorsName:  &ListProcessors{deps: deps},
 		GetProcessorName:    &GetProcessor{deps: deps},
 	}
@@ -105,6 +107,7 @@ func TestMergeBaseReadToolsPreservesCallerOrderAndDedups(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,
 	}
