@@ -29,7 +29,7 @@ import {
 import { useUpdateSpecTask } from "../../services/specTaskService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
 
 export interface RepoPR {
@@ -288,10 +288,11 @@ export default function SpecTaskActionButtons({
     e.stopPropagation();
     if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuthWithRepoScope) {
       if (gitHubProvider?.id) {
-        // GitHub OAuth provider exists -- start the connection flow with repo scope
+        // GitHub OAuth provider exists -- start the connection flow with the full
+        // VCS scope set (re-auth replaces scopes, so requesting a subset downgrades)
         startOAuthFlow({
           providerId: gitHubProvider.id,
-          scopes: ['repo'],
+          scopes: GITHUB_VCS_SCOPES,
           onSuccess: () => {
             setShowOAuthPrompt(false);
             approveImplementationMutation.mutate();
@@ -591,7 +592,7 @@ export default function SpecTaskActionButtons({
                 onClick={() => {
                   startOAuthFlow({
                     providerId: gitHubProvider.id!,
-                    scopes: ['repo'],
+                    scopes: GITHUB_VCS_SCOPES,
                     onSuccess: () => {
                       setShowOAuthPrompt(false);
                       approveImplementationMutation.mutate();

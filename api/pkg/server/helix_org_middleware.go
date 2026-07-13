@@ -43,6 +43,12 @@ type helixOrgScope struct {
 	// first request. nil when not wired.
 	helixEvents *helixevents.Reconciler
 
+	// humanReconcile makes the org's human nodes match its membership on
+	// first request (the correctness backstop for the inline membership
+	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
+	// wired.
+	humanReconcile func(ctx context.Context, orgID string) error
+
 	mu           sync.Mutex
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
@@ -152,6 +158,15 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		botsSvc := bots.New(bots.Deps{Bots: s.orgStore.Bots, BaseTools: mcptools.BaseReadTools})
 		if err := botsSvc.Reconcile(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
+		}
+
+		// Converge human nodes against org membership: create a node for any
+		// member missing one (covers OIDC joins + members added before this
+		// feature) and remove orphans. Best-effort like the reconciles above.
+		if s.humanReconcile != nil {
+			if err := s.humanReconcile(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org human-node reconcile failed")
+			}
 		}
 
 		// Mirror pre-existing workers (once per org per process).

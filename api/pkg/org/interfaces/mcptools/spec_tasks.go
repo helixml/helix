@@ -144,6 +144,52 @@ func (t *GetSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.Raw
 	return json.Marshal(view)
 }
 
+// --- update_spectask ------------------------------------------------------
+
+const UpdateSpecTaskName tool.Name = "update_spectask"
+
+type UpdateSpecTask struct{ deps Deps }
+
+func NewUpdateSpecTask(deps Deps) *UpdateSpecTask { return &UpdateSpecTask{deps: deps} }
+
+type updateSpecTaskArgs struct {
+	ProjectID    string    `json:"project_id,omitempty"`
+	TaskID       string    `json:"task_id"`
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Type         *string   `json:"type,omitempty"`
+	Priority     *string   `json:"priority,omitempty"`
+	SkipPlanning *bool     `json:"skip_planning,omitempty"`
+	DependsOn    *[]string `json:"depends_on,omitempty"`
+}
+
+var updateSpecTaskSchema = mustSchema[updateSpecTaskArgs]()
+
+func (t *UpdateSpecTask) Name() tool.Name                 { return UpdateSpecTaskName }
+func (t *UpdateSpecTask) InputSchema() *jsonschema.Schema { return updateSpecTaskSchema }
+func (t *UpdateSpecTask) Description() string {
+	return "Update a spec task's editable metadata: name, description, type, priority, " +
+		"skip_planning, or depends_on. Use the dedicated lifecycle tools to start, review, " +
+		"approve, or stop work. Pass project_id for a project you manage in your org."
+}
+func (t *UpdateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args updateSpecTaskArgs
+	if err := json.Unmarshal(inv.Args, &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+	view, err := t.deps.SpecTasks.Update(ctx, inv.Caller, args.ProjectID, args.TaskID, runtime.UpdateSpecTaskInput{
+		Name: args.Name, Description: args.Description, Type: args.Type, Priority: args.Priority,
+		SkipPlanning: args.SkipPlanning, DependsOn: args.DependsOn,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
 // --- start_spectask_planning ---------------------------------------------
 
 const StartSpecTaskPlanningName tool.Name = "start_spectask_planning"
@@ -169,6 +215,34 @@ func (t *StartSpecTaskPlanning) Invoke(ctx context.Context, inv tool.Invocation)
 		return nil, err
 	}
 	view, err := t.deps.SpecTasks.StartPlanning(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// --- stop_spectask_agent --------------------------------------------------
+
+const StopSpecTaskAgentName tool.Name = "stop_spectask_agent"
+
+type StopSpecTaskAgent struct{ deps Deps }
+
+func NewStopSpecTaskAgent(deps Deps) *StopSpecTaskAgent { return &StopSpecTaskAgent{deps: deps} }
+
+var stopSpecTaskAgentSchema = mustSchema[taskIDArgs]()
+
+func (t *StopSpecTaskAgent) Name() tool.Name                 { return StopSpecTaskAgentName }
+func (t *StopSpecTaskAgent) InputSchema() *jsonschema.Schema { return stopSpecTaskAgentSchema }
+func (t *StopSpecTaskAgent) Description() string {
+	return "Stop a spec task's running agent desktop without deleting the task or session, so it " +
+		"can be resumed later. Pass project_id for a project you manage in your org."
+}
+func (t *StopSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.StopAgent(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}

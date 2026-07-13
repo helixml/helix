@@ -133,6 +133,17 @@ rm -rf ~/.qwen
 ln -sf $QWEN_DATA_DIR ~/.qwen
 echo "✅ Qwen data directory set to persistent storage: QWEN_DATA_DIR=$QWEN_DATA_DIR"
 
+# Codex stores ACP rollouts under ~/.codex. Keep them with the session
+# workspace so a recreated desktop can resume the Zed thread it advertises.
+CODEX_STATE_DIR=$WORK_DIR/.codex-state
+mkdir -p $CODEX_STATE_DIR
+if [ -d ~/.codex ] && [ ! -L ~/.codex ]; then
+    cp -a ~/.codex/. $CODEX_STATE_DIR/
+fi
+rm -rf ~/.codex
+ln -sf $CODEX_STATE_DIR ~/.codex
+echo "✅ Codex state directory set to persistent storage: $CODEX_STATE_DIR"
+
 # Copy Sway user guide to workspace (if not already present)
 if [ -f /cfg/sway/SWAY-USER-GUIDE.md ] && [ ! -f $WORK_DIR/SWAY-USER-GUIDE.md ]; then
     cp /cfg/sway/SWAY-USER-GUIDE.md $WORK_DIR/SWAY-USER-GUIDE.md

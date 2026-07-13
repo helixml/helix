@@ -18,6 +18,7 @@ import (
 	githubskill "github.com/helixml/helix/api/pkg/agent/skill/github"
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
@@ -52,6 +53,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgHandlers bundles the JSON HTTP surface helix-org exposes:
@@ -61,6 +63,10 @@ import (
 type helixOrgHandlers struct {
 	api   http.Handler
 	scope *helixOrgScope
+	// seeder creates the membership-driven human nodes + the per-org Chief
+	// of Staff bot. Copied onto HelixAPIServer by mountHelixOrg so the
+	// org-lifecycle handlers (org create, membership add/remove) can drive it.
+	seeder *orgGraphSeeder
 	// streamCron is the in-process scheduler that fires events on
 	// KindCron topics. The server's run loop calls Start on it in a
 	// goroutine so it runs for the lifetime of the API process.
@@ -139,19 +145,45 @@ type helixOrgHandlers struct {
 // orgWorkerRuntime adapts runtimehelix.LoadState into the api package's
 // WorkerRuntime port, so the REST worker-detail / activate handlers read
 // the project / agent-app / session ids without the api adapter touching
-// the store.
-type orgWorkerRuntime struct{ st *helixorgstore.Store }
+// the store. sessions is the Helix session store used to resolve whether
+// the bot's desktop sandbox is online (agent_status for the chart).
+type orgWorkerRuntime struct {
+	st       *helixorgstore.Store
+	sessions interface {
+		GetSession(ctx context.Context, id string) (*types.Session, error)
+		GetApp(ctx context.Context, id string) (*types.App, error)
+	}
+}
 
 func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgchart.BotID) (helixorgapi.BotRuntimeInfo, error) {
 	s, err := runtimehelix.LoadState(ctx, o.st, orgID, workerID)
 	if err != nil {
 		return helixorgapi.BotRuntimeInfo{}, err
 	}
-	return helixorgapi.BotRuntimeInfo{
-		ProjectID:  s.ProjectID,
-		AgentAppID: s.AgentAppID,
-		SessionID:  s.SessionID,
-	}, nil
+	info := helixorgapi.BotRuntimeInfo{
+		ProjectID:   s.ProjectID,
+		AgentAppID:  s.AgentAppID,
+		SessionID:   s.SessionID,
+		AgentStatus: "stopped",
+	}
+	if s.AgentAppID != "" && o.sessions != nil {
+		if app, err := o.sessions.GetApp(ctx, s.AgentAppID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
+			assistant := app.Config.Helix.Assistants[0]
+			info.Runtime = string(assistant.CodeAgentRuntime)
+			info.Model = assistant.Model
+		}
+	}
+	// Resolve sandbox online-ness from the session metadata the desktop
+	// stack already maintains (external_agent_status). Missing session
+	// or lookup failure keeps the default "stopped".
+	if s.SessionID != "" && o.sessions != nil {
+		if sess, err := o.sessions.GetSession(ctx, s.SessionID); err == nil && sess != nil {
+			if sess.Metadata.ExternalAgentStatus == "running" {
+				info.AgentStatus = "running"
+			}
+		}
+	}
+	return info, nil
 }
 
 // SessionID adapts orgWorkerRuntime to activations.SessionResolver so the
@@ -174,6 +206,18 @@ func (o orgWorkerRuntime) SessionID(ctx context.Context, orgID string, workerID 
 type botSessionResetter struct {
 	client *inProcHelixClient
 	st     *helixorgstore.Store
+}
+
+// StopDesktop stops the external-agent container for a session without
+// deleting the session row (bot-detail / chart "Stop" control).
+func (r botSessionResetter) StopDesktop(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	if err := r.client.StopExternalAgent(ctx, sessionID); err != nil {
+		return fmt.Errorf("stop desktop %s: %w", sessionID, err)
+	}
+	return nil
 }
 
 func (r botSessionResetter) ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error {
@@ -262,6 +306,7 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// the generic service-connection handlers can stay helix-org-agnostic
 	// while a slack_app change still reconciles Socket Mode / cascades.
 	s.helixOrg = orgHandlers
+	s.orgSeeder = orgHandlers.seeder
 	s.onServiceConnectionChange = s.reactToServiceConnectionChange
 
 	// Stream-cron scheduler runs for the lifetime of ctx
@@ -481,6 +526,15 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init projects: %w", err)
 	}
 	deps.Projects = projectsPort
+
+	// Repositories backs list_repositories / attach_repository /
+	// detach_repository — org git repos attached to Bot projects so
+	// sandboxes can clone the code. Chief of Staff gets these by default.
+	reposPort, err := runtimehelix.NewRepositories(st, helixStore)
+	if err != nil {
+		return nil, fmt.Errorf("init repositories: %w", err)
+	}
+	deps.Repositories = reposPort
 
 	// Project applier — shared infra for owner-chat and Worker
 	// activations. Applies every Worker's project with the same
@@ -776,6 +830,30 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
 	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
+	// ask_human delivers to a person's in-app inbox via the main Helix
+	// attention-event service (the notification bell).
+	deps.HumanInbox = humanInbox{store: helixStore}
+
+	// Activations owns start/stop/restart for REST and MCP. Built before
+	// RegisterBuiltins so start_bot / stop_bot / restart_bot share the same
+	// service instance as POST /bots/{id}/activate|stop-agent|restart-agent.
+	sessionResetter := botSessionResetter{client: inProcClient, st: st}
+	workerRuntime := orgWorkerRuntime{st: st, sessions: helixStore}
+	svc.Activations = activations.New(activations.Deps{
+		Repo:       st.Activations,
+		Now:        deps.Now,
+		NewID:      deps.NewID,
+		Ensurer:    projectApplier,
+		Dispatcher: dispatcher,
+		Sessions:   workerRuntime,
+		Stopper:    sessionResetter,
+		Resetter:   sessionResetter,
+	})
+	deps.Activations = svc.Activations
+	// Share the processors service with MCP tools so create_processor uses
+	// the same auto-provision + cycle-check path as REST /processors.
+	deps.Processors = svc.Processors
+
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		return nil, fmt.Errorf("register helix-org builtins: %w", err)
@@ -794,18 +872,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Logger:    logger,
 	}))
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
-	// The activations service owns the manual-activate command (REST
-	// activateWorker delegates to it). Built here because it needs the
-	// project ensurer, the dispatcher's DispatchManual, and a session
-	// resolver — collaborators only assembled at the composition root.
-	svc.Activations = activations.New(activations.Deps{
-		Repo:       st.Activations,
-		Now:        deps.Now,
-		NewID:      deps.NewID,
-		Ensurer:    projectApplier,
-		Dispatcher: dispatcher,
-		Sessions:   orgWorkerRuntime{st: st},
-	})
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
 		Bots:          svc.Bots,
@@ -814,13 +880,12 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Queries:       svc.Queries,
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
-		BotRuntime:    orgWorkerRuntime{st: st},
-		// BotSessionResetter tears the worker's current session fully down
-		// (stop desktop → delete session → clear pointer) so the bot-page
-		// "Restart agent session" button then Activates onto a brand-new
-		// session, desktop and thread with the bot's current MCP services —
-		// instead of resuming the old container and thread.
-		BotSessionResetter: botSessionResetter{client: inProcClient, st: st},
+		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
+		BotRuntime:    workerRuntime,
+		// Kept on apiDeps so legacy/tests that poke the ports directly still
+		// work; REST stop/restart now go through Activations.
+		BotSessionResetter: sessionResetter,
+		BotDesktopStopper:  sessionResetter,
 		// GitHubInbound builds the inbound github transport per org — it
 		// reads matching topics + appends events, so it holds the store
 		// here in the composition root rather than in the api adapter.
@@ -957,9 +1022,29 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		cfg.APIServer.Cfg.GitHub.WebURL(), cfg.APIServer.Cfg.GitHub.APIBaseURL(),
 	)
 
+	// Membership-driven human-node + Chief of Staff seeder. Reuses the same
+	// lifecycle (CoS runs) and bots (human nodes never run) services the REST
+	// create path uses; botStore backs idempotency checks.
+	seeder := &orgGraphSeeder{lifecycle: lifecycleSvc, bots: svc.Bots, botStore: st.Bots}
+	// Bootstrap-time reconcile: converge human nodes against org membership,
+	// and re-seed / tool-backfill Chief of Staff (idempotent — unions any
+	// new OwnerBotTools entries onto existing CoS). Runs once per org per
+	// process via ensureBootstrap.
+	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+		members, err := listOrgMemberUsers(ctx, helixStore, orgID)
+		if err != nil {
+			return err
+		}
+		if err := seeder.ReconcileHumans(ctx, orgID, members); err != nil {
+			return err
+		}
+		return seeder.SeedChiefOfStaff(ctx, orgID)
+	}
+
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
+		seeder:                       seeder,
 		streamCron:                   streamCronScheduler,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
@@ -986,9 +1071,8 @@ type helixOrgConfig struct {
 // `worker.*` and `helix.*` from the config registry on every Ensure
 // call. Building the underlying runtimehelix.WorkerProject at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
-// `provider`/`model` at boot time — operators changing those via
-// the settings page then had to restart the API container for the new
-// values to take effect. Resolving per-call removes that surprise.
+// `provider`/`model` at boot time. These values provision new apps;
+// existing apps own their runtime configuration after creation.
 //
 // Store is exposed directly because helix_org_chat.go needs it to
 // load/save the per-Worker session pointer on the same row the
@@ -1118,7 +1202,7 @@ func buildHelixOrgProjectApplier(
 // them into the (runtime, credentials, provider, model) tuple that
 // matches Helix's per-agent UI:
 //
-//   - claude_code + subscription → no provider/model (CLI authenticates via OAuth)
+//   - claude_code/codex_cli + subscription → no provider/model (CLI authenticates via OAuth)
 //   - claude_code + api_key       → provider+model required, inference via Helix's anthropic provider
 //   - zed_agent (or other)        → provider+model required, always Helix-routed (credentials forced to "api_key")
 //
@@ -1134,14 +1218,20 @@ func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregi
 	if credentials == "" {
 		credentials = "subscription"
 	}
-	if runtime != "claude_code" {
-		credentials = "api_key" // subscription is only meaningful for claude_code
+	if !workerRuntimeSupportsSubscription(runtime) {
+		credentials = "api_key"
 	}
 	if credentials == "api_key" {
 		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
 		model, _ = cfg.GetString(ctx, orgID, "worker.model")
+	} else if runtime == "codex_cli" {
+		model, _ = cfg.GetString(ctx, orgID, "worker.model")
 	}
 	return runtime, credentials, provider, model
+}
+
+func workerRuntimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // buildInProcHelixClient resolves the service-account *types.User and
@@ -1280,8 +1370,8 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 // design/2026-06-09-org-multitenancy-spawner-leak.md.)
 //
 // Building per activation is cheap (a handful of config-registry
-// reads) and also keeps worker.runtime/credentials/provider/model
-// current without any "drift" handling. The one thing the old cache
+// reads) and ensures newly provisioned apps use current org defaults.
+// Existing apps retain their own configuration. The one thing the old cache
 // legitimately provided — a single process-wide inflight cap — is
 // preserved by minting one shared semaphore here and injecting it into
 // each per-activation config via SpawnerConfig.Sem.

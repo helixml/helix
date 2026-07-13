@@ -36,8 +36,20 @@ type fakeProjectConfig struct {
 	mu     sync.Mutex
 	get    func(orgID string, botID orgchart.BotID) (runtime.ProjectConfigSnapshot, error)
 	patch  func(orgID string, botID orgchart.BotID, p runtime.ProjectConfigPatch) (runtime.ProjectConfigSnapshot, error)
+	list   func(orgID string, botID orgchart.BotID) (map[string]string, error)
 	getN   int
 	patchN int
+	listN  int
+}
+
+func (f *fakeProjectConfig) ListWorkerProjectSecrets(_ context.Context, orgID string, botID orgchart.BotID) (map[string]string, error) {
+	f.mu.Lock()
+	f.listN++
+	f.mu.Unlock()
+	if f.list == nil {
+		return nil, errors.New("fakeProjectConfig: list not stubbed")
+	}
+	return f.list(orgID, botID)
 }
 
 func (f *fakeProjectConfig) GetWorkerProjectConfig(_ context.Context, orgID string, botID orgchart.BotID) (runtime.ProjectConfigSnapshot, error) {

@@ -119,6 +119,11 @@ func (m *Mirror) EnsureAll(ctx context.Context, orgID string) {
 		return
 	}
 	for _, b := range bots {
+		// Human nodes never run and never have a session — mirroring one
+		// would leave a goroutine polling for a session that never appears.
+		if b.IsHuman() {
+			continue
+		}
 		m.Ensure(orgID, b.ID)
 	}
 }

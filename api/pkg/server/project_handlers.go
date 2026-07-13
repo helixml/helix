@@ -2789,12 +2789,13 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		// When omitted, a plain chat agent (helix_basic) is created.
 		agentType, codeRuntime := projectAgentRuntimeToTypes(agentSpec.Runtime)
 
-		// Default to api_key when the spec doesn't say otherwise. Only
-		// claude_code can legitimately carry "subscription"; everything else
+		// Default to api_key when the spec doesn't say otherwise. Claude Code
+		// and Codex can legitimately carry "subscription"; everything else
 		// must be api_key so GenerateZedMCPConfig writes agent.default_model
 		// (start-zed-helix.sh greps for that literal key before launching Zed).
 		credType := types.CodeAgentCredentialTypeAPIKey
-		if agentSpec.Credentials == "subscription" && codeRuntime == types.CodeAgentRuntimeClaudeCode {
+		if agentSpec.Credentials == "subscription" &&
+			(codeRuntime == types.CodeAgentRuntimeClaudeCode || codeRuntime == types.CodeAgentRuntimeCodexCLI) {
 			credType = types.CodeAgentCredentialTypeSubscription
 		}
 
@@ -2861,6 +2862,21 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 
 		if agentApp != nil {
+			// Apply only owns name/runtime/provider/model/credentials/tools/
+			// display/goose. User-edited skill config (MCPs, APIs, Zapier, …)
+			// lives on the agent app via the Skills UI and must survive
+			// re-apply — org-bot activation/restart calls ApplyProject on
+			// every start, and wholesale-replacing Config.Helix used to wipe
+			// those entries (so macroplane/etc. vanished after restart).
+			if len(agentApp.Config.Helix.Assistants) > 0 {
+				preserveAssistantSkillsFromExisting(&assistant, agentApp.Config.Helix.Assistants[0], agentSpec.Tools != nil)
+				appHelixConfig.Assistants = []types.AssistantConfig{assistant}
+			}
+			// Same for display settings: only overwrite when the apply
+			// spec supplied them; otherwise keep the operator's values.
+			if agentSpec.Display == nil && agentApp.Config.Helix.ExternalAgentConfig != nil {
+				appHelixConfig.ExternalAgentConfig = agentApp.Config.Helix.ExternalAgentConfig
+			}
 			agentApp.Config.Helix = appHelixConfig
 			if _, err := s.Store.UpdateApp(r.Context(), agentApp); err != nil {
 				return nil, system.NewHTTPError500(fmt.Sprintf("failed to update agent app: %v", err))
@@ -2892,6 +2908,68 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		Created:    wasCreated,
 		AgentAppID: agentAppID,
 	}, nil
+}
+
+// preserveAssistantSkillsFromExisting copies skill / prompt fields from an
+// existing assistant onto the apply-built assistant. ProjectAgentSpec does
+// not declare MCPs, APIs, Zapier, knowledge, system prompt, etc. — those are
+// configured out-of-band (Skills UI, agent settings). Without this merge,
+// every ApplyProject update zeros them.
+//
+// toolsFromSpec is true when agentSpec.Tools was non-nil, in which case the
+// apply path already set Browser/WebSearch/Calculator and those values win.
+func preserveAssistantSkillsFromExisting(dst *types.AssistantConfig, src types.AssistantConfig, toolsFromSpec bool) {
+	if dst == nil {
+		return
+	}
+	dst.MCPs = src.MCPs
+	dst.APIs = src.APIs
+	dst.Zapier = src.Zapier
+	dst.Email = src.Email
+	dst.AzureDevOps = src.AzureDevOps
+	dst.ProjectManager = src.ProjectManager
+	dst.Knowledge = src.Knowledge
+	dst.Tools = src.Tools
+	dst.SystemPrompt = src.SystemPrompt
+	dst.Description = src.Description
+	dst.Avatar = src.Avatar
+	dst.Image = src.Image
+	dst.ConversationStarters = src.ConversationStarters
+	dst.Memory = src.Memory
+	dst.ContextLimit = src.ContextLimit
+	dst.Temperature = src.Temperature
+	dst.PresencePenalty = src.PresencePenalty
+	dst.FrequencyPenalty = src.FrequencyPenalty
+	dst.TopP = src.TopP
+	dst.MaxTokens = src.MaxTokens
+	dst.ReasoningEffort = src.ReasoningEffort
+	dst.RAGSourceID = src.RAGSourceID
+	dst.LoraID = src.LoraID
+	dst.IsActionableTemplate = src.IsActionableTemplate
+	dst.IsActionableHistoryLength = src.IsActionableHistoryLength
+	dst.Tests = src.Tests
+	// Reasoning / small model slots are not owned by ProjectAgentSpec
+	// (org-bot apply only mirrors generation_model for zed_external).
+	// Keep operator-tuned values.
+	if dst.ReasoningModel == "" && src.ReasoningModel != "" {
+		dst.ReasoningModel = src.ReasoningModel
+		dst.ReasoningModelProvider = src.ReasoningModelProvider
+		dst.ReasoningModelEffort = src.ReasoningModelEffort
+	}
+	if dst.SmallReasoningModel == "" && src.SmallReasoningModel != "" {
+		dst.SmallReasoningModel = src.SmallReasoningModel
+		dst.SmallReasoningModelProvider = src.SmallReasoningModelProvider
+		dst.SmallReasoningModelEffort = src.SmallReasoningModelEffort
+	}
+	if dst.SmallGenerationModel == "" && src.SmallGenerationModel != "" {
+		dst.SmallGenerationModel = src.SmallGenerationModel
+		dst.SmallGenerationModelProvider = src.SmallGenerationModelProvider
+	}
+	if !toolsFromSpec {
+		dst.WebSearch = src.WebSearch
+		dst.Browser = src.Browser
+		dst.Calculator = src.Calculator
+	}
 }
 
 // synthesizeStartupScript builds a shell script from declarative startup fields

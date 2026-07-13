@@ -60,7 +60,7 @@ import {
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
@@ -1098,7 +1098,7 @@ export default function DesignReviewContent({
           snackbar.info("Connect GitHub to approve this design.");
           startOAuthFlow({
             providerId: gitHubProvider.id,
-            scopes: ["repo"],
+            scopes: GITHUB_VCS_SCOPES,
             onSuccess: () => {
               snackbar.success(
                 "GitHub connected. Click Approve again to submit.",

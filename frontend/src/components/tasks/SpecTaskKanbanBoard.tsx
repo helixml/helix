@@ -97,7 +97,7 @@ import {
 } from "../../api/api";
 import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import BacklogTableView from "./BacklogTableView";
@@ -1520,7 +1520,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             snackbar.info("Connect GitHub to start planning this task.");
             startOAuthFlow({
               providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              scopes: GITHUB_VCS_SCOPES,
               onSuccess: () => {
                 snackbar.success(
                   "GitHub connected. Click Start Planning again to continue.",

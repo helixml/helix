@@ -8,7 +8,7 @@ import (
 // Free function because types.SessionOutputResponse lives in another
 // package — we don't own the type and won't shim it with a method here.
 func IsTerminalOutput(o types.SessionOutputResponse) bool {
-	return o.Status == "complete" || o.Status == "error"
+	return o.Status == "complete" || o.Status == "error" || o.Status == "interrupted"
 }
 
 // ServerStatus mirrors the slice of /api/v1/config helix-org reads.

@@ -2319,6 +2319,7 @@ type ZedConfigResponse struct {
 	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
+	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`  // True if user has active ChatGPT credentials for Codex CLI
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
@@ -2449,7 +2450,14 @@ type LLMCall struct {
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
-	PromptTokens     int64          `json:"prompt_tokens"`
+	// TimeToFirstTokenMs is the wall time from request start to the first
+	// streamed chunk. It isolates provider prefill / cold-start latency from
+	// generation time (a cold or overloaded provider shows a large TTFT while
+	// generation stays normal). 0 means no chunk was received (the call errored
+	// or was cut before the first token). For non-streaming calls it equals the
+	// time to the full response.
+	TimeToFirstTokenMs int64          `json:"time_to_first_token_ms"`
+	PromptTokens       int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
 	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
@@ -2499,7 +2507,7 @@ type CreateSecretRequest struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
 	AppID     string `json:"app_id"`
-	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
+	ProjectID string `json:"project_id"`      // optional, if set, the secret will be available to the specified project
 	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "dev"
 }
 
@@ -3103,10 +3111,11 @@ type OrgInvitationNotification struct {
 
 // SessionOutputResponse is returned by GET /sessions/{id}/output
 type SessionOutputResponse struct {
-	SessionID  string `json:"session_id"`
-	Status     string `json:"status"` // "waiting", "complete", "error"
-	Output     string `json:"output"` // Last interaction's response text
-	DurationMs int64  `json:"duration_ms"`
+	SessionID     string `json:"session_id"`
+	InteractionID string `json:"interaction_id,omitempty"`
+	Status        string `json:"status"` // "waiting", "complete", "error", "interrupted"
+	Output        string `json:"output"` // Last interaction's response text
+	DurationMs    int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

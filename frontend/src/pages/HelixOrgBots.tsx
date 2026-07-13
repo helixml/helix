@@ -23,9 +23,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
-import Page from '../components/system/Page'
-import NewBotDialog from '../components/helix-org/NewBotDialog'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
+import NewBotDialog from '../components/helix-org/NewBotDialog'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleTable from '../components/widgets/SimpleTable'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -41,16 +41,16 @@ import {
 
 const HelixOrgBots: FC = () => {
   const router = useRouter()
-  const account = useAccount()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
   const snackbar = useSnackbar()
   const theme = useTheme()
   const orgSlug = router.params.org_id as string | undefined
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useListHelixOrgBots()
   const deleteBot = useDeleteBot()
 
-  const bots = data ?? []
+  // People (kind=human) live in the chart's People panel, not the Bots list.
+  const bots = (data ?? []).filter((b) => b.kind !== 'human')
   const [deleting, setDeleting] = useState<BotDTO | undefined>()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [currentBot, setCurrentBot] = useState<BotDTO | null>(null)
@@ -148,25 +148,20 @@ const HelixOrgBots: FC = () => {
   }
 
   return (
-    <Page
-      breadcrumbTitle="Bots"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Bots">
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h5" sx={{ mb: 1 }}>Bots</Typography>
               <Typography variant="body2" color="text.secondary">
-                A Bot is an agent in the org. Its markdown content is the prompt it reads on
-                activation, its tools list is its MCP tool surface, and it reports to other
-                bots (its managers). Click a bot to open its detail page — chat to it inline,
-                edit its content and tools, and manage its subscriptions.
+                Agents in this org. Click a bot to open its detail page — edit instructions,
+                tools and subscriptions.
               </Typography>
             </Box>
             <Button
               variant="contained"
+              color="secondary"
               startIcon={<AddIcon />}
               onClick={() => setNewBotOpen(true)}
               sx={{ flexShrink: 0, mt: 0.5 }}
@@ -184,6 +179,7 @@ const HelixOrgBots: FC = () => {
               </Typography>
               <Button
                 variant="contained"
+                color="secondary"
                 startIcon={<AddIcon />}
                 onClick={() => setNewBotOpen(true)}
                 sx={{ mt: 1 }}
@@ -247,7 +243,8 @@ const HelixOrgBots: FC = () => {
       )}
 
       <NewBotDialog open={newBotOpen} onClose={() => setNewBotOpen(false)} />
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

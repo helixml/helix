@@ -108,6 +108,10 @@ type HelixAPIServer struct {
 	// Topic reconciler and the Socket Mode manager — live inside it, not
 	// as fields on this struct.
 	helixOrg *helixOrgHandlers
+	// orgSeeder creates membership-driven human nodes + the per-org Chief
+	// of Staff bot. Set by mountHelixOrg; nil when helix-org is disabled
+	// (the seeder's methods are nil-safe no-ops).
+	orgSeeder *orgGraphSeeder
 	// onServiceConnectionChange is an optional post-mutation hook a
 	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
@@ -1101,6 +1105,14 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.createCodexSubscription)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.listCodexSubscriptions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.getCodexSubscription)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.deleteCodexSubscription)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/codex-subscriptions/start-login", system.Wrapper(apiServer.startCodexLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/codex-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollCodexLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 
 	authRouter.HandleFunc("/apps", wrapWithETag[[]*types.App](apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
@@ -1534,6 +1546,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/projects/{id}/web-service", system.Wrapper(apiServer.putProjectWebService)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/projects/{id}/web-service/active-sandbox", system.Wrapper(apiServer.setActiveWebServiceSandbox)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/deploy", system.Wrapper(apiServer.deployProjectWebService)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/web-service/logs", system.Wrapper(apiServer.getProjectWebServiceLogs)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains", system.Wrapper(apiServer.addProjectWebServiceDomain)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/web-service/domains/{domain_id}", system.Wrapper(apiServer.deleteProjectWebServiceDomain)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/move/preview", system.Wrapper(apiServer.moveProjectPreview)).Methods(http.MethodPost)

@@ -2,8 +2,9 @@
 // CRUD use cases — Create, Update, Delete, Preview — plus the two
 // structural invariants a Processor carries: its output Topics are
 // auto-provisioned and owned by it, and the processor graph must stay
-// acyclic. Both the REST handlers and (later) any MCP tool delegate
-// here so those invariants cannot drift between callers.
+// acyclic. Both the REST handlers and the MCP tools (create_processor,
+// update_processor, delete_processor, list/get) delegate here so those
+// invariants cannot drift between callers.
 //
 // Per CLAUDE.md helix-org philosophy this is the only place that does
 // structural derivation (auto-creating output topics) — it is not

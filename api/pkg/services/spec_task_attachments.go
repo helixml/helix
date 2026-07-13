@@ -53,6 +53,84 @@ func (s *SpecDrivenTaskService) stageAttachmentsAndBuildPromptSection(
 	return BuildAttachmentsSection(attachments, taskDirName), nil
 }
 
+// StageUploadedAttachments stages any un-staged attachments for the task into the
+// helix-specs branch immediately (reusing the idempotent commitAttachmentsToHelixSpecs),
+// and — if a planning session already exists — enqueues a note so the agent knows a new
+// attachment arrived after its planning prompt was built.
+//
+// This is called from the upload handler so an attachment lands in
+// design/tasks/<taskDir>/attachments/ regardless of when it is uploaded relative to
+// planning. Without it, staging only happened at planning time, so a slow upload that
+// lost the race against start-planning was never committed and the agent never saw it.
+//
+// Safe to call at any point in the task lifecycle:
+//   - Planning not started yet (no PlanningSessionID): the file is committed now, and
+//     the planning prompt (built later) lists it via ListSpecTaskAttachments — no note.
+//   - Planning already running (PlanningSessionID set): the prompt may already have been
+//     built without this file, so we enqueue an "attachment added" note.
+func (s *SpecDrivenTaskService) StageUploadedAttachments(ctx context.Context, taskID string) error {
+	task, err := s.store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("get task: %w", err)
+	}
+
+	var project *types.Project
+	if task.ProjectID != "" {
+		project, err = s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			return fmt.Errorf("get project: %w", err)
+		}
+	}
+
+	attachments, err := s.store.ListSpecTaskAttachments(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("list attachments: %w", err)
+	}
+	if len(attachments) == 0 {
+		return nil
+	}
+
+	// Snapshot which attachments are newly arriving (not yet staged) BEFORE we commit —
+	// these are the ones the planning prompt cannot have referenced yet. commitAttachments
+	// sets CommittedSHA in place, so this must be read first.
+	newlyArrived := make([]*types.SpecTaskAttachment, 0, len(attachments))
+	for _, a := range attachments {
+		if a.CommittedSHA == "" {
+			newlyArrived = append(newlyArrived, a)
+		}
+	}
+
+	// Stage into helix-specs if the project has a repo configured.
+	// commitAttachmentsToHelixSpecs is idempotent (skips rows whose CommittedSHA is set),
+	// so double-staging with the planning-time path is safe.
+	if project != nil && project.DefaultRepoID != "" && s.gitRepositoryService != nil {
+		if err := s.commitAttachmentsToHelixSpecs(ctx, task, project, attachments); err != nil {
+			return fmt.Errorf("commit attachments to helix-specs: %w", err)
+		}
+	}
+
+	// If planning already has a session AND something new actually arrived, its prompt was
+	// (or is being) built without these files — tell the agent to look. When there is no
+	// session yet, the planning prompt will list them; when nothing is new (re-stage), the
+	// agent has already been told.
+	if len(newlyArrived) > 0 && task.PlanningSessionID != "" && s.EnqueueMessageToAgent != nil {
+		note := buildAttachmentAddedNote(newlyArrived, GetTaskDirName(task))
+		if err := s.EnqueueMessageToAgent(ctx, task, note, false, task.CreatedBy); err != nil {
+			return fmt.Errorf("enqueue attachment-added note: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// buildAttachmentAddedNote is the message enqueued to a running planning session when an
+// attachment arrives after the prompt was built. Reuses BuildAttachmentsSection so the
+// paths and wording match the initial planning prompt.
+func buildAttachmentAddedNote(attachments []*types.SpecTaskAttachment, taskDirName string) string {
+	return "A new attachment was added after this session started. Read it before continuing.\n\n" +
+		BuildAttachmentsSection(attachments, taskDirName)
+}
+
 // commitAttachmentsToHelixSpecs writes each un-staged attachment as a blob in the
 // helix-specs branch and updates its CommittedSHA. Uses a single WithExternalRepoWrite
 // session so all attachments land in one push.

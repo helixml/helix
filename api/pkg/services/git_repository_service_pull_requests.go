@@ -633,6 +633,16 @@ func (s *GitRepositoryService) getGitHubClient(ctx context.Context, repo *types.
 		if err == nil && conn.AccessToken != "" {
 			return github.NewClientWithOAuthAndBaseURL(conn.AccessToken, baseURL), nil
 		}
+		// The pinned connection is gone (the owner disconnected/reconnected GitHub,
+		// which soft-deletes the old connection row). Self-heal to the repo owner's
+		// newest live connection for the same provider, matching the git-credential
+		// path in getCredentialsForRepo — otherwise PR operations fail with "no
+		// GitHub authentication configured" even though push works.
+		if repo.OwnerID != "" {
+			if token := s.newestLiveOAuthToken(ctx, repo.OwnerID, repo.ExternalType); token != "" {
+				return github.NewClientWithOAuthAndBaseURL(token, baseURL), nil
+			}
+		}
 	}
 
 	// Check for GitHub-specific PAT
@@ -800,6 +810,14 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 		conn, err := s.store.GetOAuthConnection(ctx, repo.OAuthConnectionID)
 		if err == nil && conn.AccessToken != "" {
 			return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
+		}
+		// Pinned connection is gone (owner disconnected/reconnected). Self-heal to
+		// the repo owner's newest live connection, matching getGitHubClient and the
+		// git-credential path in getCredentialsForRepo.
+		if repo.OwnerID != "" {
+			if token := s.newestLiveOAuthToken(ctx, repo.OwnerID, repo.ExternalType); token != "" {
+				return gitlab.NewClientWithOAuth(baseURL, token)
+			}
 		}
 	}
 

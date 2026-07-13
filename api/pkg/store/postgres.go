@@ -240,6 +240,7 @@ func (s *PostgresStore) runMigrations() error {
 		&types.GlobalCounter{},
 		&types.CloneGroup{},
 		&types.ClaudeSubscription{},
+		&types.CodexSubscription{},
 		&types.AttentionEvent{},
 		&types.EvaluationSuite{},
 		&types.EvaluationRun{},

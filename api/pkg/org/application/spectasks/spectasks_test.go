@@ -39,7 +39,15 @@ func (f *fakePort) Get(_ context.Context, org string, w orgchart.BotID, projectI
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }
+func (f *fakePort) Update(_ context.Context, org string, w orgchart.BotID, projectID, taskID string, _ runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.view, f.err
+}
 func (f *fakePort) StartPlanning(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
+	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
+	return f.view, f.err
+}
+func (f *fakePort) StopAgent(_ context.Context, org string, w orgchart.BotID, projectID, taskID string) (runtime.SpecTaskView, error) {
 	f.lastOrg, f.lastWorker, f.lastProject, f.lastTaskID = org, w, projectID, taskID
 	return f.view, f.err
 }

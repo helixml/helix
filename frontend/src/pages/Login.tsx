@@ -53,15 +53,38 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
+// Resolve a post-login redirect to a same-origin path only. Values come
+// from localStorage and must never drive navigation to an external URL.
+function safePostLoginPath(raw: string | null): string {
+  if (!raw) return '/'
+  if (raw === '/notfound' || raw === '/login' || raw === '/') return '/'
+  try {
+    // Parse relative to current origin — absolute/foreign hosts fail the origin check.
+    const url = new URL(raw, window.location.origin)
+    if (url.origin !== window.location.origin) return '/'
+    // Rebuild from pathname/search/hash only (drop any userinfo/host).
+    const path = `${url.pathname}${url.search}${url.hash}`
+    if (!path.startsWith('/') || path.startsWith('//')) return '/'
+    // Reject javascript:/data: etc. that URL may still surface as path in edge cases.
+    if (path.toLowerCase().includes('javascript:') || path.toLowerCase().includes('data:')) return '/'
+    return path
+  } catch {
+    return '/'
+  }
+}
+
 function performPostLoginRedirect() {
   const redirectUrl = localStorage.getItem(LOGIN_REDIRECT_KEY)
   localStorage.removeItem(LOGIN_REDIRECT_KEY)
-
-  if (redirectUrl && redirectUrl !== '/notfound' && redirectUrl !== '/login' && redirectUrl !== '/') {
-    window.location.href = redirectUrl
-  } else {
-    window.location.href = '/'
+  const path = safePostLoginPath(redirectUrl)
+  // Do NOT pass a storage-derived string into location.assign/href — CodeQL
+  // models that as js/xss-through-dom (DOM text reinterpreted as HTML).
+  // Instead: update the history entry to the validated same-origin path,
+  // then reload so the app boots on that URL without an HTML/location sink.
+  if (path !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(null, '', path)
   }
+  window.location.reload()
 }
 
 export default function Login() {

@@ -129,6 +129,62 @@ func (s *RestartSessionContainerSuite) TestRestartRecreatesContainerInOrder() {
 	}
 }
 
+// TestRestartClearsZedThread pins the crash-recovery semantics: restart opens a
+// FRESH thread rather than reattaching to the crashed one. A wedged agent often
+// poisons the thread itself, so reattaching reproduces the wedge; /resume is the
+// preserve-the-thread path. We assert the session's ZedThreadID is cleared and
+// persisted (UpdateSessionMetadata) before the container is recreated.
+func (s *RestartSessionContainerSuite) TestRestartClearsZedThread() {
+	ctx := context.Background()
+	const (
+		userID    = "user_op"
+		projectID = "prj_restart"
+		sessionID = "ses_restart"
+	)
+	user := &types.User{ID: userID}
+	session := zedSession(sessionID, userID, projectID)
+	session.Metadata.ZedThreadID = "poisoned-thread" // a crashed thread to escape
+
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
+	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	// GetSession returns the same pointer we mutate, so resume's post-StartDesktop
+	// refetch sees the cleared thread (no open_thread goroutine into mocks).
+	s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
+
+	// The load-bearing assertion: the thread is cleared and persisted BEFORE the
+	// container is recreated. Ordering matters — a clear after StartDesktop would
+	// let the reconnect reload the stale thread from the DB, so pin it in the
+	// InOrder chain (StopDesktop → clear → StartDesktop), not as a bare EXPECT.
+	var clearedTo = "unset"
+	clearThread := s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, meta types.SessionMetadata) error {
+			clearedTo = meta.ZedThreadID
+			return nil
+		}).Times(1)
+	stopDesktop := s.executor.EXPECT().StopDesktop(gomock.Any(), sessionID).Return(nil).Times(1)
+	startDesktop := s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(&types.DesktopAgentResponse{DevContainerID: "dev_new"}, nil).Times(1)
+	gomock.InOrder(stopDesktop, clearThread, startDesktop)
+	s.store.EXPECT().ResetCrashedPromptsForSession(gomock.Any(), sessionID).Return(1, nil).Times(1)
+
+	pumped := make(chan struct{})
+	s.store.EXPECT().GetAnyPendingPrompt(gomock.Any(), sessionID).DoAndReturn(
+		func(_ context.Context, _ string) (*types.PromptHistoryEntry, error) {
+			close(pumped)
+			return nil, nil
+		}).Times(1)
+
+	_, herr := s.server.restartSessionContainer(ctx, user, session)
+	s.Require().Nil(herr)
+	s.Equal("", clearedTo, "restart must clear ZedThreadID so Zed opens a fresh thread")
+
+	select {
+	case <-pumped:
+	case <-time.After(2 * time.Second):
+		s.Fail("processAnyPendingPrompt was not kicked after restart")
+	}
+}
+
 // TestRestartCrashedAgentThread_403WhenNotOwner pins authorization on
 // the in-chat endpoint: a user who doesn't own the (orgless) session
 // gets 403 and no container is touched.

@@ -21,23 +21,23 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Key:         "worker.runtime",
 		Type:        configregistry.TypeString,
 		Default:     `"claude_code"`,
-		Description: "Code-agent runtime applied to every Worker's Helix project. `claude_code` (default) is the Anthropic Claude CLI; `zed_agent` is the Helix-routed conversational agent. Other runtimes (e.g. `qwen_code`) work if Helix supports them.",
+		Description: "Code-agent runtime applied to every Worker's Helix project. `claude_code` (default) is the Anthropic Claude CLI; `codex_cli` is OpenAI Codex; `zed_agent` is the Helix-routed conversational agent. Other supported runtimes include `qwen_code`.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.credentials",
 		Type:        configregistry.TypeString,
 		Default:     `"subscription"`,
-		Description: "Auth source for the runtime. `subscription` (default) uses the operator's connected Claude OAuth (only valid for `claude_code`). `api_key` routes inference through Helix's anthropic/openai/etc. provider (configured separately in Helix Providers); requires `worker.provider` and `worker.model` to be set. For `zed_agent` and other non-subscription runtimes this is effectively always `api_key`.",
+		Description: "Auth source for the runtime. `subscription` (default) uses the operator's connected Claude or ChatGPT credentials for `claude_code` or `codex_cli`. `api_key` routes inference through a provider configured in Helix Providers and requires `worker.provider` and `worker.model`. Other runtimes always use `api_key`.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.provider",
 		Type:        configregistry.TypeString,
-		Description: "Helix provider name (e.g. `anthropic`, `openai`) routed-through inference uses. Required when `worker.credentials=api_key` or when `worker.runtime` is anything other than `claude_code`. Must match a provider configured in Helix's Providers panel (or auto-provisioned from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars at startup).",
+		Description: "Helix provider name (e.g. `anthropic`, `openai`) routed-through inference uses. Required when `worker.credentials=api_key` or when the runtime does not support subscriptions. Must match a provider configured in Helix's Providers panel.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.model",
 		Type:        configregistry.TypeString,
-		Description: "Model ID for the chosen provider (e.g. `claude-sonnet-4-5`, `gpt-4o-mini`). Required alongside `worker.provider` whenever inference routes through Helix. Ignored for `claude_code`+`subscription` (the CLI picks its own model).",
+		Description: "Model ID for the chosen provider or Codex subscription (e.g. `claude-sonnet-4-5`, `gpt-5.6-sol`). Required alongside `worker.provider` whenever inference routes through Helix. For subscription-backed `codex_cli`, selects the Codex default model; ignored for subscription-backed `claude_code`.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",

@@ -27,6 +27,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   ServerProjectWebServiceResponse,
+  ServerProjectWebServiceLogsResponse,
   TypesProjectWebServiceState,
   TypesVHostRoute,
   TypesWebServiceDeploy,
@@ -56,9 +57,28 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
     },
   })
 
+  const [showLogs, setShowLogs] = useState(false)
+
+  // Deploy/startup logs are fetched on demand (each fetch runs an exec in the
+  // sandbox), so only poll while the panel is open.
+  const {
+    data: logsData,
+    isFetching: logsFetching,
+    refetch: refetchLogs,
+  } = useQuery<ServerProjectWebServiceLogsResponse>({
+    queryKey: ['project-web-service-logs', projectId],
+    enabled: !!projectId && showLogs,
+    refetchInterval: showLogs ? 15000 : false,
+    queryFn: async () => {
+      const res = await apiClient.v1ProjectsWebServiceLogsDetail(projectId)
+      return res.data
+    },
+  })
+
   const state = data?.state
   const domains = data?.domains ?? []
   const deploys = data?.deploys ?? []
+  const latestDeploy = deploys[0]
   const cnameTarget = data?.cname_target ?? ''
   const acmeChallengeTarget = data?.acme_challenge_target ?? ''
   const health = data?.health ?? ''
@@ -394,7 +414,60 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
             <Typography variant="subtitle1" gutterBottom>
               Recent deploys
             </Typography>
+
+            {latestDeploy?.status === 'failed' && latestDeploy?.error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Last deploy didn’t come up
+                </Typography>
+                <Typography variant="body2">{latestDeploy.error}</Typography>
+              </Alert>
+            )}
+
             <DeploysTable deploys={deploys} hasActiveSandbox={!!state?.active_sandbox_id} />
+
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Button size="small" variant="outlined" onClick={() => setShowLogs((v) => !v)}>
+                  {showLogs ? 'Hide deploy logs' : 'View deploy logs'}
+                </Button>
+                {showLogs && (
+                  <Button size="small" onClick={() => refetchLogs()} disabled={logsFetching}>
+                    {logsFetching ? 'Refreshing…' : 'Refresh'}
+                  </Button>
+                )}
+              </Stack>
+              {showLogs && (
+                <Box
+                  sx={{
+                    bgcolor: '#0b0b0b',
+                    color: '#d0d0d0',
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    p: 1.5,
+                    borderRadius: 1,
+                    maxHeight: 360,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {logsFetching && !logsData ? (
+                    <CircularProgress size={16} />
+                  ) : logsData?.log ? (
+                    logsData.log
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No deploy logs yet — they appear once a deploy has run against the active sandbox.
+                    </Typography>
+                  )}
+                </Box>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                The combined output of your project's startup script (build output, app logs, and
+                startup errors) from the active sandbox. Only visible to authorized project members.
+              </Typography>
+            </Box>
           </Box>
         </>
       )}

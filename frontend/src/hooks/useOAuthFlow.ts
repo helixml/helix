@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react'
 import useApi from './useApi'
 
+// Re-exported from utils/oauthProviders (single source of truth) so the many
+// callers that import it from this hook keep working. See vcsScopesForProvider
+// there for the per-provider connect scope sets.
+export { GITHUB_VCS_SCOPES } from '../utils/oauthProviders'
+
 interface StartOAuthFlowOptions {
   providerId: string
   scopes?: string[]

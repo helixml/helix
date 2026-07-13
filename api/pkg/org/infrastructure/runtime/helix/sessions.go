@@ -3,12 +3,15 @@ package helix
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
 )
+
+var ErrSessionNotFound = errors.New("helix session not found")
 
 // SessionClient is the slice of the session API EnsureAndSend depends
 // on, backed by the same primitives the cron trigger / spec tasks use:

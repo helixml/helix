@@ -26,12 +26,14 @@ import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
 import CloseIcon from '@mui/icons-material/Close'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
+import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -53,7 +55,6 @@ const HelixOrgTopicDetail: FC = () => {
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const topicId = router.params.topic_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
 
   const { data: topic, isLoading } = useHelixOrgTopic(topicId)
   const { data: messageCount } = useTopicMessageCount(topicId)
@@ -105,12 +106,12 @@ const HelixOrgTopicDetail: FC = () => {
     return d.toLocaleString()
   }
 
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
+  const leafTitle = topic?.name || topic?.id || topicId || 'Topic'
+
   return (
-    <Page
-      breadcrumbTitle={topic?.name || topicId || 'Topic'}
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle={leafTitle}>
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           {isLoading ? (
@@ -122,6 +123,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Box>
                 <Stack direction="row" alignItems="baseline" spacing={2}>
                   <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{topic.id}</Typography>
+                  <CopyButtonWithCheck text={topic.id} />
                   <Chip label={topic.kind} size="small" sx={{ fontFamily: 'monospace' }} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -198,7 +200,8 @@ const HelixOrgTopicDetail: FC = () => {
           )}
         </Stack>
       </Container>
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 
@@ -218,7 +221,7 @@ interface TopicConfigSectionProps {
   saving: boolean
 }
 
-const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
+export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
   const snackbar = useSnackbar()
   const [editing, setEditing] = useState(false)
 
@@ -236,6 +239,7 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
   // owned by GitHub's webhook UI), webhook_id, webhook_html_url —
   // survive the round-trip instead of being wiped.
   const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
+  const [cronSchedule, setCronSchedule] = useState('')
 
   const enterEdit = () => {
     setName(topic.name)
@@ -245,6 +249,9 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
       setGhOriginalConfig(cfg)
       setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
       setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
+    } else if (topic.kind === 'cron') {
+      const cfg = (topic.config ?? {}) as Record<string, unknown>
+      setCronSchedule(typeof cfg.schedule === 'string' ? cfg.schedule : '')
     } else if (topic.config) {
       setConfigText(JSON.stringify(topic.config, null, 2))
     } else {
@@ -284,6 +291,13 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
         delete ghConfig.branches
       }
       payload.transport = { config: ghConfig }
+    } else if (topic.kind === 'cron') {
+      const sched = cronSchedule.trim()
+      if (!sched) {
+        snackbar.error('Schedule is required')
+        return
+      }
+      payload.transport = { config: { schedule: sched } }
     } else if (topic.kind !== 'local' && configText.trim()) {
       try {
         const parsed = JSON.parse(configText)
@@ -326,17 +340,40 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
           <ReadOnlyRow label="Name" value={topic.name} />
           <ReadOnlyRow label="Description" value={topic.description || '—'} />
           <ReadOnlyRow label="Transport" value={topic.kind} mono />
-          {topic.kind !== 'local' && (
+          {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
             <Box>
-              <Typography variant="caption" color="text.secondary">Config</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                Schedule
+              </Typography>
+              <CronScheduleFields
+                key={`cron-read-${topic.config.schedule}`}
+                value={topic.config.schedule}
+                onChange={() => undefined}
+                disabled
+              />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.75, fontFamily: 'monospace' }}
+              >
+                {topic.config.schedule}
+              </Typography>
+            </Box>
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'cron' && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Config
+              </Typography>
               <Typography
                 component="pre"
                 variant="body2"
                 sx={{
                   mt: 0.5, mb: 0, p: 1, borderRadius: 1,
                   backgroundColor: 'action.hover',
-                  fontFamily: 'monospace', fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}
               >
                 {configPreview}
@@ -373,7 +410,14 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
               </Typography>
             </>
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && (
+          {topic.kind === 'cron' && (
+            <CronScheduleFields
+              key={editing ? 'cron-edit' : 'cron-view'}
+              value={cronSchedule}
+              onChange={setCronSchedule}
+            />
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
               value={configText}
@@ -614,7 +658,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
 }
 
 // MessageCountCard is the compact metric chip beside the Messages
-// header showing how many messages are waiting on the topic (meta.total
+// header showing how many messages are retained on the topic (meta.total
 // from the paginated messages endpoint). Undefined while the count query
 // is in flight — render an em-dash placeholder rather than 0 so a
 // loading state doesn't read as "empty topic".
@@ -635,7 +679,7 @@ const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
       {count === undefined ? '—' : count.toLocaleString()}
     </Typography>
     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-      waiting
+      retained
     </Typography>
   </Paper>
 )

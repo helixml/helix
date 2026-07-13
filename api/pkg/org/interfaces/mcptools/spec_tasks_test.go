@@ -22,6 +22,8 @@ type recordingPort struct {
 	lastTaskID  string
 	lastComment string
 	lastFilter  runtime.ListSpecTasksFilter
+	updateIn    runtime.UpdateSpecTaskInput
+	stopCalls   int
 	view        runtime.SpecTaskView
 	review      runtime.SpecReviewView
 	err         error
@@ -42,8 +44,17 @@ func (p *recordingPort) Get(_ context.Context, _ string, _ orgchart.BotID, proje
 	p.lastProject, p.lastTaskID = projectID, id
 	return p.view, p.err
 }
+func (p *recordingPort) Update(_ context.Context, _ string, _ orgchart.BotID, projectID, id string, in runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID, p.updateIn = projectID, id, in
+	return p.view, p.err
+}
 func (p *recordingPort) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
 	p.lastProject, p.lastTaskID = projectID, id
+	return p.view, p.err
+}
+func (p *recordingPort) StopAgent(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecTaskView, error) {
+	p.lastProject, p.lastTaskID = projectID, id
+	p.stopCalls++
 	return p.view, p.err
 }
 func (p *recordingPort) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, projectID, id string) (runtime.SpecReviewView, error) {
@@ -156,6 +167,24 @@ func TestGetSpecTaskTool(t *testing.T) {
 	}
 }
 
+func TestUpdateSpecTaskTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_9", Name: "Renamed", Status: "backlog"}}
+	tl := mcptools.NewUpdateSpecTask(depsWithPort(p))
+	if _, err := tl.Invoke(context.Background(), callerInv(`{"project_id":"prj_other","task_id":"task_9","name":"Renamed","priority":"high","skip_planning":true}`)); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.lastProject != "prj_other" || p.lastTaskID != "task_9" {
+		t.Errorf("target = %q/%q", p.lastProject, p.lastTaskID)
+	}
+	if p.updateIn.Name == nil || *p.updateIn.Name != "Renamed" || p.updateIn.Priority == nil || *p.updateIn.Priority != "high" {
+		t.Errorf("update input = %+v", p.updateIn)
+	}
+	if p.updateIn.SkipPlanning == nil || !*p.updateIn.SkipPlanning {
+		t.Errorf("skip planning = %v", p.updateIn.SkipPlanning)
+	}
+}
+
 func TestStartSpecTaskPlanningTool(t *testing.T) {
 	t.Parallel()
 	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_1", Status: "queued_spec_generation"}}
@@ -168,6 +197,18 @@ func TestStartSpecTaskPlanningTool(t *testing.T) {
 	}
 	if p.lastTaskID != "task_1" {
 		t.Errorf("task id = %q", p.lastTaskID)
+	}
+}
+
+func TestStopSpecTaskAgentTool(t *testing.T) {
+	t.Parallel()
+	p := &recordingPort{view: runtime.SpecTaskView{ID: "task_1", Status: "implementation"}}
+	tl := mcptools.NewStopSpecTaskAgent(depsWithPort(p))
+	if _, err := tl.Invoke(context.Background(), callerInv(`{"task_id":"task_1"}`)); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if p.stopCalls != 1 || p.lastTaskID != "task_1" {
+		t.Errorf("stop calls/task = %d/%q", p.stopCalls, p.lastTaskID)
 	}
 }
 

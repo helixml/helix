@@ -56,6 +56,10 @@ func isAgentCrashError(errMsg string) bool {
 	return false
 }
 
+func isMissingCodexRolloutError(errMsg string) bool {
+	return strings.Contains(errMsg, "no rollout found for thread id")
+}
+
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have
 // accumulated before a recurring thread_load_error is treated as terminal
 // (crash-marked, surfacing Restart) rather than retried again. A thread_load_error
@@ -2681,8 +2685,24 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("helix_session_id", helixSessionID).
 			Str("request_id", messageRequestID).
 			Msg("⚠️ [HELIX] No matching interaction found for message_completed — skipping")
+		// Still unblock any waiter registered under this request_id so the
+		// HTTP path cannot hang until the 180s timeout.
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
 		return nil
 	}
+
+	// Always unblock waitForExternalAgentResponse for this turn, even on early
+	// returns below (already-complete, interrupted, empty-response bounce).
+	// Missing this signal is what left the /sessions/chat waiter blocked for
+	// 180s after a successful stream and then clobbered the reply.
+	// Signal under both the event's request_id and the interaction id — they
+	// are usually the same after the fix, but may differ for in-flight turns.
+	defer func() {
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
+		if targetInteractionID != "" && targetInteractionID != messageRequestID {
+			apiServer.signalExternalAgentResponseDone(helixSessionID, targetInteractionID)
+		}
+	}()
 
 	// Now that we have the target, flush the streaming context to DB.
 	// This ensures the latest streamed content is persisted before we reload.
@@ -2788,6 +2808,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	} else {
 		targetInteraction.State = types.InteractionStateComplete
 	}
+	// Clear a premature waiter timeout (or any non-fatal error stamp) once the
+	// agent actually finishes. The HTTP/SSE waiter used to mark
+	// "External agent response timeout" at 180s while the WS path kept
+	// streaming for many more minutes — leaving Error set on a complete row.
+	targetInteraction.Error = ""
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 
@@ -3022,22 +3047,8 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
-	// Signal the waiting HTTP handler that this interaction is complete.
-	// This is needed for non-streaming (blocking) requests that call waitForExternalAgentResponse.
-	// In the normal case, chat_response_done sends the signal. But for Stopped/cancelled turns,
-	// Zed sends message_completed without chat_response_done, so we must signal here.
-	// The doneChan is buffered(1) so a double-send (normal case) is harmless.
-	if messageRequestID != "" {
-		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, messageRequestID)
-		if exists {
-			select {
-			case doneChan <- true:
-				log.Debug().Str("request_id", messageRequestID).Msg("✅ [HELIX] Sent done signal from message_completed")
-			default:
-				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
-			}
-		}
-	}
+	// doneChan is signaled via the defer above (covers this success path and
+	// every early return after targetInteractionID is resolved).
 
 	// Process next non-interrupt prompt from queue (if any)
 	go apiServer.processPromptQueue(context.Background(), helixSessionID)
@@ -3595,6 +3606,21 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
+			// Older Codex desktops did not persist ~/.codex, so Zed can retain an
+			// ACP thread whose rollout disappeared with the previous container.
+			// Invalidate that thread before the normal prompt retry; the retry then
+			// sends first_message=true and Zed creates a fresh Codex rollout.
+			if isMissingCodexRolloutError(errorMsg) && helixSession.Metadata.ZedThreadID == acpThreadID {
+				helixSession.Metadata.ZedThreadID = ""
+				if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(context.Background(), helixSessionID, helixSession.Metadata); err != nil {
+					return fmt.Errorf("clear missing Codex rollout thread: %w", err)
+				}
+				apiServer.contextMappingsMutex.Lock()
+				delete(apiServer.contextMappings, acpThreadID)
+				apiServer.contextMappingsMutex.Unlock()
+				log.Info().Str("session_id", helixSessionID).Str("acp_thread_id", acpThreadID).
+					Msg("Cleared stale Codex thread after missing rollout")
+			}
 			// A hard agent crash ("Claude Agent process exited", "Session not
 			// found") on an autonomous session must auto-recover regardless of how
 			// the crashing turn was sent — a queued planning prompt (PromptID set)
