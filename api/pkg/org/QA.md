@@ -180,6 +180,17 @@ direct report also gets an `s-team-<managerID>` broadcast topic
    newest-first.
 4. **Live SSE tail**: publish a new event. The new event appears
    at the top within ~1.5s without reload.
+5. **Inline configuration**: the side drawer and detail page show mutable
+   fields immediately, with no Edit step. Save is hidden until a field changes,
+   then appears in the secondary colour and disappears after a successful save.
+6. **Clear messages**: click **Clear messages**, cancel once, then confirm. The
+   retained count and event list become zero without deleting the Topic or its
+   subscribers. Publish another event immediately; it appears in the live tail
+   and the retained count increments again.
+7. **Cron message**: create a `cron` topic, enter a message alongside its
+   weekday/time or interval schedule, and save. Reopen the topic in both the
+   drawer and detail page; the message persists. When the scheduler fires,
+   the event body is the configured message.
 
 ## §7. GitHub topics — one-click setup
 

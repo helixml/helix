@@ -619,6 +619,19 @@ func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
 	return nil
 }
 
+func (e *eventsRepo) DeleteForTopic(_ context.Context, orgID string, topicID streaming.TopicID) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	kept := e.rows[:0]
+	for _, ev := range e.rows {
+		if ev.OrganizationID != orgID || ev.TopicID != topicID {
+			kept = append(kept, ev)
+		}
+	}
+	e.rows = kept
+	return nil
+}
+
 func (e *eventsRepo) ListForTopic(_ context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

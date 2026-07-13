@@ -93,6 +93,54 @@ func TestListTopicMessages_FirstPage(t *testing.T) {
 	}
 }
 
+func TestClearTopicMessages(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	h := orgapi.Handler(deps)
+	seedTopicWithEvents(t, st, "s-clear", 3)
+	keep, _ := streaming.NewTopic("s-keep", "keep", "", "w-owner", time.Now(), transport.Transport{Kind: transport.KindLocal}, "org-test")
+	if err := st.Topics.Create(context.Background(), keep); err != nil {
+		t.Fatalf("create other topic: %v", err)
+	}
+	keepEvent, _ := streaming.NewEvent("e-keep", "s-keep", "w-owner", "keep", time.Now(), "org-test")
+	if err := st.Events.Append(context.Background(), keepEvent); err != nil {
+		t.Fatalf("append other topic event: %v", err)
+	}
+
+	rec := do(t, h, "DELETE", "/topics/s-clear/messages", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status: got %d, want 204; body=%s", rec.Code, rec.Body)
+	}
+	if count, err := st.Events.CountForTopic(context.Background(), "org-test", "s-clear"); err != nil || count != 0 {
+		t.Fatalf("cleared count = %d, %v; want 0, nil", count, err)
+	}
+	if count, _ := st.Events.CountForTopic(context.Background(), "org-test", "s-keep"); count != 1 {
+		t.Fatalf("other topic count = %d, want 1", count)
+	}
+
+	// The immediately following normal operation must still work.
+	next, _ := streaming.NewEvent("e-next", "s-clear", "w-owner", `{"from":"w-owner","body":"next"}`, time.Now(), "org-test")
+	if err := st.Events.Append(context.Background(), next); err != nil {
+		t.Fatalf("append after clear: %v", err)
+	}
+	page := do(t, h, "GET", "/topics/s-clear/messages", nil)
+	if page.Code != http.StatusOK {
+		t.Fatalf("list after clear + append: status=%d body=%s", page.Code, page.Body)
+	}
+	var doc orgapi.MessagesDocument
+	decode(t, page, &doc)
+	if len(doc.Data) != 1 || doc.Data[0].ID != "e-next" {
+		t.Fatalf("messages after clear + append = %+v, want e-next", doc.Data)
+	}
+}
+
+func TestClearTopicMessages_NotFound(t *testing.T) {
+	deps, _, _ := newDeps(t)
+	rec := do(t, orgapi.Handler(deps), "DELETE", "/topics/missing/messages", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body=%s", rec.Code, rec.Body)
+	}
+}
+
 // TestListTopicMessages_LastPartialPage pins the tail: the final page
 // holds the remainder, has prev, and no next. meta.total is unchanged.
 func TestListTopicMessages_LastPartialPage(t *testing.T) {

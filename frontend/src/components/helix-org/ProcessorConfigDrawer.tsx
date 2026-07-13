@@ -70,6 +70,17 @@ function process(event, ctx) {
 `
 
 type FilterRow = { label: string; match: string }
+type ProcessorForm = {
+  name: string
+  kind: string
+  inputTopicId: string
+  template: string
+  jsCode: string
+  maxBytes: string
+  filterRows: FilterRow[]
+  threadFollow: boolean
+}
+
 const DEFAULT_FILTER_ROWS: FilterRow[] = [
   { label: 'vip', match: '{{ hasSuffix "@vip.com" .Message.from }}' },
   { label: 'default', match: '' },
@@ -249,6 +260,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   const [filterRows, setFilterRows] = useState<FilterRow[]>(DEFAULT_FILTER_ROWS)
   const [threadFollow, setThreadFollow] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [savedForm, setSavedForm] = useState<ProcessorForm | null>(null)
 
   // Most recent real message on the input topic (null = topic has none).
   const { data: sample, isFetching: sampleLoading } = useTopicSampleMessage(inputTopicId, { enabled: open && !!inputTopicId })
@@ -257,15 +269,24 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   useEffect(() => {
     if (!open) return
     if (processor) {
-      setName(processor.name ?? '')
-      setKind(processor.kind ?? 'template')
-      setInputTopicId(processor.input_topic_id ?? '')
-      setTemplate((processor.config?.template as string) ?? DEFAULT_TEMPLATE)
-      setJsCode((processor.config?.code as string) ?? DEFAULT_JS_CODE)
-      setMaxBytes(String((processor.config?.max_bytes as number) ?? 500))
+      const nextName = processor.name ?? ''
+      const nextKind = processor.kind ?? 'template'
+      const nextInputTopicId = processor.input_topic_id ?? ''
+      const nextTemplate = (processor.config?.template as string) ?? DEFAULT_TEMPLATE
+      const nextJsCode = (processor.config?.code as string) ?? DEFAULT_JS_CODE
+      const nextMaxBytes = String((processor.config?.max_bytes as number) ?? 500)
       const rows = (processor.outputs ?? []).map((o) => ({ label: o.label ?? '', match: o.match ?? '' }))
-      setFilterRows(rows.length > 0 ? rows : DEFAULT_FILTER_ROWS)
-      setThreadFollow(Boolean(processor.config?.thread_follow))
+      const nextFilterRows = rows.length > 0 ? rows : DEFAULT_FILTER_ROWS
+      const nextThreadFollow = Boolean(processor.config?.thread_follow)
+      setName(nextName)
+      setKind(nextKind)
+      setInputTopicId(nextInputTopicId)
+      setTemplate(nextTemplate)
+      setJsCode(nextJsCode)
+      setMaxBytes(nextMaxBytes)
+      setFilterRows(nextFilterRows)
+      setThreadFollow(nextThreadFollow)
+      setSavedForm({ name: nextName, kind: nextKind, inputTopicId: nextInputTopicId, template: nextTemplate, jsCode: nextJsCode, maxBytes: nextMaxBytes, filterRows: nextFilterRows, threadFollow: nextThreadFollow })
     } else {
       setName('')
       setKind('template')
@@ -275,6 +296,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       setMaxBytes('500')
       setFilterRows(DEFAULT_FILTER_ROWS)
       setThreadFollow(false)
+      setSavedForm(null)
     }
   }, [open, processor, presetInputTopicId])
 
@@ -292,6 +314,18 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
   // already participating, not just whoever is named. Hidden for ordinary
   // hand-built filters, where it has no effect.
   const showThreadFollow = kind === 'filter' && Boolean(processor?.automated)
+
+  const currentForm = useMemo<ProcessorForm>(() => ({
+    name,
+    kind,
+    inputTopicId,
+    template,
+    jsCode,
+    maxBytes,
+    filterRows,
+    threadFollow,
+  }), [name, kind, inputTopicId, template, jsCode, maxBytes, filterRows, threadFollow])
+  const dirty = !isEdit || !savedForm || JSON.stringify(currentForm) !== JSON.stringify(savedForm)
 
   // Filter/js multi-branch outputs carry labels (and filter predicates).
   // Transforms with a single output omit this (server defaults to one).
@@ -314,6 +348,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
     try {
       if (isEdit && processor) {
         await updateProc.mutateAsync({ id: processor.id, attrs: { name: name.trim(), kind, config, input_topic_id: inputTopicId } })
+        setSavedForm(currentForm)
         snackbar.success(`updated ${processor.id}`)
       } else {
         const created = await createProc.mutateAsync({
@@ -329,6 +364,10 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
     } catch (err: any) {
       snackbar.error(err?.response?.data?.errors?.[0]?.detail ?? err?.response?.data?.error ?? err?.message ?? 'save failed')
     }
+  }
+
+  const handleCancel = () => {
+    onClose()
   }
 
   const busy = createProc.isPending || updateProc.isPending
@@ -573,12 +612,14 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
             )}
           </Box>
 
-          <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-            <Button variant="contained" onClick={submit} disabled={busy || !canSubmit}>
-              {busy ? 'Saving…' : isEdit ? 'Save' : 'Create'}
-            </Button>
-            <Button variant="text" onClick={onClose}>Cancel</Button>
-          </Stack>
+          {dirty && (
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Button color="secondary" variant="contained" onClick={submit} disabled={busy || !canSubmit}>
+                {busy ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+              </Button>
+              <Button variant="text" onClick={handleCancel} disabled={busy}>Cancel</Button>
+            </Stack>
+          )}
         </Stack>
     </HelixOrgSideDrawer>
   )

@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/application/helixevents"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/processing"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
@@ -252,6 +253,7 @@ func (r botSessionResetter) ResetSession(ctx context.Context, orgID string, botI
 type orgServices struct {
 	Bots          *bots.Bots
 	Topics        *topics.Topics
+	Messages      *messages.Messages
 	Subscriptions *subscriptions.Subscriptions
 	Publishing    *publishing.Publishing
 	Queries       *queries.Queries
@@ -268,8 +270,9 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 	botsSvc := bots.New(bots.Deps{Bots: st.Bots, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
 	return orgServices{
-		Bots:   botsSvc,
-		Topics: topicsSvc,
+		Bots:     botsSvc,
+		Topics:   topicsSvc,
+		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: bc}),
 		Processors: processors.New(processors.Deps{
 			Processors: st.Processors, Topics: topicsSvc, Now: deps.Now, NewID: deps.NewID,
 		}),
@@ -874,6 +877,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
+		Messages:      svc.Messages,
 		Bots:          svc.Bots,
 		Subscriptions: svc.Subscriptions,
 		Publishing:    svc.Publishing,

@@ -784,6 +784,23 @@ export function useUpdateHelixOrgTopic() {
   })
 }
 
+export function useClearHelixOrgTopicMessages() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      await api.getApiClient().v1OrgsTopicsMessagesDelete(topicId, orgID)
+    },
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topicMessageCount(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
 export function useDeleteHelixOrgTopic() {
   const api = useApi()
   const qc = useQueryClient()
