@@ -322,6 +322,30 @@ export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: 
   })
 }
 
+// The list endpoint intentionally stays compact and omits the runtime's
+// project/app identifiers. The chart needs those identifiers to correlate a
+// bot with the spec tasks using its agent, so fetch the details in parallel.
+export function useListHelixOrgBotDetails(
+  botIds: string[],
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+): Array<BotDetailDTO | undefined> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: botIds.map((botId) => ({
+      queryKey: QUERY_KEYS.bot(orgID, botId),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
+        return res.data as BotDetailDTO
+      },
+      enabled: enabled && !!botId,
+      refetchInterval: options?.refetchInterval,
+    })),
+  })
+  return results.map((result) => result.data as BotDetailDTO | undefined)
+}
+
 export function useListHelixOrgTools(options?: { enabled?: boolean }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
