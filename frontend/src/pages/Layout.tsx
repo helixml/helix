@@ -453,6 +453,7 @@ const Layout: FC<{
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_topic_detail":
+      case "helix_org_processor_detail":
         // Nav lives in the top AppBar (HelixOrgTopNav); chat is a left rail
         // inside HelixOrgShell — no middle ContextSidebar.
         return null;

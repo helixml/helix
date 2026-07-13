@@ -220,7 +220,7 @@ interface TopicConfigSectionProps {
   saving: boolean
 }
 
-const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
+export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
   const snackbar = useSnackbar()
   const [editing, setEditing] = useState(false)
 

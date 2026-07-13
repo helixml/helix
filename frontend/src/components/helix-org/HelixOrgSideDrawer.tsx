@@ -16,6 +16,7 @@ export type HelixOrgSideDrawerProps = {
   title: string
   /** Paper width in px. Default 460 (matches processor form). */
   width?: number
+  headerAction?: ReactNode
   children: ReactNode
 }
 
@@ -24,6 +25,7 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
   onClose,
   title,
   width = 460,
+  headerAction,
   children,
 }) => (
   <Drawer
@@ -50,9 +52,12 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
         sx={{ mb: 2, flexShrink: 0 }}
       >
         <Typography variant="h6">{title}</Typography>
-        <IconButton size="small" onClick={onClose} aria-label="Close">
-          <CloseIcon />
-        </IconButton>
+        <Stack direction="row" alignItems="center" spacing={0.5}>
+          {headerAction}
+          <IconButton size="small" onClick={onClose} aria-label="Close">
+            <CloseIcon />
+          </IconButton>
+        </Stack>
       </Stack>
       <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{children}</Box>
     </Box>

@@ -73,6 +73,7 @@ import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrum
 import NewBotDialog from '../components/helix-org/NewBotDialog'
 import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
+import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
 import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
@@ -725,6 +726,7 @@ type TopicSummary = {
   kind: string
   created_by?: string
   subscribers?: string[]
+  processorConsumerCount?: number
   // Raw cron expression from transport config (kind=cron only).
   schedule?: string
   // Set to the owning processor id when this topic is that processor's
@@ -1012,7 +1014,7 @@ const buildGraph = (
           topicId: s.id,
           name: s.name,
           kind: s.kind,
-          subscriberCount: s.subscribers?.length ?? 0,
+          subscriberCount: (s.subscribers?.length ?? 0) + (s.processorConsumerCount ?? 0),
           messageCount: messageCounts[s.id] ?? 0,
           scheduleSummary: s.kind === 'cron' && s.schedule
             ? generateCronShortSummary(s.schedule)
@@ -1932,6 +1934,23 @@ const HelixOrgChart: FC = () => {
     [streamsData, ownedOutputTopics],
   )
 
+  const processorConsumerCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const processor of processorsData ?? []) {
+      if (!processor.input_topic_id) continue
+      counts.set(processor.input_topic_id, (counts.get(processor.input_topic_id) ?? 0) + 1)
+    }
+    return counts
+  }, [processorsData])
+
+  const topicsWithConsumerCounts = useMemo<TopicSummary[]>(
+    () => topics.map((topic) => ({
+      ...topic,
+      processorConsumerCount: processorConsumerCounts.get(topic.id) ?? 0,
+    })),
+    [topics, processorConsumerCounts],
+  )
+
   // Per-topic waiting-message counts for the topic cards. One cached query
   // per topic id (shared with the detail page's count hook), so each
   // card's number refreshes independently. topicIds is memoized so the
@@ -1959,6 +1978,7 @@ const HelixOrgChart: FC = () => {
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
   const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
+  const [selectedTopicId, setSelectedTopicId] = useState<string>()
   // Processor drawer: { open, processor } — processor null = create mode.
   const [processorDrawer, setProcessorDrawer] = useState<{ open: boolean; processor: ProcessorDTO | null }>({ open: false, processor: null })
   const [confirmDelete, setConfirmDelete] = useState<
@@ -2055,10 +2075,9 @@ const HelixOrgChart: FC = () => {
   }, [restartBot, snackbar])
   const onSelectTopic = useCallback(
     (topicId: string) => {
-      if (!orgSlug) return
-      router.navigate('helix_org_topic_detail', { org_id: orgSlug, topic_id: topicId })
+      setSelectedTopicId(topicId)
     },
-    [router, orgSlug],
+    [],
   )
   const onDeleteTopic = useCallback((topicId: string) => setConfirmDelete({ kind: 'topic', id: topicId }), [])
   const onSelectProcessor = useCallback(
@@ -2310,7 +2329,7 @@ const HelixOrgChart: FC = () => {
                 onSetProcessorInput={onSetProcessorInput}
                 onLayoutSnapshot={onLayoutSnapshot}
                 onCanvasContextMenu={openCtxMenu}
-                topics={topics}
+                topics={topicsWithConsumerCounts}
                 messageCounts={messageCounts}
                 processors={processorSummaries}
                 savedPositions={savedPositions}
@@ -2374,6 +2393,14 @@ const HelixOrgChart: FC = () => {
       <NewTopicDrawer
         open={topicDrawerOpen}
         onClose={() => setTopicDrawerOpen(false)}
+      />
+      <TopicDetailDrawer
+        topicId={selectedTopicId}
+        consumerCount={selectedTopicId
+          ? (topics.find((topic) => topic.id === selectedTopicId)?.subscribers?.length ?? 0)
+            + (processorConsumerCounts.get(selectedTopicId) ?? 0)
+          : undefined}
+        onClose={() => setSelectedTopicId(undefined)}
       />
       <ConfirmDeleteDialog
         open={confirmDelete !== null}
