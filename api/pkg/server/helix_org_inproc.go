@@ -274,6 +274,15 @@ func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID st
 	if err != nil {
 		return nil, err
 	}
+	return parseEnvVarsToMap(envVars), nil
+}
+
+// parseEnvVarsToMap splits `KEY=value` env-var strings back into a map.
+// Cut on the FIRST `=` so a value that itself contains `=` (base64, a
+// URL query, …) round-trips intact. Entries with no `=` or an empty name
+// are skipped — GetProjectSecretsAsEnvVars never emits those, but the
+// guard keeps a malformed entry from producing a `""` key.
+func parseEnvVarsToMap(envVars []string) map[string]string {
 	out := make(map[string]string, len(envVars))
 	for _, kv := range envVars {
 		name, value, found := strings.Cut(kv, "=")
@@ -282,7 +291,7 @@ func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID st
 		}
 		out[name] = value
 	}
-	return out, nil
+	return out
 }
 
 // CreateGitRepo creates an internal Helix git repository. The

@@ -184,6 +184,27 @@ func TestInProcSpawnerClient_ClearSession_NoSession_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestParseEnvVarsToMap pins the KEY=value split that backs
+// ListProjectSecrets / list_secrets. A value containing `=` (base64,
+// tokens, URL query strings) must survive intact — Cut on the FIRST `=`
+// — and a malformed entry must never produce a "" key.
+func TestParseEnvVarsToMap(t *testing.T) {
+	got := parseEnvVarsToMap([]string{
+		"DRONE_TOKEN=abc",
+		"B64=a=b=c==",           // value with `=` — keep everything after the first
+		"URL=https://x?a=1&b=2", // query string with `=`
+		"EMPTY=",                // empty value is a valid secret
+		"=orphan",               // empty name — dropped
+		"NOEQUALS",              // no `=` — dropped
+	})
+	require.Equal(t, map[string]string{
+		"DRONE_TOKEN": "abc",
+		"B64":         "a=b=c==",
+		"URL":         "https://x?a=1&b=2",
+		"EMPTY":       "",
+	}, got)
+}
+
 // TODO: tests for StartSession / SendMessage. StartSession routes to
 // StartExternalAgentSession (starts a real dev container) and
 // SendMessage to sendSessionMessage (needs a connected external-agent

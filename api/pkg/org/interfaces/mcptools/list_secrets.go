@@ -53,12 +53,9 @@ func (t *ListSecrets) Description() string {
 }
 
 func (t *ListSecrets) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
-	if inv.Caller == nil {
-		return nil, fmt.Errorf("caller missing on invocation")
-	}
-	orgID := inv.Caller.OrganizationID()
-	if orgID == "" {
-		return nil, fmt.Errorf("caller has no organization id")
+	orgID, err := projectConfigOrgID(inv)
+	if err != nil {
+		return nil, err
 	}
 	botID := inv.Caller.ID()
 	if botID == "" {

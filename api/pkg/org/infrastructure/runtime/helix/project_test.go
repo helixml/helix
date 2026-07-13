@@ -35,6 +35,9 @@ type fakeProjectService struct {
 	updateProjectErr        error
 	putSecretCalls          int
 	putSecretLast           map[string]string
+	listSecretsProjectID    string
+	listSecretsResp         map[string]string
+	listSecretsErr          error
 	createGitRepoCalls      int
 	createGitRepoErr        error
 	createGitRepoNameReturn string // when set, CreateGitRepo returns this name (simulates auto-increment on collision)
@@ -110,13 +113,18 @@ func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value 
 	return nil
 }
 
-// ListProjectSecrets returns whatever was put via PutProjectSecret, so a
-// round-trip test can assert list_secrets surfaces them.
-func (f *fakeProjectService) ListProjectSecrets(_ context.Context, _ string) (map[string]string, error) {
+// ListProjectSecrets records the projectID it was asked for and returns
+// the scripted response, so a test can assert ListWorkerProjectSecrets
+// resolved the worker to the right project before reading.
+func (f *fakeProjectService) ListProjectSecrets(_ context.Context, projectID string) (map[string]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make(map[string]string, len(f.putSecretLast))
-	for k, v := range f.putSecretLast {
+	f.listSecretsProjectID = projectID
+	if f.listSecretsErr != nil {
+		return nil, f.listSecretsErr
+	}
+	out := make(map[string]string, len(f.listSecretsResp))
+	for k, v := range f.listSecretsResp {
 		out[k] = v
 	}
 	return out, nil
