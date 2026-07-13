@@ -35,6 +35,10 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	BotLogName,
 	MintCredentialName,
+	// Every bot can read its own project secrets (its own project only) so
+	// it can export a secret added after boot — the read sibling of
+	// mint_credential, same reason it belongs in the baseline.
+	ListSecretsName,
 	// Processor introspection — safe reads so any bot can discover the
 	// transform/filter/js nodes feeding topics it may subscribe to.
 	ListProcessorsName,

@@ -69,6 +69,26 @@ func (c *ProjectConfig) GetWorkerProjectConfig(ctx context.Context, orgID string
 	}, nil
 }
 
+// ListWorkerProjectSecrets resolves the worker's project ID via the
+// helix runtime state, then returns the project's current secrets as a
+// name→value map. Read live on every call, so a secret added after the
+// worker's container booted is returned without a restart. Failure modes
+// match GetWorkerProjectConfig.
+func (c *ProjectConfig) ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.BotID) (map[string]string, error) {
+	state, err := LoadState(ctx, c.store, orgID, workerID)
+	if err != nil {
+		return nil, fmt.Errorf("load worker state: %w", err)
+	}
+	if state.ProjectID == "" {
+		return nil, fmt.Errorf("worker %s: %w", workerID, runtime.ErrProjectConfigUnsupported)
+	}
+	secrets, err := c.helix.ListProjectSecrets(ctx, state.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project secrets for %s: %w", state.ProjectID, err)
+	}
+	return secrets, nil
+}
+
 // UpdateWorkerProjectConfig applies a partial patch to the
 // worker's helix project. Mirrors Helix's pointer convention:
 // nil fields on the runtime patch stay nil on the underlying

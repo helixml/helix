@@ -426,6 +426,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetBotProject{deps: deps},
+		&ListSecrets{deps: deps},
 		// Project discovery — an org-wide PM Bot lists/reads the projects in
 		// its org before deciding which to manage. Org-scoped reads; granted
 		// per-Role (not in BaseReadTools).
