@@ -22,11 +22,11 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import useRouter from '../../hooks/useRouter'
 import MonacoEditor from '../widgets/MonacoEditor'
+import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 import {
   ProcessorDTO,
@@ -342,17 +342,25 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       headerAction={isEdit ? (
         <Button
           size="small"
-          endIcon={<OpenInNewIcon />}
           onClick={() => router.navigate('helix_org_processor_detail', {
             org_id: router.params.org_id,
             processor_id: processor!.id,
           })}
         >
-          Full page
+          Details
         </Button>
       ) : undefined}
     >
         <Stack spacing={1.5}>
+          {isEdit && (
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Typography variant="caption" color="text.secondary">Processor ID</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
+                {processor!.id}
+              </Typography>
+              <CopyButtonWithCheck text={processor!.id} />
+            </Stack>
+          )}
           <Typography variant="body2" color="text.secondary">
             A processor sits between topics: it reads messages from one topic,
             then rewrites, shortens, sorts, or runs JavaScript on them onto new topics that bots can subscribe to.

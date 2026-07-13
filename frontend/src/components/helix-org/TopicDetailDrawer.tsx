@@ -3,11 +3,11 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
 import LoadingSpinner from '../widgets/LoadingSpinner'
+import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
 import { useHelixOrgTopic, useUpdateHelixOrgTopic } from '../../services/helixOrgService'
 import { TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
@@ -33,13 +33,12 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
       headerAction={topicId ? (
         <Button
           size="small"
-          endIcon={<OpenInNewIcon />}
           onClick={() => router.navigate('helix_org_topic_detail', {
             org_id: router.params.org_id,
             topic_id: topicId,
           })}
         >
-          Full page
+          Details
         </Button>
       ) : undefined}
     >
@@ -51,6 +50,7 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
             <Typography variant="body2" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
               {topic.id}
             </Typography>
+            <CopyButtonWithCheck text={topic.id} />
             <Chip label={topic.kind} size="small" />
           </Stack>
           <Typography variant="body2" color="text.secondary">

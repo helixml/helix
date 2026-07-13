@@ -33,7 +33,7 @@ import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
-import { generateCronSummary } from '../utils/cronUtils'
+import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -123,6 +123,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Box>
                 <Stack direction="row" alignItems="baseline" spacing={2}>
                   <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{topic.id}</Typography>
+                  <CopyButtonWithCheck text={topic.id} />
                   <Chip label={topic.kind} size="small" sx={{ fontFamily: 'monospace' }} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -320,9 +321,6 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
   const configPreview = useMemo(() => {
     if (topic.kind === 'local') return null
     if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
-    if (topic.kind === 'cron' && typeof topic.config.schedule === 'string') {
-      return generateCronSummary(topic.config.schedule)
-    }
     return JSON.stringify(topic.config, null, 2)
   }, [topic.kind, topic.config])
 
@@ -342,10 +340,30 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
           <ReadOnlyRow label="Name" value={topic.name} />
           <ReadOnlyRow label="Description" value={topic.description || '—'} />
           <ReadOnlyRow label="Transport" value={topic.kind} mono />
-          {topic.kind !== 'local' && (
+          {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                Schedule
+              </Typography>
+              <CronScheduleFields
+                key={`cron-read-${topic.config.schedule}`}
+                value={topic.config.schedule}
+                onChange={() => undefined}
+                disabled
+              />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.75, fontFamily: 'monospace' }}
+              >
+                {topic.config.schedule}
+              </Typography>
+            </Box>
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'cron' && (
             <Box>
               <Typography variant="caption" color="text.secondary">
-                {topic.kind === 'cron' ? 'Schedule' : 'Config'}
+                Config
               </Typography>
               <Typography
                 component="pre"
@@ -353,22 +371,13 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
                 sx={{
                   mt: 0.5, mb: 0, p: 1, borderRadius: 1,
                   backgroundColor: 'action.hover',
-                  fontFamily: topic.kind === 'cron' ? 'inherit' : 'monospace',
-                  fontSize: topic.kind === 'cron' ? '0.875rem' : '0.75rem',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
                   whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}
               >
                 {configPreview}
               </Typography>
-              {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mt: 0.5, fontFamily: 'monospace' }}
-                >
-                  {topic.config.schedule}
-                </Typography>
-              )}
             </Box>
           )}
         </Stack>
