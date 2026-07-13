@@ -201,6 +201,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				nil,
 				nil,
 				tc.snapshot,
+				nil,
 			)
 			assert.NoError(t, err)
 			if !assert.NotNil(t, cfg) || !assert.NotNil(t, cfg.Agent) {

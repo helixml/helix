@@ -147,7 +147,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// pulls don't race UpdateApp and runner traffic doesn't bump
 	// app.UpdatedAt — the in-memory rewrite still feeds Generate below.
 	apiServer.healLegacyProviderRefs(ctx, app, providerSnapshot, user.TokenType != types.TokenTypeRunner)
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, sandboxAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, providerSnapshot, apiServer.modelInfoProvider)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")
@@ -487,7 +487,7 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 	// providerSnapshot=nil here: this endpoint only exposes context_servers,
 	// which don't depend on provider resolution or model validation. The
 	// daemon hits /zed-config separately and handles those concerns there.
-	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil)
+	zedConfig, err := external_agent.GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, apiServer.Cfg.Kodit.Enabled, projectSkills, oauthTokenGetter, nil, apiServer.modelInfoProvider)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate Zed config")
 		return nil, system.NewHTTPError500("failed to generate Zed config")

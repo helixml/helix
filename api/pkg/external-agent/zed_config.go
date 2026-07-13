@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	modelinfo "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -57,8 +58,18 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIURL string `json:"api_url"`           // Custom API URL (empty = use default provider URL)
-	APIKey string `json:"api_key,omitempty"` // Deprecated: Zed reads from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+	APIURL          string           `json:"api_url"`                     // Custom API URL (empty = use default provider URL)
+	APIKey          string           `json:"api_key,omitempty"`           // Deprecated: Zed reads from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+	AvailableModels []AvailableModel `json:"available_models,omitempty"` // Declares custom models + their context window to Zed
+}
+
+// AvailableModel declares a custom model to Zed. MaxTokens is the context window;
+// Zed needs it to size auto-compaction (it is gated on the window and compacts
+// relative to it). Without it a custom OpenAI-compatible model has no declared
+// window and Zed cannot compact correctly.
+type AvailableModel struct {
+	Name      string `json:"name"`
+	MaxTokens int64  `json:"max_tokens"`
 }
 
 type AssistantSettings struct {
@@ -106,6 +117,7 @@ func GenerateZedMCPConfig(
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
 	providerSnapshot []ProviderRef,
+	modelInfo modelinfo.ModelInfoProvider,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -218,11 +230,12 @@ func GenerateZedMCPConfig(
 		ShowOnboarding:         false,
 		AutoOpenPanel:          true,
 	}
+	var zedProvider, zedModel string
 	if useAgentModel {
 		// Map Helix provider to Zed's provider type and format model name
 		// Zed only knows: anthropic, openai, google, ollama, copilot, lmstudio, deepseek
 		// All other providers (nebius, together, openrouter, etc.) use OpenAI-compatible API
-		zedProvider, zedModel := mapHelixToZedProvider(provider, model)
+		zedProvider, zedModel = mapHelixToZedProvider(provider, model)
 		// Set feature-specific models to prevent Zed from using its hardcoded
 		// gpt-4.1-mini default for "fast" operations (see
 		// zed-industries/zed#31420). If not set, these fall back to
@@ -252,6 +265,22 @@ func GenerateZedMCPConfig(
 	// "provider \"openai\" not found" from /v1/messages because Zed sends
 	// the wrong provider on the Anthropic-only endpoint.
 	config.LanguageModels = buildLanguageModels(providerSnapshot, helixAPIURL)
+
+	// Declare the selected model's context window to Zed. Zed's built-in
+	// auto-compaction is gated on the model window (>= 80k) and fires relative
+	// to it, but for a custom OpenAI-compatible model Zed has no window unless we
+	// declare it in available_models. Helix already resolves each model's window
+	// via ModelInfoProvider (static model_info.json + provider /models), so we
+	// forward it and let Zed size compaction itself — no Helix-side threshold.
+	// Best-effort: only when the window is resolvable and the provider entry exists.
+	if modelInfo != nil && zedModel != "" {
+		if info, err := modelInfo.GetModelInfo(ctx, &modelinfo.ModelInfoRequest{Provider: provider, Model: model}); err == nil && info != nil && info.ContextLength > 0 {
+			if lm, ok := config.LanguageModels[zedProvider]; ok {
+				lm.AvailableModels = []AvailableModel{{Name: zedModel, MaxTokens: int64(info.ContextLength)}}
+				config.LanguageModels[zedProvider] = lm
+			}
+		}
+	}
 
 	// 1. Add Helix native tools via HTTP MCP gateway (APIs, Knowledge, Zapier)
 	// Uses the unified MCP gateway at /api/v1/mcp/helix instead of helix-cli
@@ -863,7 +892,7 @@ func GetZedConfigForSession(ctx context.Context, s store.Store, sessionID string
 	// Runner-side path has no provider-manager handle, so we skip provider
 	// validation here. The handler-side callers (getZedConfig,
 	// getMergedZedSettings) do pass the live provider list.
-	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil)
+	config, err := GenerateZedMCPConfig(ctx, app, session.Owner, sessionID, helixAPIURL, helixToken, koditEnabled, projectSkills, oauthTokenGetter, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate Zed config: %w", err)
 	}
