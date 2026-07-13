@@ -413,7 +413,9 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		// Spec-task management — a Bot managing the spec tasks in its own
 		// Helix project. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),
+		NewUpdateSpecTask(deps),
 		NewStartSpecTaskPlanning(deps),
+		NewStopSpecTaskAgent(deps),
 		NewApproveSpecTaskSpec(deps),
 		NewRequestSpecTaskChanges(deps),
 		NewCreateSpecTaskPRs(deps),
