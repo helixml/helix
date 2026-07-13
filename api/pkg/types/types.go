@@ -2450,7 +2450,14 @@ type LLMCall struct {
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
-	PromptTokens     int64          `json:"prompt_tokens"`
+	// TimeToFirstTokenMs is the wall time from request start to the first
+	// streamed chunk. It isolates provider prefill / cold-start latency from
+	// generation time (a cold or overloaded provider shows a large TTFT while
+	// generation stays normal). 0 means no chunk was received (the call errored
+	// or was cut before the first token). For non-streaming calls it equals the
+	// time to the full response.
+	TimeToFirstTokenMs int64          `json:"time_to_first_token_ms"`
+	PromptTokens       int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
 	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
