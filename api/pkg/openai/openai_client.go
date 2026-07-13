@@ -499,6 +499,15 @@ func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIM
 		}
 	}
 
+	// vLLM and similar OpenAI-compatible servers advertise the context window as
+	// max_model_len on /v1/models. It is the authoritative window for a custom
+	// model that isn't in any static table, so surface it as ContextLength.
+	for i := range models {
+		if models[i].ContextLength == 0 && models[i].MaxModelLen > 0 {
+			models[i].ContextLength = models[i].MaxModelLen
+		}
+	}
+
 	return models, nil
 }
 

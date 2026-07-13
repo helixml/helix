@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	modelinfo "github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -117,7 +116,11 @@ func GenerateZedMCPConfig(
 	projectSkills *types.AssistantSkills,
 	oauthTokenGetter OAuthTokenGetter,
 	providerSnapshot []ProviderRef,
-	modelInfo modelinfo.ModelInfoProvider,
+	// windowResolver returns the model's context window in tokens (0 if unknown).
+	// Supplied by the handler, which resolves it from the provider's /v1/models
+	// (authoritative for custom models) with a static fallback. Nil on paths
+	// without a provider handle.
+	windowResolver func(provider, model string) int64,
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
@@ -269,14 +272,15 @@ func GenerateZedMCPConfig(
 	// Declare the selected model's context window to Zed. Zed's built-in
 	// auto-compaction is gated on the model window (>= 80k) and fires relative
 	// to it, but for a custom OpenAI-compatible model Zed has no window unless we
-	// declare it in available_models. Helix already resolves each model's window
-	// via ModelInfoProvider (static model_info.json + provider /models), so we
-	// forward it and let Zed size compaction itself — no Helix-side threshold.
-	// Best-effort: only when the window is resolvable and the provider entry exists.
-	if modelInfo != nil && zedModel != "" {
-		if info, err := modelInfo.GetModelInfo(ctx, &modelinfo.ModelInfoRequest{Provider: provider, Model: model}); err == nil && info != nil && info.ContextLength > 0 {
+	// declare it in available_models. The handler resolves the window from the
+	// provider's /v1/models (authoritative for custom models like GLM) with a
+	// static fallback; we forward it and let Zed size compaction itself — no
+	// Helix-side threshold. Best-effort: only when the window resolves and the
+	// provider entry exists.
+	if windowResolver != nil && zedModel != "" {
+		if window := windowResolver(provider, model); window > 0 {
 			if lm, ok := config.LanguageModels[zedProvider]; ok {
-				lm.AvailableModels = []AvailableModel{{Name: zedModel, MaxTokens: int64(info.ContextLength)}}
+				lm.AvailableModels = []AvailableModel{{Name: zedModel, MaxTokens: window}}
 				config.LanguageModels[zedProvider] = lm
 			}
 		}

@@ -114,6 +114,10 @@ type OpenAIModel struct {
 	Hide          bool               `json:"hide,omitempty"`
 	Type          string             `json:"type,omitempty"`
 	ContextLength int                `json:"context_length,omitempty"`
+	// MaxModelLen is the vLLM/OpenAI-compatible provider's advertised context
+	// window on /v1/models. Standard OpenAI omits it; vLLM and similar servers
+	// include it, and it is the authoritative window for a custom model.
+	MaxModelLen   int                `json:"max_model_len,omitempty"`
 	Enabled       bool               `json:"enabled,omitempty"`
 	ModelInfo     *ModelInfo         `json:"model_info,omitempty"`
 }
