@@ -44,6 +44,7 @@ import {
   DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_CODEX_SUBSCRIPTION_MODEL,
 } from '../agent/CodingAgentForm'
+import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
@@ -302,6 +303,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort ?? DEFAULT_VALUES.reasoning_effort)
   const [temperature, setTemperature] = useState(app.temperature ?? DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p ?? DEFAULT_VALUES.top_p)
+  const codeAgentEffort = reasoningEffort === '' || reasoningEffort === 'none' ? 'default' : reasoningEffort
+  const codeAgentEffortOptions = getCodeAgentEffortOptions(code_agent_runtime)
 
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -771,82 +774,118 @@ const AppSettings: FC<AppSettingsProps> = ({
                     </Typography>
                   )}
                   {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                        Model
-                      </Typography>
-                      <FormControl fullWidth>
-                        <Select
-                          size="small"
-                          value={claudeSubscriptionModel}
-                          disabled={readOnly}
-                          onChange={(e) => {
-                            const nextModel = e.target.value
-                            setClaudeSubscriptionModel(nextModel)
-                            onUpdate({ claude_subscription_model: nextModel })
-                          }}
-                        >
-                          {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
-                            <MenuItem key={m.id} value={m.id}>
-                              <Typography variant="body2">{m.label}</Typography>
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Box>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={claudeSubscriptionModel}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setClaudeSubscriptionModel(nextModel)
+                              onUpdate({ claude_subscription_model: nextModel })
+                            }}
+                          >
+                            {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                              <MenuItem key={m.id} value={m.id}>
+                                <Typography variant="body2">{m.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
                   )}
                   {code_agent_runtime === 'codex_cli' && claudeCodeMode === 'subscription' && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                        Model
-                      </Typography>
-                      <FormControl fullWidth>
-                        <Select
-                          size="small"
-                          value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
-                          disabled={readOnly}
-                          onChange={(e) => {
-                            const nextModel = e.target.value
-                            setModel(nextModel)
-                            onUpdate({ model: nextModel })
-                          }}
-                        >
-                          {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
-                            <MenuItem key={supportedModel.id} value={supportedModel.id}>
-                              <Typography variant="body2">{supportedModel.label}</Typography>
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Box>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setModel(nextModel)
+                              onUpdate({ model: nextModel })
+                            }}
+                          >
+                            {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                              <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                                <Typography variant="body2">{supportedModel.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
                   )}
                 </Box>
 
                 {claudeCodeMode === 'api_key' && (
-                  <Box>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                      Model
-                    </Typography>
-                    <AdvancedModelPicker
-                      recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                      hint={`Select the ${code_agent_runtime === 'claude_code' ? 'Claude' : 'OpenAI'} model for code generation`}
-                      selectedProvider={code_agent_runtime === 'claude_code' ? generation_model_provider : provider}
-                      selectedModelId={code_agent_runtime === 'claude_code' ? generation_model : model}
-                      onSelectModel={(provider, modelId) => {
-                        if (code_agent_runtime === 'claude_code') {
-                          setGenerationModel(modelId)
-                          setGenerationModelProvider(provider)
-                          onUpdate({ generation_model: modelId, generation_model_provider: provider })
-                        } else {
-                          setModel(modelId)
-                          setProvider(provider)
-                          onUpdate({ model: modelId, provider })
-                        }
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+                    <Box sx={{ flex: 1, width: '100%', minWidth: 0 }}>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Model
+                      </Typography>
+                      <AdvancedModelPicker
+                        recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                        hint={`Select the ${code_agent_runtime === 'claude_code' ? 'Claude' : 'OpenAI'} model for code generation`}
+                        selectedProvider={code_agent_runtime === 'claude_code' ? generation_model_provider : provider}
+                        selectedModelId={code_agent_runtime === 'claude_code' ? generation_model : model}
+                        onSelectModel={(provider, modelId) => {
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel(modelId)
+                            setGenerationModelProvider(provider)
+                            onUpdate({ generation_model: modelId, generation_model_provider: provider })
+                          } else {
+                            setModel(modelId)
+                            setProvider(provider)
+                            onUpdate({ model: modelId, provider })
+                          }
+                        }}
+                        currentType="text"
+                        displayMode="short"
+                      />
+                    </Box>
+                    <CodeAgentEffortSelect
+                      options={codeAgentEffortOptions}
+                      value={codeAgentEffort}
+                      disabled={readOnly}
+                      onChange={(value) => {
+                        const nextEffort = value === 'default' ? 'none' : value
+                        setReasoningEffort(nextEffort)
+                        onUpdate({ reasoning_effort: nextEffort })
                       }}
-                      currentType="text"
-                      displayMode="short"
                     />
-                  </Box>
+                  </Stack>
                 )}
               </>
             ) : (

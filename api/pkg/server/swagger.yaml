@@ -4467,6 +4467,11 @@ definitions:
         description: Provider is the LLM provider name (e.g., "anthropic", "openai",
           "openrouter")
         type: string
+      reasoning_effort:
+        description: |-
+          ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+          Empty means the runtime/model default.
+        type: string
       runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'

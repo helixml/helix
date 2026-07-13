@@ -2337,6 +2337,9 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+	// Empty means the runtime/model default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// MaxTokens is the model's context window size (max input tokens)
 	// Looked up from model_info.json, 0 if not found
 	MaxTokens int `json:"max_tokens,omitempty"`

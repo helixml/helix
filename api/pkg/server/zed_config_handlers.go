@@ -752,9 +752,18 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		BaseURL:         baseURL,
 		APIType:         apiType,
 		Runtime:         runtime,
+		ReasoningEffort: normalizeCodeAgentReasoningEffort(assistant.ReasoningEffort),
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
+}
+
+func normalizeCodeAgentReasoningEffort(effort string) string {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" || effort == types.ReasoningEffortNone || effort == "default" {
+		return ""
+	}
+	return effort
 }
 
 // resolveGooseRecipesIntoConfig populates cfg.GooseRecipes (and
