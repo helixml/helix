@@ -7,6 +7,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import EditIcon from "@mui/icons-material/Edit";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
+import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import CollapsibleSystemPrefix, {
   splitSystemPrefix,
 } from "./CollapsibleSystemPrefix";
@@ -110,6 +111,22 @@ const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
 
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
+  if (prevProps.enableDebugCopy !== nextProps.enableDebugCopy) {
+    return false;
+  }
+
+  // Debug-enabled surfaces must keep the raw objects current because the
+  // copied bundle includes fields the transcript itself does not render
+  // (usage, runner, structured tool calls, model and routing metadata).
+  if (
+    nextProps.enableDebugCopy &&
+    (prevProps.interaction !== nextProps.interaction ||
+      prevProps.session !== nextProps.session ||
+      prevProps.sessionSteps !== nextProps.sessionSteps)
+  ) {
+    return false;
+  }
+
   // Compare serverConfig
   if (
     prevProps.serverConfig?.filestore_prefix !==
@@ -181,6 +198,7 @@ interface InteractionProps {
   session_id: string;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps?: any[];
+  enableDebugCopy?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -193,6 +211,7 @@ export const Interaction: FC<InteractionProps> = ({
   isLastInteraction,
   onRegenerate,
   sessionSteps = [],
+  enableDebugCopy = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -410,6 +429,14 @@ export const Interaction: FC<InteractionProps> = ({
                     transition: "opacity 0.2s ease-in-out",
                   }}
                 >
+                  {enableDebugCopy && (
+                    <InteractionDebugCopyButton
+                      interaction={interaction}
+                      session={session}
+                      sessionSteps={sessionSteps}
+                      serverConfig={serverConfig}
+                    />
+                  )}
                   <CopyButtonWithCheck
                     text={systemPrefix ? userMessageBody : userMessage}
                     alwaysVisible={isHovering}
@@ -514,6 +541,23 @@ export const Interaction: FC<InteractionProps> = ({
               </>
             )}
           </InteractionContainer>
+          {enableDebugCopy && (
+            <Box
+              sx={{
+                mt: 0.5,
+                opacity: isHovering ? 1 : 0,
+                pointerEvents: isHovering ? "auto" : "none",
+                transition: "opacity 0.2s ease-in-out",
+              }}
+            >
+              <InteractionDebugCopyButton
+                interaction={interaction}
+                session={session}
+                sessionSteps={sessionSteps}
+                serverConfig={serverConfig}
+              />
+            </Box>
+          )}
         </Box>
       )}
     </Box>

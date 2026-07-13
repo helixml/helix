@@ -412,7 +412,12 @@ const HelixOrgChatPanel: FC = () => {
         ) : view === 'chat' ? (
           <>
             <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <EmbeddedSessionView ref={sessionViewRef} sessionId={chatSessionId} autoScrollOnMount />
+              <EmbeddedSessionView
+                ref={sessionViewRef}
+                sessionId={chatSessionId}
+                autoScrollOnMount
+                enableInteractionDebugCopy
+              />
             </Box>
             <SessionPromptQueue sessionId={chatSessionId} />
             <Box sx={{ p: 1.5, flexShrink: 0 }}>
