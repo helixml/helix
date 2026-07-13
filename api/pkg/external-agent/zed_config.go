@@ -231,7 +231,25 @@ func GenerateZedMCPConfig(
 		config.Agent.DefaultModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
 		config.Agent.InlineAssistantModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
 		config.Agent.CommitMessageModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
-		config.Agent.ThreadSummaryModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+
+		// Thread summarization drives context compaction. Pinning it to the same
+		// model as the main agent means that when the main model's endpoint is
+		// overloaded, cold, or unreachable, compaction (which must send the whole
+		// thread to the summary model) fails the same way — so a thread that has
+		// grown too large for that endpoint can never be compacted and has no
+		// recovery. HELIX_AGENT_SUMMARY_MODEL ("provider/model", e.g.
+		// "openai/gpt-4o-mini") lets an operator point summarization at a small,
+		// always-healthy model. Unset -> current behaviour (same as the agent model).
+		summaryProvider, summaryModel := zedProvider, zedModel
+		if ov := strings.TrimSpace(os.Getenv("HELIX_AGENT_SUMMARY_MODEL")); ov != "" {
+			if p, m, ok := strings.Cut(ov, "/"); ok && p != "" && m != "" {
+				summaryProvider, summaryModel = p, m
+			} else {
+				log.Warn().Str("HELIX_AGENT_SUMMARY_MODEL", ov).
+					Msg("zed-config: ignoring malformed HELIX_AGENT_SUMMARY_MODEL (want \"provider/model\")")
+			}
+		}
+		config.Agent.ThreadSummaryModel = &ModelConfig{Provider: summaryProvider, Model: summaryModel}
 	}
 	config.Theme = "Ayu Dark"
 
