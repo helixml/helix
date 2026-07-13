@@ -53,6 +53,7 @@ import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
 import HelixOrgSettings from './pages/HelixOrgSettings'
 import HelixOrgTopics from './pages/HelixOrgTopics'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
+import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -191,7 +192,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_provider_detail',
   path: '/orgs/:org_id/providers/:provider_id',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <ProviderDetail />
@@ -200,7 +202,8 @@ const routes: IApplicationRoute[] = [
   name: 'org_providers',
   path: '/orgs/:org_id/providers',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <Providers />
@@ -594,6 +597,11 @@ const routes: IApplicationRoute[] = [
   path: '/orgs/:org_id/helix-org/topics',
   meta: { drawer: false, title: 'Helix Org · Topics' },
   render: () => <HelixOrgTopics />,
+}, {
+  name: 'helix_org_processor_detail',
+  path: '/orgs/:org_id/helix-org/processors/:processor_id',
+  meta: { drawer: false, title: 'Helix Org · Processor' },
+  render: () => <HelixOrgProcessorDetail />,
 }, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',

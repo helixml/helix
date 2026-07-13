@@ -453,6 +453,7 @@ const Layout: FC<{
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_topic_detail":
+      case "helix_org_processor_detail":
         // Nav lives in the top AppBar (HelixOrgTopNav); chat is a left rail
         // inside HelixOrgShell — no middle ContextSidebar.
         return null;
@@ -469,6 +470,7 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_provider_detail":
       case "org_qa":
       case "org_qa-results":
       case "team_people":

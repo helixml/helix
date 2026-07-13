@@ -371,6 +371,13 @@ const EmbeddedSessionView = forwardRef<
       // yank the viewport.
       if (newHeight <= prevHeight) return;
 
+      // Disclosure bodies grow below their clicked header. Do not treat that
+      // operator action as new chat output and yank the viewport to the bottom.
+      if (container.dataset.preserveDisclosureExpansion === "true") {
+        delete container.dataset.preserveDisclosureExpansion;
+        return;
+      }
+
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
         lastScrolledHeightRef.current = container.scrollHeight;
@@ -643,6 +650,7 @@ const EmbeddedSessionView = forwardRef<
       )}
       <Box
         ref={containerRef}
+        data-session-scroll-container
         onScroll={handleScroll}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}

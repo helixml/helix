@@ -33,7 +33,7 @@ import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
-import { generateCronSummary } from '../utils/cronUtils'
+import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -123,6 +123,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Box>
                 <Stack direction="row" alignItems="baseline" spacing={2}>
                   <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{topic.id}</Typography>
+                  <CopyButtonWithCheck text={topic.id} />
                   <Chip label={topic.kind} size="small" sx={{ fontFamily: 'monospace' }} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -220,7 +221,7 @@ interface TopicConfigSectionProps {
   saving: boolean
 }
 
-const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
+export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
   const snackbar = useSnackbar()
   const [editing, setEditing] = useState(false)
 
@@ -320,9 +321,6 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
   const configPreview = useMemo(() => {
     if (topic.kind === 'local') return null
     if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
-    if (topic.kind === 'cron' && typeof topic.config.schedule === 'string') {
-      return generateCronSummary(topic.config.schedule)
-    }
     return JSON.stringify(topic.config, null, 2)
   }, [topic.kind, topic.config])
 
@@ -342,10 +340,30 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
           <ReadOnlyRow label="Name" value={topic.name} />
           <ReadOnlyRow label="Description" value={topic.description || '—'} />
           <ReadOnlyRow label="Transport" value={topic.kind} mono />
-          {topic.kind !== 'local' && (
+          {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                Schedule
+              </Typography>
+              <CronScheduleFields
+                key={`cron-read-${topic.config.schedule}`}
+                value={topic.config.schedule}
+                onChange={() => undefined}
+                disabled
+              />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 0.75, fontFamily: 'monospace' }}
+              >
+                {topic.config.schedule}
+              </Typography>
+            </Box>
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'cron' && (
             <Box>
               <Typography variant="caption" color="text.secondary">
-                {topic.kind === 'cron' ? 'Schedule' : 'Config'}
+                Config
               </Typography>
               <Typography
                 component="pre"
@@ -353,22 +371,13 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
                 sx={{
                   mt: 0.5, mb: 0, p: 1, borderRadius: 1,
                   backgroundColor: 'action.hover',
-                  fontFamily: topic.kind === 'cron' ? 'inherit' : 'monospace',
-                  fontSize: topic.kind === 'cron' ? '0.875rem' : '0.75rem',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
                   whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}
               >
                 {configPreview}
               </Typography>
-              {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mt: 0.5, fontFamily: 'monospace' }}
-                >
-                  {topic.config.schedule}
-                </Typography>
-              )}
             </Box>
           )}
         </Stack>
@@ -649,7 +658,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
 }
 
 // MessageCountCard is the compact metric chip beside the Messages
-// header showing how many messages are waiting on the topic (meta.total
+// header showing how many messages are retained on the topic (meta.total
 // from the paginated messages endpoint). Undefined while the count query
 // is in flight — render an em-dash placeholder rather than 0 so a
 // loading state doesn't read as "empty topic".
@@ -670,7 +679,7 @@ const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
       {count === undefined ? '—' : count.toLocaleString()}
     </Typography>
     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-      waiting
+      retained
     </Typography>
   </Paper>
 )
