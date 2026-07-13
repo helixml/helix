@@ -318,8 +318,13 @@ const Providers: React.FC = () => {
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
-            const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
-            const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
+            // This section manages keys owned by the current user or organization.
+            // Synthetic global providers have id "-" and are configured by the server
+            // environment, so they cannot be disconnected from this dialog.
+            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(
+              endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', '')
+            );
+            const isConfigured = !!existingProvider;
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
