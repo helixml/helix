@@ -138,6 +138,14 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 		var resp = openai.ChatCompletionResponse{}
 
+		// A non-EOF error mid-stream (provider 5xx surfaced during the read,
+		// client/proxy disconnect -> context canceled, transport drop) must be
+		// recorded on the LLM call. Previously it was only logged to stderr and
+		// the call was written with error=nil, so a failed stream landed in the
+		// LLM logs as a phantom "success" with an empty response - invisible when
+		// filtering for errors.
+		var streamErr error
+
 		// Read from the upstream stream and write to the downstream stream
 		for {
 			msg, err := upstream.Recv()
@@ -145,6 +153,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 				if err == io.EOF {
 					break
 				}
+				streamErr = err
 				log.Error().Err(err).Msg("failed to receive message from upstream stream")
 				break
 			}
@@ -159,7 +168,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-		m.logLLMCall(ctx, start, &request, &resp, nil, true, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, streamErr, true, time.Since(start).Milliseconds())
 	}()
 
 	return downstream, nil
