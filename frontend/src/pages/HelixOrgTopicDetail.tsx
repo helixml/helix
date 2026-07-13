@@ -342,7 +342,7 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Box>
       <Typography variant="h6" sx={{ mb: 2 }}>Configuration</Typography>
 
       <Stack spacing={2}>
@@ -417,7 +417,7 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
           </Button>
         </Stack>
       )}
-    </Paper>
+    </Box>
   )
 }
 
