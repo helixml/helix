@@ -27832,6 +27832,10 @@ const docTemplate = `{
                     "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
                     "type": "string"
                 },
+                "reasoning_effort": {
+                    "description": "ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.\nEmpty means the runtime/model default.",
+                    "type": "string"
+                },
                 "runtime": {
                     "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
                     "allOf": [

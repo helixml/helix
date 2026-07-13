@@ -2850,6 +2850,11 @@ export interface TypesCodeAgentConfig {
   model?: string;
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
+  /**
+   * ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+   * Empty means the runtime/model default.
+   */
+  reasoning_effort?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
 }

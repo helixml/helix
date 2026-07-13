@@ -147,6 +147,7 @@ const HelixOrgBotDetail: FC = () => {
     credentials: '',
     provider: '',
     model: '',
+    reasoning_effort: '',
   })
   useEffect(() => {
     setName(bot?.name ?? '')
@@ -161,8 +162,9 @@ const HelixOrgBotDetail: FC = () => {
       credentials: assistant?.code_agent_credential_type ?? 'api_key',
       provider: assistant?.provider ?? '',
       model: assistant?.model ?? '',
+      reasoning_effort: assistant?.reasoning_effort ?? 'none',
     })
-  }, [assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model])
+  }, [assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort])
 
   // A human node is a person, not a bot — the agent detail page (desktop,
   // tools, activation) makes no sense for it. Redirect a direct hit on
@@ -198,8 +200,9 @@ const HelixOrgBotDetail: FC = () => {
     if ((assistant?.code_agent_credential_type ?? 'api_key') !== runtimeConfig.credentials) return true
     if ((assistant?.provider ?? '') !== runtimeConfig.provider) return true
     if ((assistant?.model ?? '') !== runtimeConfig.model) return true
+    if ((assistant?.reasoning_effort ?? 'none') !== (runtimeConfig.reasoning_effort ?? 'none')) return true
     return false
-  }, [bot, name, content, tools, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model])
+  }, [bot, name, content, tools, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model, runtimeConfig.reasoning_effort])
 
   const handleSave = async () => {
     if (!botId) return
@@ -214,6 +217,7 @@ const HelixOrgBotDetail: FC = () => {
           code_agent_credential_type: runtimeConfig.credentials as typeof assistant.code_agent_credential_type,
           provider: runtimeConfig.provider,
           model: runtimeConfig.model,
+          reasoning_effort: runtimeConfig.reasoning_effort ?? 'none',
           generation_model_provider: runtimeConfig.credentials === 'api_key' ? runtimeConfig.provider : '',
           generation_model: runtimeConfig.credentials === 'api_key' ? runtimeConfig.model : '',
         }
@@ -626,6 +630,7 @@ const HelixOrgBotDetail: FC = () => {
                   <Box>
                     <BotRuntimeForm
                       value={runtimeConfig}
+                      showReasoningEffort
                       onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
                     />
                   </Box>

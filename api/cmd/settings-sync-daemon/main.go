@@ -75,9 +75,10 @@ type CodeAgentConfig struct {
 	AgentName       string `json:"agent_name"`
 	BaseURL         string `json:"base_url"`
 	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code" or "goose_code"
-	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
-	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
+	MaxTokens       int    `json:"max_tokens"`                 // Model's context window size (0 if unknown)
+	MaxOutputTokens int    `json:"max_output_tokens"`          // Model's max completion tokens (0 if unknown)
 
 	// Goose-specific fields (only populated when Runtime == "goose_code").
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
@@ -251,6 +252,9 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
 		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			env["CLAUDE_CODE_EFFORT_LEVEL"] = d.codeAgentConfig.ReasoningEffort
+		}
 		return map[string]interface{}{
 			"claude-acp": claudeACPConfig,
 		}
@@ -284,6 +288,18 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		}
 		if d.codeAgentConfig.Model != "" {
 			config["default_model"] = d.codeAgentConfig.Model
+		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			codexConfig, err := json.Marshal(struct {
+				ModelReasoningEffort string `json:"model_reasoning_effort"`
+			}{
+				ModelReasoningEffort: d.codeAgentConfig.ReasoningEffort,
+			})
+			if err != nil {
+				log.Printf("Failed to encode Codex reasoning effort: %v", err)
+				return nil
+			}
+			env["CODEX_CONFIG"] = string(codexConfig)
 		}
 		return map[string]interface{}{"codex-acp": config}
 

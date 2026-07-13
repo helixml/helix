@@ -583,6 +583,43 @@ func TestCodexAgentServerUsesFullAccess(t *testing.T) {
 	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
 }
 
+func TestClaudeAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "claude_code",
+		Model:           "claude-opus-4-6",
+		BaseURL:         "http://api",
+		ReasoningEffort: "max",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	claude, ok := cfg["claude-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := claude["env"].(map[string]string)
+	assert.True(t, ok)
+	assert.Equal(t, "max", env["CLAUDE_CODE_EFFORT_LEVEL"])
+}
+
+func TestCodexAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	originalPath := CodexConfigPath
+	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	t.Cleanup(func() { CodexConfigPath = originalPath })
+
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "codex_cli",
+		BaseURL:         "http://api/v1",
+		ReasoningEffort: "ultra",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	codex, ok := cfg["codex-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	codexConfig, ok := env["CODEX_CONFIG"].(string)
+	assert.True(t, ok)
+	assert.JSONEq(t, `{"model_reasoning_effort":"ultra"}`, codexConfig)
+}
+
 // TestComputeEffectiveTheme exercises every branch of the helper that decides
 // whether the daemon should write the API-supplied theme or preserve the user's
 // on-disk Zed-UI choice. Covers the structured-theme case (the 002056 hypothesis

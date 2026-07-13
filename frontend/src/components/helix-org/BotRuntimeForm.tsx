@@ -20,6 +20,7 @@ import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
 import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import { CODEX_SUBSCRIPTION_MODELS, DEFAULT_CODEX_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
+import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import { useHelixModelsForProvider, useHelixProviders } from '../../services/helixOrgService'
 
 export interface BotRuntimeValue {
@@ -27,6 +28,7 @@ export interface BotRuntimeValue {
   credentials: string
   provider: string
   model: string
+  reasoning_effort?: string
 }
 
 // Strong code-generation models to surface first in the picker.
@@ -38,7 +40,8 @@ const RECOMMENDED_MODELS = [
 export const BotRuntimeForm: FC<{
   value: BotRuntimeValue
   onChange: (patch: Partial<BotRuntimeValue>) => void
-}> = ({ value, onChange }) => {
+  showReasoningEffort?: boolean
+}> = ({ value, onChange, showReasoningEffort = false }) => {
   const { data: providers } = useHelixProviders()
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
@@ -56,6 +59,13 @@ export const BotRuntimeForm: FC<{
   const hasRuntimeSubscription = isClaude ? hasClaudeSubscription : isCodex ? hasCodexSubscription : false
   const hasRuntimeAPIKey = isClaude ? hasAnthropicProvider : isCodex ? hasOpenAIProvider : false
   const apiKeyMode = !supportsSubscription || value.credentials === 'api_key'
+  const effortValue = !value.reasoning_effort || value.reasoning_effort === 'none' ? 'default' : value.reasoning_effort
+  const effortOptions = getCodeAgentEffortOptions(value.runtime)
+  const canConfigureEffort = showReasoningEffort && (isClaude || isCodex)
+
+  const onEffort = (effort: string) => {
+    onChange({ reasoning_effort: effort === 'default' ? 'none' : effort })
+  }
 
   const onRuntime = (v: string) => {
     const patch: Partial<BotRuntimeValue> = { runtime: v }
@@ -175,41 +185,56 @@ export const BotRuntimeForm: FC<{
       )}
 
       {apiKeyMode ? (
-        <Box>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-            Model
-          </Typography>
-          <AdvancedModelPicker
-            recommendedModels={RECOMMENDED_MODELS}
-            hint="Select the model your Bots use by default"
-            selectedProvider={value.provider}
-            selectedModelId={value.model}
-            onSelectModel={(prov, modelId) => onChange({ provider: prov, model: modelId })}
-            currentType="text"
-            displayMode="short"
-          />
-        </Box>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+          <Box sx={{ flex: 1, width: '100%', minWidth: 0 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+              Model
+            </Typography>
+            <AdvancedModelPicker
+              recommendedModels={RECOMMENDED_MODELS}
+              hint="Select the model your Bots use by default"
+              selectedProvider={value.provider}
+              selectedModelId={value.model}
+              onSelectModel={(prov, modelId) => onChange({ provider: prov, model: modelId })}
+              currentType="text"
+              displayMode="short"
+            />
+          </Box>
+          {canConfigureEffort && (
+            <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+          )}
+        </Stack>
       ) : hasRuntimeSubscription ? (
         isCodex ? (
-          <Box>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
-            <FormControl fullWidth size="small">
-              <Select
-                value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
-                onChange={(event) => onChange({ model: event.target.value })}
-              >
-                {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
-                  <MenuItem key={supportedModel.id} value={supportedModel.id}>
-                    <Typography variant="body2">{supportedModel.label}</Typography>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+            <Box sx={{ flex: 1, width: '100%' }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Model</Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={value.model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                  onChange={(event) => onChange({ model: event.target.value })}
+                >
+                  {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                    <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                      <Typography variant="body2">{supportedModel.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+            {canConfigureEffort && (
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+            )}
+          </Stack>
         ) : (
-          <Typography variant="caption" color="text.secondary">
-            Uses your connected Claude subscription — no model selection needed.
-          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pt: 1 }}>
+              Uses your connected Claude subscription — no model selection needed.
+            </Typography>
+            {canConfigureEffort && (
+              <CodeAgentEffortSelect options={effortOptions} value={effortValue} onChange={onEffort} />
+            )}
+          </Stack>
         )
       ) : null}
     </Stack>

@@ -220,9 +220,10 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				GenerationModel:         "gpt-5.3-codex",
 				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ReasoningEffort:         "high",
 			},
 			want: &types.CodeAgentConfig{
-				Provider: "openai", Model: "gpt-5.3-codex", AgentName: "codex",
+				Provider: "openai", Model: "gpt-5.3-codex", AgentName: "codex", ReasoningEffort: "high",
 				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeCodexCLI,
 			},
 		},
