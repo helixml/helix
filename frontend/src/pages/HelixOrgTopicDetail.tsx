@@ -235,6 +235,7 @@ interface TopicConfigSectionProps {
     transport?: { config?: Record<string, unknown> }
   }) => Promise<boolean>
   saving: boolean
+  onCancel?: () => void
 }
 
 type TopicForm = {
@@ -266,7 +267,7 @@ const topicForm = (topic: TopicDTO): TopicForm => {
   }
 }
 
-export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
+export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving, onCancel }) => {
   const snackbar = useSnackbar()
   const initialForm = topicForm(topic)
   const [form, setForm] = useState<TopicForm>(initialForm)
@@ -335,23 +336,14 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
     }
   }
 
+  const handleCancel = () => {
+    setForm(savedForm)
+    onCancel?.()
+  }
+
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h6">Configuration</Typography>
-        {dirty && (
-          <Button
-            color="secondary"
-            variant="contained"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-        )}
-      </Stack>
+      <Typography variant="h6" sx={{ mb: 2 }}>Configuration</Typography>
 
       <Stack spacing={2}>
           <TextField
@@ -408,6 +400,23 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
             </Typography>
           )}
       </Stack>
+      {dirty && (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Button
+            color="secondary"
+            variant="contained"
+            size="small"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="text" size="small" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </Button>
+        </Stack>
+      )}
     </Paper>
   )
 }

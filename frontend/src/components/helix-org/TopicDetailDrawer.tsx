@@ -70,6 +70,7 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
                 return false
               }
             }}
+            onCancel={onClose}
           />
           <Stack direction="row" justifyContent="flex-end">
             <ClearTopicMessagesButton topic={topic} />
