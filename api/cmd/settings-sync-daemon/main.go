@@ -107,6 +107,7 @@ type AvailableModel struct {
 	DisplayName     string `json:"display_name"`
 	MaxTokens       int    `json:"max_tokens"`
 	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -584,6 +585,9 @@ func (d *SettingsDaemon) injectAvailableModels() {
 		DisplayName:     d.codeAgentConfig.Model,
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: d.codeAgentConfig.MaxOutputTokens, // 0 = omitted (uses model default)
+	}
+	if d.codeAgentConfig.Runtime == "zed_agent" {
+		modelEntry.ReasoningEffort = d.codeAgentConfig.ReasoningEffort
 	}
 
 	// Get existing available_models or create new slice

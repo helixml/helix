@@ -752,15 +752,18 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		BaseURL:         baseURL,
 		APIType:         apiType,
 		Runtime:         runtime,
-		ReasoningEffort: normalizeCodeAgentReasoningEffort(assistant.ReasoningEffort),
+		ReasoningEffort: normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
 }
 
-func normalizeCodeAgentReasoningEffort(effort string) string {
+func normalizeCodeAgentReasoningEffort(runtime types.CodeAgentRuntime, effort string) string {
 	effort = strings.ToLower(strings.TrimSpace(effort))
-	if effort == "" || effort == types.ReasoningEffortNone || effort == "default" {
+	if effort == "" || effort == "default" {
+		return ""
+	}
+	if effort == types.ReasoningEffortNone && runtime != types.CodeAgentRuntimeZedAgent {
 		return ""
 	}
 	return effort
