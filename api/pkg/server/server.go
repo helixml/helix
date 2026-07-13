@@ -113,7 +113,7 @@ type HelixAPIServer struct {
 	// (the seeder's methods are nil-safe no-ops).
 	orgSeeder *orgGraphSeeder
 	// onServiceConnectionChange is an optional post-mutation hook a
-	// subsystem registers (helix-org, in mountHelixOrg) so it can react to
+	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
 	// handlers depending on it. nil when unregistered.
 	onServiceConnectionChange   func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
@@ -889,15 +889,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
-	// helix-org alpha: embed the standalone helix-org HTTP surface as
-	// an in-process handler, gated per-user by the `helix-org` alpha
-	// feature. See design/2026-05-17-helix-org-saas-alpha.md. All of its
-	// routing + lifecycle wiring lives in mountHelixOrg (helix_org.go);
-	// the core server only decides whether to bring it up.
-	if apiServer.Cfg.HelixOrgEnabled {
-		if err := apiServer.mountHelixOrg(ctx, insecureRouter, authRouter); err != nil {
-			return nil, err
-		}
+	// helix-org: register the helix-org HTTP surface, gated per-user by
+	// the `helix-org` alpha feature. See
+	// design/2026-05-17-helix-org-saas-alpha.md. All of its routing +
+	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go). It
+	// no-ops gracefully on deployments with no admin user yet.
+	if err := apiServer.registerHelixOrgRoutes(ctx, insecureRouter, authRouter); err != nil {
+		return nil, err
 	}
 
 	// Setup OAuth routes with the auth router (except for callback)
