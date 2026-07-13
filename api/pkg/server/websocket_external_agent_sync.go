@@ -3053,6 +3053,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	// Process next non-interrupt prompt from queue (if any)
 	go apiServer.processPromptQueue(context.Background(), helixSessionID)
 
+	if err := apiServer.recordACPUsage(context.Background(), helixSession, targetInteraction, syncMsg); err != nil {
+		return err
+	}
+
 	return nil
 }
 

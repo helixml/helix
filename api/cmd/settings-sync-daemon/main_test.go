@@ -18,6 +18,7 @@ func TestInjectAvailableModels(t *testing.T) {
 		helixSettings   map[string]interface{}
 		wantModel       string
 		wantProvider    string
+		wantEffort      string
 		wantSkipped     bool // true if injection should be skipped (e.g. anthropic built-in)
 	}{
 		{
@@ -35,6 +36,23 @@ func TestInjectAvailableModels(t *testing.T) {
 			},
 			wantModel:    "helix/qwen3:8b",
 			wantProvider: "openai",
+		},
+		{
+			name: "adds explicit none reasoning effort for zed agent",
+			codeAgentConfig: &CodeAgentConfig{
+				Model:           "openai/gpt-5.6-sol",
+				APIType:         "openai",
+				Runtime:         "zed_agent",
+				ReasoningEffort: "none",
+			},
+			helixSettings: map[string]interface{}{
+				"language_models": map[string]interface{}{
+					"openai": map[string]interface{}{},
+				},
+			},
+			wantModel:    "openai/gpt-5.6-sol",
+			wantProvider: "openai",
+			wantEffort:   "none",
 		},
 		{
 			name: "creates provider config if missing",
@@ -205,6 +223,7 @@ func TestInjectAvailableModels(t *testing.T) {
 					if model, ok := m.(AvailableModel); ok {
 						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
 						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
+						assert.Equal(t, tt.wantEffort, model.ReasoningEffort, "reasoning_effort should match")
 					} else if model, ok := m.(map[string]interface{}); ok {
 						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
 						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")

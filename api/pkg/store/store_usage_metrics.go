@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // usageInteractionsJoin is a per-row LATERAL lookup that fetches the
@@ -57,9 +58,24 @@ func (s *PostgresStore) CreateUsageMetric(ctx context.Context, metric *types.Usa
 	// Set the date field to just the date part (truncate time portion)
 	metric.Date = metric.Created.Truncate(24 * time.Hour)
 
-	err := s.gdb.WithContext(ctx).Create(metric).Error
+	query := s.gdb.WithContext(ctx)
+	if metric.SourceID != "" {
+		query = query.Clauses(clause.OnConflict{DoNothing: true})
+	}
+	result := query.Create(metric)
+	err := result.Error
 	if err != nil {
 		return nil, err
+	}
+	if result.RowsAffected == 0 && metric.SourceID != "" {
+		var existing types.UsageMetric
+		err = s.gdb.WithContext(ctx).
+			Where("source = ? AND source_id = ?", metric.Source, metric.SourceID).
+			First(&existing).Error
+		if err != nil {
+			return nil, err
+		}
+		return &existing, nil
 	}
 	return metric, nil
 }
