@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
-import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint, useDeleteProviderEndpoint } from '../services/providersService';
-import { TypesProviderEndpoint, TypesProviderEndpointType } from '../api/api';
+import { useListProviders, useDetectLocalProviders, useCreateProviderEndpoint } from '../services/providersService';
+import { TypesProviderEndpointType } from '../api/api';
 import CircularProgress from '@mui/material/CircularProgress';
 import { Server } from 'lucide-react';
 import { useGetOrgByName } from '../services/orgService';
@@ -23,7 +23,6 @@ import CodexSubscriptionConnect from '../components/account/CodexSubscriptionCon
 import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
-import useSnackbar from '../hooks/useSnackbar';
 
 const Providers: React.FC = () => {
   const router = useRouter()
@@ -32,12 +31,9 @@ const Providers: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [localModelsEndpointId, setLocalModelsEndpointId] = useState<string | null>(null);
   const [connectingDetected, setConnectingDetected] = useState<string>("");
-  const [disconnectingProvider, setDisconnectingProvider] = useState<TypesProviderEndpoint | null>(null);
   const isMacDesktop = account.serverConfig?.edition === "mac-desktop";
-  const snackbar = useSnackbar();
   const { data: detectedProviders } = useDetectLocalProviders(true);
   const createProvider = useCreateProviderEndpoint();
-  const deleteProvider = useDeleteProviderEndpoint();
 
   const orgName = router.params.org_id
 
@@ -161,17 +157,6 @@ const Providers: React.FC = () => {
       });
     } finally {
       setConnectingDetected("");
-    }
-  };
-
-  const handleDisconnectProvider = async () => {
-    if (!disconnectingProvider?.id) return;
-    try {
-      await deleteProvider.mutateAsync(disconnectingProvider.id);
-      snackbar.success(`${disconnectingProvider.name || 'Provider'} disconnected`);
-      setDisconnectingProvider(null);
-    } catch (error) {
-      snackbar.error(error instanceof Error ? error.message : 'Failed to disconnect provider');
     }
   };
 
@@ -335,7 +320,6 @@ const Providers: React.FC = () => {
             // providers can coexist, and each existing one is shown as its own card below.
             const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
-            const userProvider = userEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
@@ -409,17 +393,6 @@ const Providers: React.FC = () => {
                         </Button>
                       </span>
                     </Tooltip>
-                    {editAllowed && userProvider?.id && (
-                      <Button
-                        size="small"
-                        variant="text"
-                        color="error"
-                        onClick={() => setDisconnectingProvider(userProvider)}
-                        disabled={deleteProvider.isPending}
-                      >
-                        Disconnect
-                      </Button>
-                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -495,17 +468,6 @@ const Providers: React.FC = () => {
                     >
                       {endpoint.status === 'error' ? 'Fix Connection' : 'Connected'}
                     </Button>
-                    {editAllowed && endpoint.id && (
-                      <Button
-                        size="small"
-                        variant="text"
-                        color="error"
-                        onClick={() => setDisconnectingProvider(endpoint)}
-                        disabled={deleteProvider.isPending}
-                      >
-                        Disconnect
-                      </Button>
-                    )}
                   </CardActions>
                 </Card>
               </Grid>
@@ -518,25 +480,12 @@ const Providers: React.FC = () => {
             open={dialogOpen}
             onClose={handleCloseDialog}
             provider={selectedProvider}
-            existingProvider={userEndpoints.find(endpoint => endpoint.name === selectedProvider.id)}
+            existingProvider={userEndpoints.find(endpoint =>
+              endpoint.name === selectedProvider.id ||
+              endpoint.name === selectedProvider.id.replace('user/', '')
+            )}
           />
         )}
-        <Dialog open={!!disconnectingProvider} onClose={() => setDisconnectingProvider(null)} maxWidth="xs" fullWidth>
-          <DialogTitle>Disconnect provider?</DialogTitle>
-          <DialogContent>
-            <Typography color="text.secondary">
-              Helix will stop using {disconnectingProvider?.name || 'this provider'} and remove its stored credentials.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDisconnectingProvider(null)} disabled={deleteProvider.isPending}>
-              Cancel
-            </Button>
-            <Button onClick={handleDisconnectProvider} color="error" disabled={deleteProvider.isPending}>
-              {deleteProvider.isPending ? 'Disconnecting…' : 'Disconnect'}
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Container>
     </Page>
   );

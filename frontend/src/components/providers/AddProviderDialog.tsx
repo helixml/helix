@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
   DialogContent,
   DialogActions,
+  Dialog,
+  DialogContentText,
+  DialogTitle,
   Button,
   Box,
   Typography,
@@ -81,6 +84,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const [modelName, setModelName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
+  const [disconnectConfirmationOpen, setDisconnectConfirmationOpen] = useState(false);
   const { mutateAsync: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
   const { mutateAsync: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint();
   const { mutateAsync: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
@@ -121,6 +125,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
     setModelName('');
     setError(null);
     setIsFieldFocused(false);
+    setDisconnectConfirmationOpen(false);
     onClose();
   };
 
@@ -223,29 +228,31 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       snackbarSuccess('Provider disconnected successfully');
       handleClose();
     } catch (err) {
+      setDisconnectConfirmationOpen(false);
       setError(err instanceof Error ? err.message : 'Failed to disconnect provider');
     }
   };
 
   return (
-    <DarkDialog 
-      open={open} 
-      onClose={handleClose} 
-      maxWidth="md" 
-      fullWidth
-      TransitionProps={{
-        onExited: () => {
-          setApiKey('');
-          setCustomName('');
-          setCustomNameError(null);
-          setBaseUrlError(null);
-          setModelName('');
-          setError(null);
-          setIsFieldFocused(false);
-          onClosed?.();
-        }
-      }}
-    >
+    <>
+      <DarkDialog
+        open={open}
+        onClose={handleClose}
+        maxWidth="md"
+        fullWidth
+        TransitionProps={{
+          onExited: () => {
+            setApiKey('');
+            setCustomName('');
+            setCustomNameError(null);
+            setBaseUrlError(null);
+            setModelName('');
+            setError(null);
+            setIsFieldFocused(false);
+            onClosed?.();
+          }
+        }}
+      >
       <DialogContent sx={lightTheme.scrollbar}>
         <Box sx={{ mt: 2 }}>
           <NameTypography>
@@ -380,7 +387,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           <Box sx={{ flex: 1 }} />
           {isEditing && (
             <Button
-              onClick={handleDisconnect}
+              onClick={() => setDisconnectConfirmationOpen(true)}
               size="small"
               variant="outlined"
               color="error"
@@ -401,8 +408,30 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </Button>
         </Box>
       </DialogActions>
-    </DarkDialog>
+      </DarkDialog>
+      <Dialog
+        open={disconnectConfirmationOpen}
+        onClose={() => setDisconnectConfirmationOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Disconnect {provider.name}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Helix will remove the stored API key and stop using this provider.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDisconnectConfirmationOpen(false)} disabled={isDeleting}>
+            Cancel
+          </Button>
+          <Button onClick={handleDisconnect} color="error" disabled={isDeleting}>
+            {isDeleting ? 'Disconnecting…' : 'Disconnect'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
-export default AddProviderDialog; 
+export default AddProviderDialog;
