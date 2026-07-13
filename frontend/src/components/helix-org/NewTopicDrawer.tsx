@@ -67,6 +67,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
   // advanced cron). Stored as a standard 5-field expression (+ optional
   // CRON_TZ= prefix) on the topic config.
   const [cronSchedule, setCronSchedule] = useState<string>(defaultCronSchedule)
+  const [cronMessage, setCronMessage] = useState<string>('')
 
   // Probe GitHub on open — the result tells us whether to disable the
   // `github` transport option (no app install → operator gets a
@@ -106,6 +107,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhEvents(['*'])
     setGhBranches(['*'])
     setCronSchedule(defaultCronSchedule())
+    setCronMessage('')
   }, [open])
 
   const helpFor = TRANSPORT_KINDS.find((k) => k.value === kind)?.help
@@ -127,6 +129,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhEvents(['*'])
     setGhBranches(['*'])
     setCronSchedule(defaultCronSchedule())
+    setCronMessage('')
     onClose()
   }
 
@@ -160,6 +163,9 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
         return
       }
       config = { schedule: sched }
+      if (cronMessage.trim()) {
+        config.message = cronMessage.trim()
+      }
     } else if (configText.trim()) {
       try {
         config = JSON.parse(configText)
@@ -289,6 +295,8 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
             key={open ? 'cron-open' : 'cron-closed'}
             value={cronSchedule}
             onChange={setCronSchedule}
+            message={cronMessage}
+            onMessageChange={setCronMessage}
             defaultMode="specific_time"
           />
         )}

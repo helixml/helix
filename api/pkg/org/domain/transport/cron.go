@@ -27,7 +27,7 @@ const KindCron Kind = "cron"
 // up activation costs.
 const minCronInterval = 90 * time.Second
 
-// CronConfig carries the schedule for a KindCron topic. The UI
+// CronConfig carries the schedule and optional message for a KindCron topic. The UI
 // always submits a standard 5-field cron expression (optionally
 // prefixed by "CRON_TZ=<tz> " to pin the timezone, defaulting to UTC).
 // Preset buttons in the UI inject the literal cron form so users
@@ -39,6 +39,7 @@ const minCronInterval = 90 * time.Second
 // actively reject them, but the UI never produces them.
 type CronConfig struct {
 	Schedule string `json:"schedule"`
+	Message  string `json:"message,omitempty"`
 }
 
 // Validate enforces that Schedule parses as a standard 5-field cron

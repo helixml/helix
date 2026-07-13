@@ -17,14 +17,19 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
-import CloseIcon from '@mui/icons-material/Close'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import { useQueryClient } from '@tanstack/react-query'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
@@ -41,7 +46,9 @@ import useSnackbar from '../hooks/useSnackbar'
 import {
   EventCard,
   InstallWebhookFailedError,
+  QUERY_KEYS,
   TopicDTO,
+  useClearHelixOrgTopicMessages,
   useHelixOrgTopic,
   useGitHubWebhookStatus,
   useInstallGitHubWebhook,
@@ -59,6 +66,7 @@ const HelixOrgTopicDetail: FC = () => {
   const { data: topic, isLoading } = useHelixOrgTopic(topicId)
   const { data: messageCount } = useTopicMessageCount(topicId)
   const updateTopic = useUpdateHelixOrgTopic()
+  const queryClient = useQueryClient()
 
   // Live event list. Seeded from the initial GET so the page renders
   // immediately; replaced wholesale on every SSE push from
@@ -75,6 +83,7 @@ const HelixOrgTopicDetail: FC = () => {
   // `event: message` frames with a JSON-array payload of up to 50
   // events newest-first; we replace state on each.
   const orgID = account.organizationTools.organization?.id || orgSlug || ''
+  const queryOrgID = orgSlug || orgID
   const sseUrlRef = useRef<string | null>(null)
   useEffect(() => {
     if (!orgID || !topicId) return
@@ -84,7 +93,10 @@ const HelixOrgTopicDetail: FC = () => {
     const onMessage = (ev: MessageEvent) => {
       try {
         const arr = JSON.parse(ev.data) as EventCard[]
-        if (Array.isArray(arr)) setLiveEvents(arr)
+        if (Array.isArray(arr)) {
+          setLiveEvents(arr)
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.topicMessageCount(queryOrgID, topicId) })
+        }
       } catch {
         // Malformed payload: drop, keep prior state. Next frame is
         // typically well-formed.
@@ -95,7 +107,7 @@ const HelixOrgTopicDetail: FC = () => {
       es.removeEventListener('message', onMessage)
       es.close()
     }
-  }, [orgID, topicId])
+  }, [orgID, queryOrgID, topicId])
 
   const subscribers = topic?.subscribers ?? []
 
@@ -150,6 +162,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Divider />
 
               <TopicConfigSection
+                key={topic.id}
                 topic={topic}
                 onSave={async (payload) => {
                   try {
@@ -180,9 +193,16 @@ const HelixOrgTopicDetail: FC = () => {
                     <Typography variant="h6">Messages</Typography>
                     <MessageCountCard count={messageCount} />
                   </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                    newest first · up to 50 · live
-                  </Typography>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                      newest first · up to 50 · live
+                    </Typography>
+                    <ClearTopicMessagesButton
+                      topic={topic}
+                      messageCount={messageCount}
+                      onCleared={() => setLiveEvents([])}
+                    />
+                  </Stack>
                 </Stack>
                 {events.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
@@ -205,12 +225,8 @@ const HelixOrgTopicDetail: FC = () => {
   )
 }
 
-// TopicConfigSection renders the topic's mutable configuration —
-// name, description, transport config — in a read-only Paper that
-// flips into edit mode when the operator clicks Edit. The transport
-// kind itself is NOT editable here (changing transport mid-flight
-// would orphan webhook deliveries, GitHub installations etc); spin
-// up a new topic and delete the old one for that.
+// The transport kind itself is immutable here: changing it mid-flight would
+// orphan provider-side resources such as GitHub webhooks.
 interface TopicConfigSectionProps {
   topic: TopicDTO
   onSave: (payload: {
@@ -221,49 +237,44 @@ interface TopicConfigSectionProps {
   saving: boolean
 }
 
+type TopicForm = {
+  name: string
+  description: string
+  configText: string
+  ghRepo: string
+  ghBranches: string[]
+  ghOriginalConfig: Record<string, unknown>
+  cronSchedule: string
+  cronMessage: string
+}
+
+const topicForm = (topic: TopicDTO): TopicForm => {
+  const config = (topic.config ?? {}) as Record<string, unknown>
+  return {
+    name: topic.name,
+    description: topic.description ?? '',
+    configText: topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron'
+      ? JSON.stringify(config, null, 2)
+      : '',
+    ghRepo: topic.kind === 'github' && typeof config.repo === 'string' ? config.repo : '',
+    ghBranches: topic.kind === 'github' && Array.isArray(config.branches) && config.branches.length > 0
+      ? config.branches as string[]
+      : ['*'],
+    ghOriginalConfig: topic.kind === 'github' ? config : {},
+    cronSchedule: topic.kind === 'cron' && typeof config.schedule === 'string' ? config.schedule : '',
+    cronMessage: topic.kind === 'cron' && typeof config.message === 'string' ? config.message : '',
+  }
+}
+
 export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
   const snackbar = useSnackbar()
-  const [editing, setEditing] = useState(false)
-
-  // Local edit-mode state. Seeded from the topic every time the
-  // user enters edit mode so cancel → re-edit starts from the
-  // current server state, not whatever the user last typed.
-  const [name, setName] = useState(topic.name)
-  const [description, setDescription] = useState(topic.description ?? '')
-  const [configText, setConfigText] = useState('')
-  const [ghRepo, setGhRepo] = useState('')
-  const [ghBranches, setGhBranches] = useState<string[]>([])
-  // The full github config as it was on the server when edit opened.
-  // We overlay only the operator-editable fields (repo, branches) on
-  // top of this at save time so server-managed fields — events (now
-  // owned by GitHub's webhook UI), webhook_id, webhook_html_url —
-  // survive the round-trip instead of being wiped.
-  const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
-  const [cronSchedule, setCronSchedule] = useState('')
-
-  const enterEdit = () => {
-    setName(topic.name)
-    setDescription(topic.description ?? '')
-    if (topic.kind === 'github') {
-      const cfg = (topic.config ?? {}) as Record<string, unknown>
-      setGhOriginalConfig(cfg)
-      setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
-      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
-    } else if (topic.kind === 'cron') {
-      const cfg = (topic.config ?? {}) as Record<string, unknown>
-      setCronSchedule(typeof cfg.schedule === 'string' ? cfg.schedule : '')
-    } else if (topic.config) {
-      setConfigText(JSON.stringify(topic.config, null, 2))
-    } else {
-      setConfigText('')
-    }
-    setEditing(true)
-  }
-
-  const cancelEdit = () => setEditing(false)
+  const initialForm = topicForm(topic)
+  const [form, setForm] = useState<TopicForm>(initialForm)
+  const [savedForm, setSavedForm] = useState<TopicForm>(initialForm)
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm)
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (!form.name.trim()) {
       snackbar.error('Name is required')
       return
     }
@@ -271,36 +282,39 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
       name: string
       description?: string
       transport?: { config?: Record<string, unknown> }
-    } = { name: name.trim(), description: description.trim() || undefined }
+    } = { name: form.name.trim(), description: form.description.trim() || undefined }
+
+    let saved = { ...form, name: form.name.trim(), description: form.description.trim() }
 
     if (topic.kind === 'github') {
-      if (!ghRepo.trim() || !GITHUB_REPO_PATTERN.test(ghRepo.trim())) {
+      if (!form.ghRepo.trim() || !GITHUB_REPO_PATTERN.test(form.ghRepo.trim())) {
         snackbar.error('GitHub repo is required and must be owner/name')
         return
       }
-      // Overlay the editable fields onto the original config so
-      // events (managed on GitHub now), webhook_id and webhook_html_url
-      // are preserved. The server's GitHubConfig.Validate requires a
-      // non-empty events list — dropping it here is what used to make
-      // the save silently fail.
-      const ghConfig: Record<string, unknown> = { ...ghOriginalConfig, repo: ghRepo.trim() }
-      const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
+      const ghConfig: Record<string, unknown> = { ...form.ghOriginalConfig, repo: form.ghRepo.trim() }
+      const branches = form.ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
       if (branches.length > 0) {
         ghConfig.branches = branches
       } else {
         delete ghConfig.branches
       }
       payload.transport = { config: ghConfig }
+      saved = { ...saved, ghRepo: form.ghRepo.trim(), ghBranches: branches, ghOriginalConfig: ghConfig }
     } else if (topic.kind === 'cron') {
-      const sched = cronSchedule.trim()
+      const sched = form.cronSchedule.trim()
       if (!sched) {
         snackbar.error('Schedule is required')
         return
       }
-      payload.transport = { config: { schedule: sched } }
-    } else if (topic.kind !== 'local' && configText.trim()) {
+      const cronConfig: Record<string, unknown> = { schedule: sched }
+      if (form.cronMessage.trim()) {
+        cronConfig.message = form.cronMessage.trim()
+      }
+      payload.transport = { config: cronConfig }
+      saved = { ...saved, cronSchedule: sched, cronMessage: form.cronMessage.trim() }
+    } else if (topic.kind !== 'local' && form.configText.trim()) {
       try {
-        const parsed = JSON.parse(configText)
+        const parsed = JSON.parse(form.configText)
         if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
           snackbar.error('Transport config must be a JSON object')
           return
@@ -315,86 +329,43 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
       payload.transport = { config: {} }
     }
     const ok = await onSave(payload)
-    if (ok) setEditing(false)
+    if (ok) {
+      setForm(saved)
+      setSavedForm(saved)
+    }
   }
-
-  const configPreview = useMemo(() => {
-    if (topic.kind === 'local') return null
-    if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
-    return JSON.stringify(topic.config, null, 2)
-  }, [topic.kind, topic.config])
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Typography variant="h6">Configuration</Typography>
-        {!editing && (
-          <Button size="small" startIcon={<EditIcon />} onClick={enterEdit}>
-            Edit
+        {dirty && (
+          <Button
+            color="secondary"
+            variant="contained"
+            size="small"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
           </Button>
         )}
       </Stack>
 
-      {!editing ? (
-        <Stack spacing={1.5}>
-          <ReadOnlyRow label="Name" value={topic.name} />
-          <ReadOnlyRow label="Description" value={topic.description || '—'} />
-          <ReadOnlyRow label="Transport" value={topic.kind} mono />
-          {topic.kind === 'cron' && typeof topic.config?.schedule === 'string' && (
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-                Schedule
-              </Typography>
-              <CronScheduleFields
-                key={`cron-read-${topic.config.schedule}`}
-                value={topic.config.schedule}
-                onChange={() => undefined}
-                disabled
-              />
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mt: 0.75, fontFamily: 'monospace' }}
-              >
-                {topic.config.schedule}
-              </Typography>
-            </Box>
-          )}
-          {topic.kind !== 'local' && topic.kind !== 'cron' && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Config
-              </Typography>
-              <Typography
-                component="pre"
-                variant="body2"
-                sx={{
-                  mt: 0.5, mb: 0, p: 1, borderRadius: 1,
-                  backgroundColor: 'action.hover',
-                  fontFamily: 'monospace',
-                  fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                }}
-              >
-                {configPreview}
-              </Typography>
-            </Box>
-          )}
-        </Stack>
-      ) : (
-        <Stack spacing={2}>
+      <Stack spacing={2}>
           <TextField
             label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={form.name}
+            onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
             size="small"
             fullWidth
             required
           />
           <TextField
             label="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            value={form.description}
+            onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
             multiline
             minRows={2}
             size="small"
@@ -402,8 +373,8 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
           />
           {topic.kind === 'github' && (
             <>
-              <GitHubRepoPicker value={ghRepo} onChange={setGhRepo} />
-              <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
+              <GitHubRepoPicker value={form.ghRepo} onChange={(ghRepo) => setForm((current) => ({ ...current, ghRepo }))} />
+              <GitHubBranchesField branches={form.ghBranches} onChange={(ghBranches) => setForm((current) => ({ ...current, ghBranches }))} />
               <Typography variant="caption" color="text.secondary">
                 Which GitHub event types this webhook delivers is configured on GitHub,
                 not here — open the webhook on GitHub (below) to change it.
@@ -412,16 +383,17 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
           )}
           {topic.kind === 'cron' && (
             <CronScheduleFields
-              key={editing ? 'cron-edit' : 'cron-view'}
-              value={cronSchedule}
-              onChange={setCronSchedule}
+              value={form.cronSchedule}
+              onChange={(cronSchedule) => setForm((current) => ({ ...current, cronSchedule }))}
+              message={form.cronMessage}
+              onMessageChange={(cronMessage) => setForm((current) => ({ ...current, cronMessage }))}
             />
           )}
           {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
-              value={configText}
-              onChange={(e) => setConfigText(e.target.value)}
+              value={form.configText}
+              onChange={(e) => setForm((current) => ({ ...current, configText: e.target.value }))}
               multiline
               minRows={4}
               size="small"
@@ -435,22 +407,62 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
               local transport has no config — nothing to edit beyond name/description.
             </Typography>
           )}
-          <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button onClick={cancelEdit} startIcon={<CloseIcon />} disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </Stack>
-        </Stack>
-      )}
+      </Stack>
     </Paper>
+  )
+}
+
+export const ClearTopicMessagesButton: FC<{
+  topic: TopicDTO
+  messageCount?: number
+  onCleared?: () => void
+}> = ({ topic, messageCount, onCleared }) => {
+  const snackbar = useSnackbar()
+  const clearMessages = useClearHelixOrgTopicMessages()
+  const { data: queriedMessageCount } = useTopicMessageCount(topic.id)
+  const [confirming, setConfirming] = useState(false)
+  const count = messageCount ?? queriedMessageCount
+
+  const clear = async () => {
+    try {
+      await clearMessages.mutateAsync(topic.id)
+      onCleared?.()
+      setConfirming(false)
+      snackbar.success('topic messages cleared')
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error || e?.message || 'failed to clear topic messages')
+    }
+  }
+
+  return (
+    <>
+      <Button
+        color="error"
+        variant="outlined"
+        size="small"
+        startIcon={<DeleteSweepIcon />}
+        onClick={() => setConfirming(true)}
+        disabled={count === 0}
+      >
+        Clear messages
+      </Button>
+      <Dialog open={confirming} onClose={() => !clearMessages.isPending && setConfirming(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Clear all topic messages?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This permanently deletes all messages retained on “{topic.name || topic.id}”. The topic and its subscribers will remain active.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirming(false)} disabled={clearMessages.isPending}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={clear} disabled={clearMessages.isPending}>
+            {clearMessages.isPending ? 'Clearing…' : 'Clear messages'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   )
 }
 
@@ -682,18 +694,6 @@ const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
       retained
     </Typography>
   </Paper>
-)
-
-const ReadOnlyRow: FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
-  <Box>
-    <Typography variant="caption" color="text.secondary">{label}</Typography>
-    <Typography
-      variant="body2"
-      sx={{ mt: 0.25, fontFamily: mono ? 'monospace' : undefined }}
-    >
-      {value}
-    </Typography>
-  </Box>
 )
 
 const EventRow: FC<{ ev: EventCard; formatTs: (iso: string) => string }> = ({ ev, formatTs }) => {

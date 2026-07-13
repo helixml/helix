@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -70,7 +71,8 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Topics *topics.Topics
+	Topics   *topics.Topics
+	Messages *messages.Messages
 	// Bots is the merged role+worker mutation service: content/tools
 	// updates (PATCH /bots/{id}) and reporting-line edges
 	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.
@@ -298,6 +300,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /topics/{id}", Handler: http.HandlerFunc(a.deleteTopic)},
 		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
 		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
+		{Pattern: "DELETE /topics/{id}/messages", Handler: http.HandlerFunc(a.clearTopicMessages)},
 		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
 		// Processors — JSON:API CRUD.
 		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},

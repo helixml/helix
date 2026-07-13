@@ -3974,6 +3974,15 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
+  /**
+   * TimeToFirstTokenMs is the wall time from request start to the first
+   * streamed chunk. It isolates provider prefill / cold-start latency from
+   * generation time (a cold or overloaded provider shows a large TTFT while
+   * generation stays normal). 0 means no chunk was received (the call errored
+   * or was cut before the first token). For non-streaming calls it equals the
+   * time to the full response.
+   */
+  time_to_first_token_ms?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
@@ -13166,6 +13175,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsMessagesDelete
+     * @summary Helix-org: clear all messages from a topic
+     * @request DELETE:/api/v1/orgs/{org}/topics/{id}/messages
+     * @secure
+     */
+    v1OrgsTopicsMessagesDelete: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

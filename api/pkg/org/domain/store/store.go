@@ -134,6 +134,10 @@ type Subscriptions interface {
 // Events persists entries published on a Topic.
 type Events interface {
 	Append(ctx context.Context, e streaming.Event) error
+	// DeleteForTopic removes every event belonging to one Topic. Clearing an
+	// already-empty Topic is successful; callers verify the Topic exists before
+	// invoking this repository operation.
+	DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error
 	ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error)
 	// PageForTopic returns a window of events on one Topic, newest
 	// first (same ordering as ListForTopic), skipping offset rows and

@@ -99,6 +99,9 @@ export type CronScheduleFieldsProps = {
   /** Current cron schedule (what gets stored on the topic). */
   value: string
   onChange: (schedule: string) => void
+  /** Optional message emitted into the topic on each scheduled run. */
+  message?: string
+  onMessageChange?: (message: string) => void
   disabled?: boolean
   /** Seed mode when value is empty (create form). */
   defaultMode?: CronScheduleMode
@@ -107,6 +110,8 @@ export type CronScheduleFieldsProps = {
 const CronScheduleFields: FC<CronScheduleFieldsProps> = ({
   value,
   onChange,
+  message = '',
+  onMessageChange,
   disabled = false,
   defaultMode = 'specific_time',
 }) => {
@@ -189,6 +194,20 @@ const CronScheduleFields: FC<CronScheduleFieldsProps> = ({
 
   return (
     <Stack spacing={1.5}>
+      {onMessageChange && (
+        <TextField
+          label="Message sent on each run (optional)"
+          placeholder="e.g. Prepare the daily status report"
+          value={message}
+          onChange={(e) => onMessageChange(e.target.value)}
+          multiline
+          minRows={2}
+          fullWidth
+          size="small"
+          helperText="This message is published into the topic when the schedule fires."
+          disabled={disabled}
+        />
+      )}
       <FormControl fullWidth size="small">
         <InputLabel id="cron-mode-label">Schedule type</InputLabel>
         <Select

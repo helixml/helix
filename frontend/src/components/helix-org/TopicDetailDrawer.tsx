@@ -9,7 +9,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
 import { useHelixOrgTopic, useUpdateHelixOrgTopic } from '../../services/helixOrgService'
-import { TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
+import { ClearTopicMessagesButton, TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
 type TopicDetailDrawerProps = {
@@ -57,6 +57,7 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
             {consumerCount ?? topic.subscribers?.length ?? 0} subscriber{(consumerCount ?? topic.subscribers?.length) === 1 ? '' : 's'}
           </Typography>
           <TopicConfigSection
+            key={topic.id}
             topic={topic}
             saving={updateTopic.isPending}
             onSave={async (payload) => {
@@ -70,6 +71,9 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
               }
             }}
           />
+          <Stack direction="row" justifyContent="flex-end">
+            <ClearTopicMessagesButton topic={topic} />
+          </Stack>
         </Stack>
       )}
     </HelixOrgSideDrawer>

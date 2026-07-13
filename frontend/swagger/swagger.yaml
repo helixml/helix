@@ -6278,6 +6278,15 @@ definitions:
         $ref: '#/definitions/types.LLMCallStep'
       stream:
         type: boolean
+      time_to_first_token_ms:
+        description: |-
+          TimeToFirstTokenMs is the wall time from request start to the first
+          streamed chunk. It isolates provider prefill / cold-start latency from
+          generation time (a cold or overloaded provider shows a large TTFT while
+          generation stays normal). 0 means no chunk was received (the call errored
+          or was cut before the first token). For non-streaming calls it equals the
+          time to the full response.
+        type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
         type: number
@@ -19321,6 +19330,25 @@ paths:
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/topics/{id}/messages:
+    delete:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: clear all messages from a topic'
+      tags:
+      - HelixOrg
     get:
       parameters:
       - description: Topic ID
