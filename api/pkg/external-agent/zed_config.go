@@ -47,13 +47,24 @@ type WebsocketSyncConfig struct {
 }
 
 type AgentConfig struct {
-	DefaultModel           *ModelConfig `json:"default_model,omitempty"`
-	InlineAssistantModel   *ModelConfig `json:"inline_assistant_model,omitempty"`
-	CommitMessageModel     *ModelConfig `json:"commit_message_model,omitempty"`
-	ThreadSummaryModel     *ModelConfig `json:"thread_summary_model,omitempty"`
-	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
-	ShowOnboarding         bool         `json:"show_onboarding"`
-	AutoOpenPanel          bool         `json:"auto_open_panel"`
+	DefaultModel           *ModelConfig       `json:"default_model,omitempty"`
+	InlineAssistantModel   *ModelConfig       `json:"inline_assistant_model,omitempty"`
+	CommitMessageModel     *ModelConfig       `json:"commit_message_model,omitempty"`
+	ThreadSummaryModel     *ModelConfig       `json:"thread_summary_model,omitempty"`
+	AutoCompact            *AutoCompactConfig `json:"auto_compact,omitempty"`
+	AlwaysAllowToolActions bool               `json:"always_allow_tool_actions"` // Deprecated: mapped to tool_permissions.default="allow" by handler
+	ShowOnboarding         bool               `json:"show_onboarding"`
+	AutoOpenPanel          bool               `json:"auto_open_panel"`
+}
+
+// AutoCompactConfig controls Zed's automatic context compaction. Threshold is a
+// percentage string ("50%", measured against the model's context window) or a
+// positive integer token count; Zed compacts once active tokens cross it. A
+// percentage auto-scales per model, so a single value fits every window without
+// Helix computing a per-model number.
+type AutoCompactConfig struct {
+	Enabled   bool   `json:"enabled"`
+	Threshold string `json:"threshold"`
 }
 
 type LanguageModelConfig struct {
@@ -232,6 +243,18 @@ func GenerateZedMCPConfig(
 		config.Agent.InlineAssistantModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
 		config.Agent.CommitMessageModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
 		config.Agent.ThreadSummaryModel = &ModelConfig{Provider: zedProvider, Model: zedModel}
+	}
+
+	// Auto-compaction threshold. Zed's default fires at 90% of the context
+	// window, which for a long-lived thread on a slow/remote provider is too
+	// late: the compaction call itself must send the whole ~near-full thread to
+	// summarize, so it is as slow as the turns already timing out and it fails
+	// too, leaving the thread stuck. Firing earlier keeps both the context and
+	// the compaction call small enough to complete. Opt-in via
+	// HELIX_AGENT_AUTO_COMPACT_THRESHOLD ("50%" -> auto-scales per model, or a
+	// token count like "60000"); unset preserves Zed's default.
+	if threshold := strings.TrimSpace(os.Getenv("HELIX_AGENT_AUTO_COMPACT_THRESHOLD")); threshold != "" {
+		config.Agent.AutoCompact = &AutoCompactConfig{Enabled: true, Threshold: threshold}
 	}
 	config.Theme = "Ayu Dark"
 
