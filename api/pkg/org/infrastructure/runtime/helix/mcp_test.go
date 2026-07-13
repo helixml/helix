@@ -207,6 +207,9 @@ func (noopProjectService) UpdateProject(_ context.Context, _ string, _ types.Pro
 	return types.Project{}, nil
 }
 func (noopProjectService) PutProjectSecret(_ context.Context, _, _, _ string) error { return nil }
+func (noopProjectService) ListProjectSecrets(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
 func (noopProjectService) CreateGitRepo(_ context.Context, _ types.GitRepositoryCreateRequest) (types.GitRepository, error) {
 	return types.GitRepository{}, nil
 }

@@ -106,6 +106,52 @@ func TestGetWorkerProjectConfig_NoProjectIDReturnsUnsupported(t *testing.T) {
 	}
 }
 
+// TestListWorkerProjectSecrets_ResolvesOwnProject pins the security
+// property: a worker's secrets are read from the project its OWN runtime
+// state points at, never a caller-supplied id. Seed the worker's state
+// with prj_01abc, script that project's secrets, and assert both the
+// values come back AND the read targeted prj_01abc.
+func TestListWorkerProjectSecrets_ResolvesOwnProject(t *testing.T) {
+	t.Parallel()
+	wrap := newOrgTestStoreForProjectConfig(t)
+	wid := orgchart.BotID("w-alice")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_01abc", "app_x", "repo_y", "ses_z")
+
+	svc := newFakeProjectService()
+	svc.listSecretsResp = map[string]string{"DRONE_TOKEN": "abc", "DRONE_SERVER": "https://drone"}
+
+	pc, err := NewProjectConfig(&wrap.Store, svc)
+	if err != nil {
+		t.Fatalf("NewProjectConfig: %v", err)
+	}
+	got, err := pc.ListWorkerProjectSecrets(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("ListWorkerProjectSecrets: %v", err)
+	}
+	if svc.listSecretsProjectID != "prj_01abc" {
+		t.Errorf("read targeted project %q, want prj_01abc (worker's own project)", svc.listSecretsProjectID)
+	}
+	if got["DRONE_TOKEN"] != "abc" || got["DRONE_SERVER"] != "https://drone" {
+		t.Errorf("secrets = %#v, want the two DRONE_* entries", got)
+	}
+}
+
+// TestListWorkerProjectSecrets_NoProjectIDReturnsUnsupported pins that a
+// worker with no resolved project surfaces ErrProjectConfigUnsupported
+// rather than reading some other project's secrets.
+func TestListWorkerProjectSecrets_NoProjectIDReturnsUnsupported(t *testing.T) {
+	t.Parallel()
+	wrap := newOrgTestStoreForProjectConfig(t)
+	pc, err := NewProjectConfig(&wrap.Store, newFakeProjectService())
+	if err != nil {
+		t.Fatalf("NewProjectConfig: %v", err)
+	}
+	_, err = pc.ListWorkerProjectSecrets(context.Background(), "org-test", orgchart.BotID("w-noproject"))
+	if !errors.Is(err, runtime.ErrProjectConfigUnsupported) {
+		t.Errorf("err = %v, want ErrProjectConfigUnsupported", err)
+	}
+}
+
 // TestUpdateWorkerProjectConfig_PatchFlowsToHelix pins that a
 // pointer-set StartupScript on the patch reaches Helix's
 // ProjectUpdateRequest unchanged, and that the post-update

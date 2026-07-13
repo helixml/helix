@@ -263,6 +263,37 @@ func (c *inProcHelixClient) PutProjectSecret(ctx context.Context, projectID, nam
 	return nil
 }
 
+// ListProjectSecrets returns the project's dev-scoped secrets as a
+// decrypted name→value map. Reuses GetProjectSecretsAsEnvVars (the same
+// resolver the desktop-boot injection uses) so scope filtering and
+// decryption stay in one place, then splits each `KEY=value` back into a
+// map. Dev scope matches the desktop container's environment — the bot
+// reads exactly what it would have had injected at boot.
+func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error) {
+	envVars, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
+	if err != nil {
+		return nil, err
+	}
+	return parseEnvVarsToMap(envVars), nil
+}
+
+// parseEnvVarsToMap splits `KEY=value` env-var strings back into a map.
+// Cut on the FIRST `=` so a value that itself contains `=` (base64, a
+// URL query, …) round-trips intact. Entries with no `=` or an empty name
+// are skipped — GetProjectSecretsAsEnvVars never emits those, but the
+// guard keeps a malformed entry from producing a `""` key.
+func parseEnvVarsToMap(envVars []string) map[string]string {
+	out := make(map[string]string, len(envVars))
+	for _, kv := range envVars {
+		name, value, found := strings.Cut(kv, "=")
+		if !found || name == "" {
+			continue
+		}
+		out[name] = value
+	}
+	return out
+}
+
 // CreateGitRepo creates an internal Helix git repository. The
 // createGitRepository handler writes its response directly to the
 // ResponseWriter (not the typed-handler shape), so we capture the
