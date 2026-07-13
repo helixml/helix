@@ -110,6 +110,18 @@ func (f *fakeProjectService) PutProjectSecret(_ context.Context, _, name, value 
 	return nil
 }
 
+// ListProjectSecrets returns whatever was put via PutProjectSecret, so a
+// round-trip test can assert list_secrets surfaces them.
+func (f *fakeProjectService) ListProjectSecrets(_ context.Context, _ string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]string, len(f.putSecretLast))
+	for k, v := range f.putSecretLast {
+		out[k] = v
+	}
+	return out, nil
+}
+
 func (f *fakeProjectService) CreateGitRepo(_ context.Context, req types.GitRepositoryCreateRequest) (types.GitRepository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
