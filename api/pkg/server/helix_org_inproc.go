@@ -465,6 +465,9 @@ func (c *inProcHelixClient) GetOutput(ctx context.Context, sessionID string) (ty
 	}
 	resp, herr := c.server.getSessionOutput(nil, r)
 	if herr != nil {
+		if herr.StatusCode == http.StatusNotFound {
+			return types.SessionOutputResponse{}, fmt.Errorf("%w: %s", runtimehelix.ErrSessionNotFound, sessionID)
+		}
 		return types.SessionOutputResponse{}, fmt.Errorf("get session output %s: %s", sessionID, herr.Error())
 	}
 	if resp == nil {

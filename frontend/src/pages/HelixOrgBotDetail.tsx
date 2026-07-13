@@ -48,6 +48,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import BotRuntimeForm, { BotRuntimeValue } from '../components/helix-org/BotRuntimeForm'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -106,6 +107,7 @@ const HelixOrgBotDetail: FC = () => {
   const activateAgent = useActivateBot()
   const stopAgent = useStopBotAgent()
   const restartAgent = useRestartBotAgent()
+  const apps = useApps()
   const { data: toolCatalogue } = useListHelixOrgTools()
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [agentMenuEl, setAgentMenuEl] = useState<null | HTMLElement>(null)
@@ -113,6 +115,8 @@ const HelixOrgBotDetail: FC = () => {
   const bot = data?.bot
   const projectID = data?.project_id
   const agentAppID = data?.agent_app_id
+  const agentApp = apps.apps?.find((app) => app.id === agentAppID)
+  const assistant = agentApp?.config.helix.assistants?.[0]
   // A human node is a person placeholder — it never runs, so the agent-only
   // surfaces (Project Desktop session, tools, preserve-context, restart) make
   // no sense for it and are hidden below.
@@ -131,12 +135,27 @@ const HelixOrgBotDetail: FC = () => {
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
   const [preserveContext, setPreserveContext] = useState(false)
+  const [runtimeConfig, setRuntimeConfig] = useState<BotRuntimeValue>({
+    runtime: '',
+    credentials: '',
+    provider: '',
+    model: '',
+  })
   useEffect(() => {
     setName(bot?.name ?? '')
     setContent(bot?.content ?? '')
     setTools(bot?.tools ?? [])
     setPreserveContext(bot?.preserve_context ?? false)
   }, [bot?.name, bot?.content, bot?.tools, bot?.preserve_context])
+
+  useEffect(() => {
+    setRuntimeConfig({
+      runtime: assistant?.code_agent_runtime ?? '',
+      credentials: assistant?.code_agent_credential_type ?? 'api_key',
+      provider: assistant?.provider ?? '',
+      model: assistant?.model ?? '',
+    })
+  }, [assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model])
 
   // A human node is a person, not a bot — the agent detail page (desktop,
   // tools, activation) makes no sense for it. Redirect a direct hit on
@@ -168,13 +187,38 @@ const HelixOrgBotDetail: FC = () => {
     if ((bot.content ?? '') !== content) return true
     if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
     if ((bot.preserve_context ?? false) !== preserveContext) return true
+    if ((assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime) return true
+    if ((assistant?.code_agent_credential_type ?? 'api_key') !== runtimeConfig.credentials) return true
+    if ((assistant?.provider ?? '') !== runtimeConfig.provider) return true
+    if ((assistant?.model ?? '') !== runtimeConfig.model) return true
     return false
-  }, [bot, name, content, tools, preserveContext])
+  }, [bot, name, content, tools, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model])
 
   const handleSave = async () => {
     if (!botId) return
     try {
       await updateBot.mutateAsync({ id: botId, name, content, tools, preserve_context: preserveContext })
+      if (agentAppID && agentApp && assistant) {
+        const updatedAssistant = {
+          ...assistant,
+          code_agent_runtime: runtimeConfig.runtime as typeof assistant.code_agent_runtime,
+          code_agent_credential_type: runtimeConfig.credentials as typeof assistant.code_agent_credential_type,
+          provider: runtimeConfig.provider,
+          model: runtimeConfig.model,
+          generation_model_provider: runtimeConfig.credentials === 'api_key' ? runtimeConfig.provider : '',
+          generation_model: runtimeConfig.credentials === 'api_key' ? runtimeConfig.model : '',
+        }
+        await apps.updateApp(agentAppID, {
+          ...agentApp,
+          config: {
+            ...agentApp.config,
+            helix: {
+              ...agentApp.config.helix,
+              assistants: [updatedAssistant, ...(agentApp.config.helix.assistants ?? []).slice(1)],
+            },
+          },
+        })
+      }
       snackbar.success(`bot ${botId} saved`)
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'save failed')
@@ -251,7 +295,6 @@ const HelixOrgBotDetail: FC = () => {
   // Desktop resolution / fps for the stream, derived from the bot's agent
   // app config (same helper the spec-task desktop uses). Falls back to
   // 1920x1080x60 when the app or config is missing.
-  const apps = useApps()
   const displaySettings = useMemo(
     () => deriveDisplaySettings(apps.apps?.find((a) => a.id === agentAppID)),
     [agentAppID, apps.apps],
@@ -570,6 +613,15 @@ const HelixOrgBotDetail: FC = () => {
                     helperText="Human-readable display label. The id stays fixed."
                   />
                 </Box>
+
+                {agentAppID && (
+                  <Box>
+                    <BotRuntimeForm
+                      value={runtimeConfig}
+                      onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
+                    />
+                  </Box>
+                )}
 
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Instructions</Typography>

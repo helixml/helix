@@ -29,6 +29,16 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      agent_model:
+        type: string
+      agent_runtime:
+        type: string
+      agent_status:
+        description: |-
+          AgentStatus is "running" when the bot's desktop sandbox is online,
+          "stopped" otherwise (no session, paused, never activated). Drives
+          the green/grey presence dot on the org chart.
+        type: string
       content:
         type: string
       created_at:
@@ -96,6 +106,26 @@ definitions:
       subscriptions:
         items:
           $ref: '#/definitions/api.BotSubscriptionDTO'
+        type: array
+    type: object
+  api.ChartPositionDTO:
+    properties:
+      id:
+        type: string
+      kind:
+        description: Kind is bot | topic | processor (matches the ReactFlow node id
+          prefix).
+        type: string
+      x:
+        type: number
+      "y":
+        type: number
+    type: object
+  api.ChartPositionsResponse:
+    properties:
+      positions:
+        items:
+          $ref: '#/definitions/api.ChartPositionDTO'
         type: array
     type: object
   api.CreateBotRequest:
@@ -532,6 +562,13 @@ definitions:
         type: string
       transport:
         $ref: '#/definitions/api.TransportRequestField'
+    type: object
+  api.UpsertChartPositionsRequest:
+    properties:
+      positions:
+        items:
+          $ref: '#/definitions/api.ChartPositionDTO'
+        type: array
     type: object
   filestore.Config:
     properties:
@@ -1559,6 +1596,22 @@ definitions:
       repository_id:
         type: string
       target_dir:
+        type: string
+    type: object
+  server.CodexLoginSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
+  server.CodexPollLoginResponse:
+    properties:
+      code:
+        type: string
+      error:
+        type: string
+      found:
+        type: boolean
+      url:
         type: string
     type: object
   server.ConfigurePendingSessionRequest:
@@ -3763,6 +3816,12 @@ definitions:
       project_name:
         description: Denormalized for display without joins
         type: string
+      replied_at:
+        description: |-
+          RepliedAt is set when the user answers an org_message inline from the
+          notification bell. It keeps replied messages visible (marked "Replied")
+          so the user has a record the message came through and was answered.
+        type: string
       snoozed_until:
         type: string
       spec_task_description:
@@ -3783,6 +3842,7 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - org_message
     - ci_passed
     - ci_failed
     type: string
@@ -3792,6 +3852,7 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
   types.AttentionEventUpdateRequest:
@@ -3799,6 +3860,11 @@ definitions:
       acknowledge:
         type: boolean
       dismiss:
+        type: boolean
+      reply:
+        description: |-
+          Reply marks an org_message answered — sets replied_at (and acknowledges),
+          keeping it visible as "Replied" instead of dismissing it.
         type: boolean
       snoozed_until:
         type: string
@@ -4438,6 +4504,55 @@ definitions:
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
     - CodeAgentRuntimeGooseCode
+  types.CodexAuthCredentials:
+    properties:
+      OPENAI_API_KEY:
+        type: string
+      auth_mode:
+        type: string
+      last_refresh:
+        type: string
+      tokens:
+        $ref: '#/definitions/types.CodexAuthTokens'
+    type: object
+  types.CodexAuthTokens:
+    properties:
+      access_token:
+        type: string
+      account_id:
+        type: string
+      id_token:
+        type: string
+      refresh_token:
+        type: string
+    type: object
+  types.CodexSubscription:
+    properties:
+      account_id:
+        type: string
+      auth_mode:
+        type: string
+      created:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      last_refreshed_at:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      status:
+        type: string
+      updated:
+        type: string
+    type: object
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -4585,6 +4700,17 @@ definitions:
       setup_token:
         description: From `claude setup-token` (alternative to credentials)
         type: string
+    type: object
+  types.CreateCodexSubscriptionRequest:
+    properties:
+      credentials:
+        $ref: '#/definitions/types.CodexAuthCredentials'
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
     type: object
   types.CreatePullRequestRequest:
     properties:
@@ -9382,13 +9508,15 @@ definitions:
     properties:
       duration_ms:
         type: integer
+      interaction_id:
+        type: string
       output:
         description: Last interaction's response text
         type: string
       session_id:
         type: string
       status:
-        description: '"waiting", "complete", "error"'
+        description: '"waiting", "complete", "error", "interrupted"'
         type: string
     type: object
   types.SessionRAGResult:
@@ -11990,6 +12118,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
         description: Code agent configuration for Zed agentic coding
+      codex_subscription_available:
+        description: True if user has active ChatGPT credentials for Codex CLI
+        type: boolean
       color_scheme:
         description: 'Session owner''s UI color scheme: "light", "dark", or "" (follow
           OS). Daemon applies via gsettings to GNOME.'
@@ -14252,6 +14383,121 @@ paths:
       summary: Get progress of all tasks in a clone group
       tags:
       - CloneGroups
+  /api/v1/codex-subscriptions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.CodexSubscription'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List Codex subscriptions
+      tags:
+      - Codex
+    post:
+      consumes:
+      - application/json
+      description: Connect a ChatGPT subscription using Codex CLI credentials
+      parameters:
+      - description: Codex subscription credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateCodexSubscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexSubscription'
+      security:
+      - BearerAuth: []
+      summary: Create a Codex subscription
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/{id}:
+    delete:
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a Codex subscription
+      tags:
+      - Codex
+    get:
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexSubscription'
+      security:
+      - BearerAuth: []
+      summary: Get a Codex subscription
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/poll-login/{sessionId}:
+    get:
+      description: Return device authentication instructions or persist completed
+        credentials
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.CodexPollLoginResponse'
+      security:
+      - BearerAuth: []
+      summary: Poll Codex login
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/start-login:
+    post:
+      description: Launch a temporary container and start Codex device authentication
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.CodexLoginSessionResponse'
+      security:
+      - BearerAuth: []
+      summary: Start a Codex login session
+      tags:
+      - Codex
   /api/v1/config:
     get:
       description: Get config
@@ -18313,6 +18559,30 @@ paths:
       summary: 'Helix-org: restart a bot''s agent session (fresh session + desktop)'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/stop-agent:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: stop a bot''s agent desktop'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/subscriptions:
     get:
       parameters:
@@ -18389,6 +18659,57 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: unsubscribe a bot from a topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/chart/positions:
+    delete:
+      description: Deletes every saved node position for the org; the chart reverts
+        to auto-layout.
+      responses:
+        "204":
+          description: no content
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: reset chart layout'
+      tags:
+      - HelixOrg
+    get:
+      description: Returns free-placed (x, y) coordinates for org-chart nodes. Nodes
+        without a row fall back to auto-layout.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChartPositionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list chart node positions'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      description: Upserts (x, y) coordinates for one or more org-chart nodes after
+        the user drags them.
+      parameters:
+      - description: positions to save
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpsertChartPositionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChartPositionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: upsert chart node positions'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/github/app-installation:
@@ -22502,6 +22823,57 @@ paths:
       summary: Clear a session's conversation
       tags:
       - sessions
+  /api/v1/sessions/{id}/codex-credentials:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexAuthCredentials'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Codex credentials for a session
+      tags:
+      - Codex
+    put:
+      consumes:
+      - application/json
+      description: Persist credentials refreshed by Codex CLI. Stale refreshes are
+        ignored.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refreshed credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CodexAuthCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Update Codex credentials for a session
+      tags:
+      - Codex
   /api/v1/sessions/{id}/foreground-thread:
     post:
       description: |-
@@ -22883,12 +23255,13 @@ paths:
     post:
       description: |-
         Tears down the half-dead desktop container and brings up a fresh one
-        via the same resume path used by /sessions/{id}/resume. The session's
-        ZedThreadID is preserved, so Zed reloads the existing thread from the
-        persistent threads.db in the workspace volume and the underlying agent
-        (claude-code, qwen, etc.) reloads its session from disk — prior
-        conversation context is restored. Crashed prompts are reset to pending
-        and the queue is kicked so they re-dispatch on the new container.
+        via the resume path. The session's ZedThreadID is cleared so Zed opens
+        a fresh thread: a crash often poisons the thread itself, so reattaching
+        reproduces the wedge; use /sessions/{id}/resume to restart while keeping
+        the thread. The workspace volume persists, so files and the agent's own
+        state survive; only the conversation thread resets. Crashed prompts are
+        reset to pending and the queue is kicked so they re-dispatch on the new
+        container.
         Requires the session to be an external Zed agent. Returns the count of
         prompts that were reset.
       parameters:

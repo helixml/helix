@@ -200,6 +200,8 @@ type BotRuntimeInfo struct {
 	ProjectID  string
 	AgentAppID string
 	SessionID  string
+	Runtime    string
+	Model      string
 	// AgentStatus is "running" when the bot's exploratory-session
 	// desktop is online (external_agent_status == running), else
 	// "stopped". Empty when the status could not be resolved.

@@ -311,6 +311,13 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			claudeSubAvailable = true
 		}
 	}
+	var codexSubAvailable bool
+	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeCodexCLI {
+		sub, err := apiServer.Store.GetEffectiveCodexSubscription(ctx, session.Owner, session.OrganizationID)
+		if err == nil && sub.Status == "active" {
+			codexSubAvailable = true
+		}
+	}
 
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
@@ -340,6 +347,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		Version:                     version,
 		CodeAgentConfig:             codeAgentConfig,
 		ClaudeSubscriptionAvailable: claudeSubAvailable,
+		CodexSubscriptionAvailable:  codexSubAvailable,
 	}
 
 	return response, nil
@@ -686,6 +694,18 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			baseURL = helixURL
 			apiType = "anthropic"
 			model = modelName
+		}
+
+	case types.CodeAgentRuntimeCodexCLI:
+		agentName = "codex"
+		model = modelName
+		if isSubscription {
+			providerName = ""
+			baseURL = ""
+			apiType = ""
+		} else {
+			baseURL = helixURL + "/v1"
+			apiType = "openai"
 		}
 
 	default: // CodeAgentRuntimeZedAgent

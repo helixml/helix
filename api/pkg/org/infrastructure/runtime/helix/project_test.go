@@ -470,11 +470,8 @@ func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
 //
 //   - return the stored IDs (no fresh provisioning — no
 //     CreateGitRepo / AttachRepoToProject calls)
-//   - re-call ApplyProject with the current Runtime/Provider/Model/
-//     Credentials so worker.* edits via the Settings page propagate
-//     to existing workers on the next activation. ApplyProject is
-//     upsert-by-name and idempotent. See
-//     TestEnsureFastPathRefreshesAgentSpec for the spec assertion.
+//   - leave the existing app configuration untouched; worker.* values
+//     are provisioning defaults and the app UI/API owns later edits.
 //   - re-publish canonical files (agent.md / role.md / identity.md)
 //     from the DB to the helix-specs branch so DB edits that don't
 //     go through update_role / update_identity (e.g. direct store
@@ -499,16 +496,14 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	// The fast path returns the STORED ids even though ApplyProject is
-	// re-called. (The fake's applyResp would otherwise overwrite them;
-	// the prod code keeps the persisted state.)
+	// The fast path returns the stored IDs without reapplying the project.
 	if pid != "prj_existing" || aid != "app_existing" || rid != "repo_existing" {
 		t.Errorf("returned ids = (%q,%q,%q)", pid, aid, rid)
 	}
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.applyCalls != 1 {
-		t.Errorf("ApplyProject MUST be called on fast path to refresh worker.* settings drift; got %d", svc.applyCalls)
+	if svc.applyCalls != 0 {
+		t.Errorf("ApplyProject must not overwrite existing app config; got %d calls", svc.applyCalls)
 	}
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
@@ -533,18 +528,9 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	}
 }
 
-// TestEnsureFastPathRefreshesAgentSpec pins the auto-apply behaviour:
-// on a pre-existing worker, calling Ensure again with a new applier
-// config (different runtime / provider / model / credentials)
-// re-applies the project spec so Helix's per-Worker agent app picks
-// up the new settings.
-//
-// Repro: operator opens /helix-org/settings, flips worker.credentials
-// from subscription to api_key with a provider+model. Without this
-// refresh, the existing w-owner agent app stays in subscription mode
-// forever (its spec was baked at first-apply time) — which is the
-// "how do users update settings for pre-existing workers?" gap.
-func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
+// TestEnsureFastPathPreservesAgentSpec verifies that provisioning defaults
+// cannot overwrite an existing bot app on start.
+func TestEnsureFastPathPreservesAgentSpec(t *testing.T) {
 	t.Parallel()
 	st, wid := newProjectTestStore(t, "# Role: engineer")
 	if err := SaveProject(context.Background(), st, "org-test", wid, "prj_existing", "app_existing", "repo_existing"); err != nil {
@@ -555,8 +541,8 @@ func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
 	git := newFakeGitForProject()
 
 	a := newApplierGit(svc, git, st)
-	// Simulate the operator having flipped worker.credentials → api_key
-	// via the settings page since the worker was first provisioned.
+	// These values deliberately differ from the existing app's settings.
+	// Ensure must not submit them to ApplyProject.
 	a.Runtime = "claude_code"
 	a.Credentials = "api_key"
 	a.Provider = "OpenRouter"
@@ -568,24 +554,8 @@ func TestEnsureFastPathRefreshesAgentSpec(t *testing.T) {
 
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	if svc.applyCalls != 1 {
-		t.Fatalf("ApplyProject must be called on the fast path to refresh spec; got %d", svc.applyCalls)
-	}
-	got := svc.lastApplyReq.Spec.Agent
-	if got == nil {
-		t.Fatalf("lastApplyReq has no Agent spec")
-	}
-	if got.Runtime != "claude_code" {
-		t.Errorf("Runtime = %q, want claude_code", got.Runtime)
-	}
-	if got.Credentials != "api_key" {
-		t.Errorf("Credentials = %q, want api_key", got.Credentials)
-	}
-	if got.Provider != "OpenRouter" {
-		t.Errorf("Provider = %q, want OpenRouter", got.Provider)
-	}
-	if got.Model != "anthropic/claude-3-haiku" {
-		t.Errorf("Model = %q, want anthropic/claude-3-haiku", got.Model)
+	if svc.applyCalls != 0 {
+		t.Fatalf("ApplyProject must not run for an existing app; got %d calls", svc.applyCalls)
 	}
 }
 

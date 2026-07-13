@@ -2050,6 +2050,42 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 	s.NoError(err)
 }
 
+func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThreadForRetry() {
+	s.server.contextMappings["thread-codex"] = "ses_codex"
+
+	session := &types.Session{ID: "ses_codex", GenerationID: 1}
+	session.Metadata.ZedThreadID = "thread-codex"
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_codex").Return(session, nil)
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_codex", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
+			s.Empty(metadata.ZedThreadID)
+			return nil
+		},
+	)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{{ID: "int-codex", State: types.InteractionStateWaiting, PromptID: "prompt-codex"}}, int64(1), nil,
+	)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
+	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-codex").
+		Return(&types.PromptHistoryEntry{ID: "prompt-codex", RetryCount: 0}, nil)
+	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-codex", gomock.Any()).Return(nil)
+
+	err := s.server.handleThreadLoadError("ses_codex", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-codex",
+			"request_id":    "int-codex",
+			"error":         "Failed to load thread: Internal error: no rollout found for thread id thread-codex",
+		},
+	})
+	s.NoError(err)
+
+	s.server.contextMappingsMutex.RLock()
+	_, exists := s.server.contextMappings["thread-codex"]
+	s.server.contextMappingsMutex.RUnlock()
+	s.False(exists)
+}
+
 func (s *WebSocketSyncSuite) TestThreadLoadError_RecurringFailure_CrashesRegardlessOfWording() {
 	// A thread_load_error that keeps failing across retries is terminal even when
 	// the wording isn't a known hard-crash marker (e.g. the dead-connection

@@ -3,7 +3,8 @@
 // queries to the outer Docker's embedded DNS (127.0.0.11:53).
 //
 // This enables enterprise DNS resolution from dev containers:
-//   Dev container → dns-proxy (10.213.0.1) → Docker DNS (127.0.0.11) → host DNS → enterprise DNS
+//
+//	Dev container → dns-proxy (10.213.0.1) → Docker DNS (127.0.0.11) → host DNS → enterprise DNS
 //
 // It also answers the "outer-api" alias: a desktop on a nested Helix-in-Helix
 // dockerd sees an inner compose "api" service that shadows the real outer API.
@@ -74,6 +75,9 @@ type forwarder struct {
 	// trailing-dot names). Empty when no alias is configured.
 	aliasFrom string
 	aliasTo   string
+	exchange  func(*dns.Msg, string) (*dns.Msg, error)
+	retryWait time.Duration
+	retries   int
 }
 
 func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
@@ -90,7 +94,23 @@ func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		aliased = true
 	}
 
-	resp, _, err := c.Exchange(query, f.upstream)
+	exchange := f.exchange
+	if exchange == nil {
+		exchange = func(query *dns.Msg, upstream string) (*dns.Msg, error) {
+			resp, _, err := c.Exchange(query, upstream)
+			return resp, err
+		}
+	}
+	retries := f.retries
+	if retries == 0 {
+		retries = 20
+	}
+	retryWait := f.retryWait
+	if retryWait == 0 {
+		retryWait = 250 * time.Millisecond
+	}
+
+	resp, err := exchangeWithAPIAddressRetry(query, f.upstream, exchange, retries, retryWait)
 	if err != nil {
 		log.Warn().Err(err).Str("upstream", f.upstream).Msg("DNS forward failed")
 		// Return SERVFAIL
@@ -120,4 +140,21 @@ func (f *forwarder) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	w.WriteMsg(resp)
+}
+
+func exchangeWithAPIAddressRetry(query *dns.Msg, upstream string, exchange func(*dns.Msg, string) (*dns.Msg, error), retries int, retryWait time.Duration) (*dns.Msg, error) {
+	resp, err := exchange(query, upstream)
+	for attempt := 0; err == nil && shouldRetryAPIAddress(query, resp) && attempt < retries; attempt++ {
+		time.Sleep(retryWait)
+		resp, err = exchange(query, upstream)
+	}
+	return resp, err
+}
+
+func shouldRetryAPIAddress(query, resp *dns.Msg) bool {
+	if len(query.Question) != 1 || resp == nil || resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 0 {
+		return false
+	}
+	q := query.Question[0]
+	return dns.CanonicalName(q.Name) == "api." && q.Qtype == dns.TypeA
 }

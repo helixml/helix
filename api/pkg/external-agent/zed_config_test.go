@@ -527,6 +527,17 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 			why:       "even with stored fields, subscription bypass short-circuits validation",
 		},
 		{
+			name: "codex_subscription_empty_fields_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: true,
+			why:       "Codex CLI authenticates upstream with restored ChatGPT credentials",
+		},
+		{
 			name: "api_key_empty_fields_still_errors",
 			assistant: types.AssistantConfig{
 				AgentType:               types.AgentTypeZedExternal,

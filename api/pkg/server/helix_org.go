@@ -151,6 +151,7 @@ type orgWorkerRuntime struct {
 	st       *helixorgstore.Store
 	sessions interface {
 		GetSession(ctx context.Context, id string) (*types.Session, error)
+		GetApp(ctx context.Context, id string) (*types.App, error)
 	}
 }
 
@@ -164,6 +165,13 @@ func (o orgWorkerRuntime) State(ctx context.Context, orgID string, workerID orgc
 		AgentAppID:  s.AgentAppID,
 		SessionID:   s.SessionID,
 		AgentStatus: "stopped",
+	}
+	if s.AgentAppID != "" && o.sessions != nil {
+		if app, err := o.sessions.GetApp(ctx, s.AgentAppID); err == nil && app != nil && len(app.Config.Helix.Assistants) > 0 {
+			assistant := app.Config.Helix.Assistants[0]
+			info.Runtime = string(assistant.CodeAgentRuntime)
+			info.Model = assistant.Model
+		}
 	}
 	// Resolve sandbox online-ness from the session metadata the desktop
 	// stack already maintains (external_agent_status). Missing session
@@ -1063,9 +1071,8 @@ type helixOrgConfig struct {
 // `worker.*` and `helix.*` from the config registry on every Ensure
 // call. Building the underlying runtimehelix.WorkerProject at API
 // startup and reusing it freezes `worker.runtime`/`credentials`/
-// `provider`/`model` at boot time — operators changing those via
-// the settings page then had to restart the API container for the new
-// values to take effect. Resolving per-call removes that surprise.
+// `provider`/`model` at boot time. These values provision new apps;
+// existing apps own their runtime configuration after creation.
 //
 // Store is exposed directly because helix_org_chat.go needs it to
 // load/save the per-Worker session pointer on the same row the
@@ -1195,7 +1202,7 @@ func buildHelixOrgProjectApplier(
 // them into the (runtime, credentials, provider, model) tuple that
 // matches Helix's per-agent UI:
 //
-//   - claude_code + subscription → no provider/model (CLI authenticates via OAuth)
+//   - claude_code/codex_cli + subscription → no provider/model (CLI authenticates via OAuth)
 //   - claude_code + api_key       → provider+model required, inference via Helix's anthropic provider
 //   - zed_agent (or other)        → provider+model required, always Helix-routed (credentials forced to "api_key")
 //
@@ -1211,14 +1218,20 @@ func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregi
 	if credentials == "" {
 		credentials = "subscription"
 	}
-	if runtime != "claude_code" {
-		credentials = "api_key" // subscription is only meaningful for claude_code
+	if !workerRuntimeSupportsSubscription(runtime) {
+		credentials = "api_key"
 	}
 	if credentials == "api_key" {
 		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
 		model, _ = cfg.GetString(ctx, orgID, "worker.model")
+	} else if runtime == "codex_cli" {
+		model, _ = cfg.GetString(ctx, orgID, "worker.model")
 	}
 	return runtime, credentials, provider, model
+}
+
+func workerRuntimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // buildInProcHelixClient resolves the service-account *types.User and
@@ -1357,8 +1370,8 @@ func buildHelixOrgSpawnerConfig(ctx context.Context, orgID string, d spawnerDeps
 // design/2026-06-09-org-multitenancy-spawner-leak.md.)
 //
 // Building per activation is cheap (a handful of config-registry
-// reads) and also keeps worker.runtime/credentials/provider/model
-// current without any "drift" handling. The one thing the old cache
+// reads) and ensures newly provisioned apps use current org defaults.
+// Existing apps retain their own configuration. The one thing the old cache
 // legitimately provided — a single process-wide inflight cap — is
 // preserved by minting one shared semaphore here and injecting it into
 // each per-activation config via SpawnerConfig.Sem.
