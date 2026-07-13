@@ -700,10 +700,10 @@ const TopicNode: FC<NodeProps<Node<TopicNodeData>>> = ({ data }) => {
         <Typography variant="caption" sx={{ fontSize: '0.65rem', color: muted, minWidth: 0 }}>
           {data.kind} · {data.subscriberCount} sub{data.subscriberCount === 1 ? '' : 's'}
         </Typography>
-        {/* Waiting-message count. Kept deliberately tiny — the card is
+        {/* Retained-message count. Kept deliberately tiny — the card is
             already dense — and tinted with the topic accent so it reads as
             a topic stat rather than chrome. */}
-        <Tooltip title={`${data.messageCount} message${data.messageCount === 1 ? '' : 's'} waiting`}>
+        <Tooltip title={`${data.messageCount} retained message${data.messageCount === 1 ? '' : 's'}`}>
           <Typography
             variant="caption"
             sx={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 700, color: accent, lineHeight: 1, flexShrink: 0 }}
@@ -1951,7 +1951,7 @@ const HelixOrgChart: FC = () => {
     [topics, processorConsumerCounts],
   )
 
-  // Per-topic waiting-message counts for the topic cards. One cached query
+  // Per-topic retained-message counts for the topic cards. One cached query
   // per topic id (shared with the detail page's count hook), so each
   // card's number refreshes independently. topicIds is memoized so the
   // fan-out only re-subscribes when the set of topics changes, not on

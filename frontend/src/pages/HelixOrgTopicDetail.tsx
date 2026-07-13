@@ -649,7 +649,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
 }
 
 // MessageCountCard is the compact metric chip beside the Messages
-// header showing how many messages are waiting on the topic (meta.total
+// header showing how many messages are retained on the topic (meta.total
 // from the paginated messages endpoint). Undefined while the count query
 // is in flight — render an em-dash placeholder rather than 0 so a
 // loading state doesn't read as "empty topic".
@@ -670,7 +670,7 @@ const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
       {count === undefined ? '—' : count.toLocaleString()}
     </Typography>
     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-      waiting
+      retained
     </Typography>
   </Paper>
 )

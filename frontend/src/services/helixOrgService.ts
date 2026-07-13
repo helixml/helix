@@ -603,7 +603,7 @@ export function useGitHubWebhookStatus(topicId: string | undefined, options?: { 
   })
 }
 
-// useTopicMessageCount reports the total number of messages waiting on
+// useTopicMessageCount reports the total number of retained messages on
 // a single topic via the paginated JSON:API messages endpoint. We only
 // need meta.total, so we request the smallest possible page (size 1) and
 // ignore the body — the count is the cheap part the server computes
