@@ -19,6 +19,61 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// populateQueueReasons fills task.QueueReason for any tasks in the slice that are
+// in a queued state (queued_spec_generation / queued_implementation), explaining
+// why the orchestrator is holding them queued. The reason is transient and
+// recomputed on every read (it changes as the WIP queue drains), so it is never
+// persisted. It shares the exact gate logic used by the orchestrator via
+// services.PlanningQueueReason / services.ImplementationQueueReason.
+func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID string, tasks []*types.SpecTask) {
+	if projectID == "" {
+		return
+	}
+
+	// Fast path: only do the extra loads if something is actually queued.
+	hasQueued := false
+	for _, t := range tasks {
+		if t.Status == types.TaskStatusQueuedSpecGeneration || t.Status == types.TaskStatusQueuedImplementation {
+			hasQueued = true
+			break
+		}
+	}
+	if !hasQueued {
+		return
+	}
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to load project for queue reason")
+		return
+	}
+	// Load the full project task list with dependencies: it is both the WIP-count
+	// basis and the source of each task's DependsOn (the incoming slice may not
+	// have dependencies loaded).
+	projectTasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID, WithDependsOn: true})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list tasks for queue reason")
+		return
+	}
+	depsByID := make(map[string][]types.SpecTask, len(projectTasks))
+	for _, t := range projectTasks {
+		depsByID[t.ID] = t.DependsOn
+	}
+
+	for _, t := range tasks {
+		switch t.Status {
+		case types.TaskStatusQueuedSpecGeneration:
+			probe := *t
+			probe.DependsOn = depsByID[t.ID]
+			t.QueueReason = services.PlanningQueueReason(project, projectTasks, &probe)
+		case types.TaskStatusQueuedImplementation:
+			probe := *t
+			probe.DependsOn = depsByID[t.ID]
+			t.QueueReason = services.ImplementationQueueReason(projectTasks, &probe)
+		}
+	}
+}
+
 // validateAssigneeIsOrgMember returns nil if assigneeID is empty (unassigned is valid)
 // or if the assignee is a member of the given organization. Returns the underlying
 // store error otherwise — callers are responsible for logging context (task_id /
@@ -180,6 +235,10 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Surface why a queued task hasn't started yet. getTask does not run the
+	// listTasks enrichment, so compute it explicitly here for the detail page.
+	s.populateQueueReasons(ctx, task.ProjectID, []*types.SpecTask{task})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -289,6 +348,10 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Surface why any queued task hasn't started yet (WIP capacity / dependency).
+	// Recomputed each read so it clears as the queue drains.
+	s.populateQueueReasons(ctx, projectID, tasks)
 
 	// Populate SessionUpdatedAt and AgentWorkState for agent activity detection
 	// Collect all session IDs and batch query for efficiency
