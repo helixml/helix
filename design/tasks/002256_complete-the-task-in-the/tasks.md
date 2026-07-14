@@ -11,13 +11,13 @@
 - [x] Populate `QueueReason` for queued-state tasks in `getTask` (reuse `populateQueueReasons` with a single-task slice)
 
 ## Frontend
-- [ ] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
+- [~] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
 - [ ] Detail banner: render `<Alert severity="info">{task.queue_reason}</Alert>` in `SpecTaskDetailContent.tsx` when status is queued and `queue_reason` is set
 - [ ] Kanban card: show `queue_reason` compactly (tooltip on queued indicator, or short inline caption) in `TaskCard.tsx`
 
 ## Tests
-- [ ] Table-driven Go unit tests for `planningQueueReason` (planning-full, review-full, dependency-blocked, not-blocked) — extend `spec_task_orchestrator_test.go`
-- [ ] Test that the corrected formula allows planning up to `planningLimit` with an empty Review column
+- [x] Table-driven Go unit tests for `PlanningQueueReason` (planning-full, review-full, dependency-blocked, not-blocked) — extend `spec_task_orchestrator_test.go`
+- [x] Test that the corrected formula allows planning up to `planningLimit` with an empty Review column (regression case in table test + handler tests)
 - [ ] `go build ./...` passes
 - [ ] `cd frontend && yarn build` passes
 
