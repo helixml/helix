@@ -63,6 +63,7 @@ export interface ApiBotDTO {
    * context across triggers (e.g. Slack). Defaults to false.
    */
   preserve_context?: boolean;
+  project_ids?: string[];
   tools?: string[];
   updated_at?: string;
 }
@@ -378,6 +379,7 @@ export interface ApiUpdateBotRequest {
   identity?: Record<string, string>;
   name?: string;
   preserve_context?: boolean;
+  project_ids?: string[];
   tools?: string[];
 }
 

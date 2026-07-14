@@ -62,6 +62,10 @@ type Bot struct {
 	Name    string
 	Content string
 	Tools   []tool.Name
+	// ProjectIDs is the explicit allowlist of Helix projects this Bot may
+	// target through cross-project tools. The Bot's own runtime project is
+	// always allowed and remains the default when a tool omits project_id.
+	ProjectIDs []string
 	// PreserveContext, when true, tells the runtime spawner NOT to wipe
 	// the Bot's chat session before each re-activation. The default
 	// (false) keeps the existing behaviour: every trigger starts on a
@@ -131,6 +135,12 @@ func (b Bot) WithContent(content string) Bot {
 // WithTools returns a copy of the Bot with Tools replaced.
 func (b Bot) WithTools(tools []tool.Name) Bot {
 	b.Tools = tools
+	return b
+}
+
+// WithProjectIDs returns a copy of the Bot with its project allowlist replaced.
+func (b Bot) WithProjectIDs(projectIDs []string) Bot {
+	b.ProjectIDs = projectIDs
 	return b
 }
 

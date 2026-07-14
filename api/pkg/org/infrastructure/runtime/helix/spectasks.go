@@ -93,6 +93,24 @@ func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID o
 		}
 		return state.ProjectID, state.HiringUserID, nil
 	}
+	// Passing the Bot's own project explicitly is equivalent to omitting it.
+	// Every other project must be present in the Bot's persisted allowlist.
+	if requestedProjectID != state.ProjectID {
+		bot, getErr := s.orgStore.Bots.Get(ctx, orgID, workerID)
+		if getErr != nil {
+			return "", "", fmt.Errorf("get worker project access: %w", getErr)
+		}
+		allowed := false
+		for _, projectID := range bot.ProjectIDs {
+			if projectID == requestedProjectID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", "", fmt.Errorf("bot %s does not have access to project %s", workerID, requestedProjectID)
+		}
+	}
 	project, err := s.tasks.GetProject(ctx, requestedProjectID)
 	if err != nil {
 		return "", "", fmt.Errorf("get project: %w", err)

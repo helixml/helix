@@ -41,6 +41,7 @@ type BotDTO struct {
 	Name           string   `json:"name,omitempty"`
 	Content        string   `json:"content"`
 	Tools          []string `json:"tools,omitempty"`
+	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
 	// PreserveContext, when true, stops the runtime from wiping this
@@ -130,6 +131,7 @@ type UpdateBotRequest struct {
 	Name            *string  `json:"name,omitempty"`
 	Content         *string  `json:"content,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
+	ProjectIDs      []string `json:"project_ids,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
 	// Identity is the per-channel handle map for a human node (slack/github/
 	// email/…). When present it replaces the stored map; absent leaves it

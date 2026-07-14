@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/runtime"
@@ -205,6 +206,13 @@ func TestSpecTasks_CrossProjectSameOrgAllowed(t *testing.T) {
 	wrap := newSpecTasksTestStore(t)
 	wid := orgchart.BotID("w-pm")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewBot: %v", err)
+	}
+	if err := wrap.Store.Bots.Create(context.Background(), bot.WithProjectIDs([]string{"prj_other"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
 
 	fs := newFakeSpecTaskStore()
 	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
@@ -222,6 +230,33 @@ func TestSpecTasks_CrossProjectSameOrgAllowed(t *testing.T) {
 	}
 }
 
+func TestSpecTasks_CrossProjectWithoutAccessRejected(t *testing.T) {
+	t.Parallel()
+	wrap := newSpecTasksTestStore(t)
+	wid := orgchart.BotID("w-pm")
+	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewBot: %v", err)
+	}
+	if err := wrap.Store.Bots.Create(context.Background(), bot); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+
+	fs := newFakeSpecTaskStore()
+	fs.projects["prj_other"] = &types.Project{ID: "prj_other", OrganizationID: "org-test"}
+	st, err := NewSpecTasks(&wrap.Store, fs, &fakeSpecTaskWorkflow{})
+	if err != nil {
+		t.Fatalf("NewSpecTasks: %v", err)
+	}
+	if _, err := st.Create(context.Background(), "org-test", wid, "prj_other", runtime.CreateSpecTaskInput{Name: "x", Description: "y"}); err == nil {
+		t.Fatal("expected project access rejection")
+	}
+	if len(fs.created) != 0 {
+		t.Fatalf("created %d tasks after access rejection", len(fs.created))
+	}
+}
+
 // TestSpecTasks_CrossOrgProjectRejected pins the hard cross-org block: a
 // Worker cannot target a project that belongs to another org, even with a
 // valid project_id.
@@ -230,6 +265,13 @@ func TestSpecTasks_CrossOrgProjectRejected(t *testing.T) {
 	wrap := newSpecTasksTestStore(t)
 	wid := orgchart.BotID("w-pm")
 	saveAllPointers(t, &wrap.Store, "org-test", wid, "prj_mine", "app_x", "repo_y", "ses_z")
+	bot, err := orgchart.NewBot(wid, "# PM", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatalf("NewBot: %v", err)
+	}
+	if err := wrap.Store.Bots.Create(context.Background(), bot.WithProjectIDs([]string{"prj_foreign"})); err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
 
 	fs := newFakeSpecTaskStore()
 	// Project exists but belongs to a DIFFERENT org.

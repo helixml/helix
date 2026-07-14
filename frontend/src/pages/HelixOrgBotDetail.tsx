@@ -65,6 +65,7 @@ import useApi from '../hooks/useApi'
 import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import { useListProjects } from '../services/projectService'
 import { deriveDisplaySettings } from '../services/externalAgentDisplay'
 import { useStreaming } from '../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../types'
@@ -121,6 +122,7 @@ const HelixOrgBotDetail: FC = () => {
 
   const bot = data?.bot
   const projectID = data?.project_id
+  const { data: projects = [] } = useListProjects(bot?.organization_id, { enabled: !!bot?.organization_id })
   const agentAppID = data?.agent_app_id
   const agentApp = apps.apps?.find((app) => app.id === agentAppID)
   const assistant = agentApp?.config.helix.assistants?.[0]
@@ -141,6 +143,7 @@ const HelixOrgBotDetail: FC = () => {
   const [name, setName] = useState('')
   const [content, setContent] = useState('')
   const [tools, setTools] = useState<string[]>([])
+  const [projectIDs, setProjectIDs] = useState<string[]>([])
   const [preserveContext, setPreserveContext] = useState(false)
   const [runtimeConfig, setRuntimeConfig] = useState<BotRuntimeValue>({
     runtime: '',
@@ -153,8 +156,9 @@ const HelixOrgBotDetail: FC = () => {
     setName(bot?.name ?? '')
     setContent(bot?.content ?? '')
     setTools(bot?.tools ?? [])
+    setProjectIDs(Array.from(new Set([...(bot?.project_ids ?? []), ...(projectID ? [projectID] : [])])))
     setPreserveContext(bot?.preserve_context ?? false)
-  }, [bot?.name, bot?.content, bot?.tools, bot?.preserve_context])
+  }, [bot?.name, bot?.content, bot?.tools, bot?.project_ids, bot?.preserve_context, projectID])
 
   useEffect(() => {
     setRuntimeConfig({
@@ -195,6 +199,8 @@ const HelixOrgBotDetail: FC = () => {
     if ((bot.name ?? '') !== name) return true
     if ((bot.content ?? '') !== content) return true
     if ((bot.tools ?? []).join(',') !== tools.join(',')) return true
+    const savedProjectIDs = Array.from(new Set([...(bot.project_ids ?? []), ...(projectID ? [projectID] : [])])).sort()
+    if (savedProjectIDs.join(',') !== [...projectIDs].sort().join(',')) return true
     if ((bot.preserve_context ?? false) !== preserveContext) return true
     if ((assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime) return true
     if ((assistant?.code_agent_credential_type ?? 'api_key') !== runtimeConfig.credentials) return true
@@ -202,14 +208,14 @@ const HelixOrgBotDetail: FC = () => {
     if ((assistant?.model ?? '') !== runtimeConfig.model) return true
     if ((assistant?.reasoning_effort ?? 'none') !== (runtimeConfig.reasoning_effort ?? 'none')) return true
     return false
-  }, [bot, name, content, tools, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model, runtimeConfig.reasoning_effort])
+  }, [bot, name, content, tools, projectIDs, projectID, preserveContext, assistant?.code_agent_runtime, assistant?.code_agent_credential_type, assistant?.provider, assistant?.model, assistant?.reasoning_effort, runtimeConfig.runtime, runtimeConfig.credentials, runtimeConfig.provider, runtimeConfig.model, runtimeConfig.reasoning_effort])
 
   const handleSave = async () => {
     if (!botId) return
     const runtimeChanged =
       (assistant?.code_agent_runtime ?? '') !== runtimeConfig.runtime
     try {
-      await updateBot.mutateAsync({ id: botId, name, content, tools, preserve_context: preserveContext })
+      await updateBot.mutateAsync({ id: botId, name, content, tools, project_ids: projectIDs, preserve_context: preserveContext })
       if (agentAppID && agentApp && assistant) {
         const updatedAssistant = {
           ...assistant,
@@ -651,6 +657,62 @@ const HelixOrgBotDetail: FC = () => {
                     maxHeight={600}
                     autoHeight={true}
                     theme="helix-dark"
+                  />
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Project access</Typography>
+                  <Autocomplete
+                    multiple
+                    disableCloseOnSelect
+                    options={projects}
+                    value={projects.filter((project) => !!project.id && projectIDs.includes(project.id))}
+                    onChange={(_e, value) => {
+                      const selected = value.map((project) => project.id).filter((id): id is string => !!id)
+                      setProjectIDs(Array.from(new Set([...(projectID ? [projectID] : []), ...selected])))
+                    }}
+                    getOptionDisabled={(project) => project.id === projectID}
+                    getOptionLabel={(project) => project.name || project.id || 'Unnamed project'}
+                    isOptionEqualToValue={(a, b) => a.id === b.id}
+                    renderOption={(props, option, { selected }) => {
+                      const { key, ...liProps } = props as typeof props & { key?: Key }
+                      return (
+                        <li key={key ?? option.id} {...liProps}>
+                          <Checkbox
+                            icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                            checkedIcon={<CheckBoxIcon fontSize="small" />}
+                            sx={{ mr: 1 }}
+                            checked={selected}
+                          />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2">{option.name || option.id}</Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                              {option.id}{option.id === projectID ? ' · own project (default)' : ''}
+                            </Typography>
+                          </Box>
+                        </li>
+                      )
+                    }}
+                    renderTags={(value, getTagProps) => value.map((option, index) => {
+                      const { key, onDelete, ...tagProps } = getTagProps({ index })
+                      const ownProject = option.id === projectID
+                      return (
+                        <Chip
+                          key={key ?? option.id}
+                          {...tagProps}
+                          onDelete={ownProject ? undefined : onDelete}
+                          label={`${option.name || option.id}${ownProject ? ' (default)' : ''}`}
+                          size="small"
+                        />
+                      )
+                    })}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder="Select projects"
+                        helperText="The bot's own project is always allowed and is used when a tool omits project_id. Other projects must be selected here."
+                      />
+                    )}
                   />
                 </Box>
 
