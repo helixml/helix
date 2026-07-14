@@ -90,6 +90,18 @@ func TestSessionUsesAgentRuntime_RejectsStaleAgentName(t *testing.T) {
 	assert.True(t, sessionUsesAgentRuntime(session, types.CodeAgentRuntimeCodexCLI))
 }
 
+func TestSessionUsesAgentRuntime_AcceptsNativeAgentName(t *testing.T) {
+	session := newTestParentSession("user_a")
+	session.Metadata.CodeAgentRuntime = types.CodeAgentRuntimeZedAgent
+	session.Metadata.ZedAgentName = "zed-agent"
+
+	assert.True(t, sessionUsesAgentRuntime(session, types.CodeAgentRuntimeZedAgent))
+
+	session.Metadata.ZedAgentName = ""
+	assert.True(t, sessionUsesAgentRuntime(session, types.CodeAgentRuntimeZedAgent),
+		"legacy native sessions must keep their existing thread")
+}
+
 func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {
 	srv, mem := newForkTestServer(t)
 	ctx := context.Background()
