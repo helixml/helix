@@ -37,6 +37,7 @@ import {
   Unarchive as UnarchiveIcon,
   RemoveCircleOutline as RemoveFromQueueIcon,
   Undo as UndoIcon,
+  Schedule as ScheduleIcon,
 } from "@mui/icons-material";
 import { EllipsisVertical, Wand2, UserCircle2 } from "lucide-react";
 import {
@@ -151,6 +152,7 @@ export interface SpecTaskWithExtras {
   // Sandbox state — populated by the listTasks backend handler, avoids per-card session polling
   sandbox_state?: string; // "absent" | "running" | "starting"
   sandbox_status_message?: string; // Transient startup message
+  queue_reason?: string; // Why a queued task hasn't started yet (WIP/dependency); recomputed each read
   // Status tracking
   status_updated_at?: string;
   // Task number for display
@@ -1151,25 +1153,59 @@ function TaskCardInner({
           </Box>
         )}
 
-        {/* Queued state: waiting for orchestrator to create session */}
+        {/* Queued state: waiting for orchestrator to create session.
+            If the orchestrator is deliberately holding the task behind a WIP
+            limit or dependency, task.queue_reason explains why — show it
+            compactly (tooltip) instead of a misleading "Starting desktop..."
+            spinner so the card doesn't look dead. */}
         {isQueued && !task.planning_session_id && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mt: 1,
-              px: 0.5,
-            }}
-          >
-            <CircularProgress size={10} thickness={5} />
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+          task.queue_reason ? (
+            <Tooltip title={task.queue_reason}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  mt: 1,
+                  px: 0.5,
+                }}
+              >
+                <ScheduleIcon
+                  sx={{ fontSize: 12, color: "text.secondary" }}
+                />
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: "0.7rem",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {task.queue_reason}
+                </Typography>
+              </Box>
+            </Tooltip>
+          ) : (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                mt: 1,
+                px: 0.5,
+              }}
             >
-              Starting desktop...
-            </Typography>
-          </Box>
+              <CircularProgress size={10} thickness={5} />
+              <Typography
+                variant="caption"
+                sx={{ color: "text.secondary", fontSize: "0.7rem" }}
+              >
+                Starting desktop...
+              </Typography>
+            </Box>
+          )
         )}
 
         {/* Live screenshot for active sessions - click opens desktop viewer.
