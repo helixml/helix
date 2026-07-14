@@ -21,6 +21,7 @@ import type { TypesProject } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import HelixOrgOverviewCard from './HelixOrgOverviewCard'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
+import SpecTaskStatusBadge, { formatSpecTaskStatus } from './SpecTaskStatusBadge'
 
 type BotDetailDrawerProps = {
   botId?: string
@@ -28,38 +29,6 @@ type BotDetailDrawerProps = {
   project?: TypesProject
   tasks: SpecTask[]
   onClose: () => void
-}
-
-const statusLabel = (status?: string): string => {
-  if (!status) return 'Unknown'
-  return status
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-const statusTone = (status?: string): 'default' | 'primary' | 'warning' | 'success' | 'error' => {
-  switch (status) {
-    case 'done':
-    case 'completed':
-      return 'success'
-    case 'implementation_review':
-    case 'spec_review':
-    case 'spec_revision':
-      return 'warning'
-    case 'implementation_failed':
-    case 'spec_failed':
-      return 'error'
-    case 'implementation':
-    case 'implementing':
-    case 'implementation_queued':
-    case 'queued_implementation':
-    case 'spec_generation':
-    case 'queued_spec_generation':
-      return 'primary'
-    default:
-      return 'default'
-  }
 }
 
 const BotDetailDrawer: FC<BotDetailDrawerProps> = ({ botId, bot, project, tasks, onClose }) => {
@@ -73,7 +42,7 @@ const BotDetailDrawer: FC<BotDetailDrawerProps> = ({ botId, bot, project, tasks,
 
   const statusOptions = useMemo(
     () => Array.from(new Set(tasks.map((task) => String(task.status ?? 'unknown'))))
-      .sort((a, b) => statusLabel(a).localeCompare(statusLabel(b))),
+      .sort((a, b) => formatSpecTaskStatus(a).localeCompare(formatSpecTaskStatus(b))),
     [tasks],
   )
   const filteredTasks = useMemo(
@@ -168,7 +137,7 @@ const BotDetailDrawer: FC<BotDetailDrawerProps> = ({ botId, bot, project, tasks,
                   onChange={(event) => setStatusFilter(event.target.value)}
                 >
                   <MenuItem value="all">All statuses</MenuItem>
-                  {statusOptions.map((status) => <MenuItem key={status} value={status}>{statusLabel(status)}</MenuItem>)}
+                  {statusOptions.map((status) => <MenuItem key={status} value={status}>{formatSpecTaskStatus(status)}</MenuItem>)}
                 </Select>
               </FormControl>
             </Stack>
@@ -220,7 +189,7 @@ const BotDetailDrawer: FC<BotDetailDrawerProps> = ({ botId, bot, project, tasks,
                             {task.task_number ? `#${task.task_number}` : task.id}
                           </Typography>
                         </Box>
-                        <Chip label={statusLabel(status)} color={statusTone(status)} size="small" sx={{ maxWidth: 150 }} />
+                        <SpecTaskStatusBadge status={status} />
                         <ArrowForwardRoundedIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
                       </Stack>
                     </Box>
