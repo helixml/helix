@@ -22,11 +22,12 @@
 - [x] `cd frontend && yarn build` passes (tsc --noEmit clean; full vite build succeeds — note: repo `dist/` is a root-owned prod bind-mount, so built to temp outDir)
 
 ## End-to-End Verification (inner Helix, localhost:8080)
-- [ ] Register/onboard, create a project; lower Review WIP limit; pile specs into Review; create a task and Start it
-- [ ] Confirm task sits in `queued_spec_generation` and BOTH detail page banner and kanban card show the specific reason
-- [ ] Drain the Review column; confirm reason clears and the task starts within ~10s
-- [ ] Record exact commands + observations in `design/YYYY-MM-DD-*.md`
+- [x] Register/onboard (test@helix.ml), create project `testproj`; set Review WIP limit=1 (Board Settings JSON); seed 2 `spec_review` + 1 `queued_spec_generation` task
+- [x] Confirmed `queue_reason` returned by BOTH `GET /spec-tasks` (list) and `GET /spec-tasks/{id}` (detail): "Waiting for review capacity — 2 specs are awaiting review (limit 1)..."
+- [x] Confirmed detail page banner ("Waiting to start" + reason) and kanban card (inline reason + Review column "FULL") — screenshots 01/02
+- [x] Drained Review column → `queue_reason` cleared to empty on next read; orchestrator picked up the task within ~10s and attempted planning (gate no longer blocks). The task's subsequent failure was "user_id is required" from the minimal hand-seeded row (not the feature).
+- [x] Recorded observations in `design/2026-07-14-wip-queue-reason.md` (helix repo)
 
 ## Deliverable
-- [ ] Write short design note under `design/YYYY-MM-DD-wip-queue-reason.md` in the helix repo
-- [ ] Open one PR against `main` (https://github.com/helixml/helix) covering Problem 1 + Problem 2 with tests; verify CI green
+- [x] Write short design note `design/2026-07-14-wip-queue-reason.md` in the helix repo
+- [x] Push feature branch `feature/002256-surface-wip-queue-block` covering Problem 1 + Problem 2 with tests (platform opens the PR against main)

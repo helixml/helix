@@ -137,6 +137,28 @@ indicator to avoid growing card height.
   column's limit is independent and a full Review column can't silently starve
   planning (and now it's visible anyway via Problem 1).
 
+## Implementation Notes (as-built)
+
+- **`swag` not on PATH** — `./stack update_openapi` needs `swag`, installed to
+  `$(go env GOPATH)/bin` but not on PATH. Prefix with
+  `export PATH="$PATH:$(go env GOPATH)/bin"` before running.
+- **`yarn build` and the root-owned `dist/`** — the repo `frontend/dist` is a
+  root-owned prod bind-mount, so `vite build` fails at the copy-to-dist step
+  (`EACCES mkdir dist/external-libs`) even though compilation succeeds. Validate
+  with `npx tsc --noEmit` (clean) and `npx vite build --outDir /tmp/fe-dist` (green).
+  Do NOT `rm -rf dist`. Dev UI runs via Vite HMR (port 8081), which doesn't need dist.
+- **Air did not hot-reload on file save** in this sandbox (inotify across the bind
+  mount didn't fire). `docker compose -f docker-compose.dev.yaml restart api`
+  forces Air to rebuild from the mounted source — needed to pick up Go changes.
+- **`SpecTaskWithExtras` is hand-maintained** (not generated) — new DTO fields
+  consumed by `TaskCard.tsx` must be added to that interface too.
+- **Kanban board spreads `...task`** from the list API into `BoardTask`, so
+  `queue_reason` flows through automatically — no manual mapping needed.
+- **Existing tests encoded the bug**: `TestHandleBacklog_ReservesReviewCapacity`
+  and `TestHandleQueuedSpecGeneration_ReservesFutureReviewSlot` asserted the old
+  summed-reservation behaviour; both were rewritten for the independent-limit
+  semantics.
+
 ## Testing Strategy
 
 - **Go unit tests** (extend `spec_task_orchestrator_test.go`): table-driven over
