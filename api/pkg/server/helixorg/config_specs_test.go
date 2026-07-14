@@ -80,6 +80,40 @@ func TestRegisterHelixOrgConfigSpecs_RedactsPostmarkToken(t *testing.T) {
 	}
 }
 
+func TestDefaultAgentConfigPrefersAtomicSettingAndReadsLegacy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+
+	if err := reg.Set(ctx, "org-test", "worker.runtime", `"zed_agent"`); err != nil {
+		t.Fatalf("set legacy runtime: %v", err)
+	}
+	if err := reg.Set(ctx, "org-test", "worker.provider", `"anthropic"`); err != nil {
+		t.Fatalf("set legacy provider: %v", err)
+	}
+	legacy, err := reg.GetDefaultAgentConfig(ctx, "org-test")
+	if err != nil {
+		t.Fatalf("legacy config: %v", err)
+	}
+	if legacy.Runtime != "zed_agent" || legacy.Provider != "anthropic" {
+		t.Fatalf("legacy config = %+v", legacy)
+	}
+
+	const raw = `{"runtime":"codex_cli","credentials":"subscription","provider":"","model":"gpt-5.6"}`
+	if err := reg.Set(ctx, "org-test", helixorgconfig.DefaultAgentConfigKey, raw); err != nil {
+		t.Fatalf("set default agent: %v", err)
+	}
+	agent, err := reg.GetDefaultAgentConfig(ctx, "org-test")
+	if err != nil {
+		t.Fatalf("default agent config: %v", err)
+	}
+	if agent.Runtime != "codex_cli" || agent.Credentials != "subscription" || agent.Model != "gpt-5.6" {
+		t.Fatalf("default agent config = %+v", agent)
+	}
+}
+
 func stringSliceContains(s []string, want string) bool {
 	for _, v := range s {
 		if v == want {

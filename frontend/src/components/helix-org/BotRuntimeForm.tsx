@@ -1,5 +1,5 @@
-// BotRuntimeForm is the controlled, presentational runtime/credentials/model
-// picker for a Bot. It mirrors the per-agent picker on the Agent settings page
+// AgentConfigForm is the controlled, presentational agent configuration picker.
+// It mirrors the per-agent picker on the Agent settings page
 // (AppSettings) — same style and terms — but is state-agnostic: the parent
 // owns the value and decides how to persist it (auto-save to an org's config
 // on the settings page, or deferred-until-create in the new-org dialog).
@@ -23,7 +23,7 @@ import { CODEX_SUBSCRIPTION_MODELS, DEFAULT_CODEX_SUBSCRIPTION_MODEL } from '../
 import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import { useHelixModelsForProvider, useHelixProviders } from '../../services/helixOrgService'
 
-export interface BotRuntimeValue {
+export interface AgentConfigValue {
   runtime: string
   credentials: string
   provider: string
@@ -37,9 +37,9 @@ const RECOMMENDED_MODELS = [
   'claude-sonnet-4-5-20250929',
 ]
 
-export const BotRuntimeForm: FC<{
-  value: BotRuntimeValue
-  onChange: (patch: Partial<BotRuntimeValue>) => void
+export const AgentConfigForm: FC<{
+  value: AgentConfigValue
+  onChange: (patch: Partial<AgentConfigValue>) => void
   showReasoningEffort?: boolean
 }> = ({ value, onChange, showReasoningEffort = false }) => {
   const { data: providers } = useHelixProviders()
@@ -68,7 +68,7 @@ export const BotRuntimeForm: FC<{
   }
 
   const onRuntime = (v: string) => {
-    const patch: Partial<BotRuntimeValue> = { runtime: v }
+    const patch: Partial<AgentConfigValue> = { runtime: v }
     if (v === 'codex_cli' && !value.model) {
       patch.model = DEFAULT_CODEX_SUBSCRIPTION_MODEL
     }
@@ -192,7 +192,7 @@ export const BotRuntimeForm: FC<{
             </Typography>
             <AdvancedModelPicker
               recommendedModels={RECOMMENDED_MODELS}
-              hint="Select the model your Bots use by default"
+              hint="Select the default agent model"
               selectedProvider={value.provider}
               selectedModelId={value.model}
               onSelectModel={(prov, modelId) => onChange({ provider: prov, model: modelId })}
@@ -241,4 +241,4 @@ export const BotRuntimeForm: FC<{
   )
 }
 
-export default BotRuntimeForm
+export default AgentConfigForm

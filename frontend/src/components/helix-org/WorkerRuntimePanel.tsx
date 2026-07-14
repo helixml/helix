@@ -1,12 +1,10 @@
-// WorkerRuntimePanel is the connected "Default Bot Runtime" config on the org
-// General settings page. It seeds BotRuntimeForm from the org's worker.* config
-// registry keys and auto-saves each change back. Org context is resolved from
-// router.params.org_id by the underlying hooks.
+// DefaultAgentConfigPanel edits the org's default agent configuration. New orgs use
+// the atomic agent.default object; legacy worker.* values remain readable.
 
 import { FC, useEffect, useMemo, useState } from 'react'
 import Paper from '@mui/material/Paper'
 
-import BotRuntimeForm, { BotRuntimeValue } from './BotRuntimeForm'
+import AgentConfigForm, { AgentConfigValue } from './BotRuntimeForm'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
@@ -25,14 +23,16 @@ const decodeStringValue = (v: string): string => {
   }
 }
 
-const LABELS: Record<string, string> = {
-  runtime: 'Runtime',
-  credentials: 'Credentials',
-  provider: 'Provider',
-  model: 'Model',
+const decodeAgentConfig = (v: string): AgentConfigValue | undefined => {
+  if (!v) return undefined
+  try {
+    return JSON.parse(v) as AgentConfigValue
+  } catch {
+    return undefined
+  }
 }
 
-const WorkerRuntimePanel: FC = () => {
+const DefaultAgentConfigPanel: FC = () => {
   const { data, isLoading } = useHelixOrgSettings()
   const setMut = useSetHelixOrgSetting()
   const snackbar = useSnackbar()
@@ -43,14 +43,14 @@ const WorkerRuntimePanel: FC = () => {
     return m
   }, [data])
 
-  const initial: BotRuntimeValue = {
+  const initial: AgentConfigValue = decodeAgentConfig(specByKey.get('agent.default')?.value ?? '') ?? {
     runtime: decodeStringValue(specByKey.get('worker.runtime')?.value ?? '') || 'claude_code',
     credentials: decodeStringValue(specByKey.get('worker.credentials')?.value ?? '') || 'subscription',
     provider: decodeStringValue(specByKey.get('worker.provider')?.value ?? ''),
     model: decodeStringValue(specByKey.get('worker.model')?.value ?? ''),
   }
 
-  const [value, setValue] = useState<BotRuntimeValue>(initial)
+  const [value, setValue] = useState<AgentConfigValue>(initial)
 
   // Re-seed local state when the loaded data lands or refreshes.
   useEffect(() => {
@@ -59,21 +59,20 @@ const WorkerRuntimePanel: FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
-  const handlePatch = (patch: Partial<BotRuntimeValue>) => {
-    setValue((v) => ({ ...v, ...patch }))
-    for (const [k, val] of Object.entries(patch)) {
-      setMut
-        .mutateAsync({ key: `worker.${k}`, value: JSON.stringify(val) })
-        .then(() => snackbar.success(`${LABELS[k] ?? k} saved`))
-        .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
-    }
+  const handlePatch = (patch: Partial<AgentConfigValue>) => {
+    const next = { ...value, ...patch }
+    setValue(next)
+    setMut
+      .mutateAsync({ key: 'agent.default', value: JSON.stringify(next) })
+      .then(() => snackbar.success('Default agent configuration saved'))
+      .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
   }
 
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
-      {isLoading ? <LoadingSpinner /> : <BotRuntimeForm value={value} onChange={handlePatch} />}
+      {isLoading ? <LoadingSpinner /> : <AgentConfigForm value={value} onChange={handlePatch} />}
     </Paper>
   )
 }
 
-export default WorkerRuntimePanel
+export default DefaultAgentConfigPanel

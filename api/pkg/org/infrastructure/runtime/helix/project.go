@@ -12,7 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// repoEnsureMu serialises per-Worker repo creation across all activations. Two
+// projectEnsureMu serialises project provisioning; repoEnsureMu serialises
+// per-Worker repo creation. Two
 // activations for the same bot otherwise both observe DefaultRepoID=="" and each
 // create+attach a same-named repo — duplicates the desktop workspace setup then
 // clones into one path and fails on. A single global lock is fine: activation is
@@ -26,7 +27,11 @@ import (
 // the create fails cleanly and the loser re-fetches — that removes this lock
 // entirely and holds across replicas. Prod is single-replica today, so the lock
 // suffices for now.
-var repoEnsureMu sync.Mutex
+var (
+	// ponytail: global lock; use per-Bot or database locks if provisioning throughput matters.
+	projectEnsureMu sync.Mutex
+	repoEnsureMu    sync.Mutex
+)
 
 // ErrProjectNotFound is the sentinel a ProjectService impl must return
 // when GetProject is called against a project that no longer exists on
@@ -193,6 +198,9 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if a.Store == nil {
 		return "", "", "", errors.New("worker project applier: Store is nil")
 	}
+	projectEnsureMu.Lock()
+	defer projectEnsureMu.Unlock()
+
 	bot, err := a.Store.Bots.Get(ctx, orgID, workerID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("get bot: %w", err)

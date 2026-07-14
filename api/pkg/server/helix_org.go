@@ -1125,14 +1125,14 @@ func (d *dynamicProjectApplier) Ensure(ctx context.Context, orgID string, worker
 // buildHelixOrgProjectApplier constructs the WorkerProject that
 // both the chat bridge (owner-chat) and the spawner (AI Worker
 // activations) drive. Single source of truth for the embedded
-// SaaS's "Worker defaults" — `worker.runtime` from the config
-// registry (default `claude_code`), subscription credentials, and
+// SaaS's default agent configuration from the config registry,
+// subscription credentials, and
 // our MCP-gateway URL so each Worker's agent app phones home for
 // helix-org tools via Helix's auth-gated proxy rather than a
 // separate tunnel.
 //
 // Called per Ensure by dynamicProjectApplier so registry edits
-// (worker.runtime/credentials/provider/model, helix.url/api_key)
+// (agent.default and legacy worker.* keys, helix.url/api_key)
 // take effect immediately. The struct it returns is cheap to build
 // and short-lived — one apply call, then discarded.
 //
@@ -1198,7 +1198,8 @@ func buildHelixOrgProjectApplier(
 	}, apiKey, nil
 }
 
-// resolveWorkerAgentConfig reads the four `worker.*` knobs and normalises
+// resolveWorkerAgentConfig reads the atomic default agent config (or legacy
+// worker.* keys) and normalises
 // them into the (runtime, credentials, provider, model) tuple that
 // matches Helix's per-agent UI:
 //
@@ -1210,11 +1211,12 @@ func buildHelixOrgProjectApplier(
 // only mode that actually works for that runtime, mirroring Helix's
 // per-agent validator.
 func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregistry.Registry) (runtime, credentials, provider, model string) {
-	runtime, _ = cfg.GetString(ctx, orgID, "worker.runtime")
+	agent, _ := cfg.GetDefaultAgentConfig(ctx, orgID)
+	runtime = agent.Runtime
 	if runtime == "" {
 		runtime = "claude_code"
 	}
-	credentials, _ = cfg.GetString(ctx, orgID, "worker.credentials")
+	credentials = agent.Credentials
 	if credentials == "" {
 		credentials = "subscription"
 	}
@@ -1222,10 +1224,10 @@ func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregi
 		credentials = "api_key"
 	}
 	if credentials == "api_key" {
-		provider, _ = cfg.GetString(ctx, orgID, "worker.provider")
-		model, _ = cfg.GetString(ctx, orgID, "worker.model")
+		provider = agent.Provider
+		model = agent.Model
 	} else if runtime == "codex_cli" {
-		model, _ = cfg.GetString(ctx, orgID, "worker.model")
+		model = agent.Model
 	}
 	return runtime, credentials, provider, model
 }

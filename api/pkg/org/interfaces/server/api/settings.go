@@ -10,14 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// workerProvisioningKeys are the org-default "Default Bot Runtime" settings.
-// Changing any of them activates bots whose initial provisioning was deferred.
-// Once a bot has an app, its app config owns runtime/model selection.
-var workerProvisioningKeys = map[string]bool{
-	"worker.runtime":     true,
-	"worker.credentials": true,
-	"worker.provider":    true,
-	"worker.model":       true,
+// agentProvisioningKeys activate bots whose initial provisioning was deferred.
+// worker.* remains supported for clients predating the atomic agent.default key.
+var agentProvisioningKeys = map[string]bool{
+	configregistry.DefaultAgentConfigKey: true,
+	"worker.runtime":                     true,
+	"worker.credentials":                 true,
+	"worker.provider":                    true,
+	"worker.model":                       true,
 }
 
 // ---- Settings -----------------------------------------------------------
@@ -105,7 +105,7 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	// A complete initial configuration activates bots whose provisioning was
 	// deferred. Existing apps remain independently configurable.
-	if workerProvisioningKeys[key] {
+	if agentProvisioningKeys[key] {
 		a.activateDeferredBotsAfterRuntimeChange(r.Context(), orgID)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -170,7 +170,7 @@ func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context,
 	}
 }
 
-// runtimeConfigComplete reports whether the org's Default Bot Runtime has
+// runtimeConfigComplete reports whether the org's default agent configuration has
 // every field a Bot needs to provision. It mirrors resolveWorkerAgentConfig's
 // coercion (server package): runtimes without subscription support are always
 // api_key and need a provider + model; claude_code and codex_cli default to
@@ -180,11 +180,15 @@ func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bo
 	if a.deps.Configs == nil {
 		return false
 	}
-	runtime, _ := a.deps.Configs.GetString(ctx, orgID, "worker.runtime")
+	cfg, err := a.deps.Configs.GetDefaultAgentConfig(ctx, orgID)
+	if err != nil {
+		return false
+	}
+	runtime := cfg.Runtime
 	if runtime == "" {
 		return false
 	}
-	credentials, _ := a.deps.Configs.GetString(ctx, orgID, "worker.credentials")
+	credentials := cfg.Credentials
 	if !runtimeSupportsSubscription(runtime) {
 		credentials = "api_key"
 	} else if credentials == "" {
@@ -193,9 +197,7 @@ func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bo
 	if credentials == "subscription" {
 		return true
 	}
-	provider, _ := a.deps.Configs.GetString(ctx, orgID, "worker.provider")
-	model, _ := a.deps.Configs.GetString(ctx, orgID, "worker.model")
-	return provider != "" && model != ""
+	return cfg.Provider != "" && cfg.Model != ""
 }
 
 func runtimeSupportsSubscription(runtime string) bool {

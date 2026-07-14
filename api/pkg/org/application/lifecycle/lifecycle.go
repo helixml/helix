@@ -147,7 +147,7 @@ type CreateParams struct {
 	// no runtime configured yet, so a Bot is never provisioned with the
 	// seed-time default (claude_code/subscription/no-model, which Zed renders
 	// as its built-in gpt). The deferred Bot is provisioned later, with the
-	// correct config, when the operator sets the Default Bot Runtime
+	// correct config, when the operator sets the default agent configuration
 	// (settings handler re-runs activation for provision-less bots).
 	DeferActivation bool
 }
