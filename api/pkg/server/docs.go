@@ -35266,6 +35266,10 @@ const docTemplate = `{
                     "description": "Public sharing",
                     "type": "boolean"
                 },
+                "queue_reason": {
+                    "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                    "type": "string"
+                },
                 "rebase_requested_at": {
                     "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
                     "type": "string"
@@ -36062,6 +36066,10 @@ const docTemplate = `{
                 "public_design_docs": {
                     "description": "Public sharing",
                     "type": "boolean"
+                },
+                "queue_reason": {
+                    "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                    "type": "string"
                 },
                 "rebase_requested_at": {
                     "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",

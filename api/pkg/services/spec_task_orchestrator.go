@@ -432,7 +432,7 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 				Msg("Skipping backlog task - planning column at WIP limit")
 			return nil
 		}
-		if planningCount+reviewCount >= reviewLimit {
+		if reviewCount >= reviewLimit {
 			log.Info().
 				Str("task_id", latestTask.ID).
 				Str("project_id", latestTask.ProjectID).
@@ -530,6 +530,77 @@ func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatu
 	return count
 }
 
+// dependencyQueueReason returns "" if the task's dependencies are all ready,
+// otherwise a human-readable reason naming the blocking dependency. projectTasks
+// is used only to resolve the blocking task's display name.
+func dependencyQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	ready, blockingID := areBacklogDependenciesReady(task.DependsOn)
+	if ready {
+		return ""
+	}
+	name := blockingID
+	for _, t := range projectTasks {
+		if t.ID == blockingID && t.Name != "" {
+			name = t.Name
+			break
+		}
+	}
+	if name == "" {
+		return "Waiting for a dependency task to finish."
+	}
+	return fmt.Sprintf("Waiting for dependency %q to finish.", name)
+}
+
+// PlanningQueueReason returns "" if the task could start planning (spec
+// generation) right now, otherwise a human-readable reason why it is being held
+// in queued_spec_generation. It is a pure function (no store access, no side
+// effects) so the orchestrator gate and the read handlers share ONE source of
+// truth for both the block decision and the message shown to the user.
+//
+// Semantics (each column limit is independent — see design note): a task is held
+// when planning is full (planningCount >= planningLimit) OR review is already at
+// its own limit (reviewCount >= reviewLimit). It is NOT gated on the sum of the
+// two columns, which previously made planningLimit dead.
+func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
+		return reason
+	}
+
+	planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+	planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
+	reviewCount := countTasksByStatus(projectTasks,
+		types.TaskStatusSpecReview,
+		types.TaskStatusSpecRevision,
+		types.TaskStatusSpecApproved,
+	)
+
+	if planningCount >= planningLimit {
+		return fmt.Sprintf("Waiting for planning capacity — %s already generating specs (limit %d).",
+			countPhrase(planningCount, "task"), planningLimit)
+	}
+	if reviewCount >= reviewLimit {
+		return fmt.Sprintf("Waiting for review capacity — %s awaiting review (limit %d). Approve or clear reviews in the Review column to start planning.",
+			countPhrase(reviewCount, "spec"), reviewLimit)
+	}
+	return ""
+}
+
+// ImplementationQueueReason returns "" if a queued_implementation task could
+// start now, otherwise the reason. The implementation-start transition has no
+// WIP gate of its own (the WIP reservation happens earlier, at backlog entry),
+// so the only block cause here is an unfinished dependency.
+func ImplementationQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	return dependencyQueueReason(projectTasks, task)
+}
+
+// countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
+func countPhrase(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s is", noun)
+	}
+	return fmt.Sprintf("%d %ss are", n, noun)
+}
+
 // handleQueuedSpecGeneration handles tasks in queued spec generation
 func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, task *types.SpecTask) error {
 	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
@@ -566,14 +637,14 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 		return fmt.Errorf("failed to list project tasks for planning WIP check: %w", err)
 	}
 
-	planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
-	planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
-	reviewCount := countTasksByStatus(projectTasks,
-		types.TaskStatusSpecReview,
-		types.TaskStatusSpecRevision,
-		types.TaskStatusSpecApproved,
-	)
-	if planningCount >= planningLimit || planningCount+reviewCount >= reviewLimit {
+	if reason := PlanningQueueReason(project, projectTasks, latestTask); reason != "" {
+		planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+		planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
+		reviewCount := countTasksByStatus(projectTasks,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		)
 		log.Info().
 			Str("task_id", latestTask.ID).
 			Str("project_id", latestTask.ProjectID).
@@ -581,7 +652,8 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 			Int("planning_limit", planningLimit).
 			Int("review_count", reviewCount).
 			Int("review_limit", reviewLimit).
-			Msg("Leaving spec task queued - planning or reserved review capacity is full")
+			Str("queue_reason", reason).
+			Msg("Leaving spec task queued - planning or review capacity is full")
 		return nil
 	}
 

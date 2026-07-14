@@ -1095,6 +1095,25 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
+      {/* Queued task block reason — explains why a queued task hasn't started yet
+          (WIP capacity / dependency). Recomputed server-side each read, so it
+          clears automatically as the queue drains. */}
+      {(task?.status === "queued_spec_generation" ||
+        task?.status === "queued_implementation") &&
+        task?.queue_reason && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Waiting to start
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", color: "text.secondary" }}
+            >
+              {task.queue_reason}
+            </Typography>
+          </Alert>
+        )}
+
       {/* Completed task message */}
       {isTaskCompleted && (
         <Alert severity="success" sx={{ mb: 3 }}>

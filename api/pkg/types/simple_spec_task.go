@@ -175,6 +175,7 @@ type SpecTask struct {
 	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`    // Last prompt sent to agent (for continue functionality)
 	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting" — derived from session config in listTasks
 	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
+	QueueReason          string         `json:"queue_reason,omitempty" gorm:"-"`           // Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
