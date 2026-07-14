@@ -11,9 +11,7 @@
 // no HTTP loopback.
 //
 // Caller identity is resolved per request from runtimehelix's context
-// stashes (HelixIdentity → UserIDFromContext / BearerFromContext); when
-// none is present we fall back to the constructor-supplied service
-// user (the bearer-forwarding equivalent the middleware path uses).
+// stashes. Org-scoped background work uses the organization owner.
 package server
 
 import (
@@ -29,6 +27,7 @@ import (
 	"github.com/gorilla/mux"
 
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -37,32 +36,16 @@ import (
 // runtimehelix.SpawnerClient by routing through the HelixAPIServer's
 // handler methods in-process.
 type inProcHelixClient struct {
-	server      *HelixAPIServer
-	serviceUser types.User
+	server *HelixAPIServer
 }
 
-// NewInProcHelixClient constructs an inProcHelixClient. The serviceUser
-// is the fallback identity used when the per-request context carries no
-// HelixIdentity (e.g. background dispatcher activations before a bearer
-// is minted via BearerForUser). Must be a real persisted user with the
-// access rights needed for the operations the embedded helix-org issues
-// (currently: project apply, git repo create, app update, session
-// create / output / stop) — typically the auto-provisioned
-// `helix-org-service` user.
-func NewInProcHelixClient(s *HelixAPIServer, serviceUser *types.User) *inProcHelixClient {
-	c := &inProcHelixClient{server: s}
-	if serviceUser != nil {
-		c.serviceUser = *serviceUser
-	}
-	return c
+func NewInProcHelixClient(s *HelixAPIServer) *inProcHelixClient {
+	return &inProcHelixClient{server: s}
 }
 
 // resolveUser returns the *types.User to attach to a handler-bound
-// request context. Priority: explicit *types.User stash > resolved
-// UserID from HelixIdentity / WithUserID > serviceUser fallback. When
-// the legacy stashes carry only an ID, look the user row up against
-// the store so the resulting *types.User has the email/full-name
-// fields handlers may read.
+// request context. Explicit users win; org-scoped background work runs
+// as the organization owner.
 func (c *inProcHelixClient) resolveUser(ctx context.Context) (*types.User, error) {
 	if u := runtimehelix.UserFromContext(ctx); u != nil {
 		return u, nil
@@ -76,11 +59,25 @@ func (c *inProcHelixClient) resolveUser(ctx context.Context) (*types.User, error
 		}
 		return &types.User{ID: uid}, nil
 	}
-	if c.serviceUser.ID != "" {
-		u := c.serviceUser
-		return &u, nil
+	orgID := runtimehelix.OrganizationIDFromContext(ctx)
+	if orgID == "" {
+		orgID = helixorgserver.OrgIDFromContext(ctx)
 	}
-	return nil, errors.New("inproc helix client: no user on context and no service user configured")
+	if orgID == "" {
+		return nil, errors.New("inproc helix client: no user or organization on context")
+	}
+	org, err := c.server.lookupOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve organization %s: %w", orgID, err)
+	}
+	owner, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
+	if err != nil {
+		return nil, fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
+	}
+	return owner, nil
 }
 
 // newRequest builds an *http.Request whose body is the JSON encoding
@@ -263,6 +260,37 @@ func (c *inProcHelixClient) PutProjectSecret(ctx context.Context, projectID, nam
 	return nil
 }
 
+// ListProjectSecrets returns the project's dev-scoped secrets as a
+// decrypted name→value map. Reuses GetProjectSecretsAsEnvVars (the same
+// resolver the desktop-boot injection uses) so scope filtering and
+// decryption stay in one place, then splits each `KEY=value` back into a
+// map. Dev scope matches the desktop container's environment — the bot
+// reads exactly what it would have had injected at boot.
+func (c *inProcHelixClient) ListProjectSecrets(ctx context.Context, projectID string) (map[string]string, error) {
+	envVars, err := c.server.GetProjectSecretsAsEnvVars(ctx, projectID, types.SecretScopeDev)
+	if err != nil {
+		return nil, err
+	}
+	return parseEnvVarsToMap(envVars), nil
+}
+
+// parseEnvVarsToMap splits `KEY=value` env-var strings back into a map.
+// Cut on the FIRST `=` so a value that itself contains `=` (base64, a
+// URL query, …) round-trips intact. Entries with no `=` or an empty name
+// are skipped — GetProjectSecretsAsEnvVars never emits those, but the
+// guard keeps a malformed entry from producing a `""` key.
+func parseEnvVarsToMap(envVars []string) map[string]string {
+	out := make(map[string]string, len(envVars))
+	for _, kv := range envVars {
+		name, value, found := strings.Cut(kv, "=")
+		if !found || name == "" {
+			continue
+		}
+		out[name] = value
+	}
+	return out
+}
+
 // CreateGitRepo creates an internal Helix git repository. The
 // createGitRepository handler writes its response directly to the
 // ResponseWriter (not the typed-handler shape), so we capture the
@@ -285,6 +313,46 @@ func (c *inProcHelixClient) CreateGitRepo(ctx context.Context, req types.GitRepo
 		return types.GitRepository{}, errors.New("create git repo: empty id in response")
 	}
 	return repo, nil
+}
+
+// GetGitRepo returns a repo by ID, mapping a 404 to ErrRepoNotFound so the
+// worker-project fast path can detect a deleted repo and re-provision.
+func (c *inProcHelixClient) GetGitRepo(ctx context.Context, repoID string) (types.GitRepository, error) {
+	r, err := c.newRequest(ctx, http.MethodGet, "/api/v1/git/repositories/"+repoID, nil, map[string]string{"id": repoID})
+	if err != nil {
+		return types.GitRepository{}, err
+	}
+	rec := httptest.NewRecorder()
+	c.server.getGitRepository(rec, r)
+	if rec.Code == http.StatusNotFound {
+		return types.GitRepository{}, fmt.Errorf("%w: %s", runtimehelix.ErrRepoNotFound, strings.TrimSpace(rec.Body.String()))
+	}
+	if rec.Code >= 400 {
+		return types.GitRepository{}, fmt.Errorf("get git repo %s: %s: %s", repoID, rec.Result().Status, strings.TrimSpace(rec.Body.String()))
+	}
+	var repo types.GitRepository
+	if err := json.Unmarshal(rec.Body.Bytes(), &repo); err != nil {
+		return types.GitRepository{}, fmt.Errorf("decode git repo response: %w", err)
+	}
+	return repo, nil
+}
+
+// DeleteGitRepo removes a repo by ID. A missing repo is treated as success
+// (the goal is that it's gone).
+func (c *inProcHelixClient) DeleteGitRepo(ctx context.Context, repoID string) error {
+	r, err := c.newRequest(ctx, http.MethodDelete, "/api/v1/git/repositories/"+repoID, nil, map[string]string{"id": repoID})
+	if err != nil {
+		return err
+	}
+	rec := httptest.NewRecorder()
+	c.server.deleteGitRepository(rec, r)
+	if rec.Code == http.StatusNotFound {
+		return nil
+	}
+	if rec.Code >= 400 {
+		return fmt.Errorf("delete git repo %s: %s: %s", repoID, rec.Result().Status, strings.TrimSpace(rec.Body.String()))
+	}
+	return nil
 }
 
 // AttachRepoToProject attaches a repo to a project, optionally marking
@@ -425,6 +493,9 @@ func (c *inProcHelixClient) GetOutput(ctx context.Context, sessionID string) (ty
 	}
 	resp, herr := c.server.getSessionOutput(nil, r)
 	if herr != nil {
+		if herr.StatusCode == http.StatusNotFound {
+			return types.SessionOutputResponse{}, fmt.Errorf("%w: %s", runtimehelix.ErrSessionNotFound, sessionID)
+		}
 		return types.SessionOutputResponse{}, fmt.Errorf("get session output %s: %s", sessionID, herr.Error())
 	}
 	if resp == nil {

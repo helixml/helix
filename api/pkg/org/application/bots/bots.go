@@ -93,6 +93,12 @@ type CreateParams struct {
 	Content         string
 	Tools           []tool.Name
 	PreserveContext bool
+	// Kind, HelixUserID, Identity create a human placeholder when Kind ==
+	// orgchart.BotKindHuman. A human gets no base tools (it never makes an
+	// MCP request) and is never spawned.
+	Kind        orgchart.BotKind
+	HelixUserID string
+	Identity    map[string]string
 }
 
 // Create builds and persists a new Bot, returning the created
@@ -103,15 +109,22 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if id == "" {
 		id = orgchart.BotID("b-" + s.newID())
 	}
-	// Ensure the id is unique within the org, suffixing on conflict (base,
-	// base-1, base-2, ...) — mirrors org-name uniqueness. Without this a
-	// second bot whose id collides (two "Chief of Staff" both slugify to
-	// chief-of-staff) fails on the composite (id, org) primary key.
-	id, err := s.uniqueBotID(ctx, orgID, id)
-	if err != nil {
-		return orgchart.Bot{}, err
+	// The id is used exactly as given. It is unique within the org (composite
+	// (id, org) primary key), so a clash means the id is already taken — return
+	// a clear error rather than silently mutating it. Deterministic-id callers
+	// (seeds) treat this as "already exists" after a Get.
+	if _, err := s.bots.Get(ctx, orgID, id); err == nil {
+		return orgchart.Bot{}, fmt.Errorf("bot id %q already exists in this org", id)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return orgchart.Bot{}, fmt.Errorf("check bot id %q: %w", id, err)
 	}
-	bot, err := orgchart.NewBot(id, p.Content, MergeTools(p.Tools, s.baseTools), s.now(), orgID)
+	// A human placeholder gets no tools — it never makes an MCP request.
+	// An agent gets the caller's tools unioned with the read baseline.
+	tools := p.Tools
+	if p.Kind != orgchart.BotKindHuman {
+		tools = MergeTools(p.Tools, s.baseTools)
+	}
+	bot, err := orgchart.NewBot(id, p.Content, tools, s.now(), orgID)
 	if err != nil {
 		return orgchart.Bot{}, err
 	}
@@ -121,32 +134,19 @@ func (s *Bots) Create(ctx context.Context, orgID string, p CreateParams) (orgcha
 	if p.PreserveContext {
 		bot = bot.WithPreserveContext(true)
 	}
+	if p.Kind != "" {
+		bot = bot.WithKind(p.Kind)
+	}
+	if p.HelixUserID != "" {
+		bot = bot.WithHelixUserID(p.HelixUserID)
+	}
+	if len(p.Identity) > 0 {
+		bot = bot.WithIdentity(p.Identity)
+	}
 	if err := s.bots.Create(ctx, bot); err != nil {
 		return orgchart.Bot{}, err
 	}
 	return bot, nil
-}
-
-// uniqueBotID returns base when it's free within the org, otherwise the
-// first free base-<n> (n from 1). Mirrors the org-name uniqueness
-// suffixing so a name-derived id collision (two bots named the same) is
-// resolved rather than erroring on the composite (id, org) primary key.
-// Bounded at 100 probes to avoid an unbounded loop on pathological input.
-func (s *Bots) uniqueBotID(ctx context.Context, orgID string, base orgchart.BotID) (orgchart.BotID, error) {
-	for i := 0; i < 100; i++ {
-		cand := base
-		if i > 0 {
-			cand = orgchart.BotID(fmt.Sprintf("%s-%d", base, i))
-		}
-		_, err := s.bots.Get(ctx, orgID, cand)
-		if errors.Is(err, store.ErrNotFound) {
-			return cand, nil
-		}
-		if err != nil {
-			return "", fmt.Errorf("check bot id uniqueness: %w", err)
-		}
-	}
-	return "", fmt.Errorf("could not derive a unique bot id from %q", base)
 }
 
 // UpdateParams patches the mutable fields of a Bot. A nil pointer
@@ -156,7 +156,11 @@ type UpdateParams struct {
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
+	ProjectIDs      *[]string
 	PreserveContext *bool
+	// Identity, when non-nil, replaces the bot's per-channel handle map
+	// (human nodes only). nil leaves it unchanged.
+	Identity *map[string]string
 }
 
 // Update reads the existing Bot, applies the patch via the domain's
@@ -177,14 +181,37 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	if p.Tools != nil {
 		updated = updated.WithTools(*p.Tools)
 	}
+	if p.ProjectIDs != nil {
+		updated = updated.WithProjectIDs(normalizeProjectIDs(*p.ProjectIDs))
+	}
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
+	}
+	if p.Identity != nil {
+		updated = updated.WithIdentity(*p.Identity)
 	}
 	updated = updated.WithUpdatedAt(s.now())
 	if err := s.bots.Update(ctx, updated); err != nil {
 		return orgchart.Bot{}, err
 	}
 	return updated, nil
+}
+
+func normalizeProjectIDs(projectIDs []string) []string {
+	seen := make(map[string]struct{}, len(projectIDs))
+	out := make([]string, 0, len(projectIDs))
+	for _, projectID := range projectIDs {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" {
+			continue
+		}
+		if _, ok := seen[projectID]; ok {
+			continue
+		}
+		seen[projectID] = struct{}{}
+		out = append(out, projectID)
+	}
+	return out
 }
 
 // AttachTools grants the named tools to a Bot: the union of its current

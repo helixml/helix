@@ -28,13 +28,14 @@ export interface IAppsQuery {
 }
 
 // Code agent runtime options for zed_external agents
-export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code'
+export type CodeAgentRuntime = 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code'
 
 // Display names for code agent runtimes (maintainable for future additions)
 export const CODE_AGENT_RUNTIME_DISPLAY_NAMES: Record<CodeAgentRuntime, string> = {
   'zed_agent': 'Zed Agent',
   'qwen_code': 'Qwen Code',
   'claude_code': 'Claude Code',
+  'codex_cli': 'Codex CLI',
   'goose_code': 'Goose',
 }
 
@@ -105,6 +106,7 @@ export function getModelDisplayName(modelId: string): string {
 export function generateAgentName(modelId: string, runtime: CodeAgentRuntime): string {
   // Claude Code manages its own model selection
   if (runtime === 'claude_code') return 'Claude Code'
+  if (runtime === 'codex_cli') return 'Codex CLI'
   if (!modelId) return '-'  // Show dash when model not yet selected
   const modelName = getModelDisplayName(modelId)
   const runtimeName = CODE_AGENT_RUNTIME_DISPLAY_NAMES[runtime]
@@ -345,4 +347,4 @@ export const AppsContextProvider = ({ children }: { children: ReactNode }) => {
       { children }
     </AppsContext.Provider>
   )
-} 
+}

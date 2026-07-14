@@ -165,8 +165,8 @@ func GenerateZedMCPConfig(
 		// those sessions still come up.
 		provider = "anthropic"
 		model = "claude-sonnet-4-5-latest"
-	} else if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
-		// Subscription credentials only make sense for Claude Code: it handles
+	} else if usesUpstreamSubscription(assistant) {
+		// Subscription credentials only make sense for runtimes that handle
 		// inference upstream via OAuth, not through a Helix provider. Don't
 		// write a Helix-routed default into settings.json — Zed falls back to
 		// its built-in defaults for inline assistant / commit messages / thread
@@ -174,8 +174,8 @@ func GenerateZedMCPConfig(
 		// flight ValidateAssistantModelConfig already applies the same bypass
 		// so spec-task start handlers don't 422.
 		//
-		// We deliberately scope this branch to claude_code: a non-Claude
-		// runtime (zed_agent, qwen_code, gemini_cli, codex_cli) cannot use a
+		// We deliberately scope this branch to Claude Code and Codex CLI. Other
+		// runtimes (zed_agent, qwen_code, gemini_cli, goose_code) cannot use a
 		// "subscription" credential — there's no OAuth path for it. Treating
 		// such an assistant as subscription-credentialed leaves agent.default_model
 		// unset, which trips start-zed-helix.sh's wait_for_zed_config (it greps
@@ -528,7 +528,6 @@ func getAPIKeyForProvider(provider string) string {
 	}
 }
 
-
 // ProviderRef is the minimal projection of a provider endpoint that the
 // agent-config code path needs: a stable ID (empty for env-baked globals,
 // which have no DB row) and the current canonical name. Callers build the
@@ -667,7 +666,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	// on those is misconfig (almost always a stale UI default) — we let it
 	// fall through to the normal provider/model check rather than silently
 	// bypassing it. See the matching condition in GenerateZedMCPConfig.
-	if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
+	if usesUpstreamSubscription(assistant) {
 		return ""
 	}
 	// Mirror GenerateZedMCPConfig: Model/Provider is the zed_external source of
@@ -692,6 +691,14 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""
+}
+
+func usesUpstreamSubscription(assistant *types.AssistantConfig) bool {
+	if assistant == nil || !assistant.CodeAgentCredentialType.IsSubscription() {
+		return false
+	}
+	return assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode ||
+		assistant.CodeAgentRuntime == types.CodeAgentRuntimeCodexCLI
 }
 
 // buildLanguageModels returns the language_models block for Zed's settings.json,

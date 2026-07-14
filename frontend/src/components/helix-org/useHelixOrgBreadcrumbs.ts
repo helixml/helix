@@ -4,6 +4,13 @@
 // by an optional section crumb (linking to that section's list page). The
 // page supplies the leaf via `breadcrumbTitle`.
 //
+// Examples:
+//   Chart:     [org]                         (no leaf — org is current)
+//   Settings:  [org] + title "Settings"      →  org / Settings
+//   Bots list: [org] + title "Bots"          →  org / Bots
+//   Bot detail:[org, Bots→list] + bot name   →  org / Bots / bot-name
+//   Topic det: [org, Topics→list] + topic    →  org / Topics / topic-id
+//
 // Every crumb navigates via the plain router (useOrgRouter: false).
 // helix-org routes are named `helix_org_*`, which account.orgNavigate
 // would mangle by prepending `org_` (turning `helix_org_chart` into the
@@ -28,7 +35,12 @@ export function useHelixOrgBreadcrumbs(section?: HelixOrgBreadcrumbSection): IPa
   const account = useAccount()
   const { params } = useRouter()
   const orgSlug = (params.org_id as string) || ''
-  const orgName = account.organizationTools.organization?.name || orgSlug
+  const org = account.organizationTools.organization
+  // Prefer human display name, then slug/name, then URL segment.
+  const orgName =
+    (org as { display_name?: string } | undefined)?.display_name
+    || org?.name
+    || orgSlug
 
   const crumbs: IPageBreadcrumb[] = [
     {

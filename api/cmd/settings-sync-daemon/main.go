@@ -17,13 +17,15 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // SettingsPath and KeymapPath are vars (not consts) so unit tests can point
 // them at a tempdir without touching the real Zed config.
 var (
-	SettingsPath = "/home/retro/.config/zed/settings.json"
-	KeymapPath   = "/home/retro/.config/zed/keymap.json"
+	SettingsPath    = "/home/retro/.config/zed/settings.json"
+	KeymapPath      = "/home/retro/.config/zed/keymap.json"
+	CodexConfigPath = "/home/retro/.codex/config.toml"
 )
 
 const (
@@ -47,6 +49,7 @@ type SettingsDaemon struct {
 
 	// Whether user has a Claude subscription available for credential sync
 	claudeSubscriptionAvailable bool
+	codexSubscriptionAvailable  bool
 
 	// Track the last expiresAt we know about, so we can detect Claude Code token refreshes
 	lastKnownExpiresAt int64
@@ -55,7 +58,9 @@ type SettingsDaemon struct {
 	claudeSetupToken string
 
 	// Timestamp of our last write to the credentials file (to ignore our own fsnotify events)
-	lastCredWrite time.Time
+	lastCredWrite      time.Time
+	lastCodexCredWrite time.Time
+	lastCodexRefresh   time.Time
 
 	// Current state
 	helixSettings         map[string]interface{}
@@ -70,9 +75,10 @@ type CodeAgentConfig struct {
 	AgentName       string `json:"agent_name"`
 	BaseURL         string `json:"base_url"`
 	APIType         string `json:"api_type"`
-	Runtime         string `json:"runtime"`           // "zed_agent" or "qwen_code" or "goose_code"
-	MaxTokens       int    `json:"max_tokens"`        // Model's context window size (0 if unknown)
-	MaxOutputTokens int    `json:"max_output_tokens"` // Model's max completion tokens (0 if unknown)
+	Runtime         string `json:"runtime"`                    // "zed_agent" or "qwen_code" or "goose_code"
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // Runtime/model reasoning effort; empty uses the upstream default
+	MaxTokens       int    `json:"max_tokens"`                 // Model's context window size (0 if unknown)
+	MaxOutputTokens int    `json:"max_output_tokens"`          // Model's max completion tokens (0 if unknown)
 
 	// Goose-specific fields (only populated when Runtime == "goose_code").
 	GooseRecipes       []GooseRecipe     `json:"goose_recipes,omitempty"`
@@ -101,6 +107,7 @@ type AvailableModel struct {
 	DisplayName     string `json:"display_name"`
 	MaxTokens       int    `json:"max_tokens"`
 	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // helixConfigResponse is the response structure from the Helix API's zed-config endpoint
@@ -115,6 +122,7 @@ type helixConfigResponse struct {
 	Version                     int64                  `json:"version"`
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config"`
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"`
+	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`
 }
 
 // generateAgentServerConfig creates the agent_servers configuration for custom agents (like qwen).
@@ -245,9 +253,56 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 		if d.codeAgentConfig.Model != "" {
 			claudeACPConfig["default_model"] = d.codeAgentConfig.Model
 		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			env["CLAUDE_CODE_EFFORT_LEVEL"] = d.codeAgentConfig.ReasoningEffort
+		}
 		return map[string]interface{}{
 			"claude-acp": claudeACPConfig,
 		}
+
+	case "codex_cli":
+		if err := ensureCodexNonInteractiveConfig(CodexConfigPath); err != nil {
+			log.Printf("Failed to configure Codex non-interactive permissions: %v", err)
+			return nil
+		}
+		env := map[string]interface{}{
+			"CODEX_HOME":         "/home/retro/.codex",
+			"INITIAL_AGENT_MODE": "agent-full-access",
+		}
+		if d.codeAgentConfig.BaseURL != "" {
+			env["OPENAI_BASE_URL"] = d.rewriteLocalhostURL(d.codeAgentConfig.BaseURL)
+			if d.userAPIKey != "" {
+				env["OPENAI_API_KEY"] = d.userAPIKey
+			}
+		} else {
+			if _, err := os.Stat(CodexCredentialsPath); err != nil {
+				log.Printf("Codex credentials file not yet available, deferring codex agent server: %v", err)
+				return nil
+			}
+			env["OPENAI_API_KEY"] = ""
+			env["OPENAI_BASE_URL"] = ""
+		}
+		config := map[string]interface{}{
+			"type":         "registry",
+			"default_mode": "agent-full-access",
+			"env":          env,
+		}
+		if d.codeAgentConfig.Model != "" {
+			config["default_model"] = d.codeAgentConfig.Model
+		}
+		if d.codeAgentConfig.ReasoningEffort != "" {
+			codexConfig, err := json.Marshal(struct {
+				ModelReasoningEffort string `json:"model_reasoning_effort"`
+			}{
+				ModelReasoningEffort: d.codeAgentConfig.ReasoningEffort,
+			})
+			if err != nil {
+				log.Printf("Failed to encode Codex reasoning effort: %v", err)
+				return nil
+			}
+			env["CODEX_CONFIG"] = string(codexConfig)
+		}
+		return map[string]interface{}{"codex-acp": config}
 
 	case "goose_code":
 		// Goose: Uses the `goose acp` command as a custom agent_server.
@@ -339,6 +394,36 @@ func (d *SettingsDaemon) generateAgentServerConfig() map[string]interface{} {
 	}
 }
 
+func ensureCodexNonInteractiveConfig(path string) error {
+	config := map[string]interface{}{}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := toml.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("parse existing Codex config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read existing Codex config: %w", err)
+	}
+
+	config["approval_policy"] = "never"
+	config["sandbox_mode"] = "danger-full-access"
+	data, err = toml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal Codex config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create Codex config directory: %w", err)
+	}
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("write Codex config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install Codex config: %w", err)
+	}
+	return nil
+}
+
 // writeGooseConfig writes ${xdgConfigHome}/goose/config.yaml so the goose acp
 // process picks up our slash_commands. We use a dedicated XDG_CONFIG_HOME
 // (set on the agent_servers env) to avoid clobbering any user-level goose
@@ -422,23 +507,22 @@ func (d *SettingsDaemon) rewriteLocalhostURL(originalURL string) string {
 	// Parse our known-working API URL to get the host
 	apiParsed, err := url.Parse(d.apiURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse apiURL %s: %v", d.apiURL, err)
+		log.Printf("Warning: failed to parse API URL")
 		return originalURL
 	}
 
 	// Parse the original URL
 	origParsed, err := url.Parse(originalURL)
 	if err != nil {
-		log.Printf("Warning: failed to parse original URL %s: %v", originalURL, err)
+		log.Printf("Warning: failed to parse model endpoint URL")
 		return originalURL
 	}
 
 	// Replace the host with our working API host
 	origParsed.Host = apiParsed.Host
 
-	rewritten := origParsed.String()
-	log.Printf("Rewrote localhost URL for container networking: %s -> %s", originalURL, rewritten)
-	return rewritten
+	log.Printf("Rewrote localhost URL for container networking")
+	return origParsed.String()
 }
 
 // injectAvailableModels adds the configured model to the provider's available_models list.
@@ -501,6 +585,9 @@ func (d *SettingsDaemon) injectAvailableModels() {
 		DisplayName:     d.codeAgentConfig.Model,
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: d.codeAgentConfig.MaxOutputTokens, // 0 = omitted (uses model default)
+	}
+	if d.codeAgentConfig.Runtime == "zed_agent" {
+		modelEntry.ReasoningEffort = d.codeAgentConfig.ReasoningEffort
 	}
 
 	// Get existing available_models or create new slice
@@ -567,6 +654,7 @@ const (
 	ClaudeCredentialsPath        = "/home/retro/.claude/.credentials.json"
 	ClaudeSubscriptionMarkerPath = "/tmp/helix-claude-subscription-mode"
 	ClaudeManagedSettingsPath    = "/etc/claude-code/managed-settings.json"
+	CodexCredentialsPath         = "/home/retro/.codex/auth.json"
 )
 
 // writeClaudeManagedSettings writes /etc/claude-code/managed-settings.json so the
@@ -798,6 +886,121 @@ func (d *SettingsDaemon) pushCredentialsToAPI() {
 	log.Printf("Pushed refreshed Claude credentials to API (expiresAt=%d)", creds.ExpiresAt)
 }
 
+type codexAuthCredentials struct {
+	AuthMode     string  `json:"auth_mode"`
+	OpenAIAPIKey *string `json:"OPENAI_API_KEY"`
+	Tokens       struct {
+		IDToken      string `json:"id_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		AccountID    string `json:"account_id"`
+	} `json:"tokens"`
+	LastRefresh time.Time `json:"last_refresh"`
+}
+
+func (d *SettingsDaemon) syncCodexCredentials() {
+	if !d.codexSubscriptionAvailable {
+		return
+	}
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/codex-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		log.Printf("Failed to create Codex credentials request: %v", err)
+		return
+	}
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch Codex credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to fetch Codex credentials: status %d", resp.StatusCode)
+		return
+	}
+	var serverCredentials codexAuthCredentials
+	if err := json.NewDecoder(resp.Body).Decode(&serverCredentials); err != nil {
+		log.Printf("Failed to parse Codex credentials: %v", err)
+		return
+	}
+	if fileCredentials, err := readCodexCredentials(); err == nil && fileCredentials.LastRefresh.After(serverCredentials.LastRefresh) {
+		d.pushCodexCredentialsToAPI()
+		return
+	}
+	data, err := json.MarshalIndent(serverCredentials, "", "  ")
+	if err != nil {
+		log.Printf("Failed to marshal Codex credentials: %v", err)
+		return
+	}
+	credentialDir := filepath.Dir(CodexCredentialsPath)
+	if err := os.MkdirAll(credentialDir, 0700); err != nil {
+		log.Printf("Failed to create Codex credentials directory: %v", err)
+		return
+	}
+	tmpPath := CodexCredentialsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		log.Printf("Failed to write Codex credentials: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, CodexCredentialsPath); err != nil {
+		log.Printf("Failed to install Codex credentials: %v", err)
+		return
+	}
+	d.lastCodexRefresh = serverCredentials.LastRefresh
+	d.lastCodexCredWrite = time.Now()
+	log.Printf("Synced Codex credentials to %s", CodexCredentialsPath)
+}
+
+func readCodexCredentials() (*codexAuthCredentials, error) {
+	data, err := os.ReadFile(CodexCredentialsPath)
+	if err != nil {
+		return nil, err
+	}
+	var credentials codexAuthCredentials
+	if err := json.Unmarshal(data, &credentials); err != nil {
+		return nil, err
+	}
+	if credentials.AuthMode != "chatgpt" || credentials.Tokens.RefreshToken == "" || credentials.LastRefresh.IsZero() {
+		return nil, fmt.Errorf("invalid Codex credentials")
+	}
+	return &credentials, nil
+}
+
+func (d *SettingsDaemon) pushCodexCredentialsToAPI() {
+	credentials, err := readCodexCredentials()
+	if err != nil || !credentials.LastRefresh.After(d.lastCodexRefresh) {
+		return
+	}
+	payload, err := json.Marshal(credentials)
+	if err != nil {
+		return
+	}
+	apiURL := fmt.Sprintf("%s/api/v1/sessions/%s/codex-credentials", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to push Codex credentials: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to push Codex credentials: status %d", resp.StatusCode)
+		return
+	}
+	d.lastCodexRefresh = credentials.LastRefresh
+	log.Printf("Pushed refreshed Codex credentials to API")
+}
+
 // writeZedKeymap writes Zed keymap.json with terminal copy/paste bindings.
 // XKB remaps Super (Command) → Ctrl, so we configure Zed's terminal to:
 // - Ctrl+C: copy when text is selected, SIGINT when not (via context precedence)
@@ -966,9 +1169,11 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// Store code agent config for generating agent_servers
 	d.codeAgentConfig = config.CodeAgentConfig
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.codexSubscriptionAvailable = config.CodexSubscriptionAvailable
 
 	// Sync Claude credentials if available
 	d.syncClaudeCredentials()
+	d.syncCodexCredentials()
 
 	// Start from hardcoded Helix defaults, then layer on API response fields
 	d.helixSettings = helixDefaults()
@@ -1668,17 +1873,27 @@ func (d *SettingsDaemon) startWatcher() error {
 			log.Printf("Watching %s for credential refreshes", credDir)
 		}
 	}
+	if d.codexSubscriptionAvailable {
+		credDir := filepath.Dir(CodexCredentialsPath)
+		if err := os.MkdirAll(credDir, 0700); err != nil {
+			log.Printf("Warning: failed to create Codex credentials directory for watcher: %v", err)
+		} else if err := watcher.Add(credDir); err != nil {
+			log.Printf("Warning: failed to watch Codex credentials directory: %v", err)
+		}
+	}
 
 	go func() {
 		var settingsDebounce *time.Timer
 		var credsDebounce *time.Timer
+		var codexCredsDebounce *time.Timer
 		credFilename := filepath.Base(ClaudeCredentialsPath)
+		codexCredFilename := filepath.Base(CodexCredentialsPath)
 
 		for {
 			select {
 			case event := <-watcher.Events:
 				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-					if filepath.Base(event.Name) == credFilename {
+					if filepath.Base(event.Name) == credFilename && filepath.Dir(event.Name) == filepath.Dir(ClaudeCredentialsPath) {
 						// Claude credentials file changed
 						if credsDebounce != nil {
 							credsDebounce.Stop()
@@ -1686,6 +1901,11 @@ func (d *SettingsDaemon) startWatcher() error {
 						credsDebounce = time.AfterFunc(DebounceTime, func() {
 							d.onCredentialsChanged()
 						})
+					} else if filepath.Base(event.Name) == codexCredFilename && filepath.Dir(event.Name) == filepath.Dir(CodexCredentialsPath) {
+						if codexCredsDebounce != nil {
+							codexCredsDebounce.Stop()
+						}
+						codexCredsDebounce = time.AfterFunc(DebounceTime, d.onCodexCredentialsChanged)
 					} else if filepath.Base(event.Name) == filepath.Base(SettingsPath) {
 						// Zed settings file changed
 						if settingsDebounce != nil {
@@ -1714,6 +1934,13 @@ func (d *SettingsDaemon) onCredentialsChanged() {
 
 	log.Printf("Detected credentials file change (not from our write)")
 	d.pushCredentialsToAPI()
+}
+
+func (d *SettingsDaemon) onCodexCredentialsChanged() {
+	if time.Since(d.lastCodexCredWrite) < 2*time.Second {
+		return
+	}
+	d.pushCodexCredentialsToAPI()
 }
 
 // onFileChanged handles Zed UI modifications to settings.json
@@ -1848,7 +2075,9 @@ func (d *SettingsDaemon) checkHelixUpdates() error {
 
 	// Update Claude subscription availability and sync credentials
 	d.claudeSubscriptionAvailable = config.ClaudeSubscriptionAvailable
+	d.codexSubscriptionAvailable = config.CodexSubscriptionAvailable
 	d.syncClaudeCredentials()
+	d.syncCodexCredentials()
 
 	// Compare against the pre-injection baseline to avoid spurious diffs
 	// caused by injectAvailableModels mutations

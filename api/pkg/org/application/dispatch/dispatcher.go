@@ -181,6 +181,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, e streaming.Event) {
 			d.logger.Warn("dispatch: get bot", "bot", botID, "err", err)
 			continue
 		}
+		// A human node is a person placeholder — it never runs. Never spawn
+		// it. Delivery-to-human (the in-app ask + external channels) is
+		// Stage 2; for now a human subscriber is simply not activated.
+		// See design/2026-07-07-humans-in-the-org.md.
+		if b.IsHuman() {
+			continue
+		}
 		trigger := activation.Trigger{
 			Kind:      activation.TriggerEvent,
 			EventID:   e.ID,

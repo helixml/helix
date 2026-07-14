@@ -108,8 +108,12 @@ type HelixAPIServer struct {
 	// Topic reconciler and the Socket Mode manager — live inside it, not
 	// as fields on this struct.
 	helixOrg *helixOrgHandlers
+	// orgSeeder creates membership-driven human nodes + the per-org Chief
+	// of Staff bot. Set by mountHelixOrg; nil when helix-org is disabled
+	// (the seeder's methods are nil-safe no-ops).
+	orgSeeder *orgGraphSeeder
 	// onServiceConnectionChange is an optional post-mutation hook a
-	// subsystem registers (helix-org, in mountHelixOrg) so it can react to
+	// subsystem registers (helix-org, in registerHelixOrgRoutes) so it can react to
 	// the connection types it owns without the generic service-connection
 	// handlers depending on it. nil when unregistered.
 	onServiceConnectionChange   func(ctx context.Context, conn *types.ServiceConnection, deleted bool)
@@ -885,15 +889,13 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
 	adminRouter.Use(requireAdmin)
 
-	// helix-org alpha: embed the standalone helix-org HTTP surface as
-	// an in-process handler, gated per-user by the `helix-org` alpha
-	// feature. See design/2026-05-17-helix-org-saas-alpha.md. All of its
-	// routing + lifecycle wiring lives in mountHelixOrg (helix_org.go);
-	// the core server only decides whether to bring it up.
-	if apiServer.Cfg.HelixOrgEnabled {
-		if err := apiServer.mountHelixOrg(ctx, insecureRouter, authRouter); err != nil {
-			return nil, err
-		}
+	// helix-org: register the helix-org HTTP surface, gated per-user by
+	// the `helix-org` alpha feature. See
+	// design/2026-05-17-helix-org-saas-alpha.md. All of its routing +
+	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go). It
+	// Route registration does not depend on a deployment-wide service user.
+	if err := apiServer.registerHelixOrgRoutes(ctx, insecureRouter, authRouter); err != nil {
+		return nil, err
 	}
 
 	// Setup OAuth routes with the auth router (except for callback)
@@ -1103,6 +1105,14 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/claude-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollClaudeLogin)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.getSessionClaudeCredentials)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/claude-credentials", system.Wrapper(apiServer.updateSessionClaudeCredentials)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.createCodexSubscription)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/codex-subscriptions", system.Wrapper(apiServer.listCodexSubscriptions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.getCodexSubscription)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/codex-subscriptions/{id}", system.Wrapper(apiServer.deleteCodexSubscription)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/codex-subscriptions/start-login", system.Wrapper(apiServer.startCodexLogin)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/codex-subscriptions/poll-login/{sessionId}", system.Wrapper(apiServer.pollCodexLogin)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.getSessionCodexCredentials)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/codex-credentials", system.Wrapper(apiServer.updateSessionCodexCredentials)).Methods(http.MethodPut)
 
 	authRouter.HandleFunc("/apps", wrapWithETag[[]*types.App](apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)

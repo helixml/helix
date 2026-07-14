@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -33,7 +34,7 @@ import {
 // null checks are off project-wide so plain aliases suffice.
 export type BotBadge = ApiBotBadge
 export type BotDTO = ApiBotDTO
-export type BotDetailDTO = ApiBotDetailDTO
+export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
@@ -80,6 +81,7 @@ export const QUERY_KEYS = {
   botSubs: (orgID: string, botID: string) => ['helix-org', orgID, 'bots', botID, 'subscriptions'] as const,
   processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
   processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
+  chartPositions: (orgID: string) => ['helix-org', orgID, 'chart-positions'] as const,
 }
 
 // ---- Processors ---------------------------------------------------------
@@ -231,16 +233,11 @@ export function useEnsureBotChat() {
   })
 }
 
-// useActivateBot manually triggers an activation for a Bot. The click
-// goes through the full activation pipeline (ensureProject →
-// AttachHelixOrgMCP → ensureSession → container start) instead of the
-// generic /sessions/{id}/resume — which doesn't re-attach the helix-org
-// MCP and so leaves the desktop without the org-graph tools.
-//
-// Accepts an orgID override so callers that aren't running inside the
-// helix-org base context can pass the org slug explicitly.
+// useActivateBot starts (or wakes) a bot's agent desktop via the full
+// activation pipeline. Used as "Start" when agent_status is stopped.
 export function useActivateBot(orgIDOverride?: string) {
   const api = useApi()
+  const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
@@ -248,18 +245,41 @@ export function useActivateBot(orgIDOverride?: string) {
       const res = await api.getApiClient().v1OrgsBotsActivateCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
   })
 }
 
-// useRestartBotAgent recreates the bot's desktop container from scratch.
-// Wired to the bot page's "Restart agent session" button. Unlike
-// useActivateBot (which continues the existing session via SendMessage),
-// this hits the dedicated bot restart endpoint, which fully removes the
-// bot's current session (stop desktop → delete session → clear pointer)
-// and then activates a brand-new one — a fresh desktop, thread and MCP
-// surface. When the bot has no live session it just activates.
+// useStopBotAgent stops the bot's desktop sandbox; session + transcript stay.
+export function useStopBotAgent(orgIDOverride?: string) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { base, orgID: baseOrgID } = useHelixOrgBase()
+  const orgID = orgIDOverride ?? baseOrgID
+  return useMutation({
+    mutationFn: async (botId: string) => {
+      // Not yet on the generated OpenAPI client.
+      await axios.post(
+        `${base || `/api/v1/orgs/${encodeURIComponent(orgID)}`}/bots/${encodeURIComponent(botId)}/stop-agent`,
+        null,
+        { withCredentials: true },
+      )
+    },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
+  })
+}
+
+// useRestartBotAgent fully tears down the current session and starts a
+// brand-new one (fresh desktop + thread). When there is no session it
+// just activates.
 export function useRestartBotAgent(orgIDOverride?: string) {
   const api = useApi()
+  const qc = useQueryClient()
   const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
@@ -267,10 +287,14 @@ export function useRestartBotAgent(orgIDOverride?: string) {
       const res = await api.getApiClient().v1OrgsBotsRestartAgentCreate(botId, orgID)
       return res.data as BotActivateDTO
     },
+    onSuccess: (_data, botId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.bot(orgID, botId) })
+    },
   })
 }
 
-export function useListHelixOrgBots(options?: { enabled?: boolean }) {
+export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterval?: number | false }) {
   const api = useApi()
   const { orgID } = useHelixOrgBase()
   return useQuery({
@@ -280,6 +304,7 @@ export function useListHelixOrgBots(options?: { enabled?: boolean }) {
       return (res.data ?? []) as BotDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
   })
 }
 
@@ -295,6 +320,30 @@ export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: 
     },
     enabled: !!orgID && !!botId && (options?.enabled ?? true),
   })
+}
+
+// The list endpoint intentionally stays compact and omits the runtime's
+// project/app identifiers. The chart needs those identifiers to correlate a
+// bot with the spec tasks using its agent, so fetch the details in parallel.
+export function useListHelixOrgBotDetails(
+  botIds: string[],
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+): Array<BotDetailDTO | undefined> {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  const enabled = !!orgID && (options?.enabled ?? true)
+  const results = useQueries({
+    queries: botIds.map((botId) => ({
+      queryKey: QUERY_KEYS.bot(orgID, botId),
+      queryFn: async () => {
+        const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
+        return res.data as BotDetailDTO
+      },
+      enabled: enabled && !!botId,
+      refetchInterval: options?.refetchInterval,
+    })),
+  })
+  return results.map((result) => result.data as BotDetailDTO | undefined)
 }
 
 export function useListHelixOrgTools(options?: { enabled?: boolean }) {
@@ -578,7 +627,7 @@ export function useGitHubWebhookStatus(topicId: string | undefined, options?: { 
   })
 }
 
-// useTopicMessageCount reports the total number of messages waiting on
+// useTopicMessageCount reports the total number of retained messages on
 // a single topic via the paginated JSON:API messages endpoint. We only
 // need meta.total, so we request the smallest possible page (size 1) and
 // ignore the body — the count is the cheap part the server computes
@@ -754,6 +803,23 @@ export function useUpdateHelixOrgTopic() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, vars.topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
+    },
+  })
+}
+
+export function useClearHelixOrgTopicMessages() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      await api.getApiClient().v1OrgsTopicsMessagesDelete(topicId, orgID)
+    },
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topicMessageCount(orgID, topicId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
     },
   })
@@ -950,3 +1016,88 @@ export function useDeleteHelixOrgProcessor() {
   })
 }
 
+// ---- Chart positions (free-placed canvas layout) ------------------------
+// Nodes without a saved position fall back to the chart's auto-layout
+// (dagre for bots, topic columns, processor strip). The OpenAPI client
+// is not regenerated for this yet — raw axios via useApi matches the
+// providers pattern until `./stack update_openapi` picks up the swagger
+// annotations on chart_positions.go.
+
+export type ChartNodeKind = 'bot' | 'topic' | 'processor'
+
+export interface ChartPositionDTO {
+  kind: ChartNodeKind | string
+  id: string
+  x: number
+  y: number
+}
+
+export interface ChartPositionsResponse {
+  positions: ChartPositionDTO[]
+}
+
+/** Map key is `${kind}:${id}` → {x,y}. */
+export type ChartPositionMap = Record<string, { x: number; y: number }>
+
+export function chartPositionKey(kind: string, id: string): string {
+  return `${kind}:${id}`
+}
+
+export function useListChartPositions(options?: { enabled?: boolean }) {
+  const { base, orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.chartPositions(orgID),
+    queryFn: async (): Promise<ChartPositionMap> => {
+      // axios directly so 4xx/5xx throw into react-query (useApi.get
+      // swallows errors and returns null).
+      const res = await axios.get<ChartPositionsResponse>(`${base}/chart/positions`, {
+        withCredentials: true,
+      })
+      const map: ChartPositionMap = {}
+      for (const p of res.data?.positions ?? []) {
+        if (!p.kind || !p.id) continue
+        map[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+      }
+      return map
+    },
+    enabled: !!orgID && !!base && (options?.enabled ?? true),
+  })
+}
+
+export function useUpsertChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (positions: ChartPositionDTO[]) => {
+      // Optimistically merge so the node stays put even if the
+      // response is slow / the graph rebuilds mid-flight.
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), (prev) => {
+        const next: ChartPositionMap = { ...(prev ?? {}) }
+        for (const p of positions) {
+          if (!p.kind || !p.id) continue
+          next[chartPositionKey(p.kind, p.id)] = { x: p.x, y: p.y }
+        }
+        return next
+      })
+      const res = await axios.put<ChartPositionsResponse>(
+        `${base}/chart/positions`,
+        { positions },
+        { withCredentials: true },
+      )
+      return res.data
+    },
+  })
+}
+
+export function useClearChartPositions() {
+  const qc = useQueryClient()
+  const { base, orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async () => {
+      await axios.delete(`${base}/chart/positions`, { withCredentials: true })
+    },
+    onSuccess: () => {
+      qc.setQueryData<ChartPositionMap>(QUERY_KEYS.chartPositions(orgID), {})
+    },
+  })
+}

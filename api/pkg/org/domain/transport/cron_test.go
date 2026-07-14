@@ -159,3 +159,19 @@ func TestCronConfigParse(t *testing.T) {
 		})
 	}
 }
+
+func TestCronConfigParseMessage(t *testing.T) {
+	t.Parallel()
+
+	tr := transport.Transport{
+		Kind:   transport.KindCron,
+		Config: json.RawMessage(`{"schedule":"0 9 * * 1","message":"Prepare the report"}`),
+	}
+	cfg, err := tr.CronConfig()
+	if err != nil {
+		t.Fatalf("CronConfig() = %v, want nil", err)
+	}
+	if cfg.Message != "Prepare the report" {
+		t.Fatalf("Message = %q, want configured message", cfg.Message)
+	}
+}

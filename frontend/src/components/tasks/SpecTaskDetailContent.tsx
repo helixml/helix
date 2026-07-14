@@ -1996,6 +1996,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box sx={{ p: 1.5, flexShrink: 0 }}>
                   <RobustPromptInput
@@ -2791,6 +2792,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box
                   sx={{

@@ -42,6 +42,7 @@ type SpecTaskWorkflow interface {
 	// the comment isn't dropped on the MCP path. userID is the actor to
 	// attribute / notify (the Worker's hiring user).
 	RequestChanges(ctx context.Context, task *types.SpecTask, comment, userID string) error
+	StopAgent(ctx context.Context, task *types.SpecTask) error
 }
 
 // SpecTasks is the helix-runtime implementation of runtime.SpecTasks. It
@@ -72,6 +73,15 @@ func NewSpecTasks(orgStore *store.Store, tasks SpecTaskStore, workflow SpecTaskW
 
 var _ runtime.SpecTasks = (*SpecTasks)(nil)
 
+// OwnProjectID exposes the runtime-owned project pointer to project discovery.
+func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
+	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
+	if err != nil {
+		return "", fmt.Errorf("load worker state: %w", err)
+	}
+	return state.ProjectID, nil
+}
+
 // resolveProject decides which project a call acts on and returns the
 // acting (hiring) user. When requestedProjectID is empty the call targets
 // the Worker's OWN project (resolved from runtime state) — the original
@@ -91,6 +101,24 @@ func (s *SpecTasks) resolveProject(ctx context.Context, orgID string, workerID o
 			return "", "", fmt.Errorf("worker %s: %w", workerID, runtime.ErrSpecTasksUnsupported)
 		}
 		return state.ProjectID, state.HiringUserID, nil
+	}
+	// Passing the Bot's own project explicitly is equivalent to omitting it.
+	// Every other project must be present in the Bot's persisted allowlist.
+	if requestedProjectID != state.ProjectID {
+		bot, getErr := s.orgStore.Bots.Get(ctx, orgID, workerID)
+		if getErr != nil {
+			return "", "", fmt.Errorf("get worker project access: %w", getErr)
+		}
+		allowed := false
+		for _, projectID := range bot.ProjectIDs {
+			if projectID == requestedProjectID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", "", fmt.Errorf("bot %s does not have access to project %s", workerID, requestedProjectID)
+		}
 	}
 	project, err := s.tasks.GetProject(ctx, requestedProjectID)
 	if err != nil {
@@ -211,6 +239,61 @@ func (s *SpecTasks) Get(ctx context.Context, orgID string, workerID orgchart.Bot
 	return toView(task), nil
 }
 
+func (s *SpecTasks) Update(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string, in runtime.UpdateSpecTaskInput) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	if in.Name != nil {
+		if strings.TrimSpace(*in.Name) == "" {
+			return runtime.SpecTaskView{}, errors.New("name cannot be empty")
+		}
+		task.Name = strings.TrimSpace(*in.Name)
+	}
+	if in.Description != nil {
+		if strings.TrimSpace(*in.Description) == "" {
+			return runtime.SpecTaskView{}, errors.New("description cannot be empty")
+		}
+		task.Description = strings.TrimSpace(*in.Description)
+	}
+	if in.Type != nil {
+		switch *in.Type {
+		case "feature", "bug", "refactor":
+			task.Type = *in.Type
+		default:
+			return runtime.SpecTaskView{}, fmt.Errorf("invalid type %q: must be feature, bug, or refactor", *in.Type)
+		}
+	}
+	if in.Priority != nil {
+		switch types.SpecTaskPriority(*in.Priority) {
+		case types.SpecTaskPriorityLow, types.SpecTaskPriorityMedium, types.SpecTaskPriorityHigh, types.SpecTaskPriorityCritical:
+			task.Priority = types.SpecTaskPriority(*in.Priority)
+		default:
+			return runtime.SpecTaskView{}, fmt.Errorf("invalid priority %q: must be low, medium, high, or critical", *in.Priority)
+		}
+	}
+	if in.SkipPlanning != nil {
+		task.JustDoItMode = *in.SkipPlanning
+	}
+	if in.DependsOn != nil {
+		task.DependsOn = make([]types.SpecTask, 0, len(*in.DependsOn))
+		for _, id := range *in.DependsOn {
+			if id = strings.TrimSpace(id); id != "" {
+				task.DependsOn = append(task.DependsOn, types.SpecTask{ID: id})
+			}
+		}
+	}
+	task.UpdatedAt = time.Now()
+	if err := s.tasks.UpdateSpecTask(ctx, task); err != nil {
+		return runtime.SpecTaskView{}, fmt.Errorf("update spec task: %w", err)
+	}
+	return toView(task), nil
+}
+
 func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
 	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
 	if err != nil {
@@ -230,6 +313,21 @@ func (s *SpecTasks) StartPlanning(ctx context.Context, orgID string, workerID or
 	task.UpdatedAt = time.Now()
 	if err := s.tasks.UpdateSpecTask(ctx, task); err != nil {
 		return runtime.SpecTaskView{}, fmt.Errorf("start planning: %w", err)
+	}
+	return toView(task), nil
+}
+
+func (s *SpecTasks) StopAgent(ctx context.Context, orgID string, workerID orgchart.BotID, requestedProjectID, taskID string) (runtime.SpecTaskView, error) {
+	projectID, _, err := s.resolveProject(ctx, orgID, workerID, requestedProjectID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	task, err := s.ownedTask(ctx, projectID, taskID)
+	if err != nil {
+		return runtime.SpecTaskView{}, err
+	}
+	if err := s.workflow.StopAgent(ctx, task); err != nil {
+		return runtime.SpecTaskView{}, fmt.Errorf("stop spec task agent: %w", err)
 	}
 	return toView(task), nil
 }

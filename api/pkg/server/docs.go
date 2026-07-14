@@ -3432,6 +3432,193 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/codex-subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "List Codex subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.CodexSubscription"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a ChatGPT subscription using Codex CLI credentials",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Create a Codex subscription",
+                "parameters": [
+                    {
+                        "description": "Codex subscription credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateCodexSubscriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexSubscription"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/poll-login/{sessionId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return device authentication instructions or persist completed credentials",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Poll Codex login",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CodexPollLoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/start-login": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Launch a temporary container and start Codex device authentication",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Start a Codex login session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CodexLoginSessionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get a Codex subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexSubscription"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Delete a Codex subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/config": {
             "get": {
                 "security": [
@@ -9759,6 +9946,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: stop a bot's agent desktop",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/subscriptions": {
             "get": {
                 "security": [
@@ -9880,6 +10106,85 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/chart/positions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns free-placed (x, y) coordinates for org-chart nodes. Nodes without a row fall back to auto-layout.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list chart node positions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ChartPositionsResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Upserts (x, y) coordinates for one or more org-chart nodes after the user drags them.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: upsert chart node positions",
+                "parameters": [
+                    {
+                        "description": "positions to save",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UpsertChartPositionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ChartPositionsResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes every saved node position for the org; the chart reverts to auto-layout.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset chart layout",
+                "responses": {
+                    "204": {
+                        "description": "no content"
                     }
                 }
             }
@@ -10896,6 +11201,37 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.ErrorResponse"
                         }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: clear all messages from a topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     },
                     "404": {
                         "description": "Not Found",
@@ -16313,6 +16649,86 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/codex-credentials": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get Codex credentials for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexAuthCredentials"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Persist credentials refreshed by Codex CLI. Stale refreshes are ignored.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Update Codex credentials for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Refreshed credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CodexAuthCredentials"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/foreground-thread": {
             "post": {
                 "security": [
@@ -16887,7 +17303,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the resume path. The session's ZedThreadID is cleared so Zed opens\na fresh thread: a crash often poisons the thread itself, so reattaching\nreproduces the wedge; use /sessions/{id}/resume to restart while keeping\nthe thread. The workspace volume persists, so files and the agent's own\nstate survive; only the conversation thread resets. Crashed prompts are\nreset to pending and the queue is kicked so they re-dispatch on the new\ncontainer.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "produces": [
                     "application/json"
                 ],
@@ -21263,13 +21679,36 @@ const docTemplate = `{
         "api.BotDTO": {
             "type": "object",
             "properties": {
+                "agent_model": {
+                    "type": "string"
+                },
+                "agent_runtime": {
+                    "type": "string"
+                },
+                "agent_status": {
+                    "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
+                    "type": "string"
+                },
                 "content": {
                     "type": "string"
                 },
                 "created_at": {
                     "type": "string"
                 },
+                "helix_user_id": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
                     "type": "string"
                 },
                 "name": {
@@ -21288,6 +21727,12 @@ const docTemplate = `{
                 "preserve_context": {
                     "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
                     "type": "boolean"
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tools": {
                     "type": "array",
@@ -21336,6 +21781,35 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/api.BotSubscriptionDTO"
+                    }
+                }
+            }
+        },
+        "api.ChartPositionDTO": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is bot | topic | processor (matches the ReactFlow node id prefix).",
+                    "type": "string"
+                },
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            }
+        },
+        "api.ChartPositionsResponse": {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.ChartPositionDTO"
                     }
                 }
             }
@@ -21894,11 +22368,24 @@ const docTemplate = `{
                 "content": {
                     "type": "string"
                 },
+                "identity": {
+                    "description": "Identity is the per-channel handle map for a human node (slack/github/\nemail/…). When present it replaces the stored map; absent leaves it\nunchanged. Only meaningful for kind=human bots.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
                 "preserve_context": {
                     "type": "boolean"
+                },
+                "project_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tools": {
                     "type": "array",
@@ -21919,6 +22406,17 @@ const docTemplate = `{
                 },
                 "transport": {
                     "$ref": "#/definitions/api.TransportRequestField"
+                }
+            }
+        },
+        "api.UpsertChartPositionsRequest": {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.ChartPositionDTO"
+                    }
                 }
             }
         },
@@ -23329,6 +23827,31 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "target_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CodexLoginSessionResponse": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CodexPollLoginResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "found": {
+                    "type": "boolean"
+                },
+                "url": {
                     "type": "string"
                 }
             }
@@ -26433,6 +26956,10 @@ const docTemplate = `{
                     "description": "Denormalized for display without joins",
                     "type": "string"
                 },
+                "replied_at": {
+                    "description": "RepliedAt is set when the user answers an org_message inline from the\nnotification bell. It keeps replied messages visible (marked \"Replied\")\nso the user has a record the message came through and was answered.",
+                    "type": "string"
+                },
                 "snoozed_until": {
                     "type": "string"
                 },
@@ -26461,6 +26988,7 @@ const docTemplate = `{
                 "spec_failed",
                 "implementation_failed",
                 "pr_ready",
+                "org_message",
                 "ci_passed",
                 "ci_failed"
             ],
@@ -26470,6 +26998,7 @@ const docTemplate = `{
                 "AttentionEventSpecFailed",
                 "AttentionEventImplementationFailed",
                 "AttentionEventPRReady",
+                "AttentionEventOrgMessage",
                 "AttentionEventCIPassed",
                 "AttentionEventCIFailed"
             ]
@@ -26481,6 +27010,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "dismiss": {
+                    "type": "boolean"
+                },
+                "reply": {
+                    "description": "Reply marks an org_message answered — sets replied_at (and acknowledges),\nkeeping it visible as \"Replied\" instead of dismissing it.",
                     "type": "boolean"
                 },
                 "snoozed_until": {
@@ -27311,6 +27844,10 @@ const docTemplate = `{
                     "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
                     "type": "string"
                 },
+                "reasoning_effort": {
+                    "description": "ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.\nEmpty means the runtime/model default.",
+                    "type": "string"
+                },
                 "runtime": {
                     "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
                     "allOf": [
@@ -27361,6 +27898,81 @@ const docTemplate = `{
                 "CodeAgentRuntimeCodexCLI",
                 "CodeAgentRuntimeGooseCode"
             ]
+        },
+        "types.CodexAuthCredentials": {
+            "type": "object",
+            "properties": {
+                "OPENAI_API_KEY": {
+                    "type": "string"
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "tokens": {
+                    "$ref": "#/definitions/types.CodexAuthTokens"
+                }
+            }
+        },
+        "types.CodexAuthTokens": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "account_id": {
+                    "type": "string"
+                },
+                "id_token": {
+                    "type": "string"
+                },
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CodexSubscription": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "auth_mode": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_refreshed_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
         },
         "types.CommentQueueStatusResponse": {
             "type": "object",
@@ -27583,6 +28195,23 @@ const docTemplate = `{
                 "setup_token": {
                     "description": "From ` + "`" + `claude setup-token` + "`" + ` (alternative to credentials)",
                     "type": "string"
+                }
+            }
+        },
+        "types.CreateCodexSubscriptionRequest": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "$ref": "#/definitions/types.CodexAuthCredentials"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
                 }
             }
         },
@@ -29751,6 +30380,10 @@ const docTemplate = `{
                 },
                 "stream": {
                     "type": "boolean"
+                },
+                "time_to_first_token_ms": {
+                    "description": "TimeToFirstTokenMs is the wall time from request start to the first\nstreamed chunk. It isolates provider prefill / cold-start latency from\ngeneration time (a cold or overloaded provider shows a large TTFT while\ngeneration stays normal). 0 means no chunk was received (the call errored\nor was cut before the first token). For non-streaming calls it equals the\ntime to the full response.",
+                    "type": "integer"
                 },
                 "total_cost": {
                     "description": "Prompt + completion + cache read + cache write",
@@ -34104,6 +34737,9 @@ const docTemplate = `{
                 "duration_ms": {
                     "type": "integer"
                 },
+                "interaction_id": {
+                    "type": "string"
+                },
                 "output": {
                     "description": "Last interaction's response text",
                     "type": "string"
@@ -34112,7 +34748,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "description": "\"waiting\", \"complete\", \"error\"",
+                    "description": "\"waiting\", \"complete\", \"error\", \"interrupted\"",
                     "type": "string"
                 }
             }
@@ -37715,6 +38351,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.CodeAgentConfig"
                         }
                     ]
+                },
+                "codex_subscription_available": {
+                    "description": "True if user has active ChatGPT credentials for Codex CLI",
+                    "type": "boolean"
                 },
                 "color_scheme": {
                     "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",

@@ -185,7 +185,7 @@ func (c CodeAgentCredentialType) IsSubscription() bool {
 
 // ZedAgentName returns the agent name used in Zed for this runtime.
 // This is used when sending open_thread commands to tell Zed which agent to use.
-// For zed_agent (built-in), returns empty string (uses NativeAgent).
+// Zed accepts "zed-agent" as the explicit name for its built-in NativeAgent.
 func (r CodeAgentRuntime) ZedAgentName() string {
 	switch r {
 	case CodeAgentRuntimeQwenCode:
@@ -197,7 +197,7 @@ func (r CodeAgentRuntime) ZedAgentName() string {
 	case CodeAgentRuntimeCodexCLI:
 		return "codex"
 	default: // CodeAgentRuntimeZedAgent or empty
-		return "" // NativeAgent (built-in)
+		return "zed-agent"
 	}
 }
 

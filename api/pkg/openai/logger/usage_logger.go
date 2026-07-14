@@ -26,6 +26,8 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		InteractionID:     call.InteractionID,
 		Model:             call.Model,
 		Provider:          call.Provider,
+		Source:            types.UsageMetricSourceHelixProxy,
+		UsageKnown:        true,
 		PromptTokens:      int(call.PromptTokens),
 		CompletionTokens:  int(call.CompletionTokens),
 		TotalTokens:       int(call.PromptTokens + call.CompletionTokens),
@@ -43,7 +45,16 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		ProjectID:         call.ProjectID,
 	}
 
-	_, err := l.store.CreateUsageMetric(ctx, metric)
+	_, err := l.CreateUsageMetric(ctx, metric)
+	if err != nil {
+		return nil, err
+	}
+
+	return call, nil
+}
+
+func (l *UsageLogger) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
+	created, err := l.store.CreateUsageMetric(ctx, metric)
 	if err != nil {
 		log.Error().
 			Str("user_id", metric.UserID).
@@ -55,5 +66,5 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		return nil, err
 	}
 
-	return call, nil
+	return created, nil
 }

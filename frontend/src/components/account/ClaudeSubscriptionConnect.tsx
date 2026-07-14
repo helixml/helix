@@ -371,10 +371,7 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                             color={sub.status === 'active' ? 'success' : 'warning'}
                             size="small"
                           />
-                        )}
-                        {subIsSetupToken && (
-                          <Chip label="Setup Token" size="small" variant="outlined" />
-                        )}
+                        )}                        
                         {sub.subscription_type && (
                           <Chip label={sub.subscription_type} size="small" variant="outlined" />
                         )}
@@ -472,12 +469,6 @@ const ClaudeSubscriptionConnect: FC<ClaudeSubscriptionConnectProps> = ({
                 {expiry.isExpiringSoon && !isExpired && <WarningAmberIcon sx={{ fontSize: 12 }} />}
                 {isExpired && <ErrorOutlineIcon sx={{ fontSize: 12 }} />}
                 {expiry.label}
-              </Typography>
-            )}
-            {isSetupToken && (
-              <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <CheckCircleIcon sx={{ fontSize: 12 }} />
-                Setup token
               </Typography>
             )}
           </Box>

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Api, TypesSpecTaskUpdateRequest } from "../api/api";
 import useApi from "../hooks/useApi";
 
@@ -91,6 +91,32 @@ export function useSpecTasks(options?: {
     refetchInterval:
       options?.refetchInterval !== undefined ? options.refetchInterval : 10000,
   });
+}
+
+// Fetch the task lists for several projects in parallel. The org chart uses
+// this to show work attached to each bot without making one request depend on
+// another project's response.
+export function useSpecTasksForProjects(
+  projectIds: string[],
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) {
+  const api = useApi();
+  const enabled = options?.enabled !== false;
+  const results = useQueries({
+    queries: projectIds.map((projectId) => ({
+      queryKey: QUERY_KEYS.specTasks(projectId),
+      queryFn: async () => {
+        const response = await api.getApiClient().v1SpecTasksList({
+          project_id: projectId,
+        });
+        return response.data || [];
+      },
+      enabled: enabled && !!projectId,
+      refetchInterval: options?.refetchInterval,
+    })),
+  });
+
+  return results.flatMap((result) => result.data || []);
 }
 
 // Custom hooks for SpecTask operations

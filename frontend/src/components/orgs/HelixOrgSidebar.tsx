@@ -1,5 +1,6 @@
 import { FC } from 'react'
-import { Bot, Network, Radio, Settings } from 'lucide-react'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import { Bot, Network, Settings } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -44,7 +45,8 @@ const HelixOrgSidebar: FC = () => {
         {
           id: 'topics',
           label: 'Topics',
-          icon: <Radio size={18} />,
+          // Same hub glyph as topic cards on the org chart / top nav.
+          icon: <HubOutlinedIcon sx={{ fontSize: 18 }} />,
           isActive: currentRouteName === 'helix_org_topics',
           onClick: () => navigateTo('helix_org_topics'),
         },

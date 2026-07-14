@@ -1,6 +1,7 @@
 package processor_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func newTruncateProc(t *testing.T, maxBytes int) processor.Processor {
 
 func TestTruncateCapsBody(t *testing.T) {
 	p := newTruncateProc(t, 5)
-	res, err := p.Process(streaming.Message{Body: "abcdefghij"})
+	res, err := p.Process(context.Background(), streaming.Message{Body: "abcdefghij"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -35,7 +36,7 @@ func TestTruncateCapsBody(t *testing.T) {
 
 func TestTruncateShortBodyUnchanged(t *testing.T) {
 	p := newTruncateProc(t, 100)
-	res, _ := p.Process(streaming.Message{Body: "short"})
+	res, _ := p.Process(context.Background(), streaming.Message{Body: "short"})
 	if got := res[0].Message.Body; got != "short" {
 		t.Errorf("body = %q, want short", got)
 	}
@@ -46,7 +47,7 @@ func TestTruncateRuneSafe(t *testing.T) {
 	// must back up to a rune boundary (4 bytes = two "é"), never split one.
 	body := strings.Repeat("é", 3) // 6 bytes
 	p := newTruncateProc(t, 5)
-	res, _ := p.Process(streaming.Message{Body: body})
+	res, _ := p.Process(context.Background(), streaming.Message{Body: body})
 	got := res[0].Message.Body
 	if got != "éé" {
 		t.Errorf("body = %q (% x), want éé", got, got)

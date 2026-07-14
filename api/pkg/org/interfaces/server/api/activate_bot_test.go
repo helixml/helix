@@ -65,15 +65,43 @@ func (f *fakeDispatcher) DispatchManual(_ context.Context, orgID string, bid org
 
 // wireActivate rebuilds deps.Activations with the test ensurer +
 // dispatcher so the activate use case (which lives in the activations
-// service now, not the handler) exercises the fakes.
+// service now, not the handler) exercises the fakes. Optional
+// Sessions / Resetter / Stopper on deps are forwarded so restart/stop
+// tests can inject fakes without a second constructor.
 func wireActivate(deps orgapi.Deps, st *store.Store, ensurer activations.ProjectEnsurer, disp activations.ManualDispatcher) orgapi.Deps {
-	deps.Activations = activations.New(activations.Deps{
+	ad := activations.Deps{
 		Repo:       st.Activations,
 		NewID:      func() string { return "act-1" },
 		Ensurer:    ensurer,
 		Dispatcher: disp,
-	})
+	}
+	// Prefer ports already set on deps (restart/stop tests set them first).
+	if deps.BotRuntime != nil {
+		ad.Sessions = botRuntimeSessionAdapter{rt: deps.BotRuntime}
+	}
+	if deps.BotSessionResetter != nil {
+		ad.Resetter = deps.BotSessionResetter
+	}
+	if deps.BotDesktopStopper != nil {
+		ad.Stopper = deps.BotDesktopStopper
+	}
+	deps.Activations = activations.New(ad)
 	return deps
+}
+
+// botRuntimeSessionAdapter adapts the REST BotRuntime port to the
+// activations SessionResolver so restart tests that only set BotRuntime
+// still feed session ids into Activations.Restart.
+type botRuntimeSessionAdapter struct {
+	rt orgapi.BotRuntime
+}
+
+func (a botRuntimeSessionAdapter) SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
+	info, err := a.rt.State(ctx, orgID, workerID)
+	if err != nil {
+		return "", err
+	}
+	return info.SessionID, nil
 }
 
 // TestActivateBot_HappyPath pins the bug-fix contract: POST

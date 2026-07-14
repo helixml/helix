@@ -824,7 +824,7 @@ func (s *HelixAPIServer) cascadeDeleteSlackAppWorkspaces(ctx context.Context, ap
 }
 
 // reactToServiceConnectionChange is the post-mutation hook helix-org
-// registers on the core service-connection handlers (in mountHelixOrg).
+// registers on the core service-connection handlers (in registerHelixOrgRoutes).
 // It reacts only to the type helix-org owns: a slack_app create/edit
 // reconciles Socket Mode, and a slack_app delete also cascade-removes the
 // workspace installs (and their Topics) made from it. Every other

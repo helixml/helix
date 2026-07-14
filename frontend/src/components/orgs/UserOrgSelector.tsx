@@ -464,6 +464,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             'org_billing',
             'org_usage',
             'org_api_keys',
+            'org_providers',
+            'org_provider_detail',
             'org_qa',
             'org_qa-results',
           ]),

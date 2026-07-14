@@ -180,6 +180,17 @@ direct report also gets an `s-team-<managerID>` broadcast topic
    newest-first.
 4. **Live SSE tail**: publish a new event. The new event appears
    at the top within ~1.5s without reload.
+5. **Inline configuration**: the side drawer and detail page show mutable
+   fields immediately, with no Edit step. Save is hidden until a field changes,
+   then appears in the secondary colour and disappears after a successful save.
+6. **Clear messages**: click **Clear messages**, cancel once, then confirm. The
+   retained count and event list become zero without deleting the Topic or its
+   subscribers. Publish another event immediately; it appears in the live tail
+   and the retained count increments again.
+7. **Cron message**: create a `cron` topic, enter a message alongside its
+   weekday/time or interval schedule, and save. Reopen the topic in both the
+   drawer and detail page; the message persists. When the scheduler fires,
+   the event body is the configured message.
 
 ## §7. GitHub topics — one-click setup
 
@@ -890,6 +901,39 @@ an app is present: `SELECT count(*) FROM service_connections WHERE type =
   the global `slack_app` cascade-removes every workspace install it
   produced **and** their `s-slack-ws-*` Topics across all orgs; a
   socket-mode app's live connection is torn down without a restart.
+
+## §19. Human nodes (people in the org graph)
+
+Design: `design/2026-07-07-humans-in-the-org.md`. A human node is a Bot
+with `kind=human` — a placeholder for a real person, **never
+spawned/activated**. Humans are **never free-created**: a human node is
+always the projection of an existing org member (`helix_user_id` is the
+anchor). Membership drives the nodes; there is no `create_human` tool and
+no "New human" button.
+
+1. **Org create → human node + Chief of Staff (peers, no edge).** Create a
+   new org. The chart at `…/helix-org/chart` shows **two unconnected**
+   nodes: your human node (id `h-<yourUserID>`, display = your name,
+   rendered with a person icon / blue border / **Human** label) and a
+   **Chief of Staff** bot. There is **no reporting line** between them —
+   humans stay out of the reporting graph. Confirm DB:
+   `SELECT id, kind, helix_user_id FROM org_bots WHERE org_id='<org>'`
+   → an `h-<userID>` row `kind='human'` + a `chief-of-staff` row
+   `kind=''`; `SELECT * FROM org_reporting_lines WHERE org_id='<org>'`
+   → **zero rows** referencing the human node.
+2. **No tools on the human** (`SELECT tools FROM org_bots WHERE
+   id='h-<userID>'` → null/empty — a human never makes an MCP request).
+3. **Add a member → their node appears.** Add a second member (invite +
+   accept, or add-member). A `h-<theirUserID>` human node appears on the
+   chart. Remove them → the node disappears
+   (`org_bots` row gone).
+4. **Human is never activated.** Subscribe a human node to any topic and
+   publish an event to it: no agent run is spawned for the human
+   (`org_activations` has no `worker_id='h-<userID>'` row) — the
+   dispatcher skips human subscribers (`b.IsHuman()` guard).
+5. **`who owns X` (no new code).** A bot with `list_bots` reads a human
+   node's content and can name them as an owner — prompt-driven over the
+   existing read surface.
 
 ## Pass criteria
 

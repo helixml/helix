@@ -371,11 +371,10 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 }
 
 // markHelixOrgAgents sets IsHelixOrgAgent on any app that backs a Helix
-// org-chart Worker for the given org. Org-chart Workers only exist when the
-// helix-org feature is enabled and are always org-scoped, so this is a no-op
-// otherwise.
+// org-chart Worker for the given org. Org-chart Workers are always
+// org-scoped, so this is a no-op without an org id or apps.
 func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, apps []*types.App) *system.HTTPError {
-	if !s.Cfg.HelixOrgEnabled || orgID == "" || len(apps) == 0 {
+	if orgID == "" || len(apps) == 0 {
 		return nil
 	}
 

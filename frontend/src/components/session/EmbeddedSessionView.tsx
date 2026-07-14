@@ -56,6 +56,7 @@ import { SESSION_TYPE_TEXT } from "../../types";
 interface EmbeddedSessionViewProps {
   sessionId: string;
   onScrollToBottom?: () => void;
+  enableInteractionDebugCopy?: boolean;
   // When true, force the (otherwise persisted, globally-shared)
   // auto-scroll preference ON when this view mounts. Surfaces that want
   // the transcript to follow live output by default — e.g. the helix-org
@@ -94,7 +95,7 @@ export interface EmbeddedSessionViewHandle {
 const EmbeddedSessionView = forwardRef<
   EmbeddedSessionViewHandle,
   EmbeddedSessionViewProps
->(({ sessionId, onScrollToBottom, autoScrollOnMount }, ref) => {
+>(({ sessionId, onScrollToBottom, autoScrollOnMount, enableInteractionDebugCopy }, ref) => {
   const account = useAccount();
   const api = useApi();
   const lightTheme = useLightTheme();
@@ -371,6 +372,13 @@ const EmbeddedSessionView = forwardRef<
       // yank the viewport.
       if (newHeight <= prevHeight) return;
 
+      // Disclosure bodies grow below their clicked header. Do not treat that
+      // operator action as new chat output and yank the viewport to the bottom.
+      if (container.dataset.preserveDisclosureExpansion === "true") {
+        delete container.dataset.preserveDisclosureExpansion;
+        return;
+      }
+
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
         lastScrolledHeightRef.current = container.scrollHeight;
@@ -643,6 +651,7 @@ const EmbeddedSessionView = forwardRef<
       )}
       <Box
         ref={containerRef}
+        data-session-scroll-container
         onScroll={handleScroll}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
@@ -717,6 +726,7 @@ const EmbeddedSessionView = forwardRef<
                 scrollToBottom={scrollToBottom}
                 session_id={sessionId}
                 sessionSteps={sessionSteps?.data || []}
+                enableDebugCopy={enableInteractionDebugCopy}
               >
                 {isLive && (isOwner || account.admin) && (
                   <InteractionLiveStream

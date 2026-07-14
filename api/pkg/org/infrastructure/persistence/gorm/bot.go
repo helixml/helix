@@ -30,9 +30,15 @@ type botRow struct {
 	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
+	ProjectIDs      []string `gorm:"serializer:json"`
 	PreserveContext bool     `gorm:"not null;default:false"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// Kind is "" (agent) or "human". HelixUserID / Identity are only
+	// populated for human placeholder rows.
+	Kind        string            `gorm:"not null;default:'';index"`
+	HelixUserID string            `gorm:"not null;default:''"`
+	Identity    map[string]string `gorm:"serializer:json"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func (botRow) TableName() string { return "org_bots" }
@@ -53,7 +59,11 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 		Name:            b.Name,
 		Content:         b.Content,
 		Tools:           tools,
+		ProjectIDs:      b.ProjectIDs,
 		PreserveContext: b.PreserveContext,
+		Kind:            b.Kind,
+		HelixUserID:     b.HelixUserID,
+		Identity:        b.Identity,
 		CreatedAt:       b.CreatedAt,
 		UpdatedAt:       b.UpdatedAt,
 	}, nil
@@ -73,7 +83,11 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
+		ProjectIDs:      row.ProjectIDs,
 		PreserveContext: row.PreserveContext,
+		Kind:            row.Kind,
+		HelixUserID:     row.HelixUserID,
+		Identity:        row.Identity,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}, nil
@@ -112,6 +126,17 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	if err != nil {
 		return fmt.Errorf("marshal tools: %w", err)
 	}
+	projectIDsJSON, err := json.Marshal(row.ProjectIDs)
+	if err != nil {
+		return fmt.Errorf("marshal project ids: %w", err)
+	}
+	// Pre-marshal identity for the same reason as tools: the serializer:json
+	// tag does not apply on a map[string]any Updates, so pgx can't infer the
+	// jsonb column type from a bare map[string]string parameter.
+	identityJSON, err := json.Marshal(row.Identity)
+	if err != nil {
+		return fmt.Errorf("marshal identity: %w", err)
+	}
 	return r.Repository.Update(ctx,
 		store.WithOrg(row.OrgID),
 		store.WithID(row.ID),
@@ -119,7 +144,11 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 			"name":             row.Name,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
+			"project_ids":      string(projectIDsJSON),
 			"preserve_context": row.PreserveContext,
+			"kind":             row.Kind,
+			"helix_user_id":    row.HelixUserID,
+			"identity":         string(identityJSON),
 			"updated_at":       row.UpdatedAt,
 		}),
 	)

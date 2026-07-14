@@ -144,6 +144,12 @@ func (NoopHireHook) OnHire(_ context.Context, _ string, _ orgchart.BotID, _ stri
 type ProjectConfig interface {
 	GetWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID) (ProjectConfigSnapshot, error)
 	UpdateWorkerProjectConfig(ctx context.Context, orgID string, workerID orgchart.BotID, patch ProjectConfigPatch) (ProjectConfigSnapshot, error)
+	// ListWorkerProjectSecrets returns the worker's project secrets as a
+	// name→value map, read live so a secret added after the container
+	// booted is visible without a restart. Backs the list_secrets tool:
+	// the agent reads these and exports the ones it needs, the same way
+	// mint_credential feeds gh/git tokens into the shell.
+	ListWorkerProjectSecrets(ctx context.Context, orgID string, workerID orgchart.BotID) (map[string]string, error)
 }
 
 // ProjectConfigSnapshot is the read shape returned by
@@ -181,6 +187,10 @@ func (NoopProjectConfig) UpdateWorkerProjectConfig(_ context.Context, _ string, 
 	return ProjectConfigSnapshot{}, ErrProjectConfigUnsupported
 }
 
+func (NoopProjectConfig) ListWorkerProjectSecrets(_ context.Context, _ string, _ orgchart.BotID) (map[string]string, error) {
+	return nil, ErrProjectConfigUnsupported
+}
+
 // ErrProjectConfigUnsupported is what the noop impl returns. Tools
 // translate it into a friendly snackbar / MCP error.
 var ErrProjectConfigUnsupported = errors.New("project config access not wired on this runtime")
@@ -208,9 +218,15 @@ type SpecTasks interface {
 	List(ctx context.Context, orgID string, workerID orgchart.BotID, projectID string, filter ListSpecTasksFilter) ([]SpecTaskView, error)
 	// Get returns one spec task; it must belong to the target project.
 	Get(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
+	// Update changes a task's editable metadata without bypassing its
+	// lifecycle workflow.
+	Update(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string, in UpdateSpecTaskInput) (SpecTaskView, error)
 	// StartPlanning begins spec generation (or queues implementation
 	// when the task is in skip-planning / just-do-it mode).
 	StartPlanning(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
+	// StopAgent stops the task's running desktop, if any. It leaves the task
+	// and session records intact so work can be resumed.
+	StopAgent(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecTaskView, error)
 	// ReviewSpec returns the generated requirements/design/tasks for the
 	// caller to review before approving or requesting changes.
 	ReviewSpec(ctx context.Context, orgID string, workerID orgchart.BotID, projectID, taskID string) (SpecReviewView, error)
@@ -236,6 +252,17 @@ type CreateSpecTaskInput struct {
 	OriginalPrompt string   `json:"original_prompt,omitempty"`
 	SkipPlanning   bool     `json:"skip_planning,omitempty"`
 	DependsOn      []string `json:"depends_on,omitempty"`
+}
+
+// UpdateSpecTaskInput is the safe metadata-edit surface. Lifecycle state
+// changes use the dedicated start/review/approve/stop verbs instead.
+type UpdateSpecTaskInput struct {
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Type         *string   `json:"type,omitempty"`
+	Priority     *string   `json:"priority,omitempty"`
+	SkipPlanning *bool     `json:"skip_planning,omitempty"`
+	DependsOn    *[]string `json:"depends_on,omitempty"`
 }
 
 // ListSpecTasksFilter narrows a List call. Empty fields = no filter.
@@ -290,7 +317,13 @@ func (NoopSpecTasks) List(_ context.Context, _ string, _ orgchart.BotID, _ strin
 func (NoopSpecTasks) Get(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
+func (NoopSpecTasks) Update(_ context.Context, _ string, _ orgchart.BotID, _, _ string, _ UpdateSpecTaskInput) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
 func (NoopSpecTasks) StartPlanning(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
+	return SpecTaskView{}, ErrSpecTasksUnsupported
+}
+func (NoopSpecTasks) StopAgent(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecTaskView, error) {
 	return SpecTaskView{}, ErrSpecTasksUnsupported
 }
 func (NoopSpecTasks) ReviewSpec(_ context.Context, _ string, _ orgchart.BotID, _, _ string) (SpecReviewView, error) {
@@ -350,3 +383,66 @@ func (NoopProjects) Get(_ context.Context, _, _ string) (ProjectView, error) {
 // ErrProjectsUnsupported is what the noop impl returns. Tools translate it
 // into a friendly MCP error.
 var ErrProjectsUnsupported = errors.New("project access not wired on this runtime")
+
+// Repositories is the port the org MCP repository tools use to list the
+// Helix git repositories in the caller's org and attach/detach them on a
+// Bot's project so that Bot's sandbox can clone and work in them.
+//
+// List is always org-scoped. Attach/Detach/ListForBot resolve the Bot's
+// Helix project via runtime state (a Bot with no project yet — never
+// activated — returns ErrBotProjectNotReady). Other runtimes plug in
+// NoopRepositories and the tools surface ErrRepositoriesUnsupported.
+type Repositories interface {
+	// List returns every git repository belonging to the org.
+	List(ctx context.Context, orgID string) ([]RepoView, error)
+	// ListForBot returns the repositories currently attached to the Bot's
+	// Helix project. Primary is marked when the project default_repo_id
+	// matches.
+	ListForBot(ctx context.Context, orgID string, botID orgchart.BotID) ([]RepoView, error)
+	// AttachToBot attaches an org repository to the Bot's project.
+	// primary=true also sets it as the project's default/primary repo.
+	AttachToBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string, primary bool) ([]RepoView, error)
+	// DetachFromBot removes a repository from the Bot's project.
+	DetachFromBot(ctx context.Context, orgID string, botID orgchart.BotID, repoID string) ([]RepoView, error)
+}
+
+// RepoView is the tool-facing projection of a Helix git repository.
+// Append-only from the JSON wire format.
+type RepoView struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	CloneURL      string `json:"clone_url,omitempty"`
+	ExternalURL   string `json:"external_url,omitempty"`
+	ExternalType  string `json:"external_type,omitempty"`
+	IsExternal    bool   `json:"is_external,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Primary is only meaningful when the view is returned for a Bot
+	// (ListForBot / Attach / Detach): true when this repo is the project's
+	// default_repo_id.
+	Primary bool `json:"primary,omitempty"`
+}
+
+// NoopRepositories is the default for tools.Deps so unwired runtimes
+// don't crash.
+type NoopRepositories struct{}
+
+func (NoopRepositories) List(_ context.Context, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) ListForBot(_ context.Context, _ string, _ orgchart.BotID) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) AttachToBot(_ context.Context, _ string, _ orgchart.BotID, _ string, _ bool) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+func (NoopRepositories) DetachFromBot(_ context.Context, _ string, _ orgchart.BotID, _ string) ([]RepoView, error) {
+	return nil, ErrRepositoriesUnsupported
+}
+
+// ErrRepositoriesUnsupported is what the noop impl returns.
+var ErrRepositoriesUnsupported = errors.New("repository access not wired on this runtime")
+
+// ErrBotProjectNotReady means the Bot has no Helix project yet (typically
+// never activated). Tools surface a clear "activate the bot first" message.
+var ErrBotProjectNotReady = errors.New("bot has no helix project yet — activate it first")

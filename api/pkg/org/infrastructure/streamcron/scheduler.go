@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -286,13 +287,33 @@ type scheduledBody struct {
 // tests can call it directly without going through gocron.
 func (c *Scheduler) fire(ctx context.Context, orgID string, topicID streaming.TopicID) error {
 	firedAt := c.now()
-	body, err := json.Marshal(scheduledBody{
-		Kind:    "scheduled",
-		FiredAt: firedAt.UTC().Format(time.RFC3339),
-		TopicID: string(topicID),
-	})
+	topic, err := c.store.Topics.Get(ctx, orgID, topicID)
 	if err != nil {
-		return fmt.Errorf("encode body: %w", err)
+		return fmt.Errorf("get topic: %w", err)
+	}
+	cfg, err := topic.Transport.CronConfig()
+	if err != nil {
+		return fmt.Errorf("parse cron config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate cron config: %w", err)
+	}
+
+	body := cfg.Message
+	bodyContentType := "text/plain"
+	if strings.TrimSpace(body) == "" {
+		// Preserve the structured payload for existing cron topics that do
+		// not have a configured message.
+		bodyBytes, err := json.Marshal(scheduledBody{
+			Kind:    "scheduled",
+			FiredAt: firedAt.UTC().Format(time.RFC3339),
+			TopicID: string(topicID),
+		})
+		if err != nil {
+			return fmt.Errorf("encode body: %w", err)
+		}
+		body = string(bodyBytes)
+		bodyContentType = "application/json"
 	}
 
 	// Wrap as a Message envelope so downstream readers (which always
@@ -302,7 +323,7 @@ func (c *Scheduler) fire(ctx context.Context, orgID string, topicID streaming.To
 		From:            "", // system-emitted
 		Subject:         "Scheduled trigger",
 		Body:            string(body),
-		BodyContentType: "application/json",
+		BodyContentType: bodyContentType,
 	}
 	event, err := streaming.NewMessageEvent(
 		streaming.EventID("e-"+c.newID()),

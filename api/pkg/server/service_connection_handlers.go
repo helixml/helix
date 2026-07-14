@@ -31,7 +31,7 @@ var errNothingToValidate = errors.New("nothing to validate: a REST Slack app's s
 // (deleted=false) or deleted (deleted=true). This handler stays generic:
 // it knows the connection types and their credentials but nothing about
 // which subsystem reacts or why (helix-org reacts to slack_app changes,
-// registered in mountHelixOrg). No-op when nothing is registered.
+// registered in registerHelixOrgRoutes). No-op when nothing is registered.
 func (s *HelixAPIServer) notifyServiceConnectionChange(ctx context.Context, conn *types.ServiceConnection, deleted bool) {
 	if s.onServiceConnectionChange != nil {
 		s.onServiceConnectionChange(ctx, conn, deleted)
