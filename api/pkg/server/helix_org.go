@@ -520,6 +520,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		return nil, fmt.Errorf("init spec tasks: %w", err)
 	}
 	deps.SpecTasks = specTasks
+	deps.ProjectAccess = specTasks
 
 	// Projects backs the project-discovery MCP tools (list_projects,
 	// get_project) — org-scoped reads so an org-wide PM Bot can find the

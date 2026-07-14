@@ -144,6 +144,9 @@ type Config struct {
 	// nil → Build defaults to runtime.NoopProjects{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
 	Projects runtime.Projects
+	// ProjectAccess resolves the caller Bot's own runtime project so project
+	// discovery can combine it with the explicit per-Bot allowlist.
+	ProjectAccess projects.OwnProjectResolver
 	// Repositories is the runtime port for org git-repo list/attach/detach.
 	// nil → Build defaults to runtime.NoopRepositories{}.
 	Repositories        runtime.Repositories
@@ -229,7 +232,7 @@ func (c Config) projectsService() *projects.Service {
 	if c.Queries != nil {
 		members = c.Queries
 	}
-	return projects.New(port, members)
+	return projects.New(port, members, c.ProjectAccess)
 }
 
 // specTasksService builds the spec-task application service over the

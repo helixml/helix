@@ -73,6 +73,15 @@ func NewSpecTasks(orgStore *store.Store, tasks SpecTaskStore, workflow SpecTaskW
 
 var _ runtime.SpecTasks = (*SpecTasks)(nil)
 
+// OwnProjectID exposes the runtime-owned project pointer to project discovery.
+func (s *SpecTasks) OwnProjectID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error) {
+	state, err := LoadState(ctx, s.orgStore, orgID, workerID)
+	if err != nil {
+		return "", fmt.Errorf("load worker state: %w", err)
+	}
+	return state.ProjectID, nil
+}
+
 // resolveProject decides which project a call acts on and returns the
 // acting (hiring) user. When requestedProjectID is empty the call targets
 // the Worker's OWN project (resolved from runtime state) — the original
