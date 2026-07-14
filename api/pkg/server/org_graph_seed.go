@@ -153,7 +153,7 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	// Activating now would provision CoS on the seed-time default
 	// (claude_code/subscription/no-model → renders as gpt). The deferred bot
 	// shows on the chart and is provisioned correctly once the operator sets
-	// the Default Bot Runtime (reapplyBotsAfterRuntimeChange). The id is used
+	// the default agent configuration. The id is used
 	// exactly (`chief-of-staff`); a collision means already-seeded.
 	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              string(chiefOfStaffBotID),

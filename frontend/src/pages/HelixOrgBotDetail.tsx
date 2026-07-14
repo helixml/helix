@@ -48,7 +48,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import Tooltip from '@mui/material/Tooltip'
 
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
-import BotRuntimeForm, { BotRuntimeValue } from '../components/helix-org/BotRuntimeForm'
+import AgentConfigForm, { AgentConfigValue } from '../components/helix-org/BotRuntimeForm'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -145,7 +145,7 @@ const HelixOrgBotDetail: FC = () => {
   const [tools, setTools] = useState<string[]>([])
   const [projectIDs, setProjectIDs] = useState<string[]>([])
   const [preserveContext, setPreserveContext] = useState(false)
-  const [runtimeConfig, setRuntimeConfig] = useState<BotRuntimeValue>({
+  const [runtimeConfig, setRuntimeConfig] = useState<AgentConfigValue>({
     runtime: '',
     credentials: '',
     provider: '',
@@ -634,7 +634,7 @@ const HelixOrgBotDetail: FC = () => {
 
                 {agentAppID && (
                   <Box>
-                    <BotRuntimeForm
+                    <AgentConfigForm
                       value={runtimeConfig}
                       showReasoningEffort
                       onChange={(patch) => setRuntimeConfig((current) => ({ ...current, ...patch }))}
