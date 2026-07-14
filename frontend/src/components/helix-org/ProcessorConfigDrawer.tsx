@@ -11,6 +11,7 @@
 import { FC, useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -22,11 +23,13 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
+import TransformIcon from '@mui/icons-material/Transform'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import useRouter from '../../hooks/useRouter'
 import MonacoEditor from '../widgets/MonacoEditor'
 import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
+import HelixOrgOverviewCard from './HelixOrgOverviewCard'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 import {
   ProcessorDTO,
@@ -391,15 +394,19 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
       ) : undefined}
     >
         <Stack spacing={1.5}>
-          {isEdit && (
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography variant="caption" color="text.secondary">Processor ID</Typography>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
-                {processor!.id}
-              </Typography>
-              <CopyButtonWithCheck text={processor!.id} />
-            </Stack>
-          )}
+          <HelixOrgOverviewCard
+            title={name || (isEdit ? processor!.name : 'New processor') || 'Processor'}
+            id={isEdit ? processor!.id : 'new processor'}
+            idAction={isEdit ? <CopyButtonWithCheck text={processor!.id} /> : undefined}
+            icon={<TransformIcon sx={{ fontSize: 20 }} />}
+            status={<Chip label={kind} size="small" sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)', border: '1px solid rgba(255,255,255,0.22)' }} />}
+          >
+            <Chip
+              label={`${kind === 'filter' || kind === 'js' ? filterRows.length : 1} output${(kind === 'filter' || kind === 'js') && filterRows.length !== 1 ? 's' : ''}`}
+              size="small"
+              sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)' }}
+            />
+          </HelixOrgOverviewCard>
           <Typography variant="body2" color="text.secondary">
             A processor sits between topics: it reads messages from one topic,
             then rewrites, shortens, sorts, or runs JavaScript on them onto new topics that bots can subscribe to.

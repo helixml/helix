@@ -1,6 +1,7 @@
 import { FC, Fragment, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -71,6 +72,7 @@ import {
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
+import BotDetailDrawer from '../components/helix-org/BotDetailDrawer'
 import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
@@ -91,6 +93,7 @@ import {
   useDeleteHelixOrgTopic,
   useListChartPositions,
   useListHelixOrgBots,
+  useListHelixOrgBotDetails,
   useListHelixOrgTopics,
   useTopicMessageCounts,
   useListHelixOrgProcessors,
@@ -104,6 +107,9 @@ import {
   useUnsubscribeBotAtChart,
   useUpsertChartPositions,
 } from '../services/helixOrgService'
+import { useSpecTasksForProjects } from '../services/specTaskService'
+import type { SpecTask } from '../services/specTaskService'
+import { useListProjects } from '../services/projectService'
 import { generateCronShortSummary } from '../utils/cronUtils'
 
 // The chart visualises the org as a ReactFlow graph. Bots are plain
@@ -130,6 +136,14 @@ const BOT_GAP_Y = 90
 const STREAM_W = 180
 // Minimum topic card height; actual height grows with wrapped name/id.
 const STREAM_H = 80
+
+type ActiveBotTaskStatus = 'implementation' | 'implementation_review' | 'implementing'
+
+type ActiveBotTask = {
+  id: string
+  name: string
+  status: ActiveBotTaskStatus
+}
 
 // Rough height used by auto-layout before RF measures the real node.
 // Keeps stacked topics from overlapping when names wrap to multiple lines.
@@ -164,6 +178,7 @@ type FlatBot = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
+  activeTasks: ActiveBotTask[]
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -175,9 +190,10 @@ type BotNodeData = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
+  activeTasks: ActiveBotTask[]
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
-  /** Card body click — focus the left chat rail on this bot. */
+  /** Card body click — focus the left chat rail and open the bot drawer. */
   onSelectBot: (botId: string) => void
   /** ⋮ → Details — open the bot detail page. */
   onOpenBotDetails: (botId: string) => void
@@ -357,6 +373,60 @@ const SubSideHandles: FC<{ size?: number }> = ({ size = 16 }) => (
   </Fragment>
 )
 
+const BotWorkPills: FC<{ tasks: ActiveBotTask[]; isLight: boolean }> = ({ tasks, isLight }) => {
+  if (tasks.length === 0) return null
+
+  const groups = [
+    {
+      key: 'implementation',
+      label: 'Implementing',
+      statuses: new Set<ActiveBotTaskStatus>(['implementation', 'implementing']),
+      color: isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)',
+      background: isLight ? 'rgba(180,100,0,0.10)' : 'rgba(255,180,80,0.14)',
+    },
+    {
+      key: 'review',
+      label: 'In review',
+      statuses: new Set<ActiveBotTaskStatus>(['implementation_review']),
+      color: isLight ? 'rgba(110,70,180,0.95)' : 'rgba(190,150,255,0.95)',
+      background: isLight ? 'rgba(110,70,180,0.10)' : 'rgba(190,150,255,0.14)',
+    },
+  ]
+
+  return (
+    <Stack direction="row" spacing={0.5} sx={{ minWidth: 0, overflow: 'hidden', mt: -0.25 }}>
+      {groups.map((group) => {
+        const matchingTasks = tasks.filter((task) => group.statuses.has(task.status))
+        if (matchingTasks.length === 0) return null
+        const taskNames = matchingTasks.map((task) => task.name || task.id).join('\n')
+        return (
+          <Tooltip key={group.key} title={taskNames}>
+            <Chip
+              className={NO_DRAG_NO_PAN}
+              label={matchingTasks.length === 1 ? group.label : `${group.label} · ${matchingTasks.length}`}
+              size="small"
+              sx={{
+                height: 18,
+                maxWidth: '100%',
+                color: group.color,
+                backgroundColor: group.background,
+                border: `1px solid ${group.color}`,
+                '& .MuiChip-label': {
+                  px: 0.6,
+                  fontSize: '0.58rem',
+                  lineHeight: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                },
+              }}
+            />
+          </Tooltip>
+        )
+      })}
+    </Stack>
+  )
+}
+
 const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
   const lightTheme = useLightTheme()
   const muted = lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
@@ -526,6 +596,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
           </Menu>
         </Stack>
       </Stack>
+      <BotWorkPills tasks={data.activeTasks} isLight={lightTheme.isLight} />
       <Typography
         variant="caption"
         sx={{ color: muted, fontSize: '0.65rem', mt: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -866,6 +937,7 @@ const buildGraph = (
         agentStatus: b.agentStatus,
         agentRuntime: b.agentRuntime,
         agentModel: b.agentModel,
+        activeTasks: b.activeTasks,
         selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
@@ -1860,6 +1932,8 @@ const HelixOrgChart: FC = () => {
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
   const router = useRouter()
+  const account = useAccount()
+  const orgID = account.organizationTools.organization?.id ?? ''
   // Chart is the org root of helix-org — breadcrumb is just the org name.
   const breadcrumbs = useHelixOrgBreadcrumbs()
   // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
@@ -1868,6 +1942,7 @@ const HelixOrgChart: FC = () => {
   const { data: streamsData } = useListHelixOrgTopics()
   const { data: processorsData } = useListHelixOrgProcessors()
   const { data: savedPositions = {} } = useListChartPositions()
+  const { data: projects = [] } = useListProjects(orgID, { enabled: !!orgID })
   const upsertPositions = useUpsertChartPositions()
   const clearPositions = useClearChartPositions()
   const deleteBot = useDeleteBot()
@@ -1882,6 +1957,62 @@ const HelixOrgChart: FC = () => {
   const stopBot = useStopBotAgent()
   const restartBot = useRestartBotAgent()
 
+  const botIds = useMemo(
+    () => (botsData ?? [])
+      .filter((bot: BotDTO) => bot.kind !== 'human')
+      .map((bot: BotDTO) => bot.id ?? '')
+      .filter(Boolean),
+    [botsData],
+  )
+  const botDetails = useListHelixOrgBotDetails(botIds, { refetchInterval: 5000 })
+  const projectIds = useMemo(
+    () => projects.map((project) => project.id ?? '').filter(Boolean),
+    [projects],
+  )
+  const specTasks = useSpecTasksForProjects(projectIds, {
+    enabled: !!orgID,
+    refetchInterval: 5000,
+  }) as SpecTask[]
+
+  const tasksByBotId = useMemo(() => {
+    const projectsByID = new Map(projects.map((project) => [project.id ?? '', project]))
+    const tasksByBotId = new Map<string, SpecTask[]>()
+
+    botDetails.forEach((detail, index) => {
+      const botId = botIds[index]
+      if (botId) tasksByBotId.set(botId, [])
+      if (!botId || !detail) return
+
+      const botProjectID = detail.project_id ?? ''
+      const botAgentAppID = detail.agent_app_id ?? ''
+      const botTasks = specTasks.filter((task) => {
+        const taskProject = projectsByID.get(task.project_id ?? '')
+        const taskAgentAppID = task.helix_app_id || taskProject?.default_helix_app_id
+        return (
+          (!!botProjectID && task.project_id === botProjectID) ||
+          (!!botAgentAppID && taskAgentAppID === botAgentAppID)
+        )
+      })
+      tasksByBotId.set(botId, botTasks)
+    })
+
+    return tasksByBotId
+  }, [botDetails, botIds, projects, specTasks])
+
+  const activeTasksByBotId = useMemo(() => {
+    const active = new Map<string, ActiveBotTask[]>()
+    tasksByBotId.forEach((tasks, botId) => {
+      active.set(botId, tasks
+        .filter((task) => ['implementation', 'implementation_review', 'implementing'].includes(String(task.status ?? '')))
+        .map((task) => ({
+          id: task.id ?? '',
+          name: task.user_short_title || task.short_title || task.name || task.id || 'Untitled task',
+          status: String(task.status) as ActiveBotTaskStatus,
+        })))
+    })
+    return active
+  }, [tasksByBotId])
+
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? [])
       // People (kind=human) are managed in the People tab, not on the agent
@@ -1894,8 +2025,9 @@ const HelixOrgChart: FC = () => {
         agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
         agentRuntime: b.agent_runtime ?? '',
         agentModel: b.agent_model ?? '',
+        activeTasks: activeTasksByBotId.get(b.id ?? '') ?? [],
       })),
-    [botsData],
+    [activeTasksByBotId, botsData],
   )
 
   // People (kind=human) — shown in the docked PeoplePanel on the chart, not
@@ -1977,6 +2109,7 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [botDrawerBotId, setBotDrawerBotId] = useState<string>()
   const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
   const [selectedTopicId, setSelectedTopicId] = useState<string>()
   // Processor drawer: { open, processor } — processor null = create mode.
@@ -2023,11 +2156,27 @@ const HelixOrgChart: FC = () => {
     window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
     return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
   }, [orgSlug])
-  // Card body click → focus left chat rail on this bot (stay on chart).
+  const botDetailsByID = useMemo(
+    () => new Map(botIds.map((botId, index) => [botId, botDetails[index]])),
+    [botDetails, botIds],
+  )
+  const selectedBot = useMemo(
+    () => (botsData ?? []).find((bot) => bot.id === botDrawerBotId),
+    [botDrawerBotId, botsData],
+  )
+  const selectedBotDetail = botDrawerBotId ? botDetailsByID.get(botDrawerBotId) : undefined
+  const selectedBotProject = useMemo(
+    () => projects.find((project) => project.id === selectedBotDetail?.project_id),
+    [projects, selectedBotDetail?.project_id],
+  )
+  const selectedBotTasks = botDrawerBotId ? tasksByBotId.get(botDrawerBotId) ?? [] : []
+
+  // Card body click → focus the left chat rail and open the bot drawer.
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
       setSelectedBotId(botId)
+      setBotDrawerBotId(botId)
       focusChatBot(orgSlug, botId)
     },
     [orgSlug],
@@ -2389,6 +2538,13 @@ const HelixOrgChart: FC = () => {
         open={botDialogOpen || selection.kind === 'newBot'}
         onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }) }}
         presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
+      />
+      <BotDetailDrawer
+        botId={botDrawerBotId}
+        bot={selectedBot}
+        project={selectedBotProject}
+        tasks={selectedBotTasks}
+        onClose={() => setBotDrawerBotId(undefined)}
       />
       <NewTopicDrawer
         open={topicDrawerOpen}

@@ -30,6 +30,7 @@ type botRow struct {
 	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
+	ProjectIDs      []string `gorm:"serializer:json"`
 	PreserveContext bool     `gorm:"not null;default:false"`
 	// Kind is "" (agent) or "human". HelixUserID / Identity are only
 	// populated for human placeholder rows.
@@ -58,6 +59,7 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 		Name:            b.Name,
 		Content:         b.Content,
 		Tools:           tools,
+		ProjectIDs:      b.ProjectIDs,
 		PreserveContext: b.PreserveContext,
 		Kind:            b.Kind,
 		HelixUserID:     b.HelixUserID,
@@ -81,6 +83,7 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
+		ProjectIDs:      row.ProjectIDs,
 		PreserveContext: row.PreserveContext,
 		Kind:            row.Kind,
 		HelixUserID:     row.HelixUserID,
@@ -123,6 +126,10 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 	if err != nil {
 		return fmt.Errorf("marshal tools: %w", err)
 	}
+	projectIDsJSON, err := json.Marshal(row.ProjectIDs)
+	if err != nil {
+		return fmt.Errorf("marshal project ids: %w", err)
+	}
 	// Pre-marshal identity for the same reason as tools: the serializer:json
 	// tag does not apply on a map[string]any Updates, so pgx can't infer the
 	// jsonb column type from a bare map[string]string parameter.
@@ -137,6 +144,7 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 			"name":             row.Name,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
+			"project_ids":      string(projectIDsJSON),
 			"preserve_context": row.PreserveContext,
 			"kind":             row.Kind,
 			"helix_user_id":    row.HelixUserID,

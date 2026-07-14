@@ -75,6 +75,10 @@ definitions:
           Bot's chat session before each re-activation, so it accumulates
           context across triggers (e.g. Slack). Defaults to false.
         type: boolean
+      project_ids:
+        items:
+          type: string
+        type: array
       tools:
         items:
           type: string
@@ -549,6 +553,10 @@ definitions:
         type: string
       preserve_context:
         type: boolean
+      project_ids:
+        items:
+          type: string
+        type: array
       tools:
         items:
           type: string

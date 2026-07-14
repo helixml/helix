@@ -156,6 +156,7 @@ type UpdateParams struct {
 	Name            *string
 	Content         *string
 	Tools           *[]tool.Name
+	ProjectIDs      *[]string
 	PreserveContext *bool
 	// Identity, when non-nil, replaces the bot's per-channel handle map
 	// (human nodes only). nil leaves it unchanged.
@@ -180,6 +181,9 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 	if p.Tools != nil {
 		updated = updated.WithTools(*p.Tools)
 	}
+	if p.ProjectIDs != nil {
+		updated = updated.WithProjectIDs(normalizeProjectIDs(*p.ProjectIDs))
+	}
 	if p.PreserveContext != nil {
 		updated = updated.WithPreserveContext(*p.PreserveContext)
 	}
@@ -191,6 +195,23 @@ func (s *Bots) Update(ctx context.Context, orgID string, id orgchart.BotID, p Up
 		return orgchart.Bot{}, err
 	}
 	return updated, nil
+}
+
+func normalizeProjectIDs(projectIDs []string) []string {
+	seen := make(map[string]struct{}, len(projectIDs))
+	out := make([]string, 0, len(projectIDs))
+	for _, projectID := range projectIDs {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" {
+			continue
+		}
+		if _, ok := seen[projectID]; ok {
+			continue
+		}
+		seen[projectID] = struct{}{}
+		out = append(out, projectID)
+	}
+	return out
 }
 
 // AttachTools grants the named tools to a Bot: the union of its current

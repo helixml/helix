@@ -281,7 +281,10 @@ func TestPatchBot_UpdatesContent(t *testing.T) {
 	seedBot(t, st, ctx, "b-alice", "# Owner\noriginal body")
 
 	content := "# Owner v2\nupdated body"
-	rec := do(t, h, "PATCH", "/bots/b-alice", orgapi.UpdateBotRequest{Content: &content})
+	rec := do(t, h, "PATCH", "/bots/b-alice", orgapi.UpdateBotRequest{
+		Content:    &content,
+		ProjectIDs: []string{"prj_own", "prj_extra"},
+	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -294,6 +297,9 @@ func TestPatchBot_UpdatesContent(t *testing.T) {
 	decode(t, rec, &detail)
 	if detail.Bot.Content != "# Owner v2\nupdated body" {
 		t.Errorf("bot content: got %q, want updated", detail.Bot.Content)
+	}
+	if got := strings.Join(detail.Bot.ProjectIDs, ","); got != "prj_own,prj_extra" {
+		t.Errorf("project ids: got %q, want prj_own,prj_extra", got)
 	}
 }
 

@@ -240,6 +240,7 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		Name:            req.Name,
 		Content:         req.Content,
 		Tools:           toolsPatch,
+		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
 		PreserveContext: req.PreserveContext,
 		Identity:        identityPatch,
 	})
@@ -608,6 +609,7 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 		ID:              string(b.ID),
 		Name:            b.Name,
 		Content:         b.Content,
+		ProjectIDs:      b.ProjectIDs,
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
@@ -628,6 +630,13 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	sort.Strings(tools)
 	dto.Tools = tools
 	return dto
+}
+
+func stringSlicePatch(in []string) *[]string {
+	if in == nil {
+		return nil
+	}
+	return &in
 }
 
 func toToolNames(in []string) []tool.Name {
