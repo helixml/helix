@@ -1,24 +1,23 @@
 package configregistry
 
-import "context"
+import (
+	"context"
+
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 const DefaultAgentConfigKey = "agent.default"
 
-type DefaultAgentConfig struct {
-	Runtime     string `json:"runtime"`
-	Credentials string `json:"credentials"`
-	Provider    string `json:"provider"`
-	Model       string `json:"model"`
-}
-
-func (r *Registry) GetDefaultAgentConfig(ctx context.Context, orgID string) (DefaultAgentConfig, error) {
-	var cfg DefaultAgentConfig
+func (r *Registry) GetDefaultAgentConfig(ctx context.Context, orgID string) (types.AssistantConfig, error) {
+	var cfg types.AssistantConfig
 	if r.IsConfigured(ctx, orgID, DefaultAgentConfigKey) {
 		return cfg, r.GetObject(ctx, orgID, DefaultAgentConfigKey, &cfg)
 	}
 
-	cfg.Runtime, _ = r.GetString(ctx, orgID, "worker.runtime")
-	cfg.Credentials, _ = r.GetString(ctx, orgID, "worker.credentials")
+	runtime, _ := r.GetString(ctx, orgID, "worker.runtime")
+	credentials, _ := r.GetString(ctx, orgID, "worker.credentials")
+	cfg.CodeAgentRuntime = types.CodeAgentRuntime(runtime)
+	cfg.CodeAgentCredentialType = types.CodeAgentCredentialType(credentials)
 	cfg.Provider, _ = r.GetString(ctx, orgID, "worker.provider")
 	cfg.Model, _ = r.GetString(ctx, orgID, "worker.model")
 	return cfg, nil

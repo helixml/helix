@@ -97,11 +97,11 @@ func TestDefaultAgentConfigPrefersAtomicSettingAndReadsLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy config: %v", err)
 	}
-	if legacy.Runtime != "zed_agent" || legacy.Provider != "anthropic" {
+	if legacy.CodeAgentRuntime != "zed_agent" || legacy.Provider != "anthropic" {
 		t.Fatalf("legacy config = %+v", legacy)
 	}
 
-	const raw = `{"runtime":"codex_cli","credentials":"subscription","provider":"","model":"gpt-5.6"}`
+	const raw = `{"code_agent_runtime":"codex_cli","code_agent_credential_type":"subscription","provider":"","model":"gpt-5.6"}`
 	if err := reg.Set(ctx, "org-test", helixorgconfig.DefaultAgentConfigKey, raw); err != nil {
 		t.Fatalf("set default agent: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestDefaultAgentConfigPrefersAtomicSettingAndReadsLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default agent config: %v", err)
 	}
-	if agent.Runtime != "codex_cli" || agent.Credentials != "subscription" || agent.Model != "gpt-5.6" {
+	if agent.CodeAgentRuntime != "codex_cli" || agent.CodeAgentCredentialType != "subscription" || agent.Model != "gpt-5.6" {
 		t.Fatalf("default agent config = %+v", agent)
 	}
 }

@@ -116,7 +116,12 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
   // (already-created) org, so we surface it as a soft warning.
   const persistAgentDefaults = async (createdSlug: string) => {
     const client = api.getApiClient()
-    await client.v1OrgsSettingsUpdate('agent.default', createdSlug, { value: JSON.stringify(agentDefaults) })
+    await client.v1OrgsSettingsUpdate('agent.default', createdSlug, { value: JSON.stringify({
+      code_agent_runtime: agentDefaults.runtime,
+      code_agent_credential_type: agentDefaults.credentials,
+      provider: agentDefaults.provider,
+      model: agentDefaults.model,
+    }) })
   }
 
   const handleSubmit = async () => {

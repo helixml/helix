@@ -26,7 +26,13 @@ const decodeStringValue = (v: string): string => {
 const decodeAgentConfig = (v: string): AgentConfigValue | undefined => {
   if (!v) return undefined
   try {
-    return JSON.parse(v) as AgentConfigValue
+    const config = JSON.parse(v)
+    return {
+      runtime: config.code_agent_runtime ?? '',
+      credentials: config.code_agent_credential_type ?? '',
+      provider: config.provider ?? '',
+      model: config.model ?? '',
+    }
   } catch {
     return undefined
   }
@@ -63,7 +69,12 @@ const DefaultAgentConfigPanel: FC = () => {
     const next = { ...value, ...patch }
     setValue(next)
     setMut
-      .mutateAsync({ key: 'agent.default', value: JSON.stringify(next) })
+      .mutateAsync({ key: 'agent.default', value: JSON.stringify({
+        code_agent_runtime: next.runtime,
+        code_agent_credential_type: next.credentials,
+        provider: next.provider,
+        model: next.model,
+      }) })
       .then(() => snackbar.success('Default agent configuration saved'))
       .catch((e: any) => snackbar.error(e?.response?.data?.error ?? e?.message ?? 'save failed'))
   }

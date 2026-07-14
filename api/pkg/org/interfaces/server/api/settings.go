@@ -184,11 +184,11 @@ func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bo
 	if err != nil {
 		return false
 	}
-	runtime := cfg.Runtime
+	runtime := string(cfg.CodeAgentRuntime)
 	if runtime == "" {
 		return false
 	}
-	credentials := cfg.Credentials
+	credentials := string(cfg.CodeAgentCredentialType)
 	if !runtimeSupportsSubscription(runtime) {
 		credentials = "api_key"
 	} else if credentials == "" {

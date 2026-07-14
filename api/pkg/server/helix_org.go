@@ -1212,11 +1212,11 @@ func buildHelixOrgProjectApplier(
 // per-agent validator.
 func resolveWorkerAgentConfig(ctx context.Context, orgID string, cfg *configregistry.Registry) (runtime, credentials, provider, model string) {
 	agent, _ := cfg.GetDefaultAgentConfig(ctx, orgID)
-	runtime = agent.Runtime
+	runtime = string(agent.CodeAgentRuntime)
 	if runtime == "" {
 		runtime = "claude_code"
 	}
-	credentials = agent.Credentials
+	credentials = string(agent.CodeAgentCredentialType)
 	if credentials == "" {
 		credentials = "subscription"
 	}

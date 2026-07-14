@@ -18,7 +18,7 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         configregistry.DefaultAgentConfigKey,
 		Type:        configregistry.TypeObject,
-		Description: `Default agent configuration for newly provisioned Bots: {"runtime","credentials","provider","model"}. Existing Bot apps keep their own configuration.`,
+		Description: `Default AssistantConfig for newly provisioned Bots. Existing Bot apps keep their own configuration.`,
 	})
 	r.Register(configregistry.Spec{
 		Key:         "worker.runtime",
