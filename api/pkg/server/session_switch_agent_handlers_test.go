@@ -96,6 +96,10 @@ func TestSessionUsesAgentRuntime_AcceptsNativeAgentName(t *testing.T) {
 	session.Metadata.ZedAgentName = "zed-agent"
 
 	assert.True(t, sessionUsesAgentRuntime(session, types.CodeAgentRuntimeZedAgent))
+
+	session.Metadata.ZedAgentName = ""
+	assert.True(t, sessionUsesAgentRuntime(session, types.CodeAgentRuntimeZedAgent),
+		"legacy native sessions must keep their existing thread")
 }
 
 func TestSwitchAgent_RepairsStaleAgentNameForCurrentApp(t *testing.T) {

@@ -12,6 +12,8 @@ Every user message in a native Zed Agent session inserted an "Agent switched to 
 
 Use `zed-agent` as the canonical native agent name. Zed explicitly maps that name to `NativeAgent` in its create, load, and reopen paths.
 
+Existing sessions that predate persisted agent names may still store an empty value. Runtime reconciliation accepts that legacy value for native Zed sessions so active spec tasks keep their current thread; all new writes use `zed-agent`.
+
 ## Verification
 
 - Focused server reconciliation tests pass.

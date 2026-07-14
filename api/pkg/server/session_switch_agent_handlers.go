@@ -129,8 +129,11 @@ func (apiServer *HelixAPIServer) switchAgent(_ http.ResponseWriter, req *http.Re
 }
 
 func sessionUsesAgentRuntime(session *types.Session, runtime types.CodeAgentRuntime) bool {
-	return session.Metadata.CodeAgentRuntime == runtime &&
-		session.Metadata.ZedAgentName == runtime.ZedAgentName()
+	if session.Metadata.CodeAgentRuntime != runtime {
+		return false
+	}
+	return session.Metadata.ZedAgentName == runtime.ZedAgentName() ||
+		(runtime == types.CodeAgentRuntimeZedAgent && session.Metadata.ZedAgentName == "")
 }
 
 // switchAgentInPlace performs the in-place switch: snapshot the current
