@@ -1,7 +1,6 @@
 import { FC, Fragment, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
@@ -77,6 +76,7 @@ import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
 import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useRouter from '../hooks/useRouter'
@@ -137,14 +137,6 @@ const STREAM_W = 180
 // Minimum topic card height; actual height grows with wrapped name/id.
 const STREAM_H = 80
 
-type ActiveBotTaskStatus = 'implementation' | 'implementation_review' | 'implementing'
-
-type ActiveBotTask = {
-  id: string
-  name: string
-  status: ActiveBotTaskStatus
-}
-
 // Rough height used by auto-layout before RF measures the real node.
 // Keeps stacked topics from overlapping when names wrap to multiple lines.
 // `subtitle` is the second line (topic id, or cron schedule summary).
@@ -178,7 +170,7 @@ type FlatBot = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
-  activeTasks: ActiveBotTask[]
+  taskStats: BotTaskStats
 }
 
 // ---- Node renderers ----------------------------------------------------
@@ -190,7 +182,7 @@ type BotNodeData = {
   agentStatus: 'running' | 'stopped'
   agentRuntime: string
   agentModel: string
-  activeTasks: ActiveBotTask[]
+  taskStats: BotTaskStats
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
   /** Card body click — focus the left chat rail and open the bot drawer. */
@@ -373,56 +365,21 @@ const SubSideHandles: FC<{ size?: number }> = ({ size = 16 }) => (
   </Fragment>
 )
 
-const BotWorkPills: FC<{ tasks: ActiveBotTask[]; isLight: boolean }> = ({ tasks, isLight }) => {
-  if (tasks.length === 0) return null
-
-  const groups = [
-    {
-      key: 'implementation',
-      label: 'Implementing',
-      statuses: new Set<ActiveBotTaskStatus>(['implementation', 'implementing']),
-      color: isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)',
-      background: isLight ? 'rgba(180,100,0,0.10)' : 'rgba(255,180,80,0.14)',
-    },
-    {
-      key: 'review',
-      label: 'In review',
-      statuses: new Set<ActiveBotTaskStatus>(['implementation_review']),
-      color: isLight ? 'rgba(110,70,180,0.95)' : 'rgba(190,150,255,0.95)',
-      background: isLight ? 'rgba(110,70,180,0.10)' : 'rgba(190,150,255,0.14)',
-    },
-  ]
-
+const BotTaskStatsRow: FC<{ stats: BotTaskStats; isLight: boolean }> = ({ stats, isLight }) => {
+  const muted = isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)'
+  const active = isLight ? 'rgba(180,100,0,0.95)' : 'rgba(255,180,80,0.95)'
+  const done = isLight ? 'rgba(32,120,55,0.95)' : 'rgba(90,200,115,0.95)'
   return (
-    <Stack direction="row" spacing={0.5} sx={{ minWidth: 0, overflow: 'hidden', mt: -0.25 }}>
-      {groups.map((group) => {
-        const matchingTasks = tasks.filter((task) => group.statuses.has(task.status))
-        if (matchingTasks.length === 0) return null
-        const taskNames = matchingTasks.map((task) => task.name || task.id).join('\n')
-        return (
-          <Tooltip key={group.key} title={taskNames}>
-            <Chip
-              className={NO_DRAG_NO_PAN}
-              label={matchingTasks.length === 1 ? group.label : `${group.label} · ${matchingTasks.length}`}
-              size="small"
-              sx={{
-                height: 18,
-                maxWidth: '100%',
-                color: group.color,
-                backgroundColor: group.background,
-                border: `1px solid ${group.color}`,
-                '& .MuiChip-label': {
-                  px: 0.6,
-                  fontSize: '0.58rem',
-                  lineHeight: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                },
-              }}
-            />
-          </Tooltip>
-        )
-      })}
+    <Stack direction="row" justifyContent="space-between" sx={{ minWidth: 0, mt: -0.25 }}>
+      <Typography variant="caption" sx={{ color: muted, fontSize: '0.58rem' }}>
+        Backlog: <Box component="span" sx={{ fontWeight: 700 }}>{stats.backlog}</Box>
+      </Typography>
+      <Typography variant="caption" sx={{ color: active, fontSize: '0.58rem' }}>
+        In progress: <Box component="span" sx={{ fontWeight: 700 }}>{stats.inProgress}</Box>
+      </Typography>
+      <Typography variant="caption" sx={{ color: done, fontSize: '0.58rem' }}>
+        Done: <Box component="span" sx={{ fontWeight: 700 }}>{stats.done}</Box>
+      </Typography>
     </Stack>
   )
 }
@@ -596,7 +553,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
           </Menu>
         </Stack>
       </Stack>
-      <BotWorkPills tasks={data.activeTasks} isLight={lightTheme.isLight} />
+      <BotTaskStatsRow stats={data.taskStats} isLight={lightTheme.isLight} />
       <Typography
         variant="caption"
         sx={{ color: muted, fontSize: '0.65rem', mt: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -937,7 +894,7 @@ const buildGraph = (
         agentStatus: b.agentStatus,
         agentRuntime: b.agentRuntime,
         agentModel: b.agentModel,
-        activeTasks: b.activeTasks,
+        taskStats: b.taskStats,
         selected: selectedBotId !== '' && selectedBotId === b.id,
         onSelectBot: handlers.onSelectBot,
         onOpenBotDetails: handlers.onOpenBotDetails,
@@ -1630,6 +1587,8 @@ const ChartCanvas: FC<{
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
+  const [pendingEdgeDeletes, setPendingEdgeDeletes] = useState<Edge[]>([])
+  const [edgeDeletePending, setEdgeDeletePending] = useState(false)
 
   // Edges are derived from reporting lines, subscriptions, and processors.
   // React Flow may emit remove changes while reconciling refreshed node
@@ -1755,46 +1714,82 @@ const ChartCanvas: FC<{
     [onAddParent, onSubscribeBot, onSetProcessorInput],
   )
 
-  // onEdgesDelete severs whatever the edge represented: a reporting edge
-  // drops that one (manager → report) line; a subscription edge drops the
-  // (bot, topic) row.
-  const onEdgesDelete = useCallback(
-    (deleted: Edge[]) => {
-      for (const e of deleted) {
-        const d = e.data as { kind?: string; childBotId?: string; parentBotId?: string; botId?: string; topicId?: string; processorId?: string } | undefined
-        // Deleting a processor's input edge disconnects it: clear the
-        // input topic, leaving the processor inert until it's re-wired.
-        if (d?.kind === 'proc_in' && d.processorId) {
-          onSetProcessorInput(d.processorId, '')
-          continue
-        }
-        // A branch → Bot edge IS a subscription to the branch's output
-        // topic; deleting it unsubscribes the Bot from that branch.
-        if (d?.kind === 'proc_out' && d.botId && d.topicId) {
-          onUnsubscribeBot(d.botId, d.topicId)
-          continue
-        }
-        if (d?.kind === 'sub' && d.botId && d.topicId) {
-          onUnsubscribeBot(d.botId, d.topicId)
-          continue
-        }
-        // Reporting edge (subordinate → manager, "reports to"). Prefer
-        // data; fall back to id "report:<parent>-><child>".
-        let childId = d?.childBotId
-        let parentId = d?.parentBotId
-        if ((!childId || !parentId) && typeof e.id === 'string' && e.id.startsWith('report:')) {
-          const rest = e.id.slice('report:'.length)
-          const arrow = rest.indexOf('->')
-          if (arrow > 0) {
-            parentId = parentId || rest.slice(0, arrow)
-            childId = childId || rest.slice(arrow + 2)
-          }
-        }
-        if (childId && parentId) onRemoveParent(childId, parentId)
+  const edgeEndpointLabel = useCallback(
+    (nodeId: string, handleId?: string | null) => {
+      if (nodeId.startsWith('bot:')) {
+        const id = nodeId.slice('bot:'.length)
+        return flat.find((bot) => bot.id === id)?.name || id
       }
+      if (nodeId.startsWith('topic:')) {
+        const id = nodeId.slice('topic:'.length)
+        return topics.find((topic) => topic.id === id)?.name || id
+      }
+      if (nodeId.startsWith('processor:')) {
+        const id = nodeId.slice('processor:'.length)
+        const processor = processors.find((candidate) => candidate.id === id)
+        if (handleId) {
+          const output = processor?.outputs.find((candidate) => candidate.topicId === handleId)
+          if (output) return `${processor?.name || id}: ${output.label || output.topicId}`
+        }
+        return processor?.name || id
+      }
+      return nodeId
+    },
+    [flat, topics, processors],
+  )
+
+  const deleteEdge = useCallback(
+    async (edge: Edge) => {
+      const d = edge.data as { kind?: string; childBotId?: string; parentBotId?: string; botId?: string; topicId?: string; processorId?: string } | undefined
+      if (d?.kind === 'proc_in' && d.processorId) {
+        await onSetProcessorInput(d.processorId, '')
+        return
+      }
+      if ((d?.kind === 'proc_out' || d?.kind === 'sub') && d.botId && d.topicId) {
+        await onUnsubscribeBot(d.botId, d.topicId)
+        return
+      }
+
+      let childId = d?.childBotId
+      let parentId = d?.parentBotId
+      if ((!childId || !parentId) && edge.id.startsWith('report:')) {
+        const rest = edge.id.slice('report:'.length)
+        const arrow = rest.indexOf('->')
+        if (arrow > 0) {
+          parentId = parentId || rest.slice(0, arrow)
+          childId = childId || rest.slice(arrow + 2)
+        }
+      }
+      if (childId && parentId) await onRemoveParent(childId, parentId)
     },
     [onRemoveParent, onUnsubscribeBot, onSetProcessorInput],
   )
+
+  // React Flow sends both inline-control and keyboard deletions here.
+  // Queue them so every server-backed link is confirmed before mutation.
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      setPendingEdgeDeletes((current) => [...current, ...deleted])
+    },
+    [],
+  )
+
+  const pendingEdgeDelete = pendingEdgeDeletes[0]
+  const confirmEdgeDelete = useCallback(async () => {
+    if (!pendingEdgeDelete) return
+    setEdgeDeletePending(true)
+    try {
+      await deleteEdge(pendingEdgeDelete)
+      setPendingEdgeDeletes((current) => current.slice(1))
+    } finally {
+      setEdgeDeletePending(false)
+    }
+  }, [deleteEdge, pendingEdgeDelete])
+
+  const closeEdgeDeleteDialog = useCallback(() => {
+    if (edgeDeletePending) return
+    setPendingEdgeDeletes([])
+  }, [edgeDeletePending])
 
   return (
     <>
@@ -1859,6 +1854,16 @@ const ChartCanvas: FC<{
         <Background gap={20} size={1} />
         <Controls showInteractive={false} position="top-left" />
       </ReactFlow>
+      <ConfirmDeleteDialog
+        open={!!pendingEdgeDelete}
+        title="Delete connection?"
+        body={pendingEdgeDelete
+          ? `Do you want to delete the connection from ${edgeEndpointLabel(pendingEdgeDelete.source, pendingEdgeDelete.sourceHandle)} to ${edgeEndpointLabel(pendingEdgeDelete.target, pendingEdgeDelete.targetHandle)}?`
+          : ''}
+        onConfirm={confirmEdgeDelete}
+        onClose={closeEdgeDeleteDialog}
+        pending={edgeDeletePending}
+      />
     </>
   )
 }
@@ -1999,18 +2004,12 @@ const HelixOrgChart: FC = () => {
     return tasksByBotId
   }, [botDetails, botIds, projects, specTasks])
 
-  const activeTasksByBotId = useMemo(() => {
-    const active = new Map<string, ActiveBotTask[]>()
+  const taskStatsByBotId = useMemo(() => {
+    const stats = new Map<string, BotTaskStats>()
     tasksByBotId.forEach((tasks, botId) => {
-      active.set(botId, tasks
-        .filter((task) => ['implementation', 'implementation_review', 'implementing'].includes(String(task.status ?? '')))
-        .map((task) => ({
-          id: task.id ?? '',
-          name: task.user_short_title || task.short_title || task.name || task.id || 'Untitled task',
-          status: String(task.status) as ActiveBotTaskStatus,
-        })))
+      stats.set(botId, summarizeBotTasks(tasks))
     })
-    return active
+    return stats
   }, [tasksByBotId])
 
   const flat = useMemo<FlatBot[]>(
@@ -2025,9 +2024,9 @@ const HelixOrgChart: FC = () => {
         agentStatus: b.agent_status === 'running' ? 'running' as const : 'stopped' as const,
         agentRuntime: b.agent_runtime ?? '',
         agentModel: b.agent_model ?? '',
-        activeTasks: activeTasksByBotId.get(b.id ?? '') ?? [],
+        taskStats: taskStatsByBotId.get(b.id ?? '') ?? { backlog: 0, inProgress: 0, done: 0 },
       })),
-    [activeTasksByBotId, botsData],
+    [taskStatsByBotId, botsData],
   )
 
   // People (kind=human) — shown in the docked PeoplePanel on the chart, not
