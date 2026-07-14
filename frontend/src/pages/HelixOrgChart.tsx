@@ -72,6 +72,7 @@ import {
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
+import BotDetailDrawer from '../components/helix-org/BotDetailDrawer'
 import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
@@ -192,7 +193,7 @@ type BotNodeData = {
   activeTasks: ActiveBotTask[]
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
-  /** Card body click — focus the left chat rail on this bot. */
+  /** Card body click — focus the left chat rail and open the bot drawer. */
   onSelectBot: (botId: string) => void
   /** ⋮ → Details — open the bot detail page. */
   onOpenBotDetails: (botId: string) => void
@@ -1973,9 +1974,9 @@ const HelixOrgChart: FC = () => {
     refetchInterval: 5000,
   }) as SpecTask[]
 
-  const activeTasksByBotId = useMemo(() => {
+  const tasksByBotId = useMemo(() => {
     const projectsByID = new Map(projects.map((project) => [project.id ?? '', project]))
-    const tasksByBotId = new Map<string, ActiveBotTask[]>()
+    const tasksByBotId = new Map<string, SpecTask[]>()
 
     botDetails.forEach((detail, index) => {
       const botId = botIds[index]
@@ -1985,24 +1986,32 @@ const HelixOrgChart: FC = () => {
       const botProjectID = detail.project_id ?? ''
       const botAgentAppID = detail.agent_app_id ?? ''
       const botTasks = specTasks.filter((task) => {
-        const status = String(task.status ?? '') as ActiveBotTaskStatus
-        if (!['implementation', 'implementation_review', 'implementing'].includes(status)) return false
         const taskProject = projectsByID.get(task.project_id ?? '')
         const taskAgentAppID = task.helix_app_id || taskProject?.default_helix_app_id
         return (
           (!!botProjectID && task.project_id === botProjectID) ||
           (!!botAgentAppID && taskAgentAppID === botAgentAppID)
         )
-      }).map((task) => ({
-        id: task.id ?? '',
-        name: task.user_short_title || task.short_title || task.name || task.id || 'Untitled task',
-        status: String(task.status) as ActiveBotTaskStatus,
-      }))
+      })
       tasksByBotId.set(botId, botTasks)
     })
 
     return tasksByBotId
   }, [botDetails, botIds, projects, specTasks])
+
+  const activeTasksByBotId = useMemo(() => {
+    const active = new Map<string, ActiveBotTask[]>()
+    tasksByBotId.forEach((tasks, botId) => {
+      active.set(botId, tasks
+        .filter((task) => ['implementation', 'implementation_review', 'implementing'].includes(String(task.status ?? '')))
+        .map((task) => ({
+          id: task.id ?? '',
+          name: task.user_short_title || task.short_title || task.name || task.id || 'Untitled task',
+          status: String(task.status) as ActiveBotTaskStatus,
+        })))
+    })
+    return active
+  }, [tasksByBotId])
 
   const flat = useMemo<FlatBot[]>(
     () => (botsData ?? [])
@@ -2100,6 +2109,7 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
+  const [botDrawerBotId, setBotDrawerBotId] = useState<string>()
   const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
   const [selectedTopicId, setSelectedTopicId] = useState<string>()
   // Processor drawer: { open, processor } — processor null = create mode.
@@ -2146,11 +2156,27 @@ const HelixOrgChart: FC = () => {
     window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
     return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
   }, [orgSlug])
-  // Card body click → focus left chat rail on this bot (stay on chart).
+  const botDetailsByID = useMemo(
+    () => new Map(botIds.map((botId, index) => [botId, botDetails[index]])),
+    [botDetails, botIds],
+  )
+  const selectedBot = useMemo(
+    () => (botsData ?? []).find((bot) => bot.id === botDrawerBotId),
+    [botDrawerBotId, botsData],
+  )
+  const selectedBotDetail = botDrawerBotId ? botDetailsByID.get(botDrawerBotId) : undefined
+  const selectedBotProject = useMemo(
+    () => projects.find((project) => project.id === selectedBotDetail?.project_id),
+    [projects, selectedBotDetail?.project_id],
+  )
+  const selectedBotTasks = botDrawerBotId ? tasksByBotId.get(botDrawerBotId) ?? [] : []
+
+  // Card body click → focus the left chat rail and open the bot drawer.
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
       setSelectedBotId(botId)
+      setBotDrawerBotId(botId)
       focusChatBot(orgSlug, botId)
     },
     [orgSlug],
@@ -2512,6 +2538,13 @@ const HelixOrgChart: FC = () => {
         open={botDialogOpen || selection.kind === 'newBot'}
         onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }) }}
         presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
+      />
+      <BotDetailDrawer
+        botId={botDrawerBotId}
+        bot={selectedBot}
+        project={selectedBotProject}
+        tasks={selectedBotTasks}
+        onClose={() => setBotDrawerBotId(undefined)}
       />
       <NewTopicDrawer
         open={topicDrawerOpen}

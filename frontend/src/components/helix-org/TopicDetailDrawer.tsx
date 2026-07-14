@@ -3,6 +3,7 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 
 import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -10,6 +11,7 @@ import LoadingSpinner from '../widgets/LoadingSpinner'
 import CopyButtonWithCheck from '../session/CopyButtonWithCheck'
 import { useHelixOrgTopic, useUpdateHelixOrgTopic } from '../../services/helixOrgService'
 import { ClearTopicMessagesButton, TopicConfigSection } from '../../pages/HelixOrgTopicDetail'
+import HelixOrgOverviewCard from './HelixOrgOverviewCard'
 import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
 type TopicDetailDrawerProps = {
@@ -46,16 +48,19 @@ const TopicDetailDrawer: FC<TopicDetailDrawerProps> = ({ topicId, consumerCount,
         <Typography color="text.secondary">Topic not found.</Typography>
       ) : (
         <Stack spacing={2}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
-              {topic.id}
-            </Typography>
-            <CopyButtonWithCheck text={topic.id} />
-            <Chip label={topic.kind} size="small" />
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            {consumerCount ?? topic.subscribers?.length ?? 0} subscriber{(consumerCount ?? topic.subscribers?.length) === 1 ? '' : 's'}
-          </Typography>
+          <HelixOrgOverviewCard
+            title={topic.name || topic.id || 'Topic'}
+            id={topic.id}
+            idAction={<CopyButtonWithCheck text={topic.id || ''} />}
+            icon={<HubOutlinedIcon sx={{ fontSize: 20 }} />}
+            status={<Chip label={topic.kind} size="small" sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)', border: '1px solid rgba(255,255,255,0.22)' }} />}
+          >
+            <Chip
+              label={`${consumerCount ?? topic.subscribers?.length ?? 0} subscriber${(consumerCount ?? topic.subscribers?.length) === 1 ? '' : 's'}`}
+              size="small"
+              sx={{ color: 'common.white', backgroundColor: 'rgba(255,255,255,0.11)' }}
+            />
+          </HelixOrgOverviewCard>
           <TopicConfigSection
             key={topic.id}
             topic={topic}

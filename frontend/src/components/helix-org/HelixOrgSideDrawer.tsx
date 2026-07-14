@@ -17,6 +17,8 @@ export type HelixOrgSideDrawerProps = {
   /** Paper width in px. Default 460 (matches processor form). */
   width?: number
   headerAction?: ReactNode
+  /** Keep the underlying chart interactive while this drawer is open. */
+  allowInteractionBehind?: boolean
   children: ReactNode
 }
 
@@ -26,12 +28,20 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
   title,
   width = 460,
   headerAction,
+  allowInteractionBehind = false,
   children,
 }) => (
   <Drawer
     anchor="right"
+    variant={allowInteractionBehind ? 'persistent' : 'temporary'}
     open={open}
     onClose={onClose}
+    hideBackdrop={allowInteractionBehind}
+    ModalProps={allowInteractionBehind ? {
+      disableAutoFocus: true,
+      disableEnforceFocus: true,
+      disableRestoreFocus: true,
+    } : undefined}
     PaperProps={{ sx: { backgroundImage: 'none' } }}
   >
     <Box
