@@ -471,14 +471,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// owner-chat). The adapter calls HelixAPIServer's handler methods
 	// directly; no HTTP loopback.
 	//
-	// Returns nil only if there's no admin user available to use as the
-	// service identity — the alpha doesn't make sense without one, so
-	// we treat that as "feature disabled until an admin registers".
-	inProcClient := buildInProcHelixClient(context.Background(), cfg.APIServer, helixStore)
-	if inProcClient == nil {
-		log.Warn().Msg("helix-org disabled: in-proc adapter unavailable (no admin user found — register one before enabling the helix-org alpha)")
-		return nil, nil
-	}
+	// Request-scoped calls run as the authenticated user. Background calls
+	// resolve the owner of their organization in the adapter.
+	inProcClient := NewInProcHelixClient(cfg.APIServer)
 
 	// Build the single Workspace shared by the WorkerProject (for
 	// first-apply file pushes — agent.md / role.md / identity.md)
@@ -1239,34 +1234,6 @@ func workerRuntimeSupportsSubscription(runtime string) bool {
 	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
-// buildInProcHelixClient resolves the service-account *types.User and
-// builds the in-process adapter that satisfies
-// runtimehelix.ProjectService, runtimehelix.SpawnerClient, and
-// chat.ChatBridgeClient. Returns nil when no admin user is available
-// to attribute the service identity to — callers treat that as
-// "feature disabled" (no production wiring without one).
-//
-// The service user mirrors ensureHelixOrgServiceAPIKey's owner-pick
-// (first admin user) so the auto-provisioned api_key and the
-// in-process adapter are attributed to the same identity.
-func buildInProcHelixClient(ctx context.Context, apiServer *HelixAPIServer, helixStore helixstore.Store) *inProcHelixClient {
-	admins, _, err := helixStore.ListUsers(ctx, &helixstore.ListUsersQuery{Admin: true})
-	if err != nil {
-		log.Warn().Err(err).Msg("helix-org in-proc adapter disabled — list admins failed")
-		return nil
-	}
-	if len(admins) == 0 {
-		log.Warn().Msg("helix-org in-proc adapter disabled — no admin user found (matches ensureHelixOrgServiceAPIKey's failure mode)")
-		return nil
-	}
-	owner := admins[0]
-	log.Info().
-		Str("owner_id", owner.ID).
-		Str("owner_email", owner.Email).
-		Msg("helix-org in-proc adapter wired (ProjectService + SpawnerClient + ChatBridgeClient)")
-	return NewInProcHelixClient(apiServer, owner)
-}
-
 // buildHelixOrgSpawnerConfig assembles the SpawnerConfig for
 // helix-org's production zed_external Spawner. The embedded SaaS
 // runs Workers on the `claude_code` runtime with subscription
@@ -1390,6 +1357,7 @@ func lazyHelixOrgSpawner(d spawnerDeps) runtime.Spawner {
 	// One inflight cap shared across every per-org spawner config.
 	sem := make(chan struct{}, runtimehelix.DefaultMaxInflight)
 	return func(ctx context.Context, orgID string, workerID orgchart.BotID, triggers []activation.Trigger) error {
+		ctx = helixorgserver.WithOrgID(ctx, orgID)
 		// Apply (or fast-path) the per-Worker project with the current
 		// worker.* settings before delegating.
 		if d.Applier != nil {

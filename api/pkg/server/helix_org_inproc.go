@@ -11,9 +11,7 @@
 // no HTTP loopback.
 //
 // Caller identity is resolved per request from runtimehelix's context
-// stashes (HelixIdentity → UserIDFromContext / BearerFromContext); when
-// none is present we fall back to the constructor-supplied service
-// user (the bearer-forwarding equivalent the middleware path uses).
+// stashes. Org-scoped background work uses the organization owner.
 package server
 
 import (
@@ -29,6 +27,7 @@ import (
 	"github.com/gorilla/mux"
 
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -37,32 +36,16 @@ import (
 // runtimehelix.SpawnerClient by routing through the HelixAPIServer's
 // handler methods in-process.
 type inProcHelixClient struct {
-	server      *HelixAPIServer
-	serviceUser types.User
+	server *HelixAPIServer
 }
 
-// NewInProcHelixClient constructs an inProcHelixClient. The serviceUser
-// is the fallback identity used when the per-request context carries no
-// HelixIdentity (e.g. background dispatcher activations before a bearer
-// is minted via BearerForUser). Must be a real persisted user with the
-// access rights needed for the operations the embedded helix-org issues
-// (currently: project apply, git repo create, app update, session
-// create / output / stop) — typically the auto-provisioned
-// `helix-org-service` user.
-func NewInProcHelixClient(s *HelixAPIServer, serviceUser *types.User) *inProcHelixClient {
-	c := &inProcHelixClient{server: s}
-	if serviceUser != nil {
-		c.serviceUser = *serviceUser
-	}
-	return c
+func NewInProcHelixClient(s *HelixAPIServer) *inProcHelixClient {
+	return &inProcHelixClient{server: s}
 }
 
 // resolveUser returns the *types.User to attach to a handler-bound
-// request context. Priority: explicit *types.User stash > resolved
-// UserID from HelixIdentity / WithUserID > serviceUser fallback. When
-// the legacy stashes carry only an ID, look the user row up against
-// the store so the resulting *types.User has the email/full-name
-// fields handlers may read.
+// request context. Explicit users win; org-scoped background work runs
+// as the organization owner.
 func (c *inProcHelixClient) resolveUser(ctx context.Context) (*types.User, error) {
 	if u := runtimehelix.UserFromContext(ctx); u != nil {
 		return u, nil
@@ -76,11 +59,25 @@ func (c *inProcHelixClient) resolveUser(ctx context.Context) (*types.User, error
 		}
 		return &types.User{ID: uid}, nil
 	}
-	if c.serviceUser.ID != "" {
-		u := c.serviceUser
-		return &u, nil
+	orgID := runtimehelix.OrganizationIDFromContext(ctx)
+	if orgID == "" {
+		orgID = helixorgserver.OrgIDFromContext(ctx)
 	}
-	return nil, errors.New("inproc helix client: no user on context and no service user configured")
+	if orgID == "" {
+		return nil, errors.New("inproc helix client: no user or organization on context")
+	}
+	org, err := c.server.lookupOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve organization %s: %w", orgID, err)
+	}
+	owner, err := c.server.Store.GetUser(ctx, &store.GetUserQuery{ID: org.Owner})
+	if err != nil {
+		return nil, fmt.Errorf("resolve owner %s for organization %s: %w", org.Owner, org.ID, err)
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("resolve owner %s for organization %s: user not found", org.Owner, org.ID)
+	}
+	return owner, nil
 }
 
 // newRequest builds an *http.Request whose body is the JSON encoding

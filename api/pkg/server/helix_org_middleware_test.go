@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -11,20 +12,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// noAdminHelixStore is a tiny stub that satisfies the bits of
-// helixstore.Store ensureHelixOrgServiceAPIKey touches when no
-// helix.api_key has been provisioned yet. ListUsers returns no admins,
-// which makes ensureHelixOrgServiceAPIKey fail with "no admin user
-// found" — the middleware swallows that into a Warn log so
-// ensureBootstrap still returns nil. The embedded nil store.Store
-// causes any other unexpected method call to panic with a clear
-// stack trace, surfacing surprises rather than hiding them.
-type noAdminHelixStore struct {
+// missingOrganizationHelixStore makes service-key provisioning fail;
+// bootstrap must remain best-effort.
+type missingOrganizationHelixStore struct {
 	helixstore.Store
 }
 
-func (s *noAdminHelixStore) ListUsers(_ context.Context, _ *helixstore.ListUsersQuery) ([]*types.User, int64, error) {
-	return nil, 0, nil
+func (s *missingOrganizationHelixStore) GetOrganization(_ context.Context, _ *helixstore.GetOrganizationQuery) (*types.Organization, error) {
+	return nil, errors.New("organization not found")
 }
 
 // TestEnsureBootstrapConcurrentCallsAllSucceed pins the regression
@@ -54,7 +49,7 @@ func TestEnsureBootstrapConcurrentCallsAllSucceed(t *testing.T) {
 	scope := newHelixOrgScope(
 		configregistry.New(orgStore.Configs),
 		orgStore,
-		&noAdminHelixStore{},
+		&missingOrganizationHelixStore{},
 		nil, // mirror — nil is a safe no-op for this bootstrap-race test
 		nil, // slackRoutes — nil is a safe no-op
 		nil, // helixEvents — nil is a safe no-op
