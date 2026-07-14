@@ -403,6 +403,15 @@ export const InteractionInference: FC<{
                         },
                       }}
                     >
+                      {enableDebugCopy && (
+                        <InteractionDebugCopyButton
+                          interaction={interaction}
+                          session={session}
+                          sessionSteps={sessionSteps}
+                          serverConfig={serverConfig}
+                        />
+                      )}
+
                       <Tooltip title="Regenerate this response">
                         <IconButton
                           onClick={() =>
@@ -531,15 +540,6 @@ export const InteractionInference: FC<{
                           />
                         </IconButton>
                       </Tooltip>
-
-                      {enableDebugCopy && (
-                        <InteractionDebugCopyButton
-                          interaction={interaction}
-                          session={session}
-                          sessionSteps={sessionSteps}
-                          serverConfig={serverConfig}
-                        />
-                      )}
                     </Box>
                   )}
                 </Box>

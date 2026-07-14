@@ -296,6 +296,9 @@ export const Interaction: FC<InteractionProps> = ({
 
   const isLive =
     interaction.state == TypesInteractionState.InteractionStateWaiting;
+  const hasAgentReply =
+    !!assistantMessage ||
+    ((interaction as any)?.response_entries?.length ?? 0) > 0;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
@@ -430,7 +433,7 @@ export const Interaction: FC<InteractionProps> = ({
                     transition: "opacity 0.2s ease-in-out",
                   }}
                 >
-                  {enableDebugCopy && (
+                  {enableDebugCopy && !hasAgentReply && (
                     <InteractionDebugCopyButton
                       interaction={interaction}
                       session={session}
