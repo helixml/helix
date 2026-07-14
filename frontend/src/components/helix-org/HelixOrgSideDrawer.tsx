@@ -2,7 +2,7 @@
 // (bots, topics, processors). Keeps title bar + close + width consistent
 // so every create flow feels like the same surface.
 
-import { FC, ReactNode } from 'react'
+import { FC, ReactNode, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import IconButton from '@mui/material/IconButton'
@@ -19,6 +19,8 @@ export type HelixOrgSideDrawerProps = {
   headerAction?: ReactNode
   /** Keep the underlying chart interactive while this drawer is open. */
   allowInteractionBehind?: boolean
+  /** Close persistent drawers on Escape. Temporary drawers handle this through MUI. */
+  closeOnEscape?: boolean
   children: ReactNode
 }
 
@@ -29,49 +31,66 @@ const HelixOrgSideDrawer: FC<HelixOrgSideDrawerProps> = ({
   width = 460,
   headerAction,
   allowInteractionBehind = false,
+  closeOnEscape = false,
   children,
-}) => (
-  <Drawer
-    anchor="right"
-    variant={allowInteractionBehind ? 'persistent' : 'temporary'}
-    open={open}
-    onClose={onClose}
-    hideBackdrop={allowInteractionBehind}
-    ModalProps={allowInteractionBehind ? {
-      disableAutoFocus: true,
-      disableEnforceFocus: true,
-      disableRestoreFocus: true,
-    } : undefined}
-    PaperProps={{ sx: { backgroundImage: 'none' } }}
-  >
-    <Box
-      sx={{
-        p: 2.5,
-        width,
-        maxWidth: '100vw',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        boxSizing: 'border-box',
-      }}
+}) => {
+  useEffect(() => {
+    if (!open || !closeOnEscape) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      // Let a nested menu/select/dialog consume Escape before closing the drawer.
+      if (document.querySelector('.MuiPopover-root, .MuiDialog-root')) return
+      onClose()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [closeOnEscape, onClose, open])
+
+  return (
+    <Drawer
+      anchor="right"
+      variant={allowInteractionBehind ? 'persistent' : 'temporary'}
+      open={open}
+      onClose={onClose}
+      hideBackdrop={allowInteractionBehind}
+      ModalProps={allowInteractionBehind ? {
+        disableAutoFocus: true,
+        disableEnforceFocus: true,
+        disableRestoreFocus: true,
+      } : undefined}
+      PaperProps={{ sx: { backgroundImage: 'none' } }}
     >
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 2, flexShrink: 0 }}
+      <Box
+        sx={{
+          p: 2.5,
+          width,
+          maxWidth: '100vw',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          boxSizing: 'border-box',
+        }}
       >
-        <Typography variant="h6">{title}</Typography>
-        <Stack direction="row" alignItems="center" spacing={0.5}>
-          {headerAction}
-          <IconButton size="small" onClick={onClose} aria-label="Close">
-            <CloseIcon />
-          </IconButton>
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+          sx={{ mb: 2, flexShrink: 0 }}
+        >
+          <Typography variant="h6">{title}</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {headerAction}
+            <IconButton size="small" onClick={onClose} aria-label="Close">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </Stack>
-      </Stack>
-      <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{children}</Box>
-    </Box>
-  </Drawer>
-)
+        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{children}</Box>
+      </Box>
+    </Drawer>
+  )
+}
 
 export default HelixOrgSideDrawer

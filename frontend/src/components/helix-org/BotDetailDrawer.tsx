@@ -68,6 +68,7 @@ const BotDetailDrawer: FC<BotDetailDrawerProps> = ({ botId, bot, project, tasks,
       title={bot?.name || botId || 'Bot'}
       width={560}
       allowInteractionBehind
+      closeOnEscape
       headerAction={botId ? (
         <Button
           size="small"
