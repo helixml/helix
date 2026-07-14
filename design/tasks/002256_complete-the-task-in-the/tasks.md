@@ -7,8 +7,8 @@
 - [x] Add sibling `ImplementationQueueReason(...)` (dependency-only) for `queued_implementation`
 - [x] Refactor `handleQueuedSpecGeneration` to use `PlanningQueueReason` (identical behaviour; keep the existing structured log fields when leaving queued)
 - [x] Fix Problem 2 formula: gate review capacity on `reviewCount >= reviewLimit` (not `planningCount+reviewCount >= reviewLimit`) in both `handleQueuedSpecGeneration` and the backlog→queued gate in `handleBacklog`
-- [~] Populate `QueueReason` for queued-state tasks in `listTasks` (add `populateQueueReasons` helper; load project + tasks-with-deps once)
-- [~] Populate `QueueReason` for queued-state tasks in `getTask` (reuse `populateQueueReasons` with a single-task slice)
+- [x] Populate `QueueReason` for queued-state tasks in `listTasks` (add `populateQueueReasons` helper; load project + tasks-with-deps once)
+- [x] Populate `QueueReason` for queued-state tasks in `getTask` (reuse `populateQueueReasons` with a single-task slice)
 
 ## Frontend
 - [ ] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
