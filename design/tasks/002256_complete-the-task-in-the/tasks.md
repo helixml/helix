@@ -11,15 +11,15 @@
 - [x] Populate `QueueReason` for queued-state tasks in `getTask` (reuse `populateQueueReasons` with a single-task slice)
 
 ## Frontend
-- [~] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
-- [ ] Detail banner: render `<Alert severity="info">{task.queue_reason}</Alert>` in `SpecTaskDetailContent.tsx` when status is queued and `queue_reason` is set
-- [ ] Kanban card: show `queue_reason` compactly (tooltip on queued indicator, or short inline caption) in `TaskCard.tsx`
+- [x] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
+- [x] Detail banner: render `<Alert severity="info">{task.queue_reason}</Alert>` in `SpecTaskDetailContent.tsx` when status is queued and `queue_reason` is set
+- [x] Kanban card: show `queue_reason` compactly (tooltip + ellipsised caption) in `TaskCard.tsx` (also added `queue_reason` to the hand-maintained `SpecTaskWithExtras` interface)
 
 ## Tests
 - [x] Table-driven Go unit tests for `PlanningQueueReason` (planning-full, review-full, dependency-blocked, not-blocked) — extend `spec_task_orchestrator_test.go`
 - [x] Test that the corrected formula allows planning up to `planningLimit` with an empty Review column (regression case in table test + handler tests)
-- [ ] `go build ./...` passes
-- [ ] `cd frontend && yarn build` passes
+- [x] `go build ./...` passes
+- [x] `cd frontend && yarn build` passes (tsc --noEmit clean; full vite build succeeds — note: repo `dist/` is a root-owned prod bind-mount, so built to temp outDir)
 
 ## End-to-End Verification (inner Helix, localhost:8080)
 - [ ] Register/onboard, create a project; lower Review WIP limit; pile specs into Review; create a task and Start it
