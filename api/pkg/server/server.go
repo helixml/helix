@@ -893,7 +893,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	// the `helix-org` alpha feature. See
 	// design/2026-05-17-helix-org-saas-alpha.md. All of its routing +
 	// lifecycle wiring lives in registerHelixOrgRoutes (helix_org.go). It
-	// no-ops gracefully on deployments with no admin user yet.
+	// Route registration does not depend on a deployment-wide service user.
 	if err := apiServer.registerHelixOrgRoutes(ctx, insecureRouter, authRouter); err != nil {
 		return nil, err
 	}

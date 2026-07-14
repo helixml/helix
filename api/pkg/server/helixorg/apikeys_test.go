@@ -70,16 +70,17 @@ func TestAPIKeys_User_MintsWhenNone(t *testing.T) {
 	}
 }
 
-// TestAPIKeys_Service_MintsAndGrantsFlag: first-run service provisioning
-// picks the admin, grants the alpha flag, mints a key, and caches it.
-func TestAPIKeys_Service_MintsAndGrantsFlag(t *testing.T) {
+// TestAPIKeys_Service_MintsForOrganizationOwner verifies service
+// provisioning uses the organization owner without requiring admin access.
+func TestAPIKeys_Service_MintsForOrganizationOwner(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	st := store.NewMockStore(ctrl)
 
-	admin := &types.User{ID: "usr-admin", Email: "admin@test", Admin: true}
-	st.EXPECT().ListUsers(gomock.Any(), &store.ListUsersQuery{Admin: true}).
-		Return([]*types.User{admin}, int64(1), nil)
+	owner := &types.User{ID: "usr-owner", Email: "owner@test"}
+	st.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-test"}).
+		Return(&types.Organization{ID: "org-test", Owner: owner.ID}, nil)
+	st.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{ID: owner.ID}).Return(owner, nil)
 	st.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, u *types.User) (*types.User, error) {
 			var granted bool
@@ -111,16 +112,15 @@ func TestAPIKeys_Service_MintsAndGrantsFlag(t *testing.T) {
 	}
 }
 
-// TestAPIKeys_Service_NoAdmin: provisioning fails clearly when no admin
-// exists.
-func TestAPIKeys_Service_NoAdmin(t *testing.T) {
+func TestAPIKeys_Service_NoOrganizationOwner(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	st := store.NewMockStore(ctrl)
-	st.EXPECT().ListUsers(gomock.Any(), gomock.Any()).Return([]*types.User{}, int64(0), nil)
+	st.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{ID: "org-test"}).
+		Return(&types.Organization{ID: "org-test"}, nil)
 
 	k := NewHelixAPIKeys(st, newTestConfigs(t))
 	if _, err := k.Service(context.Background(), "org-test"); err == nil {
-		t.Fatal("expected error when no admin user exists")
+		t.Fatal("expected error when the organization has no owner")
 	}
 }

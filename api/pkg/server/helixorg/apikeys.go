@@ -48,26 +48,29 @@ func NewHelixAPIKeys(st helixstore.Store, configs *configregistry.Registry) *Hel
 // re-checking the store. Stale keys (config row points at a deleted
 // api_keys row) are silently replaced.
 //
-// The owner of the minted key is the first admin user found in the Helix
-// DB. All gated alpha users currently drive the same owner Worker, so
-// co-tenanting on one service identity is consistent — multi-tenant
-// attribution is a future change.
+// The minted key belongs to the organization owner.
 func (k *HelixAPIKeys) Service(ctx context.Context, orgID string) (string, error) {
+	org, err := k.store.GetOrganization(ctx, &helixstore.GetOrganizationQuery{ID: orgID})
+	if err != nil {
+		return "", fmt.Errorf("get organization: %w", err)
+	}
+	if org == nil || org.Owner == "" {
+		return "", fmt.Errorf("organization %s has no owner", orgID)
+	}
 	if existing, _ := k.configs.GetString(ctx, orgID, "helix.api_key"); existing != "" {
-		if _, err := k.store.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil {
+		if key, err := k.store.GetAPIKey(ctx, &types.ApiKey{Key: existing}); err == nil && key != nil && key.Owner == org.Owner {
 			return existing, nil
 		}
-		log.Warn().Msg("helix-org helix.api_key in config no longer exists in helix DB — re-provisioning")
+		log.Warn().Msg("helix-org helix.api_key is missing or not owned by the organization owner — re-provisioning")
 	}
 
-	admins, _, err := k.store.ListUsers(ctx, &helixstore.ListUsersQuery{Admin: true})
+	owner, err := k.store.GetUser(ctx, &helixstore.GetUserQuery{ID: org.Owner})
 	if err != nil {
-		return "", fmt.Errorf("list admins: %w", err)
+		return "", fmt.Errorf("get organization owner: %w", err)
 	}
-	if len(admins) == 0 {
-		return "", fmt.Errorf("no admin user found — register one before opening the helix-org alpha")
+	if owner == nil {
+		return "", fmt.Errorf("organization owner %s not found", org.Owner)
 	}
-	owner := admins[0]
 
 	// Grant the alpha-feature flag to the service owner so the MCP
 	// gateway accepts requests authenticated by this key. Without it,

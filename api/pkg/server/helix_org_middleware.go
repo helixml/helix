@@ -106,9 +106,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// only provisions the per-org service api_key and converges any
 		// graph that already exists (a no-op on a brand-new empty org).
 
-		// Provision a per-org Helix service api_key. Tied to the
-		// first admin user found — see helixorg.HelixAPIKeys.Service for the
-		// idempotency story.
+		// Provision a per-org Helix service api_key for the organization owner.
 		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
 		}
@@ -214,7 +212,7 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 		// so lifecycle.Create persists them as the Bot's hiring user
 		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
 		// this every Bot's session falls back to the org-service identity
-		// (first admin), which cross-attributes another user's key into
+		// (organization owner), which cross-attributes another user's key into
 		// the tenant org's API-keys list.
 		ctx = runtimehelix.WithUserID(ctx, user.ID)
 		// Strip the /orgs/{org}/helix-org prefix so the downstream
