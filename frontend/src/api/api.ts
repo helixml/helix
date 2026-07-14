@@ -6240,6 +6240,8 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted */
+  queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
@@ -6585,6 +6587,8 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted */
+  queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
