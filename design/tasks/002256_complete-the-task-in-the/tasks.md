@@ -1,14 +1,14 @@
 # Implementation Tasks: Surface WIP-Queue Block Reason and Fix the WIP Gate Formula
 
 ## Backend
-- [ ] Add transient `QueueReason string \`json:"queue_reason,omitempty" gorm:"-"\`` to `SpecTask` in `api/pkg/types/simple_spec_task.go` (next to `SandboxStatusMessage`)
-- [ ] Add pure `planningQueueReason(project, projectTasks, task) string` in `spec_task_orchestrator.go` covering dependency-not-ready, planning-full, review-full (corrected formula) → returns "" when startable
-- [ ] Resolve the blocking dependency's name (from `projectTasks`, fall back to ID) for the dependency reason string
-- [ ] Add sibling `implementationQueueReason(...)` (dependency-only) for `queued_implementation`
-- [ ] Refactor `handleQueuedSpecGeneration` to use `planningQueueReason` (identical behaviour; keep the existing structured log fields when leaving queued)
-- [ ] Fix Problem 2 formula: gate review capacity on `reviewCount >= reviewLimit` (not `planningCount+reviewCount >= reviewLimit`) in both `handleQueuedSpecGeneration` and the backlog→queued gate in `handleBacklog`
-- [ ] Populate `QueueReason` for queued-state tasks in `listTasks` (reuse loaded `tasks` slice as projectTasks; load project once)
-- [ ] Populate `QueueReason` for queued-state tasks in `getTask` (load project + project task list explicitly; only when task is queued)
+- [x] Add transient `QueueReason string \`json:"queue_reason,omitempty" gorm:"-"\`` to `SpecTask` in `api/pkg/types/simple_spec_task.go` (next to `SandboxStatusMessage`)
+- [x] Add pure `PlanningQueueReason(project, projectTasks, task) string` in `spec_task_orchestrator.go` covering dependency-not-ready, planning-full, review-full (corrected formula) → returns "" when startable
+- [x] Resolve the blocking dependency's name (from `projectTasks`, fall back to ID) for the dependency reason string
+- [x] Add sibling `ImplementationQueueReason(...)` (dependency-only) for `queued_implementation`
+- [x] Refactor `handleQueuedSpecGeneration` to use `PlanningQueueReason` (identical behaviour; keep the existing structured log fields when leaving queued)
+- [x] Fix Problem 2 formula: gate review capacity on `reviewCount >= reviewLimit` (not `planningCount+reviewCount >= reviewLimit`) in both `handleQueuedSpecGeneration` and the backlog→queued gate in `handleBacklog`
+- [~] Populate `QueueReason` for queued-state tasks in `listTasks` (add `populateQueueReasons` helper; load project + tasks-with-deps once)
+- [~] Populate `QueueReason` for queued-state tasks in `getTask` (reuse `populateQueueReasons` with a single-task slice)
 
 ## Frontend
 - [ ] Regenerate OpenAPI types (`./stack update_openapi`) so `TypesSpecTask` includes `queue_reason`
