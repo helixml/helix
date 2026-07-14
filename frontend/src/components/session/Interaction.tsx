@@ -413,6 +413,7 @@ export const Interaction: FC<InteractionProps> = ({
                   handleSave={handleSave}
                   isLastInteraction={isLastInteraction}
                   sessionSteps={sessionSteps}
+                  enableDebugCopy={false}
                 />
               </InteractionContainer>
               {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
@@ -501,6 +502,7 @@ export const Interaction: FC<InteractionProps> = ({
                   handleSave={() => {}}
                   isLastInteraction={isLastInteraction}
                   sessionSteps={sessionSteps}
+                  enableDebugCopy={enableDebugCopy}
                 />
                 {/* Show incomplete warning for waiting interactions that aren't actively streaming */}
                 {isLive && !children && !isLastInteraction && (
@@ -541,23 +543,6 @@ export const Interaction: FC<InteractionProps> = ({
               </>
             )}
           </InteractionContainer>
-          {enableDebugCopy && (
-            <Box
-              sx={{
-                mt: 0.5,
-                opacity: isHovering ? 1 : 0,
-                pointerEvents: isHovering ? "auto" : "none",
-                transition: "opacity 0.2s ease-in-out",
-              }}
-            >
-              <InteractionDebugCopyButton
-                interaction={interaction}
-                session={session}
-                sessionSteps={sessionSteps}
-                serverConfig={serverConfig}
-              />
-            </Box>
-          )}
         </Box>
       )}
     </Box>
