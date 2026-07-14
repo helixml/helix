@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,6 +18,7 @@ func TestInjectAvailableModels(t *testing.T) {
 		helixSettings   map[string]interface{}
 		wantModel       string
 		wantProvider    string
+		wantEffort      string
 		wantSkipped     bool // true if injection should be skipped (e.g. anthropic built-in)
 	}{
 		{
@@ -34,6 +36,23 @@ func TestInjectAvailableModels(t *testing.T) {
 			},
 			wantModel:    "helix/qwen3:8b",
 			wantProvider: "openai",
+		},
+		{
+			name: "adds explicit none reasoning effort for zed agent",
+			codeAgentConfig: &CodeAgentConfig{
+				Model:           "openai/gpt-5.6-sol",
+				APIType:         "openai",
+				Runtime:         "zed_agent",
+				ReasoningEffort: "none",
+			},
+			helixSettings: map[string]interface{}{
+				"language_models": map[string]interface{}{
+					"openai": map[string]interface{}{},
+				},
+			},
+			wantModel:    "openai/gpt-5.6-sol",
+			wantProvider: "openai",
+			wantEffort:   "none",
 		},
 		{
 			name: "creates provider config if missing",
@@ -204,6 +223,7 @@ func TestInjectAvailableModels(t *testing.T) {
 					if model, ok := m.(AvailableModel); ok {
 						assert.Equal(t, tt.wantModel, model.DisplayName, "display_name should match model name")
 						assert.NotZero(t, model.MaxTokens, "max_tokens should be set")
+						assert.Equal(t, tt.wantEffort, model.ReasoningEffort, "reasoning_effort should match")
 					} else if model, ok := m.(map[string]interface{}); ok {
 						assert.Equal(t, tt.wantModel, model["display_name"], "display_name should match model name")
 						assert.NotNil(t, model["max_tokens"], "max_tokens should be set")
@@ -539,6 +559,84 @@ func TestQwenCodeAgentServerHasYoloDefaultMode(t *testing.T) {
 	assert.True(t, ok, "qwen entry must have args")
 	assert.Contains(t, args, "--yolo",
 		"qwen args must include --yolo so the ACP session starts in YOLO mode without depending on the IDE")
+}
+
+func TestEnsureCodexNonInteractiveConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex", "config.toml")
+	existing := []byte("model = \"gpt-5.6-sol\"\n\n[projects.\"/workspace\"]\ntrust_level = \"trusted\"\n")
+	assert.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	assert.NoError(t, os.WriteFile(path, existing, 0644))
+
+	assert.NoError(t, ensureCodexNonInteractiveConfig(path))
+	data, err := os.ReadFile(path)
+	assert.NoError(t, err)
+	var config map[string]interface{}
+	assert.NoError(t, toml.Unmarshal(data, &config))
+	assert.Equal(t, "never", config["approval_policy"])
+	assert.Equal(t, "danger-full-access", config["sandbox_mode"])
+	assert.Equal(t, "gpt-5.6-sol", config["model"])
+	projects, ok := config["projects"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, projects, "/workspace")
+}
+
+func TestCodexAgentServerUsesFullAccess(t *testing.T) {
+	originalPath := CodexConfigPath
+	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	t.Cleanup(func() { CodexConfigPath = originalPath })
+
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{Runtime: "codex_cli", BaseURL: "http://api/v1"}}
+	cfg := d.generateAgentServerConfig()
+	codex, ok := cfg["codex-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "agent-full-access", codex["default_mode"])
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "agent-full-access", env["INITIAL_AGENT_MODE"])
+
+	data, err := os.ReadFile(CodexConfigPath)
+	assert.NoError(t, err)
+	var persisted map[string]interface{}
+	assert.NoError(t, toml.Unmarshal(data, &persisted))
+	assert.Equal(t, "never", persisted["approval_policy"])
+	assert.Equal(t, "danger-full-access", persisted["sandbox_mode"])
+}
+
+func TestClaudeAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "claude_code",
+		Model:           "claude-opus-4-6",
+		BaseURL:         "http://api",
+		ReasoningEffort: "max",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	claude, ok := cfg["claude-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := claude["env"].(map[string]string)
+	assert.True(t, ok)
+	assert.Equal(t, "max", env["CLAUDE_CODE_EFFORT_LEVEL"])
+}
+
+func TestCodexAgentServerUsesConfiguredReasoningEffort(t *testing.T) {
+	originalPath := CodexConfigPath
+	CodexConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	t.Cleanup(func() { CodexConfigPath = originalPath })
+
+	d := &SettingsDaemon{codeAgentConfig: &CodeAgentConfig{
+		Runtime:         "codex_cli",
+		BaseURL:         "http://api/v1",
+		ReasoningEffort: "ultra",
+	}}
+
+	cfg := d.generateAgentServerConfig()
+	codex, ok := cfg["codex-acp"].(map[string]interface{})
+	assert.True(t, ok)
+	env, ok := codex["env"].(map[string]interface{})
+	assert.True(t, ok)
+	codexConfig, ok := env["CODEX_CONFIG"].(string)
+	assert.True(t, ok)
+	assert.JSONEq(t, `{"model_reasoning_effort":"ultra"}`, codexConfig)
 }
 
 // TestComputeEffectiveTheme exercises every branch of the helper that decides

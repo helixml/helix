@@ -7,6 +7,7 @@ import Session from './pages/Session'
 import AdminRunnerLogsPage from './pages/AdminRunnerLogsPage'
 import Apps from './pages/Apps'
 import Providers from './pages/Providers'
+import ProviderDetail from './pages/ProviderDetail'
 import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
@@ -48,9 +49,11 @@ import NotFound from './pages/NotFound'
 import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgBots from './pages/HelixOrgBots'
 import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
+import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
 import HelixOrgSettings from './pages/HelixOrgSettings'
 import HelixOrgTopics from './pages/HelixOrgTopics'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
+import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
 import useRouter from './hooks/useRouter'
 import { recordNavRoute } from './lib/navHistory'
 
@@ -186,10 +189,21 @@ const routes: IApplicationRoute[] = [
     <QuestionSets />
   ),
 }, {
+  name: 'org_provider_detail',
+  path: '/orgs/:org_id/providers/:provider_id',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <ProviderDetail />
+  ),
+}, {
   name: 'org_providers',
   path: '/orgs/:org_id/providers',
   meta: {
-    drawer: false,
+    drawer: true,
+    menu: 'orgs',
   },
   render: () => (
     <Providers />
@@ -541,9 +555,11 @@ const routes: IApplicationRoute[] = [
   // helix-org alpha — Other resources (bots, topics, settings) are
   // operated via MCP tools / API; the overview is the visual entry
   // point.
+  // drawer: false — secondary context sidebar is unused; Chart/Bots/Topics/
+  // Settings live in the AppBar (HelixOrgTopNav). The 64px org rail still shows.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
-  meta: { drawer: true, title: 'Helix Org' },
+  meta: { drawer: false, title: 'Helix Org' },
   render: () => {
     const { navigateReplace, params } = useRouter()
     React.useEffect(() => {
@@ -554,32 +570,42 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_chart',
   path: '/orgs/:org_id/helix-org/chart',
-  meta: { drawer: true, title: 'Helix Org · Chart' },
+  meta: { drawer: false, title: 'Helix Org · Chart' },
   render: () => <HelixOrgChart />,
 }, {
   name: 'helix_org_bots',
   path: '/orgs/:org_id/helix-org/bots',
-  meta: { drawer: true, title: 'Helix Org · Bots' },
+  meta: { drawer: false, title: 'Helix Org · Bots' },
   render: () => <HelixOrgBots />,
 }, {
   name: 'helix_org_bot_detail',
   path: '/orgs/:org_id/helix-org/bots/:bot_id',
-  meta: { drawer: true, title: 'Helix Org · Bot' },
+  meta: { drawer: false, title: 'Helix Org · Bot' },
   render: () => <HelixOrgBotDetail />,
+}, {
+  name: 'helix_org_human_detail',
+  path: '/orgs/:org_id/helix-org/humans/:bot_id',
+  meta: { drawer: false, title: 'Helix Org · Person' },
+  render: () => <HelixOrgHumanDetail />,
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
-  meta: { drawer: true, title: 'Helix Org · Settings' },
+  meta: { drawer: false, title: 'Helix Org · Settings' },
   render: () => <HelixOrgSettings />,
 }, {
   name: 'helix_org_topics',
   path: '/orgs/:org_id/helix-org/topics',
-  meta: { drawer: true, title: 'Helix Org · Topics' },
+  meta: { drawer: false, title: 'Helix Org · Topics' },
   render: () => <HelixOrgTopics />,
+}, {
+  name: 'helix_org_processor_detail',
+  path: '/orgs/:org_id/helix-org/processors/:processor_id',
+  meta: { drawer: false, title: 'Helix Org · Processor' },
+  render: () => <HelixOrgProcessorDetail />,
 }, {
   name: 'helix_org_topic_detail',
   path: '/orgs/:org_id/helix-org/topics/:topic_id',
-  meta: { drawer: true, title: 'Helix Org · Topic' },
+  meta: { drawer: false, title: 'Helix Org · Topic' },
   render: () => <HelixOrgTopicDetail />,
 }, NOT_FOUND_ROUTE]
 

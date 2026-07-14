@@ -64,6 +64,16 @@ func (r *eventsRepo) Append(ctx context.Context, e streaming.Event) error {
 	return r.Repository.Create(ctx, e)
 }
 
+func (r *eventsRepo) DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error {
+	result := r.Repository.db.WithContext(ctx).
+		Where("org_id = ? AND topic_id = ?", orgID, string(topicID)).
+		Delete(&eventRow{})
+	if result.Error != nil {
+		return fmt.Errorf("delete events for topic: %w", result.Error)
+	}
+	return nil
+}
+
 func (r *eventsRepo) ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {
 	return r.Repository.Find(ctx,
 		store.WithOrg(orgID),

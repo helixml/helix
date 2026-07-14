@@ -7,7 +7,18 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/rs/zerolog/log"
 )
+
+// workerProvisioningKeys are the org-default "Default Bot Runtime" settings.
+// Changing any of them activates bots whose initial provisioning was deferred.
+// Once a bot has an app, its app config owns runtime/model selection.
+var workerProvisioningKeys = map[string]bool{
+	"worker.runtime":     true,
+	"worker.credentials": true,
+	"worker.provider":    true,
+	"worker.model":       true,
+}
 
 // ---- Settings -----------------------------------------------------------
 
@@ -92,7 +103,103 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	// A complete initial configuration activates bots whose provisioning was
+	// deferred. Existing apps remain independently configurable.
+	if workerProvisioningKeys[key] {
+		a.activateDeferredBotsAfterRuntimeChange(r.Context(), orgID)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// activateDeferredBotsAfterRuntimeChange provisions bots that were created
+// before the org's initial runtime configuration was complete:
+//
+//   - A Bot that was deferred at create (no project yet, because no runtime
+//     was configured) is activated now — it provisions for the FIRST time
+//     with the correct config, so its desktop never comes up on the gpt
+//     default.
+//   - A Bot that already has a project is left unchanged. Runtime/model edits
+//     for an existing bot belong to its generated Helix app.
+//
+// Config is committed before this runs, so first provisioning reads it.
+// Best-effort: per-bot failures are logged, not fatal — the settings write
+// already succeeded.
+func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context, orgID string) {
+	if a.deps.Queries == nil {
+		return
+	}
+	// The four worker.* keys are written as separate (often concurrent)
+	// requests by the UI. Wait until the runtime config is COMPLETE before
+	// provisioning anything, so a deferred bot is never brought up on a
+	// half-written config and then re-applied — it provisions exactly once,
+	// correct. Partial writes are no-ops; the write that completes the config
+	// does the work.
+	if !a.runtimeConfigComplete(ctx, orgID) {
+		return
+	}
+	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	if err != nil {
+		log.Warn().Err(err).Str("org", orgID).Msg("activate deferred bots after runtime change: list bots failed")
+		return
+	}
+	for _, b := range bs {
+		// A human node is never provisioned/activated — skip it, or the
+		// runtime-change sweep would spin up a desktop for every person.
+		if b.IsHuman() {
+			continue
+		}
+		provisioned := true
+		if a.deps.BotRuntime != nil {
+			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)
+			provisioned = err == nil && info.ProjectID != ""
+		}
+		if !provisioned {
+			// Deferred bot: activate it now so it provisions with the
+			// just-configured runtime (correct from its first boot).
+			if a.deps.Activations == nil {
+				continue
+			}
+			if _, err := a.deps.Activations.Activate(ctx, orgID, b.ID); err != nil {
+				log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
+					Msg("activate deferred bot after runtime change failed")
+			}
+			continue
+		}
+		// Existing apps are configured through the Helix app UI/API. The
+		// org defaults are provisioning inputs, not reconciliation policy.
+	}
+}
+
+// runtimeConfigComplete reports whether the org's Default Bot Runtime has
+// every field a Bot needs to provision. It mirrors resolveWorkerAgentConfig's
+// coercion (server package): runtimes without subscription support are always
+// api_key and need a provider + model; claude_code and codex_cli default to
+// subscription unless credentials is explicitly api_key. Used to hold off
+// provisioning until a half-written config is fully in place.
+func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bool {
+	if a.deps.Configs == nil {
+		return false
+	}
+	runtime, _ := a.deps.Configs.GetString(ctx, orgID, "worker.runtime")
+	if runtime == "" {
+		return false
+	}
+	credentials, _ := a.deps.Configs.GetString(ctx, orgID, "worker.credentials")
+	if !runtimeSupportsSubscription(runtime) {
+		credentials = "api_key"
+	} else if credentials == "" {
+		credentials = "subscription"
+	}
+	if credentials == "subscription" {
+		return true
+	}
+	provider, _ := a.deps.Configs.GetString(ctx, orgID, "worker.provider")
+	model, _ := a.deps.Configs.GetString(ctx, orgID, "worker.model")
+	return provider != "" && model != ""
+}
+
+func runtimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // deleteSetting removes the config row for the given key, falling back to defaults.

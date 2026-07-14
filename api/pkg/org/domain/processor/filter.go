@@ -2,6 +2,7 @@ package processor
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +52,7 @@ func (c filterConfig) Validate(out []Output) error {
 // Process evaluates each output's predicate against the input Message
 // and returns a pass-through Result (the message, unchanged) for each
 // match. Zero matches = an empty slice = the message is dropped.
-func (c filterConfig) Process(in streaming.Message, out []Output) ([]Result, error) {
+func (c filterConfig) Process(_ context.Context, in streaming.Message, out []Output) ([]Result, error) {
 	var res []Result
 	for i, o := range out {
 		match, err := evalPredicate(o.Match, in)

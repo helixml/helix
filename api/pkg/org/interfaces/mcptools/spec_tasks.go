@@ -31,6 +31,7 @@ type CreateSpecTask struct{ deps Deps }
 func NewCreateSpecTask(deps Deps) *CreateSpecTask { return &CreateSpecTask{deps: deps} }
 
 type createSpecTaskArgs struct {
+	ProjectID      string   `json:"project_id,omitempty"`
 	Name           string   `json:"name"`
 	Description    string   `json:"description"`
 	Type           string   `json:"type,omitempty"`
@@ -45,8 +46,9 @@ var createSpecTaskSchema = mustSchema[createSpecTaskArgs]()
 func (t *CreateSpecTask) Name() tool.Name                 { return CreateSpecTaskName }
 func (t *CreateSpecTask) InputSchema() *jsonschema.Schema { return createSpecTaskSchema }
 func (t *CreateSpecTask) Description() string {
-	return "Create a new spec task in your project. Provide a short name and a high-level " +
-		"description of the desired outcome. Optional: type (feature|bug|refactor), priority " +
+	return "Create a new spec task. Provide a short name and a high-level " +
+		"description of the desired outcome. Optional: project_id (a project you manage in " +
+		"your org — omit to use your own project), type (feature|bug|refactor), priority " +
 		"(low|medium|high|critical), skip_planning (go straight to implementation), depends_on " +
 		"(task IDs). The task starts in backlog — call start_spectask_planning to begin work."
 }
@@ -55,7 +57,7 @@ func (t *CreateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	view, err := t.deps.SpecTasks.Create(ctx, inv.Caller, runtime.CreateSpecTaskInput{
+	view, err := t.deps.SpecTasks.Create(ctx, inv.Caller, args.ProjectID, runtime.CreateSpecTaskInput{
 		Name:           args.Name,
 		Description:    args.Description,
 		Type:           args.Type,
@@ -79,9 +81,10 @@ type ListSpecTasks struct{ deps Deps }
 func NewListSpecTasks(deps Deps) *ListSpecTasks { return &ListSpecTasks{deps: deps} }
 
 type listSpecTasksArgs struct {
-	Status   string `json:"status,omitempty"`
-	Priority string `json:"priority,omitempty"`
-	Type     string `json:"type,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Priority  string `json:"priority,omitempty"`
+	Type      string `json:"type,omitempty"`
 }
 
 var listSpecTasksSchema = mustSchema[listSpecTasksArgs]()
@@ -89,14 +92,15 @@ var listSpecTasksSchema = mustSchema[listSpecTasksArgs]()
 func (t *ListSpecTasks) Name() tool.Name                 { return ListSpecTasksName }
 func (t *ListSpecTasks) InputSchema() *jsonschema.Schema { return listSpecTasksSchema }
 func (t *ListSpecTasks) Description() string {
-	return "List the spec tasks in your project, optionally filtered by status, priority, or type."
+	return "List spec tasks, optionally filtered by status, priority, or type. Pass project_id " +
+		"to list tasks in a project you manage in your org; omit it to list your own project's tasks."
 }
 func (t *ListSpecTasks) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args listSpecTasksArgs
 	if err := json.Unmarshal(inv.Args, &args); err != nil {
 		return nil, fmt.Errorf("parse args: %w", err)
 	}
-	views, err := t.deps.SpecTasks.List(ctx, inv.Caller, runtime.ListSpecTasksFilter{
+	views, err := t.deps.SpecTasks.List(ctx, inv.Caller, args.ProjectID, runtime.ListSpecTasksFilter{
 		Status:   args.Status,
 		Priority: args.Priority,
 		Type:     args.Type,
@@ -116,7 +120,8 @@ type GetSpecTask struct{ deps Deps }
 func NewGetSpecTask(deps Deps) *GetSpecTask { return &GetSpecTask{deps: deps} }
 
 type taskIDArgs struct {
-	TaskID string `json:"task_id"`
+	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id"`
 }
 
 var getSpecTaskSchema = mustSchema[taskIDArgs]()
@@ -124,14 +129,61 @@ var getSpecTaskSchema = mustSchema[taskIDArgs]()
 func (t *GetSpecTask) Name() tool.Name                 { return GetSpecTaskName }
 func (t *GetSpecTask) InputSchema() *jsonschema.Schema { return getSpecTaskSchema }
 func (t *GetSpecTask) Description() string {
-	return "Get the full details of one spec task in your project by its task_id."
+	return "Get the full details of one spec task by its task_id. Pass project_id when the task " +
+		"is in a project you manage in your org; omit it for your own project."
 }
 func (t *GetSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseTaskID(inv.Args)
 	if err != nil {
 		return nil, err
 	}
-	view, err := t.deps.SpecTasks.Get(ctx, inv.Caller, args.TaskID)
+	view, err := t.deps.SpecTasks.Get(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// --- update_spectask ------------------------------------------------------
+
+const UpdateSpecTaskName tool.Name = "update_spectask"
+
+type UpdateSpecTask struct{ deps Deps }
+
+func NewUpdateSpecTask(deps Deps) *UpdateSpecTask { return &UpdateSpecTask{deps: deps} }
+
+type updateSpecTaskArgs struct {
+	ProjectID    string    `json:"project_id,omitempty"`
+	TaskID       string    `json:"task_id"`
+	Name         *string   `json:"name,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	Type         *string   `json:"type,omitempty"`
+	Priority     *string   `json:"priority,omitempty"`
+	SkipPlanning *bool     `json:"skip_planning,omitempty"`
+	DependsOn    *[]string `json:"depends_on,omitempty"`
+}
+
+var updateSpecTaskSchema = mustSchema[updateSpecTaskArgs]()
+
+func (t *UpdateSpecTask) Name() tool.Name                 { return UpdateSpecTaskName }
+func (t *UpdateSpecTask) InputSchema() *jsonschema.Schema { return updateSpecTaskSchema }
+func (t *UpdateSpecTask) Description() string {
+	return "Update a spec task's editable metadata: name, description, type, priority, " +
+		"skip_planning, or depends_on. Use the dedicated lifecycle tools to start, review, " +
+		"approve, or stop work. Pass project_id for a project you manage in your org."
+}
+func (t *UpdateSpecTask) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	var args updateSpecTaskArgs
+	if err := json.Unmarshal(inv.Args, &args); err != nil {
+		return nil, fmt.Errorf("parse args: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+	view, err := t.deps.SpecTasks.Update(ctx, inv.Caller, args.ProjectID, args.TaskID, runtime.UpdateSpecTaskInput{
+		Name: args.Name, Description: args.Description, Type: args.Type, Priority: args.Priority,
+		SkipPlanning: args.SkipPlanning, DependsOn: args.DependsOn,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +206,43 @@ func (t *StartSpecTaskPlanning) Name() tool.Name                 { return StartS
 func (t *StartSpecTaskPlanning) InputSchema() *jsonschema.Schema { return startSpecTaskPlanningSchema }
 func (t *StartSpecTaskPlanning) Description() string {
 	return "Start a spec task: begin spec generation (or go straight to implementation if the " +
-		"task was created with skip_planning). Use after create_spectask."
+		"task was created with skip_planning). Use after create_spectask. Pass project_id for a " +
+		"task in a project you manage in your org; omit it for your own project."
 }
 func (t *StartSpecTaskPlanning) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseTaskID(inv.Args)
 	if err != nil {
 		return nil, err
 	}
-	view, err := t.deps.SpecTasks.StartPlanning(ctx, inv.Caller, args.TaskID)
+	view, err := t.deps.SpecTasks.StartPlanning(ctx, inv.Caller, args.ProjectID, args.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// --- stop_spectask_agent --------------------------------------------------
+
+const StopSpecTaskAgentName tool.Name = "stop_spectask_agent"
+
+type StopSpecTaskAgent struct{ deps Deps }
+
+func NewStopSpecTaskAgent(deps Deps) *StopSpecTaskAgent { return &StopSpecTaskAgent{deps: deps} }
+
+var stopSpecTaskAgentSchema = mustSchema[taskIDArgs]()
+
+func (t *StopSpecTaskAgent) Name() tool.Name                 { return StopSpecTaskAgentName }
+func (t *StopSpecTaskAgent) InputSchema() *jsonschema.Schema { return stopSpecTaskAgentSchema }
+func (t *StopSpecTaskAgent) Description() string {
+	return "Stop a spec task's running agent desktop without deleting the task or session, so it " +
+		"can be resumed later. Pass project_id for a project you manage in your org."
+}
+func (t *StopSpecTaskAgent) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
+	args, err := parseTaskID(inv.Args)
+	if err != nil {
+		return nil, err
+	}
+	view, err := t.deps.SpecTasks.StopAgent(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,14 +263,15 @@ func (t *ReviewSpecTaskSpec) Name() tool.Name                 { return ReviewSpe
 func (t *ReviewSpecTaskSpec) InputSchema() *jsonschema.Schema { return reviewSpecTaskSpecSchema }
 func (t *ReviewSpecTaskSpec) Description() string {
 	return "Read the generated specification (requirements, design, implementation plan) for a " +
-		"spec task so you can review it before approving or requesting changes."
+		"spec task so you can review it before approving or requesting changes. Pass project_id " +
+		"for a task in a project you manage in your org; omit it for your own project."
 }
 func (t *ReviewSpecTaskSpec) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseTaskID(inv.Args)
 	if err != nil {
 		return nil, err
 	}
-	review, err := t.deps.SpecTasks.ReviewSpec(ctx, inv.Caller, args.TaskID)
+	review, err := t.deps.SpecTasks.ReviewSpec(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,14 +292,15 @@ func (t *ApproveSpecTaskSpec) Name() tool.Name                 { return ApproveS
 func (t *ApproveSpecTaskSpec) InputSchema() *jsonschema.Schema { return approveSpecTaskSpecSchema }
 func (t *ApproveSpecTaskSpec) Description() string {
 	return "Approve a spec task's generated specification. This advances the task toward " +
-		"implementation. Review the spec first with review_spectask_spec."
+		"implementation. Review the spec first with review_spectask_spec. Pass project_id for a " +
+		"task in a project you manage in your org; omit it for your own project."
 }
 func (t *ApproveSpecTaskSpec) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseTaskID(inv.Args)
 	if err != nil {
 		return nil, err
 	}
-	view, err := t.deps.SpecTasks.ApproveSpec(ctx, inv.Caller, args.TaskID)
+	view, err := t.deps.SpecTasks.ApproveSpec(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,8 +318,9 @@ func NewRequestSpecTaskChanges(deps Deps) *RequestSpecTaskChanges {
 }
 
 type requestChangesArgs struct {
-	TaskID  string `json:"task_id"`
-	Comment string `json:"comment"`
+	ProjectID string `json:"project_id,omitempty"`
+	TaskID    string `json:"task_id"`
+	Comment   string `json:"comment"`
 }
 
 var requestSpecTaskChangesSchema = mustSchema[requestChangesArgs]()
@@ -247,7 +331,8 @@ func (t *RequestSpecTaskChanges) InputSchema() *jsonschema.Schema {
 }
 func (t *RequestSpecTaskChanges) Description() string {
 	return "Send a spec task's specification back for revision with a comment explaining what " +
-		"needs to change. The task returns to revision and the agent regenerates the spec."
+		"needs to change. The task returns to revision and the agent regenerates the spec. Pass " +
+		"project_id for a task in a project you manage in your org; omit it for your own project."
 }
 func (t *RequestSpecTaskChanges) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	var args requestChangesArgs
@@ -260,7 +345,7 @@ func (t *RequestSpecTaskChanges) Invoke(ctx context.Context, inv tool.Invocation
 	if args.Comment == "" {
 		return nil, errors.New("comment is required")
 	}
-	view, err := t.deps.SpecTasks.RequestChanges(ctx, inv.Caller, args.TaskID, args.Comment)
+	view, err := t.deps.SpecTasks.RequestChanges(ctx, inv.Caller, args.ProjectID, args.TaskID, args.Comment)
 	if err != nil {
 		return nil, err
 	}
@@ -282,14 +367,15 @@ func (t *CreateSpecTaskPRs) InputSchema() *jsonschema.Schema { return createSpec
 func (t *CreateSpecTaskPRs) Description() string {
 	return "When you're happy with the implemented code, tell the system to open the pull " +
 		"request(s) for a spec task — one per repository attached to the project. This does NOT " +
-		"merge or approve on GitHub; the merge approval still happens on GitHub itself."
+		"merge or approve on GitHub; the merge approval still happens on GitHub itself. Pass " +
+		"project_id for a task in a project you manage in your org; omit it for your own project."
 }
 func (t *CreateSpecTaskPRs) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {
 	args, err := parseTaskID(inv.Args)
 	if err != nil {
 		return nil, err
 	}
-	view, err := t.deps.SpecTasks.CreatePullRequests(ctx, inv.Caller, args.TaskID)
+	view, err := t.deps.SpecTasks.CreatePullRequests(ctx, inv.Caller, args.ProjectID, args.TaskID)
 	if err != nil {
 		return nil, err
 	}

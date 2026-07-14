@@ -144,6 +144,22 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const isStarting = sandboxStateValue === "starting" || sandboxStateValue === "loading";
   const isPaused = sandboxStateValue === "absent";
   const [isResuming, setIsResuming] = useState(false);
+  // Wake signal for DesktopStreamViewer: bump a counter whenever the desktop comes
+  // back from a paused/absent state (user sent a message or clicked "Start Desktop").
+  // We only fire after having actually observed the paused state, so a normal fresh
+  // page load (loading -> running) does not count as a wake. Using the paused->reachable
+  // edge (not the transient "starting" state) makes this robust to fast resumes where
+  // polling never samples "starting".
+  const sawPausedRef = useRef(false);
+  const [wakeSignal, setWakeSignal] = useState(0);
+  useEffect(() => {
+    if (isPaused) {
+      sawPausedRef.current = true;
+    } else if ((isRunning || isStarting) && sawPausedRef.current) {
+      sawPausedRef.current = false;
+      setWakeSignal((n) => n + 1);
+    }
+  }, [isPaused, isRunning, isStarting]);
   // Track if we've ever been running - once running, keep stream mounted to avoid fullscreen exit
   const [hasEverBeenRunning, setHasEverBeenRunning] = useState(false);
   // Session panel state
@@ -652,6 +668,9 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
             // Suppress DesktopStreamViewer's overlay when we're showing our own reconnecting overlay
             // This prevents double spinners when container state changes
             suppressOverlay={showReconnectingOverlay}
+            // Signal wake-ups so the viewer resets its reconnect retry budget when the
+            // session is woken (via message send or "Start Desktop") after going to sleep.
+            wakeSignal={wakeSignal}
           />
 
           {/* Reconnecting overlay - shown when state changes but stream stays mounted */}

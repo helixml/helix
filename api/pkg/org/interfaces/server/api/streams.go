@@ -488,6 +488,38 @@ func (a *apiHandler) listTopicMessages(w http.ResponseWriter, r *http.Request) {
 	jsonapi.Write(w, http.StatusOK, doc)
 }
 
+// clearTopicMessages permanently deletes every retained message on one Topic.
+// The Topic and its subscriptions remain intact.
+//
+// @Summary Helix-org: clear all messages from a topic
+// @Tags HelixOrg
+// @Param id path string true "Topic ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/topics/{id}/messages [delete]
+func (a *apiHandler) clearTopicMessages(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.TopicID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
+		return
+	}
+	if a.deps.Messages == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("topic messages service not configured"))
+		return
+	}
+	if err := a.deps.Messages.Clear(r.Context(), orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("clear messages for %s: %w", id, err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // topicEventsSSE pushes EventCard JSON arrays on every Hub.Notify.
 //
 // Each SSE `data:` line is a JSON array of recent events (cap 50,

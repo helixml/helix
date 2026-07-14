@@ -82,6 +82,29 @@ export const mapProviderToRepoType = (provider: ProviderType): TypesExternalRepo
   }
 }
 
+// Full connect-time scope set for GitHub VCS. GitHub REPLACES (does not union) a
+// token's scopes on re-authorization, so every connect/reconnect entry point must
+// request the whole set or it silently downgrades an existing grant. Single source
+// of truth — re-exported from hooks/useOAuthFlow for existing importers.
+export const GITHUB_VCS_SCOPES = ['repo', 'workflow', 'read:org', 'read:user', 'user:email']
+
+/**
+ * Scopes to request when connecting/reconnecting a VCS provider, by provider
+ * type/name. Returns undefined for non-VCS (or unknown) providers so their default
+ * connect behaviour is left untouched. Mirrors the backend vcs.RequiredScopes plus
+ * GitHub's workflow scope, and matches BrowseProvidersDialog.
+ */
+export const vcsScopesForProvider = (
+  type: string | undefined | null,
+  name: string | undefined | null,
+): string[] | undefined => {
+  if (matchesProviderType(type, name, 'github')) return GITHUB_VCS_SCOPES
+  if (matchesProviderType(type, name, 'gitlab')) return ['read_repository', 'write_repository', 'read_user']
+  if (matchesProviderType(type, name, 'azure-devops')) return ['vso.code_write']
+  if (matchesProviderType(type, name, 'bitbucket')) return ['repository', 'repository:write']
+  return undefined
+}
+
 /**
  * Check if an OAuth connection has the required scopes.
  * Returns false if no scopes are present on the connection or if requiredScopes is empty.

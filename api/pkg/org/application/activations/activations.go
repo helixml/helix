@@ -32,19 +32,36 @@ type ManualDispatcher interface {
 }
 
 // SessionResolver returns a Worker's current desktop session id (empty
-// before the first activation). Used only to populate the Activate
-// response so the UI can deep-link straight to the desktop viewer.
+// before the first activation). Used to populate the Activate response
+// and to resolve the target of Stop / Restart.
 type SessionResolver interface {
 	SessionID(ctx context.Context, orgID string, workerID orgchart.BotID) (string, error)
+}
+
+// DesktopStopper stops a bot's desktop container without deleting the
+// session row (transcript survives). Used by Stop.
+type DesktopStopper interface {
+	StopDesktop(ctx context.Context, sessionID string) error
+}
+
+// SessionResetter fully tears down a bot's current session (stop desktop
+// → delete session row → clear the persisted pointer) so Restart's
+// follow-up Activate provisions a brand-new session.
+type SessionResetter interface {
+	ResetSession(ctx context.Context, orgID string, workerID orgchart.BotID, sessionID string) error
 }
 
 // ErrActivateUnavailable is returned by Activate when the project
 // ensurer or dispatcher isn't wired. Adapters map it to 501.
 var ErrActivateUnavailable = errors.New("activate is not wired in this deployment")
 
-// Activations owns the host-driven activation use case: the full
-// manual-activate command (Activate), which ensures the project,
-// pre-allocates the audit row, and enqueues the manual trigger.
+// ErrStopUnavailable is returned by Stop when the desktop stopper isn't
+// wired. Adapters map it to 501.
+var ErrStopUnavailable = errors.New("stop is not wired in this deployment")
+
+// Activations owns the host-driven agent lifecycle commands: Activate
+// (start), Stop, and Restart — shared by the REST endpoints and the MCP
+// start_bot / stop_bot / restart_bot tools.
 type Activations struct {
 	repo       activation.Repository
 	now        func() time.Time
@@ -52,13 +69,16 @@ type Activations struct {
 	ensurer    ProjectEnsurer
 	dispatcher ManualDispatcher
 	sessions   SessionResolver
+	stopper    DesktopStopper
+	resetter   SessionResetter
 }
 
 // Deps are the constructor-injected collaborators for New. Repo may be
 // nil (Activate then skips the audit pre-create, as the old inline code
 // did when Activations was unwired). Ensurer + Dispatcher are required
 // for Activate (nil → ErrActivateUnavailable); Sessions is optional
-// (nil → empty session id in the result).
+// (nil → empty session id in the result). Stopper / Resetter are
+// required for Stop / Restart respectively.
 type Deps struct {
 	Repo       activation.Repository
 	Now        func() time.Time
@@ -66,6 +86,8 @@ type Deps struct {
 	Ensurer    ProjectEnsurer
 	Dispatcher ManualDispatcher
 	Sessions   SessionResolver
+	Stopper    DesktopStopper
+	Resetter   SessionResetter
 }
 
 // New constructs the Activations service.
@@ -81,6 +103,8 @@ func New(deps Deps) *Activations {
 		ensurer:    deps.Ensurer,
 		dispatcher: deps.Dispatcher,
 		sessions:   deps.Sessions,
+		stopper:    deps.Stopper,
+		resetter:   deps.Resetter,
 	}
 }
 
@@ -135,6 +159,57 @@ func (a *Activations) Activate(ctx context.Context, orgID string, workerID orgch
 		AgentAppID:   agentAppID,
 		SessionID:    sessionID,
 	}, nil
+}
+
+// StopResult is what Stop returns so callers can report whether a
+// desktop was actually stopped or there was nothing running.
+type StopResult struct {
+	// Stopped is true when a live session was found and StopDesktop ran.
+	// False means no session (already stopped / never started) — a no-op.
+	Stopped   bool   `json:"stopped"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// Stop stops the bot's desktop sandbox without deleting the session
+// (transcript stays). No-op when there is no session.
+func (a *Activations) Stop(ctx context.Context, orgID string, workerID orgchart.BotID) (StopResult, error) {
+	if a.stopper == nil {
+		return StopResult{}, ErrStopUnavailable
+	}
+	if err := orgchart.ValidID(string(workerID)); err != nil {
+		return StopResult{}, fmt.Errorf("worker id: %w", err)
+	}
+	var sessionID string
+	if a.sessions != nil {
+		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
+	}
+	if sessionID == "" {
+		return StopResult{Stopped: false}, nil
+	}
+	if err := a.stopper.StopDesktop(ctx, sessionID); err != nil {
+		return StopResult{}, fmt.Errorf("stop desktop %s: %w", sessionID, err)
+	}
+	return StopResult{Stopped: true, SessionID: sessionID}, nil
+}
+
+// Restart fully tears down the current session (when one exists) and
+// then Activates, so the bot gets a brand-new session, desktop and
+// thread with its current tools / MCP services. If the bot has never
+// activated, the reset is skipped and Activate alone handles first start.
+func (a *Activations) Restart(ctx context.Context, orgID string, workerID orgchart.BotID) (ActivateResult, error) {
+	if err := orgchart.ValidID(string(workerID)); err != nil {
+		return ActivateResult{}, fmt.Errorf("worker id: %w", err)
+	}
+	var sessionID string
+	if a.sessions != nil {
+		sessionID, _ = a.sessions.SessionID(ctx, orgID, workerID)
+	}
+	if sessionID != "" && a.resetter != nil {
+		if err := a.resetter.ResetSession(ctx, orgID, workerID, sessionID); err != nil {
+			return ActivateResult{}, fmt.Errorf("reset session: %w", err)
+		}
+	}
+	return a.Activate(ctx, orgID, workerID)
 }
 
 // prepareManual pre-allocates a TriggerManual activation audit row for

@@ -64,7 +64,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
-import { useOAuthFlow } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
 import { findOAuthProviderForType } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -702,7 +702,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             snackbar.info("Connect GitHub to start planning this task.");
             startOAuthFlow({
               providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              scopes: GITHUB_VCS_SCOPES,
               onSuccess: () => {
                 snackbar.success(
                   "GitHub connected. Click Start Planning again to continue.",
@@ -1996,6 +1996,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box sx={{ p: 1.5, flexShrink: 0 }}>
                   <RobustPromptInput
@@ -2791,6 +2792,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box
                   sx={{

@@ -1086,7 +1086,7 @@ function transfer-desktop-to-sandbox() {
   docker tag "${IMAGE_NAME}:latest" "$REGISTRY_TAG"
 
   _tx_elapsed "📤 Pushing to local registry..."
-  if ! docker push "$REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+  if ! docker push "$REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$"; then
     echo "❌ Failed to push to local registry"
     return 1
   fi
@@ -1095,7 +1095,7 @@ function transfer-desktop-to-sandbox() {
   _tx_elapsed "📥 Sandbox pulling from registry..."
   local PULL_OK=false
   for attempt in 1 2 3; do
-    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$"; then
+    if sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$"; then
       PULL_OK=true
       break
     fi
@@ -1136,7 +1136,7 @@ function transfer-desktop-to-sandbox() {
   # Post-rmi verification — if removing the registry tag also removed the image, re-pull and re-tag
   if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
     echo "⚠️  Image disappeared after rmi — re-pulling and re-tagging..."
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$" || true
     sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
     sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
     # Don't rmi the registry tag this time — leave it as a safety net
@@ -1173,7 +1173,7 @@ function transfer-desktop-to-sandbox() {
   # Final verification — if the image is gone after cleanup, re-pull as last resort
   if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
     echo "❌ Image disappeared after cleanup! Re-pulling as last resort..."
-    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep -v "^$" || true
+    sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker pull "$SANDBOX_REGISTRY_TAG" 2>&1 | grep --line-buffered -v "^$" || true
     sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:${IMAGE_TAG}" 2>/dev/null || true
     sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker tag "$SANDBOX_REGISTRY_TAG" "${IMAGE_NAME}:latest" 2>/dev/null || true
     if ! sandbox_docker exec "$SANDBOX_CONTAINER_NAME" docker inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then

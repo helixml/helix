@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"golang.org/x/net/publicsuffix"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -42,6 +44,12 @@ type ProjectWebServiceResponse struct {
 	// canonical Helix hostname parsed from SERVER_URL. Empty when the
 	// vhost feature is not configured on this instance.
 	CNAMETarget string `json:"cname_target,omitempty"`
+
+	// ACMEChallengeTarget is the fixed CNAME value customers point
+	// "_acme-challenge.<their-domain>" at when the domain is behind a
+	// proxy/CDN that hides the origin from Let's Encrypt. Empty when the
+	// operator has not configured delegation (HELIX_VHOST_ACME_CHALLENGE_TARGET).
+	ACMEChallengeTarget string `json:"acme_challenge_target,omitempty"`
 }
 
 // PutProjectWebServiceRequest is the body for PUT
@@ -111,12 +119,40 @@ func (s *HelixAPIServer) getProjectWebService(_ http.ResponseWriter, r *http.Req
 	}
 
 	return &ProjectWebServiceResponse{
-		State:       state,
-		Domains:     domains,
-		Deploys:     deploys,
-		CNAMETarget: cnameTarget,
-		Health:      s.webServiceController.Health(r.Context(), project.ID),
+		State:               state,
+		Domains:             domains,
+		Deploys:             deploys,
+		CNAMETarget:         cnameTarget,
+		ACMEChallengeTarget: s.acmeChallengeTarget(cnameTarget),
+		Health:              s.webServiceController.Health(r.Context(), project.ID),
 	}, nil
+}
+
+// acmeChallengeTarget returns the CNAME value a customer points
+// "_acme-challenge.<their-domain>" at when their custom domain is behind a
+// proxy/CDN that hides the origin from Let's Encrypt.
+//
+// This is only meaningful when a DNS-01 solver is actually configured — CNAME
+// delegation can't work otherwise — so it returns "" unless the Cloudflare
+// DNS-01 provider is enabled, which hides the self-serve record in the UI.
+//
+// The value must live in the DNS zone Helix's Cloudflare token controls. By
+// default that's the registrable domain of the CNAME target (e.g.
+// ingress.helix.ml -> _acme-challenge.helix.ml). Operators whose ACME zone
+// differs from the CNAME target's domain set HELIX_VHOST_ACME_CHALLENGE_TARGET
+// to override the derived value.
+func (s *HelixAPIServer) acmeChallengeTarget(cnameTarget string) string {
+	if !strings.EqualFold(strings.TrimSpace(s.Cfg.WebServer.VHostACMEDNSProvider), "cloudflare") {
+		return ""
+	}
+	if override := strings.TrimSpace(s.Cfg.WebServer.VHostACMEChallengeTarget); override != "" {
+		return override
+	}
+	zone, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(cnameTarget, "."))
+	if err != nil || zone == "" {
+		return ""
+	}
+	return "_acme-challenge." + zone
 }
 
 // putProjectWebService godoc
@@ -297,6 +333,38 @@ func (s *HelixAPIServer) deployProjectWebService(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError400(err.Error())
 	}
 	return deploy, nil
+}
+
+// ProjectWebServiceLogsResponse carries the tail of the deploy/startup log.
+type ProjectWebServiceLogsResponse struct {
+	// Log is the combined stdout/stderr of the project's startup script — build
+	// output, app logs, and the reason a deploy did or didn't come up. Empty
+	// when the service isn't deployed yet.
+	Log string `json:"log"`
+}
+
+// getProjectWebServiceLogs godoc
+// @Summary Get web service deploy/startup logs
+// @Description Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.
+// @Tags    projects
+// @Produce json
+// @Param   id path string true "Project ID"
+// @Success 200 {object} ProjectWebServiceLogsResponse
+// @Router  /api/v1/projects/{id}/web-service/logs [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProjectWebServiceLogs(_ http.ResponseWriter, r *http.Request) (*ProjectWebServiceLogsResponse, *system.HTTPError) {
+	project, herr := s.requireProjectAccess(r, types.ActionGet)
+	if herr != nil {
+		return nil, herr
+	}
+	if s.webServiceController == nil {
+		return nil, system.NewHTTPError500("web service controller not initialised")
+	}
+	logText, err := s.webServiceController.DeployLog(r.Context(), project.ID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return &ProjectWebServiceLogsResponse{Log: logText}, nil
 }
 
 // addProjectWebServiceDomain godoc

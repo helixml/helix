@@ -7,8 +7,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/projects"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
 	"github.com/helixml/helix/api/pkg/org/application/reconcile"
@@ -68,6 +71,14 @@ type Deps struct {
 	// Lifecycle owns Create (the MCP create_bot tool delegates here, the
 	// same service the REST POST /bots handler drives).
 	Lifecycle *lifecycle.Service
+	// Activations owns start/stop/restart of a Bot's agent desktop
+	// (start_bot / stop_bot / restart_bot). Same service as the REST
+	// activate / stop-agent / restart-agent endpoints.
+	Activations *activations.Activations
+	// Processors owns create/update/delete/list of Topic processors
+	// (template, truncate, filter, js). Same service as the REST
+	// /processors handlers. nil → processor tools report "not wired".
+	Processors *processors.Processors
 
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
@@ -80,6 +91,14 @@ type Deps struct {
 	// spec-task tools (create/list/get/start/review/approve/request-changes/
 	// create-PRs) scoped to the calling Worker's own project.
 	SpecTasks *spectasks.Service
+	// Projects is the front-of-house application service backing the
+	// project-discovery tools (list_projects/get_project), scoped to the
+	// caller's org.
+	Projects *projects.Service
+	// Repositories backs list_repositories / list_bot_repositories /
+	// attach_repository / detach_repository — org git repos attached to
+	// Bot projects so sandboxes can clone the code.
+	Repositories runtime.Repositories
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
@@ -92,6 +111,11 @@ type Deps struct {
 	// RegisterBuiltins to read the live registry; nil → the tools fall
 	// back to an unconstrained string array (still valid, just no enum).
 	ToolNames func() []tool.Name
+
+	// HumanInbox delivers ask_human messages to a person's in-app inbox
+	// (the notification bell). Wired at the composition root over the main
+	// Helix attention-event service; nil → ask_human reports unavailable.
+	HumanInbox HumanInbox
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -115,9 +139,34 @@ type Config struct {
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
-	SpecTasks           runtime.SpecTasks
+	SpecTasks runtime.SpecTasks
+	// Projects is the runtime port the project-discovery tools dispatch on.
+	// nil → Build defaults to runtime.NoopProjects{} so the tools return a
+	// clear "not wired" error instead of nil-derefing.
+	Projects runtime.Projects
+	// ProjectAccess resolves the caller Bot's own runtime project so project
+	// discovery can combine it with the explicit per-Bot allowlist.
+	ProjectAccess projects.OwnProjectResolver
+	// Repositories is the runtime port for org git-repo list/attach/detach.
+	// nil → Build defaults to runtime.NoopRepositories{}.
+	Repositories        runtime.Repositories
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
+	// Lifecycle, when set, is used verbatim instead of building a fresh one,
+	// so the MCP tools share the composition root's reconciler-complete
+	// service. nil → lifecycleService() builds a standalone service.
+	Lifecycle *lifecycle.Service
+	// Activations, when set, is used by start_bot / stop_bot / restart_bot.
+	// Built at the composition root (needs project ensurer + stop/reset
+	// ports). nil → those tools report "not wired".
+	Activations *activations.Activations
+	// Processors, when set, is used by create/list/get/update/delete
+	// processor tools. Built at the composition root (needs topics
+	// provisioners). nil → Build() constructs one from Store when possible.
+	Processors *processors.Processors
+	// HumanInbox delivers ask_human messages to a person's in-app inbox.
+	// nil → ask_human reports the inbox as unavailable.
+	HumanInbox HumanInbox
 }
 
 // Build assembles the application services from the config and returns
@@ -130,12 +179,60 @@ func (c Config) Build() Deps {
 		Subscriptions:       c.subscriptionsService(),
 		Publishing:          c.publishingService(),
 		Lifecycle:           c.lifecycleService(),
+		Activations:         c.Activations,
+		Processors:          c.processorsService(),
 		Workspace:           c.Workspace,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
+		Projects:            c.projectsService(),
+		Repositories:        c.repositoriesPort(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
+		HumanInbox:          c.HumanInbox,
 	}
+}
+
+// processorsService returns the pre-built Processors service when the
+// composition root supplied one; otherwise builds a standalone service
+// over the store (tests / DefaultDeps).
+func (c Config) processorsService() *processors.Processors {
+	if c.Processors != nil {
+		return c.Processors
+	}
+	if c.Store == nil {
+		return nil
+	}
+	return processors.New(processors.Deps{
+		Processors: c.Store.Processors,
+		Topics:     c.topicsService(),
+		Now:        c.Now,
+		NewID:      c.NewID,
+	})
+}
+
+// repositoriesPort returns the configured Repositories port, defaulting to
+// NoopRepositories when none is wired.
+func (c Config) repositoriesPort() runtime.Repositories {
+	if c.Repositories == nil {
+		return runtime.NoopRepositories{}
+	}
+	return c.Repositories
+}
+
+// projectsService builds the project-discovery application service over the
+// configured runtime port, defaulting to NoopProjects when none is wired.
+// Queries satisfies projects.MemberVerifier (GetBot); pass it so every
+// project read verifies the caller Bot is a member of its org.
+func (c Config) projectsService() *projects.Service {
+	port := c.Projects
+	if port == nil {
+		port = runtime.NoopProjects{}
+	}
+	var members projects.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return projects.New(port, members, c.ProjectAccess)
 }
 
 // specTasksService builds the spec-task application service over the
@@ -147,7 +244,14 @@ func (c Config) specTasksService() *spectasks.Service {
 	if port == nil {
 		port = runtime.NoopSpecTasks{}
 	}
-	return spectasks.New(port)
+	// Queries satisfies spectasks.MemberVerifier (GetBot); pass it so every
+	// spec-task call verifies the caller Bot is a member of its org. nil is
+	// tolerated (the check is then skipped — the MCP mount already enforces it).
+	var members spectasks.MemberVerifier
+	if c.Queries != nil {
+		members = c.Queries
+	}
+	return spectasks.New(port, members)
 }
 
 // subscriptionsService builds the subscription application service.
@@ -186,6 +290,9 @@ func (c Config) publishingService() *publishing.Publishing {
 // the REST POST /bots handler. The bots service is wired so the row
 // creation applies the base-read-tool union.
 func (c Config) lifecycleService() *lifecycle.Service {
+	if c.Lifecycle != nil {
+		return c.Lifecycle
+	}
 	svc := &lifecycle.Service{
 		Store:          c.Store,
 		Bots:           c.botsService(),
@@ -240,6 +347,8 @@ func DefaultDeps(s *store.Store) Config {
 		HireHook:            runtime.NoopHireHook{},
 		ProjectConfig:       runtime.NoopProjectConfig{},
 		SpecTasks:           runtime.NoopSpecTasks{},
+		Projects:            runtime.NoopProjects{},
+		Repositories:        runtime.NoopRepositories{},
 		CredentialProviders: map[string]credential.Provider{},
 	}
 	c.Reconciler = reconcile.New(reconcile.Deps{
@@ -292,11 +401,24 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Unsubscribe{deps: deps},
 		&Publish{deps: deps},
 		&DM{deps: deps},
+		&AskHuman{deps: deps},
 		&ConfigureBotProject{deps: deps},
+		// Processors — topic transforms/filters/js. Mutations are
+		// OwnerBotTools; list/get are BaseReadTools.
+		&CreateProcessor{deps: deps},
+		&UpdateProcessor{deps: deps},
+		&DeleteProcessor{deps: deps},
+		// Agent desktop lifecycle — same as REST activate / stop-agent /
+		// restart-agent. OwnerBotTools grants these to Chief of Staff.
+		NewStartBot(deps),
+		NewStopBot(deps),
+		NewRestartBot(deps),
 		// Spec-task management — a Bot managing the spec tasks in its own
 		// Helix project. Granted per-Role (not in BaseReadTools).
 		NewCreateSpecTask(deps),
+		NewUpdateSpecTask(deps),
 		NewStartSpecTaskPlanning(deps),
+		NewStopSpecTaskAgent(deps),
 		NewApproveSpecTaskSpec(deps),
 		NewRequestSpecTaskChanges(deps),
 		NewCreateSpecTaskPRs(deps),
@@ -307,6 +429,19 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Managers{deps: deps},
 		&Reports{deps: deps},
 		&GetBotProject{deps: deps},
+		&ListSecrets{deps: deps},
+		// Project discovery — an org-wide PM Bot lists/reads the projects in
+		// its org before deciding which to manage. Org-scoped reads; granted
+		// per-Role (not in BaseReadTools).
+		NewListProjects(deps),
+		NewGetProject(deps),
+		// Git repositories — list org repos and attach/detach them on Bot
+		// projects so sandboxes clone the code. OwnerBotTools grants these
+		// to Chief of Staff by default.
+		NewListRepositories(deps),
+		NewListBotRepositories(deps),
+		NewAttachRepository(deps),
+		NewDetachRepository(deps),
 		NewListSpecTasks(deps),
 		NewGetSpecTask(deps),
 		NewReviewSpecTaskSpec(deps),
@@ -315,6 +450,8 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&ListTopicEvents{deps: deps},
 		&ReadEvents{deps: deps},
 		&BotLog{deps: deps},
+		&ListProcessors{deps: deps},
+		&GetProcessor{deps: deps},
 	}
 	for _, tool := range builtins {
 		if err := reg.Register(tool); err != nil {

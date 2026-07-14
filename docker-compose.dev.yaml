@@ -24,8 +24,6 @@ services:
       # Encryption key for secrets at rest (SSH keys, PATs, etc.)
       - HELIX_ENCRYPTION_KEY=${HELIX_ENCRYPTION_KEY:-dev-encryption-key-do-not-use-in-prod}
       - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-      # Embedded helix-org alpha kill switch. Default off; set true to mount /ui/, /api/v1/org/, and the helix-org MCP backend.
-      - HELIX_ORG_ENABLED=${HELIX_ORG_ENABLED:-false}
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -95,7 +93,6 @@ services:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
-      - ./helix-org:/app/helix-org
       - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket

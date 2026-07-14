@@ -82,6 +82,10 @@ type SpawnerConfig struct {
 	// OrgID is the Helix organisation each per-Worker project lives
 	// under. Empty for personal accounts.
 	OrgID string
+	// OrgDisplayName is the org's human label, forwarded to WorkerProject
+	// so the project is named `<Bot> @ <Org>`. Must match the applier's
+	// value (upsert-by-name).
+	OrgDisplayName string
 	// SessionStartupTimeout bounds how long ensureSession is allowed to
 	// take — creating / picking the session row, opening the Helix
 	// chat session, attaching the live transcript WebSocket. Five
@@ -290,7 +294,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			cfg.Mirror.Ensure(orgID, workerID)
 		}
 
-		sessionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, publish)
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -305,7 +309,7 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		// ActivationRunawayGuard is the resource-safety backstop only.
 		pollCtx, pollCancel := context.WithTimeout(parentCtx, cfg.ActivationRunawayGuard)
 		defer pollCancel()
-		err = cfg.pollUntilDone(pollCtx, sessionID, publish)
+		err = cfg.pollUntilDone(pollCtx, sessionID, priorInteractionID, publish)
 		publish(activation.OutcomeFromError(err).Marker())
 		return err
 	}
@@ -385,16 +389,17 @@ After meaningful work, persist state on helix-specs:
 // must be wired by the embedding host (api/pkg/server/helix_org.go).
 func (c SpawnerConfig) ensureProject(ctx context.Context, orgID string, workerID orgchart.BotID) error {
 	a := &WorkerProject{
-		Service:     c.ProjectService,
-		Workspace:   c.Workspace,
-		Store:       c.Store,
-		HelixOrgURL: c.HelixOrgURL,
-		OrgID:       c.OrgID,
-		Runtime:     c.Runtime,
-		Provider:    c.Provider,
-		Model:       c.Model,
-		Credentials: c.Credentials,
-		Logger:      c.Logger,
+		Service:        c.ProjectService,
+		Workspace:      c.Workspace,
+		Store:          c.Store,
+		HelixOrgURL:    c.HelixOrgURL,
+		OrgID:          c.OrgID,
+		OrgDisplayName: c.OrgDisplayName,
+		Runtime:        c.Runtime,
+		Provider:       c.Provider,
+		Model:          c.Model,
+		Credentials:    c.Credentials,
+		Logger:         c.Logger,
 	}
 	_, _, _, err := a.Ensure(ctx, orgID, workerID)
 	return err
@@ -454,13 +459,21 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, _ func(string)) (string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if state.ProjectID == "" {
-		return "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
+		return "", "", fmt.Errorf("worker %s has no helix project — ensureProject must run first", workerID)
+	}
+	priorInteractionID := ""
+	if state.SessionID != "" {
+		out, err := c.Client.GetOutput(ctx, state.SessionID)
+		if err != nil && !errors.Is(err, ErrSessionNotFound) {
+			return "", "", fmt.Errorf("read session output before activation: %w", err)
+		}
+		priorInteractionID = out.InteractionID
 	}
 
 	// Re-activation of an existing session: clear the prior conversation
@@ -488,13 +501,13 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	if state.SessionID != "" {
 		bot, err := c.Store.Bots.Get(ctx, orgID, workerID)
 		if err != nil {
-			return "", fmt.Errorf("load bot %s for context policy: %w", workerID, err)
+			return "", "", fmt.Errorf("load bot %s for context policy: %w", workerID, err)
 		}
 		preserve = bot.PreserveContext
 	}
 	if state.SessionID != "" && !preserve {
 		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
-			return "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
+			return "", "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
 		}
 		if c.Logger != nil {
 			c.Logger.Info("spawner: cleared session before re-activation",
@@ -537,7 +550,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 		Prompt:         prompt,
 	})
 	if err != nil {
-		return "", fmt.Errorf("ensure session: %w", err)
+		return "", "", fmt.Errorf("ensure session: %w", err)
 	}
 	if fresh {
 		if c.Logger != nil && state.SessionID != "" {
@@ -545,29 +558,41 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 				"worker", workerID, "stale_sid", state.SessionID, "new_sid", sid)
 		}
 		if err := SaveSession(ctx, c.Store, orgID, workerID, sid); err != nil {
-			return "", fmt.Errorf("persist session id: %w", err)
+			return "", "", fmt.Errorf("persist session id: %w", err)
 		}
 	}
-	return sid, nil
+	return sid, priorInteractionID, nil
 }
 
 // pollUntilDone polls GetOutput with exponential backoff until a
 // terminal status is reported or ctx fires.
-func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID string, publish func(string)) error {
+func (c SpawnerConfig) pollUntilDone(ctx context.Context, sessionID, priorInteractionID string, publish func(string)) error {
 	delay := c.PollInitial
+	observedCurrentInteraction := false
 	for {
 		out, err := c.Client.GetOutput(ctx, sessionID)
 		if err != nil {
+			// Restart deletes the old session before enqueueing a replacement
+			// activation. The old activation must release its per-bot queue
+			// lane instead of polling a session that can never reappear.
+			if errors.Is(err, ErrSessionNotFound) {
+				return nil
+			}
 			// Don't fail the activation on a transient poll error; just
 			// back off and retry until the timeout fires.
 			if c.Logger != nil {
 				c.Logger.Warn("helix poll", "session", sessionID, "err", err)
 			}
-		} else if IsTerminalOutput(out) {
-			if out.Status == "error" {
-				return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
-			}
+		} else if observedCurrentInteraction && out.InteractionID == "" {
 			return nil
+		} else if out.InteractionID != "" && out.InteractionID != priorInteractionID {
+			observedCurrentInteraction = true
+			if IsTerminalOutput(out) {
+				if out.Status == "error" {
+					return fmt.Errorf("session error: %s", briefing.OneLine(out.Output, 500))
+				}
+				return nil
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -6,27 +6,25 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
-	store         store.Store
-	messageSender SpecTaskMessageSender
-	koditService  KoditServicer
+	store        store.Store
+	enqueuer     SpecTaskMessageEnqueuer
+	koditService KoditServicer
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(store store.Store, messageSender SpecTaskMessageSender, koditService KoditServicer) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store, enqueuer SpecTaskMessageEnqueuer, koditService KoditServicer) *AgentInstructionService {
 	return &AgentInstructionService{
-		store:         store,
-		messageSender: messageSender,
-		koditService:  koditService,
+		store:        store,
+		enqueuer:     enqueuer,
+		koditService: koditService,
 	}
 }
 
@@ -105,18 +103,6 @@ type CommentPromptData struct {
 type RevisionPromptData struct {
 	TaskDirName string
 	Comments    string
-}
-
-// MergePromptData contains data for merge instruction prompts
-type MergePromptData struct {
-	BranchName string
-	BaseBranch string
-}
-
-// ImplementationReviewPromptData contains data for implementation review prompts
-type ImplementationReviewPromptData struct {
-	BranchName  string
-	TaskDirName string
 }
 
 // =============================================================================
@@ -399,18 +385,6 @@ cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): add
 ` + "```" + `
 `))
 
-var implementationReviewPromptTemplate = template.Must(template.New("implementationReview").Parse(`# Implementation Ready for Review
-
-Speak English.
-
-Your code has been pushed. The user will now test your work.
-
-If this is a web app, please start the dev server and provide the URL.
-
-**Branch:** {{.BranchName}}
-**Docs:** /home/retro/work/helix-specs/design/tasks/{{.TaskDirName}}/
-`))
-
 var revisionPromptTemplate = template.Must(template.New("revision").Parse(`# Changes Requested
 
 Speak English.
@@ -426,17 +400,6 @@ Update your design based on this feedback:
 After updating, push immediately:
 ` + "```bash" + `
 cd /home/retro/work/helix-specs && git add -A && git commit -m "docs(specs): address feedback" && git push origin helix-specs
-` + "```" + `
-`))
-
-var mergePromptTemplate = template.Must(template.New("merge").Parse(`# Implementation Approved - Please Merge
-
-Speak English.
-
-Your implementation has been approved. Merge to {{.BaseBranch}}:
-
-` + "```bash" + `
-git checkout {{.BaseBranch}} && git pull origin {{.BaseBranch}} && git merge {{.BranchName}} && git push origin {{.BaseBranch}}
 ` + "```" + `
 `))
 
@@ -561,23 +524,6 @@ func BuildCommentPrompt(specTask *types.SpecTask, comment *types.SpecTaskDesignR
 	return buf.String()
 }
 
-// BuildImplementationReviewPrompt builds the prompt for notifying agent that implementation is ready for review
-// This is the single source of truth for this prompt - used by WebSocket approaches
-func BuildImplementationReviewPrompt(task *types.SpecTask, branchName string) string {
-	taskDirName := GetTaskDirName(task)
-
-	data := ImplementationReviewPromptData{
-		BranchName:  branchName,
-		TaskDirName: taskDirName,
-	}
-
-	var buf bytes.Buffer
-	if err := implementationReviewPromptTemplate.Execute(&buf, data); err != nil {
-		return "Error generating implementation review prompt: " + err.Error()
-	}
-	return buf.String()
-}
-
 // BuildRevisionInstructionPrompt builds the prompt for sending revision feedback to the agent
 // This is the single source of truth for this prompt - used by WebSocket approaches
 func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) string {
@@ -591,21 +537,6 @@ func BuildRevisionInstructionPrompt(task *types.SpecTask, comments string) strin
 	var buf bytes.Buffer
 	if err := revisionPromptTemplate.Execute(&buf, data); err != nil {
 		return "Error generating revision prompt: " + err.Error()
-	}
-	return buf.String()
-}
-
-// BuildMergeInstructionPrompt builds the prompt for telling agent to merge their branch
-// This is the single source of truth for this prompt - used by WebSocket approaches
-func BuildMergeInstructionPrompt(branchName, baseBranch string) string {
-	data := MergePromptData{
-		BranchName: branchName,
-		BaseBranch: baseBranch,
-	}
-
-	var buf bytes.Buffer
-	if err := mergePromptTemplate.Execute(&buf, data); err != nil {
-		return "Error generating merge prompt: " + err.Error()
 	}
 	return buf.String()
 }
@@ -662,17 +593,12 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
-	// Use messageSender which:
-	// 1. Creates an interaction in the database
-	// 2. Sets up requestToInteractionMapping for response routing
-	// 3. Sends the message via WebSocket to the agent
-	// NOTE: We do NOT call sendMessage here - that would create a duplicate interaction
-	// and overwrite the requestToInteractionMapping, causing responses to go
-	// to the wrong (empty) interaction.
-	// interrupt=false: approval kickoff begins a new phase with an idle agent; respect the queue.
-	_, _, err := s.messageSender(ctx, task, message, userID, false)
-	if err != nil {
-		return fmt.Errorf("failed to send approval instruction to agent: %w", err)
+	// Enqueue onto the session-scoped prompt queue. interrupt=false: approval
+	// kickoff begins a new phase and should respect the queue (defer until idle).
+	// userID is carried as notifyUserID so the response streams to the same user
+	// as before.
+	if err := s.enqueuer(ctx, task, message, false, userID); err != nil {
+		return fmt.Errorf("failed to enqueue approval instruction to agent: %w", err)
 	}
 
 	return nil
@@ -753,98 +679,3 @@ func (s *AgentInstructionService) buildRepositorySectionForTask(ctx context.Cont
 	return BuildRepositorySection(projectRepos, koditOrgRepos, primaryRepoID)
 }
 
-// SendImplementationReviewRequest notifies agent that implementation is ready for review
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildImplementationReviewPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendImplementationReviewRequest(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	branchName string,
-) error {
-	message := BuildImplementationReviewPrompt(task, branchName)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Msg("Sending implementation review request to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// SendRevisionInstruction sends a message to the agent with revision feedback
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildRevisionInstructionPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendRevisionInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	task *types.SpecTask,
-	comments string,
-) error {
-	message := BuildRevisionInstructionPrompt(task, comments)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("task_id", task.ID).
-		Msg("Sending revision instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// SendMergeInstruction tells agent to merge their branch to main
-// NOTE: This creates a database interaction - for WebSocket-connected agents, use BuildMergeInstructionPrompt
-// and send via sendMessageToSpecTaskAgent instead
-func (s *AgentInstructionService) SendMergeInstruction(
-	ctx context.Context,
-	sessionID string,
-	userID string,
-	branchName string,
-	baseBranch string,
-) error {
-	message := BuildMergeInstructionPrompt(branchName, baseBranch)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("branch_name", branchName).
-		Str("base_branch", baseBranch).
-		Msg("Sending merge instruction to agent")
-
-	return s.sendMessage(ctx, sessionID, userID, message)
-}
-
-// sendMessage sends a user message to an agent session (triggers agent response)
-// Uses the same pattern as normal session message handling
-func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, userID string, message string) error {
-	// Create a user interaction that will trigger the agent to respond
-	// This matches how normal user messages are created in spec_driven_task_service.go
-	now := time.Now()
-	interaction := &types.Interaction{
-		ID:            system.GenerateInteractionID(),
-		GenerationID:  0,
-		Created:       now,
-		Updated:       now,
-		Scheduled:     now,
-		SessionID:     sessionID,
-		UserID:        userID, // User who created/owns the task
-		Mode:          types.SessionModeInference,
-		PromptMessage: message,
-		State:         types.InteractionStateWaiting, // Waiting state triggers agent response
-	}
-
-	// Store the interaction - this will queue it for the agent to process
-	_, err := s.store.CreateInteraction(ctx, interaction)
-	if err != nil {
-		return err
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("user_id", userID).
-		Str("interaction_id", interaction.ID).
-		Str("state", string(interaction.State)).
-		Msg("Successfully sent instruction to agent (waiting for response)")
-
-	return nil
-}

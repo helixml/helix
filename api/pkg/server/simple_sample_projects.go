@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/vcs"
 	"github.com/rs/zerolog/log"
 )
 
@@ -725,10 +726,13 @@ Use these tools to interact with GitHub:
 4. Fix the issues and push again
 `,
 
-		// Require GitHub authentication for push access to make PRs
+		// Require GitHub authentication for push access to make PRs.
 		RequiresGitHubAuth: true,
-		// Scopes needed: repo (for cloning/pushing/PRs), read:user (for identity)
-		RequiredScopes: []string{"repo", "read:user", "user:email"},
+		// Full connect scope set from the VCS capability registry:
+		//   repo (clone/push/PR), read:user + user:email (identity for the
+		//   lozenge), read:org (org repo visibility / access verification).
+		// See design root cause #6: storing only ["repo"] set users up to fail.
+		RequiredScopes: vcs.RequiredScopes(types.ExternalRepositoryTypeGitHub),
 		RequiredGitHubRepos: []RequiredGitHubRepo{
 			{
 				GitHubURL:     "github.com/helixml/helix",

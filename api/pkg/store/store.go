@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/license"
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"gorm.io/datatypes"
@@ -211,7 +212,9 @@ var _ Store = &PostgresStore{}
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 var (
-	ErrNotFound = errors.New("not found")
+	// ErrNotFound aliases the org subsystem's sentinel so error comparisons
+	// (== / errors.Is) match across the store and orgstore packages.
+	ErrNotFound = orgstore.ErrNotFound
 	ErrMultiple = errors.New("multiple found")
 	ErrConflict = errors.New("conflict")
 )
@@ -317,6 +320,14 @@ type Store interface {
 	// change made). Used by the streaming transition handler so it cannot
 	// resurrect a cancelled or errored turn as falsely "complete".
 	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	// ReapWaitingInteractions transitions all state=waiting interactions for a
+	// session to newState (e.g. interrupted) when the external agent has gone
+	// away (desktop idle-stopped/crashed/found-stopped). This clears the
+	// prompt-queue busy-check so the desktop is allowed to resume instead of
+	// deadlocking on a turn that can never complete. Returns the reaped rows so
+	// callers can publish frontend updates. Distinct from auto-wake, which
+	// retries live turns rather than terminating dead ones.
+	ReapWaitingInteractions(ctx context.Context, sessionID string, newState types.InteractionState, reason string) ([]*types.Interaction, error)
 	UpdateInteractionSummary(ctx context.Context, interactionID string, summary string) error
 	DeleteInteraction(ctx context.Context, id string) error
 	// ClearSessionInteractions hard-deletes every interaction belonging to a
@@ -641,6 +652,7 @@ type Store interface {
 	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
 	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
 	GetCommentByRequestID(ctx context.Context, requestID string) (*types.SpecTaskDesignReviewComment, error)
+	GetCommentByPromptID(ctx context.Context, promptID string) (*types.SpecTaskDesignReviewComment, error)
 	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
 	GetPendingCommentByPlanningSessionID(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
 	GetNextQueuedCommentForSession(ctx context.Context, planningSessionID string) (*types.SpecTaskDesignReviewComment, error)
@@ -832,6 +844,7 @@ type Store interface {
 	DeleteOldDiskUsageHistory(ctx context.Context, olderThan time.Time) (int64, error)
 
 	// Prompt history methods (for cross-device sync)
+	CreatePromptHistoryEntry(ctx context.Context, entry *types.PromptHistoryEntry) error
 	SyncPromptHistory(ctx context.Context, userID string, req *types.PromptHistorySyncRequest) (*types.PromptHistorySyncResponse, error)
 	ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error)
 	GetPromptHistoryEntry(ctx context.Context, id string) (*types.PromptHistoryEntry, error)
@@ -839,6 +852,7 @@ type Store interface {
 	GetAnyPendingPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	GetNextInterruptPrompt(ctx context.Context, sessionID string) (*types.PromptHistoryEntry, error)
 	ListPromptHistoryBySpecTask(ctx context.Context, specTaskID string) ([]*types.PromptHistoryEntry, error)
+	ListPromptHistoryBySession(ctx context.Context, sessionID string) ([]*types.PromptHistoryEntry, error)
 	MarkPromptAsPending(ctx context.Context, promptID string) error
 	MarkPromptAsSent(ctx context.Context, promptID string) error
 	// MarkPromptAsFailed records the failure reason and bumps retry_count + next_retry_at
@@ -893,6 +907,14 @@ type Store interface {
 	DeleteClaudeSubscription(ctx context.Context, id string) error
 	ListClaudeSubscriptions(ctx context.Context, ownerID string) ([]*types.ClaudeSubscription, error)
 	GetEffectiveClaudeSubscription(ctx context.Context, userID, orgID string) (*types.ClaudeSubscription, error)
+	CreateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
+	GetCodexSubscription(ctx context.Context, id string) (*types.CodexSubscription, error)
+	GetCodexSubscriptionForOwner(ctx context.Context, ownerID string, ownerType types.OwnerType) (*types.CodexSubscription, error)
+	UpdateCodexSubscription(ctx context.Context, sub *types.CodexSubscription) (*types.CodexSubscription, error)
+	UpdateCodexSubscriptionCredentialsIfNewer(ctx context.Context, id, encryptedCredentials, accountID string, refreshedAt time.Time) (bool, error)
+	DeleteCodexSubscription(ctx context.Context, id string) error
+	ListCodexSubscriptions(ctx context.Context, ownerID string) ([]*types.CodexSubscription, error)
+	GetEffectiveCodexSubscription(ctx context.Context, userID, orgID string) (*types.CodexSubscription, error)
 
 	// VHost routes — hostname → routable target (project web service or sandbox preview).
 	CreateVHostRoute(ctx context.Context, r *types.VHostRoute) error

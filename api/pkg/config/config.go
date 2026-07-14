@@ -127,14 +127,6 @@ type ServerConfig struct {
 	Edition string `envconfig:"HELIX_EDITION" default:""`
 
 	SBMessage string `envconfig:"SB_MESSAGE" default:""`
-
-	// HelixOrgEnabled is the deployment-wide kill switch for the
-	// embedded helix-org alpha. When false (the default), none of
-	// the helix-org init runs and none of its HTTP surfaces
-	// (/api/v1/orgs/{org}/, /api/v1/mcp/helix-org/) are mounted —
-	// the per-user alpha feature flag in the DB has no effect. Set
-	// HELIX_ORG_ENABLED=true to opt in.
-	HelixOrgEnabled bool `envconfig:"HELIX_ORG_ENABLED" default:"false"`
 }
 
 // Sandboxes configures the user-facing Sandboxes API.
@@ -915,6 +907,17 @@ type WebServer struct {
 	// to the canonical hostname parsed from SERVER_URL — which is wrong when
 	// SERVER_URL is Cloudflare-proxied (orange), so set this in that case.
 	VHostCNAMETarget string `envconfig:"HELIX_VHOST_CNAME_TARGET" description:"Grey/DNS-only hostname customers CNAME custom domains to (resolves directly to this origin). Empty = use SERVER_URL host."`
+
+	// VHostACMEChallengeTarget OPTIONALLY overrides the delegation host that
+	// customers point "_acme-challenge.<their-domain>" at (via CNAME) when their
+	// custom domain sits behind a proxy/CDN that hides the origin from Let's
+	// Encrypt. It must be a name in the DNS zone Helix's Cloudflare token
+	// controls, so certmagic can follow the CNAME and place the ACME TXT record
+	// there. Normally this is left empty: when the Cloudflare DNS-01 provider is
+	// enabled, the target is derived automatically as "_acme-challenge." + the
+	// registrable domain of the CNAME target (e.g. _acme-challenge.helix.ml).
+	// Set this only when the ACME zone differs from the CNAME target's domain.
+	VHostACMEChallengeTarget string `envconfig:"HELIX_VHOST_ACME_CHALLENGE_TARGET" description:"Optional override for the '_acme-challenge.<domain>' delegation host for proxied custom domains. Empty = derive from the CNAME target's registrable domain when Cloudflare DNS-01 is enabled. Must live in the Helix Cloudflare zone."`
 }
 
 // AdminAllUsers is the special value for ADMIN_USER_IDS that makes all users admins

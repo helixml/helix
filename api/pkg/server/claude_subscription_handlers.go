@@ -310,7 +310,7 @@ func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *ht
 
 // SessionClaudeCredentialsResponse returns credentials in the appropriate format.
 type SessionClaudeCredentialsResponse struct {
-	CredentialType string                       `json:"credential_type"`            // "oauth" or "setup_token"
+	CredentialType string                        `json:"credential_type"` // "oauth" or "setup_token"
 	OAuthCreds     *types.ClaudeOAuthCredentials `json:"oauth_credentials,omitempty"`
 	SetupToken     string                        `json:"setup_token,omitempty"`
 }
@@ -525,9 +525,9 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
-			Stream:       true,
-			AgentType:    "zed_external",
-			SessionRole:  "exploratory",
+			Stream:      true,
+			AgentType:   "zed_external",
+			SessionRole: "exploratory",
 		},
 	}
 

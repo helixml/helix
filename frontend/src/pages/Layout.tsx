@@ -12,7 +12,9 @@ import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 import MuiSnackbar from "@mui/material/Snackbar";
+import { useDetectLocalProviders, useListProviders } from "../services/providersService";
 
 import Sidebar from "../components/system/Sidebar";
 import SessionsSidebar from "../components/session/SessionsSidebar";
@@ -20,7 +22,6 @@ import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
-import HelixOrgSidebar from "../components/orgs/HelixOrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
@@ -258,6 +259,15 @@ const Layout: FC<{
   const apps = useApps();
   const floatingModal = useFloatingModal();
   const [showVersionBanner, setShowVersionBanner] = useState(true);
+  const [showLocalProviderBanner, setShowLocalProviderBanner] = useState(true);
+  const { data: detectedProviders } = useDetectLocalProviders(!!account.user);
+  const { data: allProviders } = useListProviders({ enabled: !!account.user });
+  const unconnectedLocal = useMemo(() => {
+    if (!detectedProviders || !allProviders) return [];
+    return detectedProviders.filter(
+      dp => !allProviders.some(e => e.name === dp.server_type)
+    );
+  }, [detectedProviders, allProviders]);
   const [licenseGracePeriodExpired, setLicenseGracePeriodExpired] =
     useState(false);
   const licenseTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -397,9 +407,15 @@ const Layout: FC<{
   const resourceType =
     router.params.resource_type || (router.params.app_id ? "apps" : "chat");
 
+  // Hide secondary context sidebar on helix-org routes (nav is in the top
+  // AppBar; chat is an in-page left rail). Still show the 64px org rail.
+  const isHelixOrgRoute =
+    typeof router.name === "string" && router.name.startsWith("helix_org_");
+
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
+    !isHelixOrgRoute &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -433,10 +449,14 @@ const Layout: FC<{
       case "helix_org_chart":
       case "helix_org_bots":
       case "helix_org_bot_detail":
+      case "helix_org_human_detail":
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_topic_detail":
-        return <HelixOrgSidebar />;
+      case "helix_org_processor_detail":
+        // Nav lives in the top AppBar (HelixOrgTopNav); chat is a left rail
+        // inside HelixOrgShell — no middle ContextSidebar.
+        return null;
 
       case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
@@ -450,6 +470,7 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_provider_detail":
       case "org_qa":
       case "org_qa-results":
       case "team_people":
@@ -505,6 +526,31 @@ const Layout: FC<{
             here
           </a>
           .
+        </Alert>
+      </MuiSnackbar>
+      <MuiSnackbar
+        open={showLocalProviderBanner && unconnectedLocal.length > 0}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="success"
+          onClose={() => setShowLocalProviderBanner(false)}
+          sx={{ width: "100%", bgcolor: "rgba(0,232,145,0.95)", color: "#000", "& .MuiAlert-icon": { color: "#000" } }}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                const orgId = account.organizationTools.organizations?.[0]?.id || account.organizationTools.organizations?.[0]?.name;
+                if (orgId) router.navigate("org_providers", { org_id: orgId });
+                setShowLocalProviderBanner(false);
+              }}
+              sx={{ color: "#000", fontWeight: 600, textTransform: "none", border: "1px solid rgba(0,0,0,0.3)", "&:hover": { bgcolor: "rgba(0,0,0,0.1)" } }}
+            >
+              Connect
+            </Button>
+          }
+        >
+          {unconnectedLocal.map(dp => dp.name).join(" and ")} detected on this machine with local AI models ready to use
         </Alert>
       </MuiSnackbar>
       <Box
@@ -632,9 +678,13 @@ const Layout: FC<{
               flexGrow: 1,
               backgroundColor: lightTheme.backgroundColor,
               height: "100%",
-              minHeight: "100%",
+              minHeight: 0,
               minWidth: 0,
               overflow: "hidden",
+              // Flex column so full-height pages (helix-org shell, etc.) can
+              // size their children with flex:1 / height:100%.
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             {account.loggingOut ? (

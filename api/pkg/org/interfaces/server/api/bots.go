@@ -56,7 +56,20 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
-		out = append(out, botDTO(b, managersByReport[b.ID]))
+		dto := botDTO(b, managersByReport[b.ID])
+		// Humans never run an agent sandbox — always "stopped". Agents
+		// get status from the runtime sidecar + session metadata.
+		dto.AgentStatus = "stopped"
+		if b.Kind != orgchart.BotKindHuman && a.deps.BotRuntime != nil {
+			if info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID); err == nil {
+				if info.AgentStatus != "" {
+					dto.AgentStatus = info.AgentStatus
+				}
+				dto.AgentRuntime = info.Runtime
+				dto.AgentModel = info.Model
+			}
+		}
+		out = append(out, dto)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -106,15 +119,25 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
+	// Defer provisioning when the org has no runtime configured yet, so the
+	// Bot is never brought up on the seed-time default (claude_code /
+	// subscription / no model, which Zed renders as gpt). It provisions with
+	// the correct config once the operator sets the Default Bot Runtime — see
+	// reapplyBotsAfterRuntimeChange. When a runtime IS already configured
+	// (e.g. picked in the create-org dialog before seeding), the Bot
+	// provisions immediately with that config, correct from the first boot.
+	deferActivation := a.deps.Configs != nil && !a.deps.Configs.IsConfigured(ctx, orgID, "worker.runtime")
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              strings.TrimSpace(req.ID),
+		Name:            strings.TrimSpace(req.Name),
 		Content:         req.Content,
 		Tools:           tools,
 		Topics:          toTopicIDs(req.Topics),
 		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
+		DeferActivation: deferActivation,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -151,19 +174,27 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detail := BotDetailDTO{Bot: botDTO(b, a.managerIDs(ctx, orgID, id))}
+	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
+	dto.AgentStatus = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
 	// per-project Human Desktop session. Missing state = the bot
 	// hasn't activated yet; we leave the fields empty and the UI
-	// shows a disabled button.
+	// shows a disabled button. AgentStatus drives the green/grey
+	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			detail.AgentAppID = info.AgentAppID
-			detail.ProjectID = info.ProjectID
+			detail := BotDetailDTO{Bot: dto, AgentAppID: info.AgentAppID, ProjectID: info.ProjectID}
+			if info.AgentStatus != "" {
+				detail.Bot.AgentStatus = info.AgentStatus
+			}
+			detail.Bot.AgentRuntime = info.Runtime
+			detail.Bot.AgentModel = info.Model
+			writeJSON(w, http.StatusOK, detail)
+			return
 		}
 	}
-	writeJSON(w, http.StatusOK, detail)
+	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto})
 }
 
 // updateBot rewrites a Bot's content / tools / topics. A nil field is
@@ -201,10 +232,17 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		t := toToolNames(req.Tools)
 		toolsPatch = &t
 	}
+	var identityPatch *map[string]string
+	if req.Identity != nil {
+		identityPatch = &req.Identity
+	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
+		Name:            req.Name,
 		Content:         req.Content,
 		Tools:           toolsPatch,
+		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
 		PreserveContext: req.PreserveContext,
+		Identity:        identityPatch,
 	})
 	if err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
@@ -448,15 +486,53 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// stopBotAgent stops the bot's desktop sandbox without deleting the
+// session (transcript stays). The chart / bot-detail "Stop" control hits
+// this. No-op (204) when there is no session or the desktop is already down.
+// Delegates to activations.Stop — same path as the MCP stop_bot tool.
+//
+// @Summary Helix-org: stop a bot's agent desktop
+// @Tags HelixOrg
+// @Param id path string true "Bot ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Failure 501 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/bots/{id}/stop-agent [post]
+func (a *apiHandler) stopBotAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("stop is not wired in this deployment"))
+		return
+	}
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := orgchart.BotID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
+		return
+	}
+	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
+		return
+	}
+	if _, err := a.deps.Activations.Stop(ctx, orgID, id); err != nil {
+		if errors.Is(err, activations.ErrStopUnavailable) {
+			writeError(w, http.StatusNotImplemented, err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("stop bot %s desktop: %w", id, err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // restartBotAgent gives the bot a genuinely fresh session — the bot-page
-// "Restart agent session" button. It does NOT resume/recover the existing
-// session (that would keep the old desktop and thread, which is the bug
-// operators hit). Instead it fully tears the current session down via
-// BotSessionResetter (stop desktop → delete session row → clear the
-// persisted pointer) and then Activates, which provisions a brand-new
-// session, desktop and thread that pick up the bot's current tools / MCP
-// services. If the bot has no live session yet, the reset is skipped and
-// the Activate alone handles first-time start.
+// "Restart agent session" button. Delegates to activations.Restart (reset
+// session then Activate) — same path as the MCP restart_bot tool.
 //
 // @Summary Helix-org: restart a bot's agent session (fresh session + desktop)
 // @Tags HelixOrg
@@ -469,6 +545,10 @@ func (a *apiHandler) activateBot(w http.ResponseWriter, r *http.Request) {
 // @Router /api/v1/orgs/{org}/bots/{id}/restart-agent [post]
 func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if a.deps.Activations == nil {
+		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
+		return
+	}
 	orgID, err := resolveOrgID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -479,39 +559,11 @@ func (a *apiHandler) restartBotAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bot id is required"))
 		return
 	}
-	// Confirm the Bot exists for a clean 404 before any side effects.
 	if _, err := a.deps.Queries.GetBot(ctx, orgID, id); err != nil {
 		writeError(w, errStatus(err), fmt.Errorf("get bot %s: %w", id, err))
 		return
 	}
-
-	// Resolve the bot's current desktop session. Empty means the bot has
-	// never activated — there's nothing to tear down, so we skip straight
-	// to the activation below (first-time start).
-	var sessionID string
-	if a.deps.BotRuntime != nil {
-		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			sessionID = info.SessionID
-		}
-	}
-
-	// Fully remove the current session (stop desktop → delete session →
-	// clear pointer) so the Activate below mints a brand-new one instead of
-	// reusing the old exploratory session or resuming the old desktop.
-	if sessionID != "" && a.deps.BotSessionResetter != nil {
-		if err := a.deps.BotSessionResetter.ResetSession(ctx, orgID, id, sessionID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Errorf("reset bot %s session: %w", id, err))
-			return
-		}
-	}
-
-	// Provision the project (fast-path if it exists) and start a fresh
-	// session + desktop. Also the first-time-start path.
-	if a.deps.Activations == nil {
-		writeError(w, http.StatusNotImplemented, errors.New("restart is not wired in this deployment"))
-		return
-	}
-	res, err := a.deps.Activations.Activate(ctx, orgID, id)
+	res, err := a.deps.Activations.Restart(ctx, orgID, id)
 	if err != nil {
 		if errors.Is(err, activations.ErrActivateUnavailable) {
 			writeError(w, http.StatusNotImplemented, err)
@@ -555,10 +607,15 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.B
 func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
+		Name:            b.Name,
 		Content:         b.Content,
+		ProjectIDs:      b.ProjectIDs,
 		ParentIDs:       parentIDs,
 		OrganizationID:  b.OrganizationID,
 		PreserveContext: b.PreserveContext,
+		Kind:            b.Kind,
+		HelixUserID:     b.HelixUserID,
+		Identity:        b.Identity,
 	}
 	if !b.CreatedAt.IsZero() {
 		dto.CreatedAt = b.CreatedAt.Format(time.RFC3339)
@@ -573,6 +630,13 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	sort.Strings(tools)
 	dto.Tools = tools
 	return dto
+}
+
+func stringSlicePatch(in []string) *[]string {
+	if in == nil {
+		return nil
+	}
+	return &in
 }
 
 func toToolNames(in []string) []tool.Name {

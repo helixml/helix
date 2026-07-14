@@ -382,6 +382,8 @@ Helix stack runs **inside the UTM VM** (SSH: `ssh -p 2222 luke@127.0.0.1`). Only
 ### Key Commands
 ```bash
 /tmp/helix spectask list|list-agents|start|resume|stop|screenshot|stream|benchmark|send|mcp|live
+/tmp/helix org bots list|get|start|stop|restart|chat   # helix-org — see skills/helix-org-cli/SKILL.md
+/tmp/helix api GET /orgs/<org>/bots                    # gh-api style escape hatch
 ```
 
 ### Dispatch an investigation to a helix-in-helix spec task (from a local brief)
@@ -460,6 +462,21 @@ From macOS host via SSH: `ssh -p 2222 -o StrictHostKeyChecking=no luke@127.0.0.1
 
 ## Zed WebSocket Sync E2E Testing
 
+**IF YOU TOUCH THE E2E TESTS, YOU MUST RUN THEM. NO EXCEPTIONS.**
+Adding, editing, or "compile-checking" an e2e phase is NOT done until you have
+actually run the full dockerized e2e (`run_docker_e2e.sh`) and seen it pass.
+Do not hand off e2e changes as "verified by CI" or "logically follows the
+pattern" — e2e tests are timing-sensitive and stateful, and the ONLY way to know
+a phase works is to run it. This is runnable in the dev sandbox: a prebuilt Zed
+binary lives at `zed-build/zed` (copy it to `e2e-test/zed-binary`), docker works,
+and the API key is in `.env`. Running it caught two bugs that compiling never
+would (a store-ordering bug and an interrupt-before-streaming race); assume yours
+has bugs too until the run is green. Don't claim you "can't run it" without first
+checking for the binary + docker + key. If the local Anthropic proxy rejects the
+default model, point the e2e at a model this environment serves (e.g.
+`claude-opus-4-8` in `run_e2e.sh`) for the run, then REVERT that local-only edit
+before committing (CI has real Anthropic secrets).
+
 The WebSocket sync protocol between Helix (Go) and Zed (Rust) has E2E tests that run a real Zed binary against a Go test server importing real production Helix server code.
 
 ### Architecture
@@ -532,7 +549,21 @@ The `zed-e2e-test` step in `.drone.yml` runs automatically on the sandbox-build 
 | `design/2026-03-20-multi-agent-e2e-tests.md` | Multi-agent E2E test design and roadmap |
 
 ## CLI Development
-Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/`.
+Use the helix CLI for testing, not raw curl. If functionality is missing, add it to `api/pkg/cli/spectask/` (spec tasks) or `api/pkg/cli/org/` (helix-org).
+
+### Helix-org CLI
+Skill: [`skills/helix-org-cli/SKILL.md`](skills/helix-org-cli/SKILL.md) (also linked from AGENTS.md via this file).
+
+```bash
+export HELIX_URL=http://localhost:8080 HELIX_API_KEY=… HELIX_ORG=unmanned-org
+cd api && CGO_ENABLED=0 go build -o /tmp/helix-bin .
+
+helix org bots list|get|start|stop|restart|chat …
+helix org topics list
+helix org processors list
+helix api GET /orgs/unmanned-org/bots          # gh-api-style escape hatch
+helix api -X POST /orgs/unmanned-org/bots/chief-of-staff/activate
+```
 
 ## Sandboxes API
 

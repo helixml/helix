@@ -1,22 +1,19 @@
-// NewBotDialog is the shared "create bot" dialog used by the Chart
-// canvas's floating top-right button / per-node "new bot" affordance and
-// the Bots list's "+ New bot" header action. A Bot is created in one
-// step: an id, its content (markdown identity/prompt), and an optional
-// parent bot it reports to. There is no kind selector and no separate
-// identity field — a Bot's content IS its identity.
+// NewBotDialog is the shared "create bot" side drawer used by the Chart
+// canvas (toolbar + right-click + per-node "new bot") and the Bots list's
+// "+ New bot" header action. A Bot is created in one step: display name,
+// id (immutable handle, auto-derived from the name but overridable),
+// content (markdown prompt), and an optional parent bot it reports to.
 
-import { FC, useEffect, useState } from 'react'
+import { FC, useEffect, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import { useCreateBot, useListHelixOrgBots } from '../../services/helixOrgService'
+import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
 export type NewBotDialogProps = {
   open: boolean
@@ -30,18 +27,60 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   const create = useCreateBot()
   const { data: botsData } = useListHelixOrgBots({ enabled: open })
 
+  const [name, setName] = useState('')
   const [id, setId] = useState('')
+  const [idEdited, setIdEdited] = useState(false)
   const [content, setContent] = useState('')
   const [parentId, setParentId] = useState(presetParentId ?? '')
 
   useEffect(() => {
     if (!open) return
+    setName('')
     setId('')
+    setIdEdited(false)
     setContent('')
     setParentId(presetParentId ?? '')
   }, [open, presetParentId])
 
   const bots = botsData ?? []
+  // Keyed on botsData (not the freshly-allocated `bots`) so it's stable while
+  // the query is loading and recomputes once, when the list arrives.
+  const existingIds = useMemo(() => new Set((botsData ?? []).map((b) => b.id)), [botsData])
+
+  // Slugify a display name into a kebab-case handle.
+  const slugify = (v: string): string =>
+    v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  // Append -1, -2, ... to a base slug until it's free within the org. Matches
+  // the backend's suffix-on-conflict (bots.Create), so the previewed id is what
+  // actually gets stored.
+  const uniqueSlug = (base: string): string => {
+    if (!base || !existingIds.has(base)) return base
+    for (let i = 1; i < 100; i++) {
+      const cand = `${base}-${i}`
+      if (!existingIds.has(cand)) return cand
+    }
+    return base
+  }
+
+  // Auto-derive the id from the name, unless the operator typed their own. Two
+  // bots named the same (e.g. a second "Chief of Staff") would otherwise derive
+  // the same id and collide.
+  const onNameChange = (value: string) => {
+    setName(value)
+    if (!idEdited) {
+      setId(uniqueSlug(slugify(value)))
+    }
+  }
+
+  // Re-derive the id once the org's bot list loads: if the user typed the name
+  // before useListHelixOrgBots resolved, the first derivation saw an empty set
+  // and may under-count collisions. Only while the id is still auto-derived.
+  useEffect(() => {
+    if (idEdited || !name) return
+    setId(uniqueSlug(slugify(name)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingIds])
 
   const submit = async () => {
     const trimmedId = id.trim()
@@ -52,6 +91,7 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
     try {
       const res = await create.mutateAsync({
         id: trimmedId,
+        name: name.trim(),
         content,
         ...(parentId ? { parent_id: parentId } : {}),
       })
@@ -67,64 +107,79 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New bot</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
+    <HelixOrgSideDrawer open={open} onClose={onClose} title="New bot" width={460}>
+      <Stack spacing={2}>
+        <Typography variant="body2" color="text.secondary">
+          Create an agent bot. It appears on the org chart; set reporting lines
+          here or by dragging edges on the chart.
+        </Typography>
+        <TextField
+          label="Name"
+          placeholder="Chief of Staff"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          helperText="Human-readable display name shown in the chart and bot page."
+          autoFocus
+          fullWidth
+          size="small"
+        />
+        <TextField
+          label="Bot ID"
+          placeholder="chief-of-staff"
+          value={id}
+          onChange={(e) => { setIdEdited(true); setId(e.target.value) }}
+          helperText="Immutable kebab-case handle (auto-filled from the name). Referenced by the LLM, repos and MCP tools; can be anything."
+          fullWidth
+          size="small"
+          sx={{ '& input': { fontFamily: 'monospace' } }}
+        />
+        {presetParentId ? (
           <TextField
-            label="Bot ID"
-            placeholder="engineer"
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            helperText="A short handle in kebab-case, e.g. engineer. Stays as-is - the LLM and operator both refer to the bot by it."
-            autoFocus
+            label="Reports to"
+            value={presetParentId}
+            InputProps={{ readOnly: true }}
+            helperText="Manager this bot reports to."
             fullWidth
+            size="small"
+            sx={{ '& input': { fontFamily: 'monospace' } }}
           />
-          {presetParentId ? (
-            <TextField
-              label="Reports to"
-              value={presetParentId}
-              InputProps={{ readOnly: true }}
-              helperText="Manager this bot reports to."
-              fullWidth
-              sx={{ '& input': { fontFamily: 'monospace' } }}
-            />
-          ) : (
-            <TextField
-              select
-              label="Reports to (optional)"
-              value={parentId}
-              onChange={(e) => setParentId(e.target.value)}
-              helperText="Manager this bot reports to. Leave blank and wire later by dragging an edge in the Chart."
-              fullWidth
-            >
-              <MenuItem value="">(none)</MenuItem>
-              {bots.map((b) => (
-                <MenuItem key={b.id} value={b.id ?? ''} sx={{ fontFamily: 'monospace' }}>
-                  {b.id}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
+        ) : (
           <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
+            select
+            label="Reports to (optional)"
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+            helperText="Manager this bot reports to. Leave blank and wire later by dragging an edge in the Chart."
             fullWidth
-            helperText="The bot's prompt / identity. Read on every activation."
-          />
+            size="small"
+          >
+            <MenuItem value="">(none)</MenuItem>
+            {bots.map((b) => (
+              <MenuItem key={b.id} value={b.id ?? ''}>
+                {b.name || b.id}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+        <TextField
+          label="Instructions"
+          placeholder="# Engineer&#10;Builds and ships software."
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          multiline
+          minRows={8}
+          fullWidth
+          size="small"
+          helperText="Instructions to follow, set on every interaction."
+        />
+        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+          <Button onClick={submit} variant="contained" disabled={create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create'}
+          </Button>
+          <Button onClick={onClose} variant="text">Cancel</Button>
         </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={create.isPending}>
-          {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      </Stack>
+    </HelixOrgSideDrawer>
   )
 }
 

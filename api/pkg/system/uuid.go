@@ -45,6 +45,7 @@ const (
 	CloneGroupPrefix           = "clg_"
 	UserSessionPrefix          = "uss_"
 	ClaudeSubscriptionPrefix   = "csub_"
+	CodexSubscriptionPrefix    = "xsub_"
 	AttentionEventPrefix       = "atev_"
 	EvaluationSuitePrefix      = "evs_"
 	EvaluationRunPrefix        = "evr_"
@@ -55,6 +56,7 @@ const (
 	OrgInvitationPrefix        = "oin_"
 	VHostRoutePrefix           = "vhr_"
 	WebServiceDeployPrefix     = "wsd_"
+	PromptHistoryPrefix        = "prompt_"
 )
 
 func GenerateUUID() string {
@@ -212,6 +214,10 @@ func GenerateClaudeSubscriptionID() string {
 	return fmt.Sprintf("%s%s", ClaudeSubscriptionPrefix, newID())
 }
 
+func GenerateCodexSubscriptionID() string {
+	return fmt.Sprintf("%s%s", CodexSubscriptionPrefix, newID())
+}
+
 func GenerateAttentionEventID() string {
 	return fmt.Sprintf("%s%s", AttentionEventPrefix, newID())
 }
@@ -246,6 +252,10 @@ func GenerateOrgInvitationID() string {
 
 func GenerateVHostRouteID() string {
 	return fmt.Sprintf("%s%s", VHostRoutePrefix, newID())
+}
+
+func GeneratePromptHistoryID() string {
+	return fmt.Sprintf("%s%s", PromptHistoryPrefix, newID())
 }
 
 func GenerateWebServiceDeployID() string {

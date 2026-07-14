@@ -2,6 +2,7 @@ package processor
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,7 +111,7 @@ func (c templateConfig) Validate(out []Output) error {
 // Process renders the template against the input Message and returns a
 // single Result whose body is the rendered text. The original Message
 // is preserved except Body (replaced) and BodyContentType ("text/plain").
-func (c templateConfig) Process(in streaming.Message, out []Output) ([]Result, error) {
+func (c templateConfig) Process(_ context.Context, in streaming.Message, out []Output) ([]Result, error) {
 	tmpl, err := txttemplate.New("proc").Funcs(templateFuncs).Option("missingkey=zero").Parse(c.Template)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)

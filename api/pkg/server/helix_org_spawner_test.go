@@ -43,7 +43,7 @@ func TestBuildHelixOrgSpawnerConfig_WiresProjectService(t *testing.T) {
 	require.NoError(t, reg.Set(ctx, orgID, "helix.api_key", `"hlx-test-key"`))
 	require.NoError(t, reg.Set(ctx, orgID, "helix.url", `"http://helix.test"`))
 
-	_, _, projectSvc, _ := newInProcTestSetup(t)
+	_, _, projectSvc, _, _ := newInProcTestSetup(t)
 	hub := wakebus.New(pubsub.NewNoop())
 	logger := slog.Default()
 

@@ -29,12 +29,11 @@ const HelixOrgMCPName = "helix"
 // of truth for what the MCP entry looks like.
 //
 // Upsert is keyed on HelixOrgMCPName: an existing entry with the same
-// name is overwritten in place, otherwise appended. The bearer is
-// picked from ctx first (per-activation user attribution via
-// WithBearerToken / HelixIdentity), falling back to fallbackBearer
-// (the service api_key). Empty bearer means no Authorization header
-// is sent — fine for standalone deployments where the MCP route is
-// not auth-gated.
+// name is overwritten in place, otherwise appended. MCP configuration is
+// persisted on a long-lived app, so it must use the long-lived service key,
+// never the activation request's session-scoped bearer. Empty bearer means
+// no Authorization header is sent — fine for standalone deployments where
+// the MCP route is not auth-gated.
 func AttachHelixOrgMCP(
 	ctx context.Context,
 	svc ProjectService,
@@ -64,13 +63,9 @@ func AttachHelixOrgMCP(
 		return errors.New("AttachHelixOrgMCP: app has no assistants")
 	}
 
-	bearer := BearerFromContext(ctx)
-	if bearer == "" {
-		bearer = fallbackBearer
-	}
 	var headers map[string]string
-	if bearer != "" {
-		headers = map[string]string{"Authorization": "Bearer " + bearer}
+	if fallbackBearer != "" {
+		headers = map[string]string{"Authorization": "Bearer " + fallbackBearer}
 	}
 	entry := types.AssistantMCP{
 		Name:      HelixOrgMCPName,

@@ -27,6 +27,7 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import {
   ServerProjectWebServiceResponse,
+  ServerProjectWebServiceLogsResponse,
   TypesProjectWebServiceState,
   TypesVHostRoute,
   TypesWebServiceDeploy,
@@ -56,10 +57,30 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
     },
   })
 
+  const [showLogs, setShowLogs] = useState(false)
+
+  // Deploy/startup logs are fetched on demand (each fetch runs an exec in the
+  // sandbox), so only poll while the panel is open.
+  const {
+    data: logsData,
+    isFetching: logsFetching,
+    refetch: refetchLogs,
+  } = useQuery<ServerProjectWebServiceLogsResponse>({
+    queryKey: ['project-web-service-logs', projectId],
+    enabled: !!projectId && showLogs,
+    refetchInterval: showLogs ? 15000 : false,
+    queryFn: async () => {
+      const res = await apiClient.v1ProjectsWebServiceLogsDetail(projectId)
+      return res.data
+    },
+  })
+
   const state = data?.state
   const domains = data?.domains ?? []
   const deploys = data?.deploys ?? []
+  const latestDeploy = deploys[0]
   const cnameTarget = data?.cname_target ?? ''
+  const acmeChallengeTarget = data?.acme_challenge_target ?? ''
   const health = data?.health ?? ''
 
   const [containerPortDraft, setContainerPortDraft] = useState<string>('')
@@ -317,17 +338,63 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
                   of minutes once DNS has propagated. The HTTPS certificate
                   is issued and renewed for you, no extra steps.
                 </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(0,0,0,0.12)' }}
-                >
-                  <strong>Behind Cloudflare or another proxy/CDN?</strong> Point the proxy
-                  straight at <code>{cnameTarget}</code> and it still works. Because a proxy
-                  hides your server from Let's Encrypt, the certificate for the Helix ↔ proxy
-                  connection needs a one-time <strong>ACME challenge delegation</strong> — get
-                  in touch and we'll give you the exact <code>_acme-challenge</code> record to add.
-                  Domains pointed directly at <code>{cnameTarget}</code> (no proxy) need none of this.
-                </Typography>
+                {acmeChallengeTarget && (
+                  <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(0,0,0,0.12)' }}>
+                    <Typography variant="body2">
+                      <strong>Behind Cloudflare or another proxy/CDN?</strong> Point the proxy
+                      straight at <code>{cnameTarget}</code> and it still works. Because a proxy
+                      hides your server from Let's Encrypt, the certificate for the Helix ↔ proxy
+                      connection needs a one-time <strong>ACME challenge delegation</strong> — add
+                      this second record alongside the CNAME above:
+                    </Typography>
+                    <Box
+                      sx={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.85rem',
+                        p: 1.5,
+                        my: 1,
+                        borderRadius: 1,
+                        backgroundColor: 'rgba(0,0,0,0.15)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <strong>Name:</strong> _acme-challenge.app.yourcompany.com
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            navigator.clipboard.writeText('_acme-challenge.app.yourcompany.com')
+                            snackbar.success('Record name copied')
+                          }}
+                        >
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                      <span>
+                        <strong>Type:</strong> CNAME
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <strong>Value:</strong> {acmeChallengeTarget}
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            navigator.clipboard.writeText(acmeChallengeTarget)
+                            snackbar.success('ACME challenge target copied')
+                          }}
+                        >
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Box>
+                    <Typography variant="body2">
+                      Domains pointed directly at <code>{cnameTarget}</code> (no proxy) need
+                      none of this.
+                    </Typography>
+                  </Box>
+                )}
               </Alert>
             )}
           </Box>
@@ -343,11 +410,64 @@ const WebServiceTab: FC<WebServiceTabProps> = ({ projectId }) => {
 
           <Divider />
 
-          <Box>
+          <Box sx={{ pb: 3 }}>
             <Typography variant="subtitle1" gutterBottom>
               Recent deploys
             </Typography>
+
+            {latestDeploy?.status === 'failed' && latestDeploy?.error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Last deploy didn’t come up
+                </Typography>
+                <Typography variant="body2">{latestDeploy.error}</Typography>
+              </Alert>
+            )}
+
             <DeploysTable deploys={deploys} hasActiveSandbox={!!state?.active_sandbox_id} />
+
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Button size="small" variant="outlined" onClick={() => setShowLogs((v) => !v)}>
+                  {showLogs ? 'Hide deploy logs' : 'View deploy logs'}
+                </Button>
+                {showLogs && (
+                  <Button size="small" onClick={() => refetchLogs()} disabled={logsFetching}>
+                    {logsFetching ? 'Refreshing…' : 'Refresh'}
+                  </Button>
+                )}
+              </Stack>
+              {showLogs && (
+                <Box
+                  sx={{
+                    bgcolor: '#0b0b0b',
+                    color: '#d0d0d0',
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    p: 1.5,
+                    borderRadius: 1,
+                    maxHeight: 360,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {logsFetching && !logsData ? (
+                    <CircularProgress size={16} />
+                  ) : logsData?.log ? (
+                    logsData.log
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No deploy logs yet — they appear once a deploy has run against the active sandbox.
+                    </Typography>
+                  )}
+                </Box>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                The combined output of your project's startup script (build output, app logs, and
+                startup errors) from the active sandbox. Only visible to authorized project members.
+              </Typography>
+            </Box>
           </Box>
         </>
       )}

@@ -88,6 +88,49 @@ func TestEventsPageAndCountForTopic(t *testing.T) {
 	}
 }
 
+func TestEventsDeleteForTopic(t *testing.T) {
+	t.Parallel()
+	s := newStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+
+	for _, item := range []struct {
+		id, orgID, topicID string
+	}{
+		{"e-a-1", "org-test", "s-a"},
+		{"e-a-2", "org-test", "s-a"},
+		{"e-b", "org-test", "s-b"},
+		{"e-other-org", "org-other", "s-a"},
+	} {
+		ev, _ := streaming.NewEvent(streaming.EventID(item.id), streaming.TopicID(item.topicID), "w-owner", "body", now, item.orgID)
+		if err := s.Events.Append(ctx, ev); err != nil {
+			t.Fatalf("Append %s: %v", item.id, err)
+		}
+	}
+
+	if err := s.Events.DeleteForTopic(ctx, "org-test", "s-a"); err != nil {
+		t.Fatalf("DeleteForTopic: %v", err)
+	}
+	if count, err := s.Events.CountForTopic(ctx, "org-test", "s-a"); err != nil || count != 0 {
+		t.Fatalf("cleared count = %d, %v; want 0, nil", count, err)
+	}
+	if count, _ := s.Events.CountForTopic(ctx, "org-test", "s-b"); count != 1 {
+		t.Fatalf("other topic count = %d, want 1", count)
+	}
+	if count, _ := s.Events.CountForTopic(ctx, "org-other", "s-a"); count != 1 {
+		t.Fatalf("other org count = %d, want 1", count)
+	}
+
+	// Clearing must not poison the next normal append.
+	next, _ := streaming.NewEvent("e-next", "s-a", "w-owner", "next", now.Add(time.Second), "org-test")
+	if err := s.Events.Append(ctx, next); err != nil {
+		t.Fatalf("Append after clear: %v", err)
+	}
+	if count, _ := s.Events.CountForTopic(ctx, "org-test", "s-a"); count != 1 {
+		t.Fatalf("count after append = %d, want 1", count)
+	}
+}
+
 func ids(evs []streaming.Event) []streaming.EventID {
 	out := make([]streaming.EventID, len(evs))
 	for i, e := range evs {

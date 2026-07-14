@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/orgstore"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -20,7 +21,7 @@ func newSystemSettingsTestStore(t *testing.T) *PostgresStore {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&types.SystemSettings{}))
 
-	return &PostgresStore{gdb: db}
+	return &PostgresStore{gdb: db, Store: orgstore.New(db)}
 }
 
 func strPtr(v string) *string { return &v }

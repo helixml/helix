@@ -16,13 +16,12 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import SaveIcon from '@mui/icons-material/Save'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
 import SlackIntegrationsPanel from '../components/helix-org/SlackIntegrationsPanel'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import {
   SettingsSpecDTO,
   useDeleteHelixOrgSetting,
@@ -44,21 +43,16 @@ const EXCLUDED_KEYS = new Set<string>([
 ])
 
 const HelixOrgSettings: FC = () => {
-  const account = useAccount()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   const { data, isLoading } = useHelixOrgSettings()
+  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   return (
-    <Page
-      breadcrumbTitle="Settings"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Settings">
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={3}>
           <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Settings</Typography>
             <Typography variant="body2" color="text.secondary">
               Configures how this org's Bots run. Changes take effect on the next bot
               activation — no API restart needed.
@@ -81,7 +75,8 @@ const HelixOrgSettings: FC = () => {
           )}
         </Stack>
       </Container>
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 

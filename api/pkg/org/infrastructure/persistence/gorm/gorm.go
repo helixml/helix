@@ -27,6 +27,7 @@ var orgRowTypes = []any{
 	&configRow{},
 	&activationRow{},
 	&processorRow{},
+	&chartPositionRow{},
 	&domainEventRow{},
 }
 
@@ -47,6 +48,7 @@ var orgTableNames = []string{
 	"org_configs",
 	"org_activations",
 	"org_processors",
+	"org_chart_positions",
 	"org_domain_events",
 }
 
@@ -120,6 +122,7 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		Configs:         newConfigsRepo(db),
 		Activations:     newActivationsRepo(db),
 		Processors:      newProcessorsRepo(db),
+		ChartPositions:  newChartPositionsRepo(db),
 		DomainEvents:    newDomainEventsRepo(db),
 	}, nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -165,6 +166,21 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 			return
 		}
 		created = append(created, row)
+	}
+
+	// Stage the uploaded attachments into the helix-specs branch immediately, so they
+	// land in design/tasks/<taskDir>/attachments/ regardless of when this upload happens
+	// relative to planning. This closes the race where a slow upload lost to start-planning
+	// and the file was never committed nor surfaced to the agent. Staging is idempotent and
+	// also notifies the agent if a planning session already exists. Failure here is
+	// non-fatal: the row + blob exist, and planning-time staging remains a backstop.
+	//
+	// Detach from the request context so a client disconnect after the multipart body was
+	// received doesn't abort the git commit.
+	stageCtx, cancel := detachContext(ctx, 60*time.Second)
+	defer cancel()
+	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to stage uploaded attachments into helix-specs (planning-time staging will retry)")
 	}
 
 	w.Header().Set("Content-Type", "application/json")

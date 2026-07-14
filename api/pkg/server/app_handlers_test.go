@@ -15,19 +15,18 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// markHelixOrgAgents must be a no-op when the helix-org feature is disabled:
-// no app is flagged and the database is never touched (the mock store does not
-// implement GormDB, so any query would panic). This guards the no-regression
-// guarantee for the default (feature-off) configuration. The positive path
+// markHelixOrgAgents must be a no-op on a non-Postgres store: no app is
+// flagged and the database is never touched (the mock store does not
+// implement GormDB, so it can't be an org-chart backend). The positive path
 // (flagging an app that backs an org-chart Bot) requires a live Postgres
 // org_bot_runtime_state table and is verified end-to-end, not here.
-func Test_markHelixOrgAgents_FeatureDisabled_NoOp(t *testing.T) {
+func Test_markHelixOrgAgents_NoGormStore_NoOp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	server := &HelixAPIServer{
 		Store: store.NewMockStore(ctrl),
-		Cfg:   &config.ServerConfig{}, // HelixOrgEnabled defaults to false
+		Cfg:   &config.ServerConfig{},
 	}
 
 	apps := []*types.App{
@@ -42,15 +41,15 @@ func Test_markHelixOrgAgents_FeatureDisabled_NoOp(t *testing.T) {
 	}
 }
 
-// With the feature enabled but an empty org id there are no org-chart Workers
-// to consider, so it stays a no-op and never queries the database.
+// With an empty org id there are no org-chart Workers to consider, so it
+// stays a no-op and never queries the database.
 func Test_markHelixOrgAgents_NoOrg_NoOp(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	server := &HelixAPIServer{
 		Store: store.NewMockStore(ctrl),
-		Cfg:   &config.ServerConfig{HelixOrgEnabled: true},
+		Cfg:   &config.ServerConfig{},
 	}
 
 	apps := []*types.App{{ID: "app_1"}}

@@ -146,6 +146,14 @@ vi.mock('../services/providersService', () => ({
     data: [],
     isLoading: false
   }),
+  useDetectLocalProviders: () => ({
+    data: [],
+    isLoading: false
+  }),
+  useCreateProviderEndpoint: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false
+  }),
 }))
 
 function setAccountWithOrgs(orgs: any[]) {
