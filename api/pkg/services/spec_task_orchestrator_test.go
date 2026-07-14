@@ -132,6 +132,41 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsPlanningLimit(
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ReservesReviewCapacity() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+	latestTask := &types.SpecTask{
+		ID:        eventTask.ID,
+		ProjectID: eventTask.ProjectID,
+		Status:    types.TaskStatusBacklog,
+	}
+	project := &types.Project{
+		ID:                    eventTask.ProjectID,
+		AutoStartBacklogTasks: true,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		{ID: "planning", Status: types.TaskStatusSpecGeneration},
+		{ID: "review", Status: types.TaskStatusSpecReview},
+		latestTask,
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsImplementationLimitForJustDoIt() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{
@@ -313,6 +348,60 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_SkipsWhen
 
 	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
 	s.Require().NoError(err)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_RespectsReviewCapacity() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-queued",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+	project := &types.Project{
+		ID: task.ProjectID,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID}).Return([]*types.SpecTask{
+		{ID: "review-1", Status: types.TaskStatusSpecReview},
+		{ID: "review-2", Status: types.TaskStatusSpecReview},
+		task,
+	}, nil)
+
+	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_ReservesFutureReviewSlot() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-queued",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+	project := &types.Project{
+		ID: task.ProjectID,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID}).Return([]*types.SpecTask{
+		{ID: "planning", Status: types.TaskStatusSpecGeneration},
+		{ID: "review", Status: types.TaskStatusSpecReview},
+		task,
+	}, nil)
+
+	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
 }
 
 func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_SkipsWhenDependencyNotDone() {
