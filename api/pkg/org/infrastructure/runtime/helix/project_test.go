@@ -24,6 +24,8 @@ type fakeProjectService struct {
 	mu sync.Mutex
 
 	applyCalls              int
+	applyStarted            chan struct{}
+	applyContinue           chan struct{}
 	lastApplyReq            types.ProjectApplyRequest
 	applyResponse           types.ProjectApplyResponse
 	applyErr                error
@@ -76,10 +78,18 @@ func (f *fakeProjectService) WhoAmI(_ context.Context) (string, error) { return 
 
 func (f *fakeProjectService) ApplyProject(_ context.Context, req types.ProjectApplyRequest) (types.ProjectApplyResponse, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.applyCalls++
 	f.lastApplyReq = req
-	return f.applyResponse, f.applyErr
+	resp, err := f.applyResponse, f.applyErr
+	started, continued := f.applyStarted, f.applyContinue
+	f.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if continued != nil {
+		<-continued
+	}
+	return resp, err
 }
 
 func (f *fakeProjectService) GetProject(_ context.Context, _ string) (types.Project, error) {
@@ -329,6 +339,39 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	}
 	if repoID == "" {
 		t.Errorf("returned repoID is empty — same reasoning")
+	}
+}
+
+func TestEnsureConcurrentAppliesProjectOnce(t *testing.T) {
+	st, wid := newProjectTestStore(t, "# Role: engineer")
+	svc := newFakeProjectService()
+	svc.getProjectResp.Name = "w-eng"
+	svc.applyStarted = make(chan struct{}, 2)
+	svc.applyContinue = make(chan struct{})
+	a := newApplierGit(svc, newFakeGitForProject(), st)
+
+	done := make(chan error, 2)
+	go func() {
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		done <- err
+	}()
+	<-svc.applyStarted
+	go func() {
+		_, _, _, err := a.Ensure(context.Background(), "org-test", wid)
+		done <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	close(svc.applyContinue)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatalf("Ensure: %v", err)
+		}
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.applyCalls != 1 {
+		t.Fatalf("ApplyProject calls = %d, want 1", svc.applyCalls)
 	}
 }
 

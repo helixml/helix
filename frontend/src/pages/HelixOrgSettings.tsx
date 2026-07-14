@@ -1,6 +1,6 @@
 // HelixOrgSettings is the configuration surface for the helix-org alpha.
-// The worker.* runtime config (runtime / credentials / provider / model)
-// now lives on the AI Providers page (WorkerRuntimePanel) so it sits next
+// The default agent config (runtime / credentials / provider / model)
+// now lives on the AI Providers page so it sits next
 // to the providers it references; everything else here falls back to a
 // generic text-input row driven by the same config registry the server
 // validates against.
@@ -30,7 +30,7 @@ import {
 } from '../services/helixOrgService'
 
 // Registry keys we do NOT render as generic rows here:
-//  - worker.* runtime config lives on the Providers page (WorkerRuntimePanel).
+//  - agent.default and legacy worker.* config live on the Providers page.
 //  - transport.github is auto-managed by the Helix GitHub App (it provisions
 //    the webhook secret and the token comes from the App installation), so
 //    there's nothing for an operator to paste.
@@ -39,6 +39,7 @@ const EXCLUDED_KEYS = new Set<string>([
   'worker.credentials',
   'worker.provider',
   'worker.model',
+  'agent.default',
   'transport.github',
 ])
 
