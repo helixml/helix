@@ -39,6 +39,7 @@ type slackAPI interface {
 
 type slackThreadRecorder interface {
 	RecordParticipant(context.Context, string, processor.ProcessorID, string, string) error
+	RecordDMRecipient(context.Context, string, processor.ProcessorID, string, string) error
 }
 
 func validateSlackReplyRouter(router processor.Processor, workspaceID, workerID string) error {
@@ -145,8 +146,10 @@ func (h humanInbox) deliverSlack(ctx context.Context, orgID string, person orgch
 		message = fmt.Sprintf("<@%s> %s", userID, message)
 	}
 	text := fmt.Sprintf("*Message from %s*\n%s", fromBotName, message)
-	if expectsReply {
+	if expectsReply && delivered == "slack_channel" {
 		text += "\n\nReply in this thread to respond."
+	} else if expectsReply {
+		text += "\n\nReply here to respond."
 	}
 	_, timestamp, err := client.PostMessageContext(ctx, channelID, slack.MsgOptionText(text, false))
 	if err != nil {
@@ -158,6 +161,11 @@ func (h humanInbox) deliverSlack(ctx context.Context, orgID string, person orgch
 		}
 		if err := h.threadFollower.RecordParticipant(ctx, orgID, routerID, timestamp, fromBotID); err != nil {
 			return "", fmt.Errorf("register Slack reply routing: %w", err)
+		}
+		if delivered == "slack_dm" {
+			if err := h.threadFollower.RecordDMRecipient(ctx, orgID, routerID, channelID, fromBotID); err != nil {
+				return "", fmt.Errorf("register Slack DM reply routing: %w", err)
+			}
 		}
 	}
 	return delivered, nil

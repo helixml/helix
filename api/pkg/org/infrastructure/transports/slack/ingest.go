@@ -47,8 +47,9 @@ func NewIngest(ws Workspaces, st *store.Store, pub Publisher, logger *slog.Logge
 // processor/filter predicates can route on channel/team and outbound
 // can stay self-consistent. Message bodies are never logged.
 type slackExtra struct {
-	Channel string `json:"slack_channel,omitempty"`
-	TeamID  string `json:"slack_team_id,omitempty"`
+	Channel     string `json:"slack_channel,omitempty"`
+	ChannelType string `json:"slack_channel_type,omitempty"`
+	TeamID      string `json:"slack_team_id,omitempty"`
 }
 
 // OnEvent is the slackcore.EventHandler the ingress sources call. It:
@@ -90,7 +91,7 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return nil
 	}
 
-	extra, _ := json.Marshal(slackExtra{Channel: ev.Channel, TeamID: teamID})
+	extra, _ := json.Marshal(slackExtra{Channel: ev.Channel, ChannelType: ev.ChannelType, TeamID: teamID})
 	msg := streaming.Message{
 		From:      ev.User,
 		Body:      ev.Text,

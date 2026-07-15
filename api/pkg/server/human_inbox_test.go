@@ -93,10 +93,18 @@ func (f *fakeSlackAPI) PostMessageContext(_ context.Context, channelID string, _
 }
 
 type fakeThreadRecorder struct {
-	router processor.ProcessorID
-	root   string
-	worker string
-	err    error
+	router    processor.ProcessorID
+	root      string
+	worker    string
+	dmChannel string
+	dmWorker  string
+	dmRouter  processor.ProcessorID
+	err       error
+}
+
+func (f *fakeThreadRecorder) RecordDMRecipient(_ context.Context, _ string, router processor.ProcessorID, channel, worker string) error {
+	f.dmRouter, f.dmChannel, f.dmWorker = router, channel, worker
+	return f.err
 }
 
 func (f *fakeThreadRecorder) RecordParticipant(_ context.Context, _ string, router processor.ProcessorID, root, worker string) error {
@@ -141,7 +149,53 @@ func TestHumanDeliverySlackDMAndChannel(t *testing.T) {
 			if recorder.router != "p-slack-router-conn-1" || recorder.root != api.postTS || recorder.worker != "b-sender" {
 				t.Fatalf("thread registration = %#v", recorder)
 			}
+			if tc.channelID == "" {
+				if recorder.dmRouter != "p-slack-router-conn-1" || recorder.dmChannel != "D123" || recorder.dmWorker != "b-sender" {
+					t.Fatalf("DM registration = %#v", recorder)
+				}
+			} else if recorder.dmChannel != "" {
+				t.Fatalf("channel delivery registered DM recipient: %#v", recorder)
+			}
 		})
+	}
+}
+
+func TestHumanDeliverySlackNoReplyDoesNotRecordDMRecipient(t *testing.T) {
+	api := &fakeSlackAPI{}
+	recorder := &fakeThreadRecorder{}
+	h := humanInbox{
+		slackWorkspaces: fakeSlackWorkspaces{workspace: slacktransport.Workspace{ID: "conn-1", BotToken: "xoxb-test"}},
+		slackClient:     func(string) slackAPI { return api },
+		threadFollower:  recorder,
+	}
+	person := orgchart.Bot{Identity: map[string]string{"preferred_contact": "slack", "slack_user_id": "U123"}}
+	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", false); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.dmChannel != "" || recorder.root != "" {
+		t.Fatalf("no-reply delivery registered routing: %#v", recorder)
+	}
+}
+
+func TestHumanDeliverySlackPostFailureDoesNotRecordRouting(t *testing.T) {
+	api := &fakeSlackAPI{err: errors.New("post failed")}
+	recorder := &fakeThreadRecorder{}
+	h := humanInbox{
+		slackWorkspaces: fakeSlackWorkspaces{workspace: slacktransport.Workspace{ID: "conn-1", BotToken: "xoxb-test"}},
+		slackClient:     func(string) slackAPI { return api },
+		threadFollower:  recorder,
+		ensureSlackRouter: func(context.Context, string, processor.ProcessorID, string) error {
+			return nil
+		},
+	}
+	person := orgchart.Bot{Identity: map[string]string{
+		"preferred_contact": "slack", "slack_user_id": "U123", "slack_channel_id": "C123",
+	}}
+	if _, err := h.Deliver(context.Background(), "org-1", person, "b-sender", "Sender", "hello", true); err == nil {
+		t.Fatal("expected post failure")
+	}
+	if recorder.root != "" || recorder.dmChannel != "" {
+		t.Fatalf("failed post registered routing: %#v", recorder)
 	}
 }
 

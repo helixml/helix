@@ -104,7 +104,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	seedSlackTopic(t, s, "org1", "tp1", "sc1")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{
-		Channel: "C-random", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
+		Channel: "C-random", ChannelType: "channel", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
 	})
 	if err != nil {
 		t.Fatalf("OnEvent: %v", err)
@@ -123,8 +123,8 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	if err := json.Unmarshal(c.msg.Extra, &ex); err != nil {
 		t.Fatalf("unmarshal extra: %v", err)
 	}
-	if ex.Channel != "C-random" {
-		t.Fatalf("Extra channel = %q, want C-random", ex.Channel)
+	if ex.Channel != "C-random" || ex.ChannelType != "channel" {
+		t.Fatalf("Extra Slack coordinates = %#v", ex)
 	}
 	// The transport stamps a ReplyHint carrying the concrete coordinates
 	// the agent needs to reply via the Slack API (no Role text required).

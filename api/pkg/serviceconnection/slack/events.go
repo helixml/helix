@@ -18,6 +18,8 @@ import (
 type Event struct {
 	// Channel is the Slack channel id the message landed in.
 	Channel string
+	// ChannelType distinguishes DMs ("im") from channels and group DMs.
+	ChannelType string
 	// User is the Slack user id of the poster (carried as Message.From).
 	User string
 	// Text is the message body.
@@ -157,7 +159,7 @@ func verifyAny(header http.Header, body []byte, secrets []string) bool {
 func ToEvent(inner any) (Event, bool) {
 	switch m := inner.(type) {
 	case *slackevents.MessageEvent:
-		return Event{Channel: m.Channel, User: m.User, Text: m.Text, TS: m.TimeStamp, ThreadTS: m.ThreadTimeStamp, BotID: m.BotID}, true
+		return Event{Channel: m.Channel, ChannelType: m.ChannelType, User: m.User, Text: m.Text, TS: m.TimeStamp, ThreadTS: m.ThreadTimeStamp, BotID: m.BotID}, true
 	case *slackevents.AppMentionEvent:
 		return Event{Channel: m.Channel, User: m.User, Text: m.Text, TS: m.TimeStamp, ThreadTS: m.ThreadTimeStamp, BotID: m.BotID}, true
 	default:
