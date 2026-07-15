@@ -90,6 +90,11 @@ record operation is idempotent. A later inbound Slack thread reply then follows
 the existing thread-follow path to the Bot's managed output topic. Non-replyable
 messages do not require or register thread routing.
 
+For an `expectsReply` Slack DM, a threaded human reply routes back to the Bot
+that sent the original message. A new top-level DM has no prior participant, so
+it must contain an exact Helix Bot ID to match a managed route. An unmatched
+top-level DM activates no Bot.
+
 If Slack accepts the post but participant recording fails, `ask_human` returns
 an error and does not fall back; the external message may already be visible.
 
@@ -103,9 +108,28 @@ Both backend default scopes and the generated Slack manifest now include:
 - `users:read.email` so setup can resolve the human's canonical Slack user ID
   from the email they provide.
 
+The generated manifest also enables writable Messages in the Slack App Home so
+users can send DMs to the app.
+
 Existing Slack installations must be reauthorized to grant newly added scopes.
 The Chief of Staff must not claim Slack setup is complete until the workspace
 is installed and `set_human_contact` succeeds.
+
+## Prime Cloudflare Tunnel deployment
+
+For Prime, configure a Cloudflare Tunnel public hostname to forward to
+`http://localhost:8080`, then set `SERVER_URL` to that public HTTPS origin.
+Configure the Slack app with these URLs on the same origin:
+
+- Redirect: `/api/v1/slack/oauth/callback`
+- Events: `/api/v1/slack/events`
+
+Cloudflare Access must bypass authentication for both endpoints so Slack can
+complete OAuth and deliver signed events. Recreate the Helix stack after the
+`SERVER_URL` environment change; a container restart alone does not apply the
+new environment. Then verify Slack accepts the event request URL and run a
+smoke test that sends an `expectsReply` message and confirms a threaded reply
+reaches the originating Bot.
 
 ## Onboarding and UI
 
@@ -114,6 +138,10 @@ people are, and whether future contact should use Helix or Slack. For Slack it
 asks for an email and optional channel name, then uses `mint_credential` and
 Slack's `users.lookupByEmail` and `conversations.list` APIs to resolve canonical
 IDs before calling `set_human_contact`.
+
+Slack app setup uses a deterministic official flow: copy the generated manifest,
+open Slack's `From a manifest` setup, and paste it. It does not depend on an
+unsupported `manifest_json` deep link.
 
 The human detail page adds a preferred-delivery selector and fields for Slack
 user, channel, and workspace IDs. It requires a Slack user ID when Slack is
@@ -156,6 +184,8 @@ Run in `/Users/psamuel/helix/helix-worktrees/org-human-slack-delivery`:
 - `cd frontend && yarn build`: passed, 21,709 modules in 18.41 s.
 - `cd frontend && yarn test --run src/components/dashboard/SlackIntegrationsPanel.test.tsx`: passed 1 file and 2 tests.
 - `cd frontend && yarn build`: passed, 21,709 modules in 16.40 s after the Slack empty-state change.
+- Frontend targeted tests: passed 2 files and 7 tests for the manifest setup and Slack integration flow.
+- `cd frontend && yarn build`: passed, 21,709 modules in 16.14 s after the manifest and DM-routing follow-up.
 
 The tests exercise contact patching and validation, route reporting, Helix
 reply metadata, Slack DM and channel selection, no-fallback behavior, reply
