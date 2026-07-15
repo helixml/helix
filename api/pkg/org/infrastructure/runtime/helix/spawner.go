@@ -63,12 +63,8 @@ type SpawnerConfig struct {
 	// when HelixOrgURL routes through an auth-gated proxy (embedded
 	// SaaS alpha). Empty in standalone mode.
 	MCPAuthBearer string
-	// SpecsMandate is the activation-prompt directive that tells the
-	// agent how to find role.md / identity.md / agent.md on the
-	// helix-specs branch. Surfaced as an operator-editable config
-	// (helixSpecsMandate) so changes to the file layout or git-pull
-	// recipe don't require a deploy. Empty falls back to
-	// DefaultHelixSpecsMandate.
+	// SpecsMandate is an optional full activation mandate override.
+	// Empty uses the Bot's current Content.
 	SpecsMandate string
 	// BearerForUser, when non-nil, is called by the Spawner (and
 	// WorkerProject) on every activation to resolve the api_key that
@@ -174,12 +170,6 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		if cfg.Store == nil {
 			return errors.New("helix spawner: store is nil")
 		}
-		mandate := cfg.SpecsMandate
-		if mandate == "" {
-			mandate = DefaultHelixSpecsMandate
-		}
-		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
-
 		// Acquire global slot. The dispatcher serialises per-Worker, so
 		// blocking here only delays one Worker behind the rest of the
 		// org under burst load.
@@ -294,7 +284,16 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 			cfg.Mirror.Ensure(orgID, workerID)
 		}
 
-		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, publish)
+		bot, err := cfg.Store.Bots.Get(startupCtx, orgID, workerID)
+		if err != nil {
+			return fmt.Errorf("load bot %s for activation: %w", workerID, err)
+		}
+		mandate := cfg.SpecsMandate
+		if mandate == "" {
+			mandate = "=== Current role ===\n" + bot.Content
+		}
+		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
+		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, bot.PreserveContext, publish)
 		if err != nil {
 			publish(activation.OutcomeFromError(err).Marker())
 			return err
@@ -344,45 +343,6 @@ func newActivationRecord(cfg SpawnerConfig, orgID string, workerID orgchart.BotI
 	}
 	return act
 }
-
-// DefaultHelixSpecsMandate points the agent at its role file, which the
-// project applier pushes to the per-Bot repo's `helix-specs` branch.
-// Surfaced through SpawnerConfig.SpecsMandate — operators override via
-// the `worker.specs_mandate` config key when the file layout or pull
-// recipe changes (no deploy required).
-//
-// A Bot has no separate identity file: its Content IS its prompt and
-// lands in role.md. There is no identity.md.
-//
-// Helix's workspace-setup script creates a worktree for the branch
-// at ~/work/helix-specs/ on every boot — but only when the branch
-// exists on the remote at boot time, so if the worktree is missing
-// the agent must materialise it itself.
-const DefaultHelixSpecsMandate = `Your org-wide policy and role files live on the
-**helix-specs** branch of your per-Bot repo. helix-org pushes them
-on hire and re-pushes them on every activation, so the remote always
-has the current owner-edited version. Path inside the branch:
-  .context/agent.md                                    (org-wide policy)
-  workers/${HELIX_WORKER_ID}/.context/role.md
-
-ALWAYS pull before reading — your local worktree is stale from prior
-activations and won't reflect owner edits made since:
-
-  if [ ! -d ~/work/helix-specs ]; then
-    cd ~/work/$(ls ~/work | grep -v helix-specs | head -1)
-    git fetch origin helix-specs
-    git worktree add ../helix-specs helix-specs
-  else
-    cd ~/work/helix-specs && git pull --ff-only origin helix-specs
-  fi
-
-Then read in this order — agent.md FIRST (it's the entrypoint that
-tells you how to be an agent at all), then role.md:
-  cat ~/work/helix-specs/.context/agent.md
-  cat ~/work/helix-specs/workers/${HELIX_WORKER_ID}/.context/role.md
-
-After meaningful work, persist state on helix-specs:
-  cd ~/work/helix-specs && git add -A && git commit -m 'checkpoint: <what>' && git push origin helix-specs`
 
 // ensureProject is a thin wrapper around WorkerProject
 // so the activation flow reads naturally. The Service / Git fields
@@ -459,7 +419,7 @@ func (c SpawnerConfig) ensureHelixOrgMCP(ctx context.Context, orgID string, work
 //     connect; if it does (hadWSError) we immediately re-queue the
 //     same prompt via the durable /messages endpoint so it lands as
 //     soon as the agent dials home.
-func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, _ func(string)) (string, string, error) {
+func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID orgchart.BotID, prompt string, preserveContext bool, _ func(string)) (string, string, error) {
 	state, err := LoadState(ctx, c.Store, orgID, workerID)
 	if err != nil {
 		return "", "", err
@@ -497,15 +457,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 	// own context-limit/compaction handling. Failing to read the Bot must
 	// not silently fall back to wiping a preserve-context Bot, so the
 	// error propagates.
-	preserve := false
-	if state.SessionID != "" {
-		bot, err := c.Store.Bots.Get(ctx, orgID, workerID)
-		if err != nil {
-			return "", "", fmt.Errorf("load bot %s for context policy: %w", workerID, err)
-		}
-		preserve = bot.PreserveContext
-	}
-	if state.SessionID != "" && !preserve {
+	if state.SessionID != "" && !preserveContext {
 		if err := c.Client.ClearSession(ctx, state.SessionID); err != nil {
 			return "", "", fmt.Errorf("clear session %s before re-activation: %w", state.SessionID, err)
 		}
@@ -513,7 +465,7 @@ func (c SpawnerConfig) ensureSession(ctx context.Context, orgID string, workerID
 			c.Logger.Info("spawner: cleared session before re-activation",
 				"worker", workerID, "session", state.SessionID)
 		}
-	} else if state.SessionID != "" && preserve {
+	} else if state.SessionID != "" && preserveContext {
 		if c.Logger != nil {
 			c.Logger.Info("spawner: preserving session context across re-activation",
 				"worker", workerID, "session", state.SessionID)

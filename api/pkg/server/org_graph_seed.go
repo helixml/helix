@@ -163,6 +163,7 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 		Name:            "Chief of Staff",
 		Content:         chiefOfStaffContent,
 		Tools:           mcptools.OwnerBotTools(),
+		PreserveContext: true,
 		DeferActivation: true,
 	}); err != nil {
 		if _, getErr := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); getErr == nil {

@@ -535,13 +535,11 @@ func TestEnsureFastPathReprovisionsDeletedRepo(t *testing.T) {
 //     CreateGitRepo / AttachRepoToProject calls)
 //   - leave the existing app configuration untouched; worker.* values
 //     are provisioning defaults and the app UI/API owns later edits.
-//   - re-publish canonical files (agent.md / role.md / identity.md)
-//     from the DB to the helix-specs branch so DB edits that don't
+//   - re-publish role.md from the DB to the helix-specs branch so DB edits that don't
 //     go through update_role / update_identity (e.g. direct store
 //     mutation, role-reconciler reseeding) still reach Workers
-//     without a fire+re-hire round trip. That contract is what
-//     DefaultHelixSpecsMandate promises every Worker; the original
-//     feature lived at commit 4a6cb33c51, regressed at 4f7837ac0c.
+//     without a fire+re-hire round trip. The original feature lived at
+//     commit 4a6cb33c51, regressed at 4f7837ac0c.
 //     See TestEnsureFastPathPropagatesRoleEdits for the propagation
 //     assertion.
 func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
@@ -627,10 +625,9 @@ func TestEnsureFastPathPreservesAgentSpec(t *testing.T) {
 // update_role MCP tool's MirrorFile push) must reach the helix-specs
 // branch on the next activation, without a fire+re-hire.
 //
-// This is the contract DefaultHelixSpecsMandate promises every Worker
-// and the contract the original feature commit 4a6cb33c51 validated
-// end-to-end. It silently regressed in commit 4f7837ac0c when the
-// fast-path republish was removed.
+// This is the contract the original feature commit 4a6cb33c51 validated
+// end-to-end. It silently regressed in commit 4f7837ac0c when the fast-path
+// republish was removed.
 func TestEnsureFastPathPropagatesRoleEdits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

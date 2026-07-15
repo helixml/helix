@@ -98,7 +98,7 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		ThreadID:  ev.ThreadTS,
 		MessageID: ev.TS,
 		Extra:     extra,
-		ReplyHint: replyHint(teamID, ev.Channel, ev.TS, ev.ThreadTS),
+		ReplyHint: replyHint(teamID, ev.Channel, ev.ChannelType, ev.TS, ev.ThreadTS),
 	}
 
 	for _, t := range topics {

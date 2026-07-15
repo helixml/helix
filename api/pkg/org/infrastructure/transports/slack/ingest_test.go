@@ -133,6 +133,31 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
 		}
 	}
+	for _, want := range []string{"Do not fetch Slack history by default", "Only when earlier thread context is necessary", "Only when channel-root context is genuinely necessary"} {
+		if !strings.Contains(c.msg.ReplyHint, want) {
+			t.Fatalf("ReplyHint %q missing conditional history guidance %q", c.msg.ReplyHint, want)
+		}
+	}
+}
+
+func TestReplyHint_TopLevelDMOmitsThreadTS(t *testing.T) {
+	hint := replyHint("T1", "D1", "im", "1700.1", "")
+	if !strings.Contains(hint, "omit thread_ts and reply at the DM root") {
+		t.Fatalf("top-level DM hint must stay at root: %q", hint)
+	}
+	if strings.Contains(hint, "thread_ts=1700.1") {
+		t.Fatalf("top-level DM hint must not invent a thread: %q", hint)
+	}
+}
+
+func TestReplyHint_ThreadedDMUsesIncomingThread(t *testing.T) {
+	hint := replyHint("T1", "D1", "im", "1700.2", "1699.9")
+	if !strings.Contains(hint, "thread_ts=1699.9") || !strings.Contains(hint, "conversations.replies with channel=D1 and ts=1699.9") {
+		t.Fatalf("threaded DM hint must preserve incoming root: %q", hint)
+	}
+	if strings.Contains(hint, "omit thread_ts") {
+		t.Fatalf("threaded DM hint must not instruct a root reply: %q", hint)
+	}
 }
 
 func TestIngest_WrongWorkspaceBinding_NotPublished(t *testing.T) {

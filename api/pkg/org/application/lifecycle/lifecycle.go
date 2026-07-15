@@ -166,10 +166,9 @@ type CreateResult struct {
 // This is the single implementation the MCP create_bot tool and the
 // REST POST /bots handler both call.
 //
-// State lives in the domain (DB) + the per-Bot repo's helix-specs git
-// branch (role.md / agent.md), which the agent pulls inside its sandbox
-// — there is no API-host workspace directory. A Bot's MCP tool surface
-// is derived live from Bot.Tools.
+// State lives in the domain DB, with role.md mirrored to the per-Bot
+// helix-specs branch for workspace workflows. A Bot's MCP tool surface is
+// derived live from Bot.Tools.
 func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (CreateResult, error) {
 	if s.NewID == nil || s.Now == nil {
 		return CreateResult{}, fmt.Errorf("lifecycle: clock/id-generator not wired")
