@@ -1,4 +1,4 @@
-import { FC, useState, useMemo, useCallback } from 'react'
+import { FC, useState, useMemo, useCallback, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
@@ -49,6 +49,20 @@ const SlackIntegrationsPanel: FC = () => {
   const appId = selectedApp || (apps.length === 1 ? apps[0].id : '')
   const chosenApp = apps.find((a: any) => a.id === appId)
   const oauthAvailable = !!chosenApp?.slack_client_id
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    const error = query.get('slack_error')
+    const installed = query.get('slack_installed')
+    if (!error && !installed) return
+
+    if (error) snackbar.error(error)
+    if (installed) snackbar.success('Slack workspace connected')
+    query.delete('slack_error')
+    query.delete('slack_installed')
+    const search = query.toString()
+    window.history.replaceState({}, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`)
+  }, [])
 
   const handleInstall = async () => {
     try {
@@ -190,7 +204,7 @@ const SlackIntegrationsPanel: FC = () => {
               ) : oauthAvailable ? (
                 <Stack spacing={1} alignItems="flex-start">
                   <Button variant="contained" startIcon={<SlackLogo sx={{ fontSize: 18 }} />} onClick={handleInstall} disabled={startInstall.isPending}>
-                    Install into your workspace
+                    Connect workspace
                   </Button>
                   <Typography variant="caption" color="text.secondary">
                     Opens Slack to pick the workspace and approve. Helix sets the bot token automatically — nothing to paste.
