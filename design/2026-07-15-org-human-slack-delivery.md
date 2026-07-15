@@ -115,6 +115,21 @@ Existing Slack installations must be reauthorized to grant newly added scopes.
 The Chief of Staff must not claim Slack setup is complete until the workspace
 is installed and `set_human_contact` succeeds.
 
+The org Settings OAuth action is `Connect workspace`. Connecting a Slack team
+already installed in the same Helix org refreshes that install and its token
+instead of creating a duplicate. A Slack team can belong to only one live
+Helix org because inbound Slack events identify the team but carry no Helix org
+ID. An attempt to connect a team already bound to another org returns a clear
+conflict instead of creating ambiguous inbound routing.
+
+The OAuth callback URL trims any trailing slash from `SERVER_URL` before adding
+`/api/v1/slack/oauth/callback`. After Slack succeeds, rejects authorization, or
+returns another handled setup error, the callback returns to
+`/orgs/:org_id/helix-org/settings` with success or error feedback for the UI.
+
+For manual bot-token connection, a token Slack explicitly rejects returns HTTP
+400. Network failures and other upstream validation failures return HTTP 502.
+
 ## Prime Cloudflare Tunnel deployment
 
 For Prime, configure a Cloudflare Tunnel public hostname to forward to
@@ -156,6 +171,7 @@ change another person's contact route.
 When org Settings has no Slack app available, deployment admins see a
 `Configure Slack app` action that opens Admin Panel -> Service Connections.
 Non-admins see explanatory empty-state text without the admin action.
+Once an app is available, the org owner uses `Connect workspace` to start OAuth.
 
 ## Security and multi-tenancy
 
@@ -165,6 +181,8 @@ Non-admins see explanatory empty-state text without the admin action.
 - Slack workspace lookup lists connections for that same org and optionally
   filters by `slack_team_id`; another org's bot token is never selected. An
   omitted team ID is rejected when more than one distinct team is installed.
+- A Slack team ID is globally unique across live Helix org workspace
+  connections, preventing inbound events from resolving to multiple orgs.
 - Reply-router validation uses the resolved workspace connection ID and the
   sending Bot's managed route.
 - Slack tokens remain in the existing encrypted service-connection path and
