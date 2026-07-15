@@ -101,6 +101,9 @@ type Deps struct {
 	Repositories runtime.Repositories
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
+	// RecordCredential lets the host redact a minted token if the agent
+	// later echoes it into user-visible output.
+	RecordCredential func(orgID, provider, token string)
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
 	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
@@ -149,6 +152,7 @@ type Config struct {
 	Repositories        runtime.Repositories
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
+	RecordCredential    func(orgID, provider, token string)
 	// Lifecycle, when set, is used verbatim instead of building a fresh one,
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
@@ -183,6 +187,7 @@ func (c Config) Build() Deps {
 		Projects:            c.projectsService(),
 		Repositories:        c.repositoriesPort(),
 		CredentialProviders: c.CredentialProviders,
+		RecordCredential:    c.RecordCredential,
 		Hub:                 c.Hub,
 		HumanDelivery:       c.HumanDelivery,
 	}

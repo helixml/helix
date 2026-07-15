@@ -676,11 +676,13 @@ func (apiServer *HelixAPIServer) handleExternalAgentSender(ctx context.Context, 
 
 // processExternalAgentSyncMessage processes incoming sync messages from external agents
 func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID string, syncMsg *types.SyncMessage) error {
-	log.Trace().
+	event := log.Trace().
 		Str("agent_session_id", sessionID).
-		Str("event_type", syncMsg.EventType).
-		Interface("data", syncMsg.Data).
-		Msg("[HELIX] Processing message from external agent")
+		Str("event_type", syncMsg.EventType)
+	if syncMsg.EventType != "message_added" {
+		event = event.Interface("data", syncMsg.Data)
+	}
+	event.Msg("[HELIX] Processing message from external agent")
 
 	// Process sync message directly
 	var err error
@@ -1242,6 +1244,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 
 		helixSession := sctx.session
+		content = apiServer.redactCredentials(helixSession.OrganizationID, content)
+		toolName = apiServer.redactCredentials(helixSession.OrganizationID, toolName)
+		syncMsg.Data["content"] = content
+		syncMsg.Data["tool_name"] = toolName
 		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
@@ -1514,6 +1520,34 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	return nil
+}
+
+func (apiServer *HelixAPIServer) recordCredential(orgID, _ string, token string) {
+	if orgID == "" || token == "" {
+		return
+	}
+	apiServer.credentialTokensMu.Lock()
+	defer apiServer.credentialTokensMu.Unlock()
+	if apiServer.credentialTokens == nil {
+		apiServer.credentialTokens = make(map[string]map[string]struct{})
+	}
+	if apiServer.credentialTokens[orgID] == nil {
+		apiServer.credentialTokens[orgID] = make(map[string]struct{})
+	}
+	apiServer.credentialTokens[orgID][token] = struct{}{}
+}
+
+func (apiServer *HelixAPIServer) redactCredentials(orgID, content string) string {
+	apiServer.credentialTokensMu.RLock()
+	tokens := make([]string, 0, len(apiServer.credentialTokens[orgID]))
+	for token := range apiServer.credentialTokens[orgID] {
+		tokens = append(tokens, token)
+	}
+	apiServer.credentialTokensMu.RUnlock()
+	for _, token := range tokens {
+		content = strings.ReplaceAll(content, token, "<redacted>")
+	}
+	return content
 }
 
 // getOrCreateStreamingContext returns a cached streaming context for the given

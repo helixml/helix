@@ -111,6 +111,9 @@ func (t *MintCredential) Invoke(ctx context.Context, inv tool.Invocation) (json.
 	if err != nil {
 		return nil, fmt.Errorf("mint %s credential: %w", args.Provider, err)
 	}
+	if t.deps.RecordCredential != nil {
+		t.deps.RecordCredential(orgID, args.Provider, cred.Token)
+	}
 	out := map[string]any{
 		"token": cred.Token,
 		"usage": cred.Usage,

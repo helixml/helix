@@ -28,6 +28,16 @@ type WebSocketSyncSuite struct {
 	server *HelixAPIServer
 }
 
+type recordingPubSub struct {
+	*pubsub.NoopPubSub
+	payloads [][]byte
+}
+
+func (p *recordingPubSub) Publish(_ context.Context, _ string, payload []byte) error {
+	p.payloads = append(p.payloads, append([]byte(nil), payload...))
+	return nil
+}
+
 func TestWebSocketSyncSuite(t *testing.T) {
 	suite.Run(t, new(WebSocketSyncSuite))
 }
@@ -356,6 +366,63 @@ func (s *WebSocketSyncSuite) TestMessageAdded_AssistantFirstMessage() {
 
 	err := s.server.handleMessageAdded("agent-1", syncMsg)
 	s.NoError(err)
+}
+
+func (s *WebSocketSyncSuite) TestMessageAdded_RedactsMintedCredentialBeforeStorageAndPublish() {
+	const secret = "xoxb-test-secret"
+	s.server.contextMappings["thread-secret"] = "ses_secret"
+	s.server.recordCredential("org-1", "slack", secret)
+	recorder := &recordingPubSub{NoopPubSub: pubsub.NewNoop()}
+	s.server.pubsub = recorder
+	var hooked *types.SyncMessage
+	s.server.syncEventHook = func(_ string, msg *types.SyncMessage) { hooked = msg }
+
+	session := &types.Session{ID: "ses_secret", Owner: "user-1", OrganizationID: "org-1"}
+	interaction := &types.Interaction{ID: "int-secret", SessionID: "ses_secret", State: types.InteractionStateWaiting}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_secret").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil)
+	s.store.EXPECT().UpdateInteractionStreamingFields(gomock.Any(), "int-secret", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), "msg-secret").DoAndReturn(
+		func(_ context.Context, _ string, _ int, responseMessage string, responseEntries datatypes.JSON, _ int, _ string) error {
+			s.NotContains(responseMessage, secret)
+			s.Contains(responseMessage, `{"token":"<redacted>"}`)
+			s.Contains(responseMessage, "Authorization: Bearer <redacted>")
+			s.NotContains(string(responseEntries), secret)
+			var entries []wsprotocol.ResponseEntry
+			s.NoError(json.Unmarshal(responseEntries, &entries))
+			s.Equal("curl -H 'Authorization: Bearer <redacted>'", entries[0].ToolName)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetCommentByInteractionID(gomock.Any(), "int-secret").Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().GetPendingCommentByPlanningSessionID(gomock.Any(), "ses_secret").Return(nil, nil).AnyTimes()
+
+	syncMsg := &types.SyncMessage{EventType: "message_added", Data: map[string]interface{}{
+		"acp_thread_id": "thread-secret",
+		"message_id":    "msg-secret",
+		"content":       `{"token":"` + secret + `"}\ncurl -H 'Authorization: Bearer ` + secret + `' https://slack.com/api/chat.postMessage`,
+		"role":          "assistant",
+		"entry_type":    "tool_call",
+		"tool_name":     "curl -H 'Authorization: Bearer " + secret + "'",
+	}}
+	s.NoError(s.server.processExternalAgentSyncMessage("agent-1", syncMsg))
+	s.NotContains(syncMsg.Data["content"], secret)
+	s.NotContains(syncMsg.Data["tool_name"], secret)
+	s.Same(syncMsg, hooked)
+	s.NotContains(hooked.Data["content"], secret)
+	s.NotContains(hooked.Data["tool_name"], secret)
+	s.NotEmpty(recorder.payloads)
+	for _, payload := range recorder.payloads {
+		s.NotContains(string(payload), secret)
+		s.Contains(string(payload), "redacted")
+	}
+}
+
+func (s *WebSocketSyncSuite) TestCredentialRedaction_LeavesOrdinaryContentUnchanged() {
+	s.server.recordCredential("org-1", "slack", "xoxb-old-secret")
+	s.server.recordCredential("org-1", "slack", "xoxb-new-secret")
+	s.Equal("<redacted> <redacted>", s.server.redactCredentials("org-1", "xoxb-old-secret xoxb-new-secret"))
+	const content = "ordinary assistant output with no credentials"
+	s.Equal(content, s.server.redactCredentials("org-1", content))
 }
 
 func (s *WebSocketSyncSuite) TestMessageAdded_AssistantSameMessageID_StreamingUpdate() {
