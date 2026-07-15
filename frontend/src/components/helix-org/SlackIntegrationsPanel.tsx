@@ -19,6 +19,8 @@ import { SlackLogo } from '../icons/ProviderIcons'
 import SimpleTable from '../widgets/SimpleTable'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import useSnackbar from '../../hooks/useSnackbar'
+import useAccount from '../../hooks/useAccount'
+import { useSettingsDialog } from '../../contexts/settingsDialog'
 import {
   useListSlackWorkspaces,
   useListSlackApps,
@@ -29,6 +31,8 @@ import {
 
 const SlackIntegrationsPanel: FC = () => {
   const snackbar = useSnackbar()
+  const account = useAccount()
+  const settingsDialog = useSettingsDialog()
   const { data: workspaces = [], isLoading } = useListSlackWorkspaces()
   const { data: apps = [] } = useListSlackApps()
   const startInstall = useStartSlackInstall()
@@ -153,9 +157,19 @@ const SlackIntegrationsPanel: FC = () => {
       <Stack spacing={2}>
         <Box sx={{ p: 2, borderRadius: 1, bgcolor: 'action.hover' }}>
           {apps.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No Slack app has been configured by an administrator yet.
-            </Typography>
+            <Stack spacing={1} alignItems="flex-start">
+              <Typography variant="body2" color="text.secondary">
+                No Slack app has been configured by an administrator yet.
+              </Typography>
+              {account.admin && (
+                <Button
+                  size="small"
+                  onClick={() => settingsDialog.openDialog('admin', { tab: 'service_connections' })}
+                >
+                  Configure Slack app
+                </Button>
+              )}
+            </Stack>
           ) : (
             <Stack spacing={1.5}>
               {apps.length > 1 && (
