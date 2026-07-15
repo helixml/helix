@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SlackAppSetup from './SlackAppSetup'
 
-const writeText = vi.fn(() => Promise.resolve())
+const writeText = vi.fn((_: string) => Promise.resolve())
 
 vi.mock('../../hooks/useAccount', () => ({
   default: () => ({ serverConfig: { server_url: 'https://helix.example' } }),
