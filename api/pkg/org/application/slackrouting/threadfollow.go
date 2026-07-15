@@ -2,6 +2,7 @@ package slackrouting
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -101,6 +102,39 @@ func threadRoot(msg streaming.Message) string {
 	return msg.MessageID
 }
 
+// RecordParticipant registers a Worker as a participant in an outbound Slack
+// thread so the normal inbound thread-follow path delivers replies to it.
+func (f *ThreadFollower) RecordParticipant(ctx context.Context, orgID string, routerID processor.ProcessorID, root, workerID string) error {
+	if f == nil || f.events == nil {
+		return fmt.Errorf("Slack thread routing is not configured")
+	}
+	if orgID == "" || routerID == "" || root == "" || workerID == "" {
+		return fmt.Errorf("org, router, thread, and worker are required")
+	}
+	subject := threadSubject(routerID, root)
+	prior, err := f.events.ListBySubject(ctx, orgID, domainevent.TypeSlackThreadParticipant, subject, time.Time{})
+	if err != nil {
+		return fmt.Errorf("list Slack thread participants: %w", err)
+	}
+	for _, participant := range domainevent.Participants(prior) {
+		if participant == workerID {
+			return nil
+		}
+	}
+	return f.appendParticipant(ctx, orgID, subject, workerID, string(routerID))
+}
+
+func (f *ThreadFollower) appendParticipant(ctx context.Context, orgID, subject, workerID, routerID string) error {
+	ev, err := domainevent.New(f.mintID(), orgID, domainevent.TypeSlackThreadParticipant, subject, workerID, routerID, nil, f.now())
+	if err != nil {
+		return fmt.Errorf("build Slack thread participant: %w", err)
+	}
+	if err := f.events.Append(ctx, ev); err != nil {
+		return fmt.Errorf("append Slack thread participant: %w", err)
+	}
+	return nil
+}
+
 // AfterRoute records participation for the named recipients and, when
 // thread-follow is on, fans the message out to the thread's existing
 // members. Best-effort: failures are logged, never propagated — a routing
@@ -159,13 +193,8 @@ func (f *ThreadFollower) AfterRoute(ctx context.Context, p processor.Processor, 
 		if _, ok := priorSet[w]; ok {
 			continue
 		}
-		ev, err := domainevent.New(f.mintID(), orgID, domainevent.TypeSlackThreadParticipant, subject, w, string(p.ID), nil, f.now())
-		if err != nil {
-			f.logger.Warn("slackrouting.threadfollow: build event", "worker", w, "err", err)
-			continue
-		}
-		if err := f.events.Append(ctx, ev); err != nil {
-			f.logger.Warn("slackrouting.threadfollow: append member", "worker", w, "thread", root, "err", err)
+		if err := f.appendParticipant(ctx, orgID, subject, w, string(p.ID)); err != nil {
+			f.logger.Warn("slackrouting.threadfollow: record member", "worker", w, "thread", root, "err", err)
 		}
 	}
 

@@ -3,7 +3,11 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import Container from '@mui/material/Container'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
+import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -20,7 +24,9 @@ import { useHelixOrgBot, useUpdateBot } from '../services/helixOrgService'
 // The contact channels surfaced as editable fields. Any other identity keys
 // the node happens to carry are preserved untouched on save.
 const CHANNELS: { key: string; label: string; placeholder: string }[] = [
-  { key: 'slack', label: 'Slack', placeholder: '@handle' },
+  { key: 'slack_user_id', label: 'Slack user ID', placeholder: 'U012ABCDEF' },
+  { key: 'slack_channel_id', label: 'Slack channel ID (optional)', placeholder: 'C012ABCDEF' },
+  { key: 'slack_team_id', label: 'Slack workspace ID (optional)', placeholder: 'T012ABCDEF' },
   { key: 'github', label: 'GitHub', placeholder: 'login' },
   { key: 'email', label: 'Email', placeholder: 'name@example.com' },
 ]
@@ -61,6 +67,10 @@ const HelixOrgHumanDetail: FC = () => {
 
   const handleSave = async () => {
     if (!bot?.id) return
+    if ((handles.preferred_contact ?? 'helix') === 'slack' && !handles.slack_user_id?.trim()) {
+      snackbar.error('Slack user ID is required for Slack delivery')
+      return
+    }
     // Rebuild the identity map from the current fields, dropping empties.
     const identity: Record<string, string> = {}
     for (const [k, v] of Object.entries(handles)) {
@@ -116,6 +126,18 @@ const HelixOrgHumanDetail: FC = () => {
                 How the org reaches this person. Bots resolve these when they need to message them.
               </Typography>
               <Stack spacing={2}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="preferred-contact-label">Preferred delivery</InputLabel>
+                  <Select
+                    labelId="preferred-contact-label"
+                    label="Preferred delivery"
+                    value={handles.preferred_contact ?? 'helix'}
+                    onChange={(e) => setHandle('preferred_contact', e.target.value)}
+                  >
+                    <MenuItem value="helix">Helix notifications</MenuItem>
+                    <MenuItem value="slack">Slack</MenuItem>
+                  </Select>
+                </FormControl>
                 {CHANNELS.map((c) => (
                   <TextField
                     key={c.key}

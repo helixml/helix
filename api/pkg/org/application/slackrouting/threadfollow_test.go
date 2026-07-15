@@ -101,6 +101,24 @@ func TestThreadFollowRecordsNamedParticipant(t *testing.T) {
 	}
 }
 
+func TestRecordParticipantFeedsInboundThreadFollow(t *testing.T) {
+	ctx := context.Background()
+	box, f, pub := newFollower(t)
+	if err := f.RecordParticipant(ctx, org, "p-slack-router", "T1", "w-alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.RecordParticipant(ctx, org, "p-slack-router", "T1", "w-alice"); err != nil {
+		t.Fatal(err)
+	}
+	if parts := participants(t, box, "T1"); len(parts) != 1 || parts[0] != "w-alice" {
+		t.Fatalf("want one alice participant, got %v", parts)
+	}
+	f.AfterRoute(ctx, threadRouter(true), streaming.Message{ThreadID: "T1", MessageID: "T2", Body: "human reply"}, nil)
+	if len(pub.calls) != 1 || pub.calls[0] != "s-alice" {
+		t.Fatalf("want inbound reply delivered to alice, got %v", pub.calls)
+	}
+}
+
 func TestThreadFollowDeliversToPriorMembers(t *testing.T) {
 	ctx := context.Background()
 	box, f, pub := newFollower(t)

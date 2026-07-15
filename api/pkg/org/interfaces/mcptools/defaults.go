@@ -69,6 +69,7 @@ func OwnerBotTools() []tool.Name {
 		PublishName,
 		DMName,
 		AskHumanName,
+		SetHumanContactName,
 		// Processors: define topic transforms/filters/js and rewire them.
 		CreateProcessorName,
 		UpdateProcessorName,

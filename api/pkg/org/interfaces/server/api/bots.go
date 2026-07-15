@@ -234,6 +234,21 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 	}
 	var identityPatch *map[string]string
 	if req.Identity != nil {
+		target, err := a.deps.Queries.GetBot(ctx, orgID, id)
+		if err != nil {
+			writeError(w, errStatus(err), fmt.Errorf("get bot for identity update: %w", err))
+			return
+		}
+		if target.IsHuman() {
+			if a.deps.AuthorizeHumanContact == nil {
+				writeError(w, http.StatusForbidden, errors.New("human contact updates are not authorized"))
+				return
+			}
+			if err := a.deps.AuthorizeHumanContact(ctx, orgID, target.HelixUserID); err != nil {
+				writeError(w, http.StatusForbidden, err)
+				return
+			}
+		}
 		identityPatch = &req.Identity
 	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{

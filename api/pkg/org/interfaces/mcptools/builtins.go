@@ -112,10 +112,7 @@ type Deps struct {
 	// back to an unconstrained string array (still valid, just no enum).
 	ToolNames func() []tool.Name
 
-	// HumanInbox delivers ask_human messages to a person's in-app inbox
-	// (the notification bell). Wired at the composition root over the main
-	// Helix attention-event service; nil → ask_human reports unavailable.
-	HumanInbox HumanInbox
+	HumanDelivery HumanDelivery
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -164,9 +161,8 @@ type Config struct {
 	// processor tools. Built at the composition root (needs topics
 	// provisioners). nil → Build() constructs one from Store when possible.
 	Processors *processors.Processors
-	// HumanInbox delivers ask_human messages to a person's in-app inbox.
-	// nil → ask_human reports the inbox as unavailable.
-	HumanInbox HumanInbox
+	// HumanDelivery sends ask_human messages through the person's configured route.
+	HumanDelivery HumanDelivery
 }
 
 // Build assembles the application services from the config and returns
@@ -188,7 +184,7 @@ func (c Config) Build() Deps {
 		Repositories:        c.repositoriesPort(),
 		CredentialProviders: c.CredentialProviders,
 		Hub:                 c.Hub,
-		HumanInbox:          c.HumanInbox,
+		HumanDelivery:       c.HumanDelivery,
 	}
 }
 
@@ -402,6 +398,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Publish{deps: deps},
 		&DM{deps: deps},
 		&AskHuman{deps: deps},
+		&SetHumanContact{deps: deps},
 		&ConfigureBotProject{deps: deps},
 		// Processors — topic transforms/filters/js. Mutations are
 		// OwnerBotTools; list/get are BaseReadTools.

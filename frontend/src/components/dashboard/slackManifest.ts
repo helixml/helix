@@ -14,10 +14,13 @@ export const BOT_SCOPES = [
   'groups:history',
   'groups:read',
   'im:history',
+  'im:write',
   'chat:write',
   'chat:write.customize',
   'reactions:write',
   'files:write',
+  'users:read',
+  'users:read.email',
 ]
 
 // Each subscribed message.* event requires its matching *:history scope,

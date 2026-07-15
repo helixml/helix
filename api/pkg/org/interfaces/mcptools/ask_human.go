@@ -11,25 +11,17 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 )
 
-// HumanInbox delivers a bot's message to a person's in-app inbox (the
-// notification bell). Implemented at the composition root over the main
-// Helix attention-event service, so mcptools stays decoupled from it. When
-// nil, ask_human reports the inbox as unavailable.
-type HumanInbox interface {
-	// Notify writes an inbox item for the person's linked Helix user.
-	// fromBotID is the sending bot's id (routing / reply target); fromBotName is
-	// its display name (shown in the notification title). expectsReply=false
-	// delivers it as a read-only FYI (no Respond affordance) — for status
-	// updates and confirmations that don't need an answer.
-	Notify(ctx context.Context, orgID, userID, fromBotID, fromBotName, personName, message string, expectsReply bool) error
+// HumanDelivery delivers a bot's message through the person's configured
+// contact route. The composition root owns the concrete Helix and Slack APIs.
+type HumanDelivery interface {
+	Deliver(ctx context.Context, orgID string, person orgchart.Bot, fromBotID, fromBotName, message string, expectsReply bool) (string, error)
 }
 
 // AskHuman lets a bot reach a real person directly: it delivers the message to
 // the person's in-app inbox (the notification bell). Unlike `dm`, ANY bot can
 // reach ANY person — there is no reporting-line requirement, because reaching a
 // human is delivery, not a graph traversal. The person is a human node
-// (kind=human) linked to a Helix account. Reply routing + external channels
-// (email/Slack) are later stages; this is the in-app forward path.
+// (kind=human) with a configured contact identity.
 type AskHuman struct {
 	deps Deps
 }
@@ -41,8 +33,7 @@ var askHumanSchema = mustSchema[askHumanArgs]()
 func (t *AskHuman) Name() tool.Name                 { return AskHumanName }
 func (t *AskHuman) InputSchema() *jsonschema.Schema { return askHumanSchema }
 func (t *AskHuman) Description() string {
-	return "Reach a real person: deliver a message to their in-app inbox (the notification " +
-		"bell). Use this when you need a human's input, a decision, or to flag something to " +
+	return "Reach a real person through their preferred contact route. Use this when you need a human's input, a decision, or to flag something to " +
 		"them. `personId` is a person in the org — a human node whose id looks like `h-…`; " +
 		"find people with `read_bots` (they have kind=human). Unlike `dm`, any bot can reach " +
 		"any person directly — no reporting line needed. `message` is what to tell them. " +
@@ -70,8 +61,8 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if orgID == "" {
 		return nil, fmt.Errorf("ask_human: caller has no OrgID")
 	}
-	if t.deps.HumanInbox == nil {
-		return nil, fmt.Errorf("ask_human: inbox delivery is not configured")
+	if t.deps.HumanDelivery == nil {
+		return nil, fmt.Errorf("ask_human: human delivery is not configured")
 	}
 	person, err := t.deps.Queries.GetBot(ctx, orgID, orgchart.BotID(args.PersonID))
 	if err != nil {
@@ -80,13 +71,6 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	if !person.IsHuman() {
 		return nil, fmt.Errorf("%q is not a person (kind=human)", args.PersonID)
 	}
-	if person.HelixUserID == "" {
-		return nil, fmt.Errorf("person %q has no linked Helix account — cannot deliver in-app", args.PersonID)
-	}
-	name := person.Name
-	if name == "" {
-		name = string(person.ID)
-	}
 	// Prefer the sending bot's display name for the notification title (e.g.
 	// "Chief of Staff", not "chief-of-staff"); fall back to its id.
 	fromBotName := inv.Caller.ID()
@@ -94,8 +78,9 @@ func (t *AskHuman) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 		fromBotName = caller.Name
 	}
 	expectsReply := args.ExpectsReply == nil || *args.ExpectsReply
-	if err := t.deps.HumanInbox.Notify(ctx, orgID, person.HelixUserID, inv.Caller.ID(), fromBotName, name, args.Message, expectsReply); err != nil {
+	delivered, err := t.deps.HumanDelivery.Deliver(ctx, orgID, person, inv.Caller.ID(), fromBotName, args.Message, expectsReply)
+	if err != nil {
 		return nil, fmt.Errorf("deliver to %q: %w", args.PersonID, err)
 	}
-	return json.Marshal(map[string]string{"delivered": "inbox", "person": args.PersonID})
+	return json.Marshal(map[string]string{"delivered": delivered, "person": args.PersonID})
 }

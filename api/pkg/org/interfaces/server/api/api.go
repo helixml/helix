@@ -187,6 +187,10 @@ type Deps struct {
 	// disables the "Create the Helix app" path.
 	GitHubManifestStart func(ctx context.Context, orgID, githubOrg, origin string) (GitHubManifestStartResponse, error)
 
+	// AuthorizeHumanContact allows only the person themself or an org owner
+	// to mutate a human node's identity map.
+	AuthorizeHumanContact func(ctx context.Context, orgID, humanUserID string) error
+
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when

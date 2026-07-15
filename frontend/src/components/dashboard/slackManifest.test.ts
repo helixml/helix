@@ -27,6 +27,9 @@ describe('buildManifest', () => {
     const m = JSON.parse(buildManifest('rest', REDIRECT, EVENTS))
     expect(m.oauth_config.redirect_urls).toContain(REDIRECT)
     expect(m.oauth_config.scopes.bot).toContain('chat:write')
+    expect(m.oauth_config.scopes.bot).toContain('im:write')
+    expect(m.oauth_config.scopes.bot).toContain('users:read')
+    expect(m.oauth_config.scopes.bot).toContain('users:read.email')
   })
 
   // Every subscribed message.* event must have its matching *:history scope

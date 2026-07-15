@@ -159,10 +159,13 @@ var defaultSlackBotScopes = []string{
 	"groups:history",
 	"groups:read",
 	"im:history",
+	"im:write",
 	"chat:write",
 	"chat:write.customize",
 	"reactions:write",
 	"files:write",
+	"users:read",
+	"users:read.email",
 }
 
 // slackWorkspaces implements slacktransport.Workspaces over the helix
@@ -230,14 +233,31 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 	if err != nil {
 		return slacktransport.Workspace{}, err
 	}
+	chosen, err := selectSlackWorkspace(conns, teamID)
+	if err != nil {
+		return slacktransport.Workspace{}, err
+	}
+	return w.toWorkspace(chosen)
+}
+
+func selectSlackWorkspace(conns []*types.ServiceConnection, teamID string) (*types.ServiceConnection, error) {
 	var candidates []*types.ServiceConnection
+	workspaces := map[string]bool{}
 	for _, c := range conns {
 		if teamID == "" || c.SlackTeamID == teamID {
 			candidates = append(candidates, c)
+			key := c.SlackTeamID
+			if key == "" {
+				key = c.ID
+			}
+			workspaces[key] = true
 		}
 	}
 	if len(candidates) == 0 {
-		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+		return nil, slacktransport.ErrNoWorkspace
+	}
+	if teamID == "" && len(workspaces) > 1 {
+		return nil, slacktransport.ErrAmbiguousWorkspace
 	}
 	chosen := candidates[0]
 	for _, c := range candidates {
@@ -246,7 +266,7 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 			break
 		}
 	}
-	return w.toWorkspace(chosen)
+	return chosen, nil
 }
 
 // kickSlackSocket asks the Socket Mode manager to re-reconcile its
