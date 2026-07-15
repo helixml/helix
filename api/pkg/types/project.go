@@ -448,6 +448,7 @@ type ProjectMetadata struct {
 	BoardSettings       *BoardSettings    `json:"board_settings,omitempty"`
 	AutoWarmDockerCache bool              `json:"auto_warm_docker_cache,omitempty"`
 	DockerCacheStatus   *DockerCacheState `json:"docker_cache_status,omitempty"`
+	OrgMembersAccess    bool              `json:"org_members_access,omitempty"`
 }
 
 // DockerCacheState tracks the current state of the golden Docker cache for a project,

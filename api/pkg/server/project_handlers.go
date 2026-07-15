@@ -655,6 +655,9 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 		// AutoWarmDockerCache is a bool — always apply from the request
 		// since it's user-controlled.
 		project.Metadata.AutoWarmDockerCache = req.Metadata.AutoWarmDockerCache
+		if req.Metadata.OrgMembersAccess {
+			project.Metadata.OrgMembersAccess = true
+		}
 		// DockerCacheStatus is managed exclusively by GoldenBuildService — never overwrite from API request.
 	}
 	// Skills can be set directly (nil means "don't update")

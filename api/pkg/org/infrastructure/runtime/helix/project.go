@@ -285,6 +285,12 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					return state.ProjectID, state.AgentAppID, state.RepoID, nil
 				}
 			}
+			if !existing.Metadata.OrgMembersAccess {
+				existing.Metadata.OrgMembersAccess = true
+				if _, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{Metadata: &existing.Metadata}); err != nil {
+					return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", state.ProjectID, workerID, err)
+				}
+			}
 			// Runtime/model configuration is owned by the generated Helix app
 			// after initial provisioning. Do not re-apply the provisioning
 			// spec here: doing so would overwrite edits made through the app
@@ -326,6 +332,17 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if err != nil {
 		return "", "", "", fmt.Errorf("apply project for %s: %w", workerID, err)
 	}
+	project, err := a.Service.GetProject(ctx, resp.ProjectID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("get applied project %s for %s: %w", resp.ProjectID, workerID, err)
+	}
+	if !project.Metadata.OrgMembersAccess {
+		project.Metadata.OrgMembersAccess = true
+		project, err = a.Service.UpdateProject(ctx, resp.ProjectID, types.ProjectUpdateRequest{Metadata: &project.Metadata})
+		if err != nil {
+			return "", "", "", fmt.Errorf("enable org member access to project %s for %s: %w", resp.ProjectID, workerID, err)
+		}
+	}
 	// Project secrets — env-var injection. The worker needs these to reach
 	// the org runtime, so a failure is worth surfacing (logged, not fatal:
 	// a re-apply on the next activation retries the upsert).
@@ -335,15 +352,7 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if err := a.Service.PutProjectSecret(ctx, resp.ProjectID, "HELIX_WORKER_ID", string(workerID)); err != nil && a.Logger != nil {
 		a.Logger.Warn("put project secret HELIX_WORKER_ID", "worker", workerID, "project", resp.ProjectID, "err", err)
 	}
-	// Discover the project's primary repo. A GetProject failure here just
-	// means we fall through to ensureWorkerRepo (which re-reads under the
-	// lock) — log it so the cause is visible if a repo is then created.
-	repoID = ""
-	if proj, err := a.Service.GetProject(ctx, resp.ProjectID); err == nil {
-		repoID = proj.DefaultRepoID
-	} else if a.Logger != nil {
-		a.Logger.Warn("discover project repo: GetProject failed", "worker", workerID, "project", resp.ProjectID, "err", err)
-	}
+	repoID = project.DefaultRepoID
 	// Helix's project-apply does NOT auto-create a default repo. We
 	// MUST create one and attach it as primary, because:
 	//

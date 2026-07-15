@@ -32,6 +32,7 @@ type fakeProjectService struct {
 	getProjectCalls         int
 	getProjectResp          types.Project
 	getProjectErr           error
+	getProjectErrOnce       bool
 	updateProjectCalls      int
 	updateProjectPatchLast  types.ProjectUpdateRequest
 	updateProjectErr        error
@@ -96,7 +97,11 @@ func (f *fakeProjectService) GetProject(_ context.Context, _ string) (types.Proj
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getProjectCalls++
-	return f.getProjectResp, f.getProjectErr
+	err := f.getProjectErr
+	if f.getProjectErrOnce {
+		f.getProjectErr = nil
+	}
+	return f.getProjectResp, err
 }
 
 func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch types.ProjectUpdateRequest) (types.Project, error) {
@@ -110,6 +115,12 @@ func (f *fakeProjectService) UpdateProject(_ context.Context, id string, patch t
 	updated := f.getProjectResp
 	if patch.StartupScript != nil {
 		updated.StartupScript = *patch.StartupScript
+	}
+	if patch.Name != nil {
+		updated.Name = *patch.Name
+	}
+	if patch.Metadata != nil {
+		updated.Metadata = *patch.Metadata
 	}
 	f.getProjectResp = updated
 	return updated, f.updateProjectErr
@@ -296,6 +307,9 @@ func TestEnsureFreshAppliesProjectAndPushesFiles(t *testing.T) {
 	defer svc.mu.Unlock()
 	if svc.applyCalls != 1 {
 		t.Errorf("ApplyProject calls = %d, want 1", svc.applyCalls)
+	}
+	if svc.updateProjectCalls != 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+		t.Errorf("fresh project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
 	}
 	if svc.lastApplyReq.Name != "w-eng" {
 		t.Errorf("ApplyProject name = %q, want w-eng", svc.lastApplyReq.Name)
@@ -568,6 +582,9 @@ func TestEnsureWithPersistedProjectFastPaths(t *testing.T) {
 	if svc.applyCalls != 0 {
 		t.Errorf("ApplyProject must not overwrite existing app config; got %d calls", svc.applyCalls)
 	}
+	if svc.updateProjectCalls < 1 || svc.updateProjectPatchLast.Metadata == nil || !svc.updateProjectPatchLast.Metadata.OrgMembersAccess {
+		t.Errorf("existing project was not marked for org member access: calls=%d patch=%+v", svc.updateProjectCalls, svc.updateProjectPatchLast)
+	}
 	if svc.getProjectCalls < 1 {
 		t.Errorf("GetProject calls = %d, want >=1", svc.getProjectCalls)
 	}
@@ -694,6 +711,7 @@ func TestEnsureClearsStateOnGetProject404(t *testing.T) {
 	}
 	svc := newFakeProjectService()
 	svc.getProjectErr = ErrProjectNotFound
+	svc.getProjectErrOnce = true
 	git := newFakeGitForProject()
 	a := newApplierGit(svc, git, st)
 
