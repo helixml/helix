@@ -125,6 +125,10 @@ The REST mutation used by this UI permits a human to update their own identity
 or an org owner to update another human in the org. Other org members cannot
 change another person's contact route.
 
+When org Settings has no Slack app available, deployment admins see a
+`Configure Slack app` action that opens Admin Panel -> Service Connections.
+Non-admins see explanatory empty-state text without the admin action.
+
 ## Security and multi-tenancy
 
 - Human lookup and mutation use the caller's org ID.
@@ -150,6 +154,8 @@ Run in `/Users/psamuel/helix/helix-worktrees/org-human-slack-delivery`:
 - `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/`: passed.
 - `cd frontend && yarn test --run src/components/dashboard/slackManifest.test.ts`: passed 1 file and 5 tests.
 - `cd frontend && yarn build`: passed, 21,709 modules in 18.41 s.
+- `cd frontend && yarn test --run src/components/dashboard/SlackIntegrationsPanel.test.tsx`: passed 1 file and 2 tests.
+- `cd frontend && yarn build`: passed, 21,709 modules in 16.40 s after the Slack empty-state change.
 
 The tests exercise contact patching and validation, route reporting, Helix
 reply metadata, Slack DM and channel selection, no-fallback behavior, reply
