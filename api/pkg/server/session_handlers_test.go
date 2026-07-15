@@ -545,6 +545,11 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberNotAuthorizedToProject() 
 		OrganizationID: s.orgID,
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
+	}, nil).Times(2)
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{
+		ID:             session.ProjectID,
+		OrganizationID: s.orgID,
+		UserID:         "other_user",
 	}, nil)
 	// No teams
 	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{
@@ -586,6 +591,11 @@ func (s *SessionAuthzSuite) TestDeleteSession_OrgMemberAuthorizedToProject() {
 		OrganizationID: s.orgID,
 		UserID:         s.userID,
 		Role:           types.OrganizationRoleMember,
+	}, nil).Times(2)
+	s.store.EXPECT().GetProject(gomock.Any(), session.ProjectID).Return(&types.Project{
+		ID:             session.ProjectID,
+		OrganizationID: s.orgID,
+		UserID:         "other_user",
 	}, nil)
 	// No teams
 	s.store.EXPECT().ListTeams(gomock.Any(), &store.ListTeamsQuery{

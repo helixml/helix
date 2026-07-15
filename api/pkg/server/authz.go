@@ -181,6 +181,9 @@ func (apiServer *HelixAPIServer) authorizeUserToProject(ctx context.Context, use
 	if orgMembership.Role == types.OrganizationRoleOwner {
 		return nil
 	}
+	if project.Metadata.OrgMembersAccess && (action == types.ActionGet || action == types.ActionList || action == types.ActionUseAction) {
+		return nil
+	}
 
 	return apiServer.authorizeUserToResource(ctx, user, project.OrganizationID, project.ID, types.ResourceProject, action)
 }
@@ -282,8 +285,15 @@ func (apiServer *HelixAPIServer) authorizeUserToSession(ctx context.Context, use
 		return fmt.Errorf("not authorized to access session without a project")
 	}
 
-	// Authorize the user based on project ID
-	return apiServer.authorizeUserToResource(ctx, user, session.OrganizationID, session.ProjectID, types.ResourceProject, action)
+	project, err := apiServer.Store.GetProject(ctx, session.ProjectID)
+	if err != nil {
+		return err
+	}
+	if project.Metadata.OrgMembersAccess && action == types.ActionUpdate {
+		return apiServer.authorizeUserToProject(ctx, user, project, types.ActionGet)
+	}
+
+	return apiServer.authorizeUserToProject(ctx, user, project, action)
 }
 
 // authorizeUserToResource evaluates the user's team + direct access grants for a

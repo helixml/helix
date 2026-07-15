@@ -804,6 +804,31 @@ func (s *AuthzProjectViaTeamSuite) TestTeamMembership_NoGrant_Denied() {
 	s.Error(err)
 }
 
+func (s *AuthzProjectViaTeamSuite) TestOrgMembersAccess_AllowsMemberGetButNotUpdate() {
+	s.project.Metadata.OrgMembersAccess = true
+	s.expectOrgMember()
+	s.expectTeamNoGrant()
+
+	s.NoError(s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet))
+	s.Error(s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionUpdate))
+}
+
+func (s *AuthzProjectViaTeamSuite) TestOrgMembersAccess_DoesNotAllowDelete() {
+	s.project.Metadata.OrgMembersAccess = true
+	s.expectOrgMember()
+	s.expectTeamNoGrant()
+
+	s.Error(s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionDelete))
+}
+
+func (s *AuthzProjectViaTeamSuite) TestOrgMembersAccess_DoesNotAllowNonMember() {
+	s.project.Metadata.OrgMembersAccess = true
+	s.mockStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).
+		Return(nil, store.ErrNotFound)
+
+	s.Error(s.server.authorizeUserToProject(context.Background(), s.user, s.project, types.ActionGet))
+}
+
 // AuthzSessionSuite pins authorizeUserToSession, which startChatSessionHandler
 // uses to gate POST /sessions/chat on an existing session. The regression this
 // guards: the chat handler used a strict `session.Owner != user.ID` check, so an
@@ -884,6 +909,10 @@ func (s *AuthzSessionSuite) expectNoProjectGrant(projectID string) {
 	}).Return([]*types.AccessGrant{}, nil)
 }
 
+func (s *AuthzSessionSuite) expectProject(project *types.Project) {
+	s.mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil)
+}
+
 // The literal session owner can always write to their session.
 func (s *AuthzSessionSuite) TestSessionOwnerAllowed() {
 	session := &types.Session{ID: "ses1", Owner: s.userID, OrganizationID: s.orgID, ProjectID: "prj1"}
@@ -913,6 +942,7 @@ func (s *AuthzSessionSuite) TestMemberWithProjectGrantAllowed() {
 	user := &types.User{ID: s.userID}
 
 	s.expectOrgMember(types.OrganizationRoleMember)
+	s.expectProject(&types.Project{ID: "prj1", OrganizationID: s.orgID, UserID: "someone_else"})
 	s.expectProjectGrant("prj1", types.ActionUpdate)
 
 	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
@@ -926,10 +956,28 @@ func (s *AuthzSessionSuite) TestMemberWithoutGrantDenied() {
 	user := &types.User{ID: s.userID}
 
 	s.expectOrgMember(types.OrganizationRoleMember)
+	s.expectProject(&types.Project{ID: "prj1", OrganizationID: s.orgID, UserID: "someone_else"})
 	s.expectNoProjectGrant("prj1")
 
 	err := s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate)
 	s.Error(err)
+}
+
+func (s *AuthzSessionSuite) TestOrgMembersAccess_AllowsMemberGetAndUpdate() {
+	session := &types.Session{ID: "ses1", Owner: "someone_else", OrganizationID: s.orgID, ProjectID: "prj1"}
+	user := &types.User{ID: s.userID}
+	project := &types.Project{
+		ID:             "prj1",
+		OrganizationID: s.orgID,
+		UserID:         "someone_else",
+		Metadata:       types.ProjectMetadata{OrgMembersAccess: true},
+	}
+
+	s.expectOrgMember(types.OrganizationRoleMember)
+	s.mockStore.EXPECT().GetProject(gomock.Any(), "prj1").Return(project, nil).Times(2)
+
+	s.NoError(s.server.authorizeUserToSession(context.Background(), user, session, types.ActionGet))
+	s.NoError(s.server.authorizeUserToSession(context.Background(), user, session, types.ActionUpdate))
 }
 
 // A non-member of the org is denied outright.

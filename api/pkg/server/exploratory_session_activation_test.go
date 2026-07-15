@@ -223,6 +223,44 @@ func (s *ExploratorySessionActivationSuite) TestExploratoryStatusReportsRunningW
 		"hydra session map populated → status must report running")
 }
 
+func (s *ExploratorySessionActivationSuite) TestOrgMemberCanGetBotExploratorySession() {
+	const (
+		projectID = "prj_bot"
+		orgID     = "org_test"
+		userID    = "user_member"
+		sessionID = "ses_bot"
+	)
+
+	project := &types.Project{
+		ID:             projectID,
+		UserID:         "user_creator",
+		OrganizationID: orgID,
+		Metadata:       types.ProjectMetadata{OrgMembersAccess: true},
+	}
+	session := &types.Session{ID: sessionID, ProjectID: projectID, Owner: "user_creator"}
+
+	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(project, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: orgID,
+		UserID:         userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: orgID,
+		UserID:         userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().GetProjectExploratorySession(gomock.Any(), projectID).Return(session, nil)
+	s.executor.EXPECT().GetSession(sessionID).Return(nil, errors.New("session not found"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/exploratory-session", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": projectID})
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: userID}))
+
+	got, herr := s.server.getProjectExploratorySession(nil, req)
+	s.Require().Nil(herr)
+	s.Require().NotNil(got)
+	s.Equal(sessionID, got.ID)
+}
+
 // Case 3: no project → no reuse. The guard is gated on ProjectID != "",
 // so a SessionRole="exploratory" request without a project must still
 // mint a fresh id (no GetProjectExploratorySession call). Confirms we
