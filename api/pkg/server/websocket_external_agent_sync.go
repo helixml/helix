@@ -60,6 +60,10 @@ func isMissingCodexRolloutError(errMsg string) bool {
 	return strings.Contains(errMsg, "no rollout found for thread id")
 }
 
+func isAuthoritativeMissingThreadError(errMsg string) bool {
+	return isMissingCodexRolloutError(errMsg) || strings.Contains(errMsg, `no thread found with ID: SessionId("`)
+}
+
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have
 // accumulated before a recurring thread_load_error is treated as terminal
 // (crash-marked, surfacing Restart) rather than retried again. A thread_load_error
@@ -3540,6 +3544,72 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// recoverMissingThread clears an authoritative stale ACP thread and replays
+// its existing waiting interaction as the first message of a replacement
+// thread. The persisted thread ID prevents duplicate errors from replaying it.
+func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string) (bool, error) {
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("load session for stale thread recovery: %w", err)
+	}
+	if session == nil || session.Metadata.ZedThreadID != acpThreadID {
+		return true, nil
+	}
+	session.Metadata.ZedThreadID = ""
+	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
+		return false, fmt.Errorf("clear stale ACP thread: %w", err)
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	delete(apiServer.contextMappings, acpThreadID)
+	interactionID := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.Unlock()
+	if interactionID == "" {
+		interactionID = requestID
+	}
+	if interactionID == "" {
+		return true, nil
+	}
+
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return false, fmt.Errorf("load interaction for stale thread recovery: %w", err)
+	}
+	if interaction == nil || interaction.State != types.InteractionStateWaiting || (interaction.SessionID != "" && interaction.SessionID != sessionID) {
+		return true, nil
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	apiServer.requestToInteractionMapping[requestID] = interaction.ID
+	apiServer.contextMappingsMutex.Unlock()
+
+	message := interaction.PromptMessage
+	if interaction.SystemPrompt != "" {
+		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + interaction.PromptMessage
+	}
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":    message,
+			"request_id": requestID,
+			"agent_name": apiServer.getAgentNameForSession(ctx, session),
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		if errors.Is(err, ErrNoExternalAgentWS) {
+			return true, nil
+		}
+		log.Warn().Err(err).Str("session_id", sessionID).Str("interaction_id", interaction.ID).
+			Msg("Failed to replay interaction after clearing stale ACP thread")
+		return false, fmt.Errorf("replay interaction after clearing stale ACP thread: %w", err)
+	}
+	log.Info().Str("session_id", sessionID).Str("stale_thread_id", acpThreadID).
+		Str("interaction_id", interaction.ID).Str("request_id", requestID).
+		Msg("Replayed interaction as first message after clearing stale ACP thread")
+	return true, nil
+}
+
 // handleThreadLoadError handles thread load failures from Zed
 // This happens when Zed tries to load an existing thread but fails (e.g., session already active via UI)
 // We need to treat this like a completion so the UI clears the text box and shows an error
@@ -3567,6 +3637,20 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		apiServer.contextMappingsMutex.RLock()
 		helixSessionID = apiServer.contextMappings[acpThreadID]
 		apiServer.contextMappingsMutex.RUnlock()
+	}
+	if isAuthoritativeMissingThreadError(errorMsg) && acpThreadID != "" {
+		recoverySessionID := helixSessionID
+		if recoverySessionID == "" {
+			recoverySessionID = sessionID
+		}
+		helixSessionID = recoverySessionID
+		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
 	}
 
 	// If we have a request_id, try to send error to the done channel
@@ -3610,21 +3694,6 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
-			// Older Codex desktops did not persist ~/.codex, so Zed can retain an
-			// ACP thread whose rollout disappeared with the previous container.
-			// Invalidate that thread before the normal prompt retry; the retry then
-			// sends first_message=true and Zed creates a fresh Codex rollout.
-			if isMissingCodexRolloutError(errorMsg) && helixSession.Metadata.ZedThreadID == acpThreadID {
-				helixSession.Metadata.ZedThreadID = ""
-				if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(context.Background(), helixSessionID, helixSession.Metadata); err != nil {
-					return fmt.Errorf("clear missing Codex rollout thread: %w", err)
-				}
-				apiServer.contextMappingsMutex.Lock()
-				delete(apiServer.contextMappings, acpThreadID)
-				apiServer.contextMappingsMutex.Unlock()
-				log.Info().Str("session_id", helixSessionID).Str("acp_thread_id", acpThreadID).
-					Msg("Cleared stale Codex thread after missing rollout")
-			}
 			// A hard agent crash ("Claude Agent process exited", "Session not
 			// found") on an autonomous session must auto-recover regardless of how
 			// the crashing turn was sent — a queued planning prompt (PromptID set)

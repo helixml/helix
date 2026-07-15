@@ -2027,7 +2027,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 	// queue's exponential backoff can recover automatically.
 	s.server.contextMappings["thread-transient"] = "ses_transient"
 
-	session := &types.Session{ID: "ses_transient", GenerationID: 1}
+	session := &types.Session{ID: "ses_transient", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-transient"}}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_transient").Return(session, nil)
 	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 		[]*types.Interaction{{ID: "int-transient", State: types.InteractionStateWaiting, PromptID: "prompt-transient"}}, int64(1), nil,
@@ -2052,9 +2052,12 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_TransientError_StillUsesMarkAsF
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThreadForRetry() {
 	s.server.contextMappings["thread-codex"] = "ses_codex"
+	sendChan := make(chan types.ExternalAgentCommand, 2)
+	s.server.externalAgentWSManager.registerConnection("ses_codex", &ExternalAgentWSConnection{SessionID: "ses_codex", SendChan: sendChan})
 
 	session := &types.Session{ID: "ses_codex", GenerationID: 1}
 	session.Metadata.ZedThreadID = "thread-codex"
+	session.Metadata.ZedAgentName = "codex"
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_codex").Return(session, nil)
 	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_codex", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
@@ -2062,13 +2065,9 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 			return nil
 		},
 	)
-	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
-		[]*types.Interaction{{ID: "int-codex", State: types.InteractionStateWaiting, PromptID: "prompt-codex"}}, int64(1), nil,
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-codex").Return(
+		&types.Interaction{ID: "int-codex", SessionID: "ses_codex", State: types.InteractionStateWaiting, PromptID: "prompt-codex", PromptMessage: "retry codex"}, nil,
 	)
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(nil, nil)
-	s.store.EXPECT().GetPromptHistoryEntry(gomock.Any(), "prompt-codex").
-		Return(&types.PromptHistoryEntry{ID: "prompt-codex", RetryCount: 0}, nil)
-	s.store.EXPECT().MarkPromptAsFailed(gomock.Any(), "prompt-codex", gomock.Any()).Return(nil)
 
 	err := s.server.handleThreadLoadError("ses_codex", &types.SyncMessage{
 		EventType: "thread_load_error",
@@ -2084,6 +2083,85 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 	_, exists := s.server.contextMappings["thread-codex"]
 	s.server.contextMappingsMutex.RUnlock()
 	s.False(exists)
+	select {
+	case command := <-sendChan:
+		s.Equal("chat_message", command.Type)
+		s.Equal("retry codex", command.Data["message"])
+		_, hasThreadID := command.Data["acp_thread_id"]
+		s.False(hasThreadID)
+	default:
+		s.Fail("missing Codex replay command")
+	}
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectInteractionOnce() {
+	const primeError = `no thread found with ID: SessionId("019cba1e-2994-77d0-bc27-fc350cfdc2c2")`
+	s.server.contextMappings["thread-prime"] = "ses_prime"
+	s.server.requestToInteractionMapping["req-prime"] = "int-prime"
+	sendChan := make(chan types.ExternalAgentCommand, 2)
+	s.server.externalAgentWSManager.registerConnection("ses_prime", &ExternalAgentWSConnection{SessionID: "ses_prime", SendChan: sendChan})
+
+	session := &types.Session{ID: "ses_prime", GenerationID: 1, Metadata: types.SessionMetadata{
+		ZedThreadID: "thread-prime", ZedAgentName: "claude",
+	}}
+	interaction := &types.Interaction{
+		ID: "int-prime", SessionID: "ses_prime", State: types.InteractionStateWaiting,
+		PromptMessage: "direct Prime request",
+	}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_prime").Return(session, nil).Times(2)
+	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_prime", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
+			s.Empty(metadata.ZedThreadID)
+			return nil
+		},
+	)
+	s.store.EXPECT().GetInteraction(gomock.Any(), "int-prime").Return(interaction, nil)
+
+	syncMsg := &types.SyncMessage{EventType: "thread_load_error", Data: map[string]interface{}{
+		"acp_thread_id": "thread-prime",
+		"request_id":    "req-prime",
+		"error":         primeError,
+	}}
+	s.NoError(s.server.handleThreadLoadError("ses_prime", syncMsg))
+	duplicate := &types.SyncMessage{EventType: "thread_load_error", Data: map[string]interface{}{
+		"acp_thread_id": "thread-prime",
+		"request_id":    "open-thread-request",
+		"error":         primeError,
+	}}
+	s.NoError(s.server.handleThreadLoadError("ses_prime", duplicate))
+
+	s.Equal(types.InteractionStateWaiting, interaction.State)
+	s.Len(sendChan, 1)
+	command := <-sendChan
+	s.Equal("direct Prime request", command.Data["message"])
+	s.Equal("req-prime", command.Data["request_id"])
+	_, hasThreadID := command.Data["acp_thread_id"]
+	s.False(hasThreadID)
+	s.Equal("ses_prime", s.server.requestToSessionMapping["req-prime"])
+}
+
+func (s *WebSocketSyncSuite) TestThreadLoadError_ArbitraryLoadErrorDoesNotClearOrReplay() {
+	s.server.contextMappings["thread-arbitrary"] = "ses_arbitrary"
+	sendChan := make(chan types.ExternalAgentCommand, 1)
+	s.server.externalAgentWSManager.registerConnection("ses_arbitrary", &ExternalAgentWSConnection{SessionID: "ses_arbitrary", SendChan: sendChan})
+
+	session := &types.Session{ID: "ses_arbitrary", GenerationID: 1, Metadata: types.SessionMetadata{ZedThreadID: "thread-arbitrary"}}
+	interaction := &types.Interaction{ID: "int-arbitrary", State: types.InteractionStateWaiting}
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_arbitrary").Return(session, nil)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{interaction}, int64(1), nil)
+	s.store.EXPECT().UpdateInteraction(gomock.Any(), interaction).Return(interaction, nil)
+
+	s.NoError(s.server.handleThreadLoadError("ses_arbitrary", &types.SyncMessage{
+		EventType: "thread_load_error",
+		Data: map[string]interface{}{
+			"acp_thread_id": "thread-arbitrary",
+			"request_id":    "int-arbitrary",
+			"error":         "Failed to load thread: transport disconnected",
+		},
+	}))
+
+	s.Equal("thread-arbitrary", session.Metadata.ZedThreadID)
+	s.Empty(sendChan)
 }
 
 func (s *WebSocketSyncSuite) TestThreadLoadError_RecurringFailure_CrashesRegardlessOfWording() {
