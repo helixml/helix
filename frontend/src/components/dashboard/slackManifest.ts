@@ -68,7 +68,14 @@ export const buildManifest = (mode: 'rest' | 'socket', redirectURL: string, even
       // product's own theme (frontend/src/themes.tsx darkBackgroundColor).
       background_color: '#121214',
     },
-    features: { bot_user: { display_name: name, always_online: true } },
+    features: {
+      bot_user: { display_name: name, always_online: true },
+      app_home: {
+        home_tab_enabled: false,
+        messages_tab_enabled: true,
+        messages_tab_read_only_enabled: false,
+      },
+    },
     oauth_config: { scopes: { bot: BOT_SCOPES } },
     settings: {
       event_subscriptions: eventSubscriptions,
