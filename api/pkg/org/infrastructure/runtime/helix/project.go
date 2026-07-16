@@ -149,10 +149,9 @@ type ProjectService interface {
 type WorkerProject struct {
 	Service ProjectService
 	// Workspace owns the on-branch file layout — WorkerProject
-	// delegates all file pushes (agent.md / role.md at first apply)
+	// delegates role.md pushes
 	// through it so there is exactly one place in the helix runtime
-	// that knows the `workers/<id>/.context/` / `.context/` path
-	// convention.
+	// that knows the `workers/<id>/.context/` path convention.
 	Workspace   *Workspace
 	Store       *store.Store
 	HelixOrgURL string
@@ -319,11 +318,9 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 					a.Logger.Warn("verify persisted repo failed; keeping existing id", "worker", workerID, "repo", repoID, "err", gerr)
 				}
 			}
-			// Re-publish canonical files so DB edits to the bot's content
-			// (role.md) and agent.md propagate to the helix-specs branch on
-			// every activation — that's the contract DefaultHelixSpecsMandate
-			// promises every Bot. Idempotent and cheap: CreateBranch
-			// and CreateOrUpdateFileContents both no-op on unchanged input.
+			// Keep the role.md workspace mirror current for tools and
+			// workflows that use the helix-specs branch. Activation prompts
+			// read Bot.Content directly. The writes are idempotent.
 			a.republishWorkerFiles(ctx, workerID, repoID, roleContent)
 			return state.ProjectID, state.AgentAppID, repoID, nil
 		}

@@ -51,6 +51,7 @@ import (
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	helixstore "github.com/helixml/helix/api/pkg/store"
@@ -449,6 +450,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	bc := wakebus.New(cfg.APIServer.pubsub)
 	deps := mcptools.DefaultDeps(st)
 	deps.Hub = bc
+	deps.RecordCredential = cfg.APIServer.recordCredential
 
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
@@ -812,6 +814,14 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// exactly like the outbound emitters above.
 	processorRunner := processing.New(st.Processors, svc.Publishing, logger)
 	dispatcher.RegisterProcessorRunner(processorRunner)
+	threadFollower := slackrouting.NewThreadFollower(slackrouting.ThreadFollowerDeps{
+		Events:    st.DomainEvents,
+		Publisher: svc.Publishing,
+		NewID:     deps.NewID,
+		Now:       deps.Now,
+		Logger:    logger,
+	})
+	processorRunner.RegisterPostRouter(threadFollower)
 
 	// Slack auto-router: a second reconciler (composition over the processors
 	// service) maintains one route per AI Worker on each Automated Slack
@@ -829,9 +839,18 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Share the one lifecycleSvc with the MCP tools so create_bot runs the
 	// same OrgReconcilers (Slack auto-router) as REST POST /bots.
 	deps.Lifecycle = lifecycleSvc
-	// ask_human delivers to a person's in-app inbox via the main Helix
-	// attention-event service (the notification bell).
-	deps.HumanInbox = humanInbox{store: helixStore}
+	deps.HumanDelivery = humanInbox{
+		store:           helixStore,
+		slackWorkspaces: slackWS,
+		threadFollower:  threadFollower,
+		ensureSlackRouter: func(ctx context.Context, orgID string, routerID processor.ProcessorID, workerID string) error {
+			router, err := svc.Processors.Get(ctx, orgID, routerID)
+			if err != nil {
+				return err
+			}
+			return validateSlackReplyRouter(router, strings.TrimPrefix(routerID, "p-slack-router-"), workerID)
+		},
+	}
 
 	// Activations owns start/stop/restart for REST and MCP. Built before
 	// RegisterBuiltins so start_bot / stop_bot / restart_bot share the same
@@ -859,17 +878,6 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	}
 	orgServer := helixorgserver.NewFromStore(st, reg, bc, dispatcher, logger).WithPrompts(promptReg)
 
-	// Thread-follow: the post-routing arm that records thread participation
-	// in the domain-event log and (when enabled) fans later thread messages
-	// out to existing participants. Registered late on the runner, like the
-	// dispatcher's other arms.
-	processorRunner.RegisterPostRouter(slackrouting.NewThreadFollower(slackrouting.ThreadFollowerDeps{
-		Events:    st.DomainEvents,
-		Publisher: svc.Publishing,
-		NewID:     deps.NewID,
-		Now:       deps.Now,
-		Logger:    logger,
-	}))
 	slackAutoRouter := &slackAutoRouter{procs: svc.Processors, routes: slackRouteReconciler, logger: logger}
 	apiDeps := helixorgapi.Deps{
 		Topics:        svc.Topics,
@@ -881,7 +889,20 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Activations:   svc.Activations,
 		Processors:    svc.Processors,
 		ChartLayout:   chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: deps.Now}),
-		BotRuntime:    workerRuntime,
+		AuthorizeHumanContact: func(ctx context.Context, orgID, humanUserID string) error {
+			callerID := runtimehelix.UserIDFromContext(ctx)
+			if callerID == "" {
+				return fmt.Errorf("authenticated user is missing")
+			}
+			if callerID == humanUserID {
+				return nil
+			}
+			if _, err := cfg.APIServer.authorizeOrgOwner(ctx, &types.User{ID: callerID}, orgID); err != nil {
+				return fmt.Errorf("only the person or an organization owner can update human contact details: %w", err)
+			}
+			return nil
+		},
+		BotRuntime: workerRuntime,
 		// Kept on apiDeps so legacy/tests that poke the ports directly still
 		// work; REST stop/restart now go through Activations.
 		BotSessionResetter: sessionResetter,

@@ -85,6 +85,28 @@ func TestMintCredential_HappyPath(t *testing.T) {
 	}
 }
 
+func TestMintCredential_RecordsRawTokenWithoutRedactingToolResult(t *testing.T) {
+	provider := &fakeProvider{name: "slack", credOut: credential.Credential{Token: "xoxb-test-secret"}}
+	var recorded string
+	mintTool := newMintTool(provider)
+	mintTool.deps.RecordCredential = func(orgID, provider, token string) {
+		recorded = orgID + ":" + provider + ":" + token
+	}
+	raw, err := mintTool.Invoke(context.Background(), tool.Invocation{
+		Caller: fakeCredCaller{id: "w-1", orgID: "org-1"},
+		Args:   json.RawMessage(`{"provider":"slack"}`),
+	})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if recorded != "org-1:slack:xoxb-test-secret" {
+		t.Fatalf("recorded = %q", recorded)
+	}
+	if !strings.Contains(string(raw), "xoxb-test-secret") {
+		t.Fatalf("raw MCP result was redacted: %s", raw)
+	}
+}
+
 // The optional `resource` arg is passed through to the provider so it
 // can pick the right identity (e.g. the slack workspace team_id).
 func TestMintCredential_ResourcePassedThrough(t *testing.T) {

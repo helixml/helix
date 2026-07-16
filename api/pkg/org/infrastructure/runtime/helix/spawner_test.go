@@ -218,6 +218,95 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 }
 
+func TestSpawnerSpecsMandateRemainsFullOverride(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SpecsMandate = "Operator policy: keep replies concise."
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "Operator policy: keep replies concise.") {
+		t.Fatalf("prompt missing mandate override: %q", fc.lastStartParams.Prompt)
+	}
+	if strings.Contains(fc.lastStartParams.Prompt, "=== Current role ===") || strings.Contains(fc.lastStartParams.Prompt, "# Role: Engineer") {
+		t.Fatalf("explicit mandate must remain a full override: %q", fc.lastStartParams.Prompt)
+	}
+}
+
+func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn 1: %v", err)
+	}
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Principal Engineer")); err != nil {
+		t.Fatalf("update bot: %v", err)
+	}
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-role"}}); err != nil {
+		t.Fatalf("spawn 2: %v", err)
+	}
+	fc.mu.Lock()
+	followUp := fc.lastSendBody
+	fc.mu.Unlock()
+	if !strings.Contains(followUp, "=== Current role ===\n# Role: Principal Engineer") {
+		t.Fatalf("follow-up prompt did not use fresh Bot.Content: %q", followUp)
+	}
+	for _, staleBootstrap := range []string{"agent.md", "git pull", "git worktree", "cat ~/work"} {
+		if strings.Contains(followUp, staleBootstrap) {
+			t.Errorf("follow-up prompt contains stale bootstrap %q: %q", staleBootstrap, followUp)
+		}
+	}
+}
+
+func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	project := cfg.ProjectService.(*fakeProjectService)
+	project.applyStarted = make(chan struct{}, 1)
+	project.applyContinue = make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	}()
+	<-project.applyStarted
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		close(project.applyContinue)
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Updated During Ensure")); err != nil {
+		close(project.applyContinue)
+		t.Fatalf("update bot: %v", err)
+	}
+	close(project.applyContinue)
+	if err := <-result; err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "# Role: Updated During Ensure") {
+		t.Fatalf("prompt used role read before project ensure: %q", fc.lastStartParams.Prompt)
+	}
+}
+
 // TestSpawnerAttachesHelixOrgMCPEveryActivation pins the bug-fix
 // invariant: the helix-org MCP is re-attached to the Worker's agent
 // app on every activation, after ensureProject runs. helix's project-

@@ -45,7 +45,7 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 	r.Register(configregistry.Spec{
 		Key:         "worker.specs_mandate",
 		Type:        configregistry.TypeString,
-		Description: "Activation-prompt directive that tells every Worker how to find role.md / identity.md / agent.md on the helix-specs branch and how to checkpoint state back. The default (runtimehelix.DefaultHelixSpecsMandate) handles the standard layout; override when the file paths, the git-pull recipe, or the checkpoint convention change without redeploying. Use an empty string to fall back to the default.",
+		Description: "Optional full activation mandate override. When empty, every activation embeds the Worker's current role content.",
 	})
 	r.Register(configregistry.Spec{
 		Key:         "helix.url",

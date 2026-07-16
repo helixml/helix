@@ -77,6 +77,22 @@ func participantsFor(t *testing.T, s *store.Store, routerID, threadRoot string) 
 	return domainevent.Participants(evs)
 }
 
+func recordDMRecipient(t *testing.T, s *store.Store, routerID, channel, worker string, at time.Time) {
+	t.Helper()
+	ev, err := domainevent.New("dm-"+routerID+"-"+channel+"-"+worker, org, domainevent.TypeSlackDMRecipient, routerID+"/"+channel, worker, routerID, nil, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DomainEvents.Append(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func slackMessage(channelType, channel, messageID, threadID string) streaming.Message {
+	extra, _ := json.Marshal(map[string]string{"slack_channel": channel, "slack_channel_type": channelType})
+	return streaming.Message{MessageID: messageID, ThreadID: threadID, Body: "reply", Extra: extra}
+}
+
 func TestDefaultConfigEnablesThreadFollow(t *testing.T) {
 	if !slackrouting.ThreadFollowEnabled(slackrouting.DefaultConfig()) {
 		t.Error("DefaultConfig should enable thread-follow (on by default)")
@@ -98,6 +114,39 @@ func TestThreadFollowRecordsNamedParticipant(t *testing.T) {
 	}
 	if len(pub.calls) != 0 {
 		t.Errorf("thread-follow off: want no fan-out, got %v", pub.calls)
+	}
+}
+
+func TestRecordParticipantFeedsInboundThreadFollow(t *testing.T) {
+	ctx := context.Background()
+	box, f, pub := newFollower(t)
+	if err := f.RecordParticipant(ctx, org, "p-slack-router", "T1", "w-alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.RecordParticipant(ctx, org, "p-slack-router", "T1", "w-alice"); err != nil {
+		t.Fatal(err)
+	}
+	if parts := participants(t, box, "T1"); len(parts) != 1 || parts[0] != "w-alice" {
+		t.Fatalf("want one alice participant, got %v", parts)
+	}
+	f.AfterRoute(ctx, threadRouter(true), streaming.Message{ThreadID: "T1", MessageID: "T2", Body: "human reply"}, nil)
+	if len(pub.calls) != 1 || pub.calls[0] != "s-alice" {
+		t.Fatalf("want inbound reply delivered to alice, got %v", pub.calls)
+	}
+}
+
+func TestRecordDMRecipientAppendsRouterChannelEvent(t *testing.T) {
+	ctx := context.Background()
+	box, f, _ := newFollower(t)
+	if err := f.RecordDMRecipient(ctx, org, "p-slack-router", "D1", "w-alice"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := box.DomainEvents.ListBySubject(ctx, org, domainevent.TypeSlackDMRecipient, "p-slack-router/D1", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Worker != "w-alice" || events[0].Source != "p-slack-router" {
+		t.Fatalf("DM recipient events = %#v", events)
 	}
 }
 
@@ -181,5 +230,84 @@ func TestThreadFollowOffStillRecordsButNoFanout(t *testing.T) {
 	}
 	if len(participants(t, box, "T1")) != 1 {
 		t.Errorf("alice should still be recorded")
+	}
+}
+
+func TestDMReplyRoutesLatestRecipientAndRecordsParticipant(t *testing.T) {
+	ctx := context.Background()
+	box, f, pub := newFollower(t)
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	recordDMRecipient(t, box, "p-slack-router", "D1", "w-alice", now.Add(-time.Minute))
+	recordDMRecipient(t, box, "p-slack-router", "D1", "w-bob", now)
+
+	f.AfterRoute(ctx, threadRouter(true), slackMessage("im", "D1", "T1", ""), nameMatch("s-default"))
+
+	if len(pub.calls) != 1 || pub.calls[0] != "s-bob" {
+		t.Fatalf("want one delivery to latest recipient bob, got %v", pub.calls)
+	}
+	if got := participants(t, box, "T1"); len(got) != 1 || got[0] != "w-bob" {
+		t.Fatalf("new root participants = %v", got)
+	}
+}
+
+func TestDMReplyExplicitNameMatchWins(t *testing.T) {
+	box, f, pub := newFollower(t)
+	recordDMRecipient(t, box, "p-slack-router", "D1", "w-alice", time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC))
+
+	f.AfterRoute(context.Background(), threadRouter(true), slackMessage("im", "D1", "T1", ""), nameMatch("s-bob"))
+
+	if len(pub.calls) != 0 {
+		t.Fatalf("explicit match should suppress DM fallback, got %v", pub.calls)
+	}
+	if got := participants(t, box, "T1"); len(got) != 1 || got[0] != "w-bob" {
+		t.Fatalf("participants = %v", got)
+	}
+}
+
+func TestDMReplyFallbackOnlyAppliesToTopLevelIM(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		channelType string
+		threadID    string
+	}{
+		{name: "channel", channelType: "channel"},
+		{name: "group DM", channelType: "mpim"},
+		{name: "threaded DM", channelType: "im", threadID: "ROOT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box, f, pub := newFollower(t)
+			recordDMRecipient(t, box, "p-slack-router", "D1", "w-alice", time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC))
+
+			f.AfterRoute(context.Background(), threadRouter(true), slackMessage(tc.channelType, "D1", "T1", tc.threadID), nil)
+
+			if len(pub.calls) != 0 {
+				t.Fatalf("unexpected DM fallback: %v", pub.calls)
+			}
+		})
+	}
+}
+
+func TestDMReplyRecipientExpires(t *testing.T) {
+	box, f, pub := newFollower(t)
+	recordDMRecipient(t, box, "p-slack-router", "D1", "w-alice", time.Date(2026, 6, 19, 11, 59, 59, 0, time.UTC))
+
+	f.AfterRoute(context.Background(), threadRouter(true), slackMessage("im", "D1", "T1", ""), nil)
+
+	if len(pub.calls) != 0 {
+		t.Fatalf("expired recipient received fallback: %v", pub.calls)
+	}
+}
+
+func TestDMReplyRecipientIsolatedByRouterAndChannel(t *testing.T) {
+	box, f, pub := newFollower(t)
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	recordDMRecipient(t, box, "p-slack-router", "D1", "w-alice", now.Add(-time.Minute))
+	recordDMRecipient(t, box, "p-slack-router-2", "D1", "w-bob", now)
+	recordDMRecipient(t, box, "p-slack-router", "D2", "w-bob", now)
+
+	f.AfterRoute(context.Background(), threadRouter(true), slackMessage("im", "D1", "T1", ""), nil)
+
+	if len(pub.calls) != 1 || pub.calls[0] != "s-alice" {
+		t.Fatalf("want isolated alice recipient, got %v", pub.calls)
 	}
 }

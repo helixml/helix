@@ -47,10 +47,8 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
   const redirectURL = `${origin}/api/v1/slack/oauth/callback`
   const eventsURL = `${origin}/api/v1/slack/events`
   const manifest = useMemo(() => buildManifest(ingressMode, redirectURL, eventsURL, appName), [ingressMode, redirectURL, eventsURL, appName])
-  const createAppURL = `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(manifest)}`
-
-  const manifestFallback = (
-    <CopyableCodeBlock title="Prefer to paste the manifest yourself?" code={manifest} />
+  const manifestStep = (
+    <CopyableCodeBlock title="Copy this full app manifest" code={manifest} />
   )
 
   const distributionNote = 'Optional — only if orgs will install into workspaces other than the one that owns the app (e.g. a SaaS deployment): open "Manage Distribution" and activate public distribution.'
@@ -71,13 +69,13 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
 
   const steps: SetupStep[] = ingressMode === 'rest'
     ? [
-        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens its create screen pre-filled with the scopes, events, and your Helix request + redirect URLs — pick the workspace to own the app and click "Create". Slack verifies the Events Request URL on the spot, so Event Subscriptions are ready with no extra step.', image: createSlackAppManifest, below: manifestFallback },
+        { step: 1, text: 'Copy the full app manifest below, then open Slack app creation. Choose "From a manifest", select the workspace, choose JSON, paste the manifest, and click Next. Review the bot user, writable Messages tab for DMs and thread replies, scopes, event subscriptions, request URL, and redirect URL, then click Create.', image: createSlackAppManifest, below: manifestStep },
         iconStep,
         { step: 3, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID, Client Secret, and Signing Secret into the form below, then Save.' },
         { step: 4, text: distributionNote },
       ]
     : [
-        { step: 1, text: 'Click "Create the app in Slack" above. Slack opens pre-filled (Socket Mode enabled + your redirect URL) — pick the workspace to own the app and click "Create".', image: createSlackAppManifest, below: manifestFallback },
+        { step: 1, text: 'Copy the full app manifest below, then open Slack app creation. Choose "From a manifest", select the workspace, choose JSON, paste the manifest, and click Next. Review the bot user, writable Messages tab for DMs and thread replies, scopes, Socket Mode, and redirect URL, then click Create.', image: createSlackAppManifest, below: manifestStep },
         iconStep,
         { step: 3, text: 'Open "Basic Information" → "App Credentials" and copy the Client ID and Client Secret into the form below.' },
         { step: 4, text: 'Open "Basic Information" → "App-Level Tokens", generate a token with the connections:write scope, and copy the xapp- token into the form below, then Save.', image: createSlackAppToken },
@@ -100,10 +98,10 @@ const SlackAppSetup: FC<SlackAppSetupProps> = ({ open, onClose, ingressMode, app
         </Typography>
 
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
-          <Button variant="contained" startIcon={<SlackLogo sx={{ fontSize: 18 }} />} href={createAppURL} target="_blank" rel="noopener noreferrer">
-            Create the app in Slack
+          <Button variant="contained" startIcon={<SlackLogo sx={{ fontSize: 18 }} />} href="https://api.slack.com/apps?new_app=1" target="_blank" rel="noopener noreferrer">
+            Open Slack app creation
           </Button>
-          <Typography variant="caption" color="text.secondary">Opens Slack pre-filled with this configuration.</Typography>
+          <Typography variant="caption" color="text.secondary">Copy the manifest in step 1 before opening Slack.</Typography>
         </Stack>
 
         <Box sx={{ mb: 2 }}>

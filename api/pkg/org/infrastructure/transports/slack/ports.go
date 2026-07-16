@@ -31,6 +31,8 @@ type Workspace struct {
 // matches. Treated as a drop (not an error) on the inbound path.
 var ErrNoWorkspace = errors.New("no slack workspace install for that id/team")
 
+var ErrAmbiguousWorkspace = errors.New("multiple Slack workspaces are installed; slack_team_id is required")
+
 // Workspaces resolves Slack workspace installs. Implemented at the
 // composition root over the helix ServiceConnection store (+ bot-token
 // decryption). The import edge stays one-directional — this package
