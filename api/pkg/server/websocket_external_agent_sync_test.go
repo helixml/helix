@@ -2164,6 +2164,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingCodexRolloutClearsThread
 func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectInteractionOnce() {
 	const primeError = `no thread found with ID: SessionId("019cba1e-2994-77d0-bc27-fc350cfdc2c2")`
 	s.server.contextMappings["thread-prime"] = "ses_prime"
+	s.server.requestToSessionMapping["req-prime"] = "ses_prime"
 	s.server.requestToInteractionMapping["req-prime"] = "int-prime"
 	sendChan := make(chan types.ExternalAgentCommand, 2)
 	s.server.externalAgentWSManager.registerConnection("ses_prime", &ExternalAgentWSConnection{SessionID: "ses_prime", SendChan: sendChan})
@@ -2176,6 +2177,9 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 		PromptMessage: "direct Prime request",
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_prime").Return(session, nil).Times(2)
+	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+		[]*types.Interaction{interaction}, int64(1), nil,
+	)
 	s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), "ses_prime", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, metadata types.SessionMetadata) error {
 			s.Empty(metadata.ZedThreadID)
@@ -2183,6 +2187,10 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 		},
 	)
 	s.store.EXPECT().GetInteraction(gomock.Any(), "int-prime").Return(interaction, nil)
+
+	s.server.externalAgentWSManager.initReadinessState("ses_prime", false, nil)
+	defer s.server.externalAgentWSManager.cleanupReadinessState("ses_prime")
+	s.Equal("req-prime", s.server.pickupWaitingInteraction(context.Background(), "ses_prime", session, "agent-prime"))
 
 	syncMsg := &types.SyncMessage{EventType: "thread_load_error", Data: map[string]interface{}{
 		"acp_thread_id": "thread-prime",
@@ -2198,6 +2206,7 @@ func (s *WebSocketSyncSuite) TestThreadLoadError_MissingZedThreadReplaysDirectIn
 	s.NoError(s.server.handleThreadLoadError("ses_prime", duplicate))
 
 	s.Equal(types.InteractionStateWaiting, interaction.State)
+	s.server.externalAgentWSManager.markSessionReady("ses_prime", nil)
 	s.Len(sendChan, 1)
 	command := <-sendChan
 	s.Equal("direct Prime request", command.Data["message"])
@@ -3288,7 +3297,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() 
 	s.server.externalAgentWSManager.initReadinessState(sessionID, false, nil)
 	defer s.server.externalAgentWSManager.cleanupReadinessState(sessionID)
 
-	s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-2")
+	requestID := s.server.pickupWaitingInteraction(context.Background(), sessionID, session, "agent-2")
 
 	// Existing mapping should still be there, unchanged
 	s.Equal(sessionID, s.server.requestToSessionMapping[existingReqID])
@@ -3303,6 +3312,7 @@ func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_UsesExistingMapping() 
 	s.server.externalAgentWSManager.readinessMu.Unlock()
 	s.Require().Len(state.PendingQueue, 1)
 	s.Equal(existingReqID, state.PendingQueue[0].Data["request_id"])
+	s.Equal(existingReqID, requestID)
 }
 
 func (s *WebSocketSyncSuite) TestPickupWaitingInteraction_NoWaitingInteraction() {

@@ -2132,46 +2132,6 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 		Str("dev_container_id", response.DevContainerID).
 		Msg("External agent session resumed successfully")
 
-	// If session has a ZedThreadID, send open_thread command to Zed
-	// This tells Zed to open the last thread in the AgentPanel UI
-	if session.Metadata.ZedThreadID != "" {
-		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
-
-		go func() {
-			maxRetries := 5
-			retryDelay := 2 * time.Second
-
-			for attempt := 1; attempt <= maxRetries; attempt++ {
-				time.Sleep(retryDelay)
-
-				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
-				if err == nil {
-					log.Info().
-						Str("session_id", id).
-						Str("thread_id", session.Metadata.ZedThreadID).
-						Str("agent_name", agentName).
-						Int("attempt", attempt).
-						Msg("✅ Sent open_thread command to Zed")
-					return
-				}
-
-				log.Warn().
-					Err(err).
-					Str("session_id", id).
-					Str("thread_id", session.Metadata.ZedThreadID).
-					Int("attempt", attempt).
-					Int("max_retries", maxRetries).
-					Msg("Retrying open_thread command (WebSocket not connected yet)")
-			}
-
-			log.Error().
-				Str("session_id", id).
-				Str("thread_id", session.Metadata.ZedThreadID).
-				Int("retries", maxRetries).
-				Msg("❌ Failed to send open_thread command after all retries - WebSocket never connected")
-		}()
-	}
-
 	return &types.SessionResumeResponse{
 		SessionID:      id,
 		Status:         "resumed",
