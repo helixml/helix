@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -428,7 +429,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
 
 			// Find and queue the waiting interaction for the agent
-			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
+			requestID := apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
 			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
 			// thread subscription immediately on connect. If we wait until after
@@ -469,6 +470,9 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					"acp_thread_id": targetThreadID,
 					"session_id":    helixSessionID,
 				}
+				if requestID != "" {
+					data["request_id"] = requestID
+				}
 				if agentNameForOpen != "" {
 					data["agent_name"] = agentNameForOpen
 				}
@@ -507,14 +511,14 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 // requestToSessionMapping entry exists (e.g. session created via session handler
 // rather than sendMessageToSpecTaskAgent), it falls back to using the interaction
 // ID as request_id — the same convention sendMessageToSpecTaskAgent uses.
-func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) {
+func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) string {
 	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    helixSessionID,
 		GenerationID: helixSession.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil || len(interactions) == 0 {
-		return
+		return ""
 	}
 
 	// Find the OLDEST waiting interaction (FIFO). This is the genuine first
@@ -608,8 +612,9 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Str("agent_session_id", agentID).
 				Msg("⚠️ [HELIX] Failed to queue initial message")
 		}
-		return
+		return requestID
 	}
+	return ""
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -3617,6 +3622,14 @@ func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessi
 	apiServer.requestToSessionMapping[requestID] = sessionID
 	apiServer.requestToInteractionMapping[requestID] = interaction.ID
 	apiServer.contextMappingsMutex.Unlock()
+
+	apiServer.externalAgentWSManager.readinessMu.Lock()
+	if state := apiServer.externalAgentWSManager.readinessState[sessionID]; state != nil {
+		state.PendingQueue = slices.DeleteFunc(state.PendingQueue, func(command types.ExternalAgentCommand) bool {
+			return command.Type == "chat_message" && command.Data["request_id"] == requestID
+		})
+	}
+	apiServer.externalAgentWSManager.readinessMu.Unlock()
 
 	message := interaction.PromptMessage
 	if interaction.SystemPrompt != "" {
