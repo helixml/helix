@@ -156,6 +156,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
+// @Param   include_external_agents query bool false "Include external agent sessions"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -170,6 +171,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		AppID:                  req.URL.Query().Get("app_id"),
 		ProjectID:              req.URL.Query().Get("project_id"),
 		SessionRole:            req.URL.Query().Get("session_role"),
+		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
