@@ -1,12 +1,64 @@
 package config
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProcessJSONConfigRejectsLegacyHelixWrapper(t *testing.T) {
+	config, err := ProcessJSONConfig(map[string]interface{}{
+		"helix": map[string]interface{}{
+			"name":        "e2e-test-coding-agent-001",
+			"description": "E2E test coding agent",
+			"assistants": []interface{}{
+				map[string]interface{}{
+					"name":          "default",
+					"provider":      "CosmoCloud",
+					"model":         "qwen-light",
+					"agent_type":    "coding_agent",
+					"system_prompt": "You are a coding agent.",
+				},
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, config)
+	assert.Contains(t, err.Error(), `use "config" for legacy App requests`)
+}
+
+func TestProcessJSONConfigMatchesLegacyApp(t *testing.T) {
+	helix := map[string]interface{}{
+		"name":        "e2e-test-coding-agent-001",
+		"description": "E2E test coding agent",
+		"assistants": []interface{}{
+			map[string]interface{}{
+				"name":          "default",
+				"provider":      "CosmoCloud",
+				"model":         "qwen-light",
+				"agent_type":    "coding_agent",
+				"system_prompt": "You are a coding agent.",
+			},
+		},
+	}
+
+	structured, err := ProcessJSONConfig(helix)
+	require.NoError(t, err)
+	assert.Equal(t, "e2e-test-coding-agent-001", structured.Name)
+	require.Len(t, structured.Assistants, 1)
+
+	body, err := json.Marshal(map[string]interface{}{
+		"config": map[string]interface{}{"helix": helix},
+	})
+	require.NoError(t, err)
+	var legacy types.App
+	require.NoError(t, json.Unmarshal(body, &legacy))
+	assert.Equal(t, legacy.Config.Helix, *structured)
+}
 
 func TestProcessYAMLConfig_AgentMode(t *testing.T) {
 	yamlContent := `
