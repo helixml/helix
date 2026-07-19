@@ -694,6 +694,35 @@ func (s *SessionAuthzSuite) TestListSessions_OwnerNoOrg() {
 	s.Equal(int64(1), result.TotalCount)
 }
 
+func (s *SessionAuthzSuite) TestListSessions_IncludeExternalAgents() {
+	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
+		ID: s.orgID,
+	}).Return(&types.Organization{ID: s.orgID}, nil)
+	s.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+	}).Return(&types.OrganizationMembership{
+		OrganizationID: s.orgID,
+		UserID:         s.userID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+	s.store.EXPECT().ListSessions(gomock.Any(), store.ListSessionsQuery{
+		Owner:                 s.userID,
+		OrganizationID:        s.orgID,
+		Page:                  0,
+		PerPage:               50,
+		IncludeExternalAgents: true,
+	}).Return([]*types.Session{}, int64(0), nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions?org_id="+s.orgID+"&include_external_agents=true", http.NoBody)
+	req = req.WithContext(s.authCtx)
+
+	result, err := s.server.listSessions(httptest.NewRecorder(), req)
+
+	s.NoError(err)
+	s.Require().NotNil(result)
+}
+
 // 2. User is owner and org member, lists org sessions
 func (s *SessionAuthzSuite) TestListSessions_OwnerInOrg() {
 	s.store.EXPECT().GetOrganization(gomock.Any(), &store.GetOrganizationQuery{
