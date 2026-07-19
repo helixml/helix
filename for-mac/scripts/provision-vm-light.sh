@@ -36,7 +36,7 @@ VM_PASS="helix"
 HELIX_VERSION=""
 
 # Ubuntu 26.04 LTS (Resolute)
-UBUNTU_URL="https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-arm64.img"
+UBUNTU_URL="https://cloud-images.ubuntu.com/releases/resolute/release-20260713/ubuntu-26.04-server-cloudimg-arm64.img"
 UBUNTU_SHA256="b95c8625a2d524f7fa6e2b4583e5b56d92ed7212178b0c2c150a4f68e45830f2"
 UBUNTU_IMG="ubuntu-cloud.img"
 
