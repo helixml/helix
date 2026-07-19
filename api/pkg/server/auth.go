@@ -622,6 +622,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			ID:    user.ID,
 			Email: user.Email,
 			Name:  user.FullName,
+			Admin: user.Admin,
 		}
 		writeResponse(w, response, http.StatusOK)
 

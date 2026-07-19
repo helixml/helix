@@ -244,6 +244,33 @@ func (suite *AuthSuite) TestLogin() {
 	}
 }
 
+func (suite *AuthSuite) TestLoginReturnsAdmin() {
+	suite.server.Cfg.Auth.Provider = types.AuthProviderRegular
+	user := suite.createMockUser()
+	user.Admin = true
+
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{Email: testEmail}).
+		Return(user, nil)
+	suite.authenticator.EXPECT().
+		ValidatePassword(gomock.Any(), user, "password").
+		Return(nil)
+	suite.store.EXPECT().
+		CreateUserSession(gomock.Any(), gomock.Any()).
+		Return(&types.UserSession{ID: "session-123"}, nil)
+
+	body, err := json.Marshal(types.LoginRequest{Email: testEmail, Password: "password"})
+	suite.Require().NoError(err)
+	rec := httptest.NewRecorder()
+
+	suite.server.login(rec, suite.createTestRequest(http.MethodPost, "/api/v1/auth/login", body))
+
+	suite.Equal(http.StatusOK, rec.Code)
+	var response types.UserResponse
+	suite.Require().NoError(json.NewDecoder(rec.Body).Decode(&response))
+	suite.True(response.Admin)
+}
+
 func (suite *AuthSuite) TestCallback() {
 	testCases := []struct {
 		name           string
