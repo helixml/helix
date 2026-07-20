@@ -48,13 +48,26 @@ func (s *RestartSessionContainerSuite) SetupTest() {
 	s.executor = external_agent.NewMockExecutor(s.ctrl)
 
 	s.server = &HelixAPIServer{
-		Store:                 s.store,
-		externalAgentExecutor: s.executor,
-		Cfg:                   &config.ServerConfig{},
+		Store:                  s.store,
+		externalAgentExecutor:  s.executor,
+		externalAgentWSManager: NewExternalAgentWSManager(),
+		Cfg:                    &config.ServerConfig{},
 		Controller: &controller.Controller{
 			Options: controller.Options{Store: s.store, PubSub: pubsub.NewNoop()},
 		},
 	}
+}
+
+// registerFakeConn wires a buffered, connection-less WS entry for sessionID so
+// the async open_thread goroutine that resumeSessionInternal spawns for a
+// PRESERVED (non-empty) thread sends successfully on its first attempt and exits
+// — it never falls into the no-connection autoStartDevContainerForSession branch
+// that would call mocks after the test's controller has finished.
+func (s *RestartSessionContainerSuite) registerFakeConn(sessionID string) {
+	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
+		SessionID: sessionID,
+		SendChan:  make(chan types.ExternalAgentCommand, 8),
+	})
 }
 
 func (s *RestartSessionContainerSuite) TearDownTest() {
@@ -201,6 +214,7 @@ func (s *RestartSessionContainerSuite) TestRestartPreservesThreadWhenNotReset() 
 	user := &types.User{ID: userID}
 	session := zedSession(sessionID, userID, projectID)
 	session.Metadata.ZedThreadID = "healthy-thread-keep-me"
+	s.registerFakeConn(sessionID) // absorb the preserved-thread open_thread goroutine
 
 	s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
 	s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
@@ -267,6 +281,7 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 
 			session := zedSession(sessionID, userID, projectID)
 			session.Metadata.ZedThreadID = "existing-thread"
+			s.registerFakeConn(sessionID) // absorb the open_thread goroutine in preserve subcases
 
 			s.store.EXPECT().GetSession(gomock.Any(), sessionID).Return(session, nil).AnyTimes()
 			s.store.EXPECT().GetProject(gomock.Any(), projectID).Return(&types.Project{ID: projectID, UserID: userID}, nil).AnyTimes()
@@ -302,6 +317,53 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 
 			// Let the queue-kick goroutine settle before ctrl.Finish().
 			time.Sleep(50 * time.Millisecond)
+		})
+	}
+}
+
+// TestLastInteractionCompletedCleanly pins the thread-health decision the human
+// Restart button keys off: a cleanly-finished last turn (complete / interrupted)
+// is safe to reattach → preserve; a mid-turn or errored one signals a possible
+// wedge → reset. Zero interactions and a query error both resolve to healthy so
+// we never discard conversation context we couldn't prove was poisoned.
+func (s *RestartSessionContainerSuite) TestLastInteractionCompletedCleanly() {
+	session := zedSession("ses_health", "user_op", "prj_x")
+
+	cases := []struct {
+		name   string
+		setup  func()
+		wantOK bool
+	}{
+		{"complete", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateComplete}}, int64(1), nil)
+		}, true},
+		{"interrupted", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateInterrupted}}, int64(1), nil)
+		}, true},
+		{"waiting", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateWaiting}}, int64(1), nil)
+		}, false},
+		{"error", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateError}}, int64(1), nil)
+		}, false},
+		{"no_interactions", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
+		}, true},
+		{"query_error", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), context.DeadlineExceeded)
+		}, true},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			defer s.ctrl.Finish()
+			tc.setup()
+			s.Equal(tc.wantOK, s.server.lastInteractionCompletedCleanly(context.Background(), session))
 		})
 	}
 }
