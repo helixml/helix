@@ -30,6 +30,10 @@ type Type = string
 // the thread root, Worker the participant, Source the router's processor id.
 const TypeSlackThreadParticipant Type = "slack.thread_participant"
 
+// TypeSlackDMRecipient records the Bot that most recently sent a replyable
+// ask_human DM. Subject is the workspace router and DM channel.
+const TypeSlackDMRecipient Type = "slack.dm_recipient"
+
 // DomainEvent is one recorded decision.
 //
 //   - Subject is the entity the event is keyed and queried on (for a Slack

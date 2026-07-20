@@ -134,6 +134,8 @@ type HelixAPIServer struct {
 	contextMappingsMutex        sync.RWMutex      // Mutex for contextMappings (and related mappings below)
 	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
 	requestToInteractionMapping map[string]string // request_id -> interaction_id (for routing message_added/completed to correct interaction)
+	credentialTokensMu          sync.RWMutex
+	credentialTokens            map[string]map[string]struct{} // org_id -> minted tokens
 	// (interaction → prompt link is now persisted on Interaction.PromptID
 	// so it survives API restart; the in-memory map was deleted in the
 	// 2026-04-30 stuck-queue fix.)
@@ -369,6 +371,7 @@ func NewServer(
 		contextMappings:            make(map[string]string),
 
 		requestToSessionMapping:     make(map[string]string),
+		credentialTokens:            make(map[string]map[string]struct{}),
 		pendingCancelChannels:       make(map[string]chan string),
 		externalAgentSessionMapping: make(map[string]string),
 		externalAgentUserMapping:    make(map[string]string),

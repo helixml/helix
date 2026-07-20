@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,10 @@ func isAgentCrashError(errMsg string) bool {
 
 func isMissingCodexRolloutError(errMsg string) bool {
 	return strings.Contains(errMsg, "no rollout found for thread id")
+}
+
+func isAuthoritativeMissingThreadError(errMsg string) bool {
+	return isMissingCodexRolloutError(errMsg) || strings.Contains(errMsg, `no thread found with ID: SessionId("`)
 }
 
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have
@@ -424,7 +429,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
 
 			// Find and queue the waiting interaction for the agent
-			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
+			requestID := apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
 			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
 			// thread subscription immediately on connect. If we wait until after
@@ -465,6 +470,9 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					"acp_thread_id": targetThreadID,
 					"session_id":    helixSessionID,
 				}
+				if requestID != "" {
+					data["request_id"] = requestID
+				}
 				if agentNameForOpen != "" {
 					data["agent_name"] = agentNameForOpen
 				}
@@ -503,14 +511,14 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 // requestToSessionMapping entry exists (e.g. session created via session handler
 // rather than sendMessageToSpecTaskAgent), it falls back to using the interaction
 // ID as request_id — the same convention sendMessageToSpecTaskAgent uses.
-func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) {
+func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) string {
 	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    helixSessionID,
 		GenerationID: helixSession.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil || len(interactions) == 0 {
-		return
+		return ""
 	}
 
 	// Find the OLDEST waiting interaction (FIFO). This is the genuine first
@@ -604,8 +612,9 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Str("agent_session_id", agentID).
 				Msg("⚠️ [HELIX] Failed to queue initial message")
 		}
-		return
+		return requestID
 	}
+	return ""
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -672,11 +681,13 @@ func (apiServer *HelixAPIServer) handleExternalAgentSender(ctx context.Context, 
 
 // processExternalAgentSyncMessage processes incoming sync messages from external agents
 func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID string, syncMsg *types.SyncMessage) error {
-	log.Trace().
+	event := log.Trace().
 		Str("agent_session_id", sessionID).
-		Str("event_type", syncMsg.EventType).
-		Interface("data", syncMsg.Data).
-		Msg("[HELIX] Processing message from external agent")
+		Str("event_type", syncMsg.EventType)
+	if syncMsg.EventType != "message_added" {
+		event = event.Interface("data", syncMsg.Data)
+	}
+	event.Msg("[HELIX] Processing message from external agent")
 
 	// Process sync message directly
 	var err error
@@ -1238,6 +1249,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 
 		helixSession := sctx.session
+		content = apiServer.redactCredentials(helixSession.OrganizationID, content)
+		toolName = apiServer.redactCredentials(helixSession.OrganizationID, toolName)
+		syncMsg.Data["content"] = content
+		syncMsg.Data["tool_name"] = toolName
 		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
@@ -1510,6 +1525,34 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	return nil
+}
+
+func (apiServer *HelixAPIServer) recordCredential(orgID, _ string, token string) {
+	if orgID == "" || token == "" {
+		return
+	}
+	apiServer.credentialTokensMu.Lock()
+	defer apiServer.credentialTokensMu.Unlock()
+	if apiServer.credentialTokens == nil {
+		apiServer.credentialTokens = make(map[string]map[string]struct{})
+	}
+	if apiServer.credentialTokens[orgID] == nil {
+		apiServer.credentialTokens[orgID] = make(map[string]struct{})
+	}
+	apiServer.credentialTokens[orgID][token] = struct{}{}
+}
+
+func (apiServer *HelixAPIServer) redactCredentials(orgID, content string) string {
+	apiServer.credentialTokensMu.RLock()
+	tokens := make([]string, 0, len(apiServer.credentialTokens[orgID]))
+	for token := range apiServer.credentialTokens[orgID] {
+		tokens = append(tokens, token)
+	}
+	apiServer.credentialTokensMu.RUnlock()
+	for _, token := range tokens {
+		content = strings.ReplaceAll(content, token, "<redacted>")
+	}
+	return content
 }
 
 // getOrCreateStreamingContext returns a cached streaming context for the given
@@ -3540,6 +3583,80 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// recoverMissingThread clears an authoritative stale ACP thread and replays
+// its existing waiting interaction as the first message of a replacement
+// thread. The persisted thread ID prevents duplicate errors from replaying it.
+func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string) (bool, error) {
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("load session for stale thread recovery: %w", err)
+	}
+	if session == nil || session.Metadata.ZedThreadID != acpThreadID {
+		return true, nil
+	}
+	session.Metadata.ZedThreadID = ""
+	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
+		return false, fmt.Errorf("clear stale ACP thread: %w", err)
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	delete(apiServer.contextMappings, acpThreadID)
+	interactionID := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.Unlock()
+	if interactionID == "" {
+		interactionID = requestID
+	}
+	if interactionID == "" {
+		return true, nil
+	}
+
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return false, fmt.Errorf("load interaction for stale thread recovery: %w", err)
+	}
+	if interaction == nil || interaction.State != types.InteractionStateWaiting || (interaction.SessionID != "" && interaction.SessionID != sessionID) {
+		return true, nil
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	apiServer.requestToInteractionMapping[requestID] = interaction.ID
+	apiServer.contextMappingsMutex.Unlock()
+
+	apiServer.externalAgentWSManager.readinessMu.Lock()
+	if state := apiServer.externalAgentWSManager.readinessState[sessionID]; state != nil {
+		state.PendingQueue = slices.DeleteFunc(state.PendingQueue, func(command types.ExternalAgentCommand) bool {
+			return command.Type == "chat_message" && command.Data["request_id"] == requestID
+		})
+	}
+	apiServer.externalAgentWSManager.readinessMu.Unlock()
+
+	message := interaction.PromptMessage
+	if interaction.SystemPrompt != "" {
+		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + interaction.PromptMessage
+	}
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":    message,
+			"request_id": requestID,
+			"agent_name": apiServer.getAgentNameForSession(ctx, session),
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		if errors.Is(err, ErrNoExternalAgentWS) {
+			return true, nil
+		}
+		log.Warn().Err(err).Str("session_id", sessionID).Str("interaction_id", interaction.ID).
+			Msg("Failed to replay interaction after clearing stale ACP thread")
+		return false, fmt.Errorf("replay interaction after clearing stale ACP thread: %w", err)
+	}
+	log.Info().Str("session_id", sessionID).Str("stale_thread_id", acpThreadID).
+		Str("interaction_id", interaction.ID).Str("request_id", requestID).
+		Msg("Replayed interaction as first message after clearing stale ACP thread")
+	return true, nil
+}
+
 // handleThreadLoadError handles thread load failures from Zed
 // This happens when Zed tries to load an existing thread but fails (e.g., session already active via UI)
 // We need to treat this like a completion so the UI clears the text box and shows an error
@@ -3567,6 +3684,20 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		apiServer.contextMappingsMutex.RLock()
 		helixSessionID = apiServer.contextMappings[acpThreadID]
 		apiServer.contextMappingsMutex.RUnlock()
+	}
+	if isAuthoritativeMissingThreadError(errorMsg) && acpThreadID != "" {
+		recoverySessionID := helixSessionID
+		if recoverySessionID == "" {
+			recoverySessionID = sessionID
+		}
+		helixSessionID = recoverySessionID
+		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
 	}
 
 	// If we have a request_id, try to send error to the done channel
@@ -3610,21 +3741,6 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 	if helixSessionID != "" {
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 		if err == nil && helixSession != nil {
-			// Older Codex desktops did not persist ~/.codex, so Zed can retain an
-			// ACP thread whose rollout disappeared with the previous container.
-			// Invalidate that thread before the normal prompt retry; the retry then
-			// sends first_message=true and Zed creates a fresh Codex rollout.
-			if isMissingCodexRolloutError(errorMsg) && helixSession.Metadata.ZedThreadID == acpThreadID {
-				helixSession.Metadata.ZedThreadID = ""
-				if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(context.Background(), helixSessionID, helixSession.Metadata); err != nil {
-					return fmt.Errorf("clear missing Codex rollout thread: %w", err)
-				}
-				apiServer.contextMappingsMutex.Lock()
-				delete(apiServer.contextMappings, acpThreadID)
-				apiServer.contextMappingsMutex.Unlock()
-				log.Info().Str("session_id", helixSessionID).Str("acp_thread_id", acpThreadID).
-					Msg("Cleared stale Codex thread after missing rollout")
-			}
 			// A hard agent crash ("Claude Agent process exited", "Session not
 			// found") on an autonomous session must auto-recover regardless of how
 			// the crashing turn was sent — a queued planning prompt (PromptID set)

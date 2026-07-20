@@ -22,6 +22,10 @@ func ProcessYAMLConfig(yamlContent []byte) (*types.AppHelixConfig, error) {
 // ProcessJSONConfig processes a parsed JSON/YAML map and returns an AppHelixConfig
 // This handles both AppHelixConfig & AppHelixConfigCRD formats
 func ProcessJSONConfig(rawMap map[string]interface{}) (*types.AppHelixConfig, error) {
+	if _, ok := rawMap["helix"]; ok {
+		return nil, fmt.Errorf(`yaml_config must directly contain AppHelixConfig fields or an AppHelixConfig CRD, not a top-level "helix" key; use "config" for legacy App requests`)
+	}
+
 	// Check if it has the CRD structure
 	_, hasAPIVersion := rawMap["apiVersion"]
 	_, hasKind := rawMap["kind"]

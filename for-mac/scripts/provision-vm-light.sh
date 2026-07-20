@@ -35,8 +35,9 @@ VM_USER="ubuntu"
 VM_PASS="helix"
 HELIX_VERSION=""
 
-# Ubuntu 25.10 (Questing) - kernel 6.17+ for virtio-gpu multi-scanout
-UBUNTU_URL="https://cloud-images.ubuntu.com/questing/current/questing-server-cloudimg-arm64.img"
+# Ubuntu 26.04 LTS (Resolute)
+UBUNTU_URL="https://cloud-images.ubuntu.com/releases/resolute/release-20260713/ubuntu-26.04-server-cloudimg-arm64.img"
+UBUNTU_SHA256="b95c8625a2d524f7fa6e2b4583e5b56d92ed7212178b0c2c150a4f68e45830f2"
 UBUNTU_IMG="ubuntu-cloud.img"
 
 # UEFI firmware (from Homebrew QEMU)
@@ -171,11 +172,18 @@ boot_provisioning_vm() {
 
 if ! step_done "download"; then
     if [ ! -f "${VM_DIR}/${UBUNTU_IMG}" ]; then
-        log "Downloading Ubuntu 25.10 ARM64 cloud image..."
+        log "Downloading Ubuntu 26.04 LTS ARM64 cloud image..."
         curl -L -o "${VM_DIR}/${UBUNTU_IMG}" "$UBUNTU_URL"
     else
         log "Ubuntu cloud image already downloaded"
     fi
+    ACTUAL_SHA256=$(shasum -a 256 "${VM_DIR}/${UBUNTU_IMG}" | awk '{print $1}') || ACTUAL_SHA256=""
+    if [ "$ACTUAL_SHA256" != "$UBUNTU_SHA256" ]; then
+        log "ERROR: Ubuntu cloud image checksum mismatch"
+        rm -f "${VM_DIR}/${UBUNTU_IMG}"
+        exit 1
+    fi
+    log "Ubuntu cloud image checksum verified"
     mark_step "download"
 fi
 
@@ -489,6 +497,19 @@ if ! step_done "boot_setup"; then
 
     if [ $ELAPSED -ge $MAX_WAIT ]; then
         log "ERROR: Timed out waiting for cloud-init (${MAX_WAIT}s)"
+        ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -p "$SSH_PORT" "${VM_USER}@localhost" "
+echo '=== cloud-init status --long ==='
+sudo cloud-init status --long || true
+echo '=== systemctl status cloud-final.service ==='
+sudo systemctl status cloud-final.service --no-pager || true
+echo '=== journalctl -u cloud-final.service ==='
+sudo journalctl -u cloud-final.service --no-pager -n 200 || true
+echo '=== tail /var/log/cloud-init-output.log ==='
+sudo tail -n 200 /var/log/cloud-init-output.log || true
+" || true
+        log "=== tail ${VM_DIR}/qemu-boot.log ==="
+        tail -n 200 "${VM_DIR}/qemu-boot.log" || true
         log "Check ${VM_DIR}/qemu-boot.log for details"
         exit 1
     fi

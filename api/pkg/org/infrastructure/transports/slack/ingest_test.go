@@ -104,7 +104,7 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	seedSlackTopic(t, s, "org1", "tp1", "sc1")
 
 	err := ing.OnEvent(context.Background(), "T1", slackcore.Event{
-		Channel: "C-random", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
+		Channel: "C-random", ChannelType: "channel", User: "U1", Text: "!qa-bot help", TS: "1700.1", ThreadTS: "1699.9",
 	})
 	if err != nil {
 		t.Fatalf("OnEvent: %v", err)
@@ -123,8 +123,8 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 	if err := json.Unmarshal(c.msg.Extra, &ex); err != nil {
 		t.Fatalf("unmarshal extra: %v", err)
 	}
-	if ex.Channel != "C-random" {
-		t.Fatalf("Extra channel = %q, want C-random", ex.Channel)
+	if ex.Channel != "C-random" || ex.ChannelType != "channel" {
+		t.Fatalf("Extra Slack coordinates = %#v", ex)
 	}
 	// The transport stamps a ReplyHint carrying the concrete coordinates
 	// the agent needs to reply via the Slack API (no Role text required).
@@ -132,6 +132,31 @@ func TestIngest_AnyChannel_Published(t *testing.T) {
 		if !strings.Contains(c.msg.ReplyHint, want) {
 			t.Fatalf("ReplyHint %q missing %q", c.msg.ReplyHint, want)
 		}
+	}
+	for _, want := range []string{"Do not fetch Slack history by default", "Only when earlier thread context is necessary", "Only when channel-root context is genuinely necessary"} {
+		if !strings.Contains(c.msg.ReplyHint, want) {
+			t.Fatalf("ReplyHint %q missing conditional history guidance %q", c.msg.ReplyHint, want)
+		}
+	}
+}
+
+func TestReplyHint_TopLevelDMOmitsThreadTS(t *testing.T) {
+	hint := replyHint("T1", "D1", "im", "1700.1", "")
+	if !strings.Contains(hint, "omit thread_ts and reply at the DM root") {
+		t.Fatalf("top-level DM hint must stay at root: %q", hint)
+	}
+	if strings.Contains(hint, "thread_ts=1700.1") {
+		t.Fatalf("top-level DM hint must not invent a thread: %q", hint)
+	}
+}
+
+func TestReplyHint_ThreadedDMUsesIncomingThread(t *testing.T) {
+	hint := replyHint("T1", "D1", "im", "1700.2", "1699.9")
+	if !strings.Contains(hint, "thread_ts=1699.9") || !strings.Contains(hint, "conversations.replies with channel=D1 and ts=1699.9") {
+		t.Fatalf("threaded DM hint must preserve incoming root: %q", hint)
+	}
+	if strings.Contains(hint, "omit thread_ts") {
+		t.Fatalf("threaded DM hint must not instruct a root reply: %q", hint)
 	}
 }
 

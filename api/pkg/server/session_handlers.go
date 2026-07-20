@@ -156,6 +156,7 @@ func (apiServer *HelixAPIServer) getSession(rw http.ResponseWriter, req *http.Re
 // @Param   search          query    string  false  "Search sessions by name"
 // @Param   project_id      query    string  false  "Project ID"
 // @Param   session_role    query    string  false  "Filter by session role (e.g. job)"
+// @Param   include_external_agents query bool false "Include external agent sessions"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
@@ -170,6 +171,7 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		AppID:                  req.URL.Query().Get("app_id"),
 		ProjectID:              req.URL.Query().Get("project_id"),
 		SessionRole:            req.URL.Query().Get("session_role"),
+		IncludeExternalAgents:  req.URL.Query().Get("include_external_agents") == "true",
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
@@ -2131,46 +2133,6 @@ func (s *HelixAPIServer) resumeSessionInternal(ctx context.Context, user *types.
 		Str("session_id", id).
 		Str("dev_container_id", response.DevContainerID).
 		Msg("External agent session resumed successfully")
-
-	// If session has a ZedThreadID, send open_thread command to Zed
-	// This tells Zed to open the last thread in the AgentPanel UI
-	if session.Metadata.ZedThreadID != "" {
-		agentName := session.Metadata.CodeAgentRuntime.ZedAgentName()
-
-		go func() {
-			maxRetries := 5
-			retryDelay := 2 * time.Second
-
-			for attempt := 1; attempt <= maxRetries; attempt++ {
-				time.Sleep(retryDelay)
-
-				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID, agentName)
-				if err == nil {
-					log.Info().
-						Str("session_id", id).
-						Str("thread_id", session.Metadata.ZedThreadID).
-						Str("agent_name", agentName).
-						Int("attempt", attempt).
-						Msg("✅ Sent open_thread command to Zed")
-					return
-				}
-
-				log.Warn().
-					Err(err).
-					Str("session_id", id).
-					Str("thread_id", session.Metadata.ZedThreadID).
-					Int("attempt", attempt).
-					Int("max_retries", maxRetries).
-					Msg("Retrying open_thread command (WebSocket not connected yet)")
-			}
-
-			log.Error().
-				Str("session_id", id).
-				Str("thread_id", session.Metadata.ZedThreadID).
-				Int("retries", maxRetries).
-				Msg("❌ Failed to send open_thread command after all retries - WebSocket never connected")
-		}()
-	}
 
 	return &types.SessionResumeResponse{
 		SessionID:      id,

@@ -101,6 +101,9 @@ type Deps struct {
 	Repositories runtime.Repositories
 	// CredentialProviders is the registry mint_credential dispatches on.
 	CredentialProviders map[string]credential.Provider
+	// RecordCredential lets the host redact a minted token if the agent
+	// later echoes it into user-visible output.
+	RecordCredential func(orgID, provider, token string)
 	// Hub lets the long-poll read tools (read_events, bot_log) block on
 	// new events. It is a broadcaster, not a store.
 	Hub *wakebus.Bus
@@ -112,10 +115,7 @@ type Deps struct {
 	// back to an unconstrained string array (still valid, just no enum).
 	ToolNames func() []tool.Name
 
-	// HumanInbox delivers ask_human messages to a person's in-app inbox
-	// (the notification bell). Wired at the composition root over the main
-	// Helix attention-event service; nil → ask_human reports unavailable.
-	HumanInbox HumanInbox
+	HumanDelivery HumanDelivery
 }
 
 // Config carries the construction seams the composition root supplies to
@@ -152,6 +152,7 @@ type Config struct {
 	Repositories        runtime.Repositories
 	Reconciler          *reconcile.Reconciler
 	CredentialProviders map[string]credential.Provider
+	RecordCredential    func(orgID, provider, token string)
 	// Lifecycle, when set, is used verbatim instead of building a fresh one,
 	// so the MCP tools share the composition root's reconciler-complete
 	// service. nil → lifecycleService() builds a standalone service.
@@ -164,9 +165,8 @@ type Config struct {
 	// processor tools. Built at the composition root (needs topics
 	// provisioners). nil → Build() constructs one from Store when possible.
 	Processors *processors.Processors
-	// HumanInbox delivers ask_human messages to a person's in-app inbox.
-	// nil → ask_human reports the inbox as unavailable.
-	HumanInbox HumanInbox
+	// HumanDelivery sends ask_human messages through the person's configured route.
+	HumanDelivery HumanDelivery
 }
 
 // Build assembles the application services from the config and returns
@@ -187,8 +187,9 @@ func (c Config) Build() Deps {
 		Projects:            c.projectsService(),
 		Repositories:        c.repositoriesPort(),
 		CredentialProviders: c.CredentialProviders,
+		RecordCredential:    c.RecordCredential,
 		Hub:                 c.Hub,
-		HumanInbox:          c.HumanInbox,
+		HumanDelivery:       c.HumanDelivery,
 	}
 }
 
@@ -402,6 +403,7 @@ func RegisterBuiltins(reg *Registry, deps Deps) error {
 		&Publish{deps: deps},
 		&DM{deps: deps},
 		&AskHuman{deps: deps},
+		&SetHumanContact{deps: deps},
 		&ConfigureBotProject{deps: deps},
 		// Processors — topic transforms/filters/js. Mutations are
 		// OwnerBotTools; list/get are BaseReadTools.

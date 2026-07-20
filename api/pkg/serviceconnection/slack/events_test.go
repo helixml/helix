@@ -144,7 +144,7 @@ func TestEventsAPI_MessageEvent_DispatchedWithTeamID(t *testing.T) {
 	body := `{
 		"type":"event_callback",
 		"team_id":"T123",
-		"event":{"type":"message","channel":"C999","user":"U1","text":"hello bot","ts":"1700000000.000100"}
+		"event":{"type":"message","channel":"D999","channel_type":"im","user":"U1","text":"hello bot","ts":"1700000000.000100"}
 	}`
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, signedRequest(body))
@@ -155,7 +155,7 @@ func TestEventsAPI_MessageEvent_DispatchedWithTeamID(t *testing.T) {
 	if gotTeam != "T123" {
 		t.Fatalf("team = %q, want T123", gotTeam)
 	}
-	if gotEvent.Channel != "C999" || gotEvent.User != "U1" || gotEvent.Text != "hello bot" || gotEvent.TS != "1700000000.000100" {
+	if gotEvent.Channel != "D999" || gotEvent.ChannelType != "im" || gotEvent.User != "U1" || gotEvent.Text != "hello bot" || gotEvent.TS != "1700000000.000100" {
 		t.Fatalf("event mismatch: %+v", gotEvent)
 	}
 }
