@@ -76,8 +76,11 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Enforce a request-body cap matching per-task budget (10 files * 10 MB + overhead).
-	if err := r.ParseMultipartForm(int64(types.SpecTaskAttachmentMaxPerTask) * types.SpecTaskAttachmentMaxBytes); err != nil {
+	// Keep the in-memory buffer bounded to one file's worth; larger uploads spill to
+	// temp files. This must NOT scale with SpecTaskAttachmentMaxPerTask, or a large cap
+	// (e.g. 500) would let the parser buffer gigabytes in memory. Per-file and per-task
+	// caps are still enforced below.
+	if err := r.ParseMultipartForm(types.SpecTaskAttachmentMaxBytes); err != nil {
 		http.Error(w, "invalid multipart form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
