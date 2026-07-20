@@ -2424,13 +2424,14 @@ func (s *HelixAPIServer) foregroundSessionThread(_ http.ResponseWriter, r *http.
 // restartCrashedAgentThread godoc
 // @Summary Restart the external agent after an in-container crash
 // @Description Tears down the half-dead desktop container and brings up a fresh one
-// @Description via the resume path. The session's ZedThreadID is cleared so Zed opens
-// @Description a fresh thread: a crash often poisons the thread itself, so reattaching
-// @Description reproduces the wedge; use /sessions/{id}/resume to restart while keeping
-// @Description the thread. The workspace volume persists, so files and the agent's own
-// @Description state survive; only the conversation thread resets. Crashed prompts are
-// @Description reset to pending and the queue is kicked so they re-dispatch on the new
-// @Description container.
+// @Description via the resume path. The conversation thread is PRESERVED when the
+// @Description session's last turn completed cleanly (the common "reboot to refresh
+// @Description the environment" case) so context is not lost; it is reset only when
+// @Description the last turn is mid-flight or errored, which signals a possibly
+// @Description poisoned thread that would just reproduce the wedge on reattach. The
+// @Description workspace volume persists, so files and the agent's own state survive
+// @Description regardless. Crashed prompts are reset to pending and the queue is
+// @Description kicked so they re-dispatch on the new container.
 // @Description Requires the session to be an external Zed agent. Returns the count of
 // @Description prompts that were reset.
 // @Tags Sessions
@@ -2461,7 +2462,14 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	resetCount, herr := s.restartSessionContainer(ctx, user, session)
+	// A human clicking Restart almost always means "reboot the container, keep my
+	// conversation" (e.g. to pick up a newly-cloned repo or refreshed env). Only
+	// treat it as a thread reset when the thread looks wedged — the last turn did
+	// not finish cleanly. Preserving a healthy thread avoids the silent, total
+	// context loss in design/2026-07-20-restart-clears-zed-thread-context-loss.md.
+	resetThread := !s.lastInteractionCompletedCleanly(ctx, session)
+
+	resetCount, herr := s.restartSessionContainer(ctx, user, session, resetThread)
 	if herr != nil {
 		return nil, herr
 	}
@@ -2469,7 +2477,42 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	return map[string]any{
 		"session_id":    sessionID,
 		"prompts_reset": resetCount,
+		"thread_reset":  resetThread,
 	}, nil
+}
+
+// lastInteractionCompletedCleanly reports whether the session's most recent
+// interaction finished in a healthy terminal state (complete or interrupted),
+// which means the Zed thread is safe to reattach to on restart. A mid-turn or
+// errored last interaction (waiting / editing / error) indicates a possible
+// thread wedge, so the restart should reset the thread and open a fresh one.
+//
+// On a query error we assume healthy (preserve the thread): the failure mode of
+// a wrongly-preserved poisoned thread is a boot that hangs and can be retried,
+// whereas a wrongly-cleared healthy thread is silent, unrecoverable context loss
+// — always err toward keeping the conversation. Zero interactions is likewise
+// healthy: there is no wedged turn to reproduce and nothing to lose.
+func (s *HelixAPIServer) lastInteractionCompletedCleanly(ctx context.Context, session *types.Session) bool {
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: session.GenerationID,
+		PerPage:      1,
+		Order:        "id DESC",
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).
+			Msg("restart: could not read last interaction to assess thread health — assuming healthy to avoid discarding conversation context")
+		return true
+	}
+	if len(interactions) == 0 {
+		return true
+	}
+	switch interactions[0].State {
+	case types.InteractionStateComplete, types.InteractionStateInterrupted:
+		return true
+	default:
+		return false
+	}
 }
 
 // restartSessionContainer is the single canonical "restart the agent" backend
@@ -2482,14 +2525,29 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 // button (via the helix-org runtime), and the spec-task detail page — so the
 // meaning of "restart" cannot diverge across surfaces again.
 //
+// resetThread controls whether the conversation is discarded:
+//   - resetThread=true  → clear ZedThreadID so Zed opens a FRESH thread. Used by
+//     autonomous crash recovery (maybeAutoRestartCrashedAgent), where the trigger
+//     is a real crash — often a poisoned thread (a wedged ACP turn, a
+//     half-written threads.db row, a thread_load_error) that would just reproduce
+//     the wedge on reattach. Verified on a live wedged session: a recreate that
+//     preserved the thread never reached agent_ready, but a fresh thread came
+//     ready in seconds.
+//   - resetThread=false → KEEP ZedThreadID so the reconnect handler re-attaches
+//     to the existing thread and the next message resumes the conversation. This
+//     is the human-button default for a healthy session ("reboot to refresh the
+//     env, keep my context"). Clearing a healthy thread is silent total context
+//     loss — see design/2026-07-20-restart-clears-zed-thread-context-loss.md.
+//
+// The workspace volume (files + the agent's own session state, e.g. the Claude
+// Code thread jsonl) persists across the recreate either way; resetThread only
+// governs the Helix→Zed thread POINTER.
+//
 // Steps: validate it's an external Zed agent → StopDesktop (best-effort) →
-// clear ZedThreadID so Zed opens a FRESH thread (a crash frequently poisons the
-// thread itself, so reattaching just reproduces the wedge; callers that want to
-// restart while keeping the thread use /sessions/{id}/resume) →
-// resumeSessionInternal (StartDesktop) → reset crashed prompts → kick the queue.
-// Returns the count of prompts that were reset. Callers must have already
-// authorized the user against the session.
-func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *types.User, session *types.Session) (int, *system.HTTPError) {
+// [optionally] clear ZedThreadID → resumeSessionInternal (StartDesktop) → reset
+// crashed prompts → kick the queue. Returns the count of prompts that were
+// reset. Callers must have already authorized the user against the session.
+func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *types.User, session *types.Session, resetThread bool) (int, *system.HTTPError) {
 	sessionID := session.ID
 
 	if session.Metadata.AgentType != "zed_external" {
@@ -2511,18 +2569,15 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("StopDesktop during crash-restart failed (continuing — container may already be gone)")
 	}
 
-	// Clear the Zed thread so the restart opens a FRESH thread instead of
-	// reattaching to the crashed one. A crash frequently poisons the thread state
-	// itself (a wedged ACP turn, a half-written threads.db row), and reattaching
-	// just reproduces the wedge — verified on a live wedged session where a
-	// container recreate that preserved the thread never reached agent_ready, but
-	// a fresh thread came ready in seconds. The workspace volume still persists,
-	// so files and the agent's own state survive; only the conversation thread is
-	// reset. Persist the clear because the reconnect handler reloads the session
-	// from the store, so an in-memory clear alone would be overwritten by the
-	// stale thread id. On the first message Zed mints a new thread and
-	// thread_created repopulates ZedThreadID.
-	if previousThreadID != "" {
+	// Clear the Zed thread ONLY when the caller asked for a reset (poisoned-thread
+	// recovery). Persist the clear because the reconnect handler reloads the
+	// session from the store, so an in-memory clear alone would be overwritten by
+	// the stale thread id. On the first message Zed mints a new thread and
+	// thread_created repopulates ZedThreadID. When resetThread=false we leave
+	// ZedThreadID intact so the reconnect open_thread re-attaches to the existing
+	// conversation.
+	threadReset := previousThreadID != "" && resetThread
+	if threadReset {
 		session.Metadata.ZedThreadID = ""
 		if err := s.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
 			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to clear zed thread for crash-restart")
@@ -2530,9 +2585,10 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 		}
 	}
 
-	// Recreate the container via the shared resume path. With the thread cleared,
-	// Zed opens a fresh thread on reconnect; the agent still reloads its workspace
-	// volume, so files and state persist across the restart.
+	// Recreate the container via the shared resume path. If the thread was reset,
+	// Zed opens a fresh thread on reconnect; otherwise it re-attaches to the
+	// preserved thread. The agent reloads its workspace volume either way, so
+	// files and state persist across the restart.
 	if _, err := s.resumeSessionInternal(ctx, user, session); err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to resume session during crash-restart")
 		return 0, system.NewHTTPError500(fmt.Sprintf("failed to restart agent: %s", err.Error()))
@@ -2548,8 +2604,9 @@ func (s *HelixAPIServer) restartSessionContainer(ctx context.Context, user *type
 		Str("session_id", sessionID).
 		Str("user_id", user.ID).
 		Str("previous_zed_thread_id", previousThreadID).
+		Bool("thread_reset", threadReset).
 		Int("prompts_reset", resetCount).
-		Msg("🔄 [HELIX] Restart agent session — recreated container, cleared ZedThreadID (fresh thread), reset crashed prompts")
+		Msg("🔄 [HELIX] Restart agent session — recreated container, reset crashed prompts (thread_reset indicates whether the conversation thread was discarded)")
 
 	// Kick the queue so the reset prompts get dispatched on the new container.
 	go s.processAnyPendingPrompt(context.Background(), sessionID)
@@ -2663,7 +2720,12 @@ func (s *HelixAPIServer) maybeAutoRestartCrashedAgent(sessionID string) {
 		return
 	}
 
-	if _, herr := s.restartSessionContainer(ctx, user, fresh); herr != nil {
+	// Autonomous crash recovery ALWAYS resets the thread: the trigger is a genuine
+	// crash (thread_load_error / chat_response_error), which frequently means a
+	// poisoned thread that would reproduce the wedge on reattach. Boot progress
+	// (a fresh thread that reaches agent_ready) is worth more than the lost
+	// conversation for an unattended surface, and the crashed prompt is re-fed.
+	if _, herr := s.restartSessionContainer(ctx, user, fresh, true); herr != nil {
 		log.Error().
 			Str("session_id", sessionID).
 			Str("error", herr.Error()).
