@@ -2340,6 +2340,64 @@ steps:
 
 ---
 # ====================================================================
+# Publish Helm charts only after every release image manifest exists.
+# ====================================================================
+kind: pipeline
+type: docker
+name: publish-helm
+
+depends_on:
+  - default
+  - manifest-controlplane
+  - manifest-sandbox
+
+trigger:
+  ref:
+    include:
+      - refs/tags/*
+  status:
+    - success
+
+steps:
+  - name: publish-helm
+    image: google/cloud-sdk:slim
+    environment:
+      GCS_SERVICE_ACCOUNT_KEY:
+        from_secret: gcs_service_account_key
+    commands:
+      - apt-get update -qq
+      - apt-get install -y -qq curl > /dev/null
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
+      - scripts/publish-helm-charts.sh
+
+  - name: rollback-partial-release
+    image: golang:1.25-bookworm
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+      R2_ACCESS_KEY_ID:
+        from_secret: r2_access_key_id
+      R2_SECRET_ACCESS_KEY:
+        from_secret: r2_secret_access_key
+      GCS_SERVICE_ACCOUNT_KEY:
+        from_secret: gcs_service_account_key
+      SLACK_WEBHOOK_URL:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+    commands:
+      - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+      - curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      - echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list
+      - apt-get update -qq
+      - apt-get install -y -qq jq awscli gh google-cloud-cli > /dev/null
+      - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash > /dev/null
+      - scripts/release-rollback.sh "$DRONE_TAG"
+    when:
+      status:
+        - failure
+
+---
+# ====================================================================
 # Release Rollback Pipeline
 # ====================================================================
 # Runs ONLY on tag events when any release pipeline fails.
@@ -2428,13 +2486,7 @@ type: docker
 name: deploy-prod
 
 depends_on:
-  - default
-  - build-controlplane-amd64
-  - build-controlplane-arm64
-  - manifest-controlplane
-  - build-sandbox-amd64
-  - build-sandbox-arm64
-  - manifest-sandbox
+  - publish-helm
 
 trigger:
   ref:
