@@ -99,7 +99,7 @@ export const vcsScopesForProvider = (
   name: string | undefined | null,
 ): string[] | undefined => {
   if (matchesProviderType(type, name, 'github')) return GITHUB_VCS_SCOPES
-  if (matchesProviderType(type, name, 'gitlab')) return ['read_repository', 'write_repository', 'read_user']
+  if (matchesProviderType(type, name, 'gitlab')) return ['api', 'read_repository', 'write_repository', 'read_user']
   if (matchesProviderType(type, name, 'azure-devops')) return ['vso.code_write']
   if (matchesProviderType(type, name, 'bitbucket')) return ['repository', 'repository:write']
   return undefined

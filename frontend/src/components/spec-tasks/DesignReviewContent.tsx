@@ -60,9 +60,9 @@ import {
 import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
-import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -233,12 +233,9 @@ export default function DesignReviewContent({
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
-  // OAuth flow is needed when an approver without GitHub OAuth tries to
-  // approve — the backend returns 422 with error=oauth_required, and we
-  // redirect them through the GitHub connection flow before they retry.
+  // Open the matching repository provider when approval requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Get queue status for streaming
   // Enable polling immediately when we create a comment (awaitingCommentResponse)
@@ -1088,24 +1085,25 @@ export default function DesignReviewContent({
         onClose();
       }
     } catch (error: any) {
-      // Backend returns 422 with error=oauth_required when the approver has
-      // no GitHub OAuth connection. Drop into the connect-GitHub flow rather
-      // than showing a generic failure — the user can retry once connected.
+      // Open the matching provider connection flow on OAuth enforcement.
       const respData = error?.response?.data;
       if (respData?.error === "oauth_required") {
         setShowSubmitDialog(false);
-        if (gitHubProvider?.id) {
-          snackbar.info("Connect GitHub to approve this design.");
+        const providerType = respData?.provider_type === "gitlab" ? "gitlab" : "github";
+        const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+        const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+        if (oauthProvider?.id) {
+          snackbar.info(`Connect ${providerName} to approve this design.`);
           startOAuthFlow({
-            providerId: gitHubProvider.id,
-            scopes: GITHUB_VCS_SCOPES,
+            providerId: oauthProvider.id,
+            scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
             onSuccess: () => {
               snackbar.success(
-                "GitHub connected. Click Approve again to submit.",
+                `${providerName} connected. Click Approve again to submit.`,
               );
             },
             onError: (oauthError) => {
-              snackbar.error(`GitHub connection failed: ${oauthError}`);
+              snackbar.error(`${providerName} connection failed: ${oauthError}`);
             },
           });
         } else {
@@ -1113,7 +1111,7 @@ export default function DesignReviewContent({
           // error message is PR-centric and actionless for this user, so
           // override it with admin-direction guidance.
           snackbar.error(
-            "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.",
+            `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.`,
           );
         }
         return;

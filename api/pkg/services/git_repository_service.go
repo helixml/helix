@@ -2656,14 +2656,15 @@ func (s *GitRepositoryService) getCredentialsForRepo(ctx context.Context, gitRep
 	if len(userID) > 0 {
 		actingUserID = userID[0]
 	}
-	if actingUserID != "" && gitRepo.ExternalType == types.ExternalRepositoryTypeGitHub {
+	providerType := OAuthProviderTypeForRepo(gitRepo.ExternalType)
+	if actingUserID != "" && providerType != types.OAuthProviderTypeUnknown {
 		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 			UserID: actingUserID,
 		})
 		if err == nil {
 			for _, conn := range connections {
-				if conn.Provider.Type == types.OAuthProviderTypeGitHub && conn.AccessToken != "" {
-					return "x-access-token", conn.AccessToken
+				if oauthConnectionMatchesProvider(conn, providerType) && conn.AccessToken != "" {
+					return oauthGitUsername(gitRepo.ExternalType), conn.AccessToken
 				}
 			}
 		}
@@ -2743,7 +2744,7 @@ func (s *GitRepositoryService) newestLiveOAuthToken(ctx context.Context, userID 
 	}
 	var newest *types.OAuthConnection
 	for _, conn := range conns {
-		if conn.Provider.Type != wantType || conn.AccessToken == "" {
+		if !oauthConnectionMatchesProvider(conn, wantType) || conn.AccessToken == "" {
 			continue
 		}
 		if newest == nil || conn.UpdatedAt.After(newest.UpdatedAt) {
@@ -2789,6 +2790,11 @@ func OAuthProviderTypeForRepo(t types.ExternalRepositoryType) types.OAuthProvide
 	}
 }
 
+func oauthConnectionMatchesProvider(conn *types.OAuthConnection, providerType types.OAuthProviderType) bool {
+	return conn != nil && (conn.Provider.Type == providerType ||
+		(conn.Provider.Type == types.OAuthProviderTypeCustom && strings.Contains(strings.ToLower(conn.Provider.Name), string(providerType))))
+}
+
 // RepoOwnerName returns the "owner/repo" slug parsed from a repo's external URL,
 // or "" if it can't be parsed.
 func RepoOwnerName(repo *types.GitRepository) string {
@@ -2817,7 +2823,7 @@ func (s *GitRepositoryService) GetActingAccountHandle(ctx context.Context, gitRe
 		conns, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: actingUserID})
 		if err == nil {
 			for _, conn := range conns {
-				if conn.Provider.Type == providerType && conn.ProviderUsername != "" {
+				if oauthConnectionMatchesProvider(conn, providerType) && conn.ProviderUsername != "" {
 					return "@" + conn.ProviderUsername
 				}
 			}

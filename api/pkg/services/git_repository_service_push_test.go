@@ -30,6 +30,33 @@ func TestGitRepositoryPushSuiteADO(t *testing.T) {
 	suite.Run(t, new(GitRepositoryPushSuiteADO))
 }
 
+func TestPushBranchToRemote_GitLabUserWithoutOAuthReturnsErrorBeforePush(t *testing.T) {
+	mockStore := store.NewMockStore(gomock.NewController(t))
+	service := NewGitRepositoryService(mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com")
+	repoPath := t.TempDir()
+	if err := giteagit.InitRepository(context.Background(), repoPath, true, "sha1"); err != nil {
+		t.Fatalf("failed to initialize test repository: %v", err)
+	}
+	repo := &types.GitRepository{
+		ID:            "gitlab-repo",
+		LocalPath:     repoPath,
+		IsExternal:    true,
+		ExternalURL:   "https://gitlab.com/org/repo",
+		ExternalType:  types.ExternalRepositoryTypeGitLab,
+		DefaultBranch: "master",
+		GitLab:        &types.GitLab{PersonalAccessToken: "shared-pat"},
+	}
+	mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil)
+	mockStore.EXPECT().ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: "user-x"}).Return(nil, nil)
+
+	err := service.PushBranchToRemote(context.Background(), repo.ID, "feature", false, "user-x")
+
+	oauthErr, ok := err.(*OAuthRequiredError)
+	if !ok || oauthErr.ProviderType != "gitlab" {
+		t.Fatalf("expected GitLab OAuthRequiredError, got %T: %v", err, err)
+	}
+}
+
 func (suite *GitRepositoryPushSuiteADO) SetupTest() {
 	suite.store = store.NewMockStore(gomock.NewController(suite.T()))
 	suite.adoToken = os.Getenv("CI_ADO_TOKEN")
