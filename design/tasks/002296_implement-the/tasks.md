@@ -1,10 +1,10 @@
 # Implementation Tasks: Fix Claude Subscription UX — Whose Sub, Cross-User Edits, Legible Auth Errors
 
 ## Foundation — liveness probe & data model
-- [ ] Add `LastValidatedAt *time.Time` to `types.ClaudeSubscription`; confirm GORM AutoMigrate adds the column.
-- [ ] Create `api/pkg/anthropic/subscription_probe.go`: `ProbeClaudeSubscription(ctx, token)` → POST `api.anthropic.com/v1/messages` with `anthropic-beta: oauth-2025-04-20`; 401=invalid, 200/429=valid, network/5xx=inconclusive; ~5s timeout.
-- [ ] Add `ValidateSubscription(ctx, sub)` wrapper: decrypt creds, pick bearer (`setup_token`→SetupToken, `oauth`→AccessToken with refresh-if-expired), probe, persist `Status`/`LastError`/`LastValidatedAt` via `UpdateClaudeSubscription`.
-- [ ] Unit tests for the probe (401/429/200/network branches) using gomock + suite pattern.
+- [x] Add `LastValidatedAt *time.Time` to `types.ClaudeSubscription`; confirm GORM AutoMigrate adds the column.
+- [x] Create `api/pkg/anthropic/subscription_probe.go`: `ProbeClaudeSubscription(ctx, token)` → POST `api.anthropic.com/v1/messages` with `anthropic-beta: oauth-2025-04-20`; 401=invalid, 200/429=valid, network/5xx=inconclusive; 8s timeout.
+- [x] Add `ValidateSubscription(ctx, sub)` wrapper: decrypt creds, pick bearer (`setup_token`→SetupToken, `oauth`→AccessToken; oauth with expired-but-refreshable token → inconclusive, not invalid). Returns outcome; callers persist `Status`/`LastError`/`LastValidatedAt`.
+- [x] Unit tests for the probe (401/429/200/500/empty branches) via httptest, asserting the OAuth beta header is sent.
 
 ## Validation wiring
 - [ ] `createClaudeSubscription`: run `ValidateSubscription` after store instead of hard-coding `Status="active"`.
