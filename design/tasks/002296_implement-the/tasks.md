@@ -13,14 +13,14 @@
 
 ## Owner-scoped status endpoint (Story 1)
 - [x] Add `GET /api/v1/apps/{id}/claude-subscription-status` returning `{connected, valid, owner_id, owner_name, is_current_user, subscription_owner_type, status, last_validated_at, last_error}` for the **app owner** (authorise caller on the app; re-probe if stale >5min).
-- [ ] Add swagger annotations and run `./stack update_openapi` to regenerate the client.
+- [x] Add swagger annotations and run `./stack update_openapi` to regenerate the client (`v1AppsClaudeSubscriptionStatusDetail(id)` → `ServerAppClaudeSubscriptionStatus`).
 
 ## Frontend callout (Story 1 + Story 2 warning)
-- [ ] In `AppSettings.tsx` subscription branch (lines 703-775): add always-on info callout — "sessions authenticate with the session owner's subscription, not yours".
-- [ ] Add React Query hook for the owner-status endpoint (generated API client). When app owner ≠ current user, name the owner and show their subscription status.
-- [ ] Drive the subscription radio's "connected ✓" / "(not connected)" from owner status, not `useClaudeSubscriptions()` (fix the editor-scoped false positive).
-- [ ] Show the "<owner> has no working Claude subscription…" warning when owner status is `connected && !valid`.
-- [ ] Mirror the callout in shared coding-agent config (`CodingAgentForm.tsx` / `useCodingAgentProviderState.ts`) if low-cost; else note as follow-up.
+- [x] In `AppSettings.tsx` subscription branch: added always-on info callout — "sessions authenticate with the session owner's subscription, not yours".
+- [x] Added React Query hook (`v1AppsClaudeSubscriptionStatusDetail`) for the owner-status endpoint. When app owner ≠ current user, names the owner and shows their subscription status.
+- [x] Subscription radio's "connected ✓" for `claude_code` now derives from owner status (`hasClaudeSubscription = ownerClaudeStatus.connected`), falling back to `useClaudeSubscriptions()` only until it resolves — fixes the editor-scoped false positive.
+- [x] Shows a warning Alert when owner status is `!connected || !valid` (both cross-user and own-agent variants).
+- [ ] Mirror the callout in shared coding-agent config (`CodingAgentForm.tsx` / `useCodingAgentProviderState.ts`) — deferred as follow-up (AppSettings is the primary agent-edit surface the incident used).
 
 ## Legible session error (Story 3 — Helix-only primary)
 - [x] In `handleChatResponseError`: added `maybeReclassifySubscriptionAuthError` — when the interaction's session is subscription-mode Claude Code and the error is the generic mid-turn string, re-probe the resolved owner token; on invalid (or no sub) rewrite `interaction.Error` to the legible subscription-auth message (naming the owner). Persists the fresh status too.
