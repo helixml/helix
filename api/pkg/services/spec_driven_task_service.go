@@ -1265,6 +1265,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 
 		// Handle branch configuration based on mode
 		var branchName string
+		effectiveBaseBranch := repo.DefaultBranch
 		if task.BranchMode == types.BranchModeExisting && task.BranchName != "" {
 			// Existing mode: use the branch name that was set during task creation
 			branchName = task.BranchName
@@ -1284,6 +1285,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 			// Set base branch if not already set
 			if task.BaseBranch == "" {
 				task.BaseBranch = repo.DefaultBranch
+			}
+			if task.BranchMode == types.BranchModeNew {
+				effectiveBaseBranch = task.BaseBranch
 			}
 		}
 
@@ -1373,11 +1377,13 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 		// remote already has it. Errors are logged but don't block the
 		// transition: the existing pre-receive hook stops genuinely-bad
 		// pushes, and the agent prompt still names the right branch.
-		if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, repo.DefaultBranch); err != nil {
-			log.Error().Err(err).
-				Str("task_id", task.ID).Str("session_id", sessionID).
-				Str("repo", repo.Name).Str("branch", branchName).Str("base", repo.DefaultBranch).
-				Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+		if task.BranchMode == types.BranchModeNew {
+			if err := s.ensureFeatureBranchInContainer(ctx, sessionID, repo.Name, branchName, effectiveBaseBranch); err != nil {
+				log.Error().Err(err).
+					Str("task_id", task.ID).Str("session_id", sessionID).
+					Str("repo", repo.Name).Str("branch", branchName).Str("base", effectiveBaseBranch).
+					Msg("Failed to check out feature branch in container at approval; agent may start on base branch")
+			}
 		}
 
 		// Send instruction to existing agent session (reuse planning session)
@@ -1391,7 +1397,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				task.CreatedBy, // User who created the task
 				task,
 				branchName,
-				repo.DefaultBranch,
+				effectiveBaseBranch,
 				repo.Name,
 			)
 			if err != nil {
@@ -1407,6 +1413,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, task *types.Sp
 				Str("task_id", task.ID).
 				Str("session_id", sessionID).
 				Str("branch_name", branchName).
+				Str("base_branch", effectiveBaseBranch).
 				Msg("Specs approved - sent implementation instruction to existing agent")
 		} else {
 			log.Warn().
