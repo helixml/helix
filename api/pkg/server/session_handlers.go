@@ -2463,11 +2463,15 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	}
 
 	// A human clicking Restart almost always means "reboot the container, keep my
-	// conversation" (e.g. to pick up a newly-cloned repo or refreshed env). Only
-	// treat it as a thread reset when the thread looks wedged — the last turn did
-	// not finish cleanly. Preserving a healthy thread avoids the silent, total
-	// context loss in design/2026-07-20-restart-clears-zed-thread-context-loss.md.
-	resetThread := !s.lastInteractionCompletedCleanly(ctx, session)
+	// conversation" — most often to apply a settings change (e.g. api_key →
+	// subscription, which needs the desktop recreated to pick up the new agent
+	// env). Only reset the thread on POSITIVE evidence it is genuinely wedged.
+	// An in-flight (waiting) turn or a turn that errored on auth / rate-limit /
+	// provider / transport / cancel leaves the conversation thread perfectly
+	// intact — resetting on those is silent, total context loss. See
+	// design/2026-07-21-restart-discards-thread-on-nonclean-turn.md (and the
+	// earlier design/2026-07-20-restart-clears-zed-thread-context-loss.md).
+	resetThread := s.threadIsWedged(ctx, session)
 
 	resetCount, herr := s.restartSessionContainer(ctx, user, session, resetThread)
 	if herr != nil {
@@ -2481,18 +2485,28 @@ func (s *HelixAPIServer) restartCrashedAgentThread(_ http.ResponseWriter, r *htt
 	}, nil
 }
 
-// lastInteractionCompletedCleanly reports whether the session's most recent
-// interaction finished in a healthy terminal state (complete or interrupted),
-// which means the Zed thread is safe to reattach to on restart. A mid-turn or
-// errored last interaction (waiting / editing / error) indicates a possible
-// thread wedge, so the restart should reset the thread and open a fresh one.
+// threadIsWedged reports whether the session's Zed thread is genuinely wedged —
+// i.e. the ACP agent/thread itself can no longer be driven, so reattaching would
+// just reproduce the wedge and a fresh thread is the only recovery. This is the
+// ONLY condition under which a human Restart discards the conversation pointer.
 //
-// On a query error we assume healthy (preserve the thread): the failure mode of
-// a wrongly-preserved poisoned thread is a boot that hangs and can be retried,
-// whereas a wrongly-cleared healthy thread is silent, unrecoverable context loss
-// — always err toward keeping the conversation. Zero interactions is likewise
-// healthy: there is no wedged turn to reproduce and nothing to lose.
-func (s *HelixAPIServer) lastInteractionCompletedCleanly(ctx context.Context, session *types.Session) bool {
+// A thread is wedged only when the most recent interaction errored with positive
+// evidence of an agent crash or an authoritative missing-thread report (the same
+// signals autonomous crash recovery keys on). Everything else keeps the thread:
+//   - complete / interrupted → the turn finished cleanly.
+//   - waiting / editing → the turn is still in-flight; the reconnect open_thread
+//     reattaches, and if that in-flight turn is truly dead the lazy
+//     recoverMissingThread path cleans it up on the next thread_load_error —
+//     strictly better than pre-emptively zeroing a large, healthy thread.
+//   - error from auth (401), rate-limit (429), a provider outage, a transport
+//     drop, or a user-cancel → the LLM call failed, the thread did not.
+//
+// On a query error, or with zero interactions, we treat the thread as healthy
+// (preserve): a wrongly-preserved poisoned thread is a boot that hangs and can be
+// retried, whereas a wrongly-cleared healthy thread is silent, unrecoverable
+// context loss — always err toward keeping the conversation. See
+// design/2026-07-21-restart-discards-thread-on-nonclean-turn.md.
+func (s *HelixAPIServer) threadIsWedged(ctx context.Context, session *types.Session) bool {
 	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    session.ID,
 		GenerationID: session.GenerationID,
@@ -2502,17 +2516,20 @@ func (s *HelixAPIServer) lastInteractionCompletedCleanly(ctx context.Context, se
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).
 			Msg("restart: could not read last interaction to assess thread health — assuming healthy to avoid discarding conversation context")
-		return true
-	}
-	if len(interactions) == 0 {
-		return true
-	}
-	switch interactions[0].State {
-	case types.InteractionStateComplete, types.InteractionStateInterrupted:
-		return true
-	default:
 		return false
 	}
+	if len(interactions) == 0 {
+		return false
+	}
+	last := interactions[0]
+	if last.State != types.InteractionStateError {
+		// Healthy or still in-flight — never a wedge. A red flag would be
+		// clearing a complete/waiting thread, which this branch prevents.
+		return false
+	}
+	// The last turn errored: reset ONLY if the error is a genuine thread/agent
+	// wedge. Auth/provider/rate-limit/transport/cancel errors are not.
+	return isAgentCrashError(last.Error) || isAuthoritativeMissingThreadError(last.Error)
 }
 
 // restartSessionContainer is the single canonical "restart the agent" backend
