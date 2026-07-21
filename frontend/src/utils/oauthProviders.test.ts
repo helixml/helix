@@ -6,6 +6,7 @@ import {
   findOAuthProviderForType,
   mapProviderToRepoType,
   hasRequiredScopes,
+  vcsScopesForProvider,
 } from './oauthProviders'
 import { TypesOAuthConnection, TypesOAuthProvider, TypesExternalRepositoryType, TypesOAuthProviderType } from '../api/api'
 
@@ -239,5 +240,9 @@ describe('oauthProviders utilities', () => {
         expect(hasRequiredScopes(['repo'], null as any)).toBe(false)
       })
     })
+  })
+
+  it('requests the GitLab API scope for merge requests', () => {
+    expect(vcsScopesForProvider('gitlab', 'GitLab')).toContain('api')
   })
 })

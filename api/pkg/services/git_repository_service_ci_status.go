@@ -76,7 +76,7 @@ func (s *GitRepositoryService) getGitHubCIStatus(ctx context.Context, repo *type
 }
 
 func (s *GitRepositoryService) getGitLabCIStatus(ctx context.Context, repo *types.GitRepository, headSHA string) (*types.CIStatus, error) {
-	client, err := s.getGitLabClient(ctx, repo)
+	client, err := s.getGitLabClient(ctx, repo, "")
 	if err != nil {
 		return nil, err
 	}

@@ -141,10 +141,10 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	// If repo is external, move to pull_request status (awaiting merge in external system)
 	// For internal repos, try merge first - only record approval if merge succeeds
 	if s.shouldOpenPullRequest(repo) {
-		// Validate user has GitHub OAuth before advancing task status.
+		// Validate user OAuth before advancing task status.
 		// This is a lightweight sync check (DB lookup only). The actual PR
 		// creation remains async.
-		if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+		if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
 				writeResponse(w, map[string]interface{}{
@@ -781,12 +781,12 @@ func (s *HelixAPIServer) ensurePullRequestsForAllRepos(ctx context.Context, task
 			}
 			var oauthErr *services.OAuthRequiredError
 			if errors.As(err, &oauthErr) {
-				task.Metadata["error"] = "GitHub OAuth connection required to open a PR. Please connect your GitHub account and try again."
+				task.Metadata["error"] = fmt.Sprintf("%s OAuth connection required to open a PR. Please connect your account and try again.", oauthErr.ProviderType)
 			} else if strings.Contains(err.Error(), "Permission") && strings.Contains(err.Error(), "denied") {
-				task.Metadata["error"] = fmt.Sprintf("Permission denied: your GitHub account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.Name)
+				task.Metadata["error"] = fmt.Sprintf("Permission denied: your %s account does not have write access to %s. Ask the repository owner to add you as a collaborator.", repo.ExternalType, repo.Name)
 			} else if strings.Contains(err.Error(), "rate limit") {
-				// GitHub API rate limit — transient, don't alarm the user
-				log.Warn().Err(err).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("GitHub API rate limit hit, will retry on next cycle")
+				// Provider API rate limits are transient, so retry on the next cycle.
+				log.Warn().Err(err).Str("repo_name", repo.Name).Str("task_id", task.ID).Msg("VCS API rate limit hit, will retry on next cycle")
 				// Preserve existing PR data but don't set a scary error message
 				for _, existing := range task.RepoPullRequests {
 					if existing.RepositoryID == repo.ID {

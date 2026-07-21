@@ -1316,51 +1316,6 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 		}
 	}
 
-	// Fallback: check if branch has been merged to main in the primary repo
-	// (handles squash-merges or branch deletion after merge)
-	if project.DefaultRepoID == "" {
-		return nil
-	}
-	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
-	if err != nil {
-		return fmt.Errorf("failed to get default repository: %w", err)
-	}
-	if !repo.IsExternal {
-		return nil
-	}
-
-	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-	if err != nil {
-		if task.LastPushCommitHash != "" {
-			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-			if err != nil {
-				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to check if commit is in main branch")
-				return nil
-			}
-		} else {
-			return nil
-		}
-	}
-
-	if merged {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("branch", task.BranchName).
-			Msg("Detected merged branch (no PR found), moving task to done status")
-
-		now := time.Now()
-		task.Status = types.TaskStatusDone
-		task.MergedToMain = true
-		task.MergedAt = &now
-		task.CompletedAt = &now
-		task.UpdatedAt = now
-		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-			return err
-		}
-		DismissTaskAttentionEvents(ctx, o.store, task.ID)
-		return nil
-	}
-
 	return nil
 }
 
