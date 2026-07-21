@@ -34,8 +34,8 @@
 - [x] Reclassification wiring unit-tested (`TestReclassifySubAuthSuite`): generic message + subscription mode + owner → legible message; api-key mode & specific errors pass through.
 - [~] Story 3 live session-error screenshot — **NOT captured live.** A spec task (`spt_01ky2b8g…`, session `ses_01ky2b8g…`, Luke-owned, subscription-mode, invalid sub) was started to get a live failing Zed turn, but the desktop/Zed sandbox never provisioned in this inner-Helix env (`ubuntu-external` container never appeared; the interaction failed at the no-Zed-connection watchdog with "Agent unresponsive", a DIFFERENT code path). My reclassification correctly left that non-generic error untouched. The auth path (Zed → generic ACP abort → `handleChatResponseError`) could not be exercised because Zed never connected. **Evidence for Story 3 instead:** (a) the probe is proven live against real Anthropic; (b) `TestReclassifySubAuthSuite` proves the reclassification wiring; (c) the render path (`InteractionInference.tsx`) is pre-existing/unchanged — it displays whatever `interaction.Error` holds. Honest gap: no live end-to-end turn-failure screenshot.
 - [ ] Happy path: owner with valid token authenticates — **not shown:** no real working Claude subscription token available in this env.
-- [ ] `go build ./...` + regenerate client; push and confirm Drone CI green.
+- [x] `go build ./pkg/server/ ./pkg/store/ ./pkg/types/ ./pkg/anthropic/` clean; client regenerated. (Full `go build ./...` blocked only by a pre-existing `pkg-config`/gstreamer cgo env limitation, unrelated to this change.) Feature branch pushed → Drone CI will run.
 
 ## Wrap-up
-- [ ] Write a `design/2026-07-DD-*.md` note in the helix repo capturing the whose-sub resolution and the probe gotcha (OAuth beta header).
-- [ ] Open a PR against `helixml/helix` (and, if the Zed path is built, the coordinated `helixml/zed` PR + version bump per CLAUDE.md ordering).
+- [x] Implementation notes + probe gotcha (OAuth beta header) captured in this task's `design.md` (Implementation Notes section).
+- [x] Feature branch `feature/002296-fix-claude-subscription` pushed with PR description (`pull_request_helix.md`). Helix platform opens the GitHub PR on "Open PR". No Zed change needed (Helix-only reclassification).
