@@ -143,4 +143,33 @@ survival is.
 
 API-side Go only (`api/pkg/server/session_handlers.go`, reusing classifiers from
 `websocket_external_agent_sync.go`). Air hot-reloads; no Zed/sandbox rebuild
-expected → likely no `sandbox-versions.txt` bump.
+needed, no `sandbox-versions.txt` bump.
+
+## Implementation notes & live learnings
+
+- **Implemented:** replaced `lastInteractionCompletedCleanly` with
+  `threadIsWedged` (`session_handlers.go`); the human Restart entrypoint
+  `restartCrashedAgentThread` now sets `resetThread := s.threadIsWedged(...)`.
+  Wedge = last interaction `State==error` AND (`isAgentCrashError` OR
+  `isAuthoritativeMissingThreadError`). Everything else preserves. Autonomous
+  `maybeAutoRestartCrashedAgent` untouched. Unit tests updated
+  (`TestThreadIsWedged`, `TestButtonPreservesHealthyThreadResetsWedged`).
+- **The WARN "cleared a complete/waiting thread" log was intentionally NOT added:**
+  the new gate makes that combination impossible on the human path, so the log
+  would be unreachable dead code. Documented in the `threadIsWedged` comment.
+- **Live learning (important):** killing the ACP agent does NOT produce the
+  `Session not found` / `no thread found with ID` markers — it produces TRANSPORT
+  errors (`agent turn aborted: the ACP agent process exited mid-turn or hit max
+  tokens`, `send failed because receiver is gone`, `response channel cancelled`).
+  My gate preserves all of these, and the Restart RECOVERS full context by
+  recreating the container and `claude --resume`-ing the thread (verified: codeword
+  recalled after a mid-turn process kill + restart). So "process crash" is a
+  preserve-and-recover case, not a reset case — resetting on it (the old behavior)
+  was the very data-loss bug. Reset is reserved for a genuinely unloadable thread,
+  which also has the unchanged lazy `recoverMissingThread` safety net.
+- **Gotcha:** each Restart **rotates the session's API key** (type=`api`) — re-read
+  it from `api_keys` before the next authenticated call. The restart endpoint
+  rejects `app`-type keys ("path not allowed for app API keys").
+- **Gotcha:** the newest interaction must be selected by `ORDER BY id DESC` (ULID),
+  NOT `created` — the planning interaction can carry a quirky-recent `created`
+  timestamp. `threadIsWedged` uses `id DESC`, matching the code.
