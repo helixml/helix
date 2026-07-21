@@ -9,12 +9,12 @@
 - [ ] **Repro C (restart alone):** with a non-clean last turn but **no** config change, Restart → confirm whether it also loses the thread (reviewer's suspicion).
 - [ ] Record `thread_reset`, the reconnect `zed_thread_id`, and any `thread_created` for each; confirm no `thread_load_error` on the original thread.
 
-## 2. Implement the fix
+## 2. Implement the fix (done first; Air hot-reloads before live verify)
 
-- [ ] Add `threadIsWedged(ctx, session)` that returns true **only** on positive wedge evidence: last interaction `State==error` AND (`isAgentCrashError(last.Error)` OR `isAuthoritativeMissingThreadError(last.Error)`). `waiting`/`complete`/`interrupted`, and non-wedge errors (auth/429/provider/transport/cancel), return false.
-- [ ] In the human-restart entrypoint (`restartCrashedAgentThread`, `session_handlers.go:2470`), replace `resetThread := !lastInteractionCompletedCleanly(...)` with `resetThread := s.threadIsWedged(...)`.
-- [ ] Keep autonomous `maybeAutoRestartCrashedAgent` resetting on genuine crashes; make it share the same wedge definition/classifiers so the two paths agree. Do NOT loosen crash recovery.
-- [ ] Add a WARN red-flag log when a restart clears a thread whose last interaction was `complete` or `waiting`.
+- [~] Add `threadIsWedged(ctx, session)` that returns true **only** on positive wedge evidence: last interaction `State==error` AND (`isAgentCrashError(last.Error)` OR `isAuthoritativeMissingThreadError(last.Error)`). `waiting`/`complete`/`interrupted`, and non-wedge errors (auth/429/provider/transport/cancel), return false.
+- [~] In the human-restart entrypoint (`restartCrashedAgentThread`, `session_handlers.go:2470`), replace `resetThread := !lastInteractionCompletedCleanly(...)` with `resetThread := s.threadIsWedged(...)`.
+- [~] Keep autonomous `maybeAutoRestartCrashedAgent` resetting on genuine crashes — it is already gated on `isAgentCrashError`, so it stays consistent with the new wedge definition. Do NOT loosen crash recovery.
+- [~] Add a WARN red-flag log when a restart clears a thread whose last interaction was `complete` or `waiting`.
 - [ ] Consider (note in PR, implement if in scope): apply the same wedge/kind gate to the unconditional clear at `session_switch_agent_handlers.go:237`.
 
 ## 3. Build & unit test
