@@ -1528,9 +1528,9 @@ function TaskCardInner({
                     textAlign: "center",
                   }}
                 >
-                  Address review comments with agent.
+                  A PR was detected for this task's branch, so it appears here.
                   <br />
-                  Moves to Merged when PR closes.
+                  Moves to Merged when the PR is merged.
                 </Typography>
               </>
             ) : (
