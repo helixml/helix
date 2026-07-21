@@ -24,10 +24,10 @@
 
 ## 4. Live acceptance test (mandatory — connected Zed, not seeded rows)
 
-- [~] **US1/US2:** non-clean last turn (in-flight, then auth-errored) → Restart → reconnect sends `open_thread(<thread>)`, Zed reloads it (no blank, no new `thread_created`), `thread_reset=false`; a follow-up message climbs `last_zed_message_id` on the SAME thread with prior context. Paste log/DB output.
-- [ ] **US3:** Restart alone (no config change) on a non-clean turn → thread preserved. Paste output.
-- [ ] **US4:** Restart after a `complete` turn → preserved (no #2860 regression).
-- [ ] **US5:** kill the ACP agent so the last interaction errors with `Session not found` / `Claude Agent process exited` → Restart resets and recovers cleanly.
+- [x] **US1** (the incident): restart with newest interaction = `waiting` (in-flight) → `thread_reset=false`; reconnect logged `zed_thread_id=69b7bfb6…` + `Sending open_thread` (reattach, NOT blank); no new `thread_created`; follow-up recalled the codeword "PANGOLIN-42" at `last_zed_message_id=22` on the SAME thread. (Old code would have `thread_reset=true` → blank.) Evidence in `live-test-results.md`.
+- [x] **US3:** Test B (US1) was a restart with **no** config change on a non-clean (`waiting`) turn → thread preserved. Confirms restart-alone no longer loses context.
+- [x] **US4:** restart with last turn `complete` → `thread_reset=false`, thread `69b7bfb6` preserved (no #2860 regression).
+- [~] **US5:** kill the ACP agent so the last interaction errors with `Session not found` / `Claude Agent process exited` → Restart resets and recovers cleanly.
 
 ## 5. Ship
 
