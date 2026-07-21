@@ -31,6 +31,10 @@
 
 ## 5. Ship
 
-- [ ] Write the root-cause + fix design doc under `helix/design/2026-07-21-restart-discards-thread-on-nonclean-turn.md` (mirror the #2860 writeup); include the confirmed clear-path, the gate, and pasted live evidence.
-- [ ] Open a PR against `helixml/helix` (full URL); report the exact clear-path, the gate added, and the live test output (do NOT claim "covered by unit tests").
-- [ ] Check CI (Drone / `gh pr checks`) green; fix and re-check if red.
+- [x] Wrote the root-cause + fix design doc `helix/design/2026-07-21-restart-discards-thread-on-nonclean-turn.md` (mirrors the #2860 writeup) with the confirmed clear-path, the gate, and live evidence.
+- [x] Pushed branch `feature/002295-restart-must-not-discard` (merged latest `origin/main`, rebuilds clean). PR description at `pull_request_helix.md`. Platform opens the GitHub PR on "Open PR".
+- [ ] Check CI green once the PR exists (Drone) — pending PR creation.
+
+## 6. Deferred / follow-up
+
+- [ ] The unconditional `ZedThreadID = ""` at `session_switch_agent_handlers.go:237` (in-place switch-agent) is out of scope for this restart incident but should get the same wedge/kind gate; flagged for a follow-up.
