@@ -378,6 +378,129 @@ func TestSpecDrivenTaskService_ApproveSpecs_NilSpecApprovalAndNilApprovedAt(t *t
 	require.NoError(t, err)
 }
 
+func TestSpecDrivenTaskService_ApproveSpecsUsesCustomBaseForNewBranch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	var checkoutCommand []string
+	var approvalPrompt string
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.ExecInDesktop = func(_ context.Context, _ string, command []string) error {
+		checkoutCommand = command
+		return nil
+	}
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, message string, _ bool, _ string) error {
+		approvalPrompt = message
+		return nil
+	}
+
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-custom-base",
+		ProjectID:         "project-1",
+		CreatedBy:         "user-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "session-1",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		BranchMode:        types.BranchModeNew,
+		BaseBranch:        "release/2.0",
+		TaskNumber:        44,
+		Name:              "custom-base-task",
+	}
+	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
+	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
+
+	mockStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(ctx, repo.ID).Return(repo, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ string, _ []types.SpecTaskStatus, _ types.SpecTaskStatus, fields map[string]any) (bool, error) {
+		assert.Equal(t, "release/2.0", fields["base_branch"])
+		return true, nil
+	})
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: task.ID})
+	require.NoError(t, err)
+	require.Len(t, checkoutCommand, 3)
+	assert.Equal(t, "bash", checkoutCommand[0])
+	assert.Contains(t, checkoutCommand[2], "git fetch origin 'release/2.0'")
+	assert.Contains(t, checkoutCommand[2], "origin/'release/2.0'")
+	assert.NotContains(t, checkoutCommand[2], "origin/'main'")
+	assert.Contains(t, approvalPrompt, "git fetch origin release/2.0 && git merge origin/release/2.0")
+	assert.NotContains(t, approvalPrompt, "git fetch origin main && git merge origin/main")
+}
+
+func TestSpecDrivenTaskService_ApproveSpecsDoesNotCheckoutExistingBranch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	execCalls := 0
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil, nil, nil,
+		NewDisabledKoditService(),
+	)
+	service.ExecInDesktop = func(_ context.Context, _ string, _ []string) error {
+		execCalls++
+		return nil
+	}
+	service.EnqueueMessageToAgent = func(_ context.Context, _ *types.SpecTask, _ string, _ bool, _ string) error {
+		return nil
+	}
+
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:                "task-existing-branch",
+		ProjectID:         "project-1",
+		CreatedBy:         "user-1",
+		Status:            types.TaskStatusSpecApproved,
+		PlanningSessionID: "session-1",
+		SpecApproval:      &types.SpecApprovalResponse{Approved: true},
+		BranchMode:        types.BranchModeExisting,
+		BranchName:        "existing-work",
+		TaskNumber:        45,
+		Name:              "existing-branch-task",
+	}
+	project := &types.Project{ID: "project-1", DefaultRepoID: "repo-1"}
+	repo := &types.GitRepository{ID: "repo-1", Name: "helix", DefaultBranch: "main"}
+
+	mockStore.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	mockStore.EXPECT().GetProject(gomock.Any(), project.ID).Return(project, nil).Times(2)
+	mockStore.EXPECT().GetGitRepository(ctx, repo.ID).Return(repo, nil)
+	mockStore.EXPECT().TransitionSpecTaskStatus(
+		ctx,
+		task.ID,
+		gomock.Any(),
+		types.TaskStatusImplementation,
+		gomock.Any(),
+	).Return(true, nil)
+	mockStore.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{repo}, nil).Times(2)
+
+	err := service.ApproveSpecs(ctx, &types.SpecTask{ID: task.ID})
+	require.NoError(t, err)
+	assert.Zero(t, execCalls)
+}
+
 // TestSpecDrivenTaskService_ApproveSpecs_LosesAtomicTransitionRace verifies the
 // authoritative race guard: if TransitionSpecTaskStatus reports it didn't update
 // the row (transitioned=false), ApproveSpecs must bail without sending the
