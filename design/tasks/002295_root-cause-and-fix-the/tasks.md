@@ -24,7 +24,7 @@
 
 ## 4. Live acceptance test (mandatory — connected Zed, not seeded rows)
 
-- [ ] **US1/US2:** non-clean last turn (in-flight, then auth-errored) → Restart → reconnect sends `open_thread(<thread>)`, Zed reloads it (no blank, no new `thread_created`), `thread_reset=false`; a follow-up message climbs `last_zed_message_id` on the SAME thread with prior context. Paste log/DB output.
+- [~] **US1/US2:** non-clean last turn (in-flight, then auth-errored) → Restart → reconnect sends `open_thread(<thread>)`, Zed reloads it (no blank, no new `thread_created`), `thread_reset=false`; a follow-up message climbs `last_zed_message_id` on the SAME thread with prior context. Paste log/DB output.
 - [ ] **US3:** Restart alone (no config change) on a non-clean turn → thread preserved. Paste output.
 - [ ] **US4:** Restart after a `complete` turn → preserved (no #2860 regression).
 - [ ] **US5:** kill the ACP agent so the last interaction errors with `Session not found` / `Claude Agent process exited` → Restart resets and recovers cleanly.
