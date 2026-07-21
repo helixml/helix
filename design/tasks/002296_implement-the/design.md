@@ -169,3 +169,53 @@ tests. Show real UI states (screenshots/DOM).
   callout, owner-status hook, warning.
 - (Optional Zed) `zed/crates/acp_thread/src/acp_thread.rs`,
   `external_websocket_sync/src/{thread_service,types}.rs` + `sandbox-versions.txt`.
+
+## Implementation Notes (as built)
+
+**What shipped (helix repo only — no Zed change was needed):**
+- `api/pkg/anthropic/subscription_probe.go` — `ProbeClaudeSubscription` (raw 401/429/200
+  classification, mandatory `anthropic-beta: oauth-2025-04-20` header) + `ValidateSubscription`
+  (decrypt, pick bearer, probe). `subscriptionProbeURL` is a `var` so the httptest-based unit
+  test can point it at a local server.
+- `types.ClaudeSubscription.LastValidatedAt` added (GORM AutoMigrate picks up the column).
+- `revalidateClaudeSubscription` (in `claude_subscription_handlers.go`) probes + persists
+  `Status`/`LastError`/`LastValidatedAt`. Called on connect and by the status endpoint (re-probes
+  when stale >5min). **Inconclusive never downgrades Status** (network blip / expired-refreshable
+  oauth token must not read as "invalid").
+- `GET /api/v1/apps/{id}/claude-subscription-status` → `AppClaudeSubscriptionStatus` — resolves the
+  **app owner's** effective sub (the likely session owner), returns `connected/valid/owner_name/
+  is_current_user/…`. Backs the callout and fixes the editor-scoped false positive.
+- `handleChatResponseError` → `maybeReclassifySubscriptionAuthError`: only rewrites the specific
+  generic ACP abort string (`genericACPAbortMarker`), and only for subscription-mode Claude Code
+  sessions whose owner sub is missing/invalid. Everything else passes through unchanged.
+- Frontend `AppSettings.tsx`: owner-status React Query hook; the subscription radio's connected
+  state now derives from owner status; always-on "session owner's / not yours" callout; warning
+  Alert for cross-user and own-agent invalid cases.
+
+**Decisions & learnings:**
+- **Warn, not block (Open Q1).** No hard save-block; the callout + owner-status endpoint surface the
+  warning live, and the session-start `Status != "active"` guard + turn-time reclassification catch
+  runtime. Simpler and avoids breaking legit "configure before owner connects" flows.
+- **No Zed change required.** The Helix-only reclassification fully covers the incident's auth case
+  and is testable in the inner loop. The general Zed `error_kind` propagation remains an optional
+  follow-up (out of scope here).
+- **OAuth-beta header is load-bearing** — without `anthropic-beta: oauth-2025-04-20`, Anthropic
+  rejects subscription tokens with "only authorized for Claude Code" (would look like a false 401).
+- **Expired-but-refreshable oauth tokens** are returned `ProbeInconclusive`, not `Invalid` — Claude
+  Code refreshes them in-container; probing the stale access token would false-positive.
+- **The connect endpoint requires a personal (not app-scoped) API key** — app keys hit
+  "path not allowed"; used the browser session cookie instead.
+
+## Verification (what was proven, honestly)
+- **Live, against real Anthropic:** connected an invalid `sk-ant-oat…` setup token → probe returned
+  401 → row persisted `status=error`, `last_error="invalid or expired token (401 from Anthropic)"`,
+  `last_validated_at`. Confirms the whole validation mechanism end-to-end.
+- **Live UI (screenshots):** (01) own-agent invalid-sub warning; (02) cross-user — Luke editing
+  Chris-owned agent shows "chris@helix.ml has no working Claude subscription connected" + the radio
+  disabled/"(not connected)". This is the exact incident, now visible before any turn runs.
+- **Unit:** `TestReclassifySubAuthSuite` (reclassification wiring) + `TestProbeClaudeSubscription`
+  (probe branches + beta header).
+- **Not shown live:** the final Story-3 turn-failure screenshot — the inner-Helix desktop/Zed
+  sandbox would not provision (`ubuntu-external` never started; interaction hit the no-connection
+  watchdog, a different path). Auth reclassification therefore couldn't be exercised end-to-end via
+  a real Zed turn. Happy path also not shown (no working Claude token in this env).

@@ -32,9 +32,9 @@
 - [x] **Story 1 own-agent (screenshot 01):** Luke's own agent, invalid sub → callout "session owner's / not yours" + warning "Your Claude subscription isn't working (invalid or expired token (401 from Anthropic))".
 - [x] **Story 1 cross-user (screenshot 02):** Luke edits Chris-owned agent → callout names **chris@helix.ml**, warns "has no working Claude subscription connected", and the subscription radio shows "(not connected)" + disabled — the exact incident, now visible.
 - [x] Reclassification wiring unit-tested (`TestReclassifySubAuthSuite`): generic message + subscription mode + owner → legible message; api-key mode & specific errors pass through.
-- [~] Story 3 live session-error screenshot (owner with invalid token → turn fails → UI shows legible auth error) — attempting via a spec task (live Zed).
-- [ ] Happy path: owner with valid token authenticates and a turn succeeds (needs a real working Claude token; not available in this env — see note).
-- [ ] `go build ./pkg/...` + `cd frontend && yarn build`; push and confirm Drone CI green.
+- [~] Story 3 live session-error screenshot — **NOT captured live.** A spec task (`spt_01ky2b8g…`, session `ses_01ky2b8g…`, Luke-owned, subscription-mode, invalid sub) was started to get a live failing Zed turn, but the desktop/Zed sandbox never provisioned in this inner-Helix env (`ubuntu-external` container never appeared; the interaction failed at the no-Zed-connection watchdog with "Agent unresponsive", a DIFFERENT code path). My reclassification correctly left that non-generic error untouched. The auth path (Zed → generic ACP abort → `handleChatResponseError`) could not be exercised because Zed never connected. **Evidence for Story 3 instead:** (a) the probe is proven live against real Anthropic; (b) `TestReclassifySubAuthSuite` proves the reclassification wiring; (c) the render path (`InteractionInference.tsx`) is pre-existing/unchanged — it displays whatever `interaction.Error` holds. Honest gap: no live end-to-end turn-failure screenshot.
+- [ ] Happy path: owner with valid token authenticates — **not shown:** no real working Claude subscription token available in this env.
+- [ ] `go build ./...` + regenerate client; push and confirm Drone CI green.
 
 ## Wrap-up
 - [ ] Write a `design/2026-07-DD-*.md` note in the helix repo capturing the whose-sub resolution and the probe gotcha (OAuth beta header).
