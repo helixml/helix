@@ -7,12 +7,12 @@
 - [x] Unit tests for the probe (401/429/200/500/empty branches) via httptest, asserting the OAuth beta header is sent.
 
 ## Validation wiring
-- [ ] `createClaudeSubscription`: run `ValidateSubscription` after store instead of hard-coding `Status="active"`.
-- [ ] `validateProvidersAndModels` (subscription branch): resolve the **app owner's** effective subscription, validate it, return a **soft warning** (non-blocking) in the save response.
+- [x] `createClaudeSubscription`: run `ValidateSubscription` after store instead of hard-coding `Status="active"`; persist `Status`/`LastError`/`LastValidatedAt` (via `revalidateClaudeSubscription` helper).
+- [x] ~~`validateProvidersAndModels` soft warning~~ — **decision (Open Q1): warn, don't block.** The save-time warning is surfaced live via the owner-status endpoint + `AppSettings.tsx` callout (below), not by threading a warning through the save response. No server-side save block. Runtime is caught by the session-start check.
 - [ ] `subscriptionEnvForSession` / `addUserAPITokenToAgent`: on subscription mode with no valid owner subscription, surface the legible error at session start instead of silently degrading.
 
 ## Owner-scoped status endpoint (Story 1)
-- [ ] Add `GET /api/v1/apps/{id}/claude-subscription-status` returning `{connected, valid, owner_id, owner_name, owner_type, status, last_validated_at, last_error}` for the **app owner** (authorise caller on the app).
+- [x] Add `GET /api/v1/apps/{id}/claude-subscription-status` returning `{connected, valid, owner_id, owner_name, is_current_user, subscription_owner_type, status, last_validated_at, last_error}` for the **app owner** (authorise caller on the app; re-probe if stale >5min).
 - [ ] Add swagger annotations and run `./stack update_openapi` to regenerate the client.
 
 ## Frontend callout (Story 1 + Story 2 warning)
