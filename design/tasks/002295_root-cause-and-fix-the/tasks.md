@@ -11,16 +11,16 @@
 
 ## 2. Implement the fix (done first; Air hot-reloads before live verify)
 
-- [~] Add `threadIsWedged(ctx, session)` that returns true **only** on positive wedge evidence: last interaction `State==error` AND (`isAgentCrashError(last.Error)` OR `isAuthoritativeMissingThreadError(last.Error)`). `waiting`/`complete`/`interrupted`, and non-wedge errors (auth/429/provider/transport/cancel), return false.
-- [~] In the human-restart entrypoint (`restartCrashedAgentThread`, `session_handlers.go:2470`), replace `resetThread := !lastInteractionCompletedCleanly(...)` with `resetThread := s.threadIsWedged(...)`.
-- [~] Keep autonomous `maybeAutoRestartCrashedAgent` resetting on genuine crashes — it is already gated on `isAgentCrashError`, so it stays consistent with the new wedge definition. Do NOT loosen crash recovery.
-- [~] Add a WARN red-flag log when a restart clears a thread whose last interaction was `complete` or `waiting`.
-- [ ] Consider (note in PR, implement if in scope): apply the same wedge/kind gate to the unconditional clear at `session_switch_agent_handlers.go:237`.
+- [x] Add `threadIsWedged(ctx, session)` that returns true **only** on positive wedge evidence: last interaction `State==error` AND (`isAgentCrashError(last.Error)` OR `isAuthoritativeMissingThreadError(last.Error)`). `waiting`/`complete`/`interrupted`, and non-wedge errors (auth/429/provider/transport/cancel), return false. (Replaced `lastInteractionCompletedCleanly`.)
+- [x] In the human-restart entrypoint (`restartCrashedAgentThread`), replaced `resetThread := !lastInteractionCompletedCleanly(...)` with `resetThread := s.threadIsWedged(...)`.
+- [x] Autonomous `maybeAutoRestartCrashedAgent` left as-is — already gated on `isAgentCrashError`, consistent with the new wedge definition.
+- [x] WARN red-flag log NOT added: with the new gate, clearing a `complete`/`waiting` thread is structurally impossible on the human path, so the log would be dead code. Documented in the `threadIsWedged` comment instead.
+- [ ] Deferred (note in PR): the unconditional clear at `session_switch_agent_handlers.go:237` — out of scope for this incident (switch-agent, not restart); flag as follow-up.
 
 ## 3. Build & unit test
 
-- [ ] `go build ./api/pkg/server/ ./api/pkg/types/`.
-- [ ] Unit test `threadIsWedged`: `waiting`→false, `complete`→false, auth-`error`→false, `Session not found`-`error`→true, `no thread found with ID`-`error`→true. (Mechanism only — NOT acceptance evidence.)
+- [x] `go build ./api/pkg/server/ ./api/pkg/types/` — passes.
+- [x] Unit tests `TestThreadIsWedged` + `TestButtonPreservesHealthyThreadResetsWedged`: `waiting`→preserve, `complete`→preserve, auth-`error`→preserve, `Session not found`-`error`→reset, `no thread found with ID`-`error`→reset. Pass. (Mechanism only — NOT acceptance evidence.)
 
 ## 4. Live acceptance test (mandatory — connected Zed, not seeded rows)
 
