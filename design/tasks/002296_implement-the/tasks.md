@@ -27,9 +27,13 @@
 - [ ] (Optional, cross-repo — get review first) Propagate the real cause from Zed: payload on `AcpThreadEvent::Error` (`acp_thread.rs:3073`), forward at `thread_service.rs:1140`, add `error_kind` to `ChatResponseError` (`types.rs:242`), map it in Helix; bump `sandbox-versions.txt`.
 
 ## End-to-end verification in inner Helix (mandatory — show real UI)
-- [ ] Register two users; user A edits user B's agent → subscription mode → screenshot callout naming B + B's sub status; verify warning when B has no/invalid sub.
-- [ ] Owner with invalid token: run a turn (via a **spec task** for a live Zed) → screenshot session error showing subscription-auth message (not "process exited").
-- [ ] Happy path: owner with valid token authenticates and a turn succeeds.
+- [x] **Live probe proven:** connected an invalid `sk-ant-oat…` setup token via the API → the real Anthropic probe returned 401 → row persisted `status=error`, `last_error="invalid or expired token (401 from Anthropic)"`, `last_validated_at` set.
+- [x] **Owner-status endpoint proven live:** returns `is_current_user=true/false`, `owner_name`, `connected`, `valid` correctly for both own-agent and cross-user (Chris) cases.
+- [x] **Story 1 own-agent (screenshot 01):** Luke's own agent, invalid sub → callout "session owner's / not yours" + warning "Your Claude subscription isn't working (invalid or expired token (401 from Anthropic))".
+- [x] **Story 1 cross-user (screenshot 02):** Luke edits Chris-owned agent → callout names **chris@helix.ml**, warns "has no working Claude subscription connected", and the subscription radio shows "(not connected)" + disabled — the exact incident, now visible.
+- [x] Reclassification wiring unit-tested (`TestReclassifySubAuthSuite`): generic message + subscription mode + owner → legible message; api-key mode & specific errors pass through.
+- [~] Story 3 live session-error screenshot (owner with invalid token → turn fails → UI shows legible auth error) — attempting via a spec task (live Zed).
+- [ ] Happy path: owner with valid token authenticates and a turn succeeds (needs a real working Claude token; not available in this env — see note).
 - [ ] `go build ./pkg/...` + `cd frontend && yarn build`; push and confirm Drone CI green.
 
 ## Wrap-up
