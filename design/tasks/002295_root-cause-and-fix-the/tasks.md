@@ -5,8 +5,9 @@
 - [ ] Register/login to the inner Helix at `http://localhost:8080`, complete onboarding.
 - [ ] Create a `zed_external` `claude_code` **spec task** (repo-backed → Zed connects), send 2+ messages so `sessions.config->>'zed_thread_id'` is a non-empty UUID.
 - [ ] Add a distinctive log line at all four `ZedThreadID = ""` sites (`session_handlers.go:2581`, `session_switch_agent_handlers.go:237`, `websocket_external_agent_sync.go:3597`, `session_clear.go:90`) logging `session_id`, `prev_thread_id`, caller/reason.
-- [ ] Reproduce the incident: edit the agent's **model / provider / credential type** in settings, click **Restart**, then send a message.
-- [ ] Read `helix-api-1` logs + DB to confirm the **exact** clear-path that fired; record it in the root-cause report.
+- [ ] Reproduce the **exact** operator sequence: (a) change the model in the **Zed desktop UI** (native default_model), (b) edit the **Helix app** config — model + flip credential **api_key → subscription** (save), (c) go to the spec task and click **Restart**, (d) send one message.
+- [ ] Capture whether any `thread_load_error` appears on reconnect, its exact `error` string, and whether `isAuthoritativeMissingThreadError` matched (distinguishes site 3a from a direct DB clear at site 1/2).
+- [ ] Read `helix-api-1` logs + DB to confirm the **exact** clear-path that fired; record it in the root-cause report. (Recovery evidence already rules out an unloadable thread — preserving the pointer is sufficient.)
 
 ## 2. Implement the gate
 
@@ -16,6 +17,7 @@
 - [ ] If a desktop recreate is needed for new subscription env, ensure it preserves the thread pointer (mirror `restartSessionContainer(resetThread=false)`).
 - [ ] Add the WARN "cleared a thread whose last interaction was `complete`" red-flag log to sites 1 and 2.
 - [ ] If the repro implicated site 1 (restart) via a non-`complete` last interaction (e.g. a lingering `Waiting` handoff), fix that root cause rather than loosening the gate.
+- [ ] If the repro implicated **site 3a** (a one-shot `no thread found` at the subscription-mode recreate boot): don't treat the first post-recreate authoritative error as terminal — wait for `agent_ready` and/or retry `open_thread` once before `recoverMissingThread` zeroes the pointer, so a transient boot miss can't orphan a healthy thread. (Do NOT weaken genuine stale-thread recovery.)
 
 ## 3. Build & unit test
 

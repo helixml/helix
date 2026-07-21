@@ -5,13 +5,44 @@
 On meta prod (2026-07-21), a long-running spec-task session
 (`spt_01kvtnrkgp5t2a7n4pwcv2cb8j`, "LinkedIn Outreach") had a healthy Claude
 Code (ACP) conversation thread `bd5abc10-…` — ~869 messages, a 569 MB jsonl on
-the workspace volume. A user **edited the agent's config** (Anthropic API-key →
-subscription mode, and a different model — opus 4.8) and then the session's
-`config.zed_thread_id` pointer was **cleared to empty**. The next message
-dispatched with an empty `acp_thread_id` / `first_message=true`, so Zed **forked
-brand-new empty threads** (`2c1b6724`, `1151c086`) — silent, total loss of the
-agent's working context. Recovery required manually re-pointing
+the workspace volume. The `config.zed_thread_id` pointer was **cleared to
+empty**, the next message dispatched with an empty `acp_thread_id` /
+`first_message=true`, so Zed **forked a brand-new empty thread** — silent, total
+loss of the agent's working context. Recovery required manually re-pointing
 `config.zed_thread_id` back to `bd5abc10` in Postgres.
+
+### Exact operator sequence that triggered it (from the reporter)
+
+1. Changed the model **inside Zed** directly first (Opus 4.5 → Opus 4.8) — native
+   Zed default_model change, in the agent desktop UI.
+2. Then went to the **Helix Agent / app list** and edited that app's config:
+   model Opus 4.5 → Opus 4.8.
+3. Noticed the app was on **Claude API-key mode** and switched it to
+   **subscription** mode, clicking outside the checkbox to save.
+4. Went back to the spec task and hit **Restart**.
+5. The agent came back with **empty context containing only the one message**
+   the operator then sent — i.e. the thread was zeroed and that message forked a
+   fresh thread.
+
+The reporter is explicit that they **don't know** whether the Restart alone, or
+the api_key→subscription edit followed by Restart, caused the wipe. The fix must
+make **this whole sequence** non-destructive regardless of which internal path
+fired. Note that flipping to **subscription** changes the recreated `claude`
+process env (`ANTHROPIC_BASE_URL=https://api.anthropic.com`,
+`CLAUDE_CODE_OAUTH_TOKEN=…`, `ANTHROPIC_API_KEY=""`), so the Restart's desktop
+recreate boots the agent under a **different credential regime** than the one the
+existing thread jsonl was created under.
+
+### Key evidence: the thread was never genuinely lost — only the pointer
+
+The recovery proves the thread jsonl is **not** credential-scoped: an on-host
+agent manually re-pointed `config.zed_thread_id` back to `bd5abc10` (with the app
+**already on subscription mode**) and the agent resumed the full context
+correctly — no restart needed. So `open_thread(bd5abc10)` **does** succeed under
+OAuth/subscription. The defect is therefore that **some code path zeroed the DB
+pointer**, not that the underlying thread was unreadable. **Preserving the
+pointer across the edit+restart is sufficient** — no thread-store portability
+work is required.
 
 The Zed thread is **model-agnostic ACP state**: its context lives in
 `~/.claude-state/.../<thread>.jsonl` on the persistent workspace volume, which
@@ -43,7 +74,13 @@ Site 2 is unconditional and is reached both by the switch-agent endpoint and by
 `reconcileSessionAgentWithApp`, which fires on the next chat/message send
 (`session_handlers.go:563` and `:2332`) whenever `sessionUsesAgentRuntime`
 returns false. Site 1 could still clear if the last interaction was left in a
-non-`complete` state by the config edit. The live repro must disambiguate.
+non-`complete` state by the config edit. **Site 3 is a strong suspect for this
+specific incident:** the api_key→subscription flip means the Restart recreates
+the desktop with a different `claude` credential env; if the recreated agent
+cannot resume the api_key-era thread jsonl, Zed reports the thread as missing and
+`recoverMissingThread` zeroes the pointer and replays the queued message as a
+fresh thread — which exactly matches "empty context with only my message". The
+live repro must disambiguate.
 
 ## User Stories
 
@@ -116,9 +153,19 @@ thread and recovers.
    (site 1, post-#2860) should preserve. Yet the thread was cleared. The live
    repro must confirm which of: (a) restart with a non-`complete` last
    interaction, (b) reconcile firing because the edit changed the effective
-   runtime/agent-name binding, or (c) a config-edit-triggered re-provision — is
-   the real culprit. **Assumption:** we instrument all four sites and let the
-   repro decide; the fix gates whichever fires (and hardens the others).
+   runtime/agent-name binding, (c) a config-edit-triggered re-provision, or
+   **(d) `recoverMissingThread` (site 3) firing because the subscription-mode
+   recreate can't resume the api_key-era thread** — is the real culprit.
+   **Assumption:** we instrument all four sites and let the repro decide; the fix
+   gates/hardens whichever fires.
+
+5. **Thread-store portability — resolved.** The manual re-point under
+   subscription mode reloaded the thread correctly, so the jsonl is
+   credential-agnostic and `open_thread` succeeds under OAuth. Sub-case (3b)
+   (genuinely-unloadable credential-scoped store) is **ruled out**; preserving the
+   pointer is sufficient. The only residual site-3 variant to watch for is a
+   *transient/spurious* `no thread found` at the recreate boot moment (3a) — the
+   repro should confirm whether any `thread_load_error` appears at all.
 
 2. **Where is the agent config edited for a spec task?** The model/provider/
    credential live on the app assistant config

@@ -16,6 +16,52 @@ Everything else — model, provider, credential type (api_key ⇄ subscription) 
 within the **same** `code_agent_runtime` **preserves** the thread and lets the
 reconnect `open_thread` (`websocket_external_agent_sync.go:~439`) re-attach.
 
+## Leading hypothesis (from the exact operator sequence)
+
+The reporter flipped the app api_key→subscription **and then hit Restart**. The
+Restart recreates the desktop, and `subscriptionEnvForSession`
+(`external_agent_handlers.go:130`) boots the `claude` process with a **different
+credential regime**: `ANTHROPIC_BASE_URL=https://api.anthropic.com`,
+`CLAUDE_CODE_OAUTH_TOKEN=…`, `ANTHROPIC_API_KEY=""`. On reconnect, Helix sends
+`open_thread(bd5abc10)`. If the recreated agent can't resume that thread, Zed
+emits a `thread_load_error`, and `handleThreadLoadError`
+(`websocket_external_agent_sync.go:3663`) calls `recoverMissingThread` **only
+when the error is authoritative**:
+
+```go
+func isAuthoritativeMissingThreadError(errMsg string) bool {
+    return isMissingCodexRolloutError(errMsg) ||
+        strings.Contains(errMsg, `no thread found with ID: SessionId("`)
+}
+```
+
+`recoverMissingThread` then zeroes `ZedThreadID` (site 3, line 3597) and
+**replays the queued message as the first message of a fresh thread** — which is
+*exactly* "empty context containing only the one message I sent". This makes
+**site 3 the leading suspect for this specific incident**, ahead of the
+switch-agent gate.
+
+**Sub-case (3b) is ruled out by the recovery evidence.** The manual re-point to
+`bd5abc10` reloaded the full context with the app *already on subscription* — so
+`open_thread` succeeds under OAuth and the jsonl is credential-agnostic. No
+thread-store portability work is needed; **preserving the DB pointer is
+sufficient**. The only site-3 variant still in play is:
+
+- **(3a) Spurious/transient authoritative error at recreate boot.** The thread is
+  intact and *would* reload, but a `no thread found` fired during the OAuth-mode
+  boot (store not ready, or `open_thread` sent before the agent finished
+  indexing), and `recoverMissingThread` treated that one-shot error as terminal
+  and zeroed the pointer. → Fix: don't treat the first post-recreate `no thread
+  found` as terminal — wait for `agent_ready` and/or retry `open_thread` once
+  before clearing, so a transient boot miss can't permanently orphan a healthy
+  thread.
+
+The repro MUST capture whether any `thread_load_error` appears at all and, if so,
+its exact `error` string and whether `isAuthoritativeMissingThreadError` matched.
+If **no** `thread_load_error` appears, site 3 is exonerated and the pointer was
+zeroed directly in the DB by site 1 (restart) or site 2 (reconcile) — those
+gates then carry the fix.
+
 ## Investigation first (mandatory)
 
 Before touching the fix, add a **distinctive log line at each of the four clear
