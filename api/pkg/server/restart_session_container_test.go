@@ -253,8 +253,11 @@ func (s *RestartSessionContainerSuite) TestRestartPreservesThreadWhenNotReset() 
 
 // TestButtonPreservesHealthyThreadResetsWedged pins the human-button decision:
 // restartCrashedAgentThread inspects the session's last interaction and only
-// resets the thread when that turn did not finish cleanly. A completed last turn
-// → preserve (no metadata clear); a mid-turn/waiting last turn → reset.
+// resets the thread when it is GENUINELY WEDGED — the last turn errored with an
+// agent-crash / authoritative-missing-thread marker. A completed, interrupted, or
+// still-in-flight (waiting) last turn preserves the thread, and so does a turn
+// that errored on auth / provider (not a wedge). See
+// design/2026-07-21-restart-discards-thread-on-nonclean-turn.md.
 func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWedged() {
 	const (
 		userID    = "user_op"
@@ -265,12 +268,15 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 	cases := []struct {
 		name      string
 		lastState types.InteractionState
+		lastError string
 		wantReset bool
 	}{
-		{"complete_last_turn_preserves", types.InteractionStateComplete, false},
-		{"interrupted_last_turn_preserves", types.InteractionStateInterrupted, false},
-		{"waiting_last_turn_resets", types.InteractionStateWaiting, true},
-		{"error_last_turn_resets", types.InteractionStateError, true},
+		{"complete_last_turn_preserves", types.InteractionStateComplete, "", false},
+		{"interrupted_last_turn_preserves", types.InteractionStateInterrupted, "", false},
+		{"waiting_in_flight_preserves", types.InteractionStateWaiting, "", false},
+		{"auth_error_preserves", types.InteractionStateError, "Failed to authenticate. API Error: 401 OAuth access token is invalid.", false},
+		{"agent_crash_resets", types.InteractionStateError, "Claude Agent process exited", true},
+		{"missing_thread_resets", types.InteractionStateError, `no thread found with ID: SessionId("bd5abc10")`, true},
 	}
 
 	for _, tc := range cases {
@@ -288,9 +294,9 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 			s.store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 			s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).Return(session, nil).AnyTimes()
 
-			// The health probe: newest interaction carries tc.lastState.
+			// The health probe: newest interaction carries tc.lastState/lastError.
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
-				[]*types.Interaction{{ID: "int_1", State: tc.lastState}}, int64(1), nil).AnyTimes()
+				[]*types.Interaction{{ID: "int_1", State: tc.lastState, Error: tc.lastError}}, int64(1), nil).AnyTimes()
 
 			cleared := false
 			s.store.EXPECT().UpdateSessionMetadata(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
@@ -321,41 +327,50 @@ func (s *RestartSessionContainerSuite) TestButtonPreservesHealthyThreadResetsWed
 	}
 }
 
-// TestLastInteractionCompletedCleanly pins the thread-health decision the human
-// Restart button keys off: a cleanly-finished last turn (complete / interrupted)
-// is safe to reattach → preserve; a mid-turn or errored one signals a possible
-// wedge → reset. Zero interactions and a query error both resolve to healthy so
-// we never discard conversation context we couldn't prove was poisoned.
-func (s *RestartSessionContainerSuite) TestLastInteractionCompletedCleanly() {
+// TestThreadIsWedged pins the thread-health decision the human Restart button
+// keys off: the thread is reset ONLY when the last turn errored with positive
+// wedge evidence (agent crash / authoritative missing thread). A clean, in-flight
+// (waiting), or auth/provider-errored last turn is preserved, as are zero
+// interactions and a query error — we never discard context we can't prove is
+// poisoned. See design/2026-07-21-restart-discards-thread-on-nonclean-turn.md.
+func (s *RestartSessionContainerSuite) TestThreadIsWedged() {
 	session := zedSession("ses_health", "user_op", "prj_x")
 
 	cases := []struct {
-		name   string
-		setup  func()
-		wantOK bool
+		name       string
+		setup      func()
+		wantWedged bool
 	}{
-		{"complete", func() {
+		{"complete_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 				[]*types.Interaction{{State: types.InteractionStateComplete}}, int64(1), nil)
-		}, true},
-		{"interrupted", func() {
+		}, false},
+		{"interrupted_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 				[]*types.Interaction{{State: types.InteractionStateInterrupted}}, int64(1), nil)
-		}, true},
-		{"waiting", func() {
+		}, false},
+		{"waiting_in_flight_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
 				[]*types.Interaction{{State: types.InteractionStateWaiting}}, int64(1), nil)
 		}, false},
-		{"error", func() {
+		{"auth_error_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
-				[]*types.Interaction{{State: types.InteractionStateError}}, int64(1), nil)
+				[]*types.Interaction{{State: types.InteractionStateError, Error: "Failed to authenticate. API Error: 401 OAuth access token is invalid."}}, int64(1), nil)
 		}, false},
-		{"no_interactions", func() {
+		{"agent_crash_error_wedges", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateError, Error: "Claude Agent process exited"}}, int64(1), nil)
+		}, true},
+		{"missing_thread_error_wedges", func() {
+			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(
+				[]*types.Interaction{{State: types.InteractionStateError, Error: `no thread found with ID: SessionId("bd5abc10")`}}, int64(1), nil)
+		}, true},
+		{"no_interactions_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil)
-		}, true},
-		{"query_error", func() {
+		}, false},
+		{"query_error_preserves", func() {
 			s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return(nil, int64(0), context.DeadlineExceeded)
-		}, true},
+		}, false},
 	}
 
 	for _, tc := range cases {
@@ -363,7 +378,7 @@ func (s *RestartSessionContainerSuite) TestLastInteractionCompletedCleanly() {
 			s.SetupTest()
 			defer s.ctrl.Finish()
 			tc.setup()
-			s.Equal(tc.wantOK, s.server.lastInteractionCompletedCleanly(context.Background(), session))
+			s.Equal(tc.wantWedged, s.server.threadIsWedged(context.Background(), session))
 		})
 	}
 }
