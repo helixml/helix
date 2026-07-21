@@ -91,6 +91,30 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	// Note: Goroutine will fail gracefully, we only test the synchronous part
 }
 
+func TestSpecDrivenTaskService_CreateTaskFromPromptRejectsBlankExistingBranch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		nil,
+		"test-helix-agent",
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		NewDisabledKoditService(),
+	)
+
+	task, err := service.CreateTaskFromPrompt(context.Background(), &types.CreateTaskRequest{
+		BranchMode:    types.BranchModeExisting,
+		WorkingBranch: "   ",
+	})
+
+	require.EqualError(t, err, "working branch is required for existing branch mode")
+	require.Nil(t, task)
+}
+
 func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

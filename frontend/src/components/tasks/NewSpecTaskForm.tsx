@@ -1329,6 +1329,8 @@ const NewSpecTaskForm: React.FC<NewSpecTaskFormProps> = ({
             !taskPrompt.trim() ||
             isCreating ||
             creatingAgent ||
+            (branchMode === TypesBranchMode.BranchModeExisting &&
+              !workingBranch) ||
             (showCreateAgentForm &&
               !(
                 codeAgentRuntime === "claude_code" &&

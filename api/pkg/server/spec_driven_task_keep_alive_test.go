@@ -142,6 +142,33 @@ func (s *SpecTaskKeepAliveSuite) TestKeepAliveOff_OnRunningTask_DoesNotStopDeskt
 	s.Equal(http.StatusOK, rr.Code)
 }
 
+func (s *SpecTaskKeepAliveSuite) TestResetDoneExistingTaskToBacklogUsesNewBranchMode() {
+	existingTask := &types.SpecTask{
+		ID:         s.taskID,
+		ProjectID:  "project_keepalive",
+		Status:     types.TaskStatusDone,
+		BranchMode: types.BranchModeExisting,
+		BranchName: "merged-branch",
+	}
+	project := &types.Project{
+		ID:     "project_keepalive",
+		UserID: s.userID,
+	}
+
+	s.store.EXPECT().GetSpecTask(gomock.Any(), s.taskID).Return(existingTask, nil)
+	s.store.EXPECT().GetProject(gomock.Any(), "project_keepalive").Return(project, nil)
+	s.store.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ interface{}, task *types.SpecTask) error {
+		s.Empty(task.BranchName)
+		s.Equal(types.BranchModeNew, task.BranchMode)
+		return nil
+	})
+
+	rr := httptest.NewRecorder()
+	s.server.updateSpecTask(rr, s.makeUpdateRequest(types.SpecTaskUpdateRequest{Status: types.TaskStatusBacklog}))
+
+	s.Equal(http.StatusOK, rr.Code)
+}
+
 func (s *SpecTaskKeepAliveSuite) TestReopenDoneTask_ClearsTerminalFields() {
 	now := time.Now()
 	existingTask := &types.SpecTask{

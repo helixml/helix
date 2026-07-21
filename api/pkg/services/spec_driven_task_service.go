@@ -165,6 +165,9 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *t
 	if branchMode == "" {
 		branchMode = types.BranchModeNew
 	}
+	if branchMode == types.BranchModeExisting && strings.TrimSpace(req.WorkingBranch) == "" {
+		return nil, fmt.Errorf("working branch is required for existing branch mode")
+	}
 
 	// Determine organization ID from project if it belongs to an org
 	organizationID := ""
