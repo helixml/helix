@@ -289,7 +289,7 @@ export default function SpecTaskActionButtons({
 
   const handleOpenPR = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isDirectPush && hasExternalRepo && (externalRepoType === "github" || externalRepoType === "gitlab") && !hasOAuthWithRequiredScopes) {
+    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasOAuthWithRequiredScopes) {
       if (oauthProvider?.id) {
         startOAuthFlow({
           providerId: oauthProvider.id,
