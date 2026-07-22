@@ -1004,6 +1004,24 @@ export interface ServerAgentSandboxesDebugResponse {
   sandboxes?: ServerSandboxInstanceInfo[];
 }
 
+export interface ServerAppClaudeSubscriptionStatus {
+  /** owner has a subscription connected at all */
+  connected?: boolean;
+  /** true when the editor IS the owner */
+  is_current_user?: boolean;
+  last_error?: string;
+  last_validated_at?: string;
+  /** app owner (the likely session owner) */
+  owner_id?: string;
+  /** human-readable owner (email / full name) */
+  owner_name?: string;
+  status?: string;
+  /** "user" or "org" — where the effective sub resolved */
+  subscription_owner_type?: string;
+  /** that subscription passed its last liveness probe */
+  valid?: boolean;
+}
+
 export interface ServerAppCreateResponse {
   config?: TypesAppConfig;
   created?: string;
@@ -2705,6 +2723,8 @@ export interface TypesClaudeSubscription {
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
+  /** last time the token was liveness-probed against Anthropic */
+  last_validated_at?: string;
   name?: string;
   owner_id?: string;
   /** "user" or "org" */
@@ -4708,6 +4728,7 @@ export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
   docker_cache_status?: TypesDockerCacheState;
+  org_members_access?: boolean;
 }
 
 export interface TypesProjectRepositorySpec {
@@ -8700,6 +8721,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: image,
         secure: true,
         type: ContentType.Text,
+        ...params,
+      }),
+
+    /**
+     * @description Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription
+     *
+     * @tags Claude
+     * @name V1AppsClaudeSubscriptionStatusDetail
+     * @summary Get the Claude subscription status for an app's owner
+     * @request GET:/api/v1/apps/{id}/claude-subscription-status
+     * @secure
+     */
+    v1AppsClaudeSubscriptionStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAppClaudeSubscriptionStatus, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/claude-subscription-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -15391,6 +15430,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         project_id?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
+        /** Include external agent sessions */
+        include_external_agents?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -15836,7 +15877,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Tears down the half-dead desktop container and brings up a fresh one via the resume path. The session's ZedThreadID is cleared so Zed opens a fresh thread: a crash often poisons the thread itself, so reattaching reproduces the wedge; use /sessions/{id}/resume to restart while keeping the thread. The workspace volume persists, so files and the agent's own state survive; only the conversation thread resets. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     * @description Tears down the half-dead desktop container and brings up a fresh one via the resume path. The conversation thread is PRESERVED when the session's last turn completed cleanly (the common "reboot to refresh the environment" case) so context is not lost; it is reset only when the last turn is mid-flight or errored, which signals a possibly poisoned thread that would just reproduce the wedge on reattach. The workspace volume persists, so files and the agent's own state survive regardless. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
      * @name V1SessionsRestartAgentCreate

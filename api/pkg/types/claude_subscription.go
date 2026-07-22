@@ -24,6 +24,7 @@ type ClaudeSubscription struct {
 	AccessTokenExpiresAt time.Time      `json:"access_token_expires_at"`
 	Status               string         `json:"status"`                    // "active", "expired", "error"
 	LastRefreshedAt      *time.Time     `json:"last_refreshed_at,omitempty"`
+	LastValidatedAt      *time.Time     `json:"last_validated_at,omitempty"` // last time the token was liveness-probed against Anthropic
 	LastError            string         `json:"last_error,omitempty"`
 	CreatedBy            string         `json:"created_by" gorm:"not null"`
 }

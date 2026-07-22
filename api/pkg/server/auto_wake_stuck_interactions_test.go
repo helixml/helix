@@ -251,13 +251,12 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_exhausted").Return(session, nil).Times(1)
 
-	var captured *types.Interaction
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, in *types.Interaction) (*types.Interaction, error) {
-			captured = in
-			return in, nil
-		},
-	).Times(1)
+	var reason string
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-2", 0, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ int, in string) (bool, error) {
+			reason = in
+			return true, nil
+		})
 
 	// After marking the interaction as error, the worker also reverts any
 	// sync-time "starting" mark left by syncPromptHistory so the spinner
@@ -269,9 +268,7 @@ func (s *AutoWakeColdStartSuite) TestMarksAsErrorAfterMaxRetries() {
 
 	s.server.maybeAutoWake(context.Background(), stuck)
 
-	s.Require().NotNil(captured)
-	s.Equal(types.InteractionStateError, captured.State)
-	s.Contains(captured.Error, "helixml/helix#2397")
+	s.Contains(reason, "helixml/helix#2397")
 }
 
 // TestClearsStartingStatusOnExhaustion: when the worker exhausts cold-start
@@ -287,9 +284,17 @@ func (s *AutoWakeColdStartSuite) TestClearsStartingStatusOnExhaustion() {
 		},
 	}
 	s.store.EXPECT().GetSession(gomock.Any(), "ses_exh_clear").Return(session, nil).Times(1)
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).Return(stuck, nil).Times(1)
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-exh-clear", 0, gomock.Any()).Return(true, nil)
 	// Worker found a "starting" mark and cleared it.
 	s.store.EXPECT().ClearSessionStartingStatus(gomock.Any(), "ses_exh_clear").Return(true, nil).Times(1)
+
+	s.server.maybeAutoWake(context.Background(), stuck)
+}
+
+func (s *AutoWakeColdStartSuite) TestDoesNotClearStartingStatusAfterConcurrentCompletion() {
+	stuck := stuckInteraction("int-exh-complete", "ses_exh_complete", autoWakeMaxRetries)
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_exh_complete").Return(&types.Session{ID: "ses_exh_complete"}, nil)
+	s.store.EXPECT().MarkInteractionErrorIfWaiting(gomock.Any(), "int-exh-complete", 0, gomock.Any()).Return(false, nil)
 
 	s.server.maybeAutoWake(context.Background(), stuck)
 }
@@ -339,23 +344,18 @@ func TestAutoWakeStuckThresholdOverride(t *testing.T) {
 	}
 }
 
-// AutoWakeWedgeBreakerSuite covers the session-scoped circuit breaker (Gate 1c):
-// once a session has accumulated >= threshold errored interactions since its last
-// completion, the wedged ACP thread cannot be recovered by re-sending, so the
-// worker stops waking it and marks the current row terminal. See
-// design/2026-06-15-wedged-acp-thread-autowake-flood.md.
-type AutoWakeWedgeBreakerSuite struct {
+type AutoWakeConnectedSuite struct {
 	suite.Suite
 	ctrl   *gomock.Controller
 	store  *store.MockStore
 	server *HelixAPIServer
 }
 
-func TestAutoWakeWedgeBreakerSuite(t *testing.T) {
-	suite.Run(t, new(AutoWakeWedgeBreakerSuite))
+func TestAutoWakeConnectedSuite(t *testing.T) {
+	suite.Run(t, new(AutoWakeConnectedSuite))
 }
 
-func (s *AutoWakeWedgeBreakerSuite) SetupTest() {
+func (s *AutoWakeConnectedSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
 	s.store = store.NewMockStore(s.ctrl)
 	s.server = &HelixAPIServer{
@@ -368,87 +368,25 @@ func (s *AutoWakeWedgeBreakerSuite) SetupTest() {
 	}
 }
 
-func (s *AutoWakeWedgeBreakerSuite) TearDownTest() { s.ctrl.Finish() }
+func (s *AutoWakeConnectedSuite) TearDownTest() { s.ctrl.Finish() }
 
-// connectOldWS registers a live WS connection whose ConnectedAt is old enough to
-// pass Gate 1 + the activity anchor, so maybeAutoWake reaches the breaker.
-func (s *AutoWakeWedgeBreakerSuite) connectOldWS(sessionID string) {
-	s.server.externalAgentWSManager.registerConnection(sessionID, &ExternalAgentWSConnection{
-		SessionID:   sessionID,
+func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutReplay() {
+	sendChan := make(chan types.ExternalAgentCommand, 1)
+	s.server.externalAgentWSManager.registerConnection("ses_connected", &ExternalAgentWSConnection{
+		SessionID:   "ses_connected",
 		ConnectedAt: time.Now().Add(-10 * time.Minute),
-		SendChan:    make(chan types.ExternalAgentCommand, 10),
+		SendChan:    sendChan,
 	})
-}
-
-func errInteraction() *types.Interaction {
-	return &types.Interaction{State: types.InteractionStateError}
-}
-
-// TestBreakerTripsOnConsecutiveErrors: >= threshold errored interactions since
-// last completion → mark current row error, do NOT increment auto-wake count or
-// send anything.
-func (s *AutoWakeWedgeBreakerSuite) TestBreakerTripsOnConsecutiveErrors() {
-	s.connectOldWS("ses_wedge")
 	session := &types.Session{
-		ID:           "ses_wedge",
-		Owner:        "user-1",
-		GenerationID: 0,
-		Updated:      time.Now().Add(-10 * time.Minute),
-		Metadata:     types.SessionMetadata{AgentType: "zed_external", ZedThreadID: "t1"},
+		ID:      "ses_connected",
+		Updated: time.Now().Add(-10 * time.Minute),
 	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_wedge").Return(session, nil).AnyTimes()
+	s.store.EXPECT().GetSession(gomock.Any(), "ses_connected").Return(session, nil)
 
-	// Newest-first: 3 errors, no completion → wedged (default threshold 3).
-	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
-		Return([]*types.Interaction{errInteraction(), errInteraction(), errInteraction()}, int64(3), nil)
-
-	var marked *types.Interaction
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, it *types.Interaction) (*types.Interaction, error) {
-			marked = it
-			return it, nil
-		})
-	// Strict controller: IncrementInteractionAutoWakeCount must NOT be called.
-
-	stuck := stuckInteraction("int-wedge", "ses_wedge", 0)
+	stuck := stuckInteraction("int-connected", "ses_connected", 0)
 	s.server.maybeAutoWake(context.Background(), stuck)
 
-	s.Require().NotNil(marked, "expected the stuck interaction to be marked")
-	s.Equal(types.InteractionStateError, marked.State)
-	s.Contains(marked.Error, "automatic retries stopped")
-}
-
-// TestBreakerDoesNotTripWhenRecentCompletion: a completion before the error run
-// means count resets below threshold → breaker does not trip; with the row at
-// the per-interaction cap it falls through to Gate 2 (exhaustion), which marks a
-// DIFFERENT error message.
-func (s *AutoWakeWedgeBreakerSuite) TestBreakerDoesNotTripWhenRecentCompletion() {
-	s.connectOldWS("ses_ok")
-	session := &types.Session{
-		ID:           "ses_ok",
-		Owner:        "user-1",
-		GenerationID: 0,
-		Updated:      time.Now().Add(-10 * time.Minute),
-		Metadata:     types.SessionMetadata{AgentType: "zed_external", ZedThreadID: "t1"},
-	}
-	s.store.EXPECT().GetSession(gomock.Any(), "ses_ok").Return(session, nil).AnyTimes()
-
-	// Newest-first: error, then a completion → only 1 error since completion (< 3).
-	s.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).
-		Return([]*types.Interaction{errInteraction(), {State: types.InteractionStateComplete}, errInteraction()}, int64(3), nil)
-
-	var marked *types.Interaction
-	s.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, it *types.Interaction) (*types.Interaction, error) {
-			marked = it
-			return it, nil
-		})
-
-	// At the per-interaction cap → Gate 2 exhaustion path fires (not the breaker).
-	stuck := stuckInteraction("int-ok", "ses_ok", autoWakeMaxRetries)
-	s.server.maybeAutoWake(context.Background(), stuck)
-
-	s.Require().NotNil(marked)
-	s.Equal(types.InteractionStateError, marked.State)
-	s.NotContains(marked.Error, "automatic retries stopped", "should be the Gate 2 exhaustion error, not the breaker error")
+	s.Equal(types.InteractionStateWaiting, stuck.State)
+	s.Zero(stuck.AutoWakeCount)
+	s.Empty(sendChan)
 }
