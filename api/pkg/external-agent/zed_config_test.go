@@ -149,7 +149,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			name:             "no_assistant_keeps_legacy_default_for_default_app",
 			assistants:       []types.AssistantConfig{},
 			snapshot:         []ProviderRef{globalAnthropic},
-			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"},
 			wantMisconfig:    false,
 			why:              "default-app path (no parent app) keeps the SaaS-friendly default",
 		},

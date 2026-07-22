@@ -525,6 +525,45 @@ func TestGetTopic_IncludesRecentEvents(t *testing.T) {
 	}
 }
 
+func TestGetGitLabTopic_DoesNotExposeSigningToken(t *testing.T) {
+	deps, st, reg := newDeps(t)
+	reg.Register(configregistry.Spec{Key: "transport.gitlab", Type: configregistry.TypeObject, Secrets: []string{"signing_token"}})
+	if err := reg.Set(context.Background(), "org-test", "transport.gitlab", `{"signing_token":"whsec_must-not-leak"}`); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := json.Marshal(map[string]any{"repo": "helixml/project", "repository_id": "repo-1", "events": []string{"Merge Request Hook"}})
+	topic, err := streaming.NewTopic("s-gitlab", "gitlab", "", "b-owner", time.Now(), transport.Transport{Kind: transport.KindGitLab, Config: config}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/topics/s-gitlab", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "whsec_must-not-leak") || strings.Contains(rec.Body.String(), "signing_token") {
+		t.Fatalf("topic response leaks signing token: %s", rec.Body.String())
+	}
+}
+
+func TestPublishGitLabTopicReturnsConflict(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	config, _ := json.Marshal(map[string]any{"repo": "helixml/project", "repository_id": "repo-1", "events": []string{"Merge Request Hook"}})
+	topic, err := streaming.NewTopic("s-gitlab-publish", "gitlab publish", "", "b-owner", time.Now(), transport.Transport{Kind: transport.KindGitLab, Config: config}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-gitlab-publish/publish", map[string]any{"body": "nope"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // seedGithubTopic is a per-file helper for the EffectivePublicURL
 // tests — creates a github-transport topic inline.
 func seedGithubTopic(t *testing.T, st *store.Store, id, repo string) {
@@ -562,9 +601,9 @@ func TestGetTopic_EffectivePublicURL_UsesServerURL(t *testing.T) {
 	}
 }
 
-// TestGetTopic_EffectivePublicURL_OnlyForGithubTopics pins that the
-// field is NOT populated for non-github topics.
-func TestGetTopic_EffectivePublicURL_OnlyForGithubTopics(t *testing.T) {
+// TestGetTopic_EffectivePublicURL_OnlyForInboundProviderTopics pins that the
+// field is NOT populated for local topics.
+func TestGetTopic_EffectivePublicURL_OnlyForInboundProviderTopics(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	deps.PublicServerURL = "https://example.com"
 
