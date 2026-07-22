@@ -32,7 +32,9 @@ var publishSchema = mustSchema[publishArgs]()
 
 func (t *Publish) Name() tool.Name { return PublishName }
 func (t *Publish) Description() string {
-	return "Append an Event with the given body to a Topic. Wakes long-poll observers and " +
+	return "Append and route an Event through Helix. This tool does not call Slack and does " +
+		"not confirm external delivery. For external provider actions, call mint_credential " +
+		"and use the provider API directly. Wakes long-poll observers and " +
 		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
 		"inReplyTo, messageId, attachments) carry threading and recipient metadata for " +
 		"messaging topics; omit them for plain text publishes."
@@ -82,5 +84,10 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"id": string(event.ID), "topicId": string(topicID)})
+	return json.Marshal(map[string]string{
+		"id":      string(event.ID),
+		"topicId": string(topicID),
+		"scope":   "helix",
+		"status":  "appended inside Helix; external delivery not confirmed",
+	})
 }

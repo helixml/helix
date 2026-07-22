@@ -72,6 +72,14 @@ func (t *MintCredential) Description() string {
 	if avail == "" {
 		avail = "(none configured on this server)"
 	}
+	slackContract := ""
+	if _, ok := t.providers["slack"]; ok {
+		slackContract = "\n\nSlack: call mint_credential with provider=\"slack\" and " +
+			"resource=<team_id> when known. POST https://slack.com/api/chat.postMessage " +
+			"with Authorization: Bearer <token> and fields channel, text, and optional thread_ts. " +
+			"Inspect the JSON response: HTTP 200 is not success unless ok=true. publish routes " +
+			"through Helix and does not confirm Slack delivery."
+	}
 	return "Mint a short-lived credential (~1 hour) for an external provider " +
 		"scoped to your organization. Supported providers: " + avail + ".\n\n" +
 		"No provider tokens are in your shell environment by default — you " +
@@ -84,9 +92,8 @@ func (t *MintCredential) Description() string {
 		"are expected for any work that takes more than ~1 hour.\n\n" +
 		"Args: provider (string, required) — one of: " + avail + "; " +
 		"resource (string, optional) — a provider-specific scope when your " +
-		"org has several identities (for slack, the workspace team id from " +
-		"the event's extra.slack_team_id).\n" +
-		"Returns: { token, expires_at (RFC3339), usage }."
+		"org has several identities.\n" +
+		"Returns: { token, expires_at (RFC3339), usage }." + slackContract
 }
 
 func (t *MintCredential) InputSchema() *jsonschema.Schema { return mintCredentialSchema }
