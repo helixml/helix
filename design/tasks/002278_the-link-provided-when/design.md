@@ -93,6 +93,29 @@ const shareUrl = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 - Removed the now-unused `copyPublicLink` helper and the `Copy` lucide import from
   `SpecTaskDetailContent.tsx`.
 
+## Verification (done)
+
+Tested end-to-end in the inner Helix (`localhost:8080`):
+
+- **Unauthenticated access works.** `curl` (no auth) and a fresh no-cookie browser context
+  both load `GET /api/v1/spec-tasks/{id}/view` → HTTP 200, full docs HTML, zero redirects.
+- **Old URL reproduced the bug.** `GET /spec-tasks/{id}/view` (no prefix) returns the SPA
+  shell (`<title>Helix</title>`), which is what triggered the client-side OIDC redirect.
+- **Private path.** With `public_design_docs=false`, the endpoint returns the "This spec
+  task is private" page (HTTP 200, not a login loop).
+- **Share dialog.** Opens from both the info-column "Share" button and the top-right
+  toolbar Share icon; shows the correct `/api/v1/...` URL, open-in-new-tab link, and copy
+  button; toggle OFF hides the link and flips `public_design_docs` to false in the DB via
+  the generated client; toggle back ON re-shows the link.
+
+Screenshots: `screenshots/01-task-detail-share-button.png`,
+`02-share-dialog-public.png`, `03-share-dialog-restricted.png`,
+`04-public-view-unauthenticated.png`.
+
+Note: could not exercise real spec-generation (needs the agent/sandbox); used a seeded
+spec task row with generated spec fields + `design_docs_pushed_at` set (test row deleted
+after verification).
+
 ## Risks / Gotchas
 
 - The share link is an API URL, so clicking it navigates the whole tab to server-rendered

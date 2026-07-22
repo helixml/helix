@@ -17,5 +17,7 @@
 - [x] Remove the now-redundant inline toggle + copy row (replaced by the Share button/dialog)
 - [x] Typecheck + build: `yarn tsc` passes clean; `vite build` transforms all modules (final
       write to root-owned `dist/` is env-blocked, not a code error)
-- [~] Test end-to-end in the inner Helix: toggle ON → open copied link logged-out (no OIDC
-      redirect, docs render); toggle OFF → private page shown
+- [x] Test end-to-end in the inner Helix: registered/onboarded, seeded a public spec task,
+      opened the share URL in a fresh no-cookie browser context → docs render, NO OIDC
+      redirect; toggled OFF → "This spec task is private" page; dialog toggle persists to
+      the DB via the generated client. Screenshots in `screenshots/`.
