@@ -164,7 +164,7 @@ func GenerateZedMCPConfig(
 		// without a parent app. Keep the legacy SaaS-friendly default so
 		// those sessions still come up.
 		provider = "anthropic"
-		model = "claude-sonnet-4-5-latest"
+		model = "claude-sonnet-4-6"
 	} else if usesUpstreamSubscription(assistant) {
 		// Subscription credentials only make sense for runtimes that handle
 		// inference upstream via OAuth, not through a Helix provider. Don't
