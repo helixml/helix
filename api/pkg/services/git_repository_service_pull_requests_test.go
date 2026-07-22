@@ -178,23 +178,69 @@ func TestCreateGitLabMergeRequest_UserOAuthTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestGetGitLabClient_UserWithoutOAuthReturnsError(t *testing.T) {
+func TestCreateGitLabMergeRequest_UserWithoutOAuthFallsBackToPAT(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		pat      string
+	}{
+		{name: "provider PAT", pat: "repo-pat"},
+		{name: "legacy password", password: "repo-pat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount++
+				if got := r.Header.Get("Private-Token"); got != "repo-pat" {
+					t.Errorf("expected repository PAT, got %q", got)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet:
+					fmt.Fprint(w, `{"id":123}`)
+				case r.Method == http.MethodPost:
+					fmt.Fprint(w, `{"iid":7}`)
+				default:
+					http.Error(w, "unexpected request", http.StatusMethodNotAllowed)
+				}
+			}))
+			defer server.Close()
+
+			repo := &types.GitRepository{
+				ExternalURL:  server.URL + "/org/repo",
+				ExternalType: types.ExternalRepositoryTypeGitLab,
+				Password:     tt.password,
+				GitLab: &types.GitLab{
+					BaseURL:             server.URL + "/api/v4/",
+					PersonalAccessToken: tt.pat,
+				},
+			}
+
+			mrID, err := newPRTestService(&prTestStore{}).createGitLabMergeRequest(
+				context.Background(), repo, "title", "description", "feature", "main", "user-x",
+			)
+			if err != nil {
+				t.Fatalf("expected repository PAT fallback, got: %v", err)
+			}
+			if mrID != "7" || requestCount != 2 {
+				t.Fatalf("expected MR 7 after two API requests, got MR %q and %d requests", mrID, requestCount)
+			}
+		})
+	}
+}
+
+func TestGetGitLabClient_UserWithoutOAuthOrRepoPATReturnsError(t *testing.T) {
 	repo := &types.GitRepository{
 		ExternalURL:  "https://gitlab.com/org/repo",
 		ExternalType: types.ExternalRepositoryTypeGitLab,
-		GitLab:       &types.GitLab{PersonalAccessToken: "repo-pat"},
 	}
 
 	_, err := newPRTestService(&prTestStore{}).getGitLabClient(context.Background(), repo, "user-x")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
 	oauthErr, ok := err.(*OAuthRequiredError)
-	if !ok {
-		t.Fatalf("expected *OAuthRequiredError, got %T: %v", err, err)
-	}
-	if oauthErr.ProviderType != "gitlab" {
-		t.Fatalf("expected provider_type 'gitlab', got %q", oauthErr.ProviderType)
+	if !ok || oauthErr.ProviderType != "gitlab" {
+		t.Fatalf("expected GitLab OAuthRequiredError, got %T: %v", err, err)
 	}
 }
 
