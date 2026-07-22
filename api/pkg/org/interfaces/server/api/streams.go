@@ -51,9 +51,9 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 			CreatedBy:   string(s.CreatedBy),
 			CreatedAt:   s.CreatedAt.Format(time.RFC3339),
 		}
-		dto.CanPublish = s.Transport.Kind != transport.KindGitHub
+		dto.CanPublish = s.Transport.Kind != transport.KindGitHub && s.Transport.Kind != transport.KindGitLab
 		if !dto.CanPublish {
-			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+			dto.DisableReason = string(s.Transport.Kind) + " transport is inbound only"
 			dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 		}
 		if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -192,9 +192,9 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:   string(s.CreatedBy),
 		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
 	}
-	dto.CanPublish = s.Transport.Kind != transport.KindGitHub
+	dto.CanPublish = s.Transport.Kind != transport.KindGitHub && s.Transport.Kind != transport.KindGitLab
 	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+		dto.DisableReason = string(s.Transport.Kind) + " transport is inbound only"
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -310,9 +310,9 @@ func (a *apiHandler) updateTopic(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:   string(updated.CreatedBy),
 		CreatedAt:   updated.CreatedAt.Format(time.RFC3339),
 	}
-	dto.CanPublish = updated.Transport.Kind != transport.KindGitHub
+	dto.CanPublish = updated.Transport.Kind != transport.KindGitHub && updated.Transport.Kind != transport.KindGitLab
 	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+		dto.DisableReason = string(updated.Transport.Kind) + " transport is inbound only"
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(updated.Transport); err == nil {
@@ -648,7 +648,7 @@ func (a *apiHandler) publishToTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	ev, err := a.deps.Publishing.Publish(ctx, orgID, topicID, strings.TrimSpace(req.As), msg)
 	if err != nil {
-		if errors.Is(err, publishing.ErrPublishToGitHub) {
+		if errors.Is(err, publishing.ErrPublishToGitHub) || errors.Is(err, publishing.ErrPublishToGitLab) {
 			writeError(w, http.StatusConflict, err)
 			return
 		}

@@ -293,6 +293,21 @@ definitions:
       webhook_id:
         type: integer
     type: object
+  api.GitLabWebhookStatusResponse:
+    properties:
+      active:
+        type: boolean
+      detail:
+        type: string
+      payload_url:
+        type: string
+      state:
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
   api.InstallGitHubWebhookResponse:
     properties:
       payload_url:
@@ -304,6 +319,15 @@ definitions:
           servers can't actually deliver to this URL". The webhook IS
           installed on GitHub; the warning just tells the operator
           what needs fixing on their side for deliveries to flow.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
+  api.InstallGitLabWebhookResponse:
+    properties:
+      payload_url:
         type: string
       webhook_html_url:
         type: string
@@ -19348,6 +19372,46 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: live webhook status for a github topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook:
+    post:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitLabWebhookResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a GitLab topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status:
+    get:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitLabWebhookStatusResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a GitLab topic'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/topics/{id}/messages:

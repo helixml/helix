@@ -17,8 +17,12 @@ import {
   useCreateHelixOrgTopic,
   useGitHubAppInstallation,
   useInstallGitHubWebhook,
+  useInstallGitLabWebhook,
   useListGitHubRepos,
 } from '../../services/helixOrgService'
+import useAccount from '../../hooks/useAccount'
+import { useGitRepositories } from '../../services/gitRepositoryService'
+import { TypesExternalRepositoryType } from '../../api/api'
 import { getUserTimezone } from '../../utils/cronUtils'
 import CronScheduleFields, { buildSpecificTimeCron } from './CronScheduleFields'
 import { GitHubAppConnect } from './GitHubAppPanel'
@@ -28,8 +32,9 @@ import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
 const TRANSPORT_KINDS = [
   { value: 'local', label: 'local', help: 'In-process pub/sub. Default; no config needed.' },
-  { value: 'webhook', label: 'webhook', help: 'HTTP webhook. Inbound by default; outbound URL = bidirectional.' },
+  { value: 'webhook', label: 'webhook', help: 'Outbound HTTP webhook. Set outbound_url to receive topic events.' },
   { value: 'github', label: 'github', help: 'GitHub webhook (inbound only). Scope this topic to a single repo + a whitelist of event types. Webhook secret is set once at the org level on the Settings page; the GitHub access token is reused from your OAuth connection automatically.' },
+  { value: 'gitlab', label: 'gitlab', help: 'GitLab webhook (inbound only). Select an existing Helix GitLab repository; Helix installs and signs the webhook automatically.' },
   { value: 'postmark', label: 'postmark', help: 'Inbound email (Postmark). Config: inbound_address.' },
   { value: 'cron', label: 'cron', help: 'Scheduled trigger. The server fires an event on this topic at the configured cadence; every subscribed Worker is activated. Minimum interval: 90 seconds.' },
 ]
@@ -47,6 +52,8 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
   const snackbar = useSnackbar()
   const create = useCreateHelixOrgTopic()
   const installWebhook = useInstallGitHubWebhook()
+  const installGitLabWebhook = useInstallGitLabWebhook()
+  const account = useAccount()
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -63,6 +70,9 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
   // delete to specific branches. Both editable here; also on the detail page.
   const [ghEvents, setGhEvents] = useState<string[]>(['*'])
   const [ghBranches, setGhBranches] = useState<string[]>(['*'])
+  const [glRepositoryID, setGlRepositoryID] = useState('')
+  const repositories = useGitRepositories({ organizationId: account.organizationTools.organization?.id, enabled: open })
+  const gitLabRepositories = (repositories.data ?? []).filter((repo) => repo.external_type === TypesExternalRepositoryType.ExternalRepositoryTypeGitLab)
   // Cron schedule — human-friendly builder (weekdays + time / interval /
   // advanced cron). Stored as a standard 5-field expression (+ optional
   // CRON_TZ= prefix) on the topic config.
@@ -106,6 +116,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhRepo('')
     setGhEvents(['*'])
     setGhBranches(['*'])
+    setGlRepositoryID('')
     setCronSchedule(defaultCronSchedule())
     setCronMessage('')
   }, [open])
@@ -117,6 +128,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     Boolean(name.trim()) &&
     !create.isPending &&
     (kind !== 'github' || (ghInstalled && Boolean(ghRepo.trim()))) &&
+    (kind !== 'gitlab' || Boolean(glRepositoryID)) &&
     (kind !== 'cron' || Boolean(cronSchedule.trim()))
 
   const resetAndClose = () => {
@@ -128,6 +140,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
     setGhRepo('')
     setGhEvents(['*'])
     setGhBranches(['*'])
+    setGlRepositoryID('')
     setCronSchedule(defaultCronSchedule())
     setCronMessage('')
     onClose()
@@ -156,6 +169,13 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
       config = { repo: ghRepo.trim(), events }
       const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
       if (branches.length > 0) (config as Record<string, unknown>).branches = branches
+    } else if (kind === 'gitlab') {
+      const repo = gitLabRepositories.find((item) => item.id === glRepositoryID)
+      if (!repo?.external_url) {
+        snackbar.error('Select a GitLab repository')
+        return
+      }
+      config = { repository_id: repo.id, events: ['Merge Request Hook'] }
     } else if (kind === 'cron') {
       const sched = cronSchedule.trim()
       if (!sched) {
@@ -207,6 +227,13 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
             const msg = e?.response?.data?.error ?? e?.message ?? 'install failed'
             snackbar.error(`Topic created but webhook install failed: ${msg}. Open the topic detail page and click "Re-install webhook".`)
           }
+        }
+      } else if (kind === 'gitlab' && created?.id) {
+        try {
+          await installGitLabWebhook.mutateAsync(created.id)
+          snackbar.success('Topic created - webhook installed on GitLab')
+        } catch (e: any) {
+          snackbar.error(`Topic created but webhook install failed: ${e?.response?.data?.error ?? e?.message ?? 'install failed'}. Open the topic and retry.`)
         }
       } else {
         snackbar.success('topic created')
@@ -289,6 +316,21 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
             )}
           </>
         )}
+        {kind === 'gitlab' && (
+          <FormControl fullWidth size="small">
+            <InputLabel id="gitlab-repository-label">GitLab repository</InputLabel>
+            <Select
+              labelId="gitlab-repository-label"
+              value={glRepositoryID}
+              label="GitLab repository"
+              onChange={(e) => setGlRepositoryID(e.target.value)}
+            >
+              {gitLabRepositories.map((repo) => (
+                <MenuItem key={repo.id} value={repo.id}>{repo.external_url || repo.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         {kind === 'cron' && (
           <CronScheduleFields
             // Remount when the drawer opens so weekday/time state matches the seed schedule.
@@ -300,7 +342,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
             defaultMode="specific_time"
           />
         )}
-        {kind !== 'local' && kind !== 'github' && kind !== 'cron' && (
+        {kind !== 'local' && kind !== 'github' && kind !== 'gitlab' && kind !== 'cron' && (
           <TextField
             label="Transport config (JSON)"
             placeholder='{"outbound_url": "https://example.com/hook"}'
@@ -310,7 +352,7 @@ const NewTopicDrawer: FC<NewTopicDrawerProps> = ({ open, onClose }) => {
             minRows={4}
             fullWidth
             size="small"
-            helperText="Kind-specific config. Optional for webhook (inbound-only without outbound_url); required for postmark."
+            helperText="Kind-specific config. Set outbound_url for webhook; required for postmark."
           />
         )}
         <Stack direction="row" spacing={1} sx={{ pt: 1 }}>

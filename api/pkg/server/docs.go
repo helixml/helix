@@ -11154,6 +11154,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a GitLab topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.InstallGitLabWebhookResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a GitLab topic",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.GitLabWebhookStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/topics/{id}/messages": {
             "get": {
                 "security": [
@@ -22012,6 +22078,29 @@ const docTemplate = `{
                 }
             }
         },
+        "api.GitLabWebhookStatusResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "payload_url": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.InstallGitHubWebhookResponse": {
             "type": "object",
             "properties": {
@@ -22020,6 +22109,20 @@ const docTemplate = `{
                 },
                 "warning": {
                     "description": "Warning is a non-fatal message about the just-installed\nwebhook — e.g. \"SERVER_URL is a loopback address so GitHub's\nservers can't actually deliver to this URL\". The webhook IS\ninstalled on GitHub; the warning just tells the operator\nwhat needs fixing on their side for deliveries to flow.",
+                    "type": "string"
+                },
+                "webhook_html_url": {
+                    "type": "string"
+                },
+                "webhook_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "api.InstallGitLabWebhookResponse": {
+            "type": "object",
+            "properties": {
+                "payload_url": {
                     "type": "string"
                 },
                 "webhook_html_url": {

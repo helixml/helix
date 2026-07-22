@@ -508,6 +508,7 @@ func TestTransportKindValues_ListsEveryKnownKind(t *testing.T) {
 		transport.KindWebhook,
 		transport.KindEmail,
 		transport.KindGitHub,
+		transport.KindGitLab,
 		transport.KindCron,
 		transport.KindSlack,
 		transport.KindHelixEvents,

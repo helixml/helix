@@ -333,6 +333,8 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /github/app-manifest", Handler: http.HandlerFunc(a.startGitHubAppManifest)},
 		{Pattern: "POST /topics/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
 		{Pattern: "GET /topics/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
+		{Pattern: "POST /topics/{id}/gitlab/install-webhook", Handler: http.HandlerFunc(a.installGitLabWebhook)},
+		{Pattern: "GET /topics/{id}/gitlab/webhook-status", Handler: http.HandlerFunc(a.getGitLabWebhookStatus)},
 	}
 }
 
