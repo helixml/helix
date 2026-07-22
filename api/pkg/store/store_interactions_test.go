@@ -148,6 +148,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 		SessionID:     session.ID,
 		GenerationID:  1,
 		UserID:        userID,
+		State:         types.InteractionStateWaiting,
 		PromptMessage: "hello",
 		PromptMessageContent: types.MessageContent{
 			ContentType: types.MessageContentTypeText,
@@ -194,6 +195,34 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	suite.NoError(err)
 	suite.Equal(1, int(total))
 	suite.Equal(createdInteraction.ID, interactions[0].ID)
+
+	transitioned, err := suite.db.MarkInteractionCompleteIfWaiting(context.Background(), interaction.ID, interaction.GenerationID)
+	suite.NoError(err)
+	suite.True(transitioned)
+	transitioned, err = suite.db.MarkInteractionErrorIfWaiting(context.Background(), interaction.ID, interaction.GenerationID, "must not overwrite")
+	suite.NoError(err)
+	suite.False(transitioned)
+	gotInteraction, err = suite.db.GetInteraction(context.Background(), interaction.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateComplete, gotInteraction.State)
+	suite.Equal("foobar2", gotInteraction.ResponseMessage)
+
+	waiting := &types.Interaction{
+		ID:           system.GenerateInteractionID(),
+		SessionID:    session.ID,
+		GenerationID: 1,
+		UserID:       userID,
+		State:        types.InteractionStateWaiting,
+	}
+	_, err = suite.db.CreateInteraction(context.Background(), waiting)
+	suite.NoError(err)
+	transitioned, err = suite.db.MarkInteractionErrorIfWaiting(context.Background(), waiting.ID, waiting.GenerationID, "agent unresponsive")
+	suite.NoError(err)
+	suite.True(transitioned)
+	gotInteraction, err = suite.db.GetInteraction(context.Background(), waiting.ID)
+	suite.NoError(err)
+	suite.Equal(types.InteractionStateError, gotInteraction.State)
+	suite.Equal("agent unresponsive", gotInteraction.Error)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_ClearSessionInteractions() {

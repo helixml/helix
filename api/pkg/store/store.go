@@ -320,6 +320,10 @@ type Store interface {
 	// change made). Used by the streaming transition handler so it cannot
 	// resurrect a cancelled or errored turn as falsely "complete".
 	MarkInteractionCompleteIfWaiting(ctx context.Context, interactionID string, generationID int) (bool, error)
+	// MarkInteractionErrorIfWaiting atomically transitions an interaction
+	// from Waiting to Error. Returns false when another terminal transition
+	// already won.
+	MarkInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, reason string) (bool, error)
 	// ReapWaitingInteractions transitions all state=waiting interactions for a
 	// session to newState (e.g. interrupted) when the external agent has gone
 	// away (desktop idle-stopped/crashed/found-stopped). This clears the
@@ -337,7 +341,7 @@ type Store interface {
 	// ListStuckWaitingInteractions returns up to `limit` interactions that
 	// are in state=waiting, have produced no response or entries, and were
 	// created before `olderThan`. Used by the auto-wake worker to find
-	// candidates for a "continue" wake-up prompt.
+	// candidates for recovery or terminalization.
 	ListStuckWaitingInteractions(ctx context.Context, olderThan time.Time, limit int) ([]*types.Interaction, error)
 	// CountAutoWakeAttemptsSince returns the number of interactions in
 	// `sessionID` with auto_wake_count > 0 created strictly after `since`.

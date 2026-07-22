@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +29,52 @@ type GitRepositoryPushSuiteADO struct {
 
 func TestGitRepositoryPushSuiteADO(t *testing.T) {
 	suite.Run(t, new(GitRepositoryPushSuiteADO))
+}
+
+func TestPushBranchToRemote_GitLabUserWithoutOAuthFallsBackToPAT(t *testing.T) {
+	tests := []struct {
+		name     string
+		gitlab   *types.GitLab
+		username string
+		password string
+	}{
+		{name: "provider PAT", gitlab: &types.GitLab{PersonalAccessToken: "shared-pat"}},
+		{name: "legacy username and password", username: "gitlab-user", password: "shared-pat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore := store.NewMockStore(gomock.NewController(t))
+			service := NewGitRepositoryService(mockStore, t.TempDir(), "http://localhost:8080", "test", "test@example.com")
+			repoPath := t.TempDir()
+			if err := giteagit.InitRepository(context.Background(), repoPath, true, "sha1"); err != nil {
+				t.Fatalf("failed to initialize test repository: %v", err)
+			}
+			repo := &types.GitRepository{
+				ID:            "gitlab-repo",
+				LocalPath:     repoPath,
+				IsExternal:    true,
+				ExternalURL:   "https://gitlab.com/org/repo",
+				ExternalType:  types.ExternalRepositoryTypeGitLab,
+				DefaultBranch: "master",
+				GitLab:        tt.gitlab,
+				Username:      tt.username,
+				Password:      tt.password,
+			}
+			mockStore.EXPECT().GetGitRepository(gomock.Any(), repo.ID).Return(repo, nil)
+			mockStore.EXPECT().ListOAuthConnections(gomock.Any(), &store.ListOAuthConnectionsQuery{UserID: "user-x"}).Return(nil, nil).Times(2)
+
+			err := service.PushBranchToRemote(context.Background(), repo.ID, "feature", true, "user-x")
+
+			if err == nil {
+				t.Fatal("expected push to the test repository to fail")
+			}
+			var oauthErr *OAuthRequiredError
+			if errors.As(err, &oauthErr) {
+				t.Fatalf("expected GitLab PAT fallback, got %v", err)
+			}
+		})
+	}
 }
 
 func (suite *GitRepositoryPushSuiteADO) SetupTest() {

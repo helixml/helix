@@ -112,6 +112,7 @@ export const CrispLogo = (props: any) => (
 // All built-in icons export
 export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   github: <GitHubIcon sx={{ fontSize: 30 }} />,
+  gitlab: <CodeIcon sx={{ fontSize: 30 }} />,
   google: <GoogleIcon sx={{ fontSize: 30 }} />,
   microsoft: <MicrosoftLogo sx={{ fontSize: 30 }} />,
   atlassian: <img src={atlassianLogo} style={{ width: 30, height: 30 }} alt="Atlassian" />,
@@ -128,6 +129,7 @@ export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
 // Brand colors for all known provider types
 export const PROVIDER_COLORS: Record<string, string> = {
   github: '#24292e',
+  gitlab: '#FC6D26',
   google: '#4285F4',
   microsoft: '#00a1f1',
   atlassian: '#0052CC',
@@ -144,6 +146,7 @@ export const PROVIDER_COLORS: Record<string, string> = {
 // All known provider display names
 export const PROVIDER_TYPES: Record<string, string> = {
   github: 'GitHub',
+  gitlab: 'GitLab',
   google: 'Google',
   microsoft: 'Microsoft',
   atlassian: 'Atlassian',
@@ -169,6 +172,11 @@ export const BUILT_IN_PROVIDERS: PartialOAuthProvider[] = [
     type: 'github',
     name: 'GitHub',
     description: 'Connect to GitHub to access repositories and collaborate on code'
+  },
+  {
+    type: 'gitlab',
+    name: 'GitLab',
+    description: 'Connect to GitLab to access repositories and collaborate on code'
   },
   {
     type: 'google',

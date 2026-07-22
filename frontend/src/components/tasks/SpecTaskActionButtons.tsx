@@ -28,8 +28,8 @@ import {
 } from "../../services/specTaskWorkflowService";
 import { useUpdateSpecTask } from "../../services/specTaskService";
 import { useListOAuthProviders, useListOAuthConnections } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes } from "../../utils/oauthProviders";
-import { useOAuthFlow, GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
+import { findOAuthProviderForType, findOAuthConnectionForProvider, hasRequiredScopes, vcsScopesForProvider } from "../../utils/oauthProviders";
+import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import CIStatusIcon from "./CIStatusIcon";
 
 export interface RepoPR {
@@ -270,9 +270,12 @@ export default function SpecTaskActionButtons({
   const { data: oauthConnections } = useListOAuthConnections();
   const { startOAuthFlow, isLoading: isOAuthLoading } = useOAuthFlow();
 
-  const gitHubConnection = findOAuthConnectionForProvider(oauthConnections, 'github');
-  const hasGitHubOAuthWithRepoScope = !!gitHubConnection && hasRequiredScopes(gitHubConnection.scopes, ['repo']);
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, 'github');
+  const oauthProviderType = externalRepoType === "gitlab" ? "gitlab" : "github";
+  const oauthProviderName = oauthProviderType === "gitlab" ? "GitLab" : "GitHub";
+  const oauthConnection = findOAuthConnectionForProvider(oauthConnections, oauthProviderType);
+  const oauthScopes = vcsScopesForProvider(oauthProviderType, null) || [];
+  const hasOAuthWithRequiredScopes = !!oauthConnection && hasRequiredScopes(oauthConnection.scopes, oauthScopes);
+  const oauthProvider = findOAuthProviderForType(oauthProviders, oauthProviderType);
 
   // Detect oauth_required error from the backend (enforcement fallback)
   useEffect(() => {
@@ -286,13 +289,11 @@ export default function SpecTaskActionButtons({
 
   const handleOpenPR = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasGitHubOAuthWithRepoScope) {
-      if (gitHubProvider?.id) {
-        // GitHub OAuth provider exists -- start the connection flow with the full
-        // VCS scope set (re-auth replaces scopes, so requesting a subset downgrades)
+    if (!isDirectPush && hasExternalRepo && externalRepoType === "github" && !hasOAuthWithRequiredScopes) {
+      if (oauthProvider?.id) {
         startOAuthFlow({
-          providerId: gitHubProvider.id,
-          scopes: GITHUB_VCS_SCOPES,
+          providerId: oauthProvider.id,
+          scopes: oauthScopes,
           onSuccess: () => {
             setShowOAuthPrompt(false);
             approveImplementationMutation.mutate();
@@ -302,7 +303,6 @@ export default function SpecTaskActionButtons({
           },
         });
       } else {
-        // No GitHub OAuth provider configured -- show prompt
         setShowOAuthPrompt(true);
       }
       return;
@@ -579,20 +579,20 @@ export default function SpecTaskActionButtons({
       return (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>
           <Alert severity="warning" sx={{ py: 0.5 }}>
-            {gitHubProvider?.id
-              ? "Connect your GitHub account to open PRs under your name."
-              : "GitHub OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name."}
+            {oauthProvider?.id
+              ? `Connect your ${oauthProviderName} account to open PRs under your name.`
+              : `${oauthProviderName} OAuth is not configured. Ask your administrator to set it up so PRs can be opened under your name.`}
           </Alert>
           <Box sx={{ display: "flex", gap: 1 }}>
-            {gitHubProvider?.id && (
+            {oauthProvider?.id && (
               <Button
                 variant="contained"
                 size="small"
                 disabled={isOAuthLoading}
                 onClick={() => {
                   startOAuthFlow({
-                    providerId: gitHubProvider.id!,
-                    scopes: GITHUB_VCS_SCOPES,
+                    providerId: oauthProvider.id!,
+                    scopes: oauthScopes,
                     onSuccess: () => {
                       setShowOAuthPrompt(false);
                       approveImplementationMutation.mutate();
@@ -603,7 +603,7 @@ export default function SpecTaskActionButtons({
                   });
                 }}
               >
-                {isOAuthLoading ? "Connecting..." : "Connect GitHub"}
+                {isOAuthLoading ? "Connecting..." : `Connect ${oauthProviderName}`}
               </Button>
             )}
             <Button
