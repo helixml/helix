@@ -6,16 +6,16 @@
       the same `/api/v1/spec-tasks/${specTaskId}/view` endpoint
 - [x] Fix the duplicate broken URL in `SpecTaskReviewPanel.tsx:56` (unused component; fixed
       URL rather than deleting without explicit approval)
-- [~] Add a **Share** button to the top-right of the spec task details panel that opens a
-      share dialog/popover
-- [~] Build the share dialog (MUI `Dialog`) with: public-access toggle ("Anyone
-      with the link can view"), and when ON a clickable link field + copy button
-- [~] Wire the toggle to the existing `public_design_docs` update; hide/disable the link
-      when sharing is OFF
-- [~] Replace the raw `api.put('/api/v1/spec-tasks/${taskId}', ...)` toggle call with the
-      generated API client method (repo convention)
-- [~] Remove the now-redundant inline toggle + copy row (`SpecTaskDetailContent.tsx`
-      1679–1733) once the dialog replaces it
-- [ ] Test end-to-end in the inner Helix: toggle ON → open copied link logged-out (no OIDC
+- [x] Add a **Share** button to the top-right toolbar of the spec task details panel (and
+      an info-column Share button) that opens the share dialog
+- [x] Build the share dialog (`SpecTaskShareDialog.tsx`, MUI `Dialog`) with: public-access
+      toggle ("Anyone with the link"), and when ON a clickable link field + open + copy
+- [x] Wire the toggle to the existing `public_design_docs` update; hide the link when
+      sharing is OFF
+- [x] Replace the raw `api.put('/api/v1/spec-tasks/${taskId}', ...)` toggle call with the
+      generated client `v1SpecTasksUpdate`
+- [x] Remove the now-redundant inline toggle + copy row (replaced by the Share button/dialog)
+- [x] Typecheck + build: `yarn tsc` passes clean; `vite build` transforms all modules (final
+      write to root-owned `dist/` is env-blocked, not a code error)
+- [~] Test end-to-end in the inner Helix: toggle ON → open copied link logged-out (no OIDC
       redirect, docs render); toggle OFF → private page shown
-- [ ] `cd frontend && yarn build` to confirm the frontend compiles
