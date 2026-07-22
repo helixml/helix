@@ -71,6 +71,28 @@ const shareUrl = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
   convention (`public_design_docs` already exists on the generated request type). Low-cost
   cleanup while touching this code.
 
+## Implementation Notes (as built)
+
+- **URL fix (the actual bug):** added the missing `/api/v1` prefix in all three builders —
+  `SpecTaskDetailContent.tsx`, `DesignReviewContent.tsx` (review page top-right share), and
+  the unused `SpecTaskReviewPanel.tsx`. This is what makes the link resolve to the working
+  unauthenticated server-rendered viewer instead of the SPA login redirect.
+- **Share dialog:** new component `frontend/src/components/tasks/SpecTaskShareDialog.tsx`.
+  MUI `Dialog` with a public-access toggle (Globe/Lock icon + "Anyone with the link" /
+  "Restricted" copy) and, when public, a read-only URL field + open-in-new-tab + copy
+  button (own copied-state, no external CopyButton needed — CopyButton is absolutely
+  positioned, which didn't fit an inline row).
+- **Triggers:** a `Share` button replaces the old inline toggle/copy row in the info
+  column, AND a `Share` icon button in the detail panel's top-right toolbar (next to Clone),
+  both gated on `task.design_docs_pushed_at` (docs exist) and both opening the same dialog.
+- **Generated client:** the toggle now calls
+  `api.getApiClient().v1SpecTasksUpdate(taskId, { public_design_docs })` instead of raw
+  `api.put`, per repo convention. `TypesSpecTaskUpdateRequest` already has the field.
+- **Kept `SpecTaskReviewPanel.tsx`** (unused/dead) rather than deleting it without explicit
+  approval — only fixed its URL. Flagged in requirements Open Question 4.
+- Removed the now-unused `copyPublicLink` helper and the `Copy` lucide import from
+  `SpecTaskDetailContent.tsx`.
+
 ## Risks / Gotchas
 
 - The share link is an API URL, so clicking it navigates the whole tab to server-rendered
