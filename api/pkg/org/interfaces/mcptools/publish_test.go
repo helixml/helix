@@ -90,12 +90,29 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 		"topicId": "s-general",
 		"body":    "hello",
 	})
-	if _, err := tl.Invoke(ctx, tool.Invocation{Caller: caller, Args: args}); err != nil {
+	raw, err := tl.Invoke(ctx, tool.Invocation{Caller: caller, Args: args})
+	if err != nil {
 		t.Fatalf("Invoke = %v, want nil for local topic", err)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(result) != 4 || result["id"] == "" || result["topicId"] != "s-general" || result["scope"] != "helix" || result["status"] != "appended inside Helix; external delivery not confirmed" {
+		t.Fatalf("result = %#v", result)
 	}
 
 	events, _ := st.Events.ListForTopic(ctx, "org-test", "s-general", 10)
 	if len(events) != 1 {
 		t.Fatalf("events = %d, want 1", len(events))
+	}
+}
+
+func TestPublishDescriptionDoesNotClaimExternalDelivery(t *testing.T) {
+	description := (&Publish{}).Description()
+	for _, want := range []string{"through Helix", "does not call Slack", "does not confirm external delivery", "mint_credential", "provider API directly"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("description %q missing %q", description, want)
+		}
 	}
 }
