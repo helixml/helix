@@ -387,5 +387,6 @@ func (s *AutoWakeConnectedSuite) TestLeavesQuiescentInteractionWaitingWithoutRep
 	s.server.maybeAutoWake(context.Background(), stuck)
 
 	s.Equal(types.InteractionStateWaiting, stuck.State)
+	s.Zero(stuck.AutoWakeCount)
 	s.Empty(sendChan)
 }
