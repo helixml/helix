@@ -457,7 +457,7 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
+	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
 	SpecTaskAttachmentMaxPerTask = 10               // 10 files per task
 )
 
