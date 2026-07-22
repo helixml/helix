@@ -51,7 +51,9 @@ import {
   useClearHelixOrgTopicMessages,
   useHelixOrgTopic,
   useGitHubWebhookStatus,
+  useGitLabWebhookStatus,
   useInstallGitHubWebhook,
+  useInstallGitLabWebhook,
   useTopicMessageCount,
   useUpdateHelixOrgTopic,
 } from '../services/helixOrgService'
@@ -184,6 +186,8 @@ const HelixOrgTopicDetail: FC = () => {
                   orgSlug={orgSlug}
                 />
               )}
+
+              {topic.kind === 'gitlab' && <GitLabWebhookStatus topic={topic} />}
 
               <Divider />
 
@@ -381,7 +385,7 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
               onMessageChange={(cronMessage) => setForm((current) => ({ ...current, cronMessage }))}
             />
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron' && (
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && (
             <TextField
               label="Transport config (JSON)"
               value={form.configText}
@@ -746,6 +750,60 @@ const EventRow: FC<{ ev: EventCard; formatTs: (iso: string) => string }> = ({ ev
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontFamily: 'monospace', fontSize: '0.65rem' }}>
         {ev.id}
       </Typography>
+    </Paper>
+  )
+}
+
+const GitLabWebhookStatus: FC<{ topic: TopicDTO }> = ({ topic }) => {
+  const snackbar = useSnackbar()
+  const install = useInstallGitLabWebhook()
+  const status = useGitLabWebhookStatus(topic.id)
+  const config = (topic.config ?? {}) as { repo?: string }
+  const live = status.data
+
+  const reinstall = async () => {
+    try {
+      await install.mutateAsync(topic.id)
+      snackbar.success('Webhook installed on GitLab')
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'install failed')
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="h6" sx={{ mb: 1 }}>Connect to GitLab</Typography>
+      {status.isLoading ? <CircularProgress size={16} /> : (
+        <Stack spacing={1.5}>
+          <Typography variant="body2">
+            {live?.state === 'installed'
+              ? <>Webhook registered on <strong>{config.repo}</strong>.{live.active === false ? ' It is disabled in GitLab.' : ''}</>
+              : live?.state === 'unknown'
+                ? <>Could not confirm the webhook on <strong>{config.repo || '(repo not set)'}</strong>.</>
+              : <>No webhook found on <strong>{config.repo || '(repo not set)'}</strong>.</>}
+          </Typography>
+          {live?.payload_url && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <TextField label="Webhook URL" value={live.payload_url} size="small" fullWidth InputProps={{ readOnly: true }} />
+              <CopyButtonWithCheck text={live.payload_url} />
+            </Stack>
+          )}
+          <Stack direction="row" spacing={1}>
+            {live?.webhook_html_url && (
+              <Button component="a" href={live.webhook_html_url} target="_blank" rel="noopener noreferrer" variant="outlined" size="small">
+                View on GitLab
+              </Button>
+            )}
+            <Button variant="contained" size="small" onClick={reinstall} disabled={install.isPending}>
+              {install.isPending ? 'Installing...' : live?.state === 'installed' ? 'Re-install' : 'Install webhook on GitLab'}
+            </Button>
+          </Stack>
+          {live?.detail && <Typography variant="caption" color="text.secondary">{live.detail}</Typography>}
+          <Typography variant="caption" color="text.secondary">
+            Helix configures GitLab Standard Webhooks signing automatically and verifies every delivery before publishing it to this topic.
+          </Typography>
+        </Stack>
+      )}
     </Paper>
   )
 }

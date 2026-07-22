@@ -18,8 +18,8 @@ import (
 // same way — the authenticated publish endpoint
 // (POST /api/v1/orgs/{org}/topics/{id}/publish) appends an Event, which
 // then notifies long-poll observers, dispatches to subscribed Workers,
-// and runs any Processors reading the Topic. (The one transport that
-// adds its own public, signature-verified inbound route is github.)
+// and runs any Processors reading the Topic. GitHub and GitLab add
+// their own public, signature-verified inbound routes.
 //
 // An empty WebhookConfig is therefore inert (no outbound delivery); a
 // Topic only "does something" as a webhook when outbound_url is set.

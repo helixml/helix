@@ -615,6 +615,11 @@ type eventsRepo struct {
 func (e *eventsRepo) Append(_ context.Context, ev streaming.Event) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	for _, existing := range e.rows {
+		if existing.OrganizationID == ev.OrganizationID && existing.ID == ev.ID {
+			return fmt.Errorf("event %q: %w", ev.ID, store.ErrConflict)
+		}
+	}
 	e.rows = append(e.rows, ev)
 	return nil
 }

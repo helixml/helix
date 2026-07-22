@@ -76,4 +76,10 @@ func RegisterConfigSpecs(r *configregistry.Registry) {
 		Secrets:     []string{"token", "webhook_secret"},
 		Description: `GitHub webhooks config: {"token","webhook_secret"}. Required only if any Stream uses transport=github. token is the gh PAT used by Workers; webhook_secret is the HMAC secret GitHub signs deliveries with.`,
 	})
+	r.Register(configregistry.Spec{
+		Key:         "transport.gitlab",
+		Type:        configregistry.TypeObject,
+		Secrets:     []string{"signing_token", "secret_token"},
+		Description: `GitLab webhook authentication. Helix manages Standard Webhooks and legacy compatibility tokens automatically.`,
+	})
 }
