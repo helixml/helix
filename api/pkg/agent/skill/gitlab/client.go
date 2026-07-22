@@ -12,49 +12,75 @@ import (
 	"github.com/xanzy/go-gitlab"
 )
 
-type Webhook struct {
-	ID                    int    `json:"id"`
-	URL                   string `json:"url"`
-	EnableSSLVerification bool   `json:"enable_ssl_verification"`
-	AlertStatus           string `json:"alert_status"`
-	MergeRequestsEvents   bool   `json:"merge_requests_events"`
-	NoteEvents            bool   `json:"note_events"`
-	PipelineEvents        bool   `json:"pipeline_events"`
-	PushEvents            bool   `json:"push_events"`
-	SigningTokenPresent   bool   `json:"signing_token_present"`
-}
+type Webhook = gitlab.ProjectHook
 
 type addWebhookOptions struct {
 	URL                 string `json:"url"`
 	SigningToken        string `json:"signing_token,omitempty"`
 	Token               string `json:"token,omitempty"`
-	MergeRequestsEvents bool   `json:"merge_requests_events,omitempty"`
-	NoteEvents          bool   `json:"note_events,omitempty"`
-	PipelineEvents      bool   `json:"pipeline_events,omitempty"`
-	PushEvents          bool   `json:"push_events,omitempty"`
+	MergeRequestsEvents bool   `json:"merge_requests_events"`
+	NoteEvents          bool   `json:"note_events"`
+	PipelineEvents      bool   `json:"pipeline_events"`
+	PushEvents          bool   `json:"push_events"`
 }
 
 func (c *Client) AddWebhook(ctx context.Context, projectID int, url, signingToken, token string, events []string) (*Webhook, error) {
-	return c.writeWebhook(ctx, http.MethodPost, fmt.Sprintf("projects/%d/hooks", projectID), url, signingToken, token, events)
+	mergeRequests, notes, pipelines, pushes := webhookEvents(events)
+	if signingToken != "" {
+		return c.writeWebhook(ctx, http.MethodPost, fmt.Sprintf("projects/%d/hooks", projectID), url, signingToken, token, mergeRequests, notes, pipelines, pushes)
+	}
+	hook, _, err := c.client.Projects.AddProjectHook(projectID, &gitlab.AddProjectHookOptions{
+		URL:                 gitlab.Ptr(url),
+		Token:               gitlab.Ptr(token),
+		MergeRequestsEvents: gitlab.Ptr(mergeRequests),
+		NoteEvents:          gitlab.Ptr(notes),
+		PipelineEvents:      gitlab.Ptr(pipelines),
+		PushEvents:          gitlab.Ptr(pushes),
+	}, gitlab.WithContext(ctx))
+	return hook, err
 }
 
 func (c *Client) UpdateWebhook(ctx context.Context, projectID, hookID int, url, signingToken, token string, events []string) (*Webhook, error) {
-	return c.writeWebhook(ctx, http.MethodPut, fmt.Sprintf("projects/%d/hooks/%d", projectID, hookID), url, signingToken, token, events)
+	mergeRequests, notes, pipelines, pushes := webhookEvents(events)
+	if signingToken != "" {
+		return c.writeWebhook(ctx, http.MethodPut, fmt.Sprintf("projects/%d/hooks/%d", projectID, hookID), url, signingToken, token, mergeRequests, notes, pipelines, pushes)
+	}
+	hook, _, err := c.client.Projects.EditProjectHook(projectID, hookID, &gitlab.EditProjectHookOptions{
+		URL:                 gitlab.Ptr(url),
+		Token:               gitlab.Ptr(token),
+		MergeRequestsEvents: gitlab.Ptr(mergeRequests),
+		NoteEvents:          gitlab.Ptr(notes),
+		PipelineEvents:      gitlab.Ptr(pipelines),
+		PushEvents:          gitlab.Ptr(pushes),
+	}, gitlab.WithContext(ctx))
+	return hook, err
 }
 
-func (c *Client) writeWebhook(ctx context.Context, method, path, url, signingToken, token string, events []string) (*Webhook, error) {
-	options := addWebhookOptions{URL: url, SigningToken: signingToken, Token: token}
+func webhookEvents(events []string) (mergeRequests, notes, pipelines, pushes bool) {
 	for _, event := range events {
 		switch event {
 		case "Merge Request Hook":
-			options.MergeRequestsEvents = true
+			mergeRequests = true
 		case "Note Hook":
-			options.NoteEvents = true
+			notes = true
 		case "Pipeline Hook":
-			options.PipelineEvents = true
+			pipelines = true
 		case "Push Hook":
-			options.PushEvents = true
+			pushes = true
 		}
+	}
+	return
+}
+
+func (c *Client) writeWebhook(ctx context.Context, method, path, url, signingToken, token string, mergeRequests, notes, pipelines, pushes bool) (*Webhook, error) {
+	options := addWebhookOptions{
+		URL:                 url,
+		SigningToken:        signingToken,
+		Token:               token,
+		MergeRequestsEvents: mergeRequests,
+		NoteEvents:          notes,
+		PipelineEvents:      pipelines,
+		PushEvents:          pushes,
 	}
 	req, err := c.client.NewRequest(method, path, &options, nil)
 	if err != nil {
@@ -70,14 +96,9 @@ func (c *Client) writeWebhook(ctx context.Context, method, path, url, signingTok
 
 func (c *Client) ListWebhooks(ctx context.Context, projectID int) ([]*Webhook, error) {
 	var all []*Webhook
-	for page := 1; ; page++ {
-		options := &gitlab.ListOptions{Page: page, PerPage: 100}
-		req, err := c.client.NewRequest(http.MethodGet, fmt.Sprintf("projects/%d/hooks", projectID), options, nil)
-		if err != nil {
-			return nil, err
-		}
-		var hooks []*Webhook
-		response, err := c.client.Do(req.WithContext(ctx), &hooks)
+	options := &gitlab.ListProjectHooksOptions{PerPage: 100}
+	for {
+		hooks, response, err := c.client.Projects.ListProjectHooks(projectID, options, gitlab.WithContext(ctx))
 		if err != nil {
 			return nil, err
 		}
@@ -85,6 +106,7 @@ func (c *Client) ListWebhooks(ctx context.Context, projectID int) ([]*Webhook, e
 		if response.NextPage == 0 {
 			return all, nil
 		}
+		options.Page = response.NextPage
 	}
 }
 
