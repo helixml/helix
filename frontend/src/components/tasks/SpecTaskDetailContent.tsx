@@ -2621,6 +2621,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {task.design_docs_pushed_at && (
+                      <Tooltip title="Share design docs">
+                        <IconButton
+                          size="small"
+                          onClick={() => setShareDialogOpen(true)}
+                        >
+                          <Share size={16} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton
                           size="small"
