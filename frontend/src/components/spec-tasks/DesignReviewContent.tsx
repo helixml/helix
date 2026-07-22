@@ -396,7 +396,9 @@ export default function DesignReviewContent({
 
   // Handle share link
   const handleShareLink = () => {
-    const shareUrl = `${window.location.origin}/design-doc/${specTaskId}/${reviewId}`;
+    // Unauthenticated public viewer — the /api/v1 prefix is required, otherwise
+    // the link hits the SPA and forces an OIDC login.
+    const shareUrl = `${window.location.origin}/api/v1/spec-tasks/${specTaskId}/view`;
     navigator.clipboard.writeText(shareUrl);
     setShareLinkCopied(true);
     setTimeout(() => setShareLinkCopied(false), 2000);
