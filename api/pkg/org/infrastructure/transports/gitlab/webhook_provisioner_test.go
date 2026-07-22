@@ -39,9 +39,10 @@ func provisionerTopic(t *testing.T) streaming.Topic {
 }
 
 func TestWebhookProvisionerInstallPreservesSecretsAndBuildsURL(t *testing.T) {
+	const fixtureSigningToken = "test-signing-token"
 	registry := configregistry.New(orggorm.GetOrgTestDB(t).Configs)
 	registry.Register(configregistry.Spec{Key: "transport.gitlab", Type: configregistry.TypeObject, Secrets: []string{"signing_token", "secret_token"}})
-	if err := registry.Set(context.Background(), "org/id", "transport.gitlab", `{"signing_token":"whsec_cHJlc2VydmVk"}`); err != nil {
+	if err := registry.Set(context.Background(), "org/id", "transport.gitlab", `{"signing_token":"`+fixtureSigningToken+`"}`); err != nil {
 		t.Fatal(err)
 	}
 	manager := &webhookManager{}
@@ -53,14 +54,14 @@ func TestWebhookProvisionerInstallPreservesSecretsAndBuildsURL(t *testing.T) {
 	if result.PayloadURL != wantURL || manager.payloadURL != wantURL {
 		t.Fatalf("url=%q", result.PayloadURL)
 	}
-	if manager.signingToken != "whsec_cHJlc2VydmVk" || manager.secretToken == "" {
+	if manager.signingToken != fixtureSigningToken || manager.secretToken == "" {
 		t.Fatalf("auth=%q/%q", manager.signingToken, manager.secretToken)
 	}
 	var auth gitlabtransport.Config
 	if err := registry.GetObject(context.Background(), "org/id", "transport.gitlab", &auth); err != nil {
 		t.Fatal(err)
 	}
-	if auth.SigningToken != "whsec_cHJlc2VydmVk" || auth.SecretToken == "" {
+	if auth.SigningToken != fixtureSigningToken || auth.SecretToken == "" {
 		t.Fatalf("stored auth=%+v", auth)
 	}
 }
