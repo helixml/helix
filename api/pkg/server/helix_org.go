@@ -41,6 +41,7 @@ import (
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/streamcron"
 	githubtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/github"
+	gitlabtransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/gitlab"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/transports/webhook"
 	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
@@ -90,6 +91,7 @@ type helixOrgHandlers struct {
 	// so cross-repo or non-whitelisted-event deliveries drop with
 	// 204 (no GitHub retries).
 	publicGitHubWebhookForStream http.Handler
+	publicGitLabWebhookForTopic  http.Handler
 	// publicSlackEvents is the global inbound Slack Events API handler
 	// mounted on the INSECURE router at /api/v1/slack/events. Slack
 	// deliveries authenticate via the global app's signing-secret HMAC
@@ -340,6 +342,11 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	if orgHandlers.publicGitHubWebhookForStream != nil {
 		insecureRouter.
 			Handle("/orgs/{org}/topics/{topic_id}/github/webhook", orgHandlers.publicGitHubWebhookForStream).
+			Methods(http.MethodPost)
+	}
+	if orgHandlers.publicGitLabWebhookForTopic != nil {
+		insecureRouter.
+			Handle("/orgs/{org}/topics/{topic_id}/gitlab/webhook", orgHandlers.publicGitLabWebhookForTopic).
 			Methods(http.MethodPost)
 	}
 	// GitHub App Manifest flow callbacks — top-level browser navigations
@@ -745,10 +752,19 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// later) plugs in here; the topics service dispatches on the
 	// topic's Kind. The github API specifics live in the github
 	// transport infra package, not the application layer.
+	var gitLabWebhookManager gitlabtransport.WebhookManager
+	if manager, ok := cfg.APIServer.gitRepositoryService.(gitlabtransport.WebhookManager); ok {
+		gitLabWebhookManager = manager
+	}
 	inboundProvisioners := map[transport.Kind]streaming.Inbound{
 		transport.KindGitHub: githubtransport.NewWebhookProvisioner(
 			configReg,
 			githubtransport.TokenResolver(gitHubTokenResolver),
+			cfg.APIServer.Cfg.WebServer.URL,
+		),
+		transport.KindGitLab: gitlabtransport.NewWebhookProvisioner(
+			configReg,
+			gitLabWebhookManager,
 			cfg.APIServer.Cfg.WebServer.URL,
 		),
 		// Slack has no per-topic install: a Slack topic is workspace-scoped
@@ -1034,6 +1050,27 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		t.HandleInboundForTopic(streaming.TopicID(topicID)).ServeHTTP(w, r)
 	})
 
+	publicGitLabWebhookForTopic := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		orgSlugOrID := vars["org"]
+		topicID := vars["topic_id"]
+		if orgSlugOrID == "" || topicID == "" {
+			http.Error(w, "missing org or topic_id", http.StatusBadRequest)
+			return
+		}
+		org, err := cfg.APIServer.lookupOrg(r.Context(), orgSlugOrID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := scope.ensureBootstrap(r.Context(), org.ID); err != nil {
+			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		gitlabtransport.New(org.ID, configReg, st, bc, dispatcher, ghLogger).
+			HandleInboundForTopic(streaming.TopicID(topicID)).ServeHTTP(w, r)
+	})
+
 	// GitHub App Manifest flow callbacks. Insecure mounts (top-level
 	// navigations from github.com): the conversion callback is authenticated
 	// by the encrypted ?state=; the setup callback only records a non-secret
@@ -1069,6 +1106,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		streamCron:                   streamCronScheduler,
 		publicGitHubWebhook:          publicGitHubWebhook,
 		publicGitHubWebhookForStream: publicGitHubWebhookForStream,
+		publicGitLabWebhookForTopic:  publicGitLabWebhookForTopic,
 		publicGitHubManifestCallback: publicGitHubManifestCallback,
 		publicSlackEvents:            publicSlackEvents,
 		slackSocketRun:               slackSocketRun,

@@ -873,6 +873,98 @@ func (s *GitRepositoryService) getGitLabProjectID(ctx context.Context, client *g
 	return project.ID, nil
 }
 
+func (s *GitRepositoryService) InstallGitLabWebhook(ctx context.Context, orgID, repositoryID, payloadURL, signingToken, secretToken string, events []string) (int64, string, string, error) {
+	repo, err := s.store.GetGitRepository(ctx, repositoryID)
+	if err != nil {
+		return 0, "", "", err
+	}
+	if repo.OrganizationID != orgID || repo.ExternalType != types.ExternalRepositoryTypeGitLab {
+		return 0, "", "", fmt.Errorf("repository is not a GitLab repository in this organization")
+	}
+	client, err := s.getGitLabClient(ctx, repo, "")
+	if err != nil {
+		return 0, "", "", err
+	}
+	_, repoPath, err := gitlab.ParseGitLabURL(repo.ExternalURL)
+	if err != nil {
+		return 0, "", "", err
+	}
+	project, err := client.GetProjectByPath(ctx, repoPath)
+	if err != nil {
+		return 0, "", "", err
+	}
+	projectID := project.ID
+	hooks, err := client.ListWebhooks(ctx, projectID)
+	if err != nil {
+		return 0, "", "", err
+	}
+	for _, hook := range hooks {
+		if hook.URL == payloadURL {
+			if _, err := writeGitLabWebhook(ctx, client, false, projectID, hook.ID, payloadURL, signingToken, secretToken, events); err != nil {
+				return 0, "", "", err
+			}
+			return int64(hook.ID), gitLabWebhookURL(project.WebURL, hook.ID), repoPath, nil
+		}
+	}
+	hook, err := writeGitLabWebhook(ctx, client, true, projectID, 0, payloadURL, signingToken, secretToken, events)
+	if err != nil {
+		return 0, "", "", err
+	}
+	return int64(hook.ID), gitLabWebhookURL(project.WebURL, hook.ID), repoPath, nil
+}
+
+func writeGitLabWebhook(ctx context.Context, client *gitlab.Client, create bool, projectID, hookID int, payloadURL, signingToken, secretToken string, events []string) (*gitlab.Webhook, error) {
+	write := func(signing string) (*gitlab.Webhook, error) {
+		if create {
+			return client.AddWebhook(ctx, projectID, payloadURL, signing, secretToken, events)
+		}
+		return client.UpdateWebhook(ctx, projectID, hookID, payloadURL, signing, secretToken, events)
+	}
+	hook, err := write(signingToken)
+	if err != nil && gitlab.SigningTokenUnsupported(err) {
+		return write("")
+	}
+	return hook, err
+}
+
+func (s *GitRepositoryService) FindGitLabWebhook(ctx context.Context, orgID, repositoryID, payloadURL string) (int64, string, bool, bool, error) {
+	repo, err := s.store.GetGitRepository(ctx, repositoryID)
+	if err != nil {
+		return 0, "", false, false, err
+	}
+	if repo.OrganizationID != orgID || repo.ExternalType != types.ExternalRepositoryTypeGitLab {
+		return 0, "", false, false, fmt.Errorf("repository is not a GitLab repository in this organization")
+	}
+	client, err := s.getGitLabClient(ctx, repo, "")
+	if err != nil {
+		return 0, "", false, false, err
+	}
+	_, repoPath, err := gitlab.ParseGitLabURL(repo.ExternalURL)
+	if err != nil {
+		return 0, "", false, false, err
+	}
+	project, err := client.GetProjectByPath(ctx, repoPath)
+	if err != nil {
+		return 0, "", false, false, err
+	}
+	projectID := project.ID
+	hooks, err := client.ListWebhooks(ctx, projectID)
+	if err != nil {
+		return 0, "", false, false, err
+	}
+	for _, hook := range hooks {
+		if hook.URL == payloadURL {
+			active := hook.AlertStatus != "disabled" && hook.AlertStatus != "temporarily_disabled"
+			return int64(hook.ID), gitLabWebhookURL(project.WebURL, hook.ID), true, active, nil
+		}
+	}
+	return 0, "", false, false, nil
+}
+
+func gitLabWebhookURL(projectWebURL string, hookID int) string {
+	return strings.TrimSuffix(projectWebURL, "/") + "/-/hooks/" + strconv.Itoa(hookID) + "/edit"
+}
+
 func (s *GitRepositoryService) createGitLabMergeRequest(ctx context.Context, repo *types.GitRepository, title string, description string, sourceBranch string, targetBranch string, userID string) (string, error) {
 	client, err := s.getGitLabClient(ctx, repo, userID)
 	if err != nil {

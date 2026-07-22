@@ -218,6 +218,15 @@ export interface ApiGitHubWebhookStatusResponse {
   webhook_id?: number;
 }
 
+export interface ApiGitLabWebhookStatusResponse {
+  active?: boolean;
+  detail?: string;
+  payload_url?: string;
+  state?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
 export interface ApiInstallGitHubWebhookResponse {
   payload_url?: string;
   /**
@@ -228,6 +237,12 @@ export interface ApiInstallGitHubWebhookResponse {
    * what needs fixing on their side for deliveries to flow.
    */
   warning?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
+export interface ApiInstallGitLabWebhookResponse {
+  payload_url?: string;
   webhook_html_url?: string;
   webhook_id?: number;
 }
@@ -13222,6 +13237,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1OrgsTopicsGithubWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
       this.request<ApiGitHubWebhookStatusResponse, ApiErrorResponse>({
         path: `/api/v1/orgs/${org}/topics/${id}/github/webhook-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsGitlabInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a GitLab topic
+     * @request POST:/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook
+     * @secure
+     */
+    v1OrgsTopicsGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitLabWebhookResponse, any>({
+        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsGitlabWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a GitLab topic
+     * @request GET:/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status
+     * @secure
+     */
+    v1OrgsTopicsGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitLabWebhookStatusResponse, any>({
+        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/webhook-status`,
         method: "GET",
         secure: true,
         format: "json",

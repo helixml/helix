@@ -80,6 +80,25 @@ func TestRegisterHelixOrgConfigSpecs_RedactsPostmarkToken(t *testing.T) {
 	}
 }
 
+func TestRegisterHelixOrgConfigSpecs_RedactsGitLabSigningToken(t *testing.T) {
+	t.Parallel()
+
+	reg := helixorgconfig.New(orggorm.GetOrgTestDB(t).Configs)
+	RegisterConfigSpecs(reg)
+	const secret = "whsec_plaintext-leaked"
+	const legacy = "legacy-plaintext-leaked"
+	if err := reg.Set(context.Background(), "org-test", "transport.gitlab", `{"signing_token":"`+secret+`","secret_token":"`+legacy+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := reg.GetRedacted(context.Background(), "org-test", "transport.gitlab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, secret) || strings.Contains(got, legacy) {
+		t.Fatalf("redacted output leaks signing_token: %s", got)
+	}
+}
+
 func TestDefaultAgentConfigPrefersAtomicSettingAndReadsLegacy(t *testing.T) {
 	t.Parallel()
 

@@ -27,6 +27,7 @@ import (
 // the repo is the Worker's job via `gh`. Adapters map it: the MCP tool
 // returns it verbatim, the REST handler maps it to 409 Conflict.
 var ErrPublishToGitHub = errors.New("publish is not supported on github transport topics; use `gh` from your environment to act on the repo")
+var ErrPublishToGitLab = errors.New("publish is not supported on gitlab transport topics; use the GitLab API from your environment to act on the repo")
 
 // Notifier wakes long-poll observers blocked on a topic. *wakebus.Bus
 // satisfies it.
@@ -91,6 +92,9 @@ func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streamin
 	}
 	if topic.Transport.Kind == transport.KindGitHub {
 		return streaming.Event{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitHub)
+	}
+	if topic.Transport.Kind == transport.KindGitLab {
+		return streaming.Event{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitLab)
 	}
 	msg.From = from
 	event, err := streaming.NewMessageEvent(
