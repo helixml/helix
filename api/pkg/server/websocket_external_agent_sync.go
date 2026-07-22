@@ -3850,6 +3850,54 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 // legacy HTTP-stream response channel. Missing mappings degrade
 // silently — chat_response_error for an unknown request_id is a no-op
 // (e.g. desktop replay during reconnect).
+// genericACPAbortMarker identifies the generic mid-turn abort string that Zed
+// emits when an ACP turn errors without a cause (see
+// zed/crates/external_websocket_sync/src/thread_service.rs). It is the only
+// message we attempt to reclassify — specific errors are left untouched.
+const genericACPAbortMarker = "exited mid-turn or hit max tokens"
+
+// maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
+// message into a legible Claude-subscription auth error when (a) the message is
+// the generic one, (b) the session's agent runs Claude Code in subscription
+// mode, and (c) the session owner's subscription is missing or fails a fresh
+// liveness probe. Otherwise it returns errorMsg unchanged.
+func (apiServer *HelixAPIServer) maybeReclassifySubscriptionAuthError(ctx context.Context, helixSessionID, errorMsg string) string {
+	if !strings.Contains(errorMsg, genericACPAbortMarker) {
+		return errorMsg
+	}
+	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
+	if err != nil || session == nil || session.ParentApp == "" {
+		return errorMsg
+	}
+	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+	if err != nil || len(app.Config.Helix.Assistants) == 0 {
+		return errorMsg
+	}
+	asst := app.Config.Helix.Assistants[0]
+	if asst.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode || !asst.CodeAgentCredentialType.IsSubscription() {
+		return errorMsg
+	}
+
+	owner := apiServer.displayNameForUser(ctx, session.Owner)
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	if errors.Is(err, store.ErrNotFound) || sub == nil {
+		return fmt.Sprintf("Claude subscription authentication failed: %s has no Claude subscription connected. "+
+			"Connect one in Settings, or switch the agent to API-key mode.", owner)
+	}
+	if err != nil {
+		return errorMsg
+	}
+
+	// Confirm it's really an auth problem before rewriting. revalidate persists
+	// the fresh Status/LastError so Settings reflects it too.
+	sub = apiServer.revalidateClaudeSubscription(ctx, sub)
+	if sub.Status == "error" {
+		return fmt.Sprintf("Claude subscription authentication failed for %s (invalid or expired token). "+
+			"Reconnect the subscription in Settings.", owner)
+	}
+	return errorMsg
+}
+
 func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
@@ -3871,6 +3919,14 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 			log.Warn().Err(err).Str("session_id", sessionID).Str("request_id", requestID).
 				Str("interaction_id", interactionID).Msg("chat_response_error: load interaction failed")
 		} else if interaction != nil {
+			// When a subscription-mode Claude Code session aborts with the
+			// generic ACP mid-turn message, the real cause is often an invalid
+			// subscription token (401) that Zed only logs. Re-probe the owner's
+			// subscription and, if it's genuinely bad, replace the useless
+			// generic string with a legible auth error. interaction.SessionID is
+			// the helix session id (the handler's sessionID param can be the
+			// agent session id, which differs).
+			errorMsg = apiServer.maybeReclassifySubscriptionAuthError(context.Background(), interaction.SessionID, errorMsg)
 			interaction.State = types.InteractionStateError
 			interaction.Error = errorMsg
 			interaction.Updated = time.Now()
