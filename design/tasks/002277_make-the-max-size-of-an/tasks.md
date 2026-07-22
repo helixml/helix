@@ -1,6 +1,6 @@
 # Implementation Tasks: Raise Spec-Task Attachment Max Size to 100 MB
 
-- [ ] Change `SpecTaskAttachmentMaxBytes` to `100 * 1024 * 1024` (update the `// 100 MB per file` comment) in `api/pkg/types/simple_spec_task.go`
+- [~] Change `SpecTaskAttachmentMaxBytes` to `100 * 1024 * 1024` (update the `// 100 MB per file` comment) in `api/pkg/types/simple_spec_task.go`
 - [ ] Change `SPEC_TASK_ATTACHMENT_MAX_BYTES` to `100 * 1024 * 1024` (update the `// 100 MB` comment) in `frontend/src/services/specTaskAttachmentsService.ts`
 - [ ] Decouple the `ParseMultipartForm` in-memory buffer from the per-file limit in `api/pkg/server/spec_task_attachments_handlers.go` — pass a small fixed budget (e.g. `32 << 20`) instead of `MaxPerTask * MaxBytes`, and update the comment
 - [ ] Grep `api/pkg/server/*_test.go` for `SpecTaskAttachmentMaxBytes` / hardcoded `10 * 1024 * 1024` and update any boundary assertions to the new limit
