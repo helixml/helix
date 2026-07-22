@@ -43,6 +43,9 @@ func (s *GitRepositoryService) ValidateUserOAuth(ctx context.Context, repo *type
 	if userID == "" || (providerType != types.OAuthProviderTypeGitHub && providerType != types.OAuthProviderTypeGitLab) {
 		return nil
 	}
+	if providerType == types.OAuthProviderTypeGitLab && hasGitLabRepoPAT(repo) {
+		return nil
+	}
 	connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 		UserID: userID,
 	})
@@ -809,14 +812,18 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 	if userID != "" {
 		connections, err := s.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{UserID: userID})
 		if err != nil {
-			return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+			if !hasGitLabRepoPAT(repo) {
+				return nil, fmt.Errorf("failed to look up user OAuth connections: %w", err)
+			}
 		}
 		for _, conn := range connections {
 			if oauthConnectionMatchesProvider(conn, types.OAuthProviderTypeGitLab) && conn.AccessToken != "" {
 				return gitlab.NewClientWithOAuth(baseURL, conn.AccessToken)
 			}
 		}
-		return nil, &OAuthRequiredError{ProviderType: "gitlab"}
+		if !hasGitLabRepoPAT(repo) {
+			return nil, &OAuthRequiredError{ProviderType: "gitlab"}
+		}
 	}
 
 	// First check for OAuth connection
@@ -846,6 +853,10 @@ func (s *GitRepositoryService) getGitLabClient(ctx context.Context, repo *types.
 	}
 
 	return nil, fmt.Errorf("no GitLab authentication configured - provide a Personal Access Token or connect via OAuth")
+}
+
+func hasGitLabRepoPAT(repo *types.GitRepository) bool {
+	return repo != nil && ((repo.GitLab != nil && repo.GitLab.PersonalAccessToken != "") || repo.Password != "")
 }
 
 func (s *GitRepositoryService) getGitLabProjectID(ctx context.Context, client *gitlab.Client, repo *types.GitRepository) (int, error) {
