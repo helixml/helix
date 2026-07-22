@@ -1,10 +1,10 @@
 # Implementation Tasks: Fix Public Share Link for Spec Task Design Docs
 
-- [ ] Fix the share URL in `SpecTaskDetailContent.tsx:405` to
+- [~] Fix the share URL in `SpecTaskDetailContent.tsx:405` to
       `${window.location.origin}/api/v1/spec-tasks/${taskId}/view` (add the `/api/v1` prefix)
-- [ ] Fix the review-page share URL in `DesignReviewContent.tsx:399` (`handleShareLink`) to
+- [~] Fix the review-page share URL in `DesignReviewContent.tsx:399` (`handleShareLink`) to
       the same `/api/v1/spec-tasks/${specTaskId}/view` endpoint
-- [ ] Fix or delete the duplicate broken URL in `SpecTaskReviewPanel.tsx:56` (appears unused)
+- [~] Fix or delete the duplicate broken URL in `SpecTaskReviewPanel.tsx:56` (appears unused)
 - [ ] Add a **Share** button to the top-right of the spec task details panel that opens a
       share dialog/popover
 - [ ] Build the share dialog (MUI `Dialog`/`Popover`) with: public-access toggle ("Anyone
