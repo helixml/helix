@@ -5634,6 +5634,21 @@ func (mr *MockStoreMockRecorder) MarkInteractionCompleteIfWaiting(ctx, interacti
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionCompleteIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkInteractionCompleteIfWaiting), ctx, interactionID, generationID)
 }
 
+// MarkInteractionErrorIfWaiting mocks base method.
+func (m *MockStore) MarkInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, reason string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkInteractionErrorIfWaiting", ctx, interactionID, generationID, reason)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkInteractionErrorIfWaiting indicates an expected call of MarkInteractionErrorIfWaiting.
+func (mr *MockStoreMockRecorder) MarkInteractionErrorIfWaiting(ctx, interactionID, generationID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkInteractionErrorIfWaiting", reflect.TypeOf((*MockStore)(nil).MarkInteractionErrorIfWaiting), ctx, interactionID, generationID, reason)
+}
+
 // MarkPromptAsCrashed mocks base method.
 func (m *MockStore) MarkPromptAsCrashed(ctx context.Context, promptID, errorMsg string) error {
 	m.ctrl.T.Helper()
