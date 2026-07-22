@@ -135,7 +135,7 @@ func (t *Transport) HandleInboundForTopic(topicID streaming.TopicID) http.Handle
 		if t.dispatcher != nil {
 			t.dispatcher.Dispatch(r.Context(), event)
 		}
-		t.logger.Info("gitlab.inbound", "topic", topic.ID, "repo", config.Repo, "event", eventType, "delivery", message.MessageID)
+		t.logger.Info("gitlab.inbound", "topic", topic.ID, "repo", config.Repo, "delivery", message.MessageID)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
