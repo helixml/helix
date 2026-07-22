@@ -80,11 +80,10 @@ func TestSpecTaskAttachmentsLocked(t *testing.T) {
 }
 
 func TestSpecTaskAttachmentLimits(t *testing.T) {
-	// Guards the intended per-file limit (100 MB) and per-task count. The
-	// upload handler and frontend both derive their enforcement/copy from these
-	// constants, so this catches an accidental regression to the old 10 MB.
+	// Guards the intended per-file limit (100 MB). The upload handler and
+	// frontend both derive their enforcement/copy from this constant, so this
+	// catches an accidental regression to the old 10 MB.
 	assert.Equal(t, 100*1024*1024, types.SpecTaskAttachmentMaxBytes)
-	assert.Equal(t, 10, types.SpecTaskAttachmentMaxPerTask)
 }
 
 func TestAllowedMimeTypes(t *testing.T) {

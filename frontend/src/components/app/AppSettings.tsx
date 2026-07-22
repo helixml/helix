@@ -16,6 +16,7 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
+import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import Menu from '@mui/material/Menu'
@@ -287,8 +288,32 @@ const AppSettings: FC<AppSettingsProps> = ({
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
   const { data: codexSubscriptions } = useCodexSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
   const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+
+  // Whose Claude subscription actually authenticates this agent? Sessions use the
+  // SESSION OWNER's subscription, not the editing user's. This endpoint resolves
+  // the APP OWNER's subscription status (the likely session owner) so the callout
+  // below can name the owner and warn when their subscription is missing/invalid —
+  // fixing the false "connected ✓" that showed the editor's own subscription.
+  const apiHookForClaude = useApi()
+  const { data: ownerClaudeStatus } = useQuery({
+    queryKey: ['app-claude-subscription-status', id],
+    queryFn: async () => {
+      const response = await apiHookForClaude.getApiClient().v1AppsClaudeSubscriptionStatusDetail(id)
+      return response.data
+    },
+    // Only meaningful for a saved Claude Code agent in subscription mode.
+    enabled: !!id && code_agent_runtime === 'claude_code',
+    staleTime: 30000,
+  })
+  // Fall back to the editor's own subscription list only until the owner-scoped
+  // status resolves (or for brand-new unsaved apps with no id).
+  const hasClaudeSubscription = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.connected
+    : (claudeSubscriptions?.length ?? 0) > 0
+  const ownerClaudeValid = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.valid
+    : (claudeSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
   const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
@@ -772,6 +797,38 @@ const AppSettings: FC<AppSettingsProps> = ({
                     <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
                       Connect a {code_agent_runtime === 'claude_code' ? 'Claude' : 'ChatGPT'} subscription or add an {code_agent_runtime === 'claude_code' ? 'Anthropic' : 'OpenAI'} API key in Settings &gt; Providers.
                     </Typography>
+                  )}
+                  {/* Whose subscription authenticates the agent? Sessions use the
+                      session owner's subscription, not the editor's. */}
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        Sessions from this agent authenticate with the <strong>session owner's</strong> connected
+                        Claude subscription. If someone else runs this agent, their own subscription is used — not yours.
+                      </Typography>
+                      {ownerClaudeStatus !== undefined && !ownerClaudeStatus.is_current_user && (
+                        ownerClaudeValid ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            This agent is owned by <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>,
+                            who has an active Claude subscription connected.
+                          </Typography>
+                        ) : (
+                          <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                            <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>{' '}
+                            {ownerClaudeStatus.connected
+                              ? `has a Claude subscription, but it isn't working${ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.`
+                              : 'has no working Claude subscription connected.'}{' '}
+                            The agent will fail to authenticate. Ask them to reconnect it, or use API-key mode.
+                          </Alert>
+                        )
+                      )}
+                      {ownerClaudeStatus !== undefined && ownerClaudeStatus.is_current_user && ownerClaudeStatus.connected && !ownerClaudeValid && (
+                        <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                          Your Claude subscription isn't working{ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.
+                          Reconnect it in Settings, or use API-key mode.
+                        </Alert>
+                      )}
+                    </Box>
                   )}
                   {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">

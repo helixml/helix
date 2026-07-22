@@ -506,7 +506,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// When approving specs, validate the approver has GitHub OAuth so their
+	// When approving specs, validate the approver has provider OAuth so their
 	// credentials can be used for commits and push during implementation.
 	if req.Approved {
 		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
@@ -520,7 +520,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
 				return
 			}
-			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -948,12 +948,12 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The user who starts planning becomes the actor for planning-phase
-	// commits/pushes, so their GitHub OAuth must be connected up front.
+	// commits/pushes, so their provider OAuth must be connected up front.
 	// Otherwise the agent would push specs using either no credentials or
 	// the task creator's token — both are wrong.
 	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -1067,10 +1067,17 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Update fields if provided
 	if updateReq.Status != "" {
+		previousStatus := task.Status
 		task.Status = updateReq.Status
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+		if previousStatus == types.TaskStatusDone && updateReq.Status != types.TaskStatusDone {
+			task.CompletedAt = nil
+			task.MergedToMain = false
+			task.MergedAt = nil
+			task.MergeCommitHash = ""
+		}
 
 		// When moving back to backlog, clear lifecycle fields so the task
 		// starts fresh. Without this, the orchestrator sees old specs and
@@ -1099,6 +1106,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
 			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+			task.BranchMode = types.BranchModeNew
 			task.KeepAlive = false
 		}
 	}

@@ -621,7 +621,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({
     rws.addEventListener("open", openHandler);
     rws.addEventListener("close", closeHandler);
 
+    // After a laptop sleep / wifi switch the socket is frequently left half-open:
+    // the browser reports it OPEN but no data flows and no 'close' event fires, so
+    // reconnecting-websocket never retries and live streaming silently stalls until
+    // a manual page refresh. Proactively force a reconnect when the tab regains
+    // focus or the network comes back — the 'open' handler then clears stale state
+    // and refetches, and the server's late-joiner catch-up (websocket_server_user.go)
+    // resumes streaming, exactly as a refresh does today.
+    const forceReconnectOnResume = () => {
+      if (document.visibilityState === "visible") rws.reconnect();
+    };
+    const handleOnline = () => rws.reconnect();
+    document.addEventListener("visibilitychange", forceReconnectOnResume);
+    window.addEventListener("online", handleOnline);
+
     return () => {
+      document.removeEventListener("visibilitychange", forceReconnectOnResume);
+      window.removeEventListener("online", handleOnline);
       rws.removeEventListener("message", messageHandler);
       rws.removeEventListener("open", openHandler);
       rws.removeEventListener("close", closeHandler);

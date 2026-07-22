@@ -76,11 +76,11 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Buffer up to 32 MB of file parts in memory; larger parts spill to temp
-	// files on disk. This is a memory-management knob, NOT the size limit — the
-	// per-file cap is enforced below via fh.Size and the io.LimitReader read.
-	const multipartInMemoryBudget = 32 << 20 // 32 MB
-	if err := r.ParseMultipartForm(multipartInMemoryBudget); err != nil {
+	// Keep the in-memory buffer bounded to one file's worth; larger uploads spill to
+	// temp files. This must NOT scale with SpecTaskAttachmentMaxPerTask, or a large cap
+	// (e.g. 500) would let the parser buffer gigabytes in memory. Per-file and per-task
+	// caps are still enforced below.
+	if err := r.ParseMultipartForm(types.SpecTaskAttachmentMaxBytes); err != nil {
 		http.Error(w, "invalid multipart form: "+err.Error(), http.StatusBadRequest)
 		return
 	}

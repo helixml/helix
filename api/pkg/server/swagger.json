@@ -2121,6 +2121,58 @@
                 }
             }
         },
+        "/api/v1/apps/{id}/claude-subscription-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get the Claude subscription status for an app's owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AppClaudeSubscriptionStatus"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -16231,6 +16283,12 @@
                         "description": "Filter by session role (e.g. job)",
                         "name": "session_role",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include external agent sessions",
+                        "name": "include_external_agents",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -17299,7 +17357,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the resume path. The session's ZedThreadID is cleared so Zed opens\na fresh thread: a crash often poisons the thread itself, so reattaching\nreproduces the wedge; use /sessions/{id}/resume to restart while keeping\nthe thread. The workspace volume persists, so files and the agent's own\nstate survive; only the conversation thread resets. Crashed prompts are\nreset to pending and the queue is kicked so they re-dispatch on the new\ncontainer.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the resume path. The conversation thread is PRESERVED when the\nsession's last turn completed cleanly (the common \"reboot to refresh\nthe environment\" case) so context is not lost; it is reset only when\nthe last turn is mid-flight or errored, which signals a possibly\npoisoned thread that would just reproduce the wedge on reattach. The\nworkspace volume persists, so files and the agent's own state survive\nregardless. Crashed prompts are reset to pending and the queue is\nkicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "produces": [
                     "application/json"
                 ],
@@ -23658,6 +23716,44 @@
                 }
             }
         },
+        "server.AppClaudeSubscriptionStatus": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "description": "owner has a subscription connected at all",
+                    "type": "boolean"
+                },
+                "is_current_user": {
+                    "description": "true when the editor IS the owner",
+                    "type": "boolean"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_validated_at": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "description": "app owner (the likely session owner)",
+                    "type": "string"
+                },
+                "owner_name": {
+                    "description": "human-readable owner (email / full name)",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subscription_owner_type": {
+                    "description": "\"user\" or \"org\" — where the effective sub resolved",
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "that subscription passed its last liveness probe",
+                    "type": "boolean"
+                }
+            }
+        },
         "server.AppCreateResponse": {
             "type": "object",
             "properties": {
@@ -27489,6 +27585,10 @@
                     "type": "string"
                 },
                 "last_refreshed_at": {
+                    "type": "string"
+                },
+                "last_validated_at": {
+                    "description": "last time the token was liveness-probed against Anthropic",
                     "type": "string"
                 },
                 "name": {
@@ -32089,6 +32189,9 @@
                 },
                 "docker_cache_status": {
                     "$ref": "#/definitions/types.DockerCacheState"
+                },
+                "org_members_access": {
+                    "type": "boolean"
                 }
             }
         },

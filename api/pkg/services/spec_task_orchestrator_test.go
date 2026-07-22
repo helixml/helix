@@ -834,6 +834,34 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.NotNil(s.T(), task.MergedAt)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRDoesNotTreatBranchAsMerged() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:         "task-new-branch",
+		ProjectID:  "project-1",
+		BranchName: "feature/new-task",
+		Status:     types.TaskStatusImplementation,
+	}
+
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: "project-1",
+	}).Return([]*types.GitRepository{{
+		ID:          "repo-1",
+		IsExternal:  true,
+		ExternalURL: "https://github.com/helixml/helix",
+	}}, nil)
+	s.gitService.EXPECT().ListPullRequests(ctx, "repo-1").Return(nil, nil)
+
+	err := s.orchestrator.checkTaskForExternalPRActivity(ctx, task, map[string][]*types.PullRequest{})
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusImplementation, task.Status)
+	s.False(task.MergedToMain)
+}
+
 // Production-realistic case: task has a BranchName set, all PRs error, so
 // the IsBranchMerged fallback runs. With active PR branches (commits not
 // in default), IsBranchMerged returns false and the task correctly stays
