@@ -65,6 +65,47 @@ This is the only non-mechanical part of the change.
   and 100 MB (should succeed), attempt >100 MB (should be rejected with the
   "100.0 MB" message). Confirm the helper text reads "100.0 MB each".
 
+## Implementation Notes
+
+- Changed both constants to `100 * 1024 * 1024` (binary MiB, matching the
+  existing convention — Open Question 1 resolved to the pre-existing behaviour).
+- Multipart buffer (§2): **`main` already fixed this independently** before this
+  branch merged. The merge conflicted here — `main` now calls
+  `ParseMultipartForm(SpecTaskAttachmentMaxBytes)` (one file's worth, with a
+  comment noting it must not scale with the per-task cap). I adopted `main`'s
+  version rather than my own fixed 32 MB literal, to avoid a needless
+  divergence; it fully addresses the §2 memory concern. Per-file enforcement is
+  unchanged — still `fh.Size > MaxBytes` (413) plus `io.LimitReader`.
+- **Merge note:** `main` also raised `SpecTaskAttachmentMaxPerTask` from 10 →
+  **500** (an unrelated change). Resolved by keeping both: `MaxBytes = 100 MB`
+  (this task) AND `MaxPerTask = 500` (from main). Net diff vs main is exactly:
+  size 10→100 MB in Go + TS, plus the guard test.
+- **Pre-existing inconsistency (out of scope):** the frontend
+  `SPEC_TASK_ATTACHMENT_MAX_PER_TASK` is still `10` while the backend is now
+  `500`. This mismatch exists on `main` and is unrelated to the size change, so
+  it was left alone.
+- Test approach: the only attachment test file
+  (`spec_task_attachments_validation_test.go`) uses `testify/assert` and covers
+  **pure helper functions** (filename sanitise, MIME detect, lock status). There
+  is no existing HTTP upload-handler test harness. Rather than stand up a full
+  multipart-upload integration test (test server + store mock + filestore +
+  auth) for a two-constant change, I added `TestSpecTaskAttachmentLimits` which
+  asserts the constant equals 100 MB and per-task count is 10 — a proportionate
+  regression guard. Verified with `CGO_ENABLED=1 go test` (tree-sitter needs
+  CGo; installed `gcc`).
+- Frontend: `frontend/dist` is a **root-owned bind mount** (production frontend
+  mode, per CLAUDE.md — never `rm -rf` it). `yarn build` fails trying to write
+  there, so verify with `yarn vite build --outDir /tmp/fe-dist --emptyOutDir`
+  instead. Build passed clean.
+- No UI copy changes needed — the "100.0 MB" text is formatted from the constant
+  via `humanAttachmentSize` / `humanSize` in `NewSpecTaskForm.tsx` and
+  `TaskAttachmentsPanel.tsx`.
+- **E2E verified in the inner Helix** (screenshots 01–02): the attachments panel
+  reads "100.0 MB each", and a 25 MB upload (over the old 10 MB limit) returned
+  HTTP 201 and now lists as "big-attach-25mb.txt — 25.0 MB". The >100 MB
+  rejection path was not exercised (disproportionate to generate/upload; the 413
+  guard is unchanged and already reads the constant).
+
 ## Notes / Learnings
 
 - The attachment size limit is intentionally a single source-of-truth constant
