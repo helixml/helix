@@ -19,6 +19,8 @@ import {
   ApiGitHubManifestStartResponse,
   ApiInstallGitHubWebhookResponse,
   ApiGitHubWebhookStatusResponse,
+  ApiGitLabWebhookStatusResponse,
+  ApiInstallGitLabWebhookResponse,
   ApiOrgOverview,
   ApiSettingsResponse,
   ApiSettingsSpecDTO,
@@ -49,6 +51,8 @@ export type GitHubInstallationStatus = ApiGitHubInstallationStatus
 export type GitHubManifestStartResponse = ApiGitHubManifestStartResponse
 export type InstallGitHubWebhookResponse = ApiInstallGitHubWebhookResponse
 export type GitHubWebhookStatusResponse = ApiGitHubWebhookStatusResponse
+export type GitLabWebhookStatusResponse = ApiGitLabWebhookStatusResponse
+export type InstallGitLabWebhookResponse = ApiInstallGitLabWebhookResponse
 export type BotSubscription = ApiBotSubscriptionDTO
 export type BotSubscriptionsResponse = ApiBotSubscriptionsResponse
 export type OrgOverview = ApiOrgOverview
@@ -627,6 +631,20 @@ export function useGitHubWebhookStatus(topicId: string | undefined, options?: { 
   })
 }
 
+export function useGitLabWebhookStatus(topicId: string | undefined) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: [...QUERY_KEYS.webhookStatus(orgID, topicId ?? ''), 'gitlab'],
+    queryFn: async () => {
+      if (!topicId) return null
+      const res = await api.getApiClient().v1OrgsTopicsGitlabWebhookStatusDetail(topicId, orgID)
+      return res.data as GitLabWebhookStatusResponse
+    },
+    enabled: !!orgID && !!topicId,
+  })
+}
+
 // useTopicMessageCount reports the total number of retained messages on
 // a single topic via the paginated JSON:API messages endpoint. We only
 // need meta.total, so we request the smallest possible page (size 1) and
@@ -780,6 +798,23 @@ export function useInstallGitHubWebhook() {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
       qc.invalidateQueries({ queryKey: QUERY_KEYS.webhookStatus(orgID, topicId) })
+    },
+  })
+}
+
+export function useInstallGitLabWebhook() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { orgID } = useHelixOrgBase()
+  return useMutation({
+    mutationFn: async (topicId: string) => {
+      const res = await api.getApiClient().v1OrgsTopicsGitlabInstallWebhookCreate(topicId, orgID)
+      return res.data as InstallGitLabWebhookResponse
+    },
+    onSuccess: (_data, topicId) => {
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topic(orgID, topicId) })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.topics(orgID) })
+      qc.invalidateQueries({ queryKey: [...QUERY_KEYS.webhookStatus(orgID, topicId), 'gitlab'] })
     },
   })
 }

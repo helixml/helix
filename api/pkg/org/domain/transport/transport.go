@@ -62,7 +62,7 @@ type Config interface {
 // the system. The order is part of the public surface — it shows up
 // in JSON Schema enum lists, in "(valid: …)" error messages, and in
 // the MCP create_topic tool description. Tests pin it explicitly.
-var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindCron, KindSlack, KindHelixEvents}
+var kindOrder = []Kind{KindLocal, KindWebhook, KindEmail, KindGitHub, KindGitLab, KindCron, KindSlack, KindHelixEvents}
 
 // strategies registers every known Kind's Strategy. Adding a new Kind
 // means adding a new file in this package that defines its Kind
@@ -74,6 +74,7 @@ var strategies = map[Kind]Strategy{
 	KindWebhook:     webhook{},
 	KindEmail:       email{},
 	KindGitHub:      github{},
+	KindGitLab:      gitlab{},
 	KindCron:        cron{},
 	KindSlack:       slack{},
 	KindHelixEvents: helixEvents{},
