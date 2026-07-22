@@ -11,7 +11,8 @@
   starts) or the textarea auto-resizes (`adjustHeight`).
 - `frontend/src/components/tasks/SpecTaskDetailContent.tsx` — wires
   `onHeightChange={() => sessionViewRef.current?.scrollToBottom()}` at both the
-  desktop (line ~2015) and mobile (line ~2819) composer mount sites.
+  desktop (`onHeightChange` ~line 2033, `ref` ~2014) and mobile (`onHeightChange`
+  ~line 2838, `ref` ~2810) composer mount sites.
 
 ## Root Cause
 
