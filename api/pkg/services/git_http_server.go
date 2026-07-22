@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -1896,6 +1897,30 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 	}
 }
 
+var (
+	markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	markdownLinkRe  = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	markdownTokenRe = regexp.MustCompile("[*_`~#>]+")
+	whitespaceRe    = regexp.MustCompile(`\s+`)
+)
+
+// normalizeForCommentMatch reduces markdown text to a comparable plain-text form
+// so a comment's quoted_text (captured from rendered text, without markdown
+// syntax) can be matched against the raw markdown source. Both sides MUST be
+// passed through this function. It resolves links/images to their visible text,
+// strips common inline markdown tokens, and collapses all whitespace to single
+// spaces. It intentionally over-normalizes: the goal is to avoid auto-resolving
+// a comment whose text is still present, so a few false matches (keeping a
+// comment that could have been resolved) are preferable to false non-matches
+// (silently deleting a live comment).
+func normalizeForCommentMatch(s string) string {
+	s = markdownImageRe.ReplaceAllString(s, "$1")
+	s = markdownLinkRe.ReplaceAllString(s, "$1")
+	s = markdownTokenRe.ReplaceAllString(s, "")
+	s = whitespaceRe.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
+
 // checkCommentResolution checks if design review comments should be auto-resolved
 // because the quoted text was removed/updated in the design documents
 func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath, branch string, gitRepo *GitRepo) {
@@ -1937,17 +1962,30 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 		}
 	}
 
+	// Pre-normalize each document once so the quoted_text (rendered, no markdown
+	// syntax) can be matched against a comparable form of the raw markdown.
+	normalizedDocs := make(map[string]string, len(docContents))
+	for docType, content := range docContents {
+		normalizedDocs[docType] = normalizeForCommentMatch(content)
+	}
+
 	now := time.Now()
 	resolvedCount := 0
 	for _, comment := range comments {
 		if comment.QuotedText == "" {
 			continue
 		}
-		content, exists := docContents[comment.DocumentType]
+		content, exists := normalizedDocs[comment.DocumentType]
 		if !exists {
 			continue
 		}
-		if !strings.Contains(content, comment.QuotedText) {
+		normalizedQuote := normalizeForCommentMatch(comment.QuotedText)
+		// Fail safe: if the quote normalizes to nothing we can't confidently
+		// decide it was removed, so keep the comment rather than dropping it.
+		if normalizedQuote == "" {
+			continue
+		}
+		if !strings.Contains(content, normalizedQuote) {
 			log.Info().Str("comment_id", comment.ID).Str("document_type", comment.DocumentType).Msg("Auto-resolving comment - quoted text removed")
 			// Use targeted update that only modifies resolution fields
 			if err := s.store.UpdateCommentResolved(ctx, comment.ID, true, &now, "system", "auto_text_removed"); err != nil {
