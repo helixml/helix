@@ -235,6 +235,10 @@ func (s *Store) DeleteOrganization(ctx context.Context, id string) error {
 			return err
 		}
 
+		if err := tx.Where("organization_id = ?", id).Delete(&types.ServiceConnection{}).Error; err != nil {
+			return err
+		}
+
 		// Finally delete the organization
 		return tx.Unscoped().Delete(&types.Organization{ID: id}).Error
 	})
