@@ -1,102 +1,97 @@
-# Requirements: Default to 1M-Context Opus 4.8 on Zed Subscription
+# Requirements: Default to 1M-Context Opus 4.8 on Anthropic Subscription
 
 ## Background
 
-When using Zed with an Anthropic subscription (the `zed.dev` / Zed Cloud
-provider), new agent threads default to a version of **Claude Opus 4.8 that
-only exposes a 200k-token context window**. The model menu also lists a second
-Opus 4.8 entry with a **1M-token context window** (shown with a `[1m]`-style
-label). We want the 1M-context variant to be the default instead of the 200k
-one.
+When using Zed with a **direct Anthropic subscription** (Zed's built-in
+Anthropic provider, provider id `"anthropic"`, authenticated with an Anthropic
+account/subscription), new agent threads default to a version of **Claude
+Opus 4.8 that only exposes a 200k-token context window**. The model menu also
+lists a second Opus 4.8 entry with a **1M-token context window** (shown with a
+`[1m]`-style label). We want the 1M-context variant to be the default.
 
-### What the codebase investigation found (important)
+> Note: this is the **direct Anthropic provider**, not the `zed.dev` / Zed
+> Cloud provider. The two use different model-selection code paths.
 
-The `zed.dev` subscription path is **entirely server-driven**. The client does
-not hardcode the model list; it fetches `GET /models` and the server returns a
-`ListModelsResponse` containing the model list plus a `default_model`,
-`default_fast_model`, and `recommended_models` (all referenced by model id).
-See `crates/language_models_cloud/src/language_models_cloud.rs:698-772` and the
-wire contract in `crates/cloud_llm_client/src/cloud_llm_client.rs:288-333`.
+### What the codebase investigation found
 
-The client's only in-repo "default" is a **settings seed** in
-`assets/settings/default.json:1046-1053`:
+The direct Anthropic provider fetches its model list dynamically from Anthropic's
+`/v1/models` endpoint. Both the 200k and the 1M Opus 4.8 entries come from that
+response as **two distinct model ids** with different `max_input_tokens` values;
+the client shows whatever the API returns (`crates/anthropic/src/anthropic.rs`
+`Model::from_listed`, `max_input_tokens: entry.max_input_tokens`). There is no
+client-side "1M" synthesis and no hardcoded model enum.
 
-```json
-"default_model": {
-  "provider": "zed.dev",
-  "model": "claude-sonnet-4",
-  "enable_thinking": false
-}
-```
+The default model is chosen in
+`crates/language_models/src/provider/anthropic.rs`:
 
-Resolution order (`crates/language_model/src/registry.rs:414-422`,
-`crates/language_models/src/language_models.rs:152-186`):
-1. Use the configured `agent.default_model` from settings **if that model id is
-   available** in the provider's list.
-2. Otherwise use the environment fallback: for `zed.dev`, the cloud provider's
-   server-supplied `default_model`, else the first `recommended_models` entry.
+- `default_model()` (line ~224) → `pick_preferred_model(&fetched,
+  &["claude-sonnet-", "claude-opus-", "claude-"])`.
+- `pick_preferred_model()` (line ~333) takes, within the first matching prefix
+  group, the model with the **lexicographically-greatest `id`**
+  (`max_by(|a, b| a.id.cmp(&b.id))`). **It never looks at the context window.**
 
-Because the seeded `claude-sonnet-4` is not offered on our Anthropic
-subscription, the seed is ignored and the effective default comes from the
-**server's** `default_model` — currently the 200k Opus 4.8. This means the
-default is chosen by our LLM backend's `/models` response, not by Zed client
-code, and the two natural fix locations are (a) the client settings seed and
-(b) the server's `default_model` designation.
+So today the default among Opus entries is decided purely by string comparison
+of the model id, which currently lands on the 200k variant. The larger context
+window of the 1M variant plays no part in the choice. (`default_fast_model()`
+and `recommended_models()` use the same `pick_preferred_model` helper.)
+
+Resolution flow that reaches this code: with no explicit user
+`agent.default_model` that is available, the registry's environment fallback
+uses each authenticated provider's `default_model()`
+(`crates/language_model/src/registry.rs:414-422`,
+`crates/language_models/src/language_models.rs:152-186`).
 
 ## User Stories
 
 ### US-1 — Default to the 1M-context Opus
-**As** a Helix/Zed user on the Anthropic subscription,
+**As** a user on the direct Anthropic subscription,
 **I want** new agent threads to default to the 1M-context Opus 4.8,
-**so that** I get the larger context window without manually switching models
-every time.
+**so that** I get the larger context window without switching models each time.
 
 **Acceptance Criteria**
-- On a fresh profile (no user override of `agent.default_model`), a new agent
-  thread is created against the 1M-context Opus 4.8 model, not the 200k one.
-- The 200k Opus 4.8 remains selectable in the menu (this change only moves the
-  default, it does not remove any model).
+- On a fresh profile (no user override of `agent.default_model`), when the
+  Anthropic subscription's model list contains both a 200k and a 1M Opus 4.8,
+  the default resolves to the **1M** variant.
+- Both variants remain listed and selectable in the model menu (this change only
+  moves the default; it removes nothing).
 - A user who has explicitly set their own `agent.default_model` is not
-  overridden by this change.
+  overridden.
 
-### US-2 — Deterministic, documented default source
+### US-2 — Context-window-aware, id-agnostic selection
 **As** a Helix maintainer,
-**I want** a single, clearly-documented place that controls the subscription
-default model,
-**so that** future changes to the default don't require rediscovering the
-server-vs-client resolution logic.
+**I want** the preference to be based on the model's context window rather than
+a hardcoded model id,
+**so that** the default keeps preferring the larger-context variant even if the
+subscription's model ids change.
 
 **Acceptance Criteria**
-- The mechanism chosen (client settings seed vs. server `default_model`) is
-  documented in `design.md`, including the exact file/field changed.
-- The chosen 1M model id is verified to exist in the live `/models` response so
-  the default actually takes effect rather than silently falling through to the
-  old fallback.
+- The default-selection logic prefers the candidate with the larger
+  `max_input_tokens` within a prefix group, without hardcoding a specific
+  Opus/1M model id.
+- Behavior is deterministic (a defined tie-break when context windows are
+  equal).
 
 ## Non-Goals
-- Changing the direct bring-your-own-API-key Anthropic provider
-  (`crates/language_models/src/provider/anthropic.rs`); it is a separate path.
+- Changing the `zed.dev` / Zed Cloud provider path.
 - Adding, renaming, or removing any model from the menu.
-- Introducing a client-side "prefer 1M over 200k" heuristic that inspects
-  context windows.
+- Changing which model *family* is preferred (Sonnet-before-Opus prefix order
+  stays as-is unless Open Question 2 says otherwise).
 
 ## Open Questions
-1. **Separate model vs. "max mode"?** The user describes a distinct menu entry,
-   which implies the 1M variant is a **separate `LanguageModel` id** (its `[1m]`
-   label coming from the server `display_name`). Please confirm it is a separate
-   id and not the same Opus 4.8 exposed via Zed's "Burn/Max Mode"
-   (`max_token_count_in_max_mode`). If it is max-mode, the fix is different (see
-   design.md) and this spec needs adjustment.
-2. **Exact model id + provider.** What is the precise `id` (and confirm
-   `provider` is `zed.dev`) of the 1M Opus 4.8 entry in our subscription's
-   `/models` response? The client seed must reference an id that actually exists
-   in that list, or it is ignored.
-3. **Fix location preference.** Given the server-driven design, do we want the
-   fix in the **Zed client** (`assets/settings/default.json` seed — in this repo)
-   or in the **Helix LLM backend** (`ListModelsResponse.default_model` — a
-   different repo, arguably the more robust/global fix)? This spec assumes the
-   in-repo client seed as primary, with the server option noted as an
-   alternative. Confirm which you want.
-4. **Fast/subagent defaults.** Should `default_fast_model` and any subagent /
-   inline-assistant default also move to the 1M variant, or only the primary
-   `default_model`?
+1. **Confirm two distinct ids.** We believe the 200k and 1M Opus 4.8 are two
+   separate `/v1/models` entries with distinct ids and distinct
+   `max_input_tokens` (they must be distinct ids, or they would collide in the
+   id-keyed model map and only one would appear in the menu). Please confirm,
+   and if convenient share the two ids and their `max_input_tokens` values.
+2. **Scope of the context-window preference.** Should "prefer the larger context
+   window within a prefix group" apply to *all* groups (`claude-sonnet-`,
+   `claude-opus-`, `claude-`, and the fast/haiku path), or only to Opus? Applying
+   it everywhere is simpler and consistent, but it would also make a
+   larger-context Sonnet/Haiku variant the preferred one in those groups.
+3. **Which prefix group actually resolves.** `default_model()` prefers Sonnet
+   before Opus. Since you observe Opus 4.8 as the default, your subscription's
+   fetched list presumably contains no Sonnet (or only Opus). Please confirm the
+   fetched model list so we target the right group.
+4. **Fast / recommended defaults.** Should `default_fast_model()` and
+   `recommended_models()` adopt the same larger-context preference, or only the
+   primary `default_model()`?
