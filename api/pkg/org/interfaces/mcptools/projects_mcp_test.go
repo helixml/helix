@@ -56,6 +56,7 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 		{ID: "prj_3", Name: "Hidden", Status: "active"},
 	}}
 	cfg.ProjectAccess = stubProjectAccess{ownProjectID: "prj_1"}
+	injectTestPublishing(&cfg)
 	if err := mcptools.RegisterBuiltins(reg, cfg.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}

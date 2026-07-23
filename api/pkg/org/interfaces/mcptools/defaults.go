@@ -19,8 +19,10 @@ import (
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
 //
-// `mint_credential` is the sole non-read entry. It mints an external-
-// provider credential (it does not mutate the org graph), and without it
+// The baseline also includes two safe actions: mint_credential obtains an
+// org-scoped external-provider credential, and ask_human contacts a human
+// node through their configured route. Neither mutates the org graph. Without
+// mint_credential,
 // a Bot has nothing to authenticate gh/git/auth-curl with — there is no
 // boot-time env-var fallback. Every Bot needs this, so it sits in the
 // baseline.
@@ -35,6 +37,7 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	BotLogName,
 	MintCredentialName,
+	AskHumanName,
 	// Every bot can read its own project secrets (its own project only) so
 	// it can export a secret added after boot — the read sibling of
 	// mint_credential, same reason it belongs in the baseline.
@@ -68,7 +71,6 @@ func OwnerBotTools() []tool.Name {
 		UnsubscribeName,
 		PublishName,
 		DMName,
-		AskHumanName,
 		SetHumanContactName,
 		// Processors: define topic transforms/filters/js and rewire them.
 		CreateProcessorName,

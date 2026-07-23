@@ -75,10 +75,12 @@ func (t *MintCredential) Description() string {
 	slackContract := ""
 	if _, ok := t.providers["slack"]; ok {
 		slackContract = "\n\nSlack: call mint_credential with provider=\"slack\" and " +
-			"resource=<team_id> when known. POST https://slack.com/api/chat.postMessage " +
-			"with Authorization: Bearer <token> and fields channel, text, and optional thread_ts. " +
-			"Inspect the JSON response: HTTP 200 is not success unless ok=true. publish routes " +
-			"through Helix and does not confirm Slack delivery."
+			"resource=<team_id> for rich actions such as reactions, uploads, edits, lookups, " +
+			"or provider-specific workflows. Use publish for basic text to a configured Slack Topic " +
+			"and ask_human to contact a person. This returns the installed workspace bot token; " +
+			"resource selects the workspace but does not narrow its OAuth scopes. Slack bot tokens " +
+			"normally have no expires_at unless token rotation is enabled. Inspect Slack JSON responses: " +
+			"HTTP 200 is not success unless ok=true."
 	}
 	return "Mint a short-lived credential (~1 hour) for an external provider " +
 		"scoped to your organization. Supported providers: " + avail + ".\n\n" +

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
@@ -16,6 +17,20 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
+
+func injectMCPPublishing(cfg *mcptools.Config) {
+	deps := publishing.Deps{
+		Topics:     cfg.Store.Topics,
+		Events:     cfg.Store.Events,
+		Dispatcher: cfg.Dispatcher,
+		Now:        cfg.Now,
+		NewID:      cfg.NewID,
+	}
+	if cfg.Hub != nil {
+		deps.Hub = cfg.Hub
+	}
+	cfg.Publishing = publishing.New(deps)
+}
 
 func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
 	for _, tc := range []struct {
@@ -72,6 +87,7 @@ func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID fu
 	deps := mcptools.DefaultDeps(st)
 	deps.Now = clock
 	deps.NewID = newID
+	injectMCPPublishing(&deps)
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)

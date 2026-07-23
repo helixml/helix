@@ -251,6 +251,7 @@ type TopicForm = {
   ghOriginalConfig: Record<string, unknown>
   cronSchedule: string
   cronMessage: string
+  slackChannel: string
 }
 
 const topicForm = (topic: TopicDTO): TopicForm => {
@@ -268,6 +269,7 @@ const topicForm = (topic: TopicDTO): TopicForm => {
     ghOriginalConfig: topic.kind === 'github' ? config : {},
     cronSchedule: topic.kind === 'cron' && typeof config.schedule === 'string' ? config.schedule : '',
     cronMessage: topic.kind === 'cron' && typeof config.message === 'string' ? config.message : '',
+    slackChannel: topic.kind === 'slack' && typeof config.channel_id === 'string' ? config.channel_id : '',
   }
 }
 
@@ -317,6 +319,10 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
       }
       payload.transport = { config: cronConfig }
       saved = { ...saved, cronSchedule: sched, cronMessage: form.cronMessage.trim() }
+    } else if (topic.kind === 'slack') {
+      const config = (topic.config ?? {}) as Record<string, unknown>
+      payload.transport = { config: { ...config, channel_id: form.slackChannel.trim() } }
+      saved = { ...saved, slackChannel: form.slackChannel.trim() }
     } else if (topic.kind !== 'local' && form.configText.trim()) {
       try {
         const parsed = JSON.parse(form.configText)
@@ -385,7 +391,18 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
               onMessageChange={(cronMessage) => setForm((current) => ({ ...current, cronMessage }))}
             />
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && (
+          {topic.kind === 'slack' && (
+            <TextField
+              label="Slack channel ID (optional)"
+              value={form.slackChannel}
+              onChange={(e) => setForm((current) => ({ ...current, slackChannel: e.target.value }))}
+              size="small"
+              fullWidth
+              placeholder="C012ABCDEF"
+              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended bots or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
+            />
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && topic.kind !== 'slack' && (
             <TextField
               label="Transport config (JSON)"
               value={form.configText}

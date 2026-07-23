@@ -269,10 +269,10 @@ type orgServices struct {
 // literal reads as a list of pre-built services, not seven inline
 // constructors. deps carries the clock / id-gen / topology / hire-hook
 // seams (a mcptools.Deps is already assembled by the caller).
-func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
+func buildOrgServices(st *helixorgstore.Store, deps *mcptools.Config, bc *wakebus.Bus, dispatcher *dispatch.Dispatcher, provisioners map[transport.Kind]streaming.Inbound) orgServices {
 	botsSvc := bots.New(bots.Deps{Bots: st.Bots, Lines: st.ReportingLines, Reconciler: deps.Reconciler, Now: deps.Now, NewID: deps.NewID, BaseTools: mcptools.BaseReadTools})
 	topicsSvc := topics.New(topics.Deps{Topics: st.Topics, Now: deps.Now, NewID: deps.NewID, Provisioners: provisioners})
-	return orgServices{
+	svc := orgServices{
 		Bots:     botsSvc,
 		Topics:   topicsSvc,
 		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: bc}),
@@ -286,6 +286,8 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 		// the Activate use case needs the project ensurer + dispatcher +
 		// session resolver, which aren't available in this builder.
 	}
+	deps.Publishing = svc.Publishing
+	return svc
 }
 
 // registerHelixOrgRoutes brings up the helix-org subsystem and registers
@@ -675,11 +677,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
-	// Slack has no outbound emitter: egress is the agent's job. A Worker
-	// replies (and reacts, uploads, …) by driving the Slack Web API
-	// directly with a bot token it mints on demand — so the transport
-	// never models Slack's API. slackWS resolves the org's workspace
-	// install to a decrypted bot token for that mint.
+	// Slack has no asynchronous dispatcher emitter. Basic Topic text uses
+	// the synchronous Publishing deliverer registered below; rich actions
+	// still use the Slack Web API with the workspace token returned by
+	// mint_credential. slackWS resolves the encrypted workspace install for
+	// both paths.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
 	// Auto-manage one Slack Topic per connected workspace.
 	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}
@@ -783,7 +785,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// Application services shared by the REST adapter. Built once here
 	// (the composition root) from the store + collaborators; the api
 	// package holds these services, never the store (Phase-D seam).
-	svc := buildOrgServices(st, deps, bc, dispatcher, inboundProvisioners)
+	svc := buildOrgServices(st, &deps, bc, dispatcher, inboundProvisioners)
+	svc.Publishing.RegisterDeliverer(transport.KindSlack, slackTopicDeliverer{workspaces: slackWS})
 	// Create (the lifecycle's create half) delegates the bot-row creation to
 	// the bots service so the base-tool union + id minting are shared with
 	// the REST/MCP update path.

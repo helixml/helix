@@ -457,6 +457,8 @@ definitions:
         type: string
       subject:
         type: string
+      threadId:
+        type: string
       to:
         items:
           type: string
@@ -464,6 +466,8 @@ definitions:
     type: object
   api.PublishResponse:
     properties:
+      delivery:
+        $ref: '#/definitions/publishing.DeliveryReceipt'
       event_id:
         type: string
     type: object
@@ -1467,6 +1471,19 @@ definitions:
       filtered:
         type: boolean
       severity:
+        type: string
+    type: object
+  publishing.DeliveryReceipt:
+    properties:
+      destination:
+        type: string
+      error:
+        type: string
+      messageId:
+        type: string
+      provider:
+        type: string
+      status:
         type: string
     type: object
   server.ActivateTrialRequest:
