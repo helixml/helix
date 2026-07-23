@@ -90,6 +90,37 @@ export type ClipboardWritePayload =
   | { mime: "image/png"; base64: string };
 
 async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
+  // Prefer the direct Async Clipboard API. It works both in a top-level tab and
+  // in a cross-origin iframe when the embedding host delegates clipboard-write
+  // via allow="clipboard-write" (as HelixOS does). The parent postMessage bridge
+  // is only a fallback for hosts where navigator.clipboard is blocked — notably
+  // the macOS Wails app, whose WKWebView blocks navigator.clipboard in iframes
+  // even with a user gesture and answers via NSPasteboard instead.
+  if (navigator.clipboard) {
+    try {
+      if (payload.mime === "image/png") {
+        if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+          const blob = new Blob([base64ToBytes(payload.base64)], {
+            type: "image/png",
+          });
+          await navigator.clipboard.write([
+            new ClipboardItem({ "image/png": blob }),
+          ]);
+          return;
+        }
+        // No image support in this browser — fall through to the bridge (if any).
+      } else {
+        await navigator.clipboard.writeText(payload.text);
+        return;
+      }
+    } catch (err) {
+      // Blocked (e.g. WKWebView in the Wails app) — fall through to the bridge.
+      console.warn(
+        "[Clipboard] direct write failed, trying parent bridge:",
+        err,
+      );
+    }
+  }
   if (isInIframe) {
     if (payload.mime === "image/png") {
       window.parent.postMessage(
@@ -113,24 +144,60 @@ async function clipboardWrite(payload: ClipboardWritePayload): Promise<void> {
     }
     return;
   }
-  if (!navigator.clipboard) return;
-  if (payload.mime === "image/png") {
-    if (!navigator.clipboard.write || typeof ClipboardItem === "undefined") {
-      throw new Error("Browser does not support image clipboard write");
-    }
-    const blob = new Blob([base64ToBytes(payload.base64)], {
-      type: "image/png",
-    });
-    await navigator.clipboard.write([
-      new ClipboardItem({ "image/png": blob }),
-    ]);
-  } else {
-    await navigator.clipboard.writeText(payload.text);
-  }
+  throw new Error("No clipboard write mechanism available");
 }
 
 function clipboardReadAny(): Promise<ClipboardReadResult> {
-  if (isInIframe) {
+  // Prefer the direct Async Clipboard API. In a cross-origin iframe it works when
+  // the host delegates clipboard-read via allow="clipboard-read" (HelixOS) and
+  // the read runs under a user gesture (the paste-keystroke handler). Only when
+  // the direct API is unavailable or blocked (the macOS Wails app) do we fall
+  // back to the parent postMessage bridge, which answers via NSPasteboard.
+  //
+  // `null` from readViaNavigator means "unavailable/blocked — try the bridge".
+  // A resolved {mime:"empty"} means the direct read worked but found nothing,
+  // which we trust as-is (no bridge round-trip, so no 2s hang in HelixOS).
+  const readViaNavigator = async (): Promise<ClipboardReadResult | null> => {
+    if (!navigator.clipboard) return null;
+    if (navigator.clipboard.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        if (items.length === 0) return { mime: "empty" };
+        const item = items[0];
+        // Prefer non-empty text/plain over image/png. A text copy from the remote
+        // leaves a 1x1 placeholder image/png alongside the text (see
+        // PLACEHOLDER_PNG_BASE64); checking image first would paste the
+        // transparent pixel instead of the text. Genuine image copies carry an
+        // empty text/plain, so they still fall through to image.
+        if (item.types.includes("text/plain")) {
+          const blob = await item.getType("text/plain");
+          const text = await blob.text();
+          if (text) return { mime: "text/plain", text };
+        }
+        if (item.types.includes("image/png")) {
+          const blob = await item.getType("image/png");
+          const buf = await blob.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          return { mime: "image/png", base64 };
+        }
+        return { mime: "empty" };
+      } catch {
+        return null; // blocked — signal caller to try the bridge
+      }
+    }
+    if (navigator.clipboard.readText) {
+      try {
+        const text = await navigator.clipboard.readText();
+        return text ? { mime: "text/plain", text } : { mime: "empty" };
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const readViaBridge = (): Promise<ClipboardReadResult> => {
+    if (!isInIframe) return Promise.resolve({ mime: "empty" });
     return new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
       const handler = (event: MessageEvent) => {
@@ -163,44 +230,11 @@ function clipboardReadAny(): Promise<ClipboardReadResult> {
         resolve({ mime: "empty" });
       }, 2000);
     });
-  }
-  if (!navigator.clipboard?.read) {
-    // No read() — try text fallback.
-    if (navigator.clipboard?.readText) {
-      return navigator.clipboard
-        .readText()
-        .then(
-          (text): ClipboardReadResult =>
-            text ? { mime: "text/plain", text } : { mime: "empty" },
-        )
-        .catch((): ClipboardReadResult => ({ mime: "empty" }));
-    }
-    return Promise.resolve({ mime: "empty" });
-  }
-  return navigator.clipboard
-    .read()
-    .then(async (items): Promise<ClipboardReadResult> => {
-      if (items.length === 0) return { mime: "empty" };
-      const item = items[0];
-      // Prefer non-empty text/plain over image/png. A text copy from the remote
-      // now leaves a 1x1 placeholder image/png on the clipboard alongside the
-      // text (see PLACEHOLDER_PNG_BASE64); checking image first would paste the
-      // transparent pixel instead of the text on paste-back. Genuine image
-      // copies carry an empty text/plain, so they still fall through to image.
-      if (item.types.includes("text/plain")) {
-        const blob = await item.getType("text/plain");
-        const text = await blob.text();
-        if (text) return { mime: "text/plain", text };
-      }
-      if (item.types.includes("image/png")) {
-        const blob = await item.getType("image/png");
-        const buf = await blob.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-        return { mime: "image/png", base64 };
-      }
-      return { mime: "empty" };
-    })
-    .catch(() => ({ mime: "empty" }) as ClipboardReadResult);
+  };
+
+  return readViaNavigator().then((result) =>
+    result === null ? readViaBridge() : result,
+  );
 }
 
 function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
