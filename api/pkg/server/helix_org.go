@@ -293,8 +293,8 @@ func buildOrgServices(st *helixorgstore.Store, deps mcptools.Config, bc *wakebus
 // callbacks on the insecure router, the org-scoped Slack endpoints and
 // the /orgs/{org}/ catch-all on the auth router, the org MCP backend,
 // plus the long-lived stream-cron and Socket Mode goroutines. Every
-// org-shaped route + lifecycle hook lives here. Access is gated per-user
-// by the `helix-org` alpha feature on the /orgs/{org}/ route.
+// org-shaped route + lifecycle hook lives here. Org-graph access is gated
+// per-user by the `helix-org` alpha feature.
 func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRouter, authRouter *mux.Router) error {
 	orgHandlers, err := initHelixOrgHandler(helixOrgConfig{
 		LocalFSPath:          s.Cfg.FileStore.LocalFSPath,
@@ -391,18 +391,7 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	authRouter.HandleFunc("/orgs/{org}/slack/workspaces", s.connectSlackWorkspace).Methods(http.MethodPost)
 	authRouter.HandleFunc("/orgs/{org}/slack/workspaces/{id}", s.deleteSlackWorkspace).Methods(http.MethodDelete)
 
-	// /api/v1/orgs/{org}/* — per-tenant surface for the org-graph
-	// resources. withHelixOrgScope resolves {org} (slug or org_id) to a
-	// canonical orgID, authorises org-membership, bootstraps the tenant on
-	// first request, and stashes orgID on ctx so downstream handlers + the
-	// store layer scope to it.
-	authRouter.PathPrefix("/orgs/{org}/").Handler(
-		requireFeature(helixorg.AlphaFeature)(
-			s.withHelixOrgScope(orgHandlers.scope,
-				stripOrgScopedPrefix(orgHandlers.api),
-			),
-		),
-	)
+	s.registerHelixOrgAuthenticatedRoutes(authRouter, orgHandlers)
 
 	// Expose helix-org's owner MCP through the standard Helix MCP gateway.
 	// Backend identifies tenants by URL prefix
@@ -411,6 +400,24 @@ func (s *HelixAPIServer) registerHelixOrgRoutes(ctx context.Context, insecureRou
 	// from the request before dispatching to the handler.
 	s.mcpGateway.RegisterBackend("helix-org", NewHelixOrgMCPBackend(s, orgHandlers))
 	return nil
+}
+
+func (s *HelixAPIServer) registerHelixOrgAuthenticatedRoutes(authRouter *mux.Router, orgHandlers *helixOrgHandlers) {
+	identityOnly := s.withHelixOrgIdentity(stripOrgScopedPrefix(orgHandlers.api))
+	authRouter.Handle("/orgs/{org}/settings", identityOnly).Methods(http.MethodGet)
+	authRouter.Handle("/orgs/{org}/settings/{key}", identityOnly).Methods(http.MethodPut, http.MethodDelete)
+	authRouter.Handle("/orgs/{org}/github/app-installation", identityOnly).Methods(http.MethodGet)
+	authRouter.Handle("/orgs/{org}/github/app-manifest", identityOnly).Methods(http.MethodPost)
+
+	// All remaining per-tenant org-graph routes require the alpha feature
+	// and bootstrap the graph before dispatch.
+	authRouter.PathPrefix("/orgs/{org}/").Handler(
+		requireFeature(helixorg.AlphaFeature)(
+			s.withHelixOrgScope(orgHandlers.scope,
+				stripOrgScopedPrefix(orgHandlers.api),
+			),
+		),
+	)
 }
 
 func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*helixOrgHandlers, error) {
