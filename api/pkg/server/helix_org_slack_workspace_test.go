@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,9 +13,14 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/org/application/dispatch"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -117,6 +123,47 @@ func TestSlackTopicDelivererUsesConfiguredChannelAndThread(t *testing.T) {
 	}
 	if channel != "C123" || text != "hello" || thread != "1699999999.000001" || receipt.Status != "delivered" || receipt.Provider != "slack" || receipt.Destination != "C123" || receipt.MessageID != "1700000000.000100" {
 		t.Fatalf("form = channel:%q text:%q thread:%q, receipt = %#v", channel, text, thread, receipt)
+	}
+}
+
+func TestMCPUsesSlackEnabledPublishingService(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	deps := mcptools.DefaultDeps(st)
+	svc := buildOrgServices(st, &deps, wakebus.New(pubsub.NewNoop()), dispatch.New(st, nil, slog.Default()), nil)
+
+	store := &slackWorkspaceTestStore{connections: []*types.ServiceConnection{{
+		ID: "conn-mcp", OrganizationID: "org-mcp", Type: types.ServiceConnectionTypeSlackWorkspace,
+	}}}
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1700000000.000100"}`))
+	}))
+	defer slackServer.Close()
+	svc.Publishing.RegisterDeliverer(transport.KindSlack, slackTopicDeliverer{
+		workspaces: newSlackWorkspaces(store, func() ([]byte, error) { return make([]byte, 32), nil }),
+		client: func(string) slacktransport.MessageAPI {
+			return goslack.New("xoxb-test", goslack.OptionAPIURL(slackServer.URL+"/"))
+		},
+	})
+	built := deps.Build()
+	if built.Publishing != svc.Publishing {
+		t.Fatalf("MCP Publishing = %p, want Slack-enabled service %p", built.Publishing, svc.Publishing)
+	}
+
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "conn-mcp", ChannelID: "C123"})
+	topic, err := streaming.NewTopic("s-slack-mcp", "Slack", "", "", time.Now(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := built.Publishing.PublishWithReceipt(context.Background(), "org-mcp", topic.ID, "b-owner", streaming.Message{Body: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Delivery == nil || result.Delivery.Provider != "slack" || result.Delivery.MessageID != "1700000000.000100" {
+		t.Fatalf("delivery = %#v", result.Delivery)
 	}
 }
 

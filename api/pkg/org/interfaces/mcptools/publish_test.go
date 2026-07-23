@@ -14,6 +14,28 @@ import (
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 )
 
+func injectTestPublishing(cfg *Config) {
+	deps := publishing.Deps{
+		Topics:     cfg.Store.Topics,
+		Events:     cfg.Store.Events,
+		Dispatcher: cfg.Dispatcher,
+		Now:        cfg.Now,
+		NewID:      cfg.NewID,
+	}
+	if cfg.Hub != nil {
+		deps.Hub = cfg.Hub
+	}
+	cfg.Publishing = publishing.New(deps)
+}
+
+func TestRegisterBuiltinsRequiresPublishing(t *testing.T) {
+	deps := DefaultDeps(orggorm.GetOrgTestDB(t)).Build()
+	err := RegisterBuiltins(NewRegistry(), deps)
+	if err == nil || !strings.Contains(err.Error(), "deps.Publishing is required") {
+		t.Fatalf("RegisterBuiltins error = %v", err)
+	}
+}
+
 // TestPublishRejectsGitHubTopic: publishing to a github transport
 // topic is rejected with an explanatory error rather than a silent
 // no-op. GitHub topics are inbound-only; outbound action lives in
@@ -41,6 +63,7 @@ func TestPublishRejectsGitHubTopic(t *testing.T) {
 	caller := botCaller{id: "b-owner", orgID: "org-test"}
 
 	deps := DefaultDeps(st)
+	injectTestPublishing(&deps)
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
@@ -85,6 +108,7 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 	caller := botCaller{id: "b-owner", orgID: "org-test"}
 
 	deps := DefaultDeps(st)
+	injectTestPublishing(&deps)
 	tl := &Publish{deps: deps.Build()}
 
 	args, _ := json.Marshal(map[string]any{
@@ -135,10 +159,11 @@ func TestPublishSlackTopicPreservesContractAndReportsDelivery(t *testing.T) {
 	if err := st.Topics.Create(ctx, topic); err != nil {
 		t.Fatal(err)
 	}
-	deps := DefaultDeps(st).Build()
-	deps.Publishing.RegisterDeliverer(transport.KindSlack, fakePublishDeliverer{})
+	toolCfg := DefaultDeps(st)
+	injectTestPublishing(&toolCfg)
+	toolCfg.Publishing.RegisterDeliverer(transport.KindSlack, fakePublishDeliverer{})
 	args, _ := json.Marshal(map[string]any{"topicId": "s-slack", "body": "hello"})
-	raw, err := (&Publish{deps: deps}).Invoke(ctx, tool.Invocation{Caller: botCaller{id: "b-owner", orgID: "org-test"}, Args: args})
+	raw, err := (&Publish{deps: toolCfg.Build()}).Invoke(ctx, tool.Invocation{Caller: botCaller{id: "b-owner", orgID: "org-test"}, Args: args})
 	if err != nil {
 		t.Fatal(err)
 	}
