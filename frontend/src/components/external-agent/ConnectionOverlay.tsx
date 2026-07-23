@@ -119,7 +119,37 @@ const ConnectionOverlay: React.FC<ConnectionOverlayProps> = ({
             </Button>
           }
         >
-          {error}
+          {(() => {
+            // The backend sends "<friendly sentence>\n\n<technical detail>".
+            // Render the friendly part prominently and the technical detail (if
+            // present) as smaller, monospaced, scrollable text so the underlying
+            // GStreamer failure is visible without cluttering the main message.
+            const [friendly, ...rest] = error.split('\n\n');
+            const technical = rest.join('\n\n').trim();
+            return (
+              <>
+                {friendly}
+                {technical && (
+                  <Typography
+                    component="pre"
+                    sx={{
+                      mt: 1,
+                      mb: 0,
+                      fontSize: '0.7rem',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      opacity: 0.75,
+                      maxHeight: 160,
+                      overflow: 'auto',
+                    }}
+                  >
+                    {technical}
+                  </Typography>
+                )}
+              </>
+            );
+          })()}
         </Alert>
       )}
     </Box>
