@@ -7,9 +7,9 @@ Status: implemented, awaiting review
 
 Slack Topics support inbound events and synchronous outbound basic text
 delivery. Helix sends outbound Topic messages with the workspace credential it
-already owns. Agents continue to mint scoped Slack credentials for rich Slack
-operations such as reactions, uploads, edits, lookups, and multi-step
-workflows.
+already owns. Agents continue to call `mint_credential` to receive the
+workspace's long-lived Slack bot token for rich Slack operations such as
+reactions, uploads, edits, lookups, and multi-step workflows.
 
 `ask_human` remains a separate identity-based primitive and is available to
 every Bot. It answers "contact this person through their preferred route";
@@ -17,8 +17,9 @@ publishing to a Slack Topic answers "send this event to this configured Slack
 destination."
 
 A successful Slack `publish` returns a delivery receipt from Slack. A failed
-Slack attempt returns an explicit MCP or HTTP error. The internal audit event
-is never presented as proof of external delivery.
+Slack attempt after the event append returns the event ID, a failed receipt,
+and an explicit `do not retry publish` status. The internal audit event is
+never presented as proof of external delivery.
 
 ## Context
 
@@ -90,12 +91,31 @@ Inbound and outbound messages remain canonical `streaming.Message` values.
 ```
 
 `service_connection_id` selects the org-scoped Slack workspace connection.
-`channel_id` is the one fixed outbound destination. It is optional so an
-existing Slack Topic can remain inbound-only. A normal outbound publish to a
-Slack Topic without `channel_id` returns an explicit configuration error.
+`channel_id` controls both directions:
 
-The Topic detail UI exposes `Outbound Slack channel ID (optional)` and
-preserves the rest of the Slack transport configuration when it is saved.
+- Non-empty `channel_id` receives inbound messages from that exact Slack
+  channel and is the one fixed outbound destination.
+- Empty `channel_id` makes the Topic an inbound-only, workspace-wide fallback.
+  It receives an inbound channel only when no exact channel Topic exists.
+
+Inbound ownership is the tuple of `service_connection_id` and `channel_id`.
+The service connection identifies the installed workspace and owns its
+credential; the channel ID is interpreted only inside that workspace. When one
+or more Topics match both values, every exact Topic receives the message and
+workspace-wide fallback Topics do not. When no exact Topic exists, every
+fallback with the same `service_connection_id` and an empty `channel_id`
+receives it. A DM cannot enter a Topic bound to a different channel or
+workspace.
+
+Normal outbound `Publish` and `PublishWithReceipt` calls to a Slack Topic
+without `channel_id` are rejected before event creation, notification, or
+dispatch. MCP returns an error and REST returns HTTP 409 Conflict.
+`PublishInbound` remains allowed so the empty-channel workspace fallback can
+ingest unmatched Slack channels.
+
+The Topic detail UI exposes `Slack channel ID (optional)`, explains both
+directions, and preserves the rest of the Slack transport configuration when
+it is saved.
 
 The basic path does not accept arbitrary per-message channel selection. An
 agent that needs to discover or select another channel mints a credential and
@@ -117,9 +137,15 @@ The Slack deliverer supports only basic text and an optional existing thread
 timestamp. It does not model Slack reactions, file uploads, message edits,
 lookups, interactive blocks, or multi-step workflows.
 
-For those operations, the agent calls `mint_credential` for a scoped Slack
-credential and uses the Slack API directly. Tool descriptions, Role
-instructions, Bot briefings, and inbound Slack reply hints state this boundary.
+For those operations, the agent calls `mint_credential` and uses the Slack API
+directly. For Slack, this does not mint a scoped or short-lived credential. It
+returns the same long-lived workspace `xoxb-` bot token stored in the Slack
+service connection. The `resource` team ID selects a workspace when the org has
+more than one; it does not narrow the token's OAuth scopes.
+
+`publish` and `ask_human` use that workspace token entirely server-side and do
+not expose it to the agent. Tool descriptions, Role instructions, Bot
+briefings, and inbound Slack reply hints state this boundary.
 
 ### 5. `ask_human` is available to every Bot
 
@@ -155,27 +181,64 @@ is no delivery queue and no automatic retry.
 
 The operation order is:
 
-1. Resolve the Topic and build the canonical event.
-2. Append the event to the Topic.
-3. Notify long-poll observers.
-4. Dispatch the event to internal subscribers.
-5. Attempt Slack delivery.
-6. Return the Slack receipt or an explicit error.
+1. Resolve the Topic and validate outbound publishability.
+2. Build the canonical event.
+3. Append the event to the Topic.
+4. Notify long-poll observers.
+5. Dispatch the event to internal subscribers.
+6. Attempt Slack delivery.
+7. Return the Slack receipt or an explicit error.
+
+For normal outbound Slack publishing, validation rejects an empty
+`channel_id` before step 2. `PublishInbound` bypasses this outbound-only check.
 
 This ordering preserves the internal audit event and subscriber activation
-even when Slack rejects the post. Therefore an MCP or REST publish error can be
-returned after the event already exists inside Helix. Callers must not blindly
-retry an errored publish because the internal event and downstream activation
-have already occurred.
+even when Slack rejects the post. When delivery fails after append, the
+publishing service returns both its error and a partial result containing the
+event and failed receipt. MCP and REST convert that partial result into a
+response with the event ID, `delivery.status=failed`, the provider error, and
+an explicit `do not retry publish` status. Callers must not retry because the
+internal event and downstream activation have already occurred. Errors before
+append still return as ordinary MCP or HTTP errors without an event ID.
 
-Only `PublishInbound` suppresses outbound Slack delivery. Slack ingestion uses
-`PublishInbound`, which prevents an inbound Slack message from being posted
-back to Slack. All normal `Publish` and `PublishWithReceipt` callers attempt
-outbound delivery when the Topic kind has a registered deliverer.
+Only `PublishInbound` marks a publish as externally inbound. It stores that
+provenance on the publish context. Slack ingestion uses `PublishInbound`, and
+the dispatcher and processor runner carry the same context through nested
+publishes. Every Topic event produced by that inbound processor chain
+therefore remains internal and cannot call an external deliverer. A Bot or
+automated producer using normal `Publish` or `PublishWithReceipt` has no
+inbound provenance and attempts outbound delivery for every configured Slack
+Topic reached through its processor chain.
 
 The Slack helper requires a non-empty destination and a non-empty message
 timestamp in Slack's response. Slack API rejection, missing destination, and
 missing timestamp are explicit errors.
+
+### 7. Inbound reply guidance names the usable route
+
+Each inbound Slack message carries a reply hint built for the Topic that
+received it:
+
+- An exact channel Topic names that Topic ID and tells the Bot to call
+  `publish` with the correct thread ID for a basic reply when the Bot has the
+  `publish` capability. Otherwise it directs the Bot to `mint_credential` and
+  `chat.postMessage`.
+- A workspace-wide fallback names itself as inbound-only, tells the Bot to use
+  `list_topics` to find a Slack Topic whose `service_connection_id` matches the
+  fallback Topic and whose `channel_id` matches the incoming channel. It uses
+  that Topic only when `publish` is available; otherwise, or when no matching
+  Topic exists, it directs the Bot to `mint_credential` and
+  `chat.postMessage`.
+
+The hint continues to direct reactions, uploads, edits, lookups, and other rich
+operations to `mint_credential` and the Slack API.
+
+### 8. MCP Topic reads expose only typed Slack configuration
+
+`list_topics` and `get_topic` no longer expose arbitrary raw transport
+configuration. Their MCP view includes `transportConfig` only for Slack, parsed
+as the typed `SlackConfig` containing `service_connection_id` and `channel_id`.
+Other transport configurations are omitted.
 
 ## Contracts
 
@@ -218,8 +281,8 @@ fields and adds `delivery`:
 }
 ```
 
-For a Topic without external delivery, the preserved result explicitly says
-external delivery is not confirmed and adds:
+For a non-Slack Topic without external delivery, the preserved result
+explicitly says external delivery is not confirmed and adds:
 
 ```json
 {
@@ -230,9 +293,29 @@ external delivery is not confirmed and adds:
 }
 ```
 
-If Slack delivery fails, the MCP call returns an error. The event ID is not
-returned as a success-shaped delivery result, although the audit event already
-exists.
+An outbound publish to a Slack Topic without `channel_id` never returns this
+result. It fails before event creation with an MCP error. Inbound ingestion of
+that Topic remains valid through `PublishInbound`.
+
+### MCP failed delivery result
+
+When Slack rejects the post after the audit append, MCP returns the partial
+result instead of discarding the event identity:
+
+```json
+{
+  "id": "evt_123",
+  "topicId": "s-slack-workspace",
+  "scope": "helix",
+  "status": "appended inside Helix; external delivery failed; do not retry publish",
+  "delivery": {
+    "status": "failed",
+    "provider": "slack",
+    "destination": "C123",
+    "error": "do not retry publish: post Slack message: not_in_channel"
+  }
+}
+```
 
 ### REST delivered result
 
@@ -250,8 +333,11 @@ The REST success response preserves `event_id` and adds the delivery receipt:
 }
 ```
 
-If Slack delivery fails, the REST endpoint returns an HTTP error after the
-audit event has been appended.
+For a post-append Slack failure, REST returns HTTP 201 with `event_id` and the
+same failed delivery receipt. This is partial success: Helix appended and
+dispatched the event, while Slack delivery failed. Pre-append failures remain
+HTTP errors. In particular, an outbound Slack Topic without `channel_id`
+returns HTTP 409 Conflict and creates no event.
 
 ### `ask_human`
 
@@ -281,8 +367,8 @@ The intent boundary is:
 
 - "Post the review result to the engineering Slack Topic" uses `publish`.
 - "Ask the org owner whether this should merge" uses `ask_human`.
-- "React to the original message and upload the report" uses a minted Slack
-  credential and the Slack API.
+- "React to the original message and upload the report" uses the workspace
+  token returned by `mint_credential` and the Slack API.
 
 No generic `message.send` tool is needed. The two existing primitives already
 cover event routing and person-oriented contact.
@@ -295,21 +381,30 @@ paths.
 
 1. `publishing.Publishing` now registers deliverers by transport kind and
    exposes `PublishWithReceipt` and `PublishInbound`.
-2. The shared publish path appends, notifies, and dispatches before invoking a
-   registered deliverer.
-3. `slackTopicDeliverer` resolves the configured org-owned workspace and calls
+2. The shared publish path rejects outbound Slack Topics without `channel_id`
+   before event creation. `PublishInbound` bypasses that check.
+3. For accepted publishes, the shared path appends, notifies, and dispatches
+   before invoking a registered deliverer.
+4. `slackTopicDeliverer` resolves the configured org-owned workspace and calls
    the shared Slack `DeliverText` helper.
-4. `DeliverText` posts basic text with an optional thread timestamp and returns
+5. `DeliverText` posts basic text with an optional thread timestamp and returns
    the actual channel and Slack message timestamp.
-5. Slack ingress calls `PublishInbound`; no other boolean or caller convention
-   suppresses egress.
-6. The MCP `publish` response preserves its original fields and adds a delivery
-   receipt.
-7. The REST publish response adds the same receipt and accepts `threadId`.
-8. `ask_human` is part of the universal Bot baseline and reuses `DeliverText`
+6. Slack ingress matches the workspace service connection and channel
+   together, routes exact channel Topics ahead of same-workspace fallback
+   Topics, and creates a route-specific reply hint for each event.
+7. Slack ingress calls `PublishInbound`. Its context provenance survives
+   processor chains and is the only mechanism that suppresses egress.
+8. The MCP `publish` response preserves its original fields and adds a
+   delivered or failed receipt.
+9. The REST publish response adds the same receipt, returns post-append
+   failures as HTTP 201 partial success, and accepts `threadId`.
+10. MCP Topic reads expose only parsed `SlackConfig`, never arbitrary raw
+   transport configuration.
+11. `ask_human` is part of the universal Bot baseline and reuses `DeliverText`
    for its Slack route without entering the Topic publishing path.
-9. The Topic detail UI configures the optional fixed outbound channel ID.
-10. Generated OpenAPI and frontend API artifacts include the new request and
+12. The Topic detail UI configures the optional channel ID for inbound
+    filtering and outbound delivery.
+13. Generated OpenAPI and frontend API artifacts include the new request and
     response fields.
 
 No new generic messaging service, provider workflow abstraction, queue, or
@@ -317,14 +412,15 @@ retry subsystem was added.
 
 ## Migration
 
-1. Existing Slack Topics remain inbound-only while `channel_id` is empty.
-2. An owner enters the fixed Slack channel ID in the Topic detail UI to enable
-   outbound basic text.
+1. Existing Slack Topics with empty `channel_id` remain inbound-only
+   workspace-wide fallbacks.
+2. An owner enters a fixed Slack channel ID in the Topic detail UI to make the
+   Topic exact-channel inbound and enable outbound basic text.
 3. Startup reconciliation adds `ask_human` to existing Bots. New Bots receive
    it through the same universal baseline.
 4. Updated prompts direct basic Slack Topic text through `publish`,
    person-oriented contact through `ask_human`, and rich Slack behavior through
-   a minted credential.
+   the workspace token returned by `mint_credential`.
 5. Existing inbound Slack ingestion and thread-follow routes are preserved.
 
 No existing Topic event needs rewriting.
@@ -336,28 +432,51 @@ No existing Topic event needs rewriting.
 Run in
 `/Users/psamuel/helix/helix-worktrees/bidirectional-slack-topic-delivery`:
 
-- `go test ./api/pkg/org/application/publishing ./api/pkg/org/domain/transport ./api/pkg/org/infrastructure/transports/slack ./api/pkg/org/interfaces/mcptools ./api/pkg/org/interfaces/server/api ./api/pkg/server -count=1`: passed all six packages in 0.219 s, 0.376 s, 0.482 s, 0.425 s, 2.327 s, and 4.587 s.
+- `go test ./api/pkg/org/... -count=1`: passed.
 - `go build ./api/pkg/server/ ./api/pkg/store/ ./api/pkg/types/`: passed.
-- `cd frontend && yarn build`: passed, 23,409 modules transformed in 22.21 s; command completed in 23.77 s.
+- `cd frontend && yarn build`: passed, 23,410 modules transformed; only the existing chunk-size warning was reported.
+- `git diff --check`: passed.
 
 The automated tests cover:
 
 - Configured channel and thread values reaching Slack's HTTP API.
+- Exact-channel inbound routing overriding workspace-wide fallback routing.
+- DMs not entering Topics bound to another channel.
+- Exact and fallback reply hints naming the correct Topic behavior.
 - A delivered receipt containing provider, destination, and message ID.
-- Missing destinations and Slack API rejection returning explicit errors.
+- Missing destinations and Slack API rejection returning failed receipts.
+- Outbound empty-channel Slack Topics returning MCP errors and REST HTTP 409
+  before any event append, while `PublishInbound` remains accepted.
 - Publish ordering and an audit event remaining after delivery failure.
-- `PublishInbound` suppressing Slack egress while normal publishing delivers.
+- Post-append MCP and REST failure responses preserving the event ID and
+  warning callers not to retry.
+- Inbound provenance suppressing Slack egress through nested processor
+  publishes while normal automated publishing delivers.
 - MCP contract preservation with the added receipt.
+- MCP Topic reads exposing only typed Slack transport configuration.
 - Cross-org and wrong-service-connection rejection.
 - Universal `ask_human` inclusion for new and reconciled Bots.
 - Existing human Slack delivery through the shared helper.
 
+### Live Prime findings
+
+Prime at commit `45d98c1e` successfully delivered a basic Slack Topic publish
+and a threaded reply. Both returned Slack delivery receipts.
+
+A later threaded human reply was ingested but did not activate the Bot because
+the Bot creator had omitted the custom-Topic subscription. After the
+subscriptions were added manually, a Slack DM was incorrectly fanned into
+channel and workspace Topics. That produced duplicate Bot activations and an
+unintended reply in the configured channel. These findings drove the final
+exact-channel precedence, channel filtering, route-specific reply hints, and
+inbound-provenance fixes.
+
 ### NOT tested
 
-- NOT tested: live Slack workspace delivery.
-- NOT tested: Prime deployment and end-to-end merge request reviewer flow.
-- NOT tested: browser configuration of the outbound Slack channel ID.
-- NOT tested: live inbound Slack thread routing after an outbound Topic post.
+- NOT tested: the final exact-channel, DM, and threaded-reply flow on Prime
+  after the routing and provenance fixes.
+- NOT tested: browser configuration of the revised bidirectional Slack channel
+  ID field after the final UI wording change.
 
 ## Non-goals
 
