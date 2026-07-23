@@ -393,13 +393,13 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
           )}
           {topic.kind === 'slack' && (
             <TextField
-              label="Outbound Slack channel ID (optional)"
+              label="Slack channel ID (optional)"
               value={form.slackChannel}
               onChange={(e) => setForm((current) => ({ ...current, slackChannel: e.target.value }))}
               size="small"
               fullWidth
               placeholder="C012ABCDEF"
-              helperText="Basic publish messages go to this channel. Leave empty for inbound-only."
+              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended bots or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
             />
           )}
           {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && topic.kind !== 'slack' && (

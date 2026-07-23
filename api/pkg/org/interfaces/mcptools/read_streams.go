@@ -11,28 +11,34 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
 )
 
 type topicView struct {
-	ID              streaming.TopicID `json:"id"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`
-	CreatedBy       orgchart.BotID    `json:"createdBy"`
-	CreatedAt       time.Time         `json:"createdAt"`
-	TransportKind   string            `json:"transportKind"`
-	TransportConfig json.RawMessage   `json:"transportConfig,omitempty"`
+	ID              streaming.TopicID      `json:"id"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	CreatedBy       orgchart.BotID         `json:"createdBy"`
+	CreatedAt       time.Time              `json:"createdAt"`
+	TransportKind   string                 `json:"transportKind"`
+	TransportConfig *transport.SlackConfig `json:"transportConfig,omitempty"`
 }
 
 func topicViewOf(s streaming.Topic) topicView {
-	return topicView{
-		ID:              s.ID,
-		Name:            s.Name,
-		Description:     s.Description,
-		CreatedBy:       s.CreatedBy,
-		CreatedAt:       s.CreatedAt,
-		TransportKind:   string(s.Transport.Kind),
-		TransportConfig: s.Transport.Config,
+	view := topicView{
+		ID:            s.ID,
+		Name:          s.Name,
+		Description:   s.Description,
+		CreatedBy:     s.CreatedBy,
+		CreatedAt:     s.CreatedAt,
+		TransportKind: string(s.Transport.Kind),
 	}
+	if s.Transport.Kind == transport.KindSlack {
+		if cfg, err := s.Transport.SlackConfig(); err == nil {
+			view.TransportConfig = &cfg
+		}
+	}
+	return view
 }
 
 // ListTopics returns every Topic.

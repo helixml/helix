@@ -23,9 +23,11 @@ import (
 // Inbound: Slack delivers channel messages over one shared ingest path
 // (REST Events API or Socket Mode — operator's choice). The ingest
 // routes team_id → workspace ServiceConnection → org, drops the bot's
-// own events, then publishes the message onto every Topic in that org
-// whose SlackConfig matches the workspace. Routing to a specific Worker
-// is the job of the org's processor/filter layer, not the transport.
+// own events, then publishes to every Topic whose non-empty ChannelID
+// exactly matches the incoming channel. Only when no exact Topic exists
+// does it publish to workspace-wide Topics with an empty ChannelID.
+// Routing to a specific Worker is the job of the org's processor/filter
+// layer, not the transport.
 //
 // Outbound: basic text is posted to the configured channel with Helix's
 // workspace credential. Rich Slack actions remain the agent's job via
@@ -33,16 +35,18 @@ import (
 const KindSlack Kind = "slack"
 
 // SlackConfig is the parsed shape of Transport.Config when
-// Kind == KindSlack. A Slack Topic is workspace-scoped: it ingests every
-// channel the workspace bot is in. Workspace credentials live on the
-// org-scoped slack_workspace ServiceConnection referenced here.
+// Kind == KindSlack. Non-empty ChannelID receives its exact inbound channel
+// and fixes the outbound destination. Empty ChannelID makes the Topic an
+// inbound-only workspace-wide fallback used only when no exact channel Topic
+// exists. Workspace credentials live on the org-scoped slack_workspace
+// ServiceConnection referenced here.
 type SlackConfig struct {
 	// ServiceConnectionID is the id of the org-scoped slack_workspace
 	// ServiceConnection whose bot this Topic ingests from and posts to.
 	// Required.
 	ServiceConnectionID string `json:"service_connection_id,omitempty"`
-	// ChannelID is the single outbound destination. Empty keeps an existing
-	// workspace Topic inbound-only; publish then returns a configuration error.
+	// ChannelID filters inbound messages and sets the outbound destination.
+	// Empty makes the Topic an inbound-only fallback for unmatched channels.
 	ChannelID string `json:"channel_id,omitempty"`
 }
 

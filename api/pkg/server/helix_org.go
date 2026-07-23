@@ -670,11 +670,11 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	// dispatcher's: register the webhook emitter so KindWebhook topics
 	// POST their events. Slack/email emitters register the same way.
 	dispatcher.RegisterOutbound(transport.KindWebhook, webhook.NewOutboundEmitter(logger))
-	// Slack has no outbound emitter: egress is the agent's job. A Worker
-	// replies (and reacts, uploads, …) by driving the Slack Web API
-	// directly with a bot token it mints on demand — so the transport
-	// never models Slack's API. slackWS resolves the org's workspace
-	// install to a decrypted bot token for that mint.
+	// Slack has no asynchronous dispatcher emitter. Basic Topic text uses
+	// the synchronous Publishing deliverer registered below; rich actions
+	// still use the Slack Web API with the workspace token returned by
+	// mint_credential. slackWS resolves the encrypted workspace install for
+	// both paths.
 	slackWS := newSlackWorkspaces(helixStore, cfg.APIServer.getEncryptionKey)
 	// Auto-manage one Slack Topic per connected workspace.
 	slackTopics := &slackWorkspaceTopics{topics: st.Topics, logger: logger}

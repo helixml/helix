@@ -28,6 +28,7 @@ import (
 // returns it verbatim, the REST handler maps it to 409 Conflict.
 var ErrPublishToGitHub = errors.New("publish is not supported on github transport topics; use `gh` from your environment to act on the repo")
 var ErrPublishToGitLab = errors.New("publish is not supported on gitlab transport topics; use the GitLab API from your environment to act on the repo")
+var ErrSlackChannelNotConfigured = errors.New("publish is not supported on slack transport topics without channel_id; configure channel_id for outbound delivery")
 
 // Notifier wakes long-poll observers blocked on a topic. *wakebus.Bus
 // satisfies it.
@@ -46,6 +47,7 @@ type DeliveryReceipt struct {
 	Provider    string `json:"provider"`
 	Destination string `json:"destination"`
 	MessageID   string `json:"messageId"`
+	Error       string `json:"error,omitempty"`
 }
 
 type Deliverer interface {
@@ -111,24 +113,31 @@ func (p *Publishing) RegisterDeliverer(kind transport.Kind, deliverer Deliverer)
 // consistent regardless of what the caller passed. Returns the created
 // Event. Outbound delivery runs after append, notify, and dispatch, so a
 // delivery error can be returned after the internal audit event and subscriber
-// activations already exist. Rejects github-transport topics with
-// ErrPublishToGitHub before any write, and store.ErrNotFound when the topic is
-// absent.
+// activations already exist. Rejects inbound-only repository Topics and Slack
+// Topics without channel_id before any write, and returns store.ErrNotFound
+// when the Topic is absent.
 func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
-	result, err := p.publish(ctx, orgID, topicID, from, msg, true)
+	result, err := p.publish(ctx, orgID, topicID, from, msg)
 	return result.Event, err
 }
 
 func (p *Publishing) PublishWithReceipt(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (Result, error) {
-	return p.publish(ctx, orgID, topicID, from, msg, true)
+	return p.publish(ctx, orgID, topicID, from, msg)
 }
 
 func (p *Publishing) PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
-	result, err := p.publish(ctx, orgID, topicID, from, msg, false)
+	result, err := p.publish(context.WithValue(ctx, inboundContextKey{}, true), orgID, topicID, from, msg)
 	return result.Event, err
 }
 
-func (p *Publishing) publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message, outbound bool) (Result, error) {
+type inboundContextKey struct{}
+
+func isInbound(ctx context.Context) bool {
+	inbound, _ := ctx.Value(inboundContextKey{}).(bool)
+	return inbound
+}
+
+func (p *Publishing) publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (Result, error) {
 	topic, err := p.topics.Get(ctx, orgID, topicID)
 	if err != nil {
 		return Result{}, fmt.Errorf("topic %q: %w", topicID, err)
@@ -138,6 +147,15 @@ func (p *Publishing) publish(ctx context.Context, orgID string, topicID streamin
 	}
 	if topic.Transport.Kind == transport.KindGitLab {
 		return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitLab)
+	}
+	if topic.Transport.Kind == transport.KindSlack && !isInbound(ctx) {
+		cfg, err := topic.Transport.SlackConfig()
+		if err != nil {
+			return Result{}, fmt.Errorf("topic %q: %w", topicID, err)
+		}
+		if cfg.ChannelID == "" {
+			return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrSlackChannelNotConfigured)
+		}
 	}
 	msg.From = from
 	event, err := streaming.NewMessageEvent(
@@ -161,10 +179,16 @@ func (p *Publishing) publish(ctx context.Context, orgID string, topicID streamin
 		p.dispatcher.Dispatch(ctx, event)
 	}
 	result := Result{Event: event}
-	if outbound {
+	if !isInbound(ctx) {
 		if deliverer := p.deliverers[topic.Transport.Kind]; deliverer != nil {
 			receipt, err := deliverer.Deliver(ctx, topic, msg)
 			if err != nil {
+				receipt.Status = "failed"
+				if receipt.Provider == "" {
+					receipt.Provider = string(topic.Transport.Kind)
+				}
+				receipt.Error = "do not retry publish: " + err.Error()
+				result.Delivery = &receipt
 				return result, fmt.Errorf("deliver topic %q: %w", topicID, err)
 			}
 			result.Delivery = &receipt

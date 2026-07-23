@@ -76,11 +76,10 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		MessageID:       args.MessageID,
 		Attachments:     args.Attachments,
 	}
-	// The service owns the append→notify→dispatch trio and rejects
-	// github-transport topics (inbound only — act on the repo with `gh`
-	// from the Environment) with ErrPublishToGitHub.
+	// The service owns append, notify, and dispatch and rejects
+	// inbound-only outbound publishes before appending.
 	result, err := t.deps.Publishing.PublishWithReceipt(ctx, orgID, topicID, string(inv.Caller.ID()), msg)
-	if err != nil {
+	if err != nil && result.Event.ID == "" {
 		return nil, err
 	}
 	response := map[string]any{
@@ -95,7 +94,11 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	}
 	if result.Delivery != nil {
 		response["delivery"] = result.Delivery
-		response["status"] = "appended inside Helix and delivered to " + result.Delivery.Provider
+		if result.Delivery.Status == "failed" {
+			response["status"] = "appended inside Helix; external delivery failed; do not retry publish"
+		} else {
+			response["status"] = "appended inside Helix and delivered to " + result.Delivery.Provider
+		}
 	}
 	return json.Marshal(response)
 }

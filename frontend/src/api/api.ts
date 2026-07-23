@@ -976,6 +976,7 @@ export interface OpenaiViolence {
 
 export interface PublishingDeliveryReceipt {
   destination?: string;
+  error?: string;
   messageId?: string;
   provider?: string;
   status?: string;

@@ -3,6 +3,7 @@ package mcptools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -142,10 +143,46 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 	}
 }
 
-type fakePublishDeliverer struct{}
+type fakePublishDeliverer struct{ err error }
 
-func (fakePublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
-	return publishing.DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C123", MessageID: "1.2"}, nil
+func (d fakePublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	return publishing.DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C123", MessageID: "1.2"}, d.err
+}
+
+type countingPublishDeliverer struct{ calls int }
+
+func (d *countingPublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	d.calls++
+	return publishing.DeliveryReceipt{}, nil
+}
+
+func TestPublishSlackWithoutChannelReturnsErrorBeforeSideEffects(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	ctx := context.Background()
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1"})
+	topic, err := streaming.NewTopic("s-slack-inbound", "s-slack-inbound", "", "b-owner", time.Now().UTC(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := &fakeDispatcher{}
+	deliverer := &countingPublishDeliverer{}
+	toolCfg := DefaultDeps(st)
+	toolCfg.Dispatcher = dispatcher
+	injectTestPublishing(&toolCfg)
+	toolCfg.Publishing.RegisterDeliverer(transport.KindSlack, deliverer)
+	args, _ := json.Marshal(map[string]any{"topicId": "s-slack-inbound", "body": "hello"})
+
+	_, err = (&Publish{deps: toolCfg.Build()}).Invoke(ctx, tool.Invocation{Caller: botCaller{id: "b-owner", orgID: "org-test"}, Args: args})
+	if !errors.Is(err, publishing.ErrSlackChannelNotConfigured) {
+		t.Fatalf("err = %v, want ErrSlackChannelNotConfigured", err)
+	}
+	events, _ := st.Events.ListForTopic(ctx, "org-test", "s-slack-inbound", 10)
+	if len(events) != 0 || deliverer.calls != 0 || dispatcher.dispatchN != 0 {
+		t.Fatalf("events=%d delivery calls=%d dispatches=%d", len(events), deliverer.calls, dispatcher.dispatchN)
+	}
 }
 
 func TestPublishSlackTopicPreservesContractAndReportsDelivery(t *testing.T) {
@@ -179,6 +216,45 @@ func TestPublishSlackTopicPreservesContractAndReportsDelivery(t *testing.T) {
 	}
 	if result.Delivery.Status != "delivered" || result.Delivery.Destination != "C123" || result.Delivery.MessageID != "1.2" {
 		t.Fatalf("delivery = %#v", result.Delivery)
+	}
+}
+
+func TestPublishSlackDeliveryFailureReturnsPartialSuccess(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	ctx := context.Background()
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: "C123"})
+	topic, err := streaming.NewTopic("s-slack-failure", "s-slack-failure", "", "b-owner", time.Now().UTC(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatal(err)
+	}
+	toolCfg := DefaultDeps(st)
+	injectTestPublishing(&toolCfg)
+	toolCfg.Publishing.RegisterDeliverer(transport.KindSlack, fakePublishDeliverer{err: errors.New("not_in_channel")})
+	args, _ := json.Marshal(map[string]any{"topicId": "s-slack-failure", "body": "hello"})
+
+	raw, err := (&Publish{deps: toolCfg.Build()}).Invoke(ctx, tool.Invocation{Caller: botCaller{id: "b-owner", orgID: "org-test"}, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		ID, Status string
+		Delivery   publishing.DeliveryReceipt `json:"delivery"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ID == "" || result.Status != "appended inside Helix; external delivery failed; do not retry publish" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Delivery.Status != "failed" || !strings.Contains(result.Delivery.Error, "do not retry publish: not_in_channel") {
+		t.Fatalf("delivery = %#v", result.Delivery)
+	}
+	events, _ := st.Events.ListForTopic(ctx, "org-test", "s-slack-failure", 10)
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
 	}
 }
 

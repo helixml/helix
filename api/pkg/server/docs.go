@@ -23764,6 +23764,9 @@ const docTemplate = `{
                 "destination": {
                     "type": "string"
                 },
+                "error": {
+                    "type": "string"
+                },
                 "messageId": {
                     "type": "string"
                 },
