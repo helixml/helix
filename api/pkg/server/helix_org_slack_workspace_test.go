@@ -138,7 +138,7 @@ func TestSlackOAuthCallbackRedirectsSlackErrorToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if location.Path != "/orgs/org-1/helix-org/settings" {
+	if location.Path != "/orgs/org-1/general" {
 		t.Fatalf("redirect path = %q", location.Path)
 	}
 	if got := location.Query().Get("slack_error"); got != "Slack authorization was cancelled. Try connecting the workspace again when you are ready." {
@@ -194,7 +194,7 @@ func TestSlackOAuthCallbackRedirectsMissingCodeToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if location.Path != "/orgs/org-1/helix-org/settings" {
+	if location.Path != "/orgs/org-1/general" {
 		t.Fatalf("redirect path = %q", location.Path)
 	}
 	if got := location.Query().Get("slack_error"); got != "Slack did not return an authorization code. Try connecting the workspace again." {
