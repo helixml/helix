@@ -20,7 +20,7 @@ import (
 // system-emitted (source="") events, so inbound messages never loop
 // straight back out to Slack.
 type Publisher interface {
-	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+	PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
 // Ingest is the one shared inbound path. A single instance serves every
@@ -102,7 +102,7 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 	}
 
 	for _, t := range topics {
-		if _, err := i.publisher.Publish(ctx, ws.OrgID, t.ID, "", msg); err != nil {
+		if _, err := i.publisher.PublishInbound(ctx, ws.OrgID, t.ID, "", msg); err != nil {
 			i.logger.Error("slack.ingest: publish", "org", ws.OrgID, "topic", t.ID, "err", err)
 			continue
 		}

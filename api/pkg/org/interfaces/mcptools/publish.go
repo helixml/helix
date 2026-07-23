@@ -32,9 +32,8 @@ var publishSchema = mustSchema[publishArgs]()
 
 func (t *Publish) Name() tool.Name { return PublishName }
 func (t *Publish) Description() string {
-	return "Append and route an Event through Helix. This tool does not call Slack and does " +
-		"not confirm external delivery. For external provider actions, call mint_credential " +
-		"and use the provider API directly. Wakes long-poll observers and " +
+	return "Append and route an Event through Helix. Publishing basic text to a configured Slack Topic posts it to Slack and returns a delivery receipt. " +
+		"Use ask_human to contact a person. For rich Slack actions such as reactions, uploads, or edits, call mint_credential and use the Slack API directly. Wakes long-poll observers and " +
 		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
 		"inReplyTo, messageId, attachments) carry threading and recipient metadata for " +
 		"messaging topics; omit them for plain text publishes."
@@ -80,14 +79,23 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 	// The service owns the append→notify→dispatch trio and rejects
 	// github-transport topics (inbound only — act on the repo with `gh`
 	// from the Environment) with ErrPublishToGitHub.
-	event, err := t.deps.Publishing.Publish(ctx, orgID, topicID, string(inv.Caller.ID()), msg)
+	result, err := t.deps.Publishing.PublishWithReceipt(ctx, orgID, topicID, string(inv.Caller.ID()), msg)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{
-		"id":      string(event.ID),
+	response := map[string]any{
+		"id":      string(result.Event.ID),
 		"topicId": string(topicID),
 		"scope":   "helix",
 		"status":  "appended inside Helix; external delivery not confirmed",
-	})
+		"delivery": map[string]string{
+			"status":   "not_applicable",
+			"provider": "helix",
+		},
+	}
+	if result.Delivery != nil {
+		response["delivery"] = result.Delivery
+		response["status"] = "appended inside Helix and delivered to " + result.Delivery.Provider
+	}
+	return json.Marshal(response)
 }

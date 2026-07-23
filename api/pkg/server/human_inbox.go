@@ -151,14 +151,12 @@ func (h humanInbox) deliverSlack(ctx context.Context, orgID string, person orgch
 	} else if expectsReply {
 		text += "\n\nReply here to respond."
 	}
-	_, timestamp, err := client.PostMessageContext(ctx, channelID, slack.MsgOptionText(text, false))
+	receipt, err := slacktransport.DeliverText(ctx, client, channelID, text, "")
 	if err != nil {
-		return "", fmt.Errorf("post Slack message: %w", err)
+		return "", err
 	}
+	timestamp := receipt.MessageID
 	if expectsReply {
-		if timestamp == "" {
-			return "", fmt.Errorf("post Slack message: Slack returned no message timestamp for reply routing")
-		}
 		if err := h.threadFollower.RecordParticipant(ctx, orgID, routerID, timestamp, fromBotID); err != nil {
 			return "", fmt.Errorf("register Slack reply routing: %w", err)
 		}

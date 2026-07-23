@@ -466,12 +466,12 @@ func TestSlackConfigParse_EmptyConfigReturnsZeroValue(t *testing.T) {
 
 func TestSlackConfigParse_PopulatedConfigRoundTrips(t *testing.T) {
 	t.Parallel()
-	raw := json.RawMessage(`{"service_connection_id":"sc-123"}`)
+	raw := json.RawMessage(`{"service_connection_id":"sc-123","channel_id":"C123"}`)
 	c, err := transport.Transport{Kind: transport.KindSlack, Config: raw}.SlackConfig()
 	if err != nil {
 		t.Fatalf("SlackConfig() = %v", err)
 	}
-	if c.ServiceConnectionID != "sc-123" {
+	if c.ServiceConnectionID != "sc-123" || c.ChannelID != "C123" {
 		t.Fatalf("round-trip violated: %+v", c)
 	}
 }

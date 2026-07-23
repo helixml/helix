@@ -14,22 +14,24 @@ import (
 )
 
 type topicView struct {
-	ID            streaming.TopicID `json:"id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	CreatedBy     orgchart.BotID    `json:"createdBy"`
-	CreatedAt     time.Time         `json:"createdAt"`
-	TransportKind string            `json:"transportKind"`
+	ID              streaming.TopicID `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	CreatedBy       orgchart.BotID    `json:"createdBy"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	TransportKind   string            `json:"transportKind"`
+	TransportConfig json.RawMessage   `json:"transportConfig,omitempty"`
 }
 
 func topicViewOf(s streaming.Topic) topicView {
 	return topicView{
-		ID:            s.ID,
-		Name:          s.Name,
-		Description:   s.Description,
-		CreatedBy:     s.CreatedBy,
-		CreatedAt:     s.CreatedAt,
-		TransportKind: string(s.Transport.Kind),
+		ID:              s.ID,
+		Name:            s.Name,
+		Description:     s.Description,
+		CreatedBy:       s.CreatedBy,
+		CreatedAt:       s.CreatedAt,
+		TransportKind:   string(s.Transport.Kind),
+		TransportConfig: s.Transport.Config,
 	}
 }
 
@@ -47,7 +49,7 @@ type listTopicsArgs struct{}
 func (t *ListTopics) Name() tool.Name                 { return ListTopicsName }
 func (t *ListTopics) InputSchema() *jsonschema.Schema { return listTopicsSchema }
 func (t *ListTopics) Description() string {
-	return "List every Topic: id, name, description, creator, transport kind, and created-at."
+	return "List every Topic: id, name, description, creator, transport kind/config, and created-at. Slack config names its workspace and single outbound channel."
 }
 
 func (t *ListTopics) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessage, error) {

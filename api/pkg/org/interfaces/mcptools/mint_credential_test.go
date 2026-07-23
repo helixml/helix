@@ -271,7 +271,7 @@ func TestMintCredential_DescriptionListsProviders(t *testing.T) {
 func TestMintCredential_DescriptionIncludesSlackDeliveryContract(t *testing.T) {
 	t.Parallel()
 	desc := newMintTool(&fakeProvider{name: "slack"}).Description()
-	for _, want := range []string{`provider="slack"`, "resource=<team_id>", "https://slack.com/api/chat.postMessage", "Authorization: Bearer <token>", "channel", "text", "thread_ts", "HTTP 200 is not success unless ok=true", "does not confirm Slack delivery"} {
+	for _, want := range []string{`provider="slack"`, "resource=<team_id>", "rich actions", "reactions", "uploads", "edits", "publish", "configured Slack Topic", "ask_human", "HTTP 200 is not success unless ok=true"} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("description %q missing %q", desc, want)
 		}
@@ -281,7 +281,7 @@ func TestMintCredential_DescriptionIncludesSlackDeliveryContract(t *testing.T) {
 func TestMintCredential_DescriptionOmitsSlackContractWithoutProvider(t *testing.T) {
 	t.Parallel()
 	desc := newMintTool(&fakeProvider{name: "github"}).Description()
-	for _, absent := range []string{"chat.postMessage", "resource=<team_id>", "Authorization: Bearer", "thread_ts", "Slack:"} {
+	for _, absent := range []string{"resource=<team_id>", "rich actions", "Slack:"} {
 		if strings.Contains(desc, absent) {
 			t.Fatalf("description %q unexpectedly contains %q", desc, absent)
 		}

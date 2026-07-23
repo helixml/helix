@@ -41,12 +41,29 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, event streaming.Event)
 }
 
+type DeliveryReceipt struct {
+	Status      string `json:"status"`
+	Provider    string `json:"provider"`
+	Destination string `json:"destination"`
+	MessageID   string `json:"messageId"`
+}
+
+type Deliverer interface {
+	Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (DeliveryReceipt, error)
+}
+
+type Result struct {
+	Event    streaming.Event
+	Delivery *DeliveryReceipt
+}
+
 // Publishing owns the publish use case.
 type Publishing struct {
 	topics     store.Topics
 	events     store.Events
 	hub        Notifier
 	dispatcher Dispatcher
+	deliverers map[transport.Kind]Deliverer
 	now        func() time.Time
 	newID      func() string
 }
@@ -59,6 +76,7 @@ type Deps struct {
 	Events     store.Events
 	Hub        Notifier
 	Dispatcher Dispatcher
+	Deliverers map[transport.Kind]Deliverer
 	Now        func() time.Time
 	NewID      func() string
 }
@@ -74,27 +92,52 @@ func New(deps Deps) *Publishing {
 		events:     deps.Events,
 		hub:        deps.Hub,
 		dispatcher: deps.Dispatcher,
+		deliverers: deps.Deliverers,
 		now:        now,
 		newID:      deps.NewID,
 	}
+}
+
+func (p *Publishing) RegisterDeliverer(kind transport.Kind, deliverer Deliverer) {
+	if p.deliverers == nil {
+		p.deliverers = map[transport.Kind]Deliverer{}
+	}
+	p.deliverers[kind] = deliverer
 }
 
 // Publish appends a Message Event to the Topic attributed to `from`,
 // then — in this order — notifies long-poll observers and dispatches to
 // subscribed AI Workers. msg.From is set to `from` so attribution stays
 // consistent regardless of what the caller passed. Returns the created
-// Event. Rejects github-transport topics with ErrPublishToGitHub
-// before any write, and store.ErrNotFound when the topic is absent.
+// Event. Outbound delivery runs after append, notify, and dispatch, so a
+// delivery error can be returned after the internal audit event and subscriber
+// activations already exist. Rejects github-transport topics with
+// ErrPublishToGitHub before any write, and store.ErrNotFound when the topic is
+// absent.
 func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
+	result, err := p.publish(ctx, orgID, topicID, from, msg, true)
+	return result.Event, err
+}
+
+func (p *Publishing) PublishWithReceipt(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (Result, error) {
+	return p.publish(ctx, orgID, topicID, from, msg, true)
+}
+
+func (p *Publishing) PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error) {
+	result, err := p.publish(ctx, orgID, topicID, from, msg, false)
+	return result.Event, err
+}
+
+func (p *Publishing) publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message, outbound bool) (Result, error) {
 	topic, err := p.topics.Get(ctx, orgID, topicID)
 	if err != nil {
-		return streaming.Event{}, fmt.Errorf("topic %q: %w", topicID, err)
+		return Result{}, fmt.Errorf("topic %q: %w", topicID, err)
 	}
 	if topic.Transport.Kind == transport.KindGitHub {
-		return streaming.Event{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitHub)
+		return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitHub)
 	}
 	if topic.Transport.Kind == transport.KindGitLab {
-		return streaming.Event{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitLab)
+		return Result{}, fmt.Errorf("topic %q: %w", topicID, ErrPublishToGitLab)
 	}
 	msg.From = from
 	event, err := streaming.NewMessageEvent(
@@ -106,10 +149,10 @@ func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streamin
 		orgID,
 	)
 	if err != nil {
-		return streaming.Event{}, err
+		return Result{}, err
 	}
 	if err := p.events.Append(ctx, event); err != nil {
-		return streaming.Event{}, err
+		return Result{}, err
 	}
 	if p.hub != nil {
 		p.hub.Notify(orgID, topicID)
@@ -117,5 +160,15 @@ func (p *Publishing) Publish(ctx context.Context, orgID string, topicID streamin
 	if p.dispatcher != nil {
 		p.dispatcher.Dispatch(ctx, event)
 	}
-	return event, nil
+	result := Result{Event: event}
+	if outbound {
+		if deliverer := p.deliverers[topic.Transport.Kind]; deliverer != nil {
+			receipt, err := deliverer.Deliver(ctx, topic, msg)
+			if err != nil {
+				return result, fmt.Errorf("deliver topic %q: %w", topicID, err)
+			}
+			result.Delivery = &receipt
+		}
+	}
+	return result, nil
 }

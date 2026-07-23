@@ -27,10 +27,9 @@ import (
 // whose SlackConfig matches the workspace. Routing to a specific Worker
 // is the job of the org's processor/filter layer, not the transport.
 //
-// Outbound: there is no Slack outbound emitter. Egress is the agent's
-// job — a Worker mints the workspace bot token (mint_credential
-// provider=slack) and drives the Slack Web API directly, guided by the
-// reply hint stamped onto each inbound Message.
+// Outbound: basic text is posted to the configured channel with Helix's
+// workspace credential. Rich Slack actions remain the agent's job via
+// mint_credential and the Slack Web API.
 const KindSlack Kind = "slack"
 
 // SlackConfig is the parsed shape of Transport.Config when
@@ -42,6 +41,9 @@ type SlackConfig struct {
 	// ServiceConnection whose bot this Topic ingests from and posts to.
 	// Required.
 	ServiceConnectionID string `json:"service_connection_id,omitempty"`
+	// ChannelID is the single outbound destination. Empty keeps an existing
+	// workspace Topic inbound-only; publish then returns a configuration error.
+	ChannelID string `json:"channel_id,omitempty"`
 }
 
 // Validate enforces that the workspace connection is set. The id is a

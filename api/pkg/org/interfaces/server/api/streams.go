@@ -642,11 +642,12 @@ func (a *apiHandler) publishToTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := streaming.Message{
-		To:      req.To,
-		Subject: strings.TrimSpace(req.Subject),
-		Body:    req.Body,
+		To:       req.To,
+		Subject:  strings.TrimSpace(req.Subject),
+		Body:     req.Body,
+		ThreadID: strings.TrimSpace(req.ThreadID),
 	}
-	ev, err := a.deps.Publishing.Publish(ctx, orgID, topicID, strings.TrimSpace(req.As), msg)
+	result, err := a.deps.Publishing.PublishWithReceipt(ctx, orgID, topicID, strings.TrimSpace(req.As), msg)
 	if err != nil {
 		if errors.Is(err, publishing.ErrPublishToGitHub) || errors.Is(err, publishing.ErrPublishToGitLab) {
 			writeError(w, http.StatusConflict, err)
@@ -655,5 +656,5 @@ func (a *apiHandler) publishToTopic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("publish to topic %s: %w", topicID, err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
+	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(result.Event.ID), Delivery: result.Delivery})
 }

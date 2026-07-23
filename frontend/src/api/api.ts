@@ -324,10 +324,12 @@ export interface ApiPublishRequest {
   as?: string;
   body?: string;
   subject?: string;
+  threadId?: string;
   to?: string[];
 }
 
 export interface ApiPublishResponse {
+  delivery?: PublishingDeliveryReceipt;
   event_id?: string;
 }
 
@@ -970,6 +972,13 @@ export interface OpenaiUsage {
 export interface OpenaiViolence {
   filtered?: boolean;
   severity?: string;
+}
+
+export interface PublishingDeliveryReceipt {
+  destination?: string;
+  messageId?: string;
+  provider?: string;
+  status?: string;
 }
 
 export interface ServerActivateTrialRequest {

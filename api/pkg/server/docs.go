@@ -22363,6 +22363,9 @@ const docTemplate = `{
                 "subject": {
                     "type": "string"
                 },
+                "threadId": {
+                    "type": "string"
+                },
                 "to": {
                     "type": "array",
                     "items": {
@@ -22374,6 +22377,9 @@ const docTemplate = `{
         "api.PublishResponse": {
             "type": "object",
             "properties": {
+                "delivery": {
+                    "$ref": "#/definitions/publishing.DeliveryReceipt"
+                },
                 "event_id": {
                     "type": "string"
                 }
@@ -23748,6 +23754,23 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "publishing.DeliveryReceipt": {
+            "type": "object",
+            "properties": {
+                "destination": {
+                    "type": "string"
+                },
+                "messageId": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }

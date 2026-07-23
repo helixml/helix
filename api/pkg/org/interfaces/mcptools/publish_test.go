@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
@@ -94,11 +95,20 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Invoke = %v, want nil for local topic", err)
 	}
-	var result map[string]string
+	var result struct {
+		ID       string `json:"id"`
+		TopicID  string `json:"topicId"`
+		Scope    string `json:"scope"`
+		Status   string `json:"status"`
+		Delivery struct {
+			Status   string `json:"status"`
+			Provider string `json:"provider"`
+		} `json:"delivery"`
+	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if len(result) != 4 || result["id"] == "" || result["topicId"] != "s-general" || result["scope"] != "helix" || result["status"] != "appended inside Helix; external delivery not confirmed" {
+	if result.ID == "" || result.TopicID != "s-general" || result.Scope != "helix" || result.Status != "appended inside Helix; external delivery not confirmed" || result.Delivery.Status != "not_applicable" || result.Delivery.Provider != "helix" {
 		t.Fatalf("result = %#v", result)
 	}
 
@@ -108,9 +118,48 @@ func TestPublishLocalTopicStillWorks(t *testing.T) {
 	}
 }
 
-func TestPublishDescriptionDoesNotClaimExternalDelivery(t *testing.T) {
+type fakePublishDeliverer struct{}
+
+func (fakePublishDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	return publishing.DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C123", MessageID: "1.2"}, nil
+}
+
+func TestPublishSlackTopicPreservesContractAndReportsDelivery(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	ctx := context.Background()
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: "C123"})
+	topic, err := streaming.NewTopic("s-slack", "s-slack", "", "b-owner", time.Now().UTC(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(ctx, topic); err != nil {
+		t.Fatal(err)
+	}
+	deps := DefaultDeps(st).Build()
+	deps.Publishing.RegisterDeliverer(transport.KindSlack, fakePublishDeliverer{})
+	args, _ := json.Marshal(map[string]any{"topicId": "s-slack", "body": "hello"})
+	raw, err := (&Publish{deps: deps}).Invoke(ctx, tool.Invocation{Caller: botCaller{id: "b-owner", orgID: "org-test"}, Args: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		ID, TopicID, Scope, Status string
+		Delivery                   publishing.DeliveryReceipt `json:"delivery"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ID == "" || result.TopicID != "s-slack" || result.Scope != "helix" || result.Status != "appended inside Helix and delivered to slack" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Delivery.Status != "delivered" || result.Delivery.Destination != "C123" || result.Delivery.MessageID != "1.2" {
+		t.Fatalf("delivery = %#v", result.Delivery)
+	}
+}
+
+func TestPublishDescriptionExplainsSlackDeliveryBoundary(t *testing.T) {
 	description := (&Publish{}).Description()
-	for _, want := range []string{"through Helix", "does not call Slack", "does not confirm external delivery", "mint_credential", "provider API directly"} {
+	for _, want := range []string{"through Helix", "configured Slack Topic", "delivery receipt", "ask_human", "mint_credential", "reactions", "uploads", "edits"} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("description %q missing %q", description, want)
 		}

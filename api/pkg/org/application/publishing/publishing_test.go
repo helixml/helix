@@ -3,6 +3,8 @@ package publishing
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +36,16 @@ type recDispatcher struct{ log *[]string }
 
 func (d *recDispatcher) Dispatch(_ context.Context, _ streaming.Event) {
 	*d.log = append(*d.log, "dispatch")
+}
+
+type recDeliverer struct {
+	calls int
+	err   error
+}
+
+func (d *recDeliverer) Deliver(_ context.Context, _ streaming.Topic, _ streaming.Message) (DeliveryReceipt, error) {
+	d.calls++
+	return DeliveryReceipt{Status: "delivered", Provider: "slack", Destination: "C1", MessageID: "1.2"}, d.err
 }
 
 func seedTopic(t *testing.T, st *store.Store, orgID string, tr transport.Transport) {
@@ -136,5 +148,54 @@ func TestPublish_NoHubNoDispatcher(t *testing.T) {
 	svc := New(Deps{Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" }})
 	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "w-owner", streaming.Message{Body: "hi"}); err != nil {
 		t.Fatalf("Publish without hub/dispatcher: %v", err)
+	}
+}
+
+func TestPublish_SlackDeliversButInboundDoesNotEcho(t *testing.T) {
+	st := memory.New()
+	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1","channel_id":"C1"}`)})
+	deliverer := &recDeliverer{}
+	id := 0
+	svc := New(Deps{
+		Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string {
+			id++
+			return fmt.Sprint(id)
+		},
+		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+	})
+
+	result, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deliverer.calls != 1 || result.Delivery == nil || result.Delivery.Status != "delivered" || result.Delivery.MessageID != "1.2" {
+		t.Fatalf("delivery = %#v, calls = %d", result.Delivery, deliverer.calls)
+	}
+	if _, err := svc.Publish(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "automated"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.PublishInbound(context.Background(), "org-test", "s-1", "", streaming.Message{Body: "from Slack"}); err != nil {
+		t.Fatal(err)
+	}
+	if deliverer.calls != 2 {
+		t.Fatalf("inbound Slack event echoed outbound; calls = %d", deliverer.calls)
+	}
+}
+
+func TestPublish_SlackFailureIsExplicitAfterAuditAppend(t *testing.T) {
+	st := memory.New()
+	seedTopic(t, st, "org-test", transport.Transport{Kind: transport.KindSlack, Config: []byte(`{"service_connection_id":"sc-1","channel_id":"C1"}`)})
+	deliverer := &recDeliverer{err: errors.New("not_in_channel")}
+	svc := New(Deps{
+		Topics: st.Topics, Events: st.Events, Now: fixedClock, NewID: func() string { return "x" },
+		Deliverers: map[transport.Kind]Deliverer{transport.KindSlack: deliverer},
+	})
+
+	if _, err := svc.PublishWithReceipt(context.Background(), "org-test", "s-1", "b-worker", streaming.Message{Body: "hello"}); err == nil || !strings.Contains(err.Error(), "not_in_channel") {
+		t.Fatalf("err = %v", err)
+	}
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-1", 10)
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
 	}
 }
