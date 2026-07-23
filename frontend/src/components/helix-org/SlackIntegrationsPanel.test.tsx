@@ -31,7 +31,7 @@ describe('SlackIntegrationsPanel', () => {
     openDialog.mockClear()
     snackbarError.mockClear()
     snackbarSuccess.mockClear()
-    window.history.replaceState({}, '', '/orgs/acme/helix-org/settings')
+    window.history.replaceState({}, '', '/orgs/acme/general')
   })
 
   it('shows admins a link to configure the Slack app', () => {
@@ -59,7 +59,7 @@ describe('SlackIntegrationsPanel', () => {
   })
 
   it('shows OAuth success feedback and removes the query parameter', async () => {
-    window.history.replaceState({}, '', '/orgs/acme/helix-org/settings?slack_installed=1&view=table')
+    window.history.replaceState({}, '', '/orgs/acme/general?slack_installed=1&view=table')
 
     render(<SlackIntegrationsPanel />)
 
@@ -68,7 +68,7 @@ describe('SlackIntegrationsPanel', () => {
   })
 
   it('shows OAuth error feedback and removes the query parameter', async () => {
-    window.history.replaceState({}, '', '/orgs/acme/helix-org/settings?slack_error=Try+again')
+    window.history.replaceState({}, '', '/orgs/acme/general?slack_error=Try+again')
 
     render(<SlackIntegrationsPanel />)
 

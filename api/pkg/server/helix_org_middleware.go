@@ -178,11 +178,22 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	return err
 }
 
-// withHelixOrgScope wraps the helix-org handler chain. It resolves
-// the `{org}` URL segment (slug or org_id) via lookupOrg, authorises
-// the caller is a member of that org, ensures the bootstrap has run
-// for the org, and stashes the resolved orgID on the request context.
+// withHelixOrgScope adds org-graph bootstrap to the shared authenticated
+// organization context.
 func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handler) http.Handler {
+	return s.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		orgID := helixorgserver.OrgIDFromContext(r.Context())
+		if err := scope.ensureBootstrap(r.Context(), orgID); err != nil {
+			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// withHelixOrgIdentity resolves the organization, checks membership, and
+// stores the canonical organization ID and authenticated user on context.
+func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSlugOrID := mux.Vars(r)["org"]
 		if orgSlugOrID == "" {
@@ -201,10 +212,6 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 		}
 		if _, err := s.authorizeOrgMember(r.Context(), user, org.ID); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-		if err := scope.ensureBootstrap(r.Context(), org.ID); err != nil {
-			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)

@@ -459,7 +459,7 @@ func (s *HelixAPIServer) slackRedirectURI() string {
 }
 
 func slackSettingsRedirectURL(orgID string, query url.Values) string {
-	return fmt.Sprintf("/orgs/%s/helix-org/settings?%s", url.PathEscape(orgID), query.Encode())
+	return fmt.Sprintf("/orgs/%s/general?%s", url.PathEscape(orgID), query.Encode())
 }
 
 func redirectSlackSettings(w http.ResponseWriter, r *http.Request, orgID, key, message string) {
