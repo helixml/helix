@@ -21,6 +21,7 @@ import { TypesOrganization } from "../api/api";
 import useSnackbar from "../hooks/useSnackbar";
 import CopyButton from "../components/common/CopyButton";
 import DefaultAgentConfigPanel from "../components/helix-org/WorkerRuntimePanel";
+import HelixOrgSettings from "./HelixOrgSettings";
 
 const OrgSettings: FC = () => {
   // Get account context and router
@@ -341,6 +342,9 @@ const OrgSettings: FC = () => {
                     Agent settings copied to Bots when they are first provisioned.
                   </Typography>
                   <DefaultAgentConfigPanel />
+                  <Box sx={{ mt: 3 }}>
+                    <HelixOrgSettings />
+                  </Box>
                 </Box>
               )}
 

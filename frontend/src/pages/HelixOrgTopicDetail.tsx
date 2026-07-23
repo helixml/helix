@@ -497,10 +497,10 @@ interface GitHubWebhookStatusProps {
   orgSlug?: string
 }
 
-// SettingsLink is the actionable button on the loopback warning —
-// jumps the operator to the helix-org Settings page where
+// SettingsLink is the actionable button on the loopback warning.
+// It jumps the operator to Organization Settings where
 // `topics.public_url` can be set. Stops the user staring at
-// "what URL is wrong, where do I change it?" The Settings page
+// "what URL is wrong, where do I change it?" Organization Settings
 // has every per-org config including the new public_url override.
 const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
   const router = useRouter()
@@ -509,10 +509,10 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
     <Button
       size="small"
       variant="outlined"
-      onClick={() => router.navigate('helix_org_settings', { org_id: orgSlug })}
+      onClick={() => router.navigate('org_general', { org_id: orgSlug })}
       sx={{ color: 'warning.contrastText', borderColor: 'warning.contrastText' }}
     >
-      Open helix-org Settings →
+      Open Organization Settings
     </Button>
   )
 }
@@ -604,7 +604,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mb: 1 }}>
             GitHub's servers can't reach this URL, so webhook deliveries won't arrive. Fix by either:
-            (a) setting <code>topics.public_url</code> on the helix-org Settings page to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
+            (a) setting <code>topics.public_url</code> in Organization Settings to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
             (b) editing <code>SERVER_URL</code> in helix's .env and restarting the api container.
           </Typography>
           <SettingsLink orgSlug={orgSlug} />

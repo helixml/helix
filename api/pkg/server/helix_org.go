@@ -461,8 +461,8 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 
 	// Operational config registry — chat backend creds, model
 	// selection, etc. Backed by the same Postgres rows so settings
-	// survive restarts. Surfaced via the React settings page at
-	// /orgs/:org_id/helix-org/settings (backed by
+	// survive restarts. Surfaced via Organization Settings at
+	// /orgs/:org_id/general (backed by
 	// /api/v1/orgs/{org}/settings). Constructed before the spawner
 	// so the spawner can read chat.app_id / helix.url at activation
 	// time.
