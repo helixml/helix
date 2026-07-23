@@ -457,8 +457,8 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
-	SpecTaskAttachmentMaxPerTask = 500              // 500 files per task
+	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

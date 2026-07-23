@@ -53,7 +53,9 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   const [isPublic, setIsPublic] = useState(publicDesignDocs);
   const [updating, setUpdating] = useState(false);
 
-  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+  // Unauthenticated public viewer — the /api/v1 prefix is required, otherwise
+  // the link hits the SPA and forces an OIDC login.
+  const publicLink = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 
   const handlePublicToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = event.target.checked;
