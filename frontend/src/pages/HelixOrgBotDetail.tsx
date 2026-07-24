@@ -578,7 +578,7 @@ const HelixOrgBotDetail: FC = () => {
                                   interrupt: interrupt ?? true,
                                 })
                               }}
-                              onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                              onHeightChange={() => sessionViewRef.current?.repinToBottom()}
                               placeholder="Send message to agent..."
                             />
                           </Box>

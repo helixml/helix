@@ -67,6 +67,13 @@ interface EmbeddedSessionViewProps {
 
 export interface EmbeddedSessionViewHandle {
   scrollToBottom: () => void;
+  // Re-pin the transcript to the bottom after a *layout* change that shrank
+  // the viewport (e.g. the composer growing when a message is queued) without
+  // adding transcript content. Unlike scrollToBottom() it ignores the
+  // scrollHeight-unchanged short-circuit — a viewport shrink needs a scroll
+  // write even though content height didn't change. It respects the
+  // auto-scroll preference (no-op when OFF) and never touches the lock.
+  repinToBottom: () => void;
 }
 
 /**
@@ -212,6 +219,25 @@ const EmbeddedSessionView = forwardRef<
     [onScrollToBottom],
   );
 
+  // Re-pin to the bottom after a layout change that shrank the transcript
+  // viewport (composer growing as a message is queued / textarea auto-resizing)
+  // with no new transcript content. scrollToBottom() would short-circuit here
+  // because scrollHeight is unchanged, leaving the tail occluded below the now
+  // shorter viewport. This deliberately bypasses that guard, but still respects
+  // the auto-scroll preference (a paused user is left where they are) and never
+  // calls setAutoScroll/triggerUnlock, so sending a message can't flip the lock.
+  // Pre-records the scroll refs exactly like scrollToBottom so the resulting
+  // onScroll sees no delta and doesn't spuriously re-enable/alter state.
+  const repinToBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!autoScrollRef.current) return;
+    container.scrollTop = container.scrollHeight;
+    lastScrolledHeightRef.current = container.scrollHeight;
+    lastScrollTopRef.current = container.scrollHeight;
+    setHasNewBelow(false);
+  }, []);
+
   // Click handler for the jump-to-latest pill: jump and re-enable auto-scroll.
   const handleJumpToLatest = useCallback(() => {
     setAutoScroll(true);
@@ -224,8 +250,9 @@ const EmbeddedSessionView = forwardRef<
     ref,
     () => ({
       scrollToBottom,
+      repinToBottom,
     }),
-    [scrollToBottom],
+    [scrollToBottom, repinToBottom],
   );
 
   // Fetch session data with auto-refresh.

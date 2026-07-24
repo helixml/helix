@@ -433,7 +433,7 @@ const HelixOrgChatPanel: FC = () => {
                     interrupt: interrupt ?? true,
                   })
                 }}
-                onHeightChange={() => sessionViewRef.current?.scrollToBottom()}
+                onHeightChange={() => sessionViewRef.current?.repinToBottom()}
                 placeholder={`Message ${selectedBot?.name || selectedBotId}…`}
               />
             </Box>

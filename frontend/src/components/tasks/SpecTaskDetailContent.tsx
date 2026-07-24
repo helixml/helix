@@ -2031,7 +2031,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                     }}
                     onWillSend={handleWillSend}
                     onHeightChange={() =>
-                      sessionViewRef.current?.scrollToBottom()
+                      sessionViewRef.current?.repinToBottom()
                     }
                     placeholder={
                       sessionData?.config?.paused
@@ -2836,7 +2836,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       }}
                       onWillSend={handleWillSend}
                       onHeightChange={() =>
-                        sessionViewRef.current?.scrollToBottom()
+                        sessionViewRef.current?.repinToBottom()
                       }
                       placeholder="Send message to agent..."
                       onCancel={activeSessionId ? handleCancelTurn : undefined}
