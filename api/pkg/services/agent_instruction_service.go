@@ -593,11 +593,19 @@ func (s *AgentInstructionService) SendApprovalInstruction(
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
-	// Enqueue onto the session-scoped prompt queue. interrupt=false: approval
-	// kickoff begins a new phase and should respect the queue (defer until idle).
-	// userID is carried as notifyUserID so the response streams to the same user
-	// as before.
-	if err := s.enqueuer(ctx, task, message, false, userID); err != nil {
+	// Enqueue onto the session-scoped prompt queue as an INTERRUPT. The
+	// implementation kickoff is a phase-transition control signal that MUST be
+	// delivered, not an ordinary chat message. As a non-interrupt queue prompt it
+	// required the session to be idle, so under a stream of interrupt review
+	// comments it lost every race ("session became busy, deferring queue prompt"),
+	// was marked failed, retried on backoff, and past the retry cap was silently
+	// abandoned — leaving the task stuck in `implementation` with the agent never
+	// told to start. Delivering it as an interrupt (which cancels the current turn
+	// and respects the boot barrier) removes the idle requirement, matching how the
+	// sibling "request changes" control signal is already delivered
+	// (enqueueSpecTaskAgentMessage(..., interrupt=true)). userID is carried as
+	// notifyUserID so the response streams to the same user as before.
+	if err := s.enqueuer(ctx, task, message, true, userID); err != nil {
 		return fmt.Errorf("failed to enqueue approval instruction to agent: %w", err)
 	}
 
