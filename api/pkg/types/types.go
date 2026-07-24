@@ -1567,8 +1567,9 @@ type AssistantConfig struct {
 	// "claude_code" and CodeAgentCredentialType is "subscription". It flows through
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
-	// model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
-	// (resolveModelPreference resolves this to the latest Opus version).
+	// model — otherwise Claude Code defaults to Sonnet. Empty means "opus[1m]"
+	// (the 1M-context Opus; resolveModelPreference resolves the "[1m]" hint to the
+	// 1M row, while a bare "opus" resolves to the 200k sibling).
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository
