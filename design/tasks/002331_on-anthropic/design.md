@@ -2,95 +2,89 @@
 
 ## Summary
 
-Make Zed's **direct Anthropic provider** default to the 1M-context Opus 4.8
-instead of the 200k one. The provider already fetches both entries from
-Anthropic's `/v1/models`; the problem is that the default-selection helper picks
-by lexicographic model id and ignores the context window. The fix is to make the
-preference **context-window-aware** so the larger-window variant wins — without
-hardcoding any model id.
+In Anthropic subscription mode, Helix tells Claude Code which model to use by
+writing a tier alias (default `"opus"`) into
+`/etc/claude-code/managed-settings.json`. Claude Code's ACP layer resolves
+`"opus"` to the **bare 200k** Opus. Resolving to the **1M** Opus instead only
+requires writing the context-hinted alias **`"opus[1m]"`**. The change lives in
+**Helix** (primary repo); Zed is not modified.
 
-## How the default is chosen today (verified)
+## Verified control flow
 
-`crates/language_models/src/provider/anthropic.rs`:
-
-```rust
-fn default_model(&self, cx: &App) -> Option<Arc<dyn LanguageModel>> {
-    let fetched = self.state.read(cx).fetched_models.clone();
-    pick_preferred_model(&fetched, &["claude-sonnet-", "claude-opus-", "claude-"])
-        .map(|model| self.create_language_model(model))
-}
-
-fn pick_preferred_model(models, preferred_prefixes) -> Option<Model> {
-    for prefix in preferred_prefixes {
-        let candidate = models.iter()
-            .filter(|m| m.id.starts_with(prefix))
-            .max_by(|a, b| a.id.cmp(&b.id));   // <-- id-only comparison
-        if let Some(model) = candidate { return Some(model.clone()); }
-    }
-    None
-}
+```
+Helix agent settings (three-category picker: opus/sonnet/haiku)
+        │  GET /api/v1/claude-subscriptions/models   (claude_subscription_handlers.go)
+        ▼
+assistant.ClaudeSubscriptionModel  ──(empty ⇒ "opus")──►  CodeAgentConfig.Model
+        │   api/pkg/server/zed_config_handlers.go:685-687
+        ▼
+settings-sync-daemon → /etc/claude-code/managed-settings.json {"model": "<v>"}
+        │   api/cmd/settings-sync-daemon/main.go  writeClaudeManagedSettings()
+        ▼
+Claude Code ACP  resolveModelPreference(models, "<v>")   (@agentclientprotocol/claude-agent-acp)
+        │   models = Claude Code's LIVE Anthropic model list (direct, no proxy)
+        ▼
+   "opus"     → bare Opus row      (200k)
+   "opus[1m]" → "[1m]" Opus row    (1M)   ← canonicalizeModelId unifies -1m / [1m]
 ```
 
-- `default_model()` — line ~224; `default_fast_model()` — ~233;
-  `recommended_models()` — ~239; all call `pick_preferred_model`.
-- `pick_preferred_model` — line ~333.
-- Model list source: `provided_models()` (~246) merges Anthropic `/v1/models`
-  results (`self.state...fetched_models`) with user `available_models`; context
-  window comes from `max_input_tokens`
-  (`crates/anthropic/src/anthropic.rs` `Model::from_listed`,
-  `provider/anthropic.rs::max_token_count` ~536).
+Key evidence in the ACP source (`dist/acp-agent.js`):
+- *"Claude Code CLI persists display strings like `opus[1m]` … but the SDK model
+  list uses IDs like `claude-opus-4-6-1m`."*
+- `resolveModelPreference` first tries exact/canonical/resolved matches, then a
+  hint-aware substring tier that **won't let a bare row absorb a 1M-hinted
+  preference**, then tokenized matching for aliases like `"opus[1m]"`.
+- If no 1M row exists, tokenized matching falls back to the best same-family
+  row (the 200k Opus) — i.e. graceful degradation, no error.
 
-Both Opus 4.8 entries live in `fetched_models` with distinct ids and distinct
-`max_input_tokens`; `max_by(id)` currently lands on the 200k id.
+## Decision
 
-## Decision: make `pick_preferred_model` prefer the larger context window
+**Primary (minimal): change the subscription-mode default alias to `"opus[1m]"`.**
 
-Change the comparator so that, within a prefix group, the candidate with the
-largest `max_input_tokens` wins, with the model id as a deterministic tie-break:
+In `api/pkg/server/zed_config_handlers.go` (subscription branch, ~685-687):
 
-```rust
-let candidate = models.iter()
-    .filter(|m| m.id.starts_with(prefix))
-    .max_by(|a, b| a.max_input_tokens
-        .cmp(&b.max_input_tokens)
-        .then_with(|| a.id.cmp(&b.id)));
+```go
+model = assistant.ClaudeSubscriptionModel
+if model == "" {
+    model = "opus[1m]"   // was "opus"; 1M-context Opus by default
+}
 ```
 
 Rationale:
-- **Directly fixes the reported behavior**: among the two Opus 4.8 entries, the
-  1M variant now wins.
-- **Id-agnostic / future-proof** (US-2): no hardcoded `claude-opus-4-8-…` id; it
-  keeps preferring the larger window even if ids change.
-- **Minimal, localized** change in one helper; the prefix ordering
-  (Sonnet → Opus → any Claude) is unchanged.
-- Deterministic on ties via the id comparison.
+- Directly and minimally produces the requested behavior.
+- Uses the alias the ACP layer is explicitly built to understand
+  (`resolveModelPreference` tokenized matching); no dependency on a specific
+  dated model id.
+- Degrades gracefully when a subscription lacks the 1M row.
+- No change to Zed or to the ACP package.
 
-### Scope note (Open Question 2)
-Because `default_model()`, `default_fast_model()`, and `recommended_models()`
-share `pick_preferred_model`, the larger-context preference applies to all of
-them. If we want it to affect Opus only, we would instead special-case the Opus
-group rather than change the shared comparator — pending the answer to Open
-Question 2. Default recommendation: apply it to the shared helper (simplest,
-consistent).
+**Recommended companion (discoverability — pending Open Questions 1/2):** surface
+the 1M Opus in the picker so users see and can change it, one of:
+- (2a) map the existing `opus` category to `"opus[1m]"` (simplest — the "Opus"
+  the user picks is the 1M one), or
+- (2b) add a fourth category `{ id: "opus[1m]", name: "Claude Opus (1M)" }` in
+  `listClaudeModels` (`claude_subscription_handlers.go`) and make it the default,
+  keeping a 200k "Opus" option; update the frontend agent-settings picker
+  accordingly.
 
-## Alternative considered: settings seed
+Recommendation: do the default change (primary) plus (2a) unless we want an
+explicit 200k option retained, in which case (2b).
 
-Setting `assets/settings/default.json` `agent.default_model` to
-`{ "provider": "anthropic", "model": "<1M opus id>" }` would also work, but:
-- requires knowing and pinning the exact 1M model id (brittle if ids change),
-- the current seed is `provider: "zed.dev"`, so this would also repoint the
-  global seed away from the Cloud provider,
-- it is user-overridable and does not express the real intent ("prefer the
-  larger context window").
-
-The comparator change is preferred; the seed is documented only as a fallback.
+## What was ruled out
+- **Zed `pick_preferred_model`** (`crates/language_models/src/provider/anthropic.rs`):
+  governs the *native* Zed agent / Anthropic-API-key provider, a different
+  runtime than subscription mode.
+- **Helix inference proxy `/v1/models`**: in API-key mode it already reports
+  `claude-opus-4-8` at 1M, but subscription mode bypasses the proxy, so it has no
+  effect here.
+- **Pinning a dated id** (e.g. `claude-opus-4-8-1m`): brittle across model
+  updates; the `"opus[1m]"` alias is the durable choice.
 
 ## Testing
-- Unit test for `pick_preferred_model`: given two Opus 4.8 entries differing only
-  in `max_input_tokens` (200_000 vs 1_000_000), assert the 1M entry is chosen;
-  assert the id tie-break when windows are equal.
-- Manual: fresh profile (or cleared `agent.default_model`), authenticate the
-  Anthropic subscription, open a new agent thread, confirm the default is the 1M
-  Opus 4.8 and the context indicator shows ~1M.
-- Confirm both variants remain selectable and that an explicit user
-  `agent.default_model` is not overridden.
+- Unit: assert `ClaudeSubscriptionModel` default is `"opus[1m]"` where it is
+  seeded; if a category mapping is added, assert `listClaudeModels` returns it.
+- Manual: connect a Claude subscription, start a subscription-mode spec task with
+  no explicit model, confirm Claude Code runs the `[1m]` Opus (~1M context) and
+  that Sonnet/Haiku selections still resolve correctly.
+- Manual: a subscription without a 1M Opus row still starts (falls back to 200k
+  Opus, no error).

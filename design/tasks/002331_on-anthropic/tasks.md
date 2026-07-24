@@ -1,30 +1,32 @@
 # Implementation Tasks: Default to 1M-Context Opus 4.8 on Anthropic Subscription
 
-## Verify first
-- [ ] Confirm the 200k and 1M Opus 4.8 are two distinct `/v1/models` entries with
-      distinct ids and distinct `max_input_tokens` (resolves requirements Open
-      Question 1); capture the fetched model list for the subscription (Open
-      Question 3).
-- [ ] Decide the scope of the larger-context preference: all prefix groups vs.
-      Opus only (Open Question 2), and whether `default_fast_model` /
-      `recommended_models` are included (Open Question 4).
+## Decisions to confirm (small)
+- [ ] Default vs. opt-in and UI shape (requirements Open Questions 1 & 2):
+      change default only, map "Opus" category → 1M, or add an explicit
+      "Opus (1M)" category.
+- [ ] Sonnet 1M in scope or Opus-only (Open Question 3).
 
-## Primary implementation
-- [ ] Update `pick_preferred_model` in
-      `crates/language_models/src/provider/anthropic.rs` (~line 333) to select by
-      largest `max_input_tokens` within a prefix group, tie-breaking by model id.
-- [ ] If Open Question 2 says "Opus only", instead special-case the Opus group
-      rather than changing the shared comparator.
+## Primary implementation (Helix)
+- [ ] In `api/pkg/server/zed_config_handlers.go` (subscription branch ~685-687),
+      change the empty-model default from `"opus"` to `"opus[1m]"`.
+
+## Companion (discoverability, per decision above)
+- [ ] Option 2a: map the existing `opus` category to `"opus[1m]"`, OR
+- [ ] Option 2b: add `{ id: "opus[1m]", name: "Claude Opus (1M)" }` to
+      `listClaudeModels` in `api/pkg/server/claude_subscription_handlers.go` and
+      make it the default; retain a 200k "Opus" option.
+- [ ] Update the frontend agent-settings model picker
+      (`frontend/src/...`) to show/select the 1M Opus option consistently with
+      the backend category list.
 
 ## Tests
-- [ ] Add a unit test for `pick_preferred_model`: two Opus 4.8 entries differing
-      only by `max_input_tokens` (200_000 vs 1_000_000) → the 1M entry is chosen;
-      equal windows fall back to the id tie-break deterministically.
-- [ ] Ensure existing Anthropic provider tests still pass.
+- [ ] Assert the subscription-mode default resolves to `"opus[1m]"`.
+- [ ] If a category is added/changed, assert `listClaudeModels` output.
+- [ ] Confirm existing subscription-mode tests still pass.
 
 ## Verification
-- [ ] Build Zed; on a fresh profile, authenticate the Anthropic subscription,
-      open a new agent thread, confirm the default is the 1M Opus 4.8 (~1M
-      context).
-- [ ] Confirm both the 200k and 1M variants remain listed/selectable.
-- [ ] Confirm an existing user override of `agent.default_model` is not changed.
+- [ ] Connect a Claude subscription; start a subscription-mode spec task with no
+      explicit model; confirm Claude Code runs the `[1m]` Opus (~1M context).
+- [ ] Confirm Sonnet / Haiku selections still resolve correctly.
+- [ ] Confirm a subscription lacking a 1M Opus row still starts (graceful
+      fallback to 200k Opus, no error).
