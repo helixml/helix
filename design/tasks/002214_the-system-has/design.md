@@ -112,3 +112,16 @@ Per CLAUDE.md, test end-to-end in the inner Helix (`localhost:8080`):
 4. Regression: confirm OpenAI-style chat still shows Retry and that normal
    interactions render unchanged.
 5. `cd frontend && yarn build` before committing.
+
+### Verification status (this environment)
+
+- **Build: PASSED.** `vite build` transformed all 21661 modules and built
+  cleanly. (The default `frontend/dist` is a root-owned read-only bind mount
+  here, so the final copy step hits `EACCES`; building to a writable `--outDir`
+  completes with `✓ built`. The compile/transform is the meaningful check and it
+  is green.)
+- **E2E in inner Helix: NOT RUN.** The inner Helix stack is not running in this
+  environment — `docker ps` shows zero containers and `localhost:8080` returns
+  `000`. The three-line change is low-risk and type-checked, but the live
+  click-through (trigger error → Retry appears → click → prompt re-runs) has NOT
+  been exercised here and should be confirmed by a reviewer with a live stack.
