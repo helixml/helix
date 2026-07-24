@@ -80,6 +80,25 @@ error block (fixing it there fixes every surface, not just the spec task view).
   and is wired for external-agent sessions; per-turn retry is a re-send, not a
   new backend concept. The heavier `restart-agent` flow stays separate.
 
+## Implementation Notes
+
+- **Confirmed retry routing.** `handleRegenerate` (`EmbeddedSessionView.tsx:475`)
+  calls `NewInference({ type, message, sessionId })` with no `agentType` /
+  `external_agent_config`. This is the *exact same* call the spec task detail
+  prompt box makes on every normal send (`SpecTaskDetailContent.tsx:2007`), so
+  the backend routes it to the existing session's external (ACP) agent. Open
+  question #3 resolved: no explicit agent type needed.
+- **`InteractionInference` default export has only one consumer** — `Interaction.tsx`,
+  which mounts it twice (`isFromAssistant={false}` user bubble,
+  `isFromAssistant={true}` assistant bubble). Other imports pull the named
+  `MessageWithToolCalls` / `ResponseEntry` exports only. So gating the error
+  block to `isFromAssistant` is safe and self-contained.
+- **Three-line change, no backend edits:**
+  1. `InteractionInference.tsx` — error block now `error && isFromAssistant`,
+     Retry gate now just `onRegenerate` (was `onRegenerate && !message`).
+  2. `Interaction.tsx` — assistant-bubble render condition gains
+     `|| interaction.error` so it mounts even on a no-output failure.
+
 ## Testing
 
 Per CLAUDE.md, test end-to-end in the inner Helix (`localhost:8080`):
