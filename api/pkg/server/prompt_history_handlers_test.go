@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -364,4 +366,79 @@ func (s *PromptHistoryHandlersSuite) TestMarkCanonicalSessionStartingForSync_Alr
 		Return(false, nil).Times(1)
 
 	s.server.markCanonicalSessionStartingForSync(context.Background(), specTaskID)
+}
+
+// The following tests cover the org-global prompt-queue authorization added so
+// the queue is visible to any authorized org member (not just the prompt owner)
+// WITHOUT becoming world-readable. They assert the fail-closed property: an
+// unauthorized viewer gets 403 before any prompts are returned. The positive
+// path (an authorized non-owner sees another user's prompts) is proven
+// end-to-end in the inner Helix per the task brief, because a MockStore does not
+// exercise the real ownership filter that the store change removes.
+
+// TestListPromptHistory_SpecTask_NonMember_Returns403 verifies that a viewer who
+// is neither the spec task's creator nor authorized to its project is rejected.
+func (s *PromptHistoryHandlersSuite) TestListPromptHistory_SpecTask_NonMember_Returns403() {
+	const (
+		specTaskID = "spt_auth"
+		projectID  = "proj_auth"
+		creatorID  = "user_creator"
+		outsiderID = "user_outsider"
+	)
+
+	s.store.EXPECT().
+		GetSpecTask(gomock.Any(), specTaskID).
+		Return(&types.SpecTask{ID: specTaskID, ProjectID: projectID, CreatedBy: creatorID}, nil)
+
+	// authorizeUserToProjectByID loads the project (old-style, no org) — the
+	// outsider is not the owner, so authorization fails and the handler must 403
+	// before ever calling ListPromptHistory.
+	s.store.EXPECT().
+		GetProject(gomock.Any(), projectID).
+		Return(&types.Project{ID: projectID, UserID: creatorID}, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/prompt-history?spec_task_id="+specTaskID, nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: outsiderID}))
+
+	resp, httpErr := s.server.listPromptHistory(httptest.NewRecorder(), req)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// TestListPromptHistory_Session_NonMember_Returns403 verifies the session_id path
+// (org-chat / bot sessions) is also authorized: a non-owner of a user-owned
+// session is rejected. Closing the per-user filter must not open a hole.
+func (s *PromptHistoryHandlersSuite) TestListPromptHistory_Session_NonMember_Returns403() {
+	const (
+		sessionID  = "ses_auth"
+		ownerID    = "user_owner"
+		outsiderID = "user_outsider"
+	)
+
+	// User-owned session (no org): authorizeUserToSession rejects a non-owner.
+	s.store.EXPECT().
+		GetSession(gomock.Any(), sessionID).
+		Return(&types.Session{ID: sessionID, Owner: ownerID}, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/prompt-history?session_id="+sessionID, nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: outsiderID}))
+
+	resp, httpErr := s.server.listPromptHistory(httptest.NewRecorder(), req)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusForbidden, httpErr.StatusCode)
+}
+
+// TestListPromptHistory_NoScope_Returns400 verifies the handler still requires a
+// scope (spec_task_id or session_id) — the store now also fails closed on an
+// unscoped call, but the handler rejects it first.
+func (s *PromptHistoryHandlersSuite) TestListPromptHistory_NoScope_Returns400() {
+	req := httptest.NewRequest("GET", "/api/v1/prompt-history", nil)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: "user_any"}))
+
+	resp, httpErr := s.server.listPromptHistory(httptest.NewRecorder(), req)
+	s.Nil(resp)
+	s.Require().NotNil(httpErr)
+	s.Equal(http.StatusBadRequest, httpErr.StatusCode)
 }
