@@ -115,6 +115,38 @@ ignores the height guard is the minimal correct primitive.
   reads live `scrollHeight` at call time, so it picks up the grown layout without
   additional `setTimeout` in `EmbeddedSessionView`.
 
+## Verification Results (end-to-end, inner Helix @ localhost:8080)
+
+Verified live against a real spec-task chat with an agent transcript. Frontend
+runs in Vite dev mode, so the fix was live from `frontend/src` (confirmed the
+served `EmbeddedSessionView.tsx` contains `repinToBottom`). Measurements taken by
+reading the transcript scroll container's `scrollTop/scrollHeight/clientHeight`
+before/after growing the composer:
+
+| Case | Composer grew (clientHeight) | scrollHeight | scrollTop | distFromBottom | pref |
+|------|------------------------------|--------------|-----------|----------------|------|
+| ON, grow composer (AC-1/2/5) | 500 → 350 | 2394 (unchanged) | 1894 → **2044** | **0** (pinned) | ON (unchanged) |
+| OFF, paused +400px (AC-4) | 500 → 350 | 3221 (unchanged) | **2321 (unchanged)** | 400 → 550 (no yank) | OFF (unchanged) |
+| Mobile Chat view (AC-6) | 521 → 371 | 2378 (unchanged) | 1857 → **2007** | **0** (pinned) | ON (unchanged) |
+
+The counterfactual is decisive: in the ON case `scrollHeight` did **not** change
+when the composer grew, so the old `scrollToBottom()` short-circuit
+(`EmbeddedSessionView.tsx`) would have left `scrollTop` at 1894 and occluded
+150px of tail. `repinToBottom` writes `scrollTop = scrollHeight` regardless,
+keeping distFromBottom at 0. In the OFF case it returns early, leaving the paused
+user exactly where they were.
+
+**Open Question 1 answered:** sending never flips the sticky-scroll lock on its
+own. `repinToBottom` only reads `autoScrollRef` and writes `scrollTop`; it never
+calls `setAutoScroll`/`triggerUnlock`. The observed "disengage" with large
+prompts was the downstream reflexive-scroll (user wheels up to reorient after the
+tail is occluded, crossing the 100px unlock). Keeping the tail pinned removes
+that trigger — no additional guard was needed.
+
+Screenshots in `screenshots/`: `01-chat-panel-initial.png`,
+`02-large-prompt-tail-pinned.png`, `03-autoscroll-off-not-yanked.png`,
+`04-mobile-tail-pinned.png`.
+
 ## Testing
 
 Per project rules, verify end-to-end in the inner Helix (`localhost:8080`):
