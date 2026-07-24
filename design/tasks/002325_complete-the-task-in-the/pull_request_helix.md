@@ -66,3 +66,11 @@ Interrupts don't require idle, so the kickoff is never starved. Test asserts `in
 - Not driven live: the full mid-turn approval race for (b) (needs a provisioned agent under
   concurrent interrupts) and the (c) routing race (timing-dependent) — both covered by unit test /
   typecheck and flagged in the task's design.md.
+
+## Screenshots
+
+Spec-task page viewed as an authorized member who is NOT the prompt owner — the prompt authored by
+the service account (`usr_service_acct`) is visible. Pre-fix, ownership filtering made this queue
+appear empty.
+
+![Org-global queue: authorized viewer sees a differently-owned prompt](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002325_complete-the-task-in-the/screenshots/01-org-global-queue-author.png)
