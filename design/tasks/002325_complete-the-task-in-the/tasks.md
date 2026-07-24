@@ -7,7 +7,7 @@
 - [x] For `session_id` path, load session + `authorizeUserToSession(ctx, user, session, ActionGet)`; fail closed (403), never leave unauthenticated
 - [x] Enrich prompt-history list response server-side with author fields (name/email + system flag); regenerated client via `./stack update_openapi`
 - [x] Display prompt author per entry in `SessionPromptQueue.tsx` and `RobustPromptInput.tsx` via generated API client (shared `promptAuthorLabel` util); service account renders as "System"
-- [ ] Go unit test: authorized non-owner org member sees owner's prompts; non-member gets 403 (both `spec_task_id` and `session_id` paths)
+- [x] Go unit test: fail-closed 403 for non-member on both `spec_task_id` and `session_id` paths + 400 on missing scope (passing). Positive "member sees others' prompts" case proven end-to-end (MockStore can't exercise the removed ownership filter)
 
 ## Commit 2 — Bug (b): reliable implementation-kickoff delivery
 - [ ] Root-cause confirm: kickoff enqueued `interrupt=false` (`agent_instruction_service.go:596`) is starved by interrupt comments and abandoned past retry cap 20

@@ -125,3 +125,37 @@ Two sub-fixes:
   `CURRENT PHASE: IMPLEMENTATION` reaches `waiting`.
 - **Bug c:** reproduce/verify no cross-task contamination and no wedged `sending` prompt.
 - Report what was actually observed; do not claim untested confidence (CLAUDE.md).
+
+## Implementation Notes (Commit 1 — landed)
+
+- **Store filter drop** (`store_prompt_history.go`): removed `.Where("user_id = ?", userID)`.
+  Kept the `userID` parameter for signature/interface stability (the `Store` interface + gomock
+  `store_mocks.go` are unchanged) but it is now `_`. Added a fail-closed guard: an unscoped call
+  (no `spec_task_id` and no `session_id`) returns an error instead of listing the whole table.
+- **Handler authorization** (`prompt_history_handlers.go` `listPromptHistory`): mirrors
+  `spec_task_design_review_handlers.go`. spec_task path → `GetSpecTask` + creator bypass +
+  `authorizeUserToProjectByID(..., types.ActionGet)`. session path → `GetSession` +
+  `authorizeUserToSession(..., types.ActionGet)` (the shipped helper; covers owner + org member +
+  org owner + `OrgMembersAccess`). Both fail closed with 403.
+- **Author enrichment**: added non-persisted `types.PromptAuthor` (`gorm:"-"`) on
+  `PromptHistoryEntry` plus `resolvePromptAuthors` in the handler — batches unique `UserID`s via
+  `Store.GetUser` (no N+1). Unresolvable owner or `types.OwnerTypeSystem` → `IsSystem=true`. Note:
+  in the real incident the service account is a normal keycloak user (Kai) that owns the
+  `helix-os-v2` api key, so it resolves to that human's name/email; a truly system/unresolvable
+  owner is what renders as "System". This is honest — the prompt row only carries `session.Owner`,
+  not which api key enqueued it.
+- **API client**: ran `./stack update_openapi` — `swag` must be on PATH
+  (`export PATH="$PATH:$HOME/go/bin"`; the bare `./stack update_openapi` fails with
+  `swag: command not found`). Generated `TypesPromptAuthor` + `author?` on
+  `TypesPromptHistoryEntry`.
+- **Frontend**: shared `utils/promptAuthor.ts#promptAuthorLabel` used by both queue views
+  (`SessionPromptQueue.tsx` and `RobustPromptInput.tsx`'s `SortableQueueItem`). Threaded `author`
+  through the local `PromptHistoryEntry`/`LocalPromptHistoryEntry` types, `backendToLocal`, and
+  `reconcileEntry` (backend value wins so optimistic entries pick up the resolved author on sync).
+- **Tests**: `CGO_ENABLED=1` needs `gcc` + `libc6-dev` (tree-sitter). Unit tests cover the
+  fail-closed 403s and the 400-no-scope; the positive org-member-sees-others case is deferred to
+  live inner-Helix testing because a MockStore returns canned rows and cannot exercise the real SQL
+  ownership filter that was removed.
+- **Gotcha**: `frontend/yarn build` fails at the very end with `EACCES mkdir dist/external-libs`
+  (the `dist` bind mount is container-owned) — this is NOT a code error; all 21712 modules
+  transform first. Use `tsc --noEmit` for a clean local type-check instead.
