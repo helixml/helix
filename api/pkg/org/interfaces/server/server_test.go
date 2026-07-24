@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix/api/pkg/org/application/prompts"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
@@ -216,7 +217,14 @@ func newTestServerWithPrompts(t *testing.T, includeCreateBot bool) (*httptest.Se
 	if err := reg.Register(mcptools.Ping{}); err != nil {
 		t.Fatalf("register ping: %v", err)
 	}
-	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s).Build()); err != nil {
+	deps := mcptools.DefaultDeps(s)
+	deps.Publishing = publishing.New(publishing.Deps{
+		Topics: s.Topics,
+		Events: s.Events,
+		Now:    deps.Now,
+		NewID:  deps.NewID,
+	})
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
 

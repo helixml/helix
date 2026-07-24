@@ -28,6 +28,7 @@ func dmTestEnv(t *testing.T, wireLine bool) (Config, orgchart.BotID, orgchart.Bo
 		}
 	}
 	deps := DefaultDeps(st)
+	injectTestPublishing(&deps)
 	if wireLine {
 		addReportingLine(t, st, "b-mgr", "b-rep")
 		// Reconciler provisions the DM channel for the new edge.

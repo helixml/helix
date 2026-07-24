@@ -161,7 +161,7 @@ func TestHumanDeliverySlackDMAndChannel(t *testing.T) {
 }
 
 func TestHumanDeliverySlackNoReplyDoesNotRecordDMRecipient(t *testing.T) {
-	api := &fakeSlackAPI{}
+	api := &fakeSlackAPI{postTS: "1700000000.000100"}
 	recorder := &fakeThreadRecorder{}
 	h := humanInbox{
 		slackWorkspaces: fakeSlackWorkspaces{workspace: slacktransport.Workspace{ID: "conn-1", BotToken: "xoxb-test"}},

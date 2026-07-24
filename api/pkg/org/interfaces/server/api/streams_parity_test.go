@@ -46,6 +46,7 @@ func TestCreateTopicParity_RESTvsMCP(t *testing.T) {
 	mcpDeps := mcptools.DefaultDeps(mcpStore)
 	mcpDeps.Now = clock
 	mcpDeps.NewID = newID
+	injectMCPPublishing(&mcpDeps)
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, mcpDeps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)

@@ -684,7 +684,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			apiType = ""
 			model = assistant.ClaudeSubscriptionModel
 			if model == "" {
-				model = "opus"
+				// Default to the 1M-context Opus. The "[1m]" hint makes
+				// resolveModelPreference() pick the 1M row; a bare "opus"
+				// would resolve to the 200k sibling.
+				model = "opus[1m]"
 			}
 		} else {
 			// API key mode: route through Helix proxy.

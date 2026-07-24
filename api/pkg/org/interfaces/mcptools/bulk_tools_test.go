@@ -24,6 +24,7 @@ func bulkTestEnv(t *testing.T) (*store.Store, *Registry, botCaller) {
 	deps := DefaultDeps(st)
 	deps.Now = func() time.Time { return time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "fixed" }
+	injectTestPublishing(&deps)
 	reg := NewRegistry()
 	if err := RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)

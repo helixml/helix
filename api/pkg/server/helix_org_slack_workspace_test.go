@@ -2,15 +2,25 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/crypto"
+	"github.com/helixml/helix/api/pkg/org/application/dispatch"
+	"github.com/helixml/helix/api/pkg/org/domain/streaming"
+	"github.com/helixml/helix/api/pkg/org/domain/transport"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	slacktransport "github.com/helixml/helix/api/pkg/org/infrastructure/transports/slack"
+	"github.com/helixml/helix/api/pkg/org/infrastructure/wakebus"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	slackcore "github.com/helixml/helix/api/pkg/serviceconnection/slack"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -30,6 +40,15 @@ func (s *slackWorkspaceTestStore) ListServiceConnectionsByType(_ context.Context
 func (s *slackWorkspaceTestStore) UpdateServiceConnection(_ context.Context, conn *types.ServiceConnection) error {
 	s.updated = conn
 	return nil
+}
+
+func (s *slackWorkspaceTestStore) GetServiceConnection(_ context.Context, id string) (*types.ServiceConnection, error) {
+	for _, conn := range s.connections {
+		if conn.ID == id {
+			return conn, nil
+		}
+	}
+	return nil, helixstore.ErrNotFound
 }
 
 func TestSelectSlackWorkspaceRejectsAmbiguousDefault(t *testing.T) {
@@ -69,6 +88,101 @@ func TestSlackWorkspaceByTeamIDRejectsLegacyDuplicates(t *testing.T) {
 
 	if _, err := workspaces.ByTeamID(context.Background(), "T1"); !errors.Is(err, slacktransport.ErrAmbiguousWorkspace) {
 		t.Fatalf("error = %v, want ErrAmbiguousWorkspace", err)
+	}
+}
+
+func TestSlackTopicDelivererUsesConfiguredChannelAndThread(t *testing.T) {
+	store := &slackWorkspaceTestStore{connections: []*types.ServiceConnection{{
+		ID: "conn-1", OrganizationID: "org-1", Type: types.ServiceConnectionTypeSlackWorkspace,
+	}}}
+	workspaces := newSlackWorkspaces(store, func() ([]byte, error) { return make([]byte, 32), nil })
+	var channel, text, thread string
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		channel, text, thread = r.FormValue("channel"), r.FormValue("text"), r.FormValue("thread_ts")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1700000000.000100"}`))
+	}))
+	defer slackServer.Close()
+	deliverer := slackTopicDeliverer{
+		workspaces: workspaces,
+		client: func(string) slacktransport.MessageAPI {
+			return goslack.New("xoxb-test", goslack.OptionAPIURL(slackServer.URL+"/"))
+		},
+	}
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "conn-1", ChannelID: "C123"})
+	topic, err := streaming.NewTopic("s-slack", "Slack", "", "", time.Now(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := deliverer.Deliver(context.Background(), topic, streaming.Message{Body: "hello", ThreadID: "1699999999.000001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel != "C123" || text != "hello" || thread != "1699999999.000001" || receipt.Status != "delivered" || receipt.Provider != "slack" || receipt.Destination != "C123" || receipt.MessageID != "1700000000.000100" {
+		t.Fatalf("form = channel:%q text:%q thread:%q, receipt = %#v", channel, text, thread, receipt)
+	}
+}
+
+func TestMCPUsesSlackEnabledPublishingService(t *testing.T) {
+	st := orggorm.GetOrgTestDB(t)
+	deps := mcptools.DefaultDeps(st)
+	svc := buildOrgServices(st, &deps, wakebus.New(pubsub.NewNoop()), dispatch.New(st, nil, slog.Default()), nil)
+
+	store := &slackWorkspaceTestStore{connections: []*types.ServiceConnection{{
+		ID: "conn-mcp", OrganizationID: "org-mcp", Type: types.ServiceConnectionTypeSlackWorkspace,
+	}}}
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1700000000.000100"}`))
+	}))
+	defer slackServer.Close()
+	svc.Publishing.RegisterDeliverer(transport.KindSlack, slackTopicDeliverer{
+		workspaces: newSlackWorkspaces(store, func() ([]byte, error) { return make([]byte, 32), nil }),
+		client: func(string) slacktransport.MessageAPI {
+			return goslack.New("xoxb-test", goslack.OptionAPIURL(slackServer.URL+"/"))
+		},
+	})
+	built := deps.Build()
+	if built.Publishing != svc.Publishing {
+		t.Fatalf("MCP Publishing = %p, want Slack-enabled service %p", built.Publishing, svc.Publishing)
+	}
+
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "conn-mcp", ChannelID: "C123"})
+	topic, err := streaming.NewTopic("s-slack-mcp", "Slack", "", "", time.Now(), transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := built.Publishing.PublishWithReceipt(context.Background(), "org-mcp", topic.ID, "b-owner", streaming.Message{Body: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Delivery == nil || result.Delivery.Provider != "slack" || result.Delivery.MessageID != "1700000000.000100" {
+		t.Fatalf("delivery = %#v", result.Delivery)
+	}
+}
+
+func TestSlackWorkspaceByConnectionIDRejectsCrossOrgAndWrongType(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		conn *types.ServiceConnection
+	}{
+		{"cross-org", &types.ServiceConnection{ID: "conn-1", OrganizationID: "org-2", Type: types.ServiceConnectionTypeSlackWorkspace}},
+		{"wrong-type", &types.ServiceConnection{ID: "conn-1", OrganizationID: "org-1", Type: types.ServiceConnectionTypeSlackApp}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspaces := newSlackWorkspaces(&slackWorkspaceTestStore{connections: []*types.ServiceConnection{tc.conn}}, func() ([]byte, error) {
+				return make([]byte, 32), nil
+			})
+			if _, err := workspaces.byConnectionID(context.Background(), "org-1", "conn-1"); !errors.Is(err, slacktransport.ErrNoWorkspace) {
+				t.Fatalf("error = %v, want ErrNoWorkspace", err)
+			}
+		})
 	}
 }
 
@@ -138,7 +252,7 @@ func TestSlackOAuthCallbackRedirectsSlackErrorToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if location.Path != "/orgs/org-1/helix-org/settings" {
+	if location.Path != "/orgs/org-1/general" {
 		t.Fatalf("redirect path = %q", location.Path)
 	}
 	if got := location.Query().Get("slack_error"); got != "Slack authorization was cancelled. Try connecting the workspace again when you are ready." {
@@ -194,7 +308,7 @@ func TestSlackOAuthCallbackRedirectsMissingCodeToSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if location.Path != "/orgs/org-1/helix-org/settings" {
+	if location.Path != "/orgs/org-1/general" {
 		t.Fatalf("redirect path = %q", location.Path)
 	}
 	if got := location.Query().Get("slack_error"); got != "Slack did not return an authorization code. Try connecting the workspace again." {

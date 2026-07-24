@@ -22,7 +22,9 @@ func TestRepositoryToolsRegistered(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s).Build()); err != nil {
+	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
 	for _, name := range repositoryToolNames {
@@ -76,7 +78,9 @@ func TestAgentLifecycleToolsRegistered(t *testing.T) {
 	t.Parallel()
 	s := orggorm.GetOrgTestDB(t)
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(s).Build()); err != nil {
+	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
 	for _, name := range agentLifecycleToolNames {

@@ -51,7 +51,6 @@ import HelixOrgChart from './pages/HelixOrgChart'
 import HelixOrgBots from './pages/HelixOrgBots'
 import HelixOrgBotDetail from './pages/HelixOrgBotDetail'
 import HelixOrgHumanDetail from './pages/HelixOrgHumanDetail'
-import HelixOrgSettings from './pages/HelixOrgSettings'
 import HelixOrgTopics from './pages/HelixOrgTopics'
 import HelixOrgTopicDetail from './pages/HelixOrgTopicDetail'
 import HelixOrgProcessorDetail from './pages/HelixOrgProcessorDetail'
@@ -562,11 +561,11 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <AdminRunnerLogsPage />,
 }, {
-  // helix-org alpha — Other resources (bots, topics, settings) are
+  // helix-org alpha - Other resources (bots and topics) are
   // operated via MCP tools / API; the overview is the visual entry
   // point.
-  // drawer: false — secondary context sidebar is unused; Chart/Bots/Topics/
-  // Settings live in the AppBar (HelixOrgTopNav). The 64px org rail still shows.
+  // drawer: false - secondary context sidebar is unused; Chart/Bots/Topics
+  // live in the AppBar (HelixOrgTopNav). The 64px org rail still shows.
   name: 'helix_org_root',
   path: '/orgs/:org_id/helix-org',
   meta: { drawer: false, title: 'Helix Org' },
@@ -600,8 +599,14 @@ const routes: IApplicationRoute[] = [
 }, {
   name: 'helix_org_settings',
   path: '/orgs/:org_id/helix-org/settings',
-  meta: { drawer: false, title: 'Helix Org · Settings' },
-  render: () => <HelixOrgSettings />,
+  meta: { drawer: false },
+  render: () => {
+    const { navigateReplace, params } = useRouter()
+    React.useEffect(() => {
+      navigateReplace('org_general', { org_id: params.org_id })
+    }, [params.org_id])
+    return null
+  },
 }, {
   name: 'helix_org_topics',
   path: '/orgs/:org_id/helix-org/topics',

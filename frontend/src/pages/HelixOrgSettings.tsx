@@ -1,23 +1,18 @@
-// HelixOrgSettings is the configuration surface for the helix-org alpha.
+// HelixOrgSettings is the helix-org section of Organization Settings.
 // The default agent config (runtime / credentials / provider / model)
-// now lives on the AI Providers page so it sits next
-// to the providers it references; everything else here falls back to a
-// generic text-input row driven by the same config registry the server
-// validates against.
+// is rendered separately above this section; everything else here falls
+// back to a generic text-input row driven by the same config registry the
+// server validates against.
 
 import { FC, useEffect, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
-import Container from '@mui/material/Container'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import SaveIcon from '@mui/icons-material/Save'
 
-import HelixOrgShell from '../components/helix-org/HelixOrgShell'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
@@ -30,7 +25,7 @@ import {
 } from '../services/helixOrgService'
 
 // Registry keys we do NOT render as generic rows here:
-//  - agent.default and legacy worker.* config live on the Providers page.
+//  - agent.default and legacy worker.* config use the dedicated panel.
 //  - transport.github is auto-managed by the Helix GitHub App (it provisions
 //    the webhook secret and the token comes from the App installation), so
 //    there's nothing for an operator to paste.
@@ -44,40 +39,33 @@ const EXCLUDED_KEYS = new Set<string>([
 ])
 
 const HelixOrgSettings: FC = () => {
-
   const { data, isLoading } = useHelixOrgSettings()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
 
   return (
-    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle="Settings">
-      <Box sx={{ height: '100%', overflow: 'auto' }}>
-      <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
-        <Stack spacing={3}>
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              Configures how this org's Bots run. Changes take effect on the next bot
-              activation — no API restart needed.
-            </Typography>
-          </Box>
+    <Stack spacing={3}>
+      <Stack spacing={1}>
+        <Typography variant="h6">Integrations and Bot Settings</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Connect external services and configure how this org's Bots run.
+          Changes take effect on the next bot activation - no API restart needed.
+        </Typography>
+      </Stack>
 
-          {isLoading ? (
-            <LoadingSpinner />
-          ) : (
-            <>
-              <GitHubAppPanel />
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
+        <>
+          <GitHubAppPanel />
 
-              <SlackIntegrationsPanel />
+          <SlackIntegrationsPanel />
 
-              {/* Generic spec rows — everything not excluded above */}
-              {(data?.specs ?? [])
-                .filter((s) => !EXCLUDED_KEYS.has(s.key))
-                .map((s) => <GenericSettingRow key={s.key} spec={s} />)}
-            </>
-          )}
-        </Stack>
-      </Container>
-      </Box>
-    </HelixOrgShell>
+          {/* Generic spec rows - everything not excluded above */}
+          {(data?.specs ?? [])
+            .filter((s) => !EXCLUDED_KEYS.has(s.key))
+            .map((s) => <GenericSettingRow key={s.key} spec={s} />)}
+        </>
+      )}
+    </Stack>
   )
 }
 

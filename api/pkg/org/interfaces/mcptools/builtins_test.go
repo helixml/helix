@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/domain/activation"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
@@ -21,6 +22,20 @@ import (
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	"github.com/helixml/helix/api/pkg/org/interfaces/server"
 )
+
+func injectTestPublishing(cfg *mcptools.Config) {
+	deps := publishing.Deps{
+		Topics:     cfg.Store.Topics,
+		Events:     cfg.Store.Events,
+		Dispatcher: cfg.Dispatcher,
+		Now:        cfg.Now,
+		NewID:      cfg.NewID,
+	}
+	if cfg.Hub != nil {
+		deps.Hub = cfg.Hub
+	}
+	cfg.Publishing = publishing.New(deps)
+}
 
 // TestDemoOwnerCreatesCEO walks the "manager does the orchestration"
 // story over MCP: each tool does one primitive thing, and the test
@@ -37,6 +52,7 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -118,6 +134,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -186,6 +203,7 @@ func TestTopicMembers(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -245,6 +263,7 @@ func TestSubscribeOtherBots(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -332,6 +351,7 @@ func TestDM(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -445,6 +465,7 @@ func TestReadsOverMCP(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -559,6 +580,7 @@ func TestBotLog(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -653,6 +675,7 @@ func TestBotLogFiltersByActivationID(t *testing.T) {
 	s := orggorm.GetOrgTestDB(t)
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -815,6 +838,7 @@ func TestBotBaselineReadsOverMCP(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -851,6 +875,7 @@ func TestCreateBotInjectsBaselineOverMCP(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}

@@ -10,8 +10,8 @@ import (
 	"github.com/helixml/helix/api/pkg/org/domain/streaming"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	"github.com/helixml/helix/api/pkg/org/domain/transport"
-	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
+	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 )
 
 type procCaller struct{ id, orgID string }
@@ -36,6 +36,7 @@ func TestCreateListGetUpdateDeleteProcessor_JS(t *testing.T) {
 	deps := mcptools.DefaultDeps(st)
 	deps.Now = func() time.Time { return time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC) }
 	deps.NewID = func() string { return "proc-js-1" }
+	injectTestPublishing(&deps)
 	built := deps.Build()
 	caller := procCaller{id: "w-owner", orgID: "org-proc"}
 	ctx := context.Background()
@@ -185,7 +186,9 @@ func TestOwnerBotToolsIncludeProcessorMutations(t *testing.T) {
 func TestProcessorToolsRegistered(t *testing.T) {
 	st := orggorm.GetOrgTestDB(t)
 	reg := mcptools.NewRegistry()
-	if err := mcptools.RegisterBuiltins(reg, mcptools.DefaultDeps(st).Build()); err != nil {
+	deps := mcptools.DefaultDeps(st)
+	injectTestPublishing(&deps)
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
 	for _, n := range []tool.Name{

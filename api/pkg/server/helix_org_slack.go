@@ -18,6 +18,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -176,6 +177,47 @@ var defaultSlackBotScopes = []string{
 type slackWorkspaces struct {
 	store  helixstore.Store
 	encKey func() ([]byte, error)
+}
+
+func (w *slackWorkspaces) byConnectionID(ctx context.Context, orgID, connectionID string) (slacktransport.Workspace, error) {
+	conn, err := w.store.GetServiceConnection(ctx, connectionID)
+	if err != nil {
+		return slacktransport.Workspace{}, err
+	}
+	if conn.OrganizationID != orgID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
+		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+	}
+	return w.toWorkspace(conn)
+}
+
+type slackTopicDeliverer struct {
+	workspaces *slackWorkspaces
+	client     func(string) slacktransport.MessageAPI
+}
+
+func (d slackTopicDeliverer) Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (publishing.DeliveryReceipt, error) {
+	cfg, err := topic.Transport.SlackConfig()
+	if err != nil {
+		return publishing.DeliveryReceipt{}, err
+	}
+	workspace, err := d.workspaces.byConnectionID(ctx, topic.OrganizationID, cfg.ServiceConnectionID)
+	if err != nil {
+		return publishing.DeliveryReceipt{}, fmt.Errorf("resolve Slack workspace: %w", err)
+	}
+	client := d.client
+	if client == nil {
+		client = func(token string) slacktransport.MessageAPI { return slackcore.New(token, "") }
+	}
+	receipt, err := slacktransport.DeliverText(ctx, client(workspace.BotToken), cfg.ChannelID, msg.Body, msg.ThreadID)
+	if err != nil {
+		return publishing.DeliveryReceipt{}, err
+	}
+	return publishing.DeliveryReceipt{
+		Status:      "delivered",
+		Provider:    "slack",
+		Destination: receipt.Destination,
+		MessageID:   receipt.MessageID,
+	}, nil
 }
 
 func newSlackWorkspaces(store helixstore.Store, encKey func() ([]byte, error)) *slackWorkspaces {
@@ -417,7 +459,7 @@ func (s *HelixAPIServer) slackRedirectURI() string {
 }
 
 func slackSettingsRedirectURL(orgID string, query url.Values) string {
-	return fmt.Sprintf("/orgs/%s/helix-org/settings?%s", url.PathEscape(orgID), query.Encode())
+	return fmt.Sprintf("/orgs/%s/general?%s", url.PathEscape(orgID), query.Encode())
 }
 
 func redirectSlackSettings(w http.ResponseWriter, r *http.Request, orgID, key, message string) {

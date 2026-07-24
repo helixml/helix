@@ -202,6 +202,48 @@ func (suite *OrganizationsTestSuite) TestDeleteOrganization_RemovesProjectsAndRe
 	suite.Empty(repositories)
 }
 
+func (suite *OrganizationsTestSuite) TestDeleteOrganization_RemovesServiceConnections() {
+	teamID := "T" + system.GenerateUUID()
+	orgA, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+		ID:    system.GenerateOrganizationID(),
+		Name:  "Test Organization " + system.GenerateUUID(),
+		Owner: "test-user",
+	})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.db.CreateServiceConnection(suite.ctx, &types.ServiceConnection{
+		ID:             system.GenerateUUID(),
+		OrganizationID: orgA.ID,
+		Name:           "Slack workspace",
+		Type:           types.ServiceConnectionTypeSlackWorkspace,
+		SlackTeamID:    teamID,
+	}))
+
+	suite.Require().NoError(suite.db.DeleteOrganization(suite.ctx, orgA.ID))
+
+	connections, err := suite.db.ListServiceConnections(suite.ctx, orgA.ID)
+	suite.Require().NoError(err)
+	suite.Empty(connections)
+
+	orgB, err := suite.db.CreateOrganization(suite.ctx, &types.Organization{
+		ID:    system.GenerateOrganizationID(),
+		Name:  "Test Organization " + system.GenerateUUID(),
+		Owner: "test-user",
+	})
+	suite.Require().NoError(err)
+	suite.T().Cleanup(func() {
+		suite.NoError(suite.db.DeleteOrganization(suite.ctx, orgB.ID))
+	})
+
+	suite.NoError(suite.db.CreateServiceConnection(suite.ctx, &types.ServiceConnection{
+		ID:             system.GenerateUUID(),
+		OrganizationID: orgB.ID,
+		Name:           "Slack workspace",
+		Type:           types.ServiceConnectionTypeSlackWorkspace,
+		SlackTeamID:    teamID,
+	}))
+}
+
 // TestDeleteOrganization_RemovesSpecTaskChildren guards the FK-violation
 // regression: a spec task with a work session (and zed thread) blocked org
 // deletion with fk_spec_tasks_work_sessions because those children carried

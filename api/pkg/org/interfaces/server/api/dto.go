@@ -7,6 +7,8 @@
 // client-side.
 package api
 
+import "github.com/helixml/helix/api/pkg/org/application/publishing"
+
 // BotBadge is a compact reference to a Bot on the org overview.
 type BotBadge struct {
 	ID string `json:"id"`
@@ -299,9 +301,10 @@ type SubscribeBotRequest struct {
 
 // PublishRequest is the body of POST /topics/{id}/publish.
 type PublishRequest struct {
-	Body    string   `json:"body"`
-	Subject string   `json:"subject,omitempty"`
-	To      []string `json:"to,omitempty"`
+	Body     string   `json:"body"`
+	Subject  string   `json:"subject,omitempty"`
+	To       []string `json:"to,omitempty"`
+	ThreadID string   `json:"threadId,omitempty"`
 	// As is the Bot the message is sent as — the bot whose chat the
 	// human is in. Empty means human/system-origin (the dispatcher treats
 	// it as such). There is no global "owner" sender any more.
@@ -310,7 +313,8 @@ type PublishRequest struct {
 
 // PublishResponse is the body of POST /topics/{id}/publish on success.
 type PublishResponse struct {
-	EventID string `json:"event_id"`
+	EventID  string                      `json:"event_id"`
+	Delivery *publishing.DeliveryReceipt `json:"delivery,omitempty"`
 }
 
 // ErrorResponse is the envelope for non-2xx responses.
