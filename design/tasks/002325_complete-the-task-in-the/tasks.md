@@ -10,9 +10,10 @@
 - [x] Go unit test: fail-closed 403 for non-member on both `spec_task_id` and `session_id` paths + 400 on missing scope (passing). Positive "member sees others' prompts" case proven end-to-end (MockStore can't exercise the removed ownership filter)
 
 ## Commit 2 — Bug (b): reliable implementation-kickoff delivery
-- [ ] Root-cause confirm: kickoff enqueued `interrupt=false` (`agent_instruction_service.go:596`) is starved by interrupt comments and abandoned past retry cap 20
-- [ ] Make phase-transition kickoff a priority/guaranteed control signal (chosen: exempt from retry cap + idle-drain priority, OR enqueue as interrupt — per review decision)
-- [ ] Test: approve spec while agent mid-interrupt; assert interaction with `## CURRENT PHASE: IMPLEMENTATION` reaches `waiting`
+- [x] Root-cause confirmed: kickoff enqueued `interrupt=false` (`agent_instruction_service.go:600`) is starved by interrupt comments and abandoned past retry cap 20
+- [x] Chosen option (i): enqueue the kickoff as `interrupt=true` — matches the sibling "request changes" control signal (`spec_tasks_org_wiring.go:34`), removes the idle requirement, respects the boot barrier. (Rejected option ii/priority-column as inconsistent + heavier.)
+- [x] Go unit test `TestSendApprovalInstruction_EnqueuesAsInterrupt` asserts interrupt=true (passing)
+- [ ] Live: approve spec while agent mid-interrupt; assert interaction with `## CURRENT PHASE: IMPLEMENTATION` reaches `waiting`
 
 ## Commit 3 — Bug (c): routing fix + orphaned-`sending` handling
 - [ ] Trace frontend optimistic send (`RobustPromptInput.tsx`, `usePromptHistory.ts`, `promptHistoryService.ts`, `optimisticSessionStarting.ts`) for stale/misrouted session/task id; fix so prompts enqueue against the active session only

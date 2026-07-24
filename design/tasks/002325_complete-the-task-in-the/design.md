@@ -159,3 +159,26 @@ Two sub-fixes:
 - **Gotcha**: `frontend/yarn build` fails at the very end with `EACCES mkdir dist/external-libs`
   (the `dist` bind mount is container-owned) — this is NOT a code error; all 21712 modules
   transform first. Use `tsc --noEmit` for a clean local type-check instead.
+
+## Implementation Notes (Commit 2 — bug b, landed)
+
+- **Chosen option (i), not (ii).** Planning recommended (ii) (priority column + retry-cap
+  exemption). Implementation analysis flipped the decision to (i) — enqueue the kickoff as
+  `interrupt=true` — because:
+  - The sibling control signal `RequestChanges` already delivers via
+    `enqueueSpecTaskAgentMessage(..., interrupt=true)` (`spec_tasks_org_wiring.go:34`). The approval
+    kickoff is the same kind of control signal; matching the pattern is consistent and maintainable.
+  - Interrupt delivery already "respects the boot barrier" (per `enqueueAgentMessage` doc + the
+    2026-06-19 interrupt-during-boot incident fix), so option (i) does not reintroduce boot races.
+  - Interrupt prompts are delivered even when the session is busy (they cancel the current turn), so
+    they never enter the non-interrupt "busy → defer → fail → retry" loop that was the actual root
+    cause of the ~8-min starvation. Option (ii) would have added a schema column + selector changes
+    for a problem the interrupt path already solves.
+- **Change:** one line at `agent_instruction_service.go:600` (`false`→`true`) + explanatory comment.
+- **Test:** `agent_instruction_service_test.go#TestSendApprovalInstruction_EnqueuesAsInterrupt` — a
+  task with empty `ProjectID` short-circuits all guideline/repo store lookups, so the method makes
+  no store calls; the capturing enqueuer asserts `interrupt=true`, the IMPLEMENTATION prompt content,
+  and the approver carried as `notifyUserID`. Passing.
+- Note the retry cap (`retry_count < ?`) also exists in `GetNextInterruptPrompt`, so an interrupt
+  that genuinely fails 20× is still dropped — but that is the same accepted behavior as every other
+  interrupt control signal, and the busy-defer failure mode (the real cause here) no longer applies.
