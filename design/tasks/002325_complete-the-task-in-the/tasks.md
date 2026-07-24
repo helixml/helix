@@ -5,8 +5,8 @@
 - [x] Keep `userID` param for signature stability (do not filter on it); update/verify callers, interface (`store.go:853`), and mocks compile
 - [x] Add task/session authorization to `listPromptHistory` (`api/pkg/server/prompt_history_handlers.go` ~605): `spec_task_id` → `GetSpecTask` + creator bypass + `authorizeUserToProjectByID(..., ActionGet)`
 - [x] For `session_id` path, load session + `authorizeUserToSession(ctx, user, session, ActionGet)`; fail closed (403), never leave unauthenticated
-- [~] Enrich prompt-history list response server-side with author fields (name/email/avatar + system/service flag); add swagger annotations + `./stack update_openapi`
-- [ ] Display prompt author + avatar per entry in `SessionPromptQueue.tsx` via the generated API client (no raw fetch); render service account as a "system" label
+- [x] Enrich prompt-history list response server-side with author fields (name/email + system flag); regenerated client via `./stack update_openapi`
+- [x] Display prompt author per entry in `SessionPromptQueue.tsx` and `RobustPromptInput.tsx` via generated API client (shared `promptAuthorLabel` util); service account renders as "System"
 - [ ] Go unit test: authorized non-owner org member sees owner's prompts; non-member gets 403 (both `spec_task_id` and `session_id` paths)
 
 ## Commit 2 — Bug (b): reliable implementation-kickoff delivery
