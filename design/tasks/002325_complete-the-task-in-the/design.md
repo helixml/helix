@@ -240,3 +240,13 @@ user's own browser session, so the full auth + store path runs):
 Note: a plain org member still needs the project's normal access (`org_members_access` or a grant) —
 my handler defers to the same `authorizeUserToProjectByID(..., ActionGet)` the sibling design-review
 handler uses, so "global" means org/project-authorized, not world-readable. Confirmed by the 403.
+
+## Screenshot (visual proof of org-global visibility)
+
+`screenshots/01-org-global-queue-author.png` — the spec-task detail page for `spt_test` viewed as
+**user A**, showing the prompt "Please rename the widget to Gadget" which is owned by
+`usr_service_acct` (a DIFFERENT user, i.e. the simulated service account). A is not the prompt
+owner, yet sees it — pre-fix the `user_id = A` filter made this queue appear empty. This is the
+user-visible effect of the primary fix. (The per-item "System" author label renders in the
+queue-item component for pending/sending/failed entries; it is typechecked + unit-covered, and the
+API response was verified to carry `author.is_system = true` for this row.)
