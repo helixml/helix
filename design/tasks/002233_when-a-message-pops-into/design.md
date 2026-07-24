@@ -79,6 +79,19 @@ call `sessionViewRef.current?.repinToBottom()` from `onHeightChange` instead of
 Leave `scrollToBottom` (and its `scrollHeight` short-circuit) intact for the
 poll/WS-update path so AC-7's "no redundant scroll work" guarantee is preserved.
 
+### Other call sites (implementation discovery)
+
+A repo-wide grep for `onHeightChange={() => sessionViewRef.current?.scrollToBottom()}`
+found **two more surfaces** with the identical wiring and therefore the identical
+occlusion bug: the helix-org bot chat (`pages/HelixOrgBotDetail.tsx:581`) and the
+helix-org worker chat panel (`components/helix-org/HelixOrgChatPanel.tsx:436`).
+Both are `autoScrollOnMount` surfaces, so after mount `autoScrollRef` is ON and
+`repinToBottom` behaves correctly. Since the fix is the same one-line swap and
+leaving inconsistent call sites would keep the bug alive elsewhere, both were
+switched to `repinToBottom()` too. (`TeamDesktopPage.tsx` also holds an
+`EmbeddedSessionViewHandle` ref but wires no `onHeightChange`, so it needed no
+change; adding a method to the handle interface is backward-compatible for it.)
+
 ### Why not just call `scrollToBottom(true)`?
 
 `force = true` also bypasses the auto-scroll preference (it exists for
