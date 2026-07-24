@@ -80,6 +80,35 @@ explicit 200k option retained, in which case (2b).
 - **Pinning a dated id** (e.g. `claude-opus-4-8-1m`): brittle across model
   updates; the `"opus[1m]"` alias is the durable choice.
 
+## Implementation Notes (as built)
+
+Chose **approach 2b** (explicit 1M option, default to it, keep 200k). Opus-only.
+
+The tier list/default is defined in **three** places that must stay in sync — the
+frontend keeps its own hardcoded copy and sends the chosen value explicitly, so a
+backend-only change would not affect UI-created apps:
+
+1. `frontend/src/components/agent/CodingAgentForm.tsx` —
+   `CLAUDE_SUBSCRIPTION_MODELS` gained an `opus[1m]` entry ("Claude Opus (1M
+   context, recommended)") and a retained `opus` ("200k"); `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL`
+   is now `'opus[1m]'`. Consumed by `AppSettings.tsx` (`app.claude_subscription_model
+   || DEFAULT_CLAUDE_SUBSCRIPTION_MODEL`), so the picker shows and defaults to it.
+2. `api/pkg/server/claude_subscription_handlers.go` — `listClaudeModels` returns
+   the `opus[1m]` and `opus` categories alongside `sonnet`/`haiku`.
+3. `api/pkg/server/zed_config_handlers.go` — subscription-branch empty default
+   changed from `"opus"` to `"opus[1m]"`; `types.go` `ClaudeSubscriptionModel`
+   doc comment updated to match.
+
+Tests: `zed_config_handlers_test.go` default cases updated to `"opus[1m]"` and
+pass; `go build` of `pkg/server`/`pkg/types` and frontend `tsc --noEmit` both clean.
+
+Gotchas:
+- The value travels as a raw JSON string through `managed-settings.json`; the
+  `"[1m]"` bracket form is exactly what the ACP `resolveModelPreference` expects
+  (it canonicalizes `opus[1m]` / `opus-1m` / `claude-opus-*-1m`).
+- The `override` path (explicit `ClaudeSubscriptionModel`) is unchanged — a user
+  who explicitly picks 200k "Opus" still gets 200k.
+
 ## Testing
 - Unit: assert `ClaudeSubscriptionModel` default is `"opus[1m]"` where it is
   seeded; if a category mapping is added, assert `listClaudeModels` returns it.

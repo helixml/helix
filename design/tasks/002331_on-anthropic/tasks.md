@@ -9,21 +9,22 @@
   default in `zed_config_handlers.go`.
 
 ## Implementation (Helix)
-- [ ] Frontend: in `frontend/src/components/agent/CodingAgentForm.tsx`, add an
+- [x] Frontend: in `frontend/src/components/agent/CodingAgentForm.tsx`, add an
       `opus[1m]` entry to `CLAUDE_SUBSCRIPTION_MODELS` and set
       `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus[1m]'` (consumed by AppSettings).
-- [ ] Backend: add the `opus[1m]` category to `listClaudeModels`
+- [x] Backend: add the `opus[1m]` category to `listClaudeModels`
       (`api/pkg/server/claude_subscription_handlers.go`).
-- [ ] Backend: change the subscription-branch empty-default in
-      `api/pkg/server/zed_config_handlers.go` (~685-687) from `"opus"` to
-      `"opus[1m]"`.
+- [x] Backend: change the subscription-branch empty-default in
+      `api/pkg/server/zed_config_handlers.go` from `"opus"` to `"opus[1m]"`
+      (also updated the `ClaudeSubscriptionModel` doc comment in `types.go`).
 
 ## Tests / build
-- [ ] `go build ./...` (or targeted) for the API; frontend typecheck/build.
-- [ ] Confirm existing subscription-mode tests still pass.
+- [x] `go build ./pkg/server/... ./pkg/types/...` OK; frontend `tsc --noEmit` OK.
+- [x] Updated + passing subscription-mode default tests
+      (`zed_config_handlers_test.go`).
 
 ## Wrap-up
-- [ ] Update design.md implementation notes; PR description files.
+- [~] Update design.md implementation notes; PR description files.
 
 ## Verification (manual, later)
 - [ ] Connect a Claude subscription; new subscription-mode task defaults to the
