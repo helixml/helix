@@ -293,6 +293,11 @@ export function usePromptHistory({
   const syncEntryImmediately = useCallback(async (entry: PromptHistoryEntry) => {
     if (!apiClient || !specTaskId || !projectId) return
     if (!navigator.onLine) return
+    // Only sync an entry belonging to the current session. Guards against filing
+    // a stale entry (created for a different task before a task switch) under the
+    // current specTaskId, which would make its session_id and spec_task_id
+    // disagree (cross-task queue contamination).
+    if (entry.sessionId !== sessionId) return
 
     try {
       console.log(`[PromptHistory] Immediate sync for entry ${entry.id}`)
@@ -313,7 +318,7 @@ export function usePromptHistory({
     } catch (e) {
       console.warn('[PromptHistory] Failed immediate sync:', e)
     }
-  }, [apiClient, specTaskId, projectId])
+  }, [apiClient, specTaskId, projectId, sessionId])
 
   // Sync to backend (debounced - for status updates and edits)
   const syncToBackend = useCallback(async () => {
@@ -321,8 +326,16 @@ export function usePromptHistory({
     if (!navigator.onLine) return
 
     try {
-      // Get entries to sync (all non-synced, non-deleted entries)
-      const toSync = history.filter(h => !h.syncedToBackend && !h.deleted)
+      // Get entries to sync (all non-synced, non-deleted entries).
+      // Only sync entries that belong to the CURRENT session. syncPromptHistory
+      // files rows under the current specTaskId/projectId, but each entry carries
+      // its own sessionId. If the user switched tasks while an entry was still
+      // unsynced (e.g. an immediate sync failed / was offline), syncing it here
+      // would file it under the new task while keeping its old session_id —
+      // cross-task contamination that wedged the wrong task's queue. sessionId
+      // and specTaskId are a consistent pair for a given view, so this guard
+      // guarantees every synced row's session_id and spec_task_id agree.
+      const toSync = history.filter(h => !h.syncedToBackend && !h.deleted && h.sessionId === sessionId)
       if (toSync.length === 0) {
         pendingSyncRef.current = false
         return

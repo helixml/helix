@@ -484,6 +484,47 @@ func (s *PostgresStore) ReconcileStuckSendingPrompts(ctx context.Context) (int, 
 		total += int(result.RowsAffected)
 	}
 
+	// Path 3: orphaned/misrouted — a prompt stuck in 'sending' that was never
+	// delivered. Unlike paths 1/2 (which mark 'sent' when there IS evidence the
+	// agent processed it), this catches the opposite: no interaction was ever
+	// linked to the prompt (prompt_id) AND nothing happened in its session after
+	// it was created. That means dispatch was lost, or the prompt was misrouted
+	// into a session that isn't processing it (bug (c)) — so it sits in 'sending'
+	// forever, showing as perpetually in-flight in the queue UI. 'sending' rows
+	// are never re-selected by GetNextPendingPrompt, so without this they can
+	// never recover. Flip them to 'failed' (retryable, subject to the retry cap)
+	// so the normal auto-retry either delivers them or surfaces the failure — but
+	// never leaves them silently stuck. The 5-minute floor and the
+	// no-activity-since guard avoid racing a genuinely in-flight dispatch.
+	{
+		result := s.gdb.WithContext(ctx).Exec(`
+			UPDATE prompt_history_entries
+			SET status = 'failed',
+			    error_message = 'orphaned in sending: never delivered (dispatch lost or misrouted)',
+			    updated_at = NOW()
+			WHERE id IN (
+				SELECT p.id
+				FROM prompt_history_entries p
+				WHERE p.status = 'sending'
+				  AND p.deleted_at IS NULL
+				  AND p.created_at < NOW() - INTERVAL '5 minutes'
+				  AND NOT EXISTS (
+					SELECT 1 FROM interactions i
+					WHERE i.prompt_id = p.id
+				  )
+				  AND NOT EXISTS (
+					SELECT 1 FROM interactions i
+					WHERE i.session_id = p.session_id
+					  AND i.created >= p.created_at
+				  )
+			)
+		`)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += int(result.RowsAffected)
+	}
+
 	return total, nil
 }
 
