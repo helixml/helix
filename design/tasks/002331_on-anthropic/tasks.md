@@ -24,7 +24,7 @@
       (`zed_config_handlers_test.go`).
 
 ## Wrap-up
-- [~] Update design.md implementation notes; PR description files.
+- [x] Update design.md implementation notes; PR description files.
 
 ## Verification (manual, later)
 - [ ] Connect a Claude subscription; new subscription-mode task defaults to the
