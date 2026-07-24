@@ -1,7 +1,7 @@
 # Implementation Tasks: Make Spec-Task Prompt Queue Org-Global
 
 ## Commit 1 — Org-global queue (primary)
-- [ ] Remove the `WHERE user_id = viewer` filter in `ListPromptHistory` (`api/pkg/store/store_prompt_history.go` ~517); keep scope filters; add fail-closed guard rejecting empty scope
+- [~] Remove the `WHERE user_id = viewer` filter in `ListPromptHistory` (`api/pkg/store/store_prompt_history.go` ~517); keep scope filters; add fail-closed guard rejecting empty scope
 - [ ] Keep `userID` param for signature stability (do not filter on it); update/verify callers, interface (`store.go:853`), and mocks compile
 - [ ] Add task/session authorization to `listPromptHistory` (`api/pkg/server/prompt_history_handlers.go` ~605): `spec_task_id` → `GetSpecTask` + creator bypass + `authorizeUserToProjectByID(..., ActionGet)`
 - [ ] For `session_id` path, load session + `authorizeUserToSession(ctx, user, session, ActionGet)`; fail closed (403), never leave unauthenticated
