@@ -16,8 +16,11 @@ Choosing `2` (or pressing Enter, since `2|*` is the default) is supposed to drop
 the user into an interactive `bash` shell in the primary repo so they can debug
 the startup.
 
-**Regression:** Selecting option 2 no longer starts a usable shell. The terminal
-just hangs, printing no output and showing no prompt. This used to work.
+**Regression:** Selecting option 2 no longer starts a *usable-looking* shell.
+There is **no shell prompt**, so it appears to hang. In fact the shell is running
+underneath — if you type a command and press Enter, it executes and its output
+appears — but with no `PS1` prompt and no input echo it looks dead. This used to
+show a normal interactive prompt.
 
 ## Root Cause (already diagnosed)
 
@@ -35,8 +38,9 @@ stdout **and** stderr into a `tee` pipe, so neither is a TTY any more.
 At the end of the script the EXIT trap runs `exec bash` (line 102/103). Bash
 only starts in **interactive** mode when *both* stdin and stderr are terminals.
 Because stderr is now the `tee` pipe, the new `bash` starts **non-interactive**:
-it prints no prompt, produces no output, and silently reads commands from stdin —
-which looks exactly like a hang. The interactive-shell menu itself predates the
+it prints no `PS1` prompt and does not echo input, but it *does* still read and
+execute commands from stdin (typed commands run and their output appears) — so it
+looks like a hang even though the shell is alive. The interactive-shell menu itself predates the
 regression (Jan 2026) and worked fine until the `tee` redirect landed.
 
 ## User Stories
