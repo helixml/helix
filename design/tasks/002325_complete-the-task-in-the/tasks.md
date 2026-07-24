@@ -32,4 +32,4 @@
 
 ## PR
 - [x] Conventional-commit messages; commits 1/2/3 separated so (1) can merge alone (commit 1 = primary; b, c independent)
-- [ ] Push branch `feature/002325-make-spec-task-prompt` (platform opens the PR against `helixml/helix`)
+- [x] Pushed branch `feature/002325-make-spec-task-prompt` (merged latest origin/main first; platform opens the PR against `helixml/helix`)
