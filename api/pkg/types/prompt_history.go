@@ -58,6 +58,23 @@ type PromptHistoryEntry struct {
 	CreatedAt time.Time  `json:"created_at" gorm:"not null;index"`
 	UpdatedAt time.Time  `json:"updated_at" gorm:"not null"`
 	DeletedAt *time.Time `json:"deleted_at,omitempty" gorm:"index"` // Soft-delete: non-nil means user removed from queue
+
+	// Author is a non-persisted, computed view of who authored this prompt,
+	// populated server-side when listing the (org-global) queue. Because the
+	// queue shows prompts from every user and from service accounts, the UI needs
+	// the author's display info resolved from UserID. Not stored; not synced.
+	Author *PromptAuthor `json:"author,omitempty" gorm:"-"`
+}
+
+// PromptAuthor is the resolved display identity of a prompt's author, attached to
+// list responses so the org-global queue can label each prompt. IsSystem marks a
+// machine/service-account author (e.g. the HelixOS service key) so the UI can show
+// a "system" label instead of a human name.
+type PromptAuthor struct {
+	UserID   string `json:"user_id"`
+	Name     string `json:"name,omitempty"`
+	Email    string `json:"email,omitempty"`
+	IsSystem bool   `json:"is_system"`
 }
 
 // BeforeCreate sets up the entry before creation

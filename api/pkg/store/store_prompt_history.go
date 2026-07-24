@@ -513,10 +513,25 @@ func (s *PostgresStore) ResetCrashedPromptsForSession(ctx context.Context, sessi
 	return int(result.RowsAffected), nil
 }
 
-// ListPromptHistory returns prompt history entries for a user
-func (s *PostgresStore) ListPromptHistory(ctx context.Context, userID string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
-	query := s.gdb.WithContext(ctx).
-		Where("user_id = ?", userID)
+// ListPromptHistory returns prompt history entries for a spec task or session.
+//
+// The queue is org-global: visibility is scoped by spec_task_id / session_id and
+// authorized in the handler (see listPromptHistory), NOT by prompt ownership. Any
+// org member authorized to view the task/session sees ALL prompts in that queue,
+// regardless of which user or service account authored each one. The userID
+// parameter is retained for signature stability but is intentionally not used to
+// filter — a prompt is stamped with session.Owner (often a service account), so
+// filtering by the viewer's id hid the viewer's own review comments.
+//
+// Because ownership no longer narrows the result set, the caller MUST provide a
+// scope (spec_task_id or session_id); an unscoped call is rejected to prevent a
+// future caller from accidentally listing the entire table.
+func (s *PostgresStore) ListPromptHistory(ctx context.Context, _ string, req *types.PromptHistoryListRequest) (*types.PromptHistoryListResponse, error) {
+	if req.SpecTaskID == "" && req.SessionID == "" {
+		return nil, fmt.Errorf("ListPromptHistory: spec_task_id or session_id is required")
+	}
+
+	query := s.gdb.WithContext(ctx)
 
 	// Filter by spec task (required - history is per-spec-task)
 	if req.SpecTaskID != "" {

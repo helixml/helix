@@ -19,6 +19,7 @@ import useApi from '../../hooks/useApi'
 import { listSessionPromptHistory } from '../../services/promptHistoryService'
 import { TypesPromptHistoryEntry } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import { promptAuthorLabel } from '../../utils/promptAuthor'
 
 interface SessionPromptQueueProps {
   sessionId: string
@@ -109,6 +110,14 @@ const SessionPromptQueue: React.FC<SessionPromptQueueProps> = ({ sessionId }) =>
                     color="warning"
                     sx={{ height: 18, fontSize: '0.65rem' }}
                   />
+                ) : null}
+                {promptAuthorLabel(e) ? (
+                  <Typography
+                    variant="caption"
+                    sx={{ color: 'text.secondary', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    {promptAuthorLabel(e)}
+                  </Typography>
                 ) : null}
                 <Typography
                   variant="body2"

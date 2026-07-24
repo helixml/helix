@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -609,6 +610,49 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError400("spec_task_id or session_id is required")
 	}
 
+	// The queue is org-global: it is scoped by spec_task_id / session_id and
+	// authorized here, NOT filtered by prompt ownership in the store. So the
+	// handler MUST verify the viewer is authorized to view the task/session
+	// before returning prompts (fail closed). Mirrors the auth in
+	// spec_task_design_review_handlers.go for the same resource.
+	if specTaskID != "" {
+		specTask, err := apiServer.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get spec task: %v", err))
+		}
+		if specTask == nil {
+			return nil, system.NewHTTPError404("spec task not found")
+		}
+		// Task creator always has access; otherwise require project authorization.
+		if user.ID != specTask.CreatedBy {
+			if err := apiServer.authorizeUserToProjectByID(ctx, user, specTask.ProjectID, types.ActionGet); err != nil {
+				log.Warn().Err(err).
+					Str("user_id", user.ID).
+					Str("project_id", specTask.ProjectID).
+					Str("spec_task_id", specTaskID).
+					Msg("User not authorized to view prompt history for spec task")
+				return nil, system.NewHTTPError403("not authorized")
+			}
+		}
+	} else {
+		// session_id path (org-chat / bot session with no spec task): authorize
+		// against the session's owner/org/project. Do not leave unauthenticated.
+		session, err := apiServer.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session: %v", err))
+		}
+		if session == nil {
+			return nil, system.NewHTTPError404("session not found")
+		}
+		if err := apiServer.authorizeUserToSession(ctx, user, session, types.ActionGet); err != nil {
+			log.Warn().Err(err).
+				Str("user_id", user.ID).
+				Str("session_id", sessionID).
+				Msg("User not authorized to view prompt history for session")
+			return nil, system.NewHTTPError403("not authorized")
+		}
+	}
+
 	listReq := &types.PromptHistoryListRequest{
 		SpecTaskID: specTaskID,
 		ProjectID:  query.Get("project_id"),
@@ -640,6 +684,11 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to list prompt history: %v", err))
 	}
 
+	// The queue is org-global, so a prompt can be authored by someone other than
+	// the viewer (another org member, or a service account). Resolve each author's
+	// display identity so the UI can label who sent each prompt.
+	apiServer.resolvePromptAuthors(ctx, response.Entries)
+
 	// Process pending prompts in the background on EVERY list call (the frontend
 	// polls every 2s while there are pending messages) to catch prompts synced
 	// but not yet processed. Nudge the matching poller for the queue's scope.
@@ -650,6 +699,38 @@ func (apiServer *HelixAPIServer) listPromptHistory(_ http.ResponseWriter, req *h
 	}
 
 	return response, nil
+}
+
+// resolvePromptAuthors populates entry.Author for each prompt by resolving its
+// UserID to a display identity. Because the queue is org-global, authors may be
+// other org members or service accounts. Resolution is batched by unique UserID
+// to avoid an N+1 lookup. A UserID that cannot be resolved (deleted user, or a
+// bare service-account identity) is rendered as a "system" author so the UI never
+// shows a raw, unlabelled id.
+func (apiServer *HelixAPIServer) resolvePromptAuthors(ctx context.Context, entries []types.PromptHistoryEntry) {
+	cache := make(map[string]*types.PromptAuthor)
+	for i := range entries {
+		userID := entries[i].UserID
+		if userID == "" {
+			continue
+		}
+		author, ok := cache[userID]
+		if !ok {
+			author = &types.PromptAuthor{UserID: userID}
+			u, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+			if err != nil || u == nil {
+				// Unresolvable owner (e.g. a service account with no user row):
+				// present as a system author rather than leaking a raw id.
+				author.IsSystem = true
+			} else {
+				author.Name = u.FullName
+				author.Email = u.Email
+				author.IsSystem = u.Type == types.OwnerTypeSystem
+			}
+			cache[userID] = author
+		}
+		entries[i].Author = author
+	}
 }
 
 // PromptPinRequest is the request body for pinning/unpinning a prompt

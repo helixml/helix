@@ -32537,9 +32537,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PromptAuthor": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "is_system": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.PromptHistoryEntry": {
             "type": "object",
             "properties": {
+                "author": {
+                    "description": "Author is a non-persisted, computed view of who authored this prompt,\npopulated server-side when listing the (org-global) queue. Because the\nqueue shows prompts from every user and from service accounts, the UI needs\nthe author's display info resolved from UserID. Not stored; not synced.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.PromptAuthor"
+                        }
+                    ]
+                },
                 "content": {
                     "description": "Content",
                     "type": "string"

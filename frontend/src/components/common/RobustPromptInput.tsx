@@ -74,6 +74,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { usePromptHistory, PromptHistoryEntry } from '../../hooks/usePromptHistory'
 import { Api } from '../../api/api'
 import { classifyPromptQueueEntry } from '../../utils/promptQueueStatus'
+import { promptAuthorLabel } from '../../utils/promptAuthor'
 
 // Attachment that's pending to be sent with the message
 // Supports offline queueing - file data is stored until upload completes
@@ -338,6 +339,14 @@ const SortableQueueItem: FC<SortableQueueItemProps> = ({
               `overflow: hidden` clip so users couldn't dismiss stuck items.
               See design/2026-04-30-queue-and-other-stuck-state-bugs.md. */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            {promptAuthorLabel(entry) ? (
+              <Typography
+                variant="caption"
+                sx={{ color: 'text.secondary', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                {promptAuthorLabel(entry)}:
+              </Typography>
+            ) : null}
             <Typography
               variant="body2"
               sx={{

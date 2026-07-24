@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Api } from '../api/api'
+import { Api, TypesPromptAuthor } from '../api/api'
 import {
   syncPromptHistory,
   listPromptHistory,
@@ -53,6 +53,9 @@ export interface PromptHistoryEntry {
   usageCount?: number       // How many times this prompt was reused
   lastUsedAt?: number       // Timestamp when last reused
   tags?: string[]           // User-defined tags
+  // Author identity resolved server-side. The queue is org-global, so a prompt
+  // can be authored by another org member or a service account — this labels who.
+  author?: TypesPromptAuthor
 }
 
 interface PromptDraft {
@@ -201,6 +204,9 @@ export function reconcileEntry(
     retryCount: backend.retryCount,
     nextRetryAt: backend.nextRetryAt,
     errorMessage: backend.errorMessage,
+    // Author is resolved server-side; prefer the backend value so locally-created
+    // optimistic entries pick up their resolved author once synced.
+    author: backend.author ?? local.author,
     syncedToBackend: pushed ? true : local.syncedToBackend === false ? false : true,
   }
 }

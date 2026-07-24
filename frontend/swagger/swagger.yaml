@@ -7715,8 +7715,27 @@ definitions:
       updated_at:
         type: string
     type: object
+  types.PromptAuthor:
+    properties:
+      email:
+        type: string
+      is_system:
+        type: boolean
+      name:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.PromptHistoryEntry:
     properties:
+      author:
+        allOf:
+        - $ref: '#/definitions/types.PromptAuthor'
+        description: |-
+          Author is a non-persisted, computed view of who authored this prompt,
+          populated server-side when listing the (org-global) queue. Because the
+          queue shows prompts from every user and from service accounts, the UI needs
+          the author's display info resolved from UserID. Not stored; not synced.
       content:
         description: Content
         type: string

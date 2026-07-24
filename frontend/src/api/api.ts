@@ -4830,7 +4830,21 @@ export interface TypesProjectWebServiceState {
   updated_at?: string;
 }
 
+export interface TypesPromptAuthor {
+  email?: string;
+  is_system?: boolean;
+  name?: string;
+  user_id?: string;
+}
+
 export interface TypesPromptHistoryEntry {
+  /**
+   * Author is a non-persisted, computed view of who authored this prompt,
+   * populated server-side when listing the (org-global) queue. Because the
+   * queue shows prompts from every user and from service accounts, the UI needs
+   * the author's display info resolved from UserID. Not stored; not synced.
+   */
+  author?: TypesPromptAuthor;
   /** Content */
   content?: string;
   /** Timestamps */

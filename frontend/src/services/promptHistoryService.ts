@@ -6,6 +6,7 @@ import {
   TypesPromptHistoryEntry,
   TypesPromptHistoryListResponse,
   TypesPromptHistorySyncResponse,
+  TypesPromptAuthor,
   Api,
 } from '../api/api'
 
@@ -26,6 +27,7 @@ export interface LocalPromptHistoryEntry {
   usageCount?: number       // How many times this prompt was reused
   lastUsedAt?: number       // Timestamp when last reused
   tags?: string[]           // User-defined tags
+  author?: TypesPromptAuthor // Server-resolved author identity (org-global queue)
 }
 
 /**
@@ -111,6 +113,7 @@ export function backendToLocal(entry: TypesPromptHistoryEntry): LocalPromptHisto
     usageCount: entry.usage_count ?? 0,
     lastUsedAt: entry.last_used_at ? new Date(entry.last_used_at).getTime() : undefined,
     tags: entry.tags ? JSON.parse(entry.tags) : [],
+    author: entry.author,
   }
 }
 
