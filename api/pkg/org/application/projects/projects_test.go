@@ -27,13 +27,25 @@ func (f *fakePort) Get(_ context.Context, org, projectID string) (runtime.Projec
 	return f.view, f.err
 }
 
-type fakeMembers struct{ err error }
+type fakeMembers struct {
+	err        error
+	projectIDs []string
+}
 
 func (m *fakeMembers) GetBot(_ context.Context, org string, id orgchart.BotID) (orgchart.Bot, error) {
 	if m.err != nil {
 		return orgchart.Bot{}, m.err
 	}
-	return orgchart.Bot{ID: id, OrganizationID: org}, nil
+	return orgchart.Bot{ID: id, OrganizationID: org, ProjectIDs: m.projectIDs}, nil
+}
+
+type fakeAccess struct {
+	projectID string
+	err       error
+}
+
+func (a fakeAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.BotID) (string, error) {
+	return a.projectID, a.err
 }
 
 type fakeCaller struct{ id, org string }
@@ -54,6 +66,35 @@ func TestList_ScopesToCallerOrg(t *testing.T) {
 	}
 	if len(views) != 1 || views[0].ID != "prj_1" {
 		t.Errorf("views = %+v", views)
+	}
+}
+
+func TestList_FiltersToOwnAndExplicitProjects(t *testing.T) {
+	t.Parallel()
+	fp := &fakePort{views: []runtime.ProjectView{
+		{ID: "prj_own"},
+		{ID: "prj_allowed"},
+		{ID: "prj_denied"},
+	}}
+	svc := New(fp, &fakeMembers{projectIDs: []string{"prj_allowed"}}, fakeAccess{projectID: "prj_own"})
+	views, err := svc.List(context.Background(), fakeCaller{id: "w-pm", org: "org-1"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(views) != 2 || views[0].ID != "prj_own" || views[1].ID != "prj_allowed" {
+		t.Fatalf("views = %+v, want own and explicitly allowed projects", views)
+	}
+}
+
+func TestGet_RejectsProjectOutsideAccess(t *testing.T) {
+	t.Parallel()
+	fp := &fakePort{view: runtime.ProjectView{ID: "prj_denied"}}
+	svc := New(fp, &fakeMembers{}, fakeAccess{projectID: "prj_own"})
+	if _, err := svc.Get(context.Background(), fakeCaller{id: "w-pm", org: "org-1"}, "prj_denied"); err == nil {
+		t.Fatal("expected project access rejection")
+	}
+	if fp.lastProject != "" {
+		t.Fatalf("port called for denied project %q", fp.lastProject)
 	}
 }
 

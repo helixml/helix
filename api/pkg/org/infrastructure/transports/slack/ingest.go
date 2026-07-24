@@ -20,7 +20,7 @@ import (
 // system-emitted (source="") events, so inbound messages never loop
 // straight back out to Slack.
 type Publisher interface {
-	Publish(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
+	PublishInbound(ctx context.Context, orgID string, topicID streaming.TopicID, from string, msg streaming.Message) (streaming.Event, error)
 }
 
 // Ingest is the one shared inbound path. A single instance serves every
@@ -47,16 +47,17 @@ func NewIngest(ws Workspaces, st *store.Store, pub Publisher, logger *slog.Logge
 // processor/filter predicates can route on channel/team and outbound
 // can stay self-consistent. Message bodies are never logged.
 type slackExtra struct {
-	Channel string `json:"slack_channel,omitempty"`
-	TeamID  string `json:"slack_team_id,omitempty"`
+	Channel     string `json:"slack_channel,omitempty"`
+	ChannelType string `json:"slack_channel_type,omitempty"`
+	TeamID      string `json:"slack_team_id,omitempty"`
 }
 
 // OnEvent is the slackcore.EventHandler the ingress sources call. It:
 //
 //  1. drops bot-authored events (self-echo guard),
 //  2. resolves the owning org from teamID (the workspace install),
-//  3. finds every KindSlack Topic in that org bound to this
-//     workspace+channel,
+//  3. finds exact channel-bound Topics, falling back to workspace-wide
+//     Topics only when no exact Topic exists,
 //  4. publishes a canonical Message onto each (append → notify →
 //     dispatch → processors → Workers).
 //
@@ -81,7 +82,7 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return fmt.Errorf("slack ingest: resolve workspace: %w", err)
 	}
 
-	topics, err := i.matchingTopics(ctx, ws)
+	topics, err := i.matchingTopics(ctx, ws, ev.Channel)
 	if err != nil {
 		return err
 	}
@@ -90,18 +91,20 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 		return nil
 	}
 
-	extra, _ := json.Marshal(slackExtra{Channel: ev.Channel, TeamID: teamID})
+	extra, _ := json.Marshal(slackExtra{Channel: ev.Channel, ChannelType: ev.ChannelType, TeamID: teamID})
 	msg := streaming.Message{
 		From:      ev.User,
 		Body:      ev.Text,
 		ThreadID:  ev.ThreadTS,
 		MessageID: ev.TS,
 		Extra:     extra,
-		ReplyHint: replyHint(teamID, ev.Channel, ev.TS, ev.ThreadTS),
 	}
 
 	for _, t := range topics {
-		if _, err := i.publisher.Publish(ctx, ws.OrgID, t.ID, "", msg); err != nil {
+		cfg, _ := t.Transport.SlackConfig()
+		topicMsg := msg
+		topicMsg.ReplyHint = replyHint(string(t.ID), cfg.ChannelID != "", teamID, ev.Channel, ev.ChannelType, ev.TS, ev.ThreadTS)
+		if _, err := i.publisher.PublishInbound(ctx, ws.OrgID, t.ID, "", topicMsg); err != nil {
 			i.logger.Error("slack.ingest: publish", "org", ws.OrgID, "topic", t.ID, "err", err)
 			continue
 		}
@@ -110,16 +113,15 @@ func (i *Ingest) OnEvent(ctx context.Context, teamID string, ev slackcore.Event)
 	return nil
 }
 
-// matchingTopics returns the KindSlack Topic(s) in the workspace's org
-// bound to this workspace connection. A Slack Topic is workspace-scoped —
-// it receives every channel the bot is in — so the only match key is the
-// ServiceConnectionID. The org-scoped list enforces tenant isolation.
-func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace) ([]streaming.Topic, error) {
+// matchingTopics returns every exact channel match when one exists, otherwise
+// every workspace-wide fallback. The org-scoped list enforces tenant isolation.
+func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace, channel string) ([]streaming.Topic, error) {
 	all, err := i.store.Topics.List(ctx, ws.OrgID)
 	if err != nil {
 		return nil, fmt.Errorf("slack ingest: list topics: %w", err)
 	}
-	var matched []streaming.Topic
+	var exact []streaming.Topic
+	var fallback []streaming.Topic
 	for _, t := range all {
 		if t.Transport.Kind != transport.KindSlack {
 			continue
@@ -129,11 +131,19 @@ func (i *Ingest) matchingTopics(ctx context.Context, ws Workspace) ([]streaming.
 			i.logger.Warn("slack.ingest: topic config parse", "topic", t.ID, "err", err)
 			continue
 		}
-		if cfg.ServiceConnectionID == ws.ID {
-			matched = append(matched, t)
+		if cfg.ServiceConnectionID != ws.ID {
+			continue
+		}
+		if cfg.ChannelID == channel && cfg.ChannelID != "" {
+			exact = append(exact, t)
+		} else if cfg.ChannelID == "" {
+			fallback = append(fallback, t)
 		}
 	}
-	return matched, nil
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	return fallback, nil
 }
 
 // compile-time assertion that OnEvent matches the generic handler type.

@@ -1,28 +1,22 @@
-// HelixOrgSettings is the configuration surface for the helix-org alpha.
-// The worker.* runtime config (runtime / credentials / provider / model)
-// now lives on the AI Providers page (WorkerRuntimePanel) so it sits next
-// to the providers it references; everything else here falls back to a
-// generic text-input row driven by the same config registry the server
-// validates against.
+// HelixOrgSettings is the helix-org section of Organization Settings.
+// The default agent config (runtime / credentials / provider / model)
+// is rendered separately above this section; everything else here falls
+// back to a generic text-input row driven by the same config registry the
+// server validates against.
 
 import { FC, useEffect, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
-import Container from '@mui/material/Container'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import SaveIcon from '@mui/icons-material/Save'
 
-import Page from '../components/system/Page'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import GitHubAppPanel from '../components/helix-org/GitHubAppPanel'
 import SlackIntegrationsPanel from '../components/helix-org/SlackIntegrationsPanel'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import {
   SettingsSpecDTO,
   useDeleteHelixOrgSetting,
@@ -31,7 +25,7 @@ import {
 } from '../services/helixOrgService'
 
 // Registry keys we do NOT render as generic rows here:
-//  - worker.* runtime config lives on the Providers page (WorkerRuntimePanel).
+//  - agent.default and legacy worker.* config use the dedicated panel.
 //  - transport.github is auto-managed by the Helix GitHub App (it provisions
 //    the webhook secret and the token comes from the App installation), so
 //    there's nothing for an operator to paste.
@@ -40,48 +34,38 @@ const EXCLUDED_KEYS = new Set<string>([
   'worker.credentials',
   'worker.provider',
   'worker.model',
+  'agent.default',
   'transport.github',
 ])
 
 const HelixOrgSettings: FC = () => {
-  const account = useAccount()
-  const breadcrumbs = useHelixOrgBreadcrumbs()
-
   const { data, isLoading } = useHelixOrgSettings()
 
   return (
-    <Page
-      breadcrumbTitle="Settings"
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
-      <Container maxWidth="md" sx={{ mb: 4, pt: 3 }}>
-        <Stack spacing={3}>
-          <Box>
-            <Typography variant="h5" sx={{ mb: 1 }}>Settings</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Configures how this org's Bots run. Changes take effect on the next bot
-              activation — no API restart needed.
-            </Typography>
-          </Box>
+    <Stack spacing={3}>
+      <Stack spacing={1}>
+        <Typography variant="h6">Integrations and Bot Settings</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Connect external services and configure how this org's Bots run.
+          Changes take effect on the next bot activation - no API restart needed.
+        </Typography>
+      </Stack>
 
-          {isLoading ? (
-            <LoadingSpinner />
-          ) : (
-            <>
-              <GitHubAppPanel />
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (
+        <>
+          <GitHubAppPanel />
 
-              <SlackIntegrationsPanel />
+          <SlackIntegrationsPanel />
 
-              {/* Generic spec rows — everything not excluded above */}
-              {(data?.specs ?? [])
-                .filter((s) => !EXCLUDED_KEYS.has(s.key))
-                .map((s) => <GenericSettingRow key={s.key} spec={s} />)}
-            </>
-          )}
-        </Stack>
-      </Container>
-    </Page>
+          {/* Generic spec rows - everything not excluded above */}
+          {(data?.specs ?? [])
+            .filter((s) => !EXCLUDED_KEYS.has(s.key))
+            .map((s) => <GenericSettingRow key={s.key} spec={s} />)}
+        </>
+      )}
+    </Stack>
   )
 }
 

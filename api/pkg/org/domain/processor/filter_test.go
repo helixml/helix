@@ -1,6 +1,7 @@
 package processor_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestFilterOneOutputKeepsMatch(t *testing.T) {
 	p := newFilterProc(t, []processor.Output{
 		{TopicID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
 	})
-	res, err := p.Process(streaming.Message{Subject: "Invoice", Body: "x"})
+	res, err := p.Process(context.Background(), streaming.Message{Subject: "Invoice", Body: "x"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestFilterOneOutputDropsNonMatch(t *testing.T) {
 	p := newFilterProc(t, []processor.Output{
 		{TopicID: "s-bill", Match: `{{ if eq (lower .Message.subject) "invoice" }}yes{{ end }}`},
 	})
-	res, err := p.Process(streaming.Message{Subject: "hello", Body: "x"})
+	res, err := p.Process(context.Background(), streaming.Message{Subject: "hello", Body: "x"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestFilterRoutesToMatchingOutputs(t *testing.T) {
 	})
 
 	// A VIP invoice → vip + bill + default.
-	res, err := p.Process(streaming.Message{From: "boss@vip.com", Subject: "Invoice"})
+	res, err := p.Process(context.Background(), streaming.Message{From: "boss@vip.com", Subject: "Invoice"})
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestFilterRoutesToMatchingOutputs(t *testing.T) {
 	}
 
 	// A plain message → only the default.
-	res, _ = p.Process(streaming.Message{From: "joe@example.com", Subject: "hi"})
+	res, _ = p.Process(context.Background(), streaming.Message{From: "joe@example.com", Subject: "hi"})
 	got = topicSet(res)
 	if len(got) != 1 || !got["s-gen"] {
 		t.Fatalf("plain message routed to %v, want only s-gen", keys(got))
@@ -80,7 +81,7 @@ func TestFilterRoutesToMatchingOutputs(t *testing.T) {
 
 func TestFilterEmptyPredicateIsUnconditional(t *testing.T) {
 	p := newFilterProc(t, []processor.Output{{TopicID: "s-all", Match: ""}})
-	res, _ := p.Process(streaming.Message{Body: "anything"})
+	res, _ := p.Process(context.Background(), streaming.Message{Body: "anything"})
 	if len(res) != 1 || res[0].TopicID != "s-all" {
 		t.Fatalf("empty predicate should always match, got %+v", res)
 	}
@@ -146,7 +147,7 @@ func TestFilterRoutesSpecTaskEventsToBot(t *testing.T) {
 		ThreadID: "task_1",
 		Extra:    []byte(`{"spec_task_id":"task_1","event_type":"pr_ready","project_id":"prj_1"}`),
 	}
-	res, err := p.Process(prReady)
+	res, err := p.Process(context.Background(), prReady)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}
@@ -160,7 +161,7 @@ func TestFilterRoutesSpecTaskEventsToBot(t *testing.T) {
 		ThreadID: "task_2",
 		Extra:    []byte(`{"spec_task_id":"task_2","event_type":"ci_failed","project_id":"prj_2"}`),
 	}
-	res2, err := p.Process(other)
+	res2, err := p.Process(context.Background(), other)
 	if err != nil {
 		t.Fatalf("Process: %v", err)
 	}

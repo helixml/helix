@@ -51,9 +51,8 @@ func (a *apiHandler) listTopics(w http.ResponseWriter, r *http.Request) {
 			CreatedBy:   string(s.CreatedBy),
 			CreatedAt:   s.CreatedAt.Format(time.RFC3339),
 		}
-		dto.CanPublish = s.Transport.Kind != transport.KindGitHub
-		if !dto.CanPublish {
-			dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+		dto.CanPublish, dto.DisableReason = topicPublishability(s.Transport)
+		if s.Transport.Kind == transport.KindGitHub || s.Transport.Kind == transport.KindGitLab {
 			dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 		}
 		if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -192,9 +191,8 @@ func (a *apiHandler) getTopic(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:   string(s.CreatedBy),
 		CreatedAt:   s.CreatedAt.Format(time.RFC3339),
 	}
-	dto.CanPublish = s.Transport.Kind != transport.KindGitHub
-	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+	dto.CanPublish, dto.DisableReason = topicPublishability(s.Transport)
+	if s.Transport.Kind == transport.KindGitHub || s.Transport.Kind == transport.KindGitLab {
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(s.Transport); err == nil {
@@ -234,6 +232,19 @@ func transportConfigMap(t transport.Transport) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("decode transport config: %w", err)
 	}
 	return out, nil
+}
+
+func topicPublishability(t transport.Transport) (bool, string) {
+	switch t.Kind {
+	case transport.KindGitHub, transport.KindGitLab:
+		return false, string(t.Kind) + " transport is inbound only"
+	case transport.KindSlack:
+		cfg, err := t.SlackConfig()
+		if err != nil || cfg.ChannelID == "" {
+			return false, "slack transport is inbound only until channel_id is configured"
+		}
+	}
+	return true, ""
 }
 
 // updateTopic rewrites the mutable subset of a topic — name,
@@ -310,9 +321,8 @@ func (a *apiHandler) updateTopic(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:   string(updated.CreatedBy),
 		CreatedAt:   updated.CreatedAt.Format(time.RFC3339),
 	}
-	dto.CanPublish = updated.Transport.Kind != transport.KindGitHub
-	if !dto.CanPublish {
-		dto.DisableReason = "github transport is inbound only — act on the repo with `gh` from the bot's environment"
+	dto.CanPublish, dto.DisableReason = topicPublishability(updated.Transport)
+	if updated.Transport.Kind == transport.KindGitHub || updated.Transport.Kind == transport.KindGitLab {
 		dto.EffectivePublicURL = a.resolveEffectivePublicURL(ctx, orgID)
 	}
 	if cfg, err := transportConfigMap(updated.Transport); err == nil {
@@ -488,6 +498,38 @@ func (a *apiHandler) listTopicMessages(w http.ResponseWriter, r *http.Request) {
 	jsonapi.Write(w, http.StatusOK, doc)
 }
 
+// clearTopicMessages permanently deletes every retained message on one Topic.
+// The Topic and its subscriptions remain intact.
+//
+// @Summary Helix-org: clear all messages from a topic
+// @Tags HelixOrg
+// @Param id path string true "Topic ID"
+// @Success 204
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/topics/{id}/messages [delete]
+func (a *apiHandler) clearTopicMessages(w http.ResponseWriter, r *http.Request) {
+	orgID, err := resolveOrgID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := streaming.TopicID(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("topic id is required"))
+		return
+	}
+	if a.deps.Messages == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("topic messages service not configured"))
+		return
+	}
+	if err := a.deps.Messages.Clear(r.Context(), orgID, id); err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("clear messages for %s: %w", id, err))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // topicEventsSSE pushes EventCard JSON arrays on every Hub.Notify.
 //
 // Each SSE `data:` line is a JSON array of recent events (cap 50,
@@ -610,18 +652,21 @@ func (a *apiHandler) publishToTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := streaming.Message{
-		To:      req.To,
-		Subject: strings.TrimSpace(req.Subject),
-		Body:    req.Body,
+		To:       req.To,
+		Subject:  strings.TrimSpace(req.Subject),
+		Body:     req.Body,
+		ThreadID: strings.TrimSpace(req.ThreadID),
 	}
-	ev, err := a.deps.Publishing.Publish(ctx, orgID, topicID, strings.TrimSpace(req.As), msg)
-	if err != nil {
-		if errors.Is(err, publishing.ErrPublishToGitHub) {
+	result, err := a.deps.Publishing.PublishWithReceipt(ctx, orgID, topicID, strings.TrimSpace(req.As), msg)
+	if err != nil && result.Event.ID == "" {
+		if errors.Is(err, publishing.ErrPublishToGitHub) ||
+			errors.Is(err, publishing.ErrPublishToGitLab) ||
+			errors.Is(err, publishing.ErrSlackChannelNotConfigured) {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
 		writeError(w, errStatus(err), fmt.Errorf("publish to topic %s: %w", topicID, err))
 		return
 	}
-	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(ev.ID)})
+	writeJSON(w, http.StatusCreated, PublishResponse{EventID: string(result.Event.ID), Delivery: result.Delivery})
 }

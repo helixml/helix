@@ -60,6 +60,7 @@ import {
   TypesExternalRepositoryType,
 } from "../../api/api";
 import useApi from "../../hooks/useApi";
+import { GITHUB_VCS_SCOPES } from "../../hooks/useOAuthFlow";
 import useSnackbar from "../../hooks/useSnackbar";
 import useAccount from "../../hooks/useAccount";
 import useRouter from "../../hooks/useRouter";
@@ -416,12 +417,12 @@ const BrowseProvidersDialog: FC<BrowseProvidersDialogProps> = ({
       if (providerId) {
         // Request scopes based on provider type
         // GitHub needs 'repo' scope for read/write access to repositories
-        // GitLab needs 'read_repository,write_repository' scopes
+        // GitLab needs API and repository scopes for merge requests and pushes
         let scopesParam = "";
         if (selectedProvider === "github") {
-          scopesParam = "?scopes=repo,workflow,read:org,read:user,user:email";
+          scopesParam = "?scopes=" + GITHUB_VCS_SCOPES.join(",");
         } else if (selectedProvider === "gitlab") {
-          scopesParam = "?scopes=read_repository,write_repository,read_user";
+          scopesParam = "?scopes=api,read_repository,write_repository,read_user";
         }
 
         try {

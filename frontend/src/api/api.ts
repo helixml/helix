@@ -30,9 +30,26 @@ export interface ApiBotChatDTO {
 }
 
 export interface ApiBotDTO {
+  agent_model?: string;
+  agent_runtime?: string;
+  /**
+   * AgentStatus is "running" when the bot's desktop sandbox is online,
+   * "stopped" otherwise (no session, paused, never activated). Drives
+   * the green/grey presence dot on the org chart.
+   */
+  agent_status?: string;
   content?: string;
   created_at?: string;
+  helix_user_id?: string;
   id?: string;
+  identity?: Record<string, string>;
+  /**
+   * Kind is "" (agent) or "human". A human node is a person placeholder,
+   * never activated; Identity holds their cross-system handles and
+   * HelixUserID optionally links them to a Helix org member. Identity is
+   * omitted for agent bots.
+   */
+  kind?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
    * back to ID. Distinct from ID, which is the immutable handle.
@@ -46,6 +63,7 @@ export interface ApiBotDTO {
    * context across triggers (e.g. Slack). Defaults to false.
    */
   preserve_context?: boolean;
+  project_ids?: string[];
   tools?: string[];
   updated_at?: string;
 }
@@ -65,6 +83,18 @@ export interface ApiBotSubscriptionDTO {
 export interface ApiBotSubscriptionsResponse {
   bot_id?: string;
   subscriptions?: ApiBotSubscriptionDTO[];
+}
+
+export interface ApiChartPositionDTO {
+  id?: string;
+  /** Kind is bot | topic | processor (matches the ReactFlow node id prefix). */
+  kind?: string;
+  x?: number;
+  y?: number;
+}
+
+export interface ApiChartPositionsResponse {
+  positions?: ApiChartPositionDTO[];
 }
 
 export interface ApiCreateBotRequest {
@@ -188,6 +218,15 @@ export interface ApiGitHubWebhookStatusResponse {
   webhook_id?: number;
 }
 
+export interface ApiGitLabWebhookStatusResponse {
+  active?: boolean;
+  detail?: string;
+  payload_url?: string;
+  state?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
 export interface ApiInstallGitHubWebhookResponse {
   payload_url?: string;
   /**
@@ -198,6 +237,12 @@ export interface ApiInstallGitHubWebhookResponse {
    * what needs fixing on their side for deliveries to flow.
    */
   warning?: string;
+  webhook_html_url?: string;
+  webhook_id?: number;
+}
+
+export interface ApiInstallGitLabWebhookResponse {
+  payload_url?: string;
   webhook_html_url?: string;
   webhook_id?: number;
 }
@@ -279,10 +324,12 @@ export interface ApiPublishRequest {
   as?: string;
   body?: string;
   subject?: string;
+  threadId?: string;
   to?: string[];
 }
 
 export interface ApiPublishResponse {
+  delivery?: PublishingDeliveryReceipt;
   event_id?: string;
 }
 
@@ -341,8 +388,15 @@ export interface ApiTransportRequestField {
 
 export interface ApiUpdateBotRequest {
   content?: string;
+  /**
+   * Identity is the per-channel handle map for a human node (slack/github/
+   * email/…). When present it replaces the stored map; absent leaves it
+   * unchanged. Only meaningful for kind=human bots.
+   */
+  identity?: Record<string, string>;
   name?: string;
   preserve_context?: boolean;
+  project_ids?: string[];
   tools?: string[];
 }
 
@@ -350,6 +404,10 @@ export interface ApiUpdateTopicRequest {
   description?: string;
   name?: string;
   transport?: ApiTransportRequestField;
+}
+
+export interface ApiUpsertChartPositionsRequest {
+  positions?: ApiChartPositionDTO[];
 }
 
 export interface FilestoreConfig {
@@ -916,6 +974,14 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
+export interface PublishingDeliveryReceipt {
+  destination?: string;
+  error?: string;
+  messageId?: string;
+  provider?: string;
+  status?: string;
+}
+
 export interface ServerActivateTrialRequest {
   credits?: number;
   days?: number;
@@ -946,6 +1012,24 @@ export interface ServerAgentSandboxesDebugResponse {
   gpus?: ServerGPUInfoWithSandbox[];
   message?: string;
   sandboxes?: ServerSandboxInstanceInfo[];
+}
+
+export interface ServerAppClaudeSubscriptionStatus {
+  /** owner has a subscription connected at all */
+  connected?: boolean;
+  /** true when the editor IS the owner */
+  is_current_user?: boolean;
+  last_error?: string;
+  last_validated_at?: string;
+  /** app owner (the likely session owner) */
+  owner_id?: string;
+  /** human-readable owner (email / full name) */
+  owner_name?: string;
+  status?: string;
+  /** "user" or "org" — where the effective sub resolved */
+  subscription_owner_type?: string;
+  /** that subscription passed its last liveness probe */
+  valid?: boolean;
 }
 
 export interface ServerAppCreateResponse {
@@ -1017,6 +1101,17 @@ export interface ServerCloneCommandResponse {
   clone_url?: string;
   repository_id?: string;
   target_dir?: string;
+}
+
+export interface ServerCodexLoginSessionResponse {
+  session_id?: string;
+}
+
+export interface ServerCodexPollLoginResponse {
+  code?: string;
+  error?: string;
+  found?: boolean;
+  url?: string;
 }
 
 export interface ServerConfigurePendingSessionRequest {
@@ -1514,6 +1609,15 @@ export interface ServerProjectGooseRecipe {
   name?: string;
   parameters?: GooseRecipeParameter[];
   title?: string;
+}
+
+export interface ServerProjectWebServiceLogsResponse {
+  /**
+   * Log is the combined stdout/stderr of the project's startup script — build
+   * output, app logs, and the reason a deploy did or didn't come up. Empty
+   * when the service isn't deployed yet.
+   */
+  log?: string;
 }
 
 export interface ServerProjectWebServiceResponse {
@@ -2394,6 +2498,12 @@ export interface TypesAttentionEvent {
   project_id?: string;
   /** Denormalized for display without joins */
   project_name?: string;
+  /**
+   * RepliedAt is set when the user answers an org_message inline from the
+   * notification bell. It keeps replied messages visible (marked "Replied")
+   * so the user has a record the message came through and was answered.
+   */
+  replied_at?: string;
   snoozed_until?: string;
   spec_task_description?: string;
   spec_task_id?: string;
@@ -2408,6 +2518,7 @@ export enum TypesAttentionEventType {
   AttentionEventSpecFailed = "spec_failed",
   AttentionEventImplementationFailed = "implementation_failed",
   AttentionEventPRReady = "pr_ready",
+  AttentionEventOrgMessage = "org_message",
   AttentionEventCIPassed = "ci_passed",
   AttentionEventCIFailed = "ci_failed",
 }
@@ -2415,6 +2526,11 @@ export enum TypesAttentionEventType {
 export interface TypesAttentionEventUpdateRequest {
   acknowledge?: boolean;
   dismiss?: boolean;
+  /**
+   * Reply marks an org_message answered — sets replied_at (and acknowledges),
+   * keeping it visible as "Replied" instead of dismissing it.
+   */
+  reply?: boolean;
   snoozed_until?: string;
 }
 
@@ -2617,6 +2733,8 @@ export interface TypesClaudeSubscription {
   id?: string;
   last_error?: string;
   last_refreshed_at?: string;
+  /** last time the token was liveness-probed against Anthropic */
+  last_validated_at?: string;
   name?: string;
   owner_id?: string;
   /** "user" or "org" */
@@ -2779,6 +2897,11 @@ export interface TypesCodeAgentConfig {
   model?: string;
   /** Provider is the LLM provider name (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
+  /**
+   * ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+   * Empty means the runtime/model default.
+   */
+  reasoning_effort?: string;
   /** Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code" */
   runtime?: TypesCodeAgentRuntime;
 }
@@ -2800,6 +2923,35 @@ export enum TypesCodeAgentRuntime {
   CodeAgentRuntimeGeminiCLI = "gemini_cli",
   CodeAgentRuntimeCodexCLI = "codex_cli",
   CodeAgentRuntimeGooseCode = "goose_code",
+}
+
+export interface TypesCodexAuthCredentials {
+  OPENAI_API_KEY?: string;
+  auth_mode?: string;
+  last_refresh?: string;
+  tokens?: TypesCodexAuthTokens;
+}
+
+export interface TypesCodexAuthTokens {
+  access_token?: string;
+  account_id?: string;
+  id_token?: string;
+  refresh_token?: string;
+}
+
+export interface TypesCodexSubscription {
+  account_id?: string;
+  auth_mode?: string;
+  created?: string;
+  created_by?: string;
+  id?: string;
+  last_error?: string;
+  last_refreshed_at?: string;
+  name?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
+  status?: string;
+  updated?: string;
 }
 
 export interface TypesCommentQueueStatusResponse {
@@ -2894,6 +3046,13 @@ export interface TypesCreateClaudeSubscriptionRequest {
   owner_type?: TypesOwnerType;
   /** From `claude setup-token` (alternative to credentials) */
   setup_token?: string;
+}
+
+export interface TypesCreateCodexSubscriptionRequest {
+  credentials?: TypesCodexAuthCredentials;
+  name?: string;
+  owner_id?: string;
+  owner_type?: TypesOwnerType;
 }
 
 export interface TypesCreatePullRequestRequest {
@@ -3867,6 +4026,15 @@ export interface TypesLLMCall {
   spec_task_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
+  /**
+   * TimeToFirstTokenMs is the wall time from request start to the first
+   * streamed chunk. It isolates provider prefill / cold-start latency from
+   * generation time (a cold or overloaded provider shows a large TTFT while
+   * generation stays normal). 0 means no chunk was received (the call errored
+   * or was cut before the first token). For non-streaming calls it equals the
+   * time to the full response.
+   */
+  time_to_first_token_ms?: number;
   /** Prompt + completion + cache read + cache write */
   total_cost?: number;
   total_tokens?: number;
@@ -4570,6 +4738,7 @@ export interface TypesProjectMetadata {
   auto_warm_docker_cache?: boolean;
   board_settings?: TypesBoardSettings;
   docker_cache_status?: TypesDockerCacheState;
+  org_members_access?: boolean;
 }
 
 export interface TypesProjectRepositorySpec {
@@ -5887,10 +6056,11 @@ export enum TypesSessionMode {
 
 export interface TypesSessionOutputResponse {
   duration_ms?: number;
+  interaction_id?: string;
   /** Last interaction's response text */
   output?: string;
   session_id?: string;
-  /** "waiting", "complete", "error" */
+  /** "waiting", "complete", "error", "interrupted" */
   status?: string;
 }
 
@@ -6116,6 +6286,8 @@ export interface TypesSpecTask {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted */
+  queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
@@ -6461,6 +6633,8 @@ export interface TypesSpecTaskWithProject {
   project_path?: string;
   /** Public sharing */
   public_design_docs?: boolean;
+  /** Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted */
+  queue_reason?: string;
   /** Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push. */
   rebase_requested_at?: string;
   /** Multi-repo PR tracking: list of PRs across all project repositories */
@@ -7461,6 +7635,8 @@ export interface TypesZedConfigResponse {
   claude_subscription_available?: boolean;
   /** Code agent configuration for Zed agentic coding */
   code_agent_config?: TypesCodeAgentConfig;
+  /** True if user has active ChatGPT credentials for Codex CLI */
+  codex_subscription_available?: boolean;
   /** Session owner's UI color scheme: "light", "dark", or "" (follow OS). Daemon applies via gsettings to GNOME. */
   color_scheme?: string;
   context_servers?: Record<string, any>;
@@ -8559,6 +8735,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription
+     *
+     * @tags Claude
+     * @name V1AppsClaudeSubscriptionStatusDetail
+     * @summary Get the Claude subscription status for an app's owner
+     * @request GET:/api/v1/apps/{id}/claude-subscription-status
+     * @secure
+     */
+    v1AppsClaudeSubscriptionStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerAppClaudeSubscriptionStatus, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/claude-subscription-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get app daily usage
      *
      * @tags apps
@@ -9255,6 +9449,115 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesCloneGroupProgress, TypesAPIError>({
         path: `/api/v1/clone-groups/${groupId}/progress`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsList
+     * @summary List Codex subscriptions
+     * @request GET:/api/v1/codex-subscriptions
+     * @secure
+     */
+    v1CodexSubscriptionsList: (params: RequestParams = {}) =>
+      this.request<TypesCodexSubscription[], any>({
+        path: `/api/v1/codex-subscriptions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Connect a ChatGPT subscription using Codex CLI credentials
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsCreate
+     * @summary Create a Codex subscription
+     * @request POST:/api/v1/codex-subscriptions
+     * @secure
+     */
+    v1CodexSubscriptionsCreate: (body: TypesCreateCodexSubscriptionRequest, params: RequestParams = {}) =>
+      this.request<TypesCodexSubscription, any>({
+        path: `/api/v1/codex-subscriptions`,
+        method: "POST",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsDelete
+     * @summary Delete a Codex subscription
+     * @request DELETE:/api/v1/codex-subscriptions/{id}
+     * @secure
+     */
+    v1CodexSubscriptionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/codex-subscriptions/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsDetail
+     * @summary Get a Codex subscription
+     * @request GET:/api/v1/codex-subscriptions/{id}
+     * @secure
+     */
+    v1CodexSubscriptionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesCodexSubscription, any>({
+        path: `/api/v1/codex-subscriptions/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Return device authentication instructions or persist completed credentials
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsPollLoginDetail
+     * @summary Poll Codex login
+     * @request GET:/api/v1/codex-subscriptions/poll-login/{sessionId}
+     * @secure
+     */
+    v1CodexSubscriptionsPollLoginDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<ServerCodexPollLoginResponse, any>({
+        path: `/api/v1/codex-subscriptions/poll-login/${sessionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Launch a temporary container and start Codex device authentication
+     *
+     * @tags Codex
+     * @name V1CodexSubscriptionsStartLoginCreate
+     * @summary Start a Codex login session
+     * @request POST:/api/v1/codex-subscriptions/start-login
+     * @secure
+     */
+    v1CodexSubscriptionsStartLoginCreate: (params: RequestParams = {}) =>
+      this.request<ServerCodexLoginSessionResponse, any>({
+        path: `/api/v1/codex-subscriptions/start-login`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,
@@ -12326,6 +12629,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * No description
      *
      * @tags HelixOrg
+     * @name V1OrgsBotsStopAgentCreate
+     * @summary Helix-org: stop a bot's agent desktop
+     * @request POST:/api/v1/orgs/{org}/bots/{id}/stop-agent
+     * @secure
+     */
+    v1OrgsBotsStopAgentCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/bots/${id}/stop-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
      * @name V1OrgsBotsSubscriptionsDetail
      * @summary Helix-org: list a bot's subscriptions
      * @request GET:/api/v1/orgs/{org}/bots/{id}/subscriptions
@@ -12377,6 +12697,61 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/orgs/${org}/bots/${id}/subscriptions/${topicId}`,
         method: "DELETE",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Deletes every saved node position for the org; the chart reverts to auto-layout.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsChartPositionsDelete
+     * @summary Helix-org: reset chart layout
+     * @request DELETE:/api/v1/orgs/{org}/chart/positions
+     * @secure
+     */
+    v1OrgsChartPositionsDelete: (org: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/orgs/${org}/chart/positions`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Returns free-placed (x, y) coordinates for org-chart nodes. Nodes without a row fall back to auto-layout.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsChartPositionsDetail
+     * @summary Helix-org: list chart node positions
+     * @request GET:/api/v1/orgs/{org}/chart/positions
+     * @secure
+     */
+    v1OrgsChartPositionsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiChartPositionsResponse, any>({
+        path: `/api/v1/orgs/${org}/chart/positions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upserts (x, y) coordinates for one or more org-chart nodes after the user drags them.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsChartPositionsUpdate
+     * @summary Helix-org: upsert chart node positions
+     * @request PUT:/api/v1/orgs/{org}/chart/positions
+     * @secure
+     */
+    v1OrgsChartPositionsUpdate: (org: string, body: ApiUpsertChartPositionsRequest, params: RequestParams = {}) =>
+      this.request<ApiChartPositionsResponse, any>({
+        path: `/api/v1/orgs/${org}/chart/positions`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -12875,6 +13250,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsGitlabInstallWebhookCreate
+     * @summary Helix-org: auto-install the webhook for a GitLab topic
+     * @request POST:/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook
+     * @secure
+     */
+    v1OrgsTopicsGitlabInstallWebhookCreate: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiInstallGitLabWebhookResponse, any>({
+        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/install-webhook`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsGitlabWebhookStatusDetail
+     * @summary Helix-org: live webhook status for a GitLab topic
+     * @request GET:/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status
+     * @secure
+     */
+    v1OrgsTopicsGitlabWebhookStatusDetail: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<ApiGitLabWebhookStatusResponse, any>({
+        path: `/api/v1/orgs/${org}/topics/${id}/gitlab/webhook-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsTopicsMessagesDelete
+     * @summary Helix-org: clear all messages from a topic
+     * @request DELETE:/api/v1/orgs/{org}/topics/{id}/messages
+     * @secure
+     */
+    v1OrgsTopicsMessagesDelete: (id: string, org: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/topics/${id}/messages`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -13690,6 +14118,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, boolean>, any>({
         path: `/api/v1/projects/${id}/web-service/domains/${domainId}`,
         method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.
+     *
+     * @tags projects
+     * @name V1ProjectsWebServiceLogsDetail
+     * @summary Get web service deploy/startup logs
+     * @request GET:/api/v1/projects/{id}/web-service/logs
+     * @secure
+     */
+    v1ProjectsWebServiceLogsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerProjectWebServiceLogsResponse, any>({
+        path: `/api/v1/projects/${id}/web-service/logs`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,
@@ -14994,6 +15440,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         project_id?: string;
         /** Filter by session role (e.g. job) */
         session_role?: string;
+        /** Include external agent sessions */
+        include_external_agents?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -15154,6 +15602,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/clear`,
         method: "POST",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Codex
+     * @name V1SessionsCodexCredentialsDetail
+     * @summary Get Codex credentials for a session
+     * @request GET:/api/v1/sessions/{id}/codex-credentials
+     * @secure
+     */
+    v1SessionsCodexCredentialsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesCodexAuthCredentials, any>({
+        path: `/api/v1/sessions/${id}/codex-credentials`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Persist credentials refreshed by Codex CLI. Stale refreshes are ignored.
+     *
+     * @tags Codex
+     * @name V1SessionsCodexCredentialsUpdate
+     * @summary Update Codex credentials for a session
+     * @request PUT:/api/v1/sessions/{id}/codex-credentials
+     * @secure
+     */
+    v1SessionsCodexCredentialsUpdate: (id: string, body: TypesCodexAuthCredentials, params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/sessions/${id}/codex-credentials`,
+        method: "PUT",
+        body: body,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -15401,7 +15887,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Tears down the half-dead desktop container and brings up a fresh one via the same resume path used by /sessions/{id}/resume. The session's ZedThreadID is preserved, so Zed reloads the existing thread from the persistent threads.db in the workspace volume and the underlying agent (claude-code, qwen, etc.) reloads its session from disk — prior conversation context is restored. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
+     * @description Tears down the half-dead desktop container and brings up a fresh one via the resume path. The conversation thread is PRESERVED when the session's last turn completed cleanly (the common "reboot to refresh the environment" case) so context is not lost; it is reset only when the last turn is mid-flight or errored, which signals a possibly poisoned thread that would just reproduce the wedge on reattach. The workspace volume persists, so files and the agent's own state survive regardless. Crashed prompts are reset to pending and the queue is kicked so they re-dispatch on the new container. Requires the session to be an external Zed agent. Returns the count of prompts that were reset.
      *
      * @tags Sessions
      * @name V1SessionsRestartAgentCreate

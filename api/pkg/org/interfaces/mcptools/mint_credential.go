@@ -72,6 +72,16 @@ func (t *MintCredential) Description() string {
 	if avail == "" {
 		avail = "(none configured on this server)"
 	}
+	slackContract := ""
+	if _, ok := t.providers["slack"]; ok {
+		slackContract = "\n\nSlack: call mint_credential with provider=\"slack\" and " +
+			"resource=<team_id> for rich actions such as reactions, uploads, edits, lookups, " +
+			"or provider-specific workflows. Use publish for basic text to a configured Slack Topic " +
+			"and ask_human to contact a person. This returns the installed workspace bot token; " +
+			"resource selects the workspace but does not narrow its OAuth scopes. Slack bot tokens " +
+			"normally have no expires_at unless token rotation is enabled. Inspect Slack JSON responses: " +
+			"HTTP 200 is not success unless ok=true."
+	}
 	return "Mint a short-lived credential (~1 hour) for an external provider " +
 		"scoped to your organization. Supported providers: " + avail + ".\n\n" +
 		"No provider tokens are in your shell environment by default — you " +
@@ -84,9 +94,8 @@ func (t *MintCredential) Description() string {
 		"are expected for any work that takes more than ~1 hour.\n\n" +
 		"Args: provider (string, required) — one of: " + avail + "; " +
 		"resource (string, optional) — a provider-specific scope when your " +
-		"org has several identities (for slack, the workspace team id from " +
-		"the event's extra.slack_team_id).\n" +
-		"Returns: { token, expires_at (RFC3339), usage }."
+		"org has several identities.\n" +
+		"Returns: { token, expires_at (RFC3339), usage }." + slackContract
 }
 
 func (t *MintCredential) InputSchema() *jsonschema.Schema { return mintCredentialSchema }
@@ -110,6 +119,9 @@ func (t *MintCredential) Invoke(ctx context.Context, inv tool.Invocation) (json.
 	cred, err := p.Mint(ctx, orgID, args.Resource)
 	if err != nil {
 		return nil, fmt.Errorf("mint %s credential: %w", args.Provider, err)
+	}
+	if t.deps.RecordCredential != nil {
+		t.deps.RecordCredential(orgID, args.Provider, cred.Token)
 	}
 	out := map[string]any{
 		"token": cred.Token,

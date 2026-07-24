@@ -164,9 +164,9 @@ func GenerateZedMCPConfig(
 		// without a parent app. Keep the legacy SaaS-friendly default so
 		// those sessions still come up.
 		provider = "anthropic"
-		model = "claude-sonnet-4-5-latest"
-	} else if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
-		// Subscription credentials only make sense for Claude Code: it handles
+		model = "claude-sonnet-4-6"
+	} else if usesUpstreamSubscription(assistant) {
+		// Subscription credentials only make sense for runtimes that handle
 		// inference upstream via OAuth, not through a Helix provider. Don't
 		// write a Helix-routed default into settings.json — Zed falls back to
 		// its built-in defaults for inline assistant / commit messages / thread
@@ -174,8 +174,8 @@ func GenerateZedMCPConfig(
 		// flight ValidateAssistantModelConfig already applies the same bypass
 		// so spec-task start handlers don't 422.
 		//
-		// We deliberately scope this branch to claude_code: a non-Claude
-		// runtime (zed_agent, qwen_code, gemini_cli, codex_cli) cannot use a
+		// We deliberately scope this branch to Claude Code and Codex CLI. Other
+		// runtimes (zed_agent, qwen_code, gemini_cli, goose_code) cannot use a
 		// "subscription" credential — there's no OAuth path for it. Treating
 		// such an assistant as subscription-credentialed leaves agent.default_model
 		// unset, which trips start-zed-helix.sh's wait_for_zed_config (it greps
@@ -528,91 +528,6 @@ func getAPIKeyForProvider(provider string) string {
 	}
 }
 
-// normalizeModelIDForZed converts model IDs to the format Zed expects.
-// Zed's serde config only recognizes specific model aliases (e.g., "claude-3-5-haiku-latest"),
-// not dated versions (e.g., "claude-3-5-haiku-20241022"). This function strips dates
-// and converts to the -latest format.
-func normalizeModelIDForZed(modelID string) string {
-	// Already has -latest suffix, return as-is
-	if strings.HasSuffix(modelID, "-latest") {
-		return modelID
-	}
-
-	// Claude 4.8 models
-	if strings.HasPrefix(modelID, "claude-opus-4-8") {
-		return "claude-opus-4-8-latest"
-	}
-
-	// Claude 4.7 models
-	if strings.HasPrefix(modelID, "claude-opus-4-7") {
-		return "claude-opus-4-7-latest"
-	}
-
-	// Claude 4.6 models
-	if strings.HasPrefix(modelID, "claude-opus-4-6") {
-		return "claude-opus-4-6-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-sonnet-4-6") {
-		return "claude-sonnet-4-6-latest"
-	}
-
-	// Claude 4.5 models
-	if strings.HasPrefix(modelID, "claude-opus-4-5") {
-		return "claude-opus-4-5-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-sonnet-4-5") {
-		return "claude-sonnet-4-5-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-haiku-4-5") {
-		return "claude-haiku-4-5-latest"
-	}
-
-	// Claude 4.1 models (must come before generic claude-opus-4 / claude-sonnet-4)
-	if strings.HasPrefix(modelID, "claude-opus-4-1") {
-		return "claude-opus-4-1-latest"
-	}
-
-	// Claude 4.0 models (generic — catches claude-opus-4-20250514, claude-sonnet-4-20250514, etc.)
-	if strings.HasPrefix(modelID, "claude-opus-4") {
-		return "claude-opus-4-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-sonnet-4") {
-		return "claude-sonnet-4-latest"
-	}
-
-	// Claude 3.x models (old naming: claude-3-5-sonnet, claude-3-5-haiku, etc.)
-	if strings.HasPrefix(modelID, "claude-3-7-sonnet") {
-		return "claude-3-7-sonnet-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-3-5-sonnet") {
-		return "claude-3-5-sonnet-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-3-5-haiku") {
-		return "claude-3-5-haiku-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-3-opus") {
-		return "claude-3-opus-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-3-sonnet") {
-		return "claude-3-sonnet-latest"
-	}
-	if strings.HasPrefix(modelID, "claude-3-haiku") {
-		return "claude-3-haiku-latest"
-	}
-
-	// OpenAI models - these typically don't have date suffixes in settings
-	// but normalize common patterns just in case
-	if strings.HasPrefix(modelID, "gpt-4o-") && !strings.HasPrefix(modelID, "gpt-4o-mini") {
-		return "gpt-4o"
-	}
-	if strings.HasPrefix(modelID, "gpt-4o-mini-") {
-		return "gpt-4o-mini"
-	}
-
-	// Return unchanged for other models (Gemini, Qwen, etc. - these go through OpenAI provider)
-	return modelID
-}
-
 // ProviderRef is the minimal projection of a provider endpoint that the
 // agent-config code path needs: a stable ID (empty for env-baked globals,
 // which have no DB row) and the current canonical name. Callers build the
@@ -751,7 +666,7 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 	// on those is misconfig (almost always a stale UI default) — we let it
 	// fall through to the normal provider/model check rather than silently
 	// bypassing it. See the matching condition in GenerateZedMCPConfig.
-	if assistant.CodeAgentCredentialType.IsSubscription() && assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode {
+	if usesUpstreamSubscription(assistant) {
 		return ""
 	}
 	// Mirror GenerateZedMCPConfig: Model/Provider is the zed_external source of
@@ -776,6 +691,14 @@ func ValidateAssistantModelConfig(app *types.App, snapshot []ProviderRef) string
 		return fmt.Sprintf("agent %q references provider %q which does not match any current provider — the provider may have been renamed or deleted. Open the agent settings and re-pick a provider, or restore/rename the provider in admin.", app.ID, provider)
 	}
 	return ""
+}
+
+func usesUpstreamSubscription(assistant *types.AssistantConfig) bool {
+	if assistant == nil || !assistant.CodeAgentCredentialType.IsSubscription() {
+		return false
+	}
+	return assistant.CodeAgentRuntime == types.CodeAgentRuntimeClaudeCode ||
+		assistant.CodeAgentRuntime == types.CodeAgentRuntimeCodexCLI
 }
 
 // buildLanguageModels returns the language_models block for Zed's settings.json,
@@ -822,13 +745,13 @@ func buildLanguageModels(snapshot []ProviderRef, helixAPIURL string) map[string]
 // All other Helix providers (nebius, together, openrouter, etc.) are OpenAI-compatible and should use "openai".
 //
 // For the model name:
-// - Anthropic models: normalize to -latest format (e.g., claude-sonnet-4-5-latest)
+// - Anthropic models: passed through verbatim (see the anthropic case below)
 // - OpenAI-native models: use as-is (e.g., gpt-4o)
 // - All other providers: prefix with "provider/" so Helix's router can route to the correct backend
 //
 // Examples:
 //
-//	helixProvider="anthropic", model="claude-sonnet-4-5" → zedProvider="anthropic", zedModel="claude-sonnet-4-5-latest"
+//	helixProvider="anthropic", model="claude-opus-4-8" → zedProvider="anthropic", zedModel="claude-opus-4-8"
 //	helixProvider="openai", model="gpt-4o" → zedProvider="openai", zedModel="openai/gpt-4o"
 //	helixProvider="nebius", model="Qwen/Qwen3-Coder" → zedProvider="openai", zedModel="nebius/Qwen/Qwen3-Coder"
 func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel string) {
@@ -836,10 +759,14 @@ func mapHelixToZedProvider(helixProvider, model string) (zedProvider, zedModel s
 
 	switch provider {
 	case "anthropic":
-		// Anthropic uses Zed's native Anthropic provider which routes to Helix's Anthropic proxy.
-		// Model name is normalized to -latest format (required by Zed's serde config).
-		// No provider prefix needed since Anthropic API is separate from OpenAI API.
-		return "anthropic", normalizeModelIDForZed(model)
+		// Zed discovers Anthropic models from the provider's /v1/models listing
+		// (Helix's proxy) and resolves agent.default_model by exact id. The stored
+		// model id already comes from that same listing (the picker sources it), so
+		// pass it through verbatim. Do NOT rewrite to a "-latest" alias: Helix's
+		// listing returns bare/dated ids (e.g. "claude-opus-4-8"), the "-latest"
+		// form matches nothing, and Zed silently falls back to its built-in default
+		// (gpt-5-mini) — which has no Helix route, so the agent returns empty.
+		return "anthropic", model
 
 	default:
 		// All other providers (openai, nebius, together, openrouter, azure, google, etc.)

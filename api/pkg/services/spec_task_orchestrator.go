@@ -396,10 +396,15 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 		return nil
 	}
 
-	planningLimit, implementationLimit := getProjectWIPLimits(project)
+	planningLimit, reviewLimit, implementationLimit := getProjectWIPLimits(project)
 	planningCount := countTasksByStatus(allProjectTasks,
 		types.TaskStatusQueuedSpecGeneration,
 		types.TaskStatusSpecGeneration,
+	)
+	reviewCount := countTasksByStatus(allProjectTasks,
+		types.TaskStatusSpecReview,
+		types.TaskStatusSpecRevision,
+		types.TaskStatusSpecApproved,
 	)
 	implementationCount := countTasksByStatus(allProjectTasks,
 		types.TaskStatusQueuedImplementation,
@@ -417,14 +422,26 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 				Msg("Skipping backlog task - implementation column at WIP limit")
 			return nil
 		}
-	} else if planningCount >= planningLimit {
-		log.Info().
-			Str("task_id", latestTask.ID).
-			Str("project_id", latestTask.ProjectID).
-			Int("planning_count", planningCount).
-			Int("wip_limit", planningLimit).
-			Msg("Skipping backlog task - planning column at WIP limit")
-		return nil
+	} else {
+		if planningCount >= planningLimit {
+			log.Info().
+				Str("task_id", latestTask.ID).
+				Str("project_id", latestTask.ProjectID).
+				Int("planning_count", planningCount).
+				Int("wip_limit", planningLimit).
+				Msg("Skipping backlog task - planning column at WIP limit")
+			return nil
+		}
+		if reviewCount >= reviewLimit {
+			log.Info().
+				Str("task_id", latestTask.ID).
+				Str("project_id", latestTask.ProjectID).
+				Int("planning_count", planningCount).
+				Int("review_count", reviewCount).
+				Int("wip_limit", reviewLimit).
+				Msg("Skipping backlog task - no review capacity available")
+			return nil
+		}
 	}
 
 	log.Info().
@@ -477,20 +494,24 @@ func (o *SpecTaskOrchestrator) getBacklogProjectLock(projectID string) (*sync.Mu
 	return lock.(*sync.Mutex), nil
 }
 
-func getProjectWIPLimits(project *types.Project) (int, int) {
+func getProjectWIPLimits(project *types.Project) (int, int, int) {
 	planningLimit := 3
+	reviewLimit := 2
 	implementationLimit := 5
 
 	if project.Metadata.BoardSettings != nil {
 		if project.Metadata.BoardSettings.WIPLimits.Planning > 0 {
 			planningLimit = project.Metadata.BoardSettings.WIPLimits.Planning
 		}
+		if project.Metadata.BoardSettings.WIPLimits.Review > 0 {
+			reviewLimit = project.Metadata.BoardSettings.WIPLimits.Review
+		}
 		if project.Metadata.BoardSettings.WIPLimits.Implementation > 0 {
 			implementationLimit = project.Metadata.BoardSettings.WIPLimits.Implementation
 		}
 	}
 
-	return planningLimit, implementationLimit
+	return planningLimit, reviewLimit, implementationLimit
 }
 
 func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatus) int {
@@ -509,6 +530,77 @@ func countTasksByStatus(tasks []*types.SpecTask, statuses ...types.SpecTaskStatu
 	return count
 }
 
+// dependencyQueueReason returns "" if the task's dependencies are all ready,
+// otherwise a human-readable reason naming the blocking dependency. projectTasks
+// is used only to resolve the blocking task's display name.
+func dependencyQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	ready, blockingID := areBacklogDependenciesReady(task.DependsOn)
+	if ready {
+		return ""
+	}
+	name := blockingID
+	for _, t := range projectTasks {
+		if t.ID == blockingID && t.Name != "" {
+			name = t.Name
+			break
+		}
+	}
+	if name == "" {
+		return "Waiting for a dependency task to finish."
+	}
+	return fmt.Sprintf("Waiting for dependency %q to finish.", name)
+}
+
+// PlanningQueueReason returns "" if the task could start planning (spec
+// generation) right now, otherwise a human-readable reason why it is being held
+// in queued_spec_generation. It is a pure function (no store access, no side
+// effects) so the orchestrator gate and the read handlers share ONE source of
+// truth for both the block decision and the message shown to the user.
+//
+// Semantics (each column limit is independent — see design note): a task is held
+// when planning is full (planningCount >= planningLimit) OR review is already at
+// its own limit (reviewCount >= reviewLimit). It is NOT gated on the sum of the
+// two columns, which previously made planningLimit dead.
+func PlanningQueueReason(project *types.Project, projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	if reason := dependencyQueueReason(projectTasks, task); reason != "" {
+		return reason
+	}
+
+	planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+	planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
+	reviewCount := countTasksByStatus(projectTasks,
+		types.TaskStatusSpecReview,
+		types.TaskStatusSpecRevision,
+		types.TaskStatusSpecApproved,
+	)
+
+	if planningCount >= planningLimit {
+		return fmt.Sprintf("Waiting for planning capacity — %s already generating specs (limit %d).",
+			countPhrase(planningCount, "task"), planningLimit)
+	}
+	if reviewCount >= reviewLimit {
+		return fmt.Sprintf("Waiting for review capacity — %s awaiting review (limit %d). Approve or clear reviews in the Review column to start planning.",
+			countPhrase(reviewCount, "spec"), reviewLimit)
+	}
+	return ""
+}
+
+// ImplementationQueueReason returns "" if a queued_implementation task could
+// start now, otherwise the reason. The implementation-start transition has no
+// WIP gate of its own (the WIP reservation happens earlier, at backlog entry),
+// so the only block cause here is an unfinished dependency.
+func ImplementationQueueReason(projectTasks []*types.SpecTask, task *types.SpecTask) string {
+	return dependencyQueueReason(projectTasks, task)
+}
+
+// countPhrase renders "1 task is" / "3 tasks are" with correct grammar.
+func countPhrase(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s is", noun)
+	}
+	return fmt.Sprintf("%d %ss are", n, noun)
+}
+
 // handleQueuedSpecGeneration handles tasks in queued spec generation
 func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, task *types.SpecTask) error {
 	dependenciesReady, blockingDependency := areBacklogDependenciesReady(task.DependsOn)
@@ -521,10 +613,64 @@ func (o *SpecTaskOrchestrator) handleQueuedSpecGeneration(ctx context.Context, t
 		return nil
 	}
 
+	projectLock, err := o.getBacklogProjectLock(task.ProjectID)
+	if err != nil {
+		return err
+	}
+	projectLock.Lock()
+	defer projectLock.Unlock()
+
+	latestTask, err := o.store.GetSpecTask(ctx, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest queued task: %w", err)
+	}
+	if latestTask.Status != types.TaskStatusQueuedSpecGeneration {
+		return nil
+	}
+
+	project, err := o.store.GetProject(ctx, latestTask.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project for planning WIP check: %w", err)
+	}
+	projectTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: latestTask.ProjectID})
+	if err != nil {
+		return fmt.Errorf("failed to list project tasks for planning WIP check: %w", err)
+	}
+
+	if reason := PlanningQueueReason(project, projectTasks, latestTask); reason != "" {
+		planningLimit, reviewLimit, _ := getProjectWIPLimits(project)
+		planningCount := countTasksByStatus(projectTasks, types.TaskStatusSpecGeneration)
+		reviewCount := countTasksByStatus(projectTasks,
+			types.TaskStatusSpecReview,
+			types.TaskStatusSpecRevision,
+			types.TaskStatusSpecApproved,
+		)
+		log.Info().
+			Str("task_id", latestTask.ID).
+			Str("project_id", latestTask.ProjectID).
+			Int("planning_count", planningCount).
+			Int("planning_limit", planningLimit).
+			Int("review_count", reviewCount).
+			Int("review_limit", reviewLimit).
+			Str("queue_reason", reason).
+			Msg("Leaving spec task queued - planning or review capacity is full")
+		return nil
+	}
+
+	// Claim capacity before launching the goroutine. The status change is the
+	// reservation observed by subsequent queued tasks under the project lock.
+	now := time.Now()
+	latestTask.Status = types.TaskStatusSpecGeneration
+	latestTask.StatusUpdatedAt = &now
+	latestTask.UpdatedAt = now
+	if err := o.store.UpdateSpecTask(ctx, latestTask); err != nil {
+		return fmt.Errorf("failed to reserve planning WIP slot: %w", err)
+	}
+
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.specTaskService.StartSpecGeneration(ctx, task)
+		o.specTaskService.StartSpecGeneration(ctx, latestTask)
 	}()
 
 	return nil
@@ -542,9 +688,6 @@ func (o *SpecTaskOrchestrator) handleQueuedImplementation(ctx context.Context, t
 		return nil
 	}
 
-	// Check if implementation session is complete
-	// This would integrate with existing SpecDrivenTaskService
-	// For now, we'll assume implementation is ready when all implementation tasks exist
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
@@ -1171,51 +1314,6 @@ func (o *SpecTaskOrchestrator) checkTaskForExternalPRActivity(ctx context.Contex
 				return nil
 			}
 		}
-	}
-
-	// Fallback: check if branch has been merged to main in the primary repo
-	// (handles squash-merges or branch deletion after merge)
-	if project.DefaultRepoID == "" {
-		return nil
-	}
-	repo, err := o.gitService.GetRepository(ctx, project.DefaultRepoID)
-	if err != nil {
-		return fmt.Errorf("failed to get default repository: %w", err)
-	}
-	if !repo.IsExternal {
-		return nil
-	}
-
-	merged, err := o.gitService.IsBranchMerged(ctx, project.DefaultRepoID, task.BranchName, repo.DefaultBranch)
-	if err != nil {
-		if task.LastPushCommitHash != "" {
-			merged, err = o.gitService.IsCommitInBranch(ctx, project.DefaultRepoID, task.LastPushCommitHash, repo.DefaultBranch)
-			if err != nil {
-				log.Debug().Err(err).Str("task_id", task.ID).Msg("Failed to check if commit is in main branch")
-				return nil
-			}
-		} else {
-			return nil
-		}
-	}
-
-	if merged {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("branch", task.BranchName).
-			Msg("Detected merged branch (no PR found), moving task to done status")
-
-		now := time.Now()
-		task.Status = types.TaskStatusDone
-		task.MergedToMain = true
-		task.MergedAt = &now
-		task.CompletedAt = &now
-		task.UpdatedAt = now
-		if err := o.store.UpdateSpecTask(ctx, task); err != nil {
-			return err
-		}
-		DismissTaskAttentionEvents(ctx, o.store, task.ID)
-		return nil
 	}
 
 	return nil

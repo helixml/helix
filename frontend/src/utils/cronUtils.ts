@@ -10,16 +10,38 @@ const DAYS_OF_WEEK = [
   { value: 6, label: 'SAT', fullLabel: 'Saturday' },
 ]
 
+// Expand a cron weekday field token into numeric days (0=Sun…6=Sat).
+// Handles single days ("1"), lists ("1,3,5"), ranges ("1-5"), and "*".
+function expandDayToken(token: string): number[] {
+  const t = token.trim()
+  if (!t || t === '*') {
+    return [0, 1, 2, 3, 4, 5, 6]
+  }
+  if (t.includes('-')) {
+    const [a, b] = t.split('-').map((s) => parseInt(s, 10))
+    if (isNaN(a) || isNaN(b)) return []
+    const out: number[] = []
+    const start = Math.min(a, b)
+    const end = Math.max(a, b)
+    for (let d = start; d <= end; d++) out.push(d)
+    return out
+  }
+  const n = parseInt(t, 10)
+  return isNaN(n) ? [] : [n]
+}
+
 // Parse cron expression to extract days of the week
 export const parseCronDays = (cronExpression: string): number[] => {
-  const parts = cronExpression.split(' ')
+  const parts = cronExpression.trim().split(/\s+/)
   // Check if it has timezone prefix
   const hasTimezone = cronExpression.startsWith('CRON_TZ=')
   const dayIndex = hasTimezone ? 5 : 4 // weekday field is shifted by 1 if timezone is present
   
   if (parts.length >= (hasTimezone ? 6 : 5)) {
     const dayPart = parts[dayIndex]
-    return dayPart.split(',').map(d => parseInt(d)).filter(d => !isNaN(d))
+    const days = dayPart.split(',').flatMap(expandDayToken)
+    // Dedup + sort for stable UI chips.
+    return Array.from(new Set(days)).filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b)
   }
   return []
 }
@@ -101,6 +123,10 @@ export const generateCronSummary = (cronExpression: string): string => {
   // Check if it's an interval schedule
   if (isIntervalCron(cronExpression)) {
     const interval = parseCronInterval(cronExpression)
+    if (interval >= 60 && interval % 60 === 0) {
+      const hours = interval / 60
+      return `Every ${hours} hour${hours > 1 ? 's' : ''}`
+    }
     return `Every ${interval} minute${interval > 1 ? 's' : ''}`
   }
   

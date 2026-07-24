@@ -61,7 +61,21 @@ func newEventsRepo(db *gorm.DB, bots *botsRepo) *eventsRepo {
 }
 
 func (r *eventsRepo) Append(ctx context.Context, e streaming.Event) error {
-	return r.Repository.Create(ctx, e)
+	err := r.Repository.Create(ctx, e)
+	if isUniqueViolation(err) {
+		return fmt.Errorf("event %q: %w", e.ID, store.ErrConflict)
+	}
+	return err
+}
+
+func (r *eventsRepo) DeleteForTopic(ctx context.Context, orgID string, topicID streaming.TopicID) error {
+	result := r.Repository.db.WithContext(ctx).
+		Where("org_id = ? AND topic_id = ?", orgID, string(topicID)).
+		Delete(&eventRow{})
+	if result.Error != nil {
+		return fmt.Errorf("delete events for topic: %w", result.Error)
+	}
+	return nil
 }
 
 func (r *eventsRepo) ListForTopic(ctx context.Context, orgID string, topicID streaming.TopicID, limit int) ([]streaming.Event, error) {

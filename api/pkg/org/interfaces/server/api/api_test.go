@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,8 +18,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -68,8 +71,9 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 	})
 
 	deps := orgapi.Deps{
-		Topics: topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
-		Bots:   botsSvc,
+		Topics:   topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
+		Messages: messages.New(messages.Deps{Topics: st.Topics, Events: st.Events, Notifier: hub}),
+		Bots:     botsSvc,
 		// Create + Delete live on the lifecycle service. Bots is required
 		// for Create (row creation + base-tool union). BotReconcilers wires
 		// the topology reconcile. Helix/Mirror stay nil — the REST tests
@@ -87,8 +91,9 @@ func newDepsClock(t *testing.T, clock func() time.Time, newID func() string) (or
 			Topics:     topics.New(topics.Deps{Topics: st.Topics, Now: clock, NewID: newID}),
 			Now:        clock, NewID: newID,
 		}),
-		Configs: reg,
-		Hub:     hub,
+		ChartLayout: chartlayout.New(chartlayout.Deps{Positions: st.ChartPositions, Now: clock}),
+		Configs:     reg,
+		Hub:         hub,
 	}
 	return deps, st, reg
 }
@@ -277,7 +282,10 @@ func TestPatchBot_UpdatesContent(t *testing.T) {
 	seedBot(t, st, ctx, "b-alice", "# Owner\noriginal body")
 
 	content := "# Owner v2\nupdated body"
-	rec := do(t, h, "PATCH", "/bots/b-alice", orgapi.UpdateBotRequest{Content: &content})
+	rec := do(t, h, "PATCH", "/bots/b-alice", orgapi.UpdateBotRequest{
+		Content:    &content,
+		ProjectIDs: []string{"prj_own", "prj_extra"},
+	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH status: got %d, want 200; body=%s", rec.Code, rec.Body)
 	}
@@ -290,6 +298,9 @@ func TestPatchBot_UpdatesContent(t *testing.T) {
 	decode(t, rec, &detail)
 	if detail.Bot.Content != "# Owner v2\nupdated body" {
 		t.Errorf("bot content: got %q, want updated", detail.Bot.Content)
+	}
+	if got := strings.Join(detail.Bot.ProjectIDs, ","); got != "prj_own,prj_extra" {
+		t.Errorf("project ids: got %q, want prj_own,prj_extra", got)
 	}
 }
 
@@ -515,6 +526,163 @@ func TestGetTopic_IncludesRecentEvents(t *testing.T) {
 	}
 }
 
+func TestGetGitLabTopic_DoesNotExposeSigningToken(t *testing.T) {
+	deps, st, reg := newDeps(t)
+	reg.Register(configregistry.Spec{Key: "transport.gitlab", Type: configregistry.TypeObject, Secrets: []string{"signing_token"}})
+	if err := reg.Set(context.Background(), "org-test", "transport.gitlab", `{"signing_token":"whsec_must-not-leak"}`); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := json.Marshal(map[string]any{"repo": "helixml/project", "repository_id": "repo-1", "events": []string{"Merge Request Hook"}})
+	topic, err := streaming.NewTopic("s-gitlab", "gitlab", "", "b-owner", time.Now(), transport.Transport{Kind: transport.KindGitLab, Config: config}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/topics/s-gitlab", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "whsec_must-not-leak") || strings.Contains(rec.Body.String(), "signing_token") {
+		t.Fatalf("topic response leaks signing token: %s", rec.Body.String())
+	}
+}
+
+func TestPublishGitLabTopicReturnsConflict(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	config, _ := json.Marshal(map[string]any{"repo": "helixml/project", "repository_id": "repo-1", "events": []string{"Merge Request Hook"}})
+	topic, err := streaming.NewTopic("s-gitlab-publish", "gitlab publish", "", "b-owner", time.Now(), transport.Transport{Kind: transport.KindGitLab, Config: config}, "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-gitlab-publish/publish", map[string]any{"body": "nope"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+type failingTopicDeliverer struct{}
+
+func (failingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	return publishing.DeliveryReceipt{Provider: "slack", Destination: "C1"}, errors.New("not_in_channel")
+}
+
+type countingTopicDeliverer struct{ calls int }
+
+func (d *countingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	d.calls++
+	return publishing.DeliveryReceipt{}, nil
+}
+
+type countingTopicDispatcher struct{ calls int }
+
+func (d *countingTopicDispatcher) Dispatch(context.Context, streaming.Event) {
+	d.calls++
+}
+
+func TestPublishSlackWithoutChannelReturnsConflictBeforeSideEffects(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1"})
+	topic, err := streaming.NewTopic(
+		"s-slack-inbound", "slack inbound", "", "b-owner", time.Now(),
+		transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	deliverer := &countingTopicDeliverer{}
+	dispatcher := &countingTopicDispatcher{}
+	deps.Publishing = publishing.New(publishing.Deps{
+		Topics: st.Topics, Events: st.Events, Dispatcher: dispatcher,
+		Now: time.Now, NewID: func() string { return "should-not-run" },
+		Deliverers: map[transport.Kind]publishing.Deliverer{transport.KindSlack: deliverer},
+	})
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-inbound/publish", orgapi.PublishRequest{Body: "hello"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-slack-inbound", 10)
+	if len(events) != 0 || deliverer.calls != 0 || dispatcher.calls != 0 {
+		t.Fatalf("events=%d delivery calls=%d dispatches=%d", len(events), deliverer.calls, dispatcher.calls)
+	}
+}
+
+func TestPublishSlackDeliveryFailureReturnsCreatedPartialSuccess(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: "C1"})
+	topic, err := streaming.NewTopic(
+		"s-slack-partial", "slack partial", "", "b-owner", time.Now(),
+		transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	deps.Publishing.RegisterDeliverer(transport.KindSlack, failingTopicDeliverer{})
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-partial/publish", orgapi.PublishRequest{Body: "hello"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got orgapi.PublishResponse
+	decode(t, rec, &got)
+	if got.EventID == "" || got.Delivery == nil || got.Delivery.Status != "failed" || !strings.Contains(got.Delivery.Error, "do not retry publish: not_in_channel") {
+		t.Fatalf("response = %#v", got)
+	}
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-slack-partial", 10)
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
+	}
+}
+
+func TestGetSlackTopicCanPublishRequiresChannelID(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	for _, tc := range []struct {
+		id            string
+		channelID     string
+		canPublish    bool
+		disableReason string
+	}{
+		{"s-slack-workspace", "", false, "slack transport is inbound only until channel_id is configured"},
+		{"s-slack-channel", "C1", true, ""},
+	} {
+		cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: tc.channelID})
+		topic, err := streaming.NewTopic(
+			streaming.TopicID(tc.id), tc.id, "", "b-owner", time.Now(),
+			transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Topics.Create(context.Background(), topic); err != nil {
+			t.Fatal(err)
+		}
+
+		rec := do(t, orgapi.Handler(deps), http.MethodGet, "/topics/"+tc.id, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", tc.id, rec.Code, rec.Body.String())
+		}
+		var got orgapi.TopicDTO
+		decode(t, rec, &got)
+		if got.CanPublish != tc.canPublish || got.DisableReason != tc.disableReason {
+			t.Fatalf("%s: can_publish=%v disable_reason=%q", tc.id, got.CanPublish, got.DisableReason)
+		}
+		if got.EffectivePublicURL != "" {
+			t.Fatalf("%s: effective_public_url=%q, want empty", tc.id, got.EffectivePublicURL)
+		}
+	}
+}
+
 // seedGithubTopic is a per-file helper for the EffectivePublicURL
 // tests — creates a github-transport topic inline.
 func seedGithubTopic(t *testing.T, st *store.Store, id, repo string) {
@@ -552,9 +720,9 @@ func TestGetTopic_EffectivePublicURL_UsesServerURL(t *testing.T) {
 	}
 }
 
-// TestGetTopic_EffectivePublicURL_OnlyForGithubTopics pins that the
-// field is NOT populated for non-github topics.
-func TestGetTopic_EffectivePublicURL_OnlyForGithubTopics(t *testing.T) {
+// TestGetTopic_EffectivePublicURL_OnlyForInboundProviderTopics pins that the
+// field is NOT populated for local topics.
+func TestGetTopic_EffectivePublicURL_OnlyForInboundProviderTopics(t *testing.T) {
 	deps, st, _ := newDeps(t)
 	deps.PublicServerURL = "https://example.com"
 

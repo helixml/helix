@@ -53,9 +53,9 @@ func TestRestartBotAgent_ResetsThenActivatesExistingSession(t *testing.T) {
 
 	resetter := &fakeResetter{}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_alice", agentApp: "app_alice"}, disp)
 	deps.BotRuntime = fakeBotRuntime{sessionID: "ses_alice"}
 	deps.BotSessionResetter = resetter
+	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_alice", agentApp: "app_alice"}, disp)
 
 	h := orgapi.Handler(deps)
 	rec := do(t, h, "POST", "/bots/b-alice/restart-agent", nil)
@@ -81,9 +81,9 @@ func TestRestartBotAgent_ActivatesWithoutResetWhenNoSession(t *testing.T) {
 
 	resetter := &fakeResetter{}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_bob", agentApp: "app_bob"}, disp)
 	deps.BotRuntime = fakeBotRuntime{sessionID: ""} // no live session
 	deps.BotSessionResetter = resetter
+	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_bob", agentApp: "app_bob"}, disp)
 
 	h := orgapi.Handler(deps)
 	rec := do(t, h, "POST", "/bots/b-bob/restart-agent", nil)
@@ -108,9 +108,9 @@ func TestRestartBotAgent_ResetFailureSurfaces(t *testing.T) {
 
 	resetter := &fakeResetter{err: errors.New("delete failed")}
 	disp := &fakeDispatcher{}
-	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_carol"}, disp)
 	deps.BotRuntime = fakeBotRuntime{sessionID: "ses_carol"}
 	deps.BotSessionResetter = resetter
+	deps = wireActivate(deps, st, &fakeEnsurer{projectID: "prj_carol"}, disp)
 
 	h := orgapi.Handler(deps)
 	rec := do(t, h, "POST", "/bots/b-carol/restart-agent", nil)

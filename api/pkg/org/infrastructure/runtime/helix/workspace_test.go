@@ -118,11 +118,7 @@ func TestWorkspaceEmptyWorkerIDError(t *testing.T) {
 	}
 }
 
-// TestWorkspaceInvalidatesSessionOnRoleEdit verifies the warm-session
-// invalidation: editing role.md clears the persisted SessionID so the
-// next activation gets a fresh Claude context that re-reads role.md
-// from scratch.
-func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
+func TestWorkspacePreservesSessionOnRoleEdit(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")
 	if err := SaveSession(context.Background(), s, "org-test", wid, "ses_warm"); err != nil {
@@ -134,13 +130,13 @@ func TestWorkspaceInvalidatesSessionOnRoleEdit(t *testing.T) {
 		t.Fatalf("MirrorFile: %v", err)
 	}
 	state, _ := LoadState(context.Background(), s, "org-test", wid)
-	if state.SessionID != "" {
-		t.Errorf("session must be cleared after role edit; got %q", state.SessionID)
+	if state.SessionID != "ses_warm" {
+		t.Errorf("role edit must preserve warm session; got %q", state.SessionID)
 	}
 }
 
-// TestWorkspaceDoesNotInvalidateOnOtherFiles — checkpoint pushes leave
-// the warm session alone; only role.md invalidates.
+// TestWorkspaceDoesNotInvalidateOnOtherFiles verifies other workspace
+// writes also preserve the warm session.
 func TestWorkspaceDoesNotInvalidateOnOtherFiles(t *testing.T) {
 	t.Parallel()
 	s, wid := newSeededStore(t, "repo-1")

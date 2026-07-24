@@ -20,7 +20,8 @@ import useRouter from "../hooks/useRouter";
 import { TypesOrganization } from "../api/api";
 import useSnackbar from "../hooks/useSnackbar";
 import CopyButton from "../components/common/CopyButton";
-import WorkerRuntimePanel from "../components/helix-org/WorkerRuntimePanel";
+import DefaultAgentConfigPanel from "../components/helix-org/WorkerRuntimePanel";
+import HelixOrgSettings from "./HelixOrgSettings";
 
 const OrgSettings: FC = () => {
   // Get account context and router
@@ -43,10 +44,6 @@ const OrgSettings: FC = () => {
   }>({});
 
   const organization = account.organizationTools.organization;
-  // helix-org alpha gates the Default Bot Runtime config (its settings
-  // endpoint is behind the same feature flag).
-  const helixOrgEnabled =
-    account.user?.alpha_features?.includes("helix-org") ?? false;
   const isOrgOwner =
     !!account.user &&
     !!organization &&
@@ -328,22 +325,22 @@ const OrgSettings: FC = () => {
                 </Box>
               )}
 
-              {helixOrgEnabled && (
-                <Box sx={{ mt: 4 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Default Bot Runtime
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mb: 2 }}
-                  >
-                    How Bots in this org run by default — which runtime, and which
-                    provider/model they route through.
-                  </Typography>
-                  <WorkerRuntimePanel />
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h6" gutterBottom>
+                  Default Agent Configuration
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Agent settings copied to Bots when they are first provisioned.
+                </Typography>
+                <DefaultAgentConfigPanel />
+                <Box sx={{ mt: 3 }}>
+                  <HelixOrgSettings />
                 </Box>
-              )}
+              </Box>
 
               {isOrgOwner && (
                 <Paper

@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +37,7 @@ func (c truncateConfig) Validate(out []Output) error {
 
 // Process returns the Message with its body capped to MaxBytes,
 // rune-safely (never splitting a multi-byte rune).
-func (c truncateConfig) Process(in streaming.Message, out []Output) ([]Result, error) {
+func (c truncateConfig) Process(_ context.Context, in streaming.Message, out []Output) ([]Result, error) {
 	m := in
 	m.Body = runeSafeTruncate(in.Body, c.MaxBytes)
 	return []Result{{TopicID: out[0].TopicID, Message: m}}, nil

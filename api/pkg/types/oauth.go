@@ -300,7 +300,7 @@ type ServiceConnection struct {
 	SlackIngressMode   string `json:"slack_ingress_mode,omitempty"`      // "rest" | "socket"
 
 	// Slack workspace install (type=slack_workspace) — per-org.
-	SlackTeamID    string `json:"slack_team_id,omitempty"`
+	SlackTeamID    string `json:"slack_team_id,omitempty" gorm:"index:idx_service_connections_slack_workspace_team,unique,where:type = 'slack_workspace' AND deleted_at IS NULL AND slack_team_id <> ''"`
 	SlackTeamName  string `json:"slack_team_name,omitempty"`
 	SlackBotUserID string `json:"slack_bot_user_id,omitempty"`
 	SlackAppID     string `json:"slack_app_id,omitempty"`

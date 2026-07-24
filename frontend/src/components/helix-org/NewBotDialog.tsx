@@ -1,22 +1,19 @@
-// NewBotDialog is the shared "create bot" dialog used by the Chart
-// canvas's floating top-right button / per-node "new bot" affordance and
-// the Bots list's "+ New bot" header action. A Bot is created in one
-// step: a display name, an id (the immutable handle, auto-derived from the
-// name but overridable), its content (markdown prompt), and an optional
-// parent bot it reports to.
+// NewBotDialog is the shared "create bot" side drawer used by the Chart
+// canvas (toolbar + right-click + per-node "new bot") and the Bots list's
+// "+ New bot" header action. A Bot is created in one step: display name,
+// id (immutable handle, auto-derived from the name but overridable),
+// content (markdown prompt), and an optional parent bot it reports to.
 
 import { FC, useEffect, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import { useCreateBot, useListHelixOrgBots } from '../../services/helixOrgService'
+import HelixOrgSideDrawer from './HelixOrgSideDrawer'
 
 export type NewBotDialogProps = {
   open: boolean
@@ -110,73 +107,79 @@ const NewBotDialog: FC<NewBotDialogProps> = ({ open, onClose, presetParentId }) 
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>New bot</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
+    <HelixOrgSideDrawer open={open} onClose={onClose} title="New bot" width={460}>
+      <Stack spacing={2}>
+        <Typography variant="body2" color="text.secondary">
+          Create an agent bot. It appears on the org chart; set reporting lines
+          here or by dragging edges on the chart.
+        </Typography>
+        <TextField
+          label="Name"
+          placeholder="Chief of Staff"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          helperText="Human-readable display name shown in the chart and bot page."
+          autoFocus
+          fullWidth
+          size="small"
+        />
+        <TextField
+          label="Bot ID"
+          placeholder="chief-of-staff"
+          value={id}
+          onChange={(e) => { setIdEdited(true); setId(e.target.value) }}
+          helperText="Immutable kebab-case handle (auto-filled from the name). Referenced by the LLM, repos and MCP tools; can be anything."
+          fullWidth
+          size="small"
+          sx={{ '& input': { fontFamily: 'monospace' } }}
+        />
+        {presetParentId ? (
           <TextField
-            label="Name"
-            placeholder="Chief of Staff"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            helperText="Human-readable display name shown in the chart and bot page."
-            autoFocus
+            label="Reports to"
+            value={presetParentId}
+            InputProps={{ readOnly: true }}
+            helperText="Manager this bot reports to."
             fullWidth
-          />
-          <TextField
-            label="Bot ID"
-            placeholder="chief-of-staff"
-            value={id}
-            onChange={(e) => { setIdEdited(true); setId(e.target.value) }}
-            helperText="Immutable kebab-case handle (auto-filled from the name). Referenced by the LLM, repos and MCP tools; can be anything."
-            fullWidth
+            size="small"
             sx={{ '& input': { fontFamily: 'monospace' } }}
           />
-          {presetParentId ? (
-            <TextField
-              label="Reports to"
-              value={presetParentId}
-              InputProps={{ readOnly: true }}
-              helperText="Manager this bot reports to."
-              fullWidth
-              sx={{ '& input': { fontFamily: 'monospace' } }}
-            />
-          ) : (
-            <TextField
-              select
-              label="Reports to (optional)"
-              value={parentId}
-              onChange={(e) => setParentId(e.target.value)}
-              helperText="Manager this bot reports to. Leave blank and wire later by dragging an edge in the Chart."
-              fullWidth
-            >
-              <MenuItem value="">(none)</MenuItem>
-              {bots.map((b) => (
-                <MenuItem key={b.id} value={b.id ?? ''}>
-                  {b.name || b.id}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
+        ) : (
           <TextField
-            label="Content (markdown)"
-            placeholder="# Engineer&#10;Builds and ships software."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            multiline
-            minRows={6}
+            select
+            label="Reports to (optional)"
+            value={parentId}
+            onChange={(e) => setParentId(e.target.value)}
+            helperText="Manager this bot reports to. Leave blank and wire later by dragging an edge in the Chart."
             fullWidth
-            helperText="The bot's prompt / identity. Read on every activation."
-          />
+            size="small"
+          >
+            <MenuItem value="">(none)</MenuItem>
+            {bots.map((b) => (
+              <MenuItem key={b.id} value={b.id ?? ''}>
+                {b.name || b.id}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+        <TextField
+          label="Instructions"
+          placeholder="# Engineer&#10;Builds and ships software."
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          multiline
+          minRows={8}
+          fullWidth
+          size="small"
+          helperText="Instructions to follow, set on every interaction."
+        />
+        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+          <Button onClick={submit} variant="contained" disabled={create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create'}
+          </Button>
+          <Button onClick={onClose} variant="text">Cancel</Button>
         </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={submit} variant="contained" disabled={create.isPending}>
-          {create.isPending ? 'Creating…' : 'Create'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      </Stack>
+    </HelixOrgSideDrawer>
   )
 }
 

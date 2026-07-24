@@ -22,6 +22,12 @@ import (
 // server → registry → tool → projects service → port path.
 type stubProjectsPort struct{ views []runtime.ProjectView }
 
+type stubProjectAccess struct{ ownProjectID string }
+
+func (s stubProjectAccess) OwnProjectID(_ context.Context, _ string, _ orgchart.BotID) (string, error) {
+	return s.ownProjectID, nil
+}
+
 func (s stubProjectsPort) List(_ context.Context, _ string) ([]runtime.ProjectView, error) {
 	return s.views, nil
 }
@@ -47,7 +53,10 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	cfg.Projects = stubProjectsPort{views: []runtime.ProjectView{
 		{ID: "prj_1", Name: "Alpha", Status: "active"},
 		{ID: "prj_2", Name: "Beta", Status: "active"},
+		{ID: "prj_3", Name: "Hidden", Status: "active"},
 	}}
+	cfg.ProjectAccess = stubProjectAccess{ownProjectID: "prj_1"}
+	injectTestPublishing(&cfg)
 	if err := mcptools.RegisterBuiltins(reg, cfg.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
 	}
@@ -67,7 +76,7 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new bot: %v", err)
 	}
-	mustCreate(t, s.Bots.Create(ctx, bot))
+	mustCreate(t, s.Bots.Create(ctx, bot.WithProjectIDs([]string{"prj_2"})))
 
 	session := connectMCP(t, srv.URL, "b-pm")
 
@@ -104,6 +113,9 @@ func TestProjectDiscoveryOverMCP(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "Beta") {
 		t.Errorf("get_project prj_2 missing name Beta: %s", got)
+	}
+	if _, err := invokeTool(t, session, mcptools.GetProjectName, map[string]any{"project_id": "prj_3"}); err == nil {
+		t.Error("expected access error for unselected project")
 	}
 
 	// get_project for an unknown id surfaces an error, not another project.

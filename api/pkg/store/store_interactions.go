@@ -287,6 +287,28 @@ func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, in
 	return result.RowsAffected > 0, nil
 }
 
+// MarkInteractionErrorIfWaiting atomically transitions an interaction from
+// Waiting to Error without clobbering a concurrent terminal transition.
+func (s *PostgresStore) MarkInteractionErrorIfWaiting(ctx context.Context, interactionID string, generationID int, reason string) (bool, error) {
+	if interactionID == "" {
+		return false, errors.New("id is required")
+	}
+	now := time.Now()
+	result := s.gdb.WithContext(ctx).
+		Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ? AND state = ?", interactionID, generationID, types.InteractionStateWaiting).
+		Updates(map[string]interface{}{
+			"state":     types.InteractionStateError,
+			"error":     sanitize.ForPostgres(reason),
+			"completed": now,
+			"updated":   now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 // ReapWaitingInteractions transitions every interaction still in state=waiting
 // for sessionID to newState (typically interrupted), stamping completed/updated.
 //
@@ -297,10 +319,9 @@ func (s *PostgresStore) MarkInteractionCompleteIfWaiting(ctx context.Context, in
 // processPendingPromptsForIdleSessions (which treats "latest interaction waiting"
 // as "busy, defer") so the desktop is never allowed to resume.
 //
-// This is deliberately DIFFERENT from the auto-wake worker: auto-wake *retries*
-// zero-output waiting turns over a LIVE WebSocket, whereas here the agent is gone
-// and we cleanly TERMINATE the turn so the session can move on. The two never
-// overlap — auto-wake skips both partial-output turns and sessions with no WS.
+// This is deliberately different from the auto-wake worker: this bulk operation
+// handles a disconnected session, while auto-wake leaves connected interactions
+// waiting and retries cold-start when no WebSocket has connected.
 //
 // Targeted column UPDATE guarded on state=waiting (not a full-row Save) so it
 // cannot clobber a concurrent streaming write. Returns the reaped interactions

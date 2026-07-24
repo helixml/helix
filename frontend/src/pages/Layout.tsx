@@ -22,7 +22,6 @@ import FilesSidebar from "../components/files/FilesSidebar";
 import AdminPanelSidebar from "../components/admin/AdminPanelSidebar";
 import AccountSidebar from "../components/account/AccountSidebar";
 import OrgSidebar from "../components/orgs/OrgSidebar";
-import HelixOrgSidebar from "../components/orgs/HelixOrgSidebar";
 import AppSidebar from "../components/app/AppSidebar";
 import ProjectsSidebar from "../components/project/ProjectsSidebar";
 import ProjectSettingsSidebar from "../components/project/ProjectSettingsSidebar";
@@ -408,9 +407,15 @@ const Layout: FC<{
   const resourceType =
     router.params.resource_type || (router.params.app_id ? "apps" : "chat");
 
+  // Hide secondary context sidebar on helix-org routes (nav is in the top
+  // AppBar; chat is an in-page left rail). Still show the 64px org rail.
+  const isHelixOrgRoute =
+    typeof router.name === "string" && router.name.startsWith("helix_org_");
+
   // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer
   const shouldShowSidebar =
     router.meta.drawer &&
+    !isHelixOrgRoute &&
     !(router.name === "org_new" && router.params.app_id);
 
   if (shouldShowSidebar) {
@@ -444,10 +449,14 @@ const Layout: FC<{
       case "helix_org_chart":
       case "helix_org_bots":
       case "helix_org_bot_detail":
+      case "helix_org_human_detail":
       case "helix_org_settings":
       case "helix_org_topics":
       case "helix_org_topic_detail":
-        return <HelixOrgSidebar />;
+      case "helix_org_processor_detail":
+        // Nav lives in the top AppBar (HelixOrgTopNav); chat is a left rail
+        // inside HelixOrgShell — no middle ContextSidebar.
+        return null;
 
       case "org_agent":
         // Individual app pages use the new context sidebar for agent navigation
@@ -461,6 +470,7 @@ const Layout: FC<{
       case "org_usage":
       case "org_api_keys":
       case "org_providers":
+      case "org_provider_detail":
       case "org_qa":
       case "org_qa-results":
       case "team_people":
@@ -668,9 +678,13 @@ const Layout: FC<{
               flexGrow: 1,
               backgroundColor: lightTheme.backgroundColor,
               height: "100%",
-              minHeight: "100%",
+              minHeight: 0,
               minWidth: 0,
               overflow: "hidden",
+              // Flex column so full-height pages (helix-org shell, etc.) can
+              // size their children with flex:1 / height:100%.
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             {account.loggingOut ? (

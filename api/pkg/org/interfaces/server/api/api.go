@@ -9,8 +9,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/org/application/activations"
 	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/chartlayout"
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
 	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
+	"github.com/helixml/helix/api/pkg/org/application/messages"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
 	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/queries"
@@ -69,7 +71,8 @@ type Deps struct {
 	// helper). The api package holds NO store.* repository, so the
 	// compiler now forbids any handler reaching past a service into the
 	// store (the Phase-D enforcement gate).
-	Topics *topics.Topics
+	Topics   *topics.Topics
+	Messages *messages.Messages
 	// Bots is the merged role+worker mutation service: content/tools
 	// updates (PATCH /bots/{id}) and reporting-line edges
 	// (AddParent/RemoveParent). Creation/deletion go through Lifecycle.
@@ -80,6 +83,9 @@ type Deps struct {
 	// Processors owns the processor CRUD + preview use cases. nil →
 	// the /processors routes return 503 (test wirings that skip it).
 	Processors *processors.Processors
+	// ChartLayout owns free-placed canvas coordinates for the org chart
+	// UI. nil → /chart/positions routes return 503.
+	ChartLayout *chartlayout.Service
 	// Queries is the read facade for every projection the read handlers
 	// render. One service spanning several repos (reads carry no
 	// invariants to split on).
@@ -102,6 +108,9 @@ type Deps struct {
 	// brand-new session on a fresh desktop with newly added MCP services.
 	// nil → restartBotAgent skips the reset and just re-activates.
 	BotSessionResetter BotSessionResetter
+	// BotDesktopStopper stops the desktop only (session + transcript kept).
+	// nil → stopBotAgent returns 501.
+	BotDesktopStopper BotDesktopStopper
 
 	// GitHubInbound builds the inbound GitHub-webhook handler for an org
 	// (the transport reads matching topics + appends events). Built at
@@ -178,6 +187,10 @@ type Deps struct {
 	// disables the "Create the Helix app" path.
 	GitHubManifestStart func(ctx context.Context, orgID, githubOrg, origin string) (GitHubManifestStartResponse, error)
 
+	// AuthorizeHumanContact allows only the person themself or an org owner
+	// to mutate a human node's identity map.
+	AuthorizeHumanContact func(ctx context.Context, orgID, humanUserID string) error
+
 	// PublicServerURL is the operator-configured external base URL
 	// (e.g. https://helix.example.com) that auto-installed GitHub
 	// webhooks should POST back to. Falls back to localhost when
@@ -187,12 +200,18 @@ type Deps struct {
 }
 
 // BotRuntimeInfo is the subset of a Bot's runtime-state sidecar the
-// REST adapter surfaces: the per-project deep-link ids and the current
-// desktop session id.
+// REST adapter surfaces: the per-project deep-link ids, the current
+// desktop session id, and whether that sandbox is online.
 type BotRuntimeInfo struct {
 	ProjectID  string
 	AgentAppID string
 	SessionID  string
+	Runtime    string
+	Model      string
+	// AgentStatus is "running" when the bot's exploratory-session
+	// desktop is online (external_agent_status == running), else
+	// "stopped". Empty when the status could not be resolved.
+	AgentStatus string
 }
 
 // BotRuntime resolves a Bot's runtime-state sidecar. Declared here
@@ -214,6 +233,13 @@ type BotRuntime interface {
 // skips the reset and just re-activates the existing session.
 type BotSessionResetter interface {
 	ResetSession(ctx context.Context, orgID string, botID orgchart.BotID, sessionID string) error
+}
+
+// BotDesktopStopper stops a bot's desktop container without deleting the
+// session row (so the transcript survives and the next start can resume).
+// nil → stopBotAgent returns 501.
+type BotDesktopStopper interface {
+	StopDesktop(ctx context.Context, sessionID string) error
 }
 
 // GitHubIdentity is the resolved GitHub identity for an org. Mirrors
@@ -261,6 +287,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /bots/{id}/subscriptions/{topic_id}", Handler: http.HandlerFunc(a.unsubscribeBot)},
 		{Pattern: "POST /bots/{id}/chat", Handler: http.HandlerFunc(a.ensureBotChat)},
 		{Pattern: "POST /bots/{id}/activate", Handler: http.HandlerFunc(a.activateBot)},
+		{Pattern: "POST /bots/{id}/stop-agent", Handler: http.HandlerFunc(a.stopBotAgent)},
 		{Pattern: "POST /bots/{id}/restart-agent", Handler: http.HandlerFunc(a.restartBotAgent)},
 		// Reporting lines are many-to-many — add/remove individual
 		// manager edges rather than replacing a single parent.
@@ -277,6 +304,7 @@ func Routes(deps Deps) []Route {
 		{Pattern: "DELETE /topics/{id}", Handler: http.HandlerFunc(a.deleteTopic)},
 		{Pattern: "GET /topics/{id}/events", Handler: http.HandlerFunc(a.topicEventsSSE)},
 		{Pattern: "GET /topics/{id}/messages", Handler: http.HandlerFunc(a.listTopicMessages)},
+		{Pattern: "DELETE /topics/{id}/messages", Handler: http.HandlerFunc(a.clearTopicMessages)},
 		{Pattern: "POST /topics/{id}/publish", Handler: http.HandlerFunc(a.publishToTopic)},
 		// Processors — JSON:API CRUD.
 		{Pattern: "GET /processors", Handler: http.HandlerFunc(a.listProcessors)},
@@ -284,6 +312,10 @@ func Routes(deps Deps) []Route {
 		{Pattern: "GET /processors/{id}", Handler: http.HandlerFunc(a.getProcessor)},
 		{Pattern: "PUT /processors/{id}", Handler: http.HandlerFunc(a.updateProcessor)},
 		{Pattern: "DELETE /processors/{id}", Handler: http.HandlerFunc(a.deleteProcessor)},
+		// Chart free-placed layout (bots / topics / processors).
+		{Pattern: "GET /chart/positions", Handler: http.HandlerFunc(a.getChartPositions)},
+		{Pattern: "PUT /chart/positions", Handler: http.HandlerFunc(a.putChartPositions)},
+		{Pattern: "DELETE /chart/positions", Handler: http.HandlerFunc(a.deleteChartPositions)},
 		// Inbound webhook for the GitHub transport. The transport
 		// resolves orgID from the request context (set by the org
 		// middleware) and reads transport.github from the org's
@@ -301,6 +333,8 @@ func Routes(deps Deps) []Route {
 		{Pattern: "POST /github/app-manifest", Handler: http.HandlerFunc(a.startGitHubAppManifest)},
 		{Pattern: "POST /topics/{id}/github/install-webhook", Handler: http.HandlerFunc(a.installGitHubWebhook)},
 		{Pattern: "GET /topics/{id}/github/webhook-status", Handler: http.HandlerFunc(a.getGitHubWebhookStatus)},
+		{Pattern: "POST /topics/{id}/gitlab/install-webhook", Handler: http.HandlerFunc(a.installGitLabWebhook)},
+		{Pattern: "GET /topics/{id}/gitlab/webhook-status", Handler: http.HandlerFunc(a.getGitLabWebhookStatus)},
 	}
 }
 

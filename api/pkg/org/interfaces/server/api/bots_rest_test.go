@@ -3,16 +3,82 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	"github.com/helixml/helix/api/pkg/org/domain/store"
 	"github.com/helixml/helix/api/pkg/org/domain/tool"
 	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	"github.com/helixml/helix/api/pkg/org/interfaces/mcptools"
 	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 )
+
+func injectMCPPublishing(cfg *mcptools.Config) {
+	deps := publishing.Deps{
+		Topics:     cfg.Store.Topics,
+		Events:     cfg.Store.Events,
+		Dispatcher: cfg.Dispatcher,
+		Now:        cfg.Now,
+		NewID:      cfg.NewID,
+	}
+	if cfg.Hub != nil {
+		deps.Hub = cfg.Hub
+	}
+	cfg.Publishing = publishing.New(deps)
+}
+
+func TestRESTUpdateHumanIdentityAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		authorize func(context.Context, string, string) error
+		want      int
+	}{
+		{"self", func(_ context.Context, _, humanUserID string) error {
+			if humanUserID != "usr-human" {
+				t.Fatalf("human user id = %q", humanUserID)
+			}
+			return nil
+		}, http.StatusOK},
+		{"owner", func(context.Context, string, string) error { return nil }, http.StatusOK},
+		{"other member", func(context.Context, string, string) error { return errors.New("forbidden") }, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deps, st, _ := newDeps(t)
+			if _, err := deps.Bots.Create(context.Background(), "org-test", bots.CreateParams{
+				ID: "h-human", Kind: orgchart.BotKindHuman, HelixUserID: "usr-human", Content: "Human",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			deps.AuthorizeHumanContact = tc.authorize
+			rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/h-human", orgapi.UpdateBotRequest{
+				Identity: map[string]string{"preferred_contact": "helix"},
+			})
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.want, rec.Body)
+			}
+			updated, _ := st.Bots.Get(context.Background(), "org-test", "h-human")
+			if tc.want == http.StatusForbidden && len(updated.Identity) != 0 {
+				t.Fatalf("forbidden update changed identity: %#v", updated.Identity)
+			}
+		})
+	}
+}
+
+func TestRESTUpdateNonHumanIdentityDoesNotRequireHumanAuthorization(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	seedBot(t, st, context.Background(), "b-agent", "Agent")
+	rec := do(t, orgapi.Handler(deps), "PATCH", "/bots/b-agent", orgapi.UpdateBotRequest{
+		Identity: map[string]string{"external": "value"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body)
+	}
+}
 
 // mcpRegistry builds a tools registry over a fresh store with the given
 // deterministic clock/id, for driving MCP tools in parity tests.
@@ -21,6 +87,7 @@ func mcpRegistry(t *testing.T, st *store.Store, clock func() time.Time, newID fu
 	deps := mcptools.DefaultDeps(st)
 	deps.Now = clock
 	deps.NewID = newID
+	injectMCPPublishing(&deps)
 	reg := mcptools.NewRegistry()
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)

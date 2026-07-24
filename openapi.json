@@ -2535,6 +2535,73 @@
                 }
             }
         },
+        "/api/v1/apps/{id}/claude-subscription-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription",
+                "tags": [
+                    "Claude"
+                ],
+                "summary": "Get the Claude subscription status for an app's owner",
+                "parameters": [
+                    {
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.AppClaudeSubscriptionStatus"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/daily-usage": {
             "get": {
                 "security": [
@@ -4076,6 +4143,205 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/types.APIError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "List Codex subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/types.CodexSubscription"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Connect a ChatGPT subscription using Codex CLI credentials",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Create a Codex subscription",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.CreateCodexSubscriptionRequest"
+                            }
+                        }
+                    },
+                    "description": "Codex subscription credentials",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.CodexSubscription"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/poll-login/{sessionId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Return device authentication instructions or persist completed credentials",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Poll Codex login",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.CodexPollLoginResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/start-login": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Launch a temporary container and start Codex device authentication",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Start a Codex login session",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.CodexLoginSessionResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/codex-subscriptions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get a Codex subscription",
+                "parameters": [
+                    {
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.CodexSubscription"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Delete a Codex subscription",
+                "parameters": [
+                    {
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -11758,6 +12024,55 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/bots/{id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: stop a bot's agent desktop",
+                "parameters": [
+                    {
+                        "description": "Bot ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/bots/{id}/subscriptions": {
             "get": {
                 "security": [
@@ -11913,6 +12228,84 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/chart/positions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns free-placed (x, y) coordinates for org-chart nodes. Nodes without a row fall back to auto-layout.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: list chart node positions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ChartPositionsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Upserts (x, y) coordinates for one or more org-chart nodes after the user drags them.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: upsert chart node positions",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/api.UpsertChartPositionsRequest"
+                            }
+                        }
+                    },
+                    "description": "positions to save",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ChartPositionsResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Deletes every saved node position for the org; the chart reverts to auto-layout.",
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: reset chart layout",
+                "responses": {
+                    "204": {
+                        "description": "no content"
                     }
                 }
             }
@@ -12982,6 +13375,78 @@
                 }
             }
         },
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: auto-install the webhook for a GitLab topic",
+                "parameters": [
+                    {
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.InstallGitLabWebhookResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: live webhook status for a GitLab topic",
+                "parameters": [
+                    {
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.GitLabWebhookStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/orgs/{org}/topics/{id}/messages": {
             "get": {
                 "security": [
@@ -13045,6 +13510,43 @@
                         "description": "Not Found",
                         "content": {
                             "application/vnd.api+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "HelixOrg"
+                ],
+                "summary": "Helix-org: clear all messages from a topic",
+                "parameters": [
+                    {
+                        "description": "Topic ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/api.ErrorResponse"
                                 }
@@ -15628,6 +16130,43 @@
                                     "additionalProperties": {
                                         "type": "boolean"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/web-service/logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the tail of the project's web-service startup log (combined stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized user can see why a deploy did or didn't come up. Never exposed on the public web-service host.",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Get web service deploy/startup logs",
+                "parameters": [
+                    {
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/server.ProjectWebServiceLogsResponse"
                                 }
                             }
                         }
@@ -19024,6 +19563,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Include external agent sessions",
+                        "name": "include_external_agents",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
                     }
                 ],
                 "responses": {
@@ -19531,6 +20078,91 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/system.HTTPError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/codex-credentials": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Get Codex credentials for a session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/types.CodexAuthCredentials"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Persist credentials refreshed by Codex CLI. Stale refreshes are ignored.",
+                "tags": [
+                    "Codex"
+                ],
+                "summary": "Update Codex credentials for a session",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/types.CodexAuthCredentials"
+                            }
+                        }
+                    },
+                    "description": "Refreshed credentials",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -20208,7 +20840,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the same resume path used by /sessions/{id}/resume. The session's\nZedThreadID is preserved, so Zed reloads the existing thread from the\npersistent threads.db in the workspace volume and the underlying agent\n(claude-code, qwen, etc.) reloads its session from disk — prior\nconversation context is restored. Crashed prompts are reset to pending\nand the queue is kicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
+                "description": "Tears down the half-dead desktop container and brings up a fresh one\nvia the resume path. The conversation thread is PRESERVED when the\nsession's last turn completed cleanly (the common \"reboot to refresh\nthe environment\" case) so context is not lost; it is reset only when\nthe last turn is mid-flight or errored, which signals a possibly\npoisoned thread that would just reproduce the wedge on reattach. The\nworkspace volume persists, so files and the agent's own state survive\nregardless. Crashed prompts are reset to pending and the queue is\nkicked so they re-dispatch on the new container.\nRequires the session to be an external Zed agent. Returns the count of\nprompts that were reset.",
                 "tags": [
                     "Sessions"
                 ],
@@ -25546,13 +26178,36 @@
             "api.BotDTO": {
                 "type": "object",
                 "properties": {
+                    "agent_model": {
+                        "type": "string"
+                    },
+                    "agent_runtime": {
+                        "type": "string"
+                    },
+                    "agent_status": {
+                        "description": "AgentStatus is \"running\" when the bot's desktop sandbox is online,\n\"stopped\" otherwise (no session, paused, never activated). Drives\nthe green/grey presence dot on the org chart.",
+                        "type": "string"
+                    },
                     "content": {
                         "type": "string"
                     },
                     "created_at": {
                         "type": "string"
                     },
+                    "helix_user_id": {
+                        "type": "string"
+                    },
                     "id": {
+                        "type": "string"
+                    },
+                    "identity": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "kind": {
+                        "description": "Kind is \"\" (agent) or \"human\". A human node is a person placeholder,\nnever activated; Identity holds their cross-system handles and\nHelixUserID optionally links them to a Helix org member. Identity is\nomitted for agent bots.",
                         "type": "string"
                     },
                     "name": {
@@ -25571,6 +26226,12 @@
                     "preserve_context": {
                         "description": "PreserveContext, when true, stops the runtime from wiping this\nBot's chat session before each re-activation, so it accumulates\ncontext across triggers (e.g. Slack). Defaults to false.",
                         "type": "boolean"
+                    },
+                    "project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "tools": {
                         "type": "array",
@@ -25619,6 +26280,35 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/api.BotSubscriptionDTO"
+                        }
+                    }
+                }
+            },
+            "api.ChartPositionDTO": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is bot | topic | processor (matches the ReactFlow node id prefix).",
+                        "type": "string"
+                    },
+                    "x": {
+                        "type": "number"
+                    },
+                    "y": {
+                        "type": "number"
+                    }
+                }
+            },
+            "api.ChartPositionsResponse": {
+                "type": "object",
+                "properties": {
+                    "positions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.ChartPositionDTO"
                         }
                     }
                 }
@@ -25821,6 +26511,29 @@
                     }
                 }
             },
+            "api.GitLabWebhookStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "payload_url": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "webhook_html_url": {
+                        "type": "string"
+                    },
+                    "webhook_id": {
+                        "type": "integer"
+                    }
+                }
+            },
             "api.InstallGitHubWebhookResponse": {
                 "type": "object",
                 "properties": {
@@ -25829,6 +26542,20 @@
                     },
                     "warning": {
                         "description": "Warning is a non-fatal message about the just-installed\nwebhook — e.g. \"SERVER_URL is a loopback address so GitHub's\nservers can't actually deliver to this URL\". The webhook IS\ninstalled on GitHub; the warning just tells the operator\nwhat needs fixing on their side for deliveries to flow.",
+                        "type": "string"
+                    },
+                    "webhook_html_url": {
+                        "type": "string"
+                    },
+                    "webhook_id": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "api.InstallGitLabWebhookResponse": {
+                "type": "object",
+                "properties": {
+                    "payload_url": {
                         "type": "string"
                     },
                     "webhook_html_url": {
@@ -26011,6 +26738,9 @@
                     "subject": {
                         "type": "string"
                     },
+                    "threadId": {
+                        "type": "string"
+                    },
                     "to": {
                         "type": "array",
                         "items": {
@@ -26022,6 +26752,9 @@
             "api.PublishResponse": {
                 "type": "object",
                 "properties": {
+                    "delivery": {
+                        "$ref": "#/components/schemas/publishing.DeliveryReceipt"
+                    },
                     "event_id": {
                         "type": "string"
                     }
@@ -26177,11 +26910,24 @@
                     "content": {
                         "type": "string"
                     },
+                    "identity": {
+                        "description": "Identity is the per-channel handle map for a human node (slack/github/\nemail/…). When present it replaces the stored map; absent leaves it\nunchanged. Only meaningful for kind=human bots.",
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
                     "name": {
                         "type": "string"
                     },
                     "preserve_context": {
                         "type": "boolean"
+                    },
+                    "project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "tools": {
                         "type": "array",
@@ -26202,6 +26948,17 @@
                     },
                     "transport": {
                         "$ref": "#/components/schemas/api.TransportRequestField"
+                    }
+                }
+            },
+            "api.UpsertChartPositionsRequest": {
+                "type": "object",
+                "properties": {
+                    "positions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/api.ChartPositionDTO"
+                        }
                     }
                 }
             },
@@ -27376,6 +28133,26 @@
                     }
                 }
             },
+            "publishing.DeliveryReceipt": {
+                "type": "object",
+                "properties": {
+                    "destination": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "messageId": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
             "server.ActivateTrialRequest": {
                 "type": "object",
                 "properties": {
@@ -27444,6 +28221,44 @@
                         "items": {
                             "$ref": "#/components/schemas/server.SandboxInstanceInfo"
                         }
+                    }
+                }
+            },
+            "server.AppClaudeSubscriptionStatus": {
+                "type": "object",
+                "properties": {
+                    "connected": {
+                        "description": "owner has a subscription connected at all",
+                        "type": "boolean"
+                    },
+                    "is_current_user": {
+                        "description": "true when the editor IS the owner",
+                        "type": "boolean"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "last_validated_at": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "description": "app owner (the likely session owner)",
+                        "type": "string"
+                    },
+                    "owner_name": {
+                        "description": "human-readable owner (email / full name)",
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "subscription_owner_type": {
+                        "description": "\"user\" or \"org\" — where the effective sub resolved",
+                        "type": "string"
+                    },
+                    "valid": {
+                        "description": "that subscription passed its last liveness probe",
+                        "type": "boolean"
                     }
                 }
             },
@@ -27612,6 +28427,31 @@
                         "type": "string"
                     },
                     "target_dir": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.CodexLoginSessionResponse": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.CodexPollLoginResponse": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "found": {
+                        "type": "boolean"
+                    },
+                    "url": {
                         "type": "string"
                     }
                 }
@@ -28876,6 +29716,15 @@
                         }
                     },
                     "title": {
+                        "type": "string"
+                    }
+                }
+            },
+            "server.ProjectWebServiceLogsResponse": {
+                "type": "object",
+                "properties": {
+                    "log": {
+                        "description": "Log is the combined stdout/stderr of the project's startup script — build\noutput, app logs, and the reason a deploy did or didn't come up. Empty\nwhen the service isn't deployed yet.",
                         "type": "string"
                     }
                 }
@@ -30707,6 +31556,10 @@
                         "description": "Denormalized for display without joins",
                         "type": "string"
                     },
+                    "replied_at": {
+                        "description": "RepliedAt is set when the user answers an org_message inline from the\nnotification bell. It keeps replied messages visible (marked \"Replied\")\nso the user has a record the message came through and was answered.",
+                        "type": "string"
+                    },
                     "snoozed_until": {
                         "type": "string"
                     },
@@ -30735,6 +31588,7 @@
                     "spec_failed",
                     "implementation_failed",
                     "pr_ready",
+                    "org_message",
                     "ci_passed",
                     "ci_failed"
                 ],
@@ -30744,6 +31598,7 @@
                     "AttentionEventSpecFailed",
                     "AttentionEventImplementationFailed",
                     "AttentionEventPRReady",
+                    "AttentionEventOrgMessage",
                     "AttentionEventCIPassed",
                     "AttentionEventCIFailed"
                 ]
@@ -30755,6 +31610,10 @@
                         "type": "boolean"
                     },
                     "dismiss": {
+                        "type": "boolean"
+                    },
+                    "reply": {
+                        "description": "Reply marks an org_message answered — sets replied_at (and acknowledges),\nkeeping it visible as \"Replied\" instead of dismissing it.",
                         "type": "boolean"
                     },
                     "snoozed_until": {
@@ -31236,6 +32095,10 @@
                     "last_refreshed_at": {
                         "type": "string"
                     },
+                    "last_validated_at": {
+                        "description": "last time the token was liveness-probed against Anthropic",
+                        "type": "string"
+                    },
                     "name": {
                         "type": "string"
                     },
@@ -31585,6 +32448,10 @@
                         "description": "Provider is the LLM provider name (e.g., \"anthropic\", \"openai\", \"openrouter\")",
                         "type": "string"
                     },
+                    "reasoning_effort": {
+                        "description": "ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.\nEmpty means the runtime/model default.",
+                        "type": "string"
+                    },
                     "runtime": {
                         "description": "Runtime specifies which code agent runtime to use: \"zed_agent\" or \"qwen_code\"",
                         "allOf": [
@@ -31635,6 +32502,81 @@
                     "CodeAgentRuntimeCodexCLI",
                     "CodeAgentRuntimeGooseCode"
                 ]
+            },
+            "types.CodexAuthCredentials": {
+                "type": "object",
+                "properties": {
+                    "OPENAI_API_KEY": {
+                        "type": "string"
+                    },
+                    "auth_mode": {
+                        "type": "string"
+                    },
+                    "last_refresh": {
+                        "type": "string"
+                    },
+                    "tokens": {
+                        "$ref": "#/components/schemas/types.CodexAuthTokens"
+                    }
+                }
+            },
+            "types.CodexAuthTokens": {
+                "type": "object",
+                "properties": {
+                    "access_token": {
+                        "type": "string"
+                    },
+                    "account_id": {
+                        "type": "string"
+                    },
+                    "id_token": {
+                        "type": "string"
+                    },
+                    "refresh_token": {
+                        "type": "string"
+                    }
+                }
+            },
+            "types.CodexSubscription": {
+                "type": "object",
+                "properties": {
+                    "account_id": {
+                        "type": "string"
+                    },
+                    "auth_mode": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "last_error": {
+                        "type": "string"
+                    },
+                    "last_refreshed_at": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "updated": {
+                        "type": "string"
+                    }
+                }
             },
             "types.CommentQueueStatusResponse": {
                 "type": "object",
@@ -31857,6 +32799,23 @@
                     "setup_token": {
                         "description": "From `claude setup-token` (alternative to credentials)",
                         "type": "string"
+                    }
+                }
+            },
+            "types.CreateCodexSubscriptionRequest": {
+                "type": "object",
+                "properties": {
+                    "credentials": {
+                        "$ref": "#/components/schemas/types.CodexAuthCredentials"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "owner_id": {
+                        "type": "string"
+                    },
+                    "owner_type": {
+                        "$ref": "#/components/schemas/types.OwnerType"
                     }
                 }
             },
@@ -34026,6 +34985,10 @@
                     "stream": {
                         "type": "boolean"
                     },
+                    "time_to_first_token_ms": {
+                        "description": "TimeToFirstTokenMs is the wall time from request start to the first\nstreamed chunk. It isolates provider prefill / cold-start latency from\ngeneration time (a cold or overloaded provider shows a large TTFT while\ngeneration stays normal). 0 means no chunk was received (the call errored\nor was cut before the first token). For non-streaming calls it equals the\ntime to the full response.",
+                        "type": "integer"
+                    },
                     "total_cost": {
                         "description": "Prompt + completion + cache read + cache write",
                         "type": "number"
@@ -35734,6 +36697,9 @@
                     },
                     "docker_cache_status": {
                         "$ref": "#/components/schemas/types.DockerCacheState"
+                    },
+                    "org_members_access": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -38378,6 +39344,9 @@
                     "duration_ms": {
                         "type": "integer"
                     },
+                    "interaction_id": {
+                        "type": "string"
+                    },
                     "output": {
                         "description": "Last interaction's response text",
                         "type": "string"
@@ -38386,7 +39355,7 @@
                         "type": "string"
                     },
                     "status": {
-                        "description": "\"waiting\", \"complete\", \"error\"",
+                        "description": "\"waiting\", \"complete\", \"error\", \"interrupted\"",
                         "type": "string"
                     }
                 }
@@ -38903,6 +39872,10 @@
                     "public_design_docs": {
                         "description": "Public sharing",
                         "type": "boolean"
+                    },
+                    "queue_reason": {
+                        "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                        "type": "string"
                     },
                     "rebase_requested_at": {
                         "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
@@ -39700,6 +40673,10 @@
                     "public_design_docs": {
                         "description": "Public sharing",
                         "type": "boolean"
+                    },
+                    "queue_reason": {
+                        "description": "Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted",
+                        "type": "string"
                     },
                     "rebase_requested_at": {
                         "description": "Set when approveImplementation hits a divergent branch and asks the agent to rebase. Used to make the approve handler idempotent (no duplicate prompts) and to gate the Accept button until the agent's next push.",
@@ -41989,6 +42966,10 @@
                                 "$ref": "#/components/schemas/types.CodeAgentConfig"
                             }
                         ]
+                    },
+                    "codex_subscription_available": {
+                        "description": "True if user has active ChatGPT credentials for Codex CLI",
+                        "type": "boolean"
                     },
                     "color_scheme": {
                         "description": "Session owner's UI color scheme: \"light\", \"dark\", or \"\" (follow OS). Daemon applies via gsettings to GNOME.",

@@ -180,6 +180,9 @@ func (apiServer *HelixAPIServer) addOrganizationMember(rw http.ResponseWriter, r
 		return
 	}
 
+	// Represent the new member in the org graph as a human node.
+	apiServer.ensureOrgHumanNode(r.Context(), orgID, newMember.ID)
+
 	writeResponse(rw, &types.AddOrganizationMemberResponse{
 		Membership: membership,
 	}, http.StatusCreated)
@@ -622,6 +625,9 @@ func (apiServer *HelixAPIServer) removeOrganizationMember(rw http.ResponseWriter
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Drop the departing member's human node from the org graph.
+	apiServer.removeOrgHumanNode(r.Context(), orgID, userIDToRemove)
 
 	writeResponse(rw, nil, http.StatusOK)
 }

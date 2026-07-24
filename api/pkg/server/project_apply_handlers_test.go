@@ -455,6 +455,180 @@ func (s *ApplyProjectSuite) TestApply_MultiRepo_PrimarySetCorrectly() {
 // Validation errors
 // ---------------------------------------------------------------------------
 
+// TestApply_PreservesExistingAgentSkills: re-applying an agent spec must not
+// wipe MCPs / APIs / Zapier / system prompt that operators configured via the
+// Skills UI. Org-bot activation calls ApplyProject on every restart — without
+// this preserve, user-added MCPs (e.g. macroplane) vanish after restart.
+func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
+	const appID = "app-with-skills"
+	existingProject := &types.Project{
+		ID:                "proj-skills-1",
+		Name:              "Macroplane Engineer @ unmanned-org",
+		UserID:            s.userID,
+		DefaultHelixAppID: appID,
+	}
+	existingApp := &types.App{
+		ID:    appID,
+		Owner: s.userID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name: "b-mason",
+				Assistants: []types.AssistantConfig{{
+					Name:         "b-mason",
+					SystemPrompt: "you are the macroplane eng",
+					MCPs: []types.AssistantMCP{
+						{
+							Name: "helix",
+							URL:  "http://localhost:8080/api/v1/mcp/helix-org/org/workers/b-mason/mcp",
+							Headers: map[string]string{
+								"Authorization": "Bearer old-helix",
+							},
+						},
+						{
+							Name: "macroplane",
+							URL:  "https://macroplane.com/mcp",
+							Headers: map[string]string{
+								"Authorization": "Bearer ark_test",
+							},
+						},
+					},
+					APIs: []types.AssistantAPI{{
+						Name: "custom-api",
+						URL:  "https://example.com/api",
+					}},
+					Browser:   types.AssistantBrowser{Enabled: true},
+					WebSearch: types.AssistantWebSearch{Enabled: true, MaxResults: 5},
+				}},
+				ExternalAgentEnabled: true,
+				ExternalAgentConfig: &types.ExternalAgentConfig{
+					Resolution:  "1920x1080",
+					DesktopType: "gnome",
+				},
+			},
+		},
+	}
+
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Description: "role content",
+			Agent: &types.ProjectAgentSpec{
+				Name:        "b-mason",
+				Runtime:     "codex_cli",
+				Model:       "gpt-5.6-sol",
+				Credentials: "subscription",
+				// Tools intentionally nil — org Ensure path does not set them.
+			},
+		},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().
+		UpdateProject(gomock.Any(), gomock.Any()).
+		Return(nil)
+	s.store.EXPECT().
+		GetApp(gomock.Any(), appID).
+		Return(existingApp, nil)
+
+	var updated *types.App
+	s.store.EXPECT().
+		UpdateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			updated = app
+			return app, nil
+		})
+
+	rec := httptest.NewRecorder()
+	resp, httpErr := s.server.applyProject(rec, s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Equal(appID, resp.AgentAppID)
+	s.Require().NotNil(updated)
+	s.Require().Len(updated.Config.Helix.Assistants, 1)
+
+	asst := updated.Config.Helix.Assistants[0]
+	s.Equal("gpt-5.6-sol", asst.Model)
+	s.Equal(types.CodeAgentRuntimeCodexCLI, asst.CodeAgentRuntime)
+	s.Equal(types.CodeAgentCredentialTypeSubscription, asst.CodeAgentCredentialType)
+	s.Equal("you are the macroplane eng", asst.SystemPrompt)
+	s.Require().Len(asst.MCPs, 2)
+	s.Equal("helix", asst.MCPs[0].Name)
+	s.Equal("macroplane", asst.MCPs[1].Name)
+	s.Equal("https://macroplane.com/mcp", asst.MCPs[1].URL)
+	s.Equal("Bearer ark_test", asst.MCPs[1].Headers["Authorization"])
+	s.Require().Len(asst.APIs, 1)
+	s.Equal("custom-api", asst.APIs[0].Name)
+	s.True(asst.Browser.Enabled)
+	s.True(asst.WebSearch.Enabled)
+	s.Equal(5, asst.WebSearch.MaxResults)
+	// Display settings preserved when apply did not specify Display.
+	s.Require().NotNil(updated.Config.Helix.ExternalAgentConfig)
+	s.Equal("1920x1080", updated.Config.Helix.ExternalAgentConfig.Resolution)
+}
+
+// TestApply_ToolsFromSpecOverrideSkills: when the apply YAML sets tools.*,
+// those values win over previously-stored Browser/WebSearch/Calculator.
+func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {
+	const appID = "app-tools-override"
+	existingProject := &types.Project{
+		ID:                "proj-tools-1",
+		Name:              "tools-project",
+		UserID:            s.userID,
+		DefaultHelixAppID: appID,
+	}
+	existingApp := &types.App{
+		ID: appID,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{{
+					Name:      "agent",
+					Browser:   types.AssistantBrowser{Enabled: true},
+					WebSearch: types.AssistantWebSearch{Enabled: true, MaxResults: 9},
+					MCPs:      []types.AssistantMCP{{Name: "keep-me", URL: "https://keep.example/mcp"}},
+				}},
+			},
+		},
+	}
+
+	req := types.ProjectApplyRequest{
+		Name: existingProject.Name,
+		Spec: types.ProjectSpec{
+			Agent: &types.ProjectAgentSpec{
+				Name: "agent",
+				Tools: &types.ProjectAgentTools{
+					WebSearch:  false,
+					Browser:    false,
+					Calculator: true,
+				},
+			},
+		},
+	}
+
+	s.store.EXPECT().ListProjects(gomock.Any(), gomock.Any()).Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().UpdateProject(gomock.Any(), gomock.Any()).Return(nil)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+
+	var updated *types.App
+	s.store.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, app *types.App) (*types.App, error) {
+			updated = app
+			return app, nil
+		})
+
+	_, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+	s.Nil(httpErr)
+	s.Require().NotNil(updated)
+	asst := updated.Config.Helix.Assistants[0]
+	s.False(asst.Browser.Enabled)
+	s.False(asst.WebSearch.Enabled)
+	s.True(asst.Calculator.Enabled)
+	// MCPs still preserved.
+	s.Require().Len(asst.MCPs, 1)
+	s.Equal("keep-me", asst.MCPs[0].Name)
+}
+
 // TestApply_MissingName: name is required.
 func (s *ApplyProjectSuite) TestApply_MissingName() {
 	req := types.ProjectApplyRequest{

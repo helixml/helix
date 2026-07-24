@@ -29,11 +29,34 @@ definitions:
     type: object
   api.BotDTO:
     properties:
+      agent_model:
+        type: string
+      agent_runtime:
+        type: string
+      agent_status:
+        description: |-
+          AgentStatus is "running" when the bot's desktop sandbox is online,
+          "stopped" otherwise (no session, paused, never activated). Drives
+          the green/grey presence dot on the org chart.
+        type: string
       content:
         type: string
       created_at:
         type: string
+      helix_user_id:
+        type: string
       id:
+        type: string
+      identity:
+        additionalProperties:
+          type: string
+        type: object
+      kind:
+        description: |-
+          Kind is "" (agent) or "human". A human node is a person placeholder,
+          never activated; Identity holds their cross-system handles and
+          HelixUserID optionally links them to a Helix org member. Identity is
+          omitted for agent bots.
         type: string
       name:
         description: |-
@@ -52,6 +75,10 @@ definitions:
           Bot's chat session before each re-activation, so it accumulates
           context across triggers (e.g. Slack). Defaults to false.
         type: boolean
+      project_ids:
+        items:
+          type: string
+        type: array
       tools:
         items:
           type: string
@@ -83,6 +110,26 @@ definitions:
       subscriptions:
         items:
           $ref: '#/definitions/api.BotSubscriptionDTO'
+        type: array
+    type: object
+  api.ChartPositionDTO:
+    properties:
+      id:
+        type: string
+      kind:
+        description: Kind is bot | topic | processor (matches the ReactFlow node id
+          prefix).
+        type: string
+      x:
+        type: number
+      "y":
+        type: number
+    type: object
+  api.ChartPositionsResponse:
+    properties:
+      positions:
+        items:
+          $ref: '#/definitions/api.ChartPositionDTO'
         type: array
     type: object
   api.CreateBotRequest:
@@ -246,6 +293,21 @@ definitions:
       webhook_id:
         type: integer
     type: object
+  api.GitLabWebhookStatusResponse:
+    properties:
+      active:
+        type: boolean
+      detail:
+        type: string
+      payload_url:
+        type: string
+      state:
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
   api.InstallGitHubWebhookResponse:
     properties:
       payload_url:
@@ -257,6 +319,15 @@ definitions:
           servers can't actually deliver to this URL". The webhook IS
           installed on GitHub; the warning just tells the operator
           what needs fixing on their side for deliveries to flow.
+        type: string
+      webhook_html_url:
+        type: string
+      webhook_id:
+        type: integer
+    type: object
+  api.InstallGitLabWebhookResponse:
+    properties:
+      payload_url:
         type: string
       webhook_html_url:
         type: string
@@ -386,6 +457,8 @@ definitions:
         type: string
       subject:
         type: string
+      threadId:
+        type: string
       to:
         items:
           type: string
@@ -393,6 +466,8 @@ definitions:
     type: object
   api.PublishResponse:
     properties:
+      delivery:
+        $ref: '#/definitions/publishing.DeliveryReceipt'
       event_id:
         type: string
     type: object
@@ -494,10 +569,22 @@ definitions:
     properties:
       content:
         type: string
+      identity:
+        additionalProperties:
+          type: string
+        description: |-
+          Identity is the per-channel handle map for a human node (slack/github/
+          email/…). When present it replaces the stored map; absent leaves it
+          unchanged. Only meaningful for kind=human bots.
+        type: object
       name:
         type: string
       preserve_context:
         type: boolean
+      project_ids:
+        items:
+          type: string
+        type: array
       tools:
         items:
           type: string
@@ -511,6 +598,13 @@ definitions:
         type: string
       transport:
         $ref: '#/definitions/api.TransportRequestField'
+    type: object
+  api.UpsertChartPositionsRequest:
+    properties:
+      positions:
+        items:
+          $ref: '#/definitions/api.ChartPositionDTO'
+        type: array
     type: object
   filestore.Config:
     properties:
@@ -1379,6 +1473,19 @@ definitions:
       severity:
         type: string
     type: object
+  publishing.DeliveryReceipt:
+    properties:
+      destination:
+        type: string
+      error:
+        type: string
+      messageId:
+        type: string
+      provider:
+        type: string
+      status:
+        type: string
+    type: object
   server.ActivateTrialRequest:
     properties:
       credits:
@@ -1427,6 +1534,33 @@ definitions:
         items:
           $ref: '#/definitions/server.SandboxInstanceInfo'
         type: array
+    type: object
+  server.AppClaudeSubscriptionStatus:
+    properties:
+      connected:
+        description: owner has a subscription connected at all
+        type: boolean
+      is_current_user:
+        description: true when the editor IS the owner
+        type: boolean
+      last_error:
+        type: string
+      last_validated_at:
+        type: string
+      owner_id:
+        description: app owner (the likely session owner)
+        type: string
+      owner_name:
+        description: human-readable owner (email / full name)
+        type: string
+      status:
+        type: string
+      subscription_owner_type:
+        description: '"user" or "org" — where the effective sub resolved'
+        type: string
+      valid:
+        description: that subscription passed its last liveness probe
+        type: boolean
     type: object
   server.AppCreateResponse:
     properties:
@@ -1538,6 +1672,22 @@ definitions:
       repository_id:
         type: string
       target_dir:
+        type: string
+    type: object
+  server.CodexLoginSessionResponse:
+    properties:
+      session_id:
+        type: string
+    type: object
+  server.CodexPollLoginResponse:
+    properties:
+      code:
+        type: string
+      error:
+        type: string
+      found:
+        type: boolean
+      url:
         type: string
     type: object
   server.ConfigurePendingSessionRequest:
@@ -2373,6 +2523,15 @@ definitions:
           $ref: '#/definitions/goose.RecipeParameter'
         type: array
       title:
+        type: string
+    type: object
+  server.ProjectWebServiceLogsResponse:
+    properties:
+      log:
+        description: |-
+          Log is the combined stdout/stderr of the project's startup script — build
+          output, app logs, and the reason a deploy did or didn't come up. Empty
+          when the service isn't deployed yet.
         type: string
     type: object
   server.ProjectWebServiceResponse:
@@ -3733,6 +3892,12 @@ definitions:
       project_name:
         description: Denormalized for display without joins
         type: string
+      replied_at:
+        description: |-
+          RepliedAt is set when the user answers an org_message inline from the
+          notification bell. It keeps replied messages visible (marked "Replied")
+          so the user has a record the message came through and was answered.
+        type: string
       snoozed_until:
         type: string
       spec_task_description:
@@ -3753,6 +3918,7 @@ definitions:
     - spec_failed
     - implementation_failed
     - pr_ready
+    - org_message
     - ci_passed
     - ci_failed
     type: string
@@ -3762,6 +3928,7 @@ definitions:
     - AttentionEventSpecFailed
     - AttentionEventImplementationFailed
     - AttentionEventPRReady
+    - AttentionEventOrgMessage
     - AttentionEventCIPassed
     - AttentionEventCIFailed
   types.AttentionEventUpdateRequest:
@@ -3769,6 +3936,11 @@ definitions:
       acknowledge:
         type: boolean
       dismiss:
+        type: boolean
+      reply:
+        description: |-
+          Reply marks an org_message answered — sets replied_at (and acknowledges),
+          keeping it visible as "Replied" instead of dismissing it.
         type: boolean
       snoozed_until:
         type: string
@@ -4117,6 +4289,9 @@ definitions:
         type: string
       last_refreshed_at:
         type: string
+      last_validated_at:
+        description: last time the token was liveness-probed against Anthropic
+        type: string
       name:
         type: string
       owner_id:
@@ -4371,6 +4546,11 @@ definitions:
         description: Provider is the LLM provider name (e.g., "anthropic", "openai",
           "openrouter")
         type: string
+      reasoning_effort:
+        description: |-
+          ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+          Empty means the runtime/model default.
+        type: string
       runtime:
         allOf:
         - $ref: '#/definitions/types.CodeAgentRuntime'
@@ -4408,6 +4588,55 @@ definitions:
     - CodeAgentRuntimeGeminiCLI
     - CodeAgentRuntimeCodexCLI
     - CodeAgentRuntimeGooseCode
+  types.CodexAuthCredentials:
+    properties:
+      OPENAI_API_KEY:
+        type: string
+      auth_mode:
+        type: string
+      last_refresh:
+        type: string
+      tokens:
+        $ref: '#/definitions/types.CodexAuthTokens'
+    type: object
+  types.CodexAuthTokens:
+    properties:
+      access_token:
+        type: string
+      account_id:
+        type: string
+      id_token:
+        type: string
+      refresh_token:
+        type: string
+    type: object
+  types.CodexSubscription:
+    properties:
+      account_id:
+        type: string
+      auth_mode:
+        type: string
+      created:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      last_error:
+        type: string
+      last_refreshed_at:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      status:
+        type: string
+      updated:
+        type: string
+    type: object
   types.CommentQueueStatusResponse:
     properties:
       current_comment_id:
@@ -4555,6 +4784,17 @@ definitions:
       setup_token:
         description: From `claude setup-token` (alternative to credentials)
         type: string
+    type: object
+  types.CreateCodexSubscriptionRequest:
+    properties:
+      credentials:
+        $ref: '#/definitions/types.CodexAuthCredentials'
+      name:
+        type: string
+      owner_id:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
     type: object
   types.CreatePullRequestRequest:
     properties:
@@ -6122,6 +6362,15 @@ definitions:
         $ref: '#/definitions/types.LLMCallStep'
       stream:
         type: boolean
+      time_to_first_token_ms:
+        description: |-
+          TimeToFirstTokenMs is the wall time from request start to the first
+          streamed chunk. It isolates provider prefill / cold-start latency from
+          generation time (a cold or overloaded provider shows a large TTFT while
+          generation stays normal). 0 means no chunk was received (the call errored
+          or was cut before the first token). For non-streaming calls it equals the
+          time to the full response.
+        type: integer
       total_cost:
         description: Prompt + completion + cache read + cache write
         type: number
@@ -7319,6 +7568,8 @@ definitions:
         $ref: '#/definitions/types.BoardSettings'
       docker_cache_status:
         $ref: '#/definitions/types.DockerCacheState'
+      org_members_access:
+        type: boolean
     type: object
   types.ProjectRepositorySpec:
     properties:
@@ -9352,13 +9603,15 @@ definitions:
     properties:
       duration_ms:
         type: integer
+      interaction_id:
+        type: string
       output:
         description: Last interaction's response text
         type: string
       session_id:
         type: string
       status:
-        description: '"waiting", "complete", "error"'
+        description: '"waiting", "complete", "error", "interrupted"'
         type: string
     type: object
   types.SessionRAGResult:
@@ -9727,6 +9980,10 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
+      queue_reason:
+        description: Why a queued task hasn't started yet (WIP capacity or dependency);
+          recomputed each read, never persisted
+        type: string
       rebase_requested_at:
         description: Set when approveImplementation hits a divergent branch and asks
           the agent to rebase. Used to make the approve handler idempotent (no duplicate
@@ -10330,6 +10587,10 @@ definitions:
       public_design_docs:
         description: Public sharing
         type: boolean
+      queue_reason:
+        description: Why a queued task hasn't started yet (WIP capacity or dependency);
+          recomputed each read, never persisted
+        type: string
       rebase_requested_at:
         description: Set when approveImplementation hits a divergent branch and asks
           the agent to rebase. Used to make the approve handler idempotent (no duplicate
@@ -11960,6 +12221,9 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.CodeAgentConfig'
         description: Code agent configuration for Zed agentic coding
+      codex_subscription_available:
+        description: True if user has active ChatGPT credentials for Codex CLI
+        type: boolean
       color_scheme:
         description: 'Session owner''s UI color scheme: "light", "dark", or "" (follow
           OS). Daemon applies via gsettings to GNOME.'
@@ -13378,6 +13642,40 @@ paths:
       summary: Upload app avatar
       tags:
       - apps
+  /api/v1/apps/{id}/claude-subscription-status:
+    get:
+      description: Reports whether the app owner (whose subscription authenticates
+        the app's sessions) has a working Claude subscription
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AppClaudeSubscriptionStatus'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get the Claude subscription status for an app's owner
+      tags:
+      - Claude
   /api/v1/apps/{id}/daily-usage:
     get:
       consumes:
@@ -14222,6 +14520,121 @@ paths:
       summary: Get progress of all tasks in a clone group
       tags:
       - CloneGroups
+  /api/v1/codex-subscriptions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.CodexSubscription'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List Codex subscriptions
+      tags:
+      - Codex
+    post:
+      consumes:
+      - application/json
+      description: Connect a ChatGPT subscription using Codex CLI credentials
+      parameters:
+      - description: Codex subscription credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateCodexSubscriptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexSubscription'
+      security:
+      - BearerAuth: []
+      summary: Create a Codex subscription
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/{id}:
+    delete:
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a Codex subscription
+      tags:
+      - Codex
+    get:
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexSubscription'
+      security:
+      - BearerAuth: []
+      summary: Get a Codex subscription
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/poll-login/{sessionId}:
+    get:
+      description: Return device authentication instructions or persist completed
+        credentials
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.CodexPollLoginResponse'
+      security:
+      - BearerAuth: []
+      summary: Poll Codex login
+      tags:
+      - Codex
+  /api/v1/codex-subscriptions/start-login:
+    post:
+      description: Launch a temporary container and start Codex device authentication
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.CodexLoginSessionResponse'
+      security:
+      - BearerAuth: []
+      summary: Start a Codex login session
+      tags:
+      - Codex
   /api/v1/config:
     get:
       description: Get config
@@ -18283,6 +18696,30 @@ paths:
       summary: 'Helix-org: restart a bot''s agent session (fresh session + desktop)'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/bots/{id}/stop-agent:
+    post:
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: stop a bot''s agent desktop'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/bots/{id}/subscriptions:
     get:
       parameters:
@@ -18359,6 +18796,57 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 'Helix-org: unsubscribe a bot from a topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/chart/positions:
+    delete:
+      description: Deletes every saved node position for the org; the chart reverts
+        to auto-layout.
+      responses:
+        "204":
+          description: no content
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: reset chart layout'
+      tags:
+      - HelixOrg
+    get:
+      description: Returns free-placed (x, y) coordinates for org-chart nodes. Nodes
+        without a row fall back to auto-layout.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChartPositionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: list chart node positions'
+      tags:
+      - HelixOrg
+    put:
+      consumes:
+      - application/json
+      description: Upserts (x, y) coordinates for one or more org-chart nodes after
+        the user drags them.
+      parameters:
+      - description: positions to save
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.UpsertChartPositionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChartPositionsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: upsert chart node positions'
       tags:
       - HelixOrg
   /api/v1/orgs/{org}/github/app-installation:
@@ -18969,7 +19457,66 @@ paths:
       summary: 'Helix-org: live webhook status for a github topic'
       tags:
       - HelixOrg
+  /api/v1/orgs/{org}/topics/{id}/gitlab/install-webhook:
+    post:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InstallGitLabWebhookResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: auto-install the webhook for a GitLab topic'
+      tags:
+      - HelixOrg
+  /api/v1/orgs/{org}/topics/{id}/gitlab/webhook-status:
+    get:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GitLabWebhookStatusResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: live webhook status for a GitLab topic'
+      tags:
+      - HelixOrg
   /api/v1/orgs/{org}/topics/{id}/messages:
+    delete:
+      parameters:
+      - description: Topic ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: 'Helix-org: clear all messages from a topic'
+      tags:
+      - HelixOrg
     get:
       parameters:
       - description: Topic ID
@@ -20341,6 +20888,30 @@ paths:
       summary: Remove a custom domain from a project web service
       tags:
       - Projects
+  /api/v1/projects/{id}/web-service/logs:
+    get:
+      description: Returns the tail of the project's web-service startup log (combined
+        stdout/stderr of .helix/startup.sh in the active sandbox) so an authorized
+        user can see why a deploy did or didn't come up. Never exposed on the public
+        web-service host.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.ProjectWebServiceLogsResponse'
+      security:
+      - BearerAuth: []
+      summary: Get web service deploy/startup logs
+      tags:
+      - projects
   /api/v1/projects/{projectId}/labels:
     get:
       description: Returns a sorted list of unique labels across all spec tasks in
@@ -22189,6 +22760,10 @@ paths:
         in: query
         name: session_role
         type: string
+      - description: Include external agent sessions
+        in: query
+        name: include_external_agents
+        type: boolean
       responses:
         "200":
           description: OK
@@ -22448,6 +23023,57 @@ paths:
       summary: Clear a session's conversation
       tags:
       - sessions
+  /api/v1/sessions/{id}/codex-credentials:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CodexAuthCredentials'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Codex credentials for a session
+      tags:
+      - Codex
+    put:
+      consumes:
+      - application/json
+      description: Persist credentials refreshed by Codex CLI. Stale refreshes are
+        ignored.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Refreshed credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/types.CodexAuthCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Update Codex credentials for a session
+      tags:
+      - Codex
   /api/v1/sessions/{id}/foreground-thread:
     post:
       description: |-
@@ -22829,12 +23455,14 @@ paths:
     post:
       description: |-
         Tears down the half-dead desktop container and brings up a fresh one
-        via the same resume path used by /sessions/{id}/resume. The session's
-        ZedThreadID is preserved, so Zed reloads the existing thread from the
-        persistent threads.db in the workspace volume and the underlying agent
-        (claude-code, qwen, etc.) reloads its session from disk — prior
-        conversation context is restored. Crashed prompts are reset to pending
-        and the queue is kicked so they re-dispatch on the new container.
+        via the resume path. The conversation thread is PRESERVED when the
+        session's last turn completed cleanly (the common "reboot to refresh
+        the environment" case) so context is not lost; it is reset only when
+        the last turn is mid-flight or errored, which signals a possibly
+        poisoned thread that would just reproduce the wedge on reattach. The
+        workspace volume persists, so files and the agent's own state survive
+        regardless. Crashed prompts are reset to pending and the queue is
+        kicked so they re-dispatch on the new container.
         Requires the session to be an external Zed agent. Returns the count of
         prompts that were reset.
       parameters:

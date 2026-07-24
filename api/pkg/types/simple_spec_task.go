@@ -175,6 +175,7 @@ type SpecTask struct {
 	LastPromptContent    string         `json:"last_prompt_content,omitempty" gorm:"-"`    // Last prompt sent to agent (for continue functionality)
 	SandboxState         string         `json:"sandbox_state,omitempty" gorm:"-"`          // "absent", "running", "starting" — derived from session config in listTasks
 	SandboxStatusMessage string         `json:"sandbox_status_message,omitempty" gorm:"-"` // Transient startup message e.g. "Unpacking build cache"
+	QueueReason          string         `json:"queue_reason,omitempty" gorm:"-"`           // Why a queued task hasn't started yet (WIP capacity or dependency); recomputed each read, never persisted
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
@@ -246,8 +247,8 @@ type SpecTask struct {
 	// NOTE: Use GORM preloading to load these when needed:
 	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)
 	// swaggerignore prevents circular reference in swagger generation
-	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
-	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID" swaggerignore:"true"`
+	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
+	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
 
 	PlanningOptions StartPlanningOptions `json:"planning_options,omitempty" gorm:"type:jsonb;serializer:json"`
 }
@@ -456,8 +457,8 @@ func (SpecTaskAttachment) TableName() string {
 
 // SpecTask attachment limits
 const (
-	SpecTaskAttachmentMaxBytes   = 10 * 1024 * 1024 // 10 MB per file
-	SpecTaskAttachmentMaxPerTask = 10               // 10 files per task
+	SpecTaskAttachmentMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
+	SpecTaskAttachmentMaxPerTask = 500               // 500 files per task
 )
 
 // SpecTaskAttachmentAllowedMimeTypes is the allowlist of MIME types accepted for upload.

@@ -32,7 +32,8 @@ var publishSchema = mustSchema[publishArgs]()
 
 func (t *Publish) Name() tool.Name { return PublishName }
 func (t *Publish) Description() string {
-	return "Append an Event with the given body to a Topic. Wakes long-poll observers and " +
+	return "Append and route an Event through Helix. Publishing basic text to a configured Slack Topic posts it to Slack and returns a delivery receipt. " +
+		"Use ask_human to contact a person. For rich Slack actions such as reactions, uploads, or edits, call mint_credential and use the Slack API directly. Wakes long-poll observers and " +
 		"activates every subscribed AI Worker. Optional fields (to, subject, threadId, " +
 		"inReplyTo, messageId, attachments) carry threading and recipient metadata for " +
 		"messaging topics; omit them for plain text publishes."
@@ -75,12 +76,29 @@ func (t *Publish) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMess
 		MessageID:       args.MessageID,
 		Attachments:     args.Attachments,
 	}
-	// The service owns the append→notify→dispatch trio and rejects
-	// github-transport topics (inbound only — act on the repo with `gh`
-	// from the Environment) with ErrPublishToGitHub.
-	event, err := t.deps.Publishing.Publish(ctx, orgID, topicID, string(inv.Caller.ID()), msg)
-	if err != nil {
+	// The service owns append, notify, and dispatch and rejects
+	// inbound-only outbound publishes before appending.
+	result, err := t.deps.Publishing.PublishWithReceipt(ctx, orgID, topicID, string(inv.Caller.ID()), msg)
+	if err != nil && result.Event.ID == "" {
 		return nil, err
 	}
-	return json.Marshal(map[string]string{"id": string(event.ID), "topicId": string(topicID)})
+	response := map[string]any{
+		"id":      string(result.Event.ID),
+		"topicId": string(topicID),
+		"scope":   "helix",
+		"status":  "appended inside Helix; external delivery not confirmed",
+		"delivery": map[string]string{
+			"status":   "not_applicable",
+			"provider": "helix",
+		},
+	}
+	if result.Delivery != nil {
+		response["delivery"] = result.Delivery
+		if result.Delivery.Status == "failed" {
+			response["status"] = "appended inside Helix; external delivery failed; do not retry publish"
+		} else {
+			response["status"] = "appended inside Helix and delivered to " + result.Delivery.Provider
+		}
+	}
+	return json.Marshal(response)
 }

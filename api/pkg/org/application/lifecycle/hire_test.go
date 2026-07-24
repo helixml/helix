@@ -75,11 +75,11 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	}
 }
 
-// TestBotsCreate_SuffixesDuplicateID pins the name-collision fix in
-// bots.Create: two bots whose ids collide (e.g. a second "Chief of Staff"
-// slugifying to the same handle) don't fail on the composite (id, org)
-// primary key — the second is suffixed base-1 rather than erroring.
-func TestBotsCreate_SuffixesDuplicateID(t *testing.T) {
+// TestBotsCreate_RejectsDuplicateID pins that the id is used exactly: a
+// second bot with an id that already exists in the org is rejected rather
+// than silently suffixed. Deterministic-id seeds rely on this collision to
+// stay idempotent; user-facing creates surface it as "id already taken".
+func TestBotsCreate_RejectsDuplicateID(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	botSvc := bots.New(bots.Deps{
@@ -97,20 +97,13 @@ func TestBotsCreate_SuffixesDuplicateID(t *testing.T) {
 		t.Fatalf("first id = %q, want chief-of-staff", first.ID)
 	}
 
-	second, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Another"})
-	if err != nil {
-		t.Fatalf("second create should suffix, not error: %v", err)
-	}
-	if second.ID != "chief-of-staff-1" {
-		t.Fatalf("second id = %q, want chief-of-staff-1", second.ID)
+	if _, err := botSvc.Create(ctx, "org-test", bots.CreateParams{ID: "chief-of-staff", Content: "# Another"}); err == nil {
+		t.Fatalf("second create with a duplicate id should error, got nil")
 	}
 
-	// Both rows exist independently.
-	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff"); err != nil {
-		t.Fatalf("first bot missing: %v", err)
-	}
-	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff-1"); err != nil {
-		t.Fatalf("suffixed bot missing: %v", err)
+	// No suffixed row was created.
+	if _, err := st.Bots.Get(ctx, "org-test", "chief-of-staff-1"); err == nil {
+		t.Fatalf("a suffixed bot chief-of-staff-1 was created; expected none")
 	}
 }
 

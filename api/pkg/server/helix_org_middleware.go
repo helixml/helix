@@ -43,6 +43,12 @@ type helixOrgScope struct {
 	// first request. nil when not wired.
 	helixEvents *helixevents.Reconciler
 
+	// humanReconcile makes the org's human nodes match its membership on
+	// first request (the correctness backstop for the inline membership
+	// hooks — see org_graph_seed.go). nil when helix-org / the seeder isn't
+	// wired.
+	humanReconcile func(ctx context.Context, orgID string) error
+
 	mu           sync.Mutex
 	bootstrapped map[string]bool
 	// bootstrapFlight dedupes concurrent first-load races on the same
@@ -100,9 +106,7 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 		// only provisions the per-org service api_key and converges any
 		// graph that already exists (a no-op on a brand-new empty org).
 
-		// Provision a per-org Helix service api_key. Tied to the
-		// first admin user found — see helixorg.HelixAPIKeys.Service for the
-		// idempotency story.
+		// Provision a per-org Helix service api_key for the organization owner.
 		if _, err := helixorg.NewHelixAPIKeys(s.helixStore, s.configs).Service(ctx, orgID); err != nil {
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org service api key not provisioned")
 		}
@@ -154,6 +158,15 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 			log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org role reconcile failed")
 		}
 
+		// Converge human nodes against org membership: create a node for any
+		// member missing one (covers OIDC joins + members added before this
+		// feature) and remove orphans. Best-effort like the reconciles above.
+		if s.humanReconcile != nil {
+			if err := s.humanReconcile(ctx, orgID); err != nil {
+				log.Warn().Err(err).Str("org_id", orgID).Msg("helix-org human-node reconcile failed")
+			}
+		}
+
 		// Mirror pre-existing workers (once per org per process).
 		s.mirror.EnsureAll(ctx, orgID)
 
@@ -165,11 +178,22 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	return err
 }
 
-// withHelixOrgScope wraps the helix-org handler chain. It resolves
-// the `{org}` URL segment (slug or org_id) via lookupOrg, authorises
-// the caller is a member of that org, ensures the bootstrap has run
-// for the org, and stashes the resolved orgID on the request context.
+// withHelixOrgScope adds org-graph bootstrap to the shared authenticated
+// organization context.
 func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handler) http.Handler {
+	return s.withHelixOrgIdentity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		orgID := helixorgserver.OrgIDFromContext(r.Context())
+		if err := scope.ensureBootstrap(r.Context(), orgID); err != nil {
+			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// withHelixOrgIdentity resolves the organization, checks membership, and
+// stores the canonical organization ID and authenticated user on context.
+func (s *HelixAPIServer) withHelixOrgIdentity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		orgSlugOrID := mux.Vars(r)["org"]
 		if orgSlugOrID == "" {
@@ -190,16 +214,12 @@ func (s *HelixAPIServer) withHelixOrgScope(scope *helixOrgScope, next http.Handl
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
-		if err := scope.ensureBootstrap(r.Context(), org.ID); err != nil {
-			http.Error(w, "bootstrap: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 		ctx := helixorgserver.WithOrgID(r.Context(), org.ID)
 		// Bridge the authenticated caller into the runtime-helix context
 		// so lifecycle.Create persists them as the Bot's hiring user
 		// (SaveHiringUser reads runtimehelix.UserIDFromContext). Without
 		// this every Bot's session falls back to the org-service identity
-		// (first admin), which cross-attributes another user's key into
+		// (organization owner), which cross-attributes another user's key into
 		// the tenant org's API-keys list.
 		ctx = runtimehelix.WithUserID(ctx, user.ID)
 		// Strip the /orgs/{org}/helix-org prefix so the downstream

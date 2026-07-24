@@ -181,7 +181,7 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 			http.Error(w, fmt.Sprintf("preview target sandbox not found: %s", err), http.StatusNotFound)
 			return
 		}
-		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, targetID, route.Port, r.URL.Path)
+		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, targetID, route.Port, r.URL.Path, "")
 		return
 	}
 	if strings.HasPrefix(targetID, "sbx_") {
@@ -192,7 +192,7 @@ func (m *VHostMiddleware) dispatchSandboxPreview(w http.ResponseWriter, r *http.
 		}
 		// Sandbox-API containers are registered in hydra under
 		// req.SessionID = sandbox.ID (see sandbox/controller_provision.go).
-		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path)
+		m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, "")
 		return
 	}
 	http.Error(w, "unrecognised preview target id format", http.StatusBadRequest)
@@ -229,7 +229,10 @@ func (m *VHostMiddleware) dispatchProjectWebService(w http.ResponseWriter, r *ht
 		http.Error(w, fmt.Sprintf("active sandbox not found: %s", err), http.StatusBadGateway)
 		return
 	}
-	m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path)
+	// route.TargetID is the projectID for a web-service route → lets the holding
+	// page distinguish "starting up" (deploy in flight) from "temporarily
+	// unavailable" (down / crashed).
+	m.apiServer.proxyToContainer(w, r, sb.HostDeviceID, sb.ID, route.Port, r.URL.Path, route.TargetID)
 }
 
 // stripPort removes a trailing :port from a Host header value, taking

@@ -311,6 +311,13 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			claudeSubAvailable = true
 		}
 	}
+	var codexSubAvailable bool
+	if codeAgentConfig != nil && codeAgentConfig.Runtime == types.CodeAgentRuntimeCodexCLI {
+		sub, err := apiServer.Store.GetEffectiveCodexSubscription(ctx, session.Owner, session.OrganizationID)
+		if err == nil && sub.Status == "active" {
+			codexSubAvailable = true
+		}
+	}
 
 	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
 	// are configured in keymap.json created by start-zed-helix.sh startup script
@@ -340,6 +347,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		Version:                     version,
 		CodeAgentConfig:             codeAgentConfig,
 		ClaudeSubscriptionAvailable: claudeSubAvailable,
+		CodexSubscriptionAvailable:  codexSubAvailable,
 	}
 
 	return response, nil
@@ -676,7 +684,10 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			apiType = ""
 			model = assistant.ClaudeSubscriptionModel
 			if model == "" {
-				model = "opus"
+				// Default to the 1M-context Opus. The "[1m]" hint makes
+				// resolveModelPreference() pick the 1M row; a bare "opus"
+				// would resolve to the 200k sibling.
+				model = "opus[1m]"
 			}
 		} else {
 			// API key mode: route through Helix proxy.
@@ -686,6 +697,18 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 			baseURL = helixURL
 			apiType = "anthropic"
 			model = modelName
+		}
+
+	case types.CodeAgentRuntimeCodexCLI:
+		agentName = "codex"
+		model = modelName
+		if isSubscription {
+			providerName = ""
+			baseURL = ""
+			apiType = ""
+		} else {
+			baseURL = helixURL + "/v1"
+			apiType = "openai"
 		}
 
 	default: // CodeAgentRuntimeZedAgent
@@ -732,9 +755,21 @@ func (apiServer *HelixAPIServer) buildCodeAgentConfigFromAssistant(ctx context.C
 		BaseURL:         baseURL,
 		APIType:         apiType,
 		Runtime:         runtime,
+		ReasoningEffort: normalizeCodeAgentReasoningEffort(runtime, assistant.ReasoningEffort),
 		MaxTokens:       maxTokens,
 		MaxOutputTokens: maxOutputTokens,
 	}
+}
+
+func normalizeCodeAgentReasoningEffort(runtime types.CodeAgentRuntime, effort string) string {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" || effort == "default" {
+		return ""
+	}
+	if effort == types.ReasoningEffortNone && runtime != types.CodeAgentRuntimeZedAgent {
+		return ""
+	}
+	return effort
 }
 
 // resolveGooseRecipesIntoConfig populates cfg.GooseRecipes (and

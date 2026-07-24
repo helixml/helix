@@ -59,7 +59,10 @@ Every bot must include the `**On anything else.** Stay quiet`
 block verbatim — it's the default-quiet rule.
 
 Default tools: pick from what the org has — typically `subscribe`,
-`publish`, `read_events`, `dm`, `managers`, `reports`. `managers` and
+`publish`, `ask_human`, `read_events`, `dm`, `managers`, `reports`. `publish`
+posts basic text externally when the destination is a configured Slack Topic.
+Use `ask_human` for a known person. Use `mint_credential` plus the Slack API
+only for rich actions such as reactions, uploads, and edits. `managers` and
 `reports` let the bot resolve its reporting lines live — escalate up
 to a manager (`managers` + `dm`), brief down to its reports (`reports` +
 `publish` to the team topic). List both on any bot that sits in a

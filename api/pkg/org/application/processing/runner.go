@@ -95,11 +95,11 @@ func (r *Runner) RegisterPostRouter(pr PostRouter) { r.postRouter = pr }
 // offending processor/result skipped (OQ3: log + drop), so one bad
 // template never stalls the others or the originating publish.
 //
-// Output is published with an empty `from` → Source="" (system-emitted):
-// the processed event is never treated as worker-sourced and is never
-// re-emitted outbound. A template that needs the originator embeds
-// {{ .Message.from }} in its body (the flagship example does exactly
-// that).
+// Output is published with an empty `from` -> Source="" (system-emitted).
+// Inbound provenance is carried by the publish context, so processor hops
+// originating from an external event remain internal and never call an
+// external deliverer. A template that needs the originator embeds
+// {{ .Message.from }} in its body.
 func (r *Runner) Run(ctx context.Context, e streaming.Event, msg streaming.Message) {
 	if hop := hopCount(ctx); hop >= maxHops {
 		r.logger.Error("processing: hop limit exceeded — aborting chain",
@@ -112,7 +112,7 @@ func (r *Runner) Run(ctx context.Context, e streaming.Event, msg streaming.Messa
 		return
 	}
 	for _, p := range procs {
-		results, err := p.Process(msg)
+		results, err := p.Process(ctx, msg)
 		if err != nil {
 			r.logger.Warn("processing: process failed — dropping",
 				"processor", p.ID, "topic", e.TopicID, "event", e.ID, "err", err)

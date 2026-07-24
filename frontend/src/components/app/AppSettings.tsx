@@ -16,6 +16,7 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
+import Alert from '@mui/material/Alert'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import Menu from '@mui/material/Menu'
@@ -38,11 +39,18 @@ import useApi from '../../hooks/useApi'
 import useDebouncedCallback from '../../hooks/useDebouncedCallback'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
-import { CLAUDE_SUBSCRIPTION_MODELS, DEFAULT_CLAUDE_SUBSCRIPTION_MODEL } from '../agent/CodingAgentForm'
+import {
+  CLAUDE_SUBSCRIPTION_MODELS,
+  CODEX_SUBSCRIPTION_MODELS,
+  DEFAULT_CLAUDE_SUBSCRIPTION_MODEL,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+} from '../agent/CodingAgentForm'
+import CodeAgentEffortSelect, { getCodeAgentEffortOptions } from '../agent/CodeAgentEffortSelect'
 import GooseRecipesEditor from './GooseRecipesEditor'
 import Divider from '@mui/material/Divider'
 import { useListProviders } from '../../services/providersService'
 import { useClaudeSubscriptions } from '../account/ClaudeSubscriptionConnect'
+import { useCodexSubscriptions } from '../../services/codexSubscriptionsService'
 import useRouter from '../../hooks/useRouter'
 import { useGetOrgByName } from '../../services/orgService'
 
@@ -279,8 +287,35 @@ const AppSettings: FC<AppSettingsProps> = ({
     enabled: true,
   })
   const { data: claudeSubscriptions } = useClaudeSubscriptions()
-  const hasClaudeSubscription = (claudeSubscriptions?.length ?? 0) > 0
+  const { data: codexSubscriptions } = useCodexSubscriptions()
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+
+  // Whose Claude subscription actually authenticates this agent? Sessions use the
+  // SESSION OWNER's subscription, not the editing user's. This endpoint resolves
+  // the APP OWNER's subscription status (the likely session owner) so the callout
+  // below can name the owner and warn when their subscription is missing/invalid —
+  // fixing the false "connected ✓" that showed the editor's own subscription.
+  const apiHookForClaude = useApi()
+  const { data: ownerClaudeStatus } = useQuery({
+    queryKey: ['app-claude-subscription-status', id],
+    queryFn: async () => {
+      const response = await apiHookForClaude.getApiClient().v1AppsClaudeSubscriptionStatusDetail(id)
+      return response.data
+    },
+    // Only meaningful for a saved Claude Code agent in subscription mode.
+    enabled: !!id && code_agent_runtime === 'claude_code',
+    staleTime: 30000,
+  })
+  // Fall back to the editor's own subscription list only until the owner-scoped
+  // status resolves (or for brand-new unsaved apps with no id).
+  const hasClaudeSubscription = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.connected
+    : (claudeSubscriptions?.length ?? 0) > 0
+  const ownerClaudeValid = ownerClaudeStatus !== undefined
+    ? !!ownerClaudeStatus.valid
+    : (claudeSubscriptions?.length ?? 0) > 0
   const hasAnthropicProvider = providerEndpoints.some(ep => ep.name === 'anthropic')
+  const hasOpenAIProvider = providerEndpoints.some(ep => ep.name === 'openai')
 
   // Advanced settings state. Defaults must match the useEffect re-init below
   // and DEFAULT_VALUES (which mirrors api/pkg/store/store_apps.go).
@@ -293,6 +328,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort ?? DEFAULT_VALUES.reasoning_effort)
   const [temperature, setTemperature] = useState(app.temperature ?? DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p ?? DEFAULT_VALUES.top_p)
+  const codeAgentEffort = reasoningEffort === '' || reasoningEffort === 'none' ? 'default' : reasoningEffort
+  const codeAgentEffortOptions = getCodeAgentEffortOptions(code_agent_runtime)
 
   // Track if component has been initialized
   const isInitialized = useRef(false)
@@ -626,13 +663,19 @@ const AppSettings: FC<AppSettingsProps> = ({
                 <Select
                   value={code_agent_runtime}
                   onChange={(e) => {
-                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'goose_code';
+                    const newRuntime = e.target.value as 'zed_agent' | 'qwen_code' | 'claude_code' | 'codex_cli' | 'goose_code';
                     setCodeAgentRuntime(newRuntime);
-                    onUpdate({ code_agent_runtime: newRuntime });
+                    if (newRuntime === 'codex_cli' && !model) {
+                      setModel(DEFAULT_CODEX_SUBSCRIPTION_MODEL)
+                      onUpdate({ code_agent_runtime: newRuntime, model: DEFAULT_CODEX_SUBSCRIPTION_MODEL })
+                    } else {
+                      onUpdate({ code_agent_runtime: newRuntime })
+                    }
                   }}
                   disabled={readOnly}
                   renderValue={(value) => {
                     if (value === 'claude_code') return 'Claude Code'
+                    if (value === 'codex_cli') return 'Codex'
                     if (value === 'qwen_code') return 'Qwen Code'
                     if (value === 'goose_code') return 'Goose'
                     return 'Zed Agent'
@@ -662,6 +705,14 @@ const AppSettings: FC<AppSettingsProps> = ({
                       </Typography>
                     </Box>
                   </MenuItem>
+                  <MenuItem value="codex_cli">
+                    <Box>
+                      <Typography variant="body2">Codex</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        OpenAI's coding agent
+                      </Typography>
+                    </Box>
+                  </MenuItem>
                   <MenuItem value="goose_code">
                     <Box>
                       <Typography variant="body2">Goose</Typography>
@@ -674,7 +725,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               </FormControl>
             </Box>
 
-            {code_agent_runtime === 'claude_code' ? (
+            {code_agent_runtime === 'claude_code' || code_agent_runtime === 'codex_cli' ? (
               <>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -687,13 +738,20 @@ const AppSettings: FC<AppSettingsProps> = ({
                         const mode = e.target.value as 'subscription' | 'api_key'
                         setClaudeCodeMode(mode)
                         if (mode === 'subscription') {
-                          setGenerationModel('')
-                          setGenerationModelProvider('')
-                          onUpdate({
-                            code_agent_credential_type: 'subscription',
-                            generation_model: '',
-                            generation_model_provider: '',
-                          })
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel('')
+                            setGenerationModelProvider('')
+                            onUpdate({
+                              code_agent_credential_type: 'subscription',
+                              generation_model: '',
+                              generation_model_provider: '',
+                            })
+                          } else {
+                            setProvider('')
+                            const codexModel = model || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+                            setModel(codexModel)
+                            onUpdate({ code_agent_credential_type: 'subscription', model: codexModel, provider: '' })
+                          }
                         } else {
                           onUpdate({ code_agent_credential_type: 'api_key' })
                         }
@@ -702,11 +760,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="subscription"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasClaudeSubscription}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasClaudeSubscription : !hasCodexSubscription)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Claude Subscription</Typography>
-                            {hasClaudeSubscription ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Claude Subscription' : 'ChatGPT Subscription'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasClaudeSubscription : hasCodexSubscription) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not connected)</Typography>
@@ -717,11 +777,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       <FormControlLabel
                         value="api_key"
                         control={<Radio size="small" />}
-                        disabled={readOnly || !hasAnthropicProvider}
+                        disabled={readOnly || (code_agent_runtime === 'claude_code' ? !hasAnthropicProvider : !hasOpenAIProvider)}
                         label={
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2">Anthropic API Key</Typography>
-                            {hasAnthropicProvider ? (
+                            <Typography variant="body2">
+                              {code_agent_runtime === 'claude_code' ? 'Anthropic API Key' : 'OpenAI API Key'}
+                            </Typography>
+                            {(code_agent_runtime === 'claude_code' ? hasAnthropicProvider : hasOpenAIProvider) ? (
                               <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                             ) : (
                               <Typography variant="caption" color="text.secondary">(not configured)</Typography>
@@ -731,60 +793,156 @@ const AppSettings: FC<AppSettingsProps> = ({
                       />
                     </RadioGroup>
                   </FormControl>
-                  {!hasClaudeSubscription && !hasAnthropicProvider && (
+                  {!(code_agent_runtime === 'claude_code' ? hasClaudeSubscription || hasAnthropicProvider : hasCodexSubscription || hasOpenAIProvider) && (
                     <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>
-                      Connect a Claude subscription or add an Anthropic API key in Settings &gt; Providers.
+                      Connect a {code_agent_runtime === 'claude_code' ? 'Claude' : 'ChatGPT'} subscription or add an {code_agent_runtime === 'claude_code' ? 'Anthropic' : 'OpenAI'} API key in Settings &gt; Providers.
                     </Typography>
                   )}
-                  {claudeCodeMode === 'subscription' && (
-                    <Box sx={{ mt: 1.5 }}>
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                        Model
+                  {/* Whose subscription authenticates the agent? Sessions use the
+                      session owner's subscription, not the editor's. */}
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        Sessions from this agent authenticate with the <strong>session owner's</strong> connected
+                        Claude subscription. If someone else runs this agent, their own subscription is used — not yours.
                       </Typography>
-                      <FormControl fullWidth>
-                        <Select
-                          size="small"
-                          value={claudeSubscriptionModel}
-                          disabled={readOnly}
-                          onChange={(e) => {
-                            const nextModel = e.target.value
-                            setClaudeSubscriptionModel(nextModel)
-                            onUpdate({ claude_subscription_model: nextModel })
-                          }}
-                        >
-                          {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
-                            <MenuItem key={m.id} value={m.id}>
-                              <Typography variant="body2">{m.label}</Typography>
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      {ownerClaudeStatus !== undefined && !ownerClaudeStatus.is_current_user && (
+                        ownerClaudeValid ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            This agent is owned by <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>,
+                            who has an active Claude subscription connected.
+                          </Typography>
+                        ) : (
+                          <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                            <strong>{ownerClaudeStatus.owner_name || ownerClaudeStatus.owner_id}</strong>{' '}
+                            {ownerClaudeStatus.connected
+                              ? `has a Claude subscription, but it isn't working${ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.`
+                              : 'has no working Claude subscription connected.'}{' '}
+                            The agent will fail to authenticate. Ask them to reconnect it, or use API-key mode.
+                          </Alert>
+                        )
+                      )}
+                      {ownerClaudeStatus !== undefined && ownerClaudeStatus.is_current_user && ownerClaudeStatus.connected && !ownerClaudeValid && (
+                        <Alert severity="warning" sx={{ mt: 0.5, py: 0 }}>
+                          Your Claude subscription isn't working{ownerClaudeStatus.last_error ? ` (${ownerClaudeStatus.last_error})` : ''}.
+                          Reconnect it in Settings, or use API-key mode.
+                        </Alert>
+                      )}
                     </Box>
+                  )}
+                  {code_agent_runtime === 'claude_code' && claudeCodeMode === 'subscription' && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={claudeSubscriptionModel}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setClaudeSubscriptionModel(nextModel)
+                              onUpdate({ claude_subscription_model: nextModel })
+                            }}
+                          >
+                            {CLAUDE_SUBSCRIPTION_MODELS.map((m) => (
+                              <MenuItem key={m.id} value={m.id}>
+                                <Typography variant="body2">{m.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
+                  )}
+                  {code_agent_runtime === 'codex_cli' && claudeCodeMode === 'subscription' && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1.5 }} alignItems="flex-start">
+                      <Box sx={{ flex: 1, width: '100%' }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                          Model
+                        </Typography>
+                        <FormControl fullWidth>
+                          <Select
+                            size="small"
+                            value={model || DEFAULT_CODEX_SUBSCRIPTION_MODEL}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              const nextModel = e.target.value
+                              setModel(nextModel)
+                              onUpdate({ model: nextModel })
+                            }}
+                          >
+                            {CODEX_SUBSCRIPTION_MODELS.map((supportedModel) => (
+                              <MenuItem key={supportedModel.id} value={supportedModel.id}>
+                                <Typography variant="body2">{supportedModel.label}</Typography>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                      <CodeAgentEffortSelect
+                        options={codeAgentEffortOptions}
+                        value={codeAgentEffort}
+                        disabled={readOnly}
+                        onChange={(value) => {
+                          const nextEffort = value === 'default' ? 'none' : value
+                          setReasoningEffort(nextEffort)
+                          onUpdate({ reasoning_effort: nextEffort })
+                        }}
+                      />
+                    </Stack>
                   )}
                 </Box>
 
                 {claudeCodeMode === 'api_key' && (
-                  <Box>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                      Model
-                    </Typography>
-                    <AdvancedModelPicker
-                      recommendedModels={RECOMMENDED_MODELS.zedExternal}
-                      hint="Select the Claude model for code generation"
-                      selectedProvider={generation_model_provider}
-                      selectedModelId={generation_model}
-                      onSelectModel={(provider, modelId) => {
-                        setGenerationModel(modelId);
-                        setGenerationModelProvider(provider);
-                        onUpdate({
-                          generation_model: modelId,
-                          generation_model_provider: provider,
-                        });
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+                    <Box sx={{ flex: 1, width: '100%', minWidth: 0 }}>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Model
+                      </Typography>
+                      <AdvancedModelPicker
+                        recommendedModels={RECOMMENDED_MODELS.zedExternal}
+                        hint={`Select the ${code_agent_runtime === 'claude_code' ? 'Claude' : 'OpenAI'} model for code generation`}
+                        selectedProvider={code_agent_runtime === 'claude_code' ? generation_model_provider : provider}
+                        selectedModelId={code_agent_runtime === 'claude_code' ? generation_model : model}
+                        onSelectModel={(provider, modelId) => {
+                          if (code_agent_runtime === 'claude_code') {
+                            setGenerationModel(modelId)
+                            setGenerationModelProvider(provider)
+                            onUpdate({ generation_model: modelId, generation_model_provider: provider })
+                          } else {
+                            setModel(modelId)
+                            setProvider(provider)
+                            onUpdate({ model: modelId, provider })
+                          }
+                        }}
+                        currentType="text"
+                        displayMode="short"
+                      />
+                    </Box>
+                    <CodeAgentEffortSelect
+                      options={codeAgentEffortOptions}
+                      value={codeAgentEffort}
+                      disabled={readOnly}
+                      onChange={(value) => {
+                        const nextEffort = value === 'default' ? 'none' : value
+                        setReasoningEffort(nextEffort)
+                        onUpdate({ reasoning_effort: nextEffort })
                       }}
-                      currentType="text"
-                      displayMode="short"
                     />
-                  </Box>
+                  </Stack>
                 )}
               </>
             ) : (

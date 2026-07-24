@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -75,8 +76,11 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Enforce a request-body cap matching per-task budget (10 files * 10 MB + overhead).
-	if err := r.ParseMultipartForm(int64(types.SpecTaskAttachmentMaxPerTask) * types.SpecTaskAttachmentMaxBytes); err != nil {
+	// Keep the in-memory buffer bounded to one file's worth; larger uploads spill to
+	// temp files. This must NOT scale with SpecTaskAttachmentMaxPerTask, or a large cap
+	// (e.g. 500) would let the parser buffer gigabytes in memory. Per-file and per-task
+	// caps are still enforced below.
+	if err := r.ParseMultipartForm(types.SpecTaskAttachmentMaxBytes); err != nil {
 		http.Error(w, "invalid multipart form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -165,6 +169,21 @@ func (s *HelixAPIServer) uploadSpecTaskAttachments(w http.ResponseWriter, r *htt
 			return
 		}
 		created = append(created, row)
+	}
+
+	// Stage the uploaded attachments into the helix-specs branch immediately, so they
+	// land in design/tasks/<taskDir>/attachments/ regardless of when this upload happens
+	// relative to planning. This closes the race where a slow upload lost to start-planning
+	// and the file was never committed nor surfaced to the agent. Staging is idempotent and
+	// also notifies the agent if a planning session already exists. Failure here is
+	// non-fatal: the row + blob exist, and planning-time staging remains a backstop.
+	//
+	// Detach from the request context so a client disconnect after the multipart body was
+	// received doesn't abort the git commit.
+	stageCtx, cancel := detachContext(ctx, 60*time.Second)
+	defer cancel()
+	if err := s.specDrivenTaskService.StageUploadedAttachments(stageCtx, taskID); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID).Msg("Failed to stage uploaded attachments into helix-specs (planning-time staging will retry)")
 	}
 
 	w.Header().Set("Content-Type", "application/json")

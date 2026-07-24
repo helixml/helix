@@ -10,17 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// workerRuntimeKeys are the org-default "Default Bot Runtime" settings.
-// Changing any of them must re-apply every already-provisioned bot's agent
-// app, otherwise a bot seeded/provisioned before the operator picked a
-// runtime stays frozen on the seed-time default (claude_code/subscription
-// with no model, which Zed renders as its built-in gpt) and the operator's
-// later change never reaches the bot.
-var workerRuntimeKeys = map[string]bool{
-	"worker.runtime":     true,
-	"worker.credentials": true,
-	"worker.provider":    true,
-	"worker.model":       true,
+// agentProvisioningKeys activate bots whose initial provisioning was deferred.
+// worker.* remains supported for clients predating the atomic agent.default key.
+var agentProvisioningKeys = map[string]bool{
+	configregistry.DefaultAgentConfigKey: true,
+	"worker.runtime":                     true,
+	"worker.credentials":                 true,
+	"worker.provider":                    true,
+	"worker.model":                       true,
 }
 
 // ---- Settings -----------------------------------------------------------
@@ -106,34 +103,28 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	// Propagate a Default Bot Runtime change to already-provisioned bots so
-	// they pick up the new runtime/model instead of staying frozen at the
-	// config that existed when they were first seeded. Config is committed
-	// above, so Ensure below reads the new value.
-	if workerRuntimeKeys[key] {
-		a.reapplyBotsAfterRuntimeChange(r.Context(), orgID)
+	// A complete initial configuration activates bots whose provisioning was
+	// deferred. Existing apps remain independently configurable.
+	if agentProvisioningKeys[key] {
+		a.activateDeferredBotsAfterRuntimeChange(r.Context(), orgID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// reapplyBotsAfterRuntimeChange propagates a Default Bot Runtime change to
-// every Bot in the org:
+// activateDeferredBotsAfterRuntimeChange provisions bots that were created
+// before the org's initial runtime configuration was complete:
 //
 //   - A Bot that was deferred at create (no project yet, because no runtime
 //     was configured) is activated now — it provisions for the FIRST time
 //     with the correct config, so its desktop never comes up on the gpt
 //     default.
-//   - A Bot that already has a project is re-applied in place (idempotent
-//     upsert-by-name that re-reads worker.*), rewriting its agent app's
-//     Runtime/Credentials/Provider/Model; a running desktop picks up the new
-//     model on its next settings-sync poll.
+//   - A Bot that already has a project is left unchanged. Runtime/model edits
+//     for an existing bot belong to its generated Helix app.
 //
-// Config is committed before this runs, so both paths read the new value.
+// Config is committed before this runs, so first provisioning reads it.
 // Best-effort: per-bot failures are logged, not fatal — the settings write
-// already succeeded. A live runtime *switch* (e.g. claude_code -> goose_code)
-// on an already-running desktop still needs a session restart to swap the
-// in-sandbox agent binary; this only re-applies the stored config.
-func (a *apiHandler) reapplyBotsAfterRuntimeChange(ctx context.Context, orgID string) {
+// already succeeded.
+func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context, orgID string) {
 	if a.deps.Queries == nil {
 		return
 	}
@@ -148,10 +139,15 @@ func (a *apiHandler) reapplyBotsAfterRuntimeChange(ctx context.Context, orgID st
 	}
 	bs, err := a.deps.Queries.ListBots(ctx, orgID)
 	if err != nil {
-		log.Warn().Err(err).Str("org", orgID).Msg("reapply bots after runtime change: list bots failed")
+		log.Warn().Err(err).Str("org", orgID).Msg("activate deferred bots after runtime change: list bots failed")
 		return
 	}
 	for _, b := range bs {
+		// A human node is never provisioned/activated — skip it, or the
+		// runtime-change sweep would spin up a desktop for every person.
+		if b.IsHuman() {
+			continue
+		}
 		provisioned := true
 		if a.deps.BotRuntime != nil {
 			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)
@@ -169,42 +165,43 @@ func (a *apiHandler) reapplyBotsAfterRuntimeChange(ctx context.Context, orgID st
 			}
 			continue
 		}
-		if a.deps.ProjectEnsurer == nil {
-			continue
-		}
-		if _, _, _, err := a.deps.ProjectEnsurer.Ensure(ctx, orgID, b.ID); err != nil {
-			log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
-				Msg("reapply bot project after runtime change failed")
-		}
+		// Existing apps are configured through the Helix app UI/API. The
+		// org defaults are provisioning inputs, not reconciliation policy.
 	}
 }
 
-// runtimeConfigComplete reports whether the org's Default Bot Runtime has
+// runtimeConfigComplete reports whether the org's default agent configuration has
 // every field a Bot needs to provision. It mirrors resolveWorkerAgentConfig's
-// coercion (server package): a non-claude runtime is always api_key and needs
-// a provider + model; claude_code defaults to subscription (no provider/model
-// needed) unless credentials is explicitly api_key. Used to hold off
+// coercion (server package): runtimes without subscription support are always
+// api_key and need a provider + model; claude_code and codex_cli default to
+// subscription unless credentials is explicitly api_key. Used to hold off
 // provisioning until a half-written config is fully in place.
 func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bool {
 	if a.deps.Configs == nil {
 		return false
 	}
-	runtime, _ := a.deps.Configs.GetString(ctx, orgID, "worker.runtime")
+	cfg, err := a.deps.Configs.GetDefaultAgentConfig(ctx, orgID)
+	if err != nil {
+		return false
+	}
+	runtime := string(cfg.CodeAgentRuntime)
 	if runtime == "" {
 		return false
 	}
-	credentials, _ := a.deps.Configs.GetString(ctx, orgID, "worker.credentials")
-	if runtime != "claude_code" {
-		credentials = "api_key" // subscription is only meaningful for claude_code
+	credentials := string(cfg.CodeAgentCredentialType)
+	if !runtimeSupportsSubscription(runtime) {
+		credentials = "api_key"
 	} else if credentials == "" {
 		credentials = "subscription"
 	}
 	if credentials == "subscription" {
-		return true // claude_code via OAuth — no provider/model needed
+		return true
 	}
-	provider, _ := a.deps.Configs.GetString(ctx, orgID, "worker.provider")
-	model, _ := a.deps.Configs.GetString(ctx, orgID, "worker.model")
-	return provider != "" && model != ""
+	return cfg.Provider != "" && cfg.Model != ""
+}
+
+func runtimeSupportsSubscription(runtime string) bool {
+	return runtime == "claude_code" || runtime == "codex_cli"
 }
 
 // deleteSetting removes the config row for the given key, falling back to defaults.

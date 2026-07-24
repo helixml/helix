@@ -62,7 +62,7 @@ import useApi from "../../hooks/useApi";
 import useAccount from "../../hooks/useAccount";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import InlineCommentBubble from "./InlineCommentBubble";
 import InlineCommentForm from "./InlineCommentForm";
 import CommentLogSidebar from "./CommentLogSidebar";
@@ -91,6 +91,75 @@ const DOCUMENT_LABELS = {
   technical_design: "Technical Design",
   implementation_plan: "Implementation Plan",
 };
+
+type NormMapEntry = { node: Text; offset: number };
+
+// Collapse all whitespace runs (including newlines across DOM nodes) to a single
+// space while building a parallel map from each normalized character back to its
+// source text node + raw offset. A comment's quoted_text is captured from
+// rendered text, so a cross-block selection contains newlines that the DOM's
+// textContent concatenation does not — normalizing both sides lets us match and
+// still recover an exact Range for positioning.
+function buildNormalizedTextMap(root: HTMLElement): {
+  text: string;
+  map: NormMapEntry[];
+} {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let text = "";
+  const map: NormMapEntry[] = [];
+  let prevWasSpace = false;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const raw = node.textContent || "";
+    for (let i = 0; i < raw.length; i++) {
+      if (/\s/.test(raw[i])) {
+        if (prevWasSpace) continue;
+        text += " ";
+        map.push({ node: node as Text, offset: i });
+        prevWasSpace = true;
+      } else {
+        text += raw[i];
+        map.push({ node: node as Text, offset: i });
+        prevWasSpace = false;
+      }
+    }
+  }
+  return { text, map };
+}
+
+const normalizeQuote = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+// Normalized-text character offset of a selection point (node, rawOffset) within
+// root. Returns null if the point is not inside a text node of root. Used to
+// remember which occurrence of a repeated phrase a comment was made against.
+function normalizedOffsetOfPoint(
+  root: HTMLElement,
+  targetNode: Node,
+  targetOffset: number,
+): number | null {
+  if (targetNode.nodeType !== Node.TEXT_NODE) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let normLen = 0;
+  let prevWasSpace = false;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const raw = node.textContent || "";
+    const limit =
+      node === targetNode ? Math.min(targetOffset, raw.length) : raw.length;
+    for (let i = 0; i < limit; i++) {
+      if (/\s/.test(raw[i])) {
+        if (prevWasSpace) continue;
+        normLen++;
+        prevWasSpace = true;
+      } else {
+        normLen++;
+        prevWasSpace = false;
+      }
+    }
+    if (node === targetNode) return normLen;
+  }
+  return null;
+}
 
 export default function DesignReviewContent({
   specTaskId,
@@ -155,6 +224,14 @@ export default function DesignReviewContent({
   const [commentPositions, setCommentPositions] = useState<Map<string, number>>(
     new Map(),
   );
+  // Comments whose quoted_text could not be located in the rendered document.
+  // They are still shown (fail safe) but flagged as unanchored.
+  const [unlocatedCommentIds, setUnlocatedCommentIds] = useState<Set<string>>(
+    new Set(),
+  );
+  // Normalized character offset of the current selection start, stored with the
+  // comment so a repeated phrase re-anchors to the occurrence that was selected.
+  const [selectedOffset, setSelectedOffset] = useState<number | null>(null);
   // Track when we just created a comment - enables queue polling immediately without waiting for comments refresh
   const [awaitingCommentResponse, setAwaitingCommentResponse] = useState(false);
 
@@ -233,12 +310,9 @@ export default function DesignReviewContent({
   const createCommentMutation = useCreateComment(specTaskId, reviewId);
   const resolveCommentMutation = useResolveComment(specTaskId, reviewId);
 
-  // OAuth flow is needed when an approver without GitHub OAuth tries to
-  // approve — the backend returns 422 with error=oauth_required, and we
-  // redirect them through the GitHub connection flow before they retry.
+  // Open the matching repository provider when approval requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Get queue status for streaming
   // Enable polling immediately when we create a comment (awaitingCommentResponse)
@@ -396,7 +470,9 @@ export default function DesignReviewContent({
 
   // Handle share link
   const handleShareLink = () => {
-    const shareUrl = `${window.location.origin}/design-doc/${specTaskId}/${reviewId}`;
+    // Unauthenticated public viewer — the /api/v1 prefix is required, otherwise
+    // the link hits the SPA and forces an OIDC login.
+    const shareUrl = `${window.location.origin}/api/v1/spec-tasks/${specTaskId}/view`;
     navigator.clipboard.writeText(shareUrl);
     setShareLinkCopied(true);
     setTimeout(() => setShareLinkCopied(false), 2000);
@@ -768,6 +844,7 @@ export default function DesignReviewContent({
       !documentContent
     ) {
       setCommentPositions((prev) => (prev.size === 0 ? prev : new Map()));
+      setUnlocatedCommentIds((prev) => (prev.size === 0 ? prev : new Set()));
       positionRetryRef.current = 0;
       return;
     }
@@ -781,19 +858,57 @@ export default function DesignReviewContent({
         [];
       let hasInvalidPositions = false;
 
+      // Ordinal of each comment among those sharing identical quoted_text, so a
+      // repeated phrase anchors to distinct occurrences in creation order when
+      // no stored offset is available.
+      const sameTextSeen = new Map<string, number>();
+      const unlocated = new Set<string>();
+
       inlineComments.forEach((comment) => {
         if (!comment.quoted_text) return;
 
-        const baseY = findQuotedTextPosition(comment.quoted_text);
-        if (baseY === null) {
-          hasInvalidPositions = true;
-          return;
-        }
+        const ordinal = sameTextSeen.get(comment.quoted_text) ?? 0;
+        sameTextSeen.set(comment.quoted_text, ordinal + 1);
+
+        const hasOffset =
+          typeof comment.start_offset === "number" && comment.start_offset > 0;
+        const baseY = findQuotedTextPosition(
+          comment.quoted_text,
+          hasOffset ? comment.start_offset : undefined,
+          ordinal,
+        );
 
         const ref = commentRefs.current.get(comment.id!);
         const height = ref?.offsetHeight || 250;
 
+        if (baseY === null) {
+          // Not found — retry a few times in case the DOM is still settling.
+          if (retryCount < maxPositionRetries) {
+            hasInvalidPositions = true;
+            return;
+          }
+          // Retries exhausted: keep the comment visible (fail safe) by stacking
+          // it at the top of the gutter and flagging it as unanchored.
+          unlocated.add(comment.id!);
+          positions.push({ id: comment.id!, baseY: 0, height });
+          return;
+        }
+
         positions.push({ id: comment.id!, baseY, height });
+      });
+
+      setUnlocatedCommentIds((prev) => {
+        if (prev.size === unlocated.size) {
+          let same = true;
+          for (const id of unlocated) {
+            if (!prev.has(id)) {
+              same = false;
+              break;
+            }
+          }
+          if (same) return prev;
+        }
+        return unlocated;
       });
 
       if (formActive) {
@@ -887,77 +1002,70 @@ export default function DesignReviewContent({
     isNarrowViewport,
   ]);
 
-  // Helper to find the Y position of quoted text
-  const findQuotedTextPosition = (quotedText: string): number | null => {
-    if (!documentRef.current) return null;
+  // Find the Y position of quoted text within the rendered markdown.
+  //
+  // Matching runs over a whitespace-normalized copy of the *markdown* element
+  // (markdownRef) only — never documentRef, which also contains the comment
+  // bubbles and would produce false matches. Normalization lets cross-block
+  // selections (which captured newlines) still match. When the same phrase
+  // occurs multiple times, `targetOffset` (the stored offset of the selection)
+  // wins; otherwise the `occurrenceIndex`-th occurrence is used so multiple
+  // comments on the same text spread across distinct occurrences.
+  const findQuotedTextPosition = (
+    quotedText: string,
+    targetOffset?: number | null,
+    occurrenceIndex?: number,
+  ): number | null => {
+    if (!markdownRef.current || !documentRef.current) return null;
 
-    const docTextContent = documentRef.current.textContent || "";
-    const index = docTextContent.indexOf(quotedText);
+    const { text, map } = buildNormalizedTextMap(markdownRef.current);
+    const q = normalizeQuote(quotedText);
+    if (!q) return null;
 
-    if (index === -1) return null;
+    const starts: number[] = [];
+    let idx = text.indexOf(q);
+    while (idx !== -1) {
+      starts.push(idx);
+      idx = text.indexOf(q, idx + 1);
+    }
+    if (starts.length === 0) return null;
 
-    const range = document.createRange();
-    const walker = document.createTreeWalker(
-      documentRef.current,
-      NodeFilter.SHOW_TEXT,
-      null,
-    );
-
-    let currentPos = 0;
-    let node;
-
-    while ((node = walker.nextNode())) {
-      const nodeText = node.textContent || "";
-      const nodeLength = nodeText.length;
-
-      if (currentPos + nodeLength >= index) {
-        const offsetInNode = index - currentPos;
-        const remainingInNode = nodeLength - offsetInNode;
-
-        if (remainingInNode <= 0 || nodeText.trim() === "") {
-          currentPos += nodeLength;
-          continue;
-        }
-
-        const textFromOffset = nodeText.substring(offsetInNode);
-        if (
-          !quotedText.startsWith(
-            textFromOffset.substring(
-              0,
-              Math.min(textFromOffset.length, quotedText.length),
-            ),
-          )
-        ) {
-          currentPos += nodeLength;
-          continue;
-        }
-
-        try {
-          range.setStart(node, offsetInNode);
-          range.setEnd(
-            node,
-            Math.min(offsetInNode + quotedText.length, nodeLength),
-          );
-        } catch (e) {
-          return null;
-        }
-
-        const rect = range.getBoundingClientRect();
-        const containerRect = documentRef.current.getBoundingClientRect();
-
-        if (rect.top === 0 && rect.bottom === 0 && rect.height === 0) {
-          return null;
-        }
-
-        const yPosition =
-          rect.top - containerRect.top + documentRef.current.scrollTop;
-        return yPosition;
-      }
-
-      currentPos += nodeLength;
+    let chosen = starts[0];
+    if (targetOffset !== undefined && targetOffset !== null) {
+      chosen = starts.reduce(
+        (best, s) =>
+          Math.abs(s - targetOffset) < Math.abs(best - targetOffset)
+            ? s
+            : best,
+        starts[0],
+      );
+    } else if (
+      occurrenceIndex !== undefined &&
+      occurrenceIndex < starts.length
+    ) {
+      chosen = starts[occurrenceIndex];
     }
 
-    return null;
+    const startEntry = map[chosen];
+    const endEntry = map[chosen + q.length - 1];
+    if (!startEntry || !endEntry) return null;
+
+    try {
+      const range = document.createRange();
+      range.setStart(startEntry.node, startEntry.offset);
+      range.setEnd(endEntry.node, endEntry.offset + 1);
+
+      const rect = range.getBoundingClientRect();
+      const containerRect = documentRef.current.getBoundingClientRect();
+
+      if (rect.top === 0 && rect.bottom === 0 && rect.height === 0) {
+        return null;
+      }
+
+      return rect.top - containerRect.top + documentRef.current.scrollTop;
+    } catch {
+      return null;
+    }
   };
 
   const applyHighlight = (range: Range) => {
@@ -1016,6 +1124,17 @@ export default function DesignReviewContent({
 
           savedRangeRef.current = range.cloneRange();
           setSelectedText(text);
+          // Remember which occurrence was selected so the comment re-anchors
+          // there even if the phrase repeats.
+          setSelectedOffset(
+            markdownRef.current
+              ? normalizedOffsetOfPoint(
+                  markdownRef.current,
+                  range.startContainer,
+                  range.startOffset,
+                )
+              : null,
+          );
           setCommentFormPosition({ x: 0, y: yPosition });
           setShowCommentForm(true);
           // Apply highlight immediately — the useEffect won't re-fire
@@ -1041,9 +1160,20 @@ export default function DesignReviewContent({
     }
 
     try {
+      const normalizedLen = selectedText
+        ? normalizeQuote(selectedText).length
+        : 0;
       await createCommentMutation.mutateAsync({
         document_type: activeTab,
         quoted_text: selectedText || undefined,
+        start_offset:
+          selectedOffset !== null && selectedOffset >= 0
+            ? selectedOffset
+            : undefined,
+        end_offset:
+          selectedOffset !== null && selectedOffset >= 0
+            ? selectedOffset + normalizedLen
+            : undefined,
         comment_text: commentText,
       });
 
@@ -1051,6 +1181,7 @@ export default function DesignReviewContent({
       removeHighlight();
       setCommentText("");
       setSelectedText("");
+      setSelectedOffset(null);
       setShowCommentForm(false);
     } catch (error: any) {
       snackbar.error(`Failed to add comment: ${error.message}`);
@@ -1088,24 +1219,25 @@ export default function DesignReviewContent({
         onClose();
       }
     } catch (error: any) {
-      // Backend returns 422 with error=oauth_required when the approver has
-      // no GitHub OAuth connection. Drop into the connect-GitHub flow rather
-      // than showing a generic failure — the user can retry once connected.
+      // Open the matching provider connection flow on OAuth enforcement.
       const respData = error?.response?.data;
       if (respData?.error === "oauth_required") {
         setShowSubmitDialog(false);
-        if (gitHubProvider?.id) {
-          snackbar.info("Connect GitHub to approve this design.");
+        const providerType = respData?.provider_type === "gitlab" ? "gitlab" : "github";
+        const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+        const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+        if (oauthProvider?.id) {
+          snackbar.info(`Connect ${providerName} to approve this design.`);
           startOAuthFlow({
-            providerId: gitHubProvider.id,
-            scopes: ["repo"],
+            providerId: oauthProvider.id,
+            scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
             onSuccess: () => {
               snackbar.success(
-                "GitHub connected. Click Approve again to submit.",
+                `${providerName} connected. Click Approve again to submit.`,
               );
             },
             onError: (oauthError) => {
-              snackbar.error(`GitHub connection failed: ${oauthError}`);
+              snackbar.error(`${providerName} connection failed: ${oauthError}`);
             },
           });
         } else {
@@ -1113,7 +1245,7 @@ export default function DesignReviewContent({
           // error message is PR-centric and actionless for this user, so
           // override it with admin-direction guidance.
           snackbar.error(
-            "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.",
+            `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before approving designs.`,
           );
         }
         return;
@@ -1407,6 +1539,9 @@ export default function DesignReviewContent({
                       savedRangeRef.current = range;
                     }
                     setSelectedText(hoverButtonPosition.elementText);
+                    // Whole-block selection has no precise start point; fall
+                    // back to occurrence-ordinal anchoring.
+                    setSelectedOffset(null);
                     setCommentFormPosition({ x: 0, y: hoverButtonPosition.y });
                     setHoverButtonPosition(null);
                     setShowCommentForm(true);
@@ -1639,6 +1774,7 @@ export default function DesignReviewContent({
                       }
                     }}
                     isNarrowViewport={isNarrowViewport}
+                    unlocated={unlocatedCommentIds.has(comment.id!)}
                   />
                 );
               })}
@@ -1659,6 +1795,7 @@ export default function DesignReviewContent({
                   setShowCommentForm(false);
                   setCommentText("");
                   setSelectedText("");
+                  setSelectedOffset(null);
                 }}
                 isNarrowViewport={isNarrowViewport}
                 isSubmitting={createCommentMutation.isPending}

@@ -6,15 +6,21 @@ import Badge from '@mui/material/Badge'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
-import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink } from 'lucide-react'
+import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
+import CircularProgress from '@mui/material/CircularProgress'
+import ReactMarkdown from 'react-markdown'
+import { Bell, X, BellOff, BellRing, Sparkles, Hand, AlertCircle, GitMerge, ExternalLink, MessageSquare, CornerUpLeft } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useAttentionEvents, AttentionEvent, AttentionEventType } from '../../hooks/useAttentionEvents'
 import { useBrowserNotifications } from '../../hooks/useBrowserNotifications'
 import { useNavigationHistory, NavHistoryEntry } from '../../hooks/useNavigationHistory'
 import router from '../../router'
+import { Api } from '../../api/api'
 
 interface GlobalNotificationsProps {
   organizationId?: string
@@ -29,12 +35,33 @@ function eventIcon(eventType: AttentionEventType, color: string): React.ReactEle
     case 'spec_failed':
     case 'implementation_failed': return <AlertCircle {...props} />
     case 'pr_ready': return <GitMerge {...props} />
+    case 'org_message': return <MessageSquare {...props} />
     default: return <Bell {...props} />
   }
 }
 
 function timeAgoMs(ms: number): string {
   return timeAgo(new Date(ms).toISOString())
+}
+
+// replyToOrgMessage sends the human's reply to the bot that asked (via
+// ask_human) without leaving the notification. It resolves the bot's
+// exploratory session (bot → project → session) and posts the reply there —
+// the same session the agent runs in, so it lands as the agent's next turn.
+async function replyToOrgMessage(
+  apiClient: Api<unknown>['api'],
+  event: AttentionEvent,
+  text: string,
+): Promise<void> {
+  const botId = (event.metadata as { bot_id?: string } | undefined)?.bot_id
+  if (!botId || !event.organization_id) throw new Error('missing bot or org on notification')
+  const bot = await apiClient.v1OrgsBotsDetail2(botId, event.organization_id)
+  const projectId = bot.data?.project_id
+  if (!projectId) throw new Error('could not resolve the bot’s project')
+  const session = await apiClient.v1ProjectsExploratorySessionDetail(projectId)
+  const sessionId = session.data?.id
+  if (!sessionId) throw new Error('the bot has no active session yet')
+  await apiClient.v1SessionsMessagesCreate(sessionId, { content: text, interrupt: true })
 }
 
 function eventAccentColor(eventType: AttentionEventType): string {
@@ -44,6 +71,7 @@ function eventAccentColor(eventType: AttentionEventType): string {
     case 'agent_interaction_completed': return '#f59e0b'
     case 'specs_pushed': return '#3b82f6'
     case 'pr_ready': return '#8b5cf6'
+    case 'org_message': return '#14b8a6'
     default: return '#6b7280'
   }
 }
@@ -235,11 +263,166 @@ const AttentionEventItem: React.FC<{
   groupedWith?: AttentionEvent
   onNavigate: (event: AttentionEvent) => void
   onDismiss: (eventId: string) => void
-}> = ({ event, groupedWith, onNavigate, onDismiss }) => {
+  onReplied: (eventId: string) => Promise<void>
+}> = ({ event, groupedWith, onNavigate, onDismiss, onReplied }) => {
   const accentColor = eventAccentColor(event.event_type)
+  // org_message (a bot messaging a person) has no spec task/project — its
+  // headline is the title ("Message from …") and the body is the message.
+  const isOrgMessage = event.event_type === 'org_message'
   const isAcknowledged = !!event.acknowledged_at && (!groupedWith || !!groupedWith.acknowledged_at)
   const lightTheme = useLightTheme()
   const isLight = lightTheme.isLight
+  const api = useApi()
+  const account = useAccount()
+  const snackbar = useSnackbar()
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [reply, setReply] = useState('')
+  const [sending, setSending] = useState(false)
+
+  // Which org this org_message is from — several orgs each have a Chief of
+  // Staff, so "Message from chief-of-staff" alone is ambiguous. Resolve the
+  // org's display name from the user's org list (the recipient is a member).
+  const orgForEvent = account.organizationTools?.organizations?.find(
+    (o) => o.id === event.organization_id,
+  )
+  const orgName = orgForEvent?.display_name || orgForEvent?.name
+
+  // org_message (a bot's ask_human) is read and answered inline here — the
+  // message rendered as markdown, with a Respond form that posts the reply to
+  // the bot's session. Everything stays in the notification (no navigation),
+  // which keeps it usable on mobile / small screens.
+  if (isOrgMessage) {
+    const sendReply = async () => {
+      const text = reply.trim()
+      if (!text || sending) return
+      setSending(true)
+      try {
+        await replyToOrgMessage(api.getApiClient(), event, text)
+        setReply('')
+        setReplyOpen(false)
+        // Keep the message in the panel, marked "Replied", so the user has a
+        // record it came through and was answered (don't dismiss it).
+        await onReplied(event.id)
+        snackbar.success('Reply sent')
+      } catch (e: any) {
+        snackbar.error(e?.message || 'Failed to send reply')
+      } finally {
+        setSending(false)
+      }
+    }
+    const meta = event.metadata as { bot_id?: string; no_reply?: unknown } | undefined
+    const isReplied = !!event.replied_at
+    // Informational messages (e.g. "Chief of Staff is starting up") carry
+    // no_reply and have no repliable session — render them read-only.
+    const canReply = !isReplied && !!meta?.bot_id && meta?.no_reply !== true && meta?.no_reply !== 'true'
+    return (
+      <Box
+        sx={{
+          px: 1.5,
+          py: 1.25,
+          borderLeft: `3px solid ${accentColor}`,
+          ...(isReplied || isAcknowledged ? { opacity: 0.7 } : {}),
+        }}
+      >
+        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mb: 0.75 }}>
+          <MessageSquare size={14} style={{ color: accentColor, flexShrink: 0, marginTop: 2 }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ fontWeight: 700, color: lightTheme.textColor, display: 'block', lineHeight: 1.3 }}>
+              {event.title}
+            </Typography>
+            {orgName && (
+              <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.64rem', display: 'block', lineHeight: 1.2 }}>
+                in {orgName}
+              </Typography>
+            )}
+          </Box>
+          <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontSize: '0.65rem', whiteSpace: 'nowrap', flexShrink: 0, mt: 0.25 }}>
+            {timeAgo(event.created_at)}
+          </Typography>
+        </Stack>
+        <Box
+          sx={{
+            color: lightTheme.textColor,
+            fontSize: '0.8rem',
+            lineHeight: 1.5,
+            wordBreak: 'break-word',
+            '& p': { m: 0, mb: 0.75 },
+            '& p:last-child': { mb: 0 },
+            '& ol, & ul': { pl: 2.5, m: 0, mb: 0.75 },
+            '& li': { mb: 0.25 },
+            '& strong': { fontWeight: 700 },
+            '& code': {
+              px: 0.5,
+              borderRadius: 0.5,
+              fontSize: '0.85em',
+              backgroundColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)',
+            },
+          }}
+        >
+          <ReactMarkdown>{event.description || ''}</ReactMarkdown>
+        </Box>
+        {isReplied && (
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1, color: accentColor }}>
+            <CornerUpLeft size={12} />
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+              Replied
+            </Typography>
+          </Stack>
+        )}
+        {canReply && (!replyOpen ? (
+          <Button
+            size="small"
+            startIcon={<CornerUpLeft size={13} />}
+            onClick={() => setReplyOpen(true)}
+            sx={{ mt: 1, textTransform: 'none' }}
+          >
+            Respond
+          </Button>
+        ) : (
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={6}
+              size="small"
+              autoFocus
+              placeholder="Type your reply…"
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void sendReply()
+                }
+              }}
+              disabled={sending}
+            />
+            <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1 }}>
+              <Button
+                size="small"
+                onClick={() => { setReplyOpen(false); setReply('') }}
+                disabled={sending}
+                sx={{ textTransform: 'none' }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => void sendReply()}
+                disabled={!reply.trim() || sending}
+                startIcon={sending ? <CircularProgress size={13} color="inherit" /> : undefined}
+                sx={{ textTransform: 'none' }}
+              >
+                {sending ? 'Sending…' : 'Send reply'}
+              </Button>
+            </Stack>
+          </Box>
+        ))}
+      </Box>
+    )
+  }
 
   return (
     <Box
@@ -268,9 +451,9 @@ const AttentionEventItem: React.FC<{
       <Tooltip
         title={
           <span style={{ whiteSpace: 'pre-wrap' }}>
-            {event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}
-            {'\n'}
-            {groupedWith ? 'Spec ready & agent finished' : event.title}
+            {isOrgMessage
+              ? `${event.title}\n${event.description || ''}`
+              : `${event.spec_task_description || event.spec_task_name || event.spec_task_id || ''}\n${groupedWith ? 'Spec ready & agent finished' : event.title}`}
           </span>
         }
         placement="left"
@@ -291,7 +474,7 @@ const AttentionEventItem: React.FC<{
               lineHeight: 1.4,
             }}
           >
-            {event.spec_task_name || event.spec_task_id}
+            {isOrgMessage ? event.title : (event.spec_task_name || event.spec_task_id)}
           </Typography>
           <Typography
             variant="caption"
@@ -306,7 +489,9 @@ const AttentionEventItem: React.FC<{
               mt: 0.25,
             }}
           >
-            {groupedWith ? 'Spec ready & agent finished' : event.title} · {event.project_name || event.project_id}
+            {isOrgMessage
+              ? (event.description || '')
+              : `${groupedWith ? 'Spec ready & agent finished' : event.title} · ${event.project_name || event.project_id}`}
           </Typography>
         </Box>
       </Tooltip>
@@ -378,6 +563,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
     events,
     newEvents,
     acknowledge,
+    markReplied,
     dismiss,
     snooze,
     dismissAll,
@@ -417,12 +603,15 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         )
       } else {
         const { event } = group
+        const isOrgMessage = event.event_type === 'org_message'
         fireNotification(
           event.id,
           `Helix: ${event.title}`,
-          `${event.spec_task_name || ''} · ${event.project_name || ''}`,
+          isOrgMessage ? (event.description || '') : `${event.spec_task_name || ''} · ${event.project_name || ''}`,
           () => {
             acknowledge(event.id)
+            // org_message is read/replied inline in the panel — just mark read.
+            if (isOrgMessage) return
             account.orgNavigate('project-task-detail', {
               id: event.project_id,
               taskId: event.spec_task_id,
@@ -447,6 +636,11 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleNavigate = useCallback(async (event: AttentionEvent) => {
     // Mark as read on explicit click
     acknowledge(event.id)
+
+    // org_message (a bot messaging a person) is read and replied to inline in
+    // the notification itself (see AttentionEventItem) — clicking the row just
+    // marks it read, no navigation.
+    if (event.event_type === 'org_message') return
 
     // Don't close the panel — user wants to keep it open while working
     if (event.event_type === 'specs_pushed') {
@@ -476,6 +670,10 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
   const handleDismiss = useCallback((eventId: string) => {
     dismiss(eventId)
   }, [dismiss])
+
+  const handleReplied = useCallback((eventId: string) => {
+    return markReplied(eventId)
+  }, [markReplied])
 
   const handleDismissAll = useCallback(() => {
     dismissAll()
@@ -527,9 +725,25 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         onClick={(e) => { e.stopPropagation(); drawerOpen ? handleDrawerClose() : handleDrawerOpen() }}
         sx={{
           ml: 0.5,
-          color: lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)',
+          // When there's something unread the whole bell lights up red and
+          // periodically nudges — a grey bell + grey count reads as "nothing
+          // to see". Read/idle falls back to the muted default.
+          color: deduplicatedHasNew
+            ? '#ef4444'
+            : (lightTheme.isLight ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)'),
+          transformOrigin: 'top center',
+          ...(deduplicatedHasNew && {
+            animation: 'bellNudge 2.4s ease-in-out infinite',
+            '@keyframes bellNudge': {
+              '0%, 70%, 100%': { transform: 'rotate(0deg)' },
+              '75%': { transform: 'rotate(-14deg)' },
+              '82%': { transform: 'rotate(11deg)' },
+              '89%': { transform: 'rotate(-6deg)' },
+              '95%': { transform: 'rotate(3deg)' },
+            },
+          }),
           '&:hover': {
-            color: lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)',
+            color: deduplicatedHasNew ? '#dc2626' : (lightTheme.isLight ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.9)'),
             backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)',
           },
         }}
@@ -537,11 +751,22 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
         <Badge
           badgeContent={deduplicatedHasNew ? deduplicatedUnreadCount : deduplicatedTotalCount}
           color={deduplicatedHasNew ? 'error' : 'default'}
+          overlap="circular"
           sx={{
             '& .MuiBadge-badge': {
-              fontSize: '0.6rem',
-              height: 15,
-              minWidth: 15,
+              fontSize: '0.62rem',
+              fontWeight: 700,
+              height: 16,
+              minWidth: 16,
+              // Make the unread count pop: solid red with a soft glow + pulse.
+              ...(deduplicatedHasNew && {
+                boxShadow: '0 0 0 2px rgba(239,68,68,0.35)',
+                animation: 'badgePulse 2s ease-in-out infinite',
+                '@keyframes badgePulse': {
+                  '0%, 100%': { boxShadow: '0 0 0 2px rgba(239,68,68,0.35)' },
+                  '50%': { boxShadow: '0 0 0 5px rgba(239,68,68,0.0)' },
+                },
+              }),
               ...(!deduplicatedHasNew && deduplicatedTotalCount > 0 && {
                 backgroundColor: lightTheme.isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.25)',
                 color: lightTheme.isLight ? '#fff' : 'rgba(0,0,0,0.7)',
@@ -549,7 +774,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
             },
           }}
         >
-          {drawerOpen ? <BellRing size={18} /> : <Bell size={18} />}
+          {(drawerOpen || deduplicatedHasNew) ? <BellRing size={18} /> : <Bell size={18} />}
         </Badge>
       </IconButton>
 
@@ -560,7 +785,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
           top: 0,
           right: 0,
           bottom: 0,
-          width: PANEL_WIDTH,
+          width: { xs: '100%', sm: PANEL_WIDTH },
           maxWidth: '100vw',
           textAlign: 'left',
           backgroundColor: lightTheme.panelColor,
@@ -740,6 +965,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                         dismiss(group.secondary.id)
                         handleDismiss(id)
                       }}
+                      onReplied={handleReplied}
                     />
                   )
                 }
@@ -749,6 +975,7 @@ const GlobalNotifications: React.FC<GlobalNotificationsProps> = ({ onOpenChange 
                     event={group.event}
                     onNavigate={handleNavigate}
                     onDismiss={handleDismiss}
+                    onReplied={handleReplied}
                   />
                 )
               })}

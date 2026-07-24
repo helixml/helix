@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -146,14 +147,152 @@ func (apiServer *HelixAPIServer) createClaudeSubscription(_ http.ResponseWriter,
 		return nil, system.NewHTTPError500("failed to create subscription: " + err.Error())
 	}
 
+	// Liveness-probe the freshly connected credentials so Status reflects reality
+	// instead of an unconditional "active". A dead token is caught here rather
+	// than at the first agent turn.
+	created = apiServer.revalidateClaudeSubscription(req.Context(), created)
+
 	log.Info().
 		Str("subscription_id", created.ID).
 		Str("owner_id", ownerID).
 		Str("owner_type", string(ownerType)).
 		Str("credential_type", credentialType).
+		Str("status", created.Status).
 		Msg("Created Claude subscription")
 
 	return created, nil
+}
+
+// revalidateClaudeSubscription liveness-probes a subscription's stored token and
+// persists the outcome (Status, LastError, LastValidatedAt). A ProbeInconclusive
+// result (network error, or an oauth token that is expired-but-refreshable)
+// leaves the existing Status untouched — we never downgrade a subscription to
+// "error" on an ambiguous signal. Returns the updated row (or the input on
+// failure to persist).
+func (apiServer *HelixAPIServer) revalidateClaudeSubscription(ctx context.Context, sub *types.ClaudeSubscription) *types.ClaudeSubscription {
+	if sub == nil {
+		return sub
+	}
+	result, detail := anthropic.ValidateSubscription(ctx, sub)
+	now := time.Now()
+	switch result {
+	case anthropic.ProbeValid:
+		sub.Status = "active"
+		sub.LastError = ""
+		sub.LastValidatedAt = &now
+	case anthropic.ProbeInvalid:
+		sub.Status = "error"
+		sub.LastError = detail
+		sub.LastValidatedAt = &now
+	case anthropic.ProbeInconclusive:
+		// Leave Status/LastError as-is; record that we tried.
+		sub.LastValidatedAt = &now
+		log.Debug().Str("subscription_id", sub.ID).Str("detail", detail).Msg("Claude subscription probe inconclusive")
+	}
+	updated, err := apiServer.Store.UpdateClaudeSubscription(ctx, sub)
+	if err != nil {
+		log.Warn().Err(err).Str("subscription_id", sub.ID).Msg("failed to persist Claude subscription validation result")
+		return sub
+	}
+	return updated
+}
+
+// claudeSubscriptionStatusMaxAge bounds how stale a persisted validation result
+// can be before the owner-status endpoint re-probes. Keeps the settings display
+// honest without hammering Anthropic on every render.
+const claudeSubscriptionStatusMaxAge = 5 * time.Minute
+
+// AppClaudeSubscriptionStatus reports whether the account whose Claude
+// subscription would authenticate an app's sessions (the app owner) actually has
+// a working subscription connected. Backs the "whose subscription" callout and
+// the cross-user warning in agent settings.
+type AppClaudeSubscriptionStatus struct {
+	Connected             bool       `json:"connected"`                         // owner has a subscription connected at all
+	Valid                 bool       `json:"valid"`                             // that subscription passed its last liveness probe
+	OwnerID               string     `json:"owner_id"`                          // app owner (the likely session owner)
+	OwnerName             string     `json:"owner_name"`                        // human-readable owner (email / full name)
+	IsCurrentUser         bool       `json:"is_current_user"`                   // true when the editor IS the owner
+	SubscriptionOwnerType string     `json:"subscription_owner_type,omitempty"` // "user" or "org" — where the effective sub resolved
+	Status                string     `json:"status,omitempty"`
+	LastValidatedAt       *time.Time `json:"last_validated_at,omitempty"`
+	LastError             string     `json:"last_error,omitempty"`
+}
+
+// @Summary Get the Claude subscription status for an app's owner
+// @Description Reports whether the app owner (whose subscription authenticates the app's sessions) has a working Claude subscription
+// @Tags Claude
+// @Produce json
+// @Param id path string true "App ID"
+// @Success 200 {object} AppClaudeSubscriptionStatus
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/apps/{id}/claude-subscription-status [get]
+func (apiServer *HelixAPIServer) getAppClaudeSubscriptionStatus(_ http.ResponseWriter, req *http.Request) (*AppClaudeSubscriptionStatus, *system.HTTPError) {
+	user := getRequestUser(req)
+	if user == nil {
+		return nil, system.NewHTTPError401("authentication required")
+	}
+
+	app, err := apiServer.Store.GetApp(req.Context(), getID(req))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if err := apiServer.authorizeUserToApp(req.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	status := &AppClaudeSubscriptionStatus{
+		OwnerID:       app.Owner,
+		OwnerName:     apiServer.displayNameForUser(req.Context(), app.Owner),
+		IsCurrentUser: app.Owner == user.ID,
+	}
+
+	// Resolve the subscription exactly as a session owned by the app owner would
+	// (user-level first, then the app's org).
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(req.Context(), app.Owner, app.OrganizationID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return status, nil // not connected
+		}
+		return nil, system.NewHTTPError500("failed to resolve subscription: " + err.Error())
+	}
+
+	// Re-probe if we've never validated it or the last result is stale.
+	if sub.LastValidatedAt == nil || time.Since(*sub.LastValidatedAt) > claudeSubscriptionStatusMaxAge {
+		sub = apiServer.revalidateClaudeSubscription(req.Context(), sub)
+	}
+
+	status.Connected = true
+	status.Valid = sub.Status == "active"
+	status.SubscriptionOwnerType = string(sub.OwnerType)
+	status.Status = sub.Status
+	status.LastValidatedAt = sub.LastValidatedAt
+	status.LastError = sub.LastError
+	return status, nil
+}
+
+// displayNameForUser returns a human-readable label for a user id, preferring
+// email then full name then the raw id. Best-effort — never errors.
+func (apiServer *HelixAPIServer) displayNameForUser(ctx context.Context, userID string) string {
+	if userID == "" {
+		return ""
+	}
+	u, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil || u == nil {
+		return userID
+	}
+	if u.Email != "" {
+		return u.Email
+	}
+	if u.FullName != "" {
+		return u.FullName
+	}
+	return userID
 }
 
 // @Summary List Claude subscriptions
@@ -300,8 +439,12 @@ type ClaudeModel struct {
 // @Security BearerAuth
 // @Router /api/v1/claude-subscriptions/models [get]
 func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *http.Request) ([]*ClaudeModel, *system.HTTPError) {
+	// The "[1m]" context hint selects the 1M-context row of a tier; Claude
+	// Code's resolveModelPreference() canonicalizes "opus[1m]" to the 1M model
+	// while a bare "opus" resolves to the 200k row.
 	models := []*ClaudeModel{
-		{ID: "opus", Name: "Claude Opus", Description: "Most capable Claude model"},
+		{ID: "opus[1m]", Name: "Claude Opus (1M context)", Description: "Most capable Claude model, 1M-token context"},
+		{ID: "opus", Name: "Claude Opus (200k context)", Description: "Most capable Claude model, 200k-token context"},
 		{ID: "sonnet", Name: "Claude Sonnet", Description: "Best balance of speed and capability"},
 		{ID: "haiku", Name: "Claude Haiku", Description: "Fastest Claude model"},
 	}
@@ -310,7 +453,7 @@ func (apiServer *HelixAPIServer) listClaudeModels(_ http.ResponseWriter, req *ht
 
 // SessionClaudeCredentialsResponse returns credentials in the appropriate format.
 type SessionClaudeCredentialsResponse struct {
-	CredentialType string                       `json:"credential_type"`            // "oauth" or "setup_token"
+	CredentialType string                        `json:"credential_type"` // "oauth" or "setup_token"
 	OAuthCreds     *types.ClaudeOAuthCredentials `json:"oauth_credentials,omitempty"`
 	SetupToken     string                        `json:"setup_token,omitempty"`
 }
@@ -525,9 +668,9 @@ func (apiServer *HelixAPIServer) startClaudeLogin(_ http.ResponseWriter, req *ht
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
-			Stream:       true,
-			AgentType:    "zed_external",
-			SessionRole:  "exploratory",
+			Stream:      true,
+			AgentType:   "zed_external",
+			SessionRole: "exploratory",
 		},
 	}
 

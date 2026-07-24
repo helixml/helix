@@ -583,6 +583,7 @@ const DashboardProviders: FC = () => {
                     open={dialogOpen}
                     provider={selectedProvider}
                     orgId=""
+                    existingProvider={getEndpoint(selectedProvider)}
                     onClose={() => { setDialogOpen(false); setSelectedProvider(null); }}
                 />
             )}

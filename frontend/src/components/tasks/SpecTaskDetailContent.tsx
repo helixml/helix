@@ -66,7 +66,7 @@ import useApi from "../../hooks/useApi";
 import useRouter from "../../hooks/useRouter";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
 import useApps from "../../hooks/useApps";
 import { deriveDisplaySettings } from "../../services/externalAgentDisplay";
@@ -95,6 +95,7 @@ import {
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
+import SpecTaskShareDialog from "./SpecTaskShareDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
@@ -120,7 +121,7 @@ import {
   GitCompare,
   MonitorPlay,
   Wand2,
-  Copy,
+  Share,
 } from "lucide-react";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
@@ -162,12 +163,9 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  // OAuth flow is needed when a user without GitHub OAuth tries to start
-  // planning — the backend returns 422 with error=oauth_required, and we
-  // drop them into the GitHub connect flow before they retry.
+  // OAuth flow is needed when a user lacks the repository provider connection.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Use md breakpoint (900px) to enable split view on tablets
   const isBigScreen = useIsBigScreen({ breakpoint: "md" });
@@ -394,6 +392,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     task?.public_design_docs ?? false,
   );
   const [updatingPublic, setUpdatingPublic] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // Sync public state when task data changes
   useEffect(() => {
@@ -402,7 +401,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.public_design_docs]);
 
-  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+  // Points at the unauthenticated, server-rendered public viewer
+  // (subRouter route GET /api/v1/spec-tasks/{id}/view). The /api/v1 prefix is
+  // required — without it the URL hits the SPA and forces an OIDC login.
+  const publicLink = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 
   const handlePublicToggle = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -410,7 +412,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
-      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+      await api.getApiClient().v1SpecTasksUpdate(taskId, {
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
@@ -421,15 +423,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.error(err.message || "Failed to update visibility");
     } finally {
       setUpdatingPublic(false);
-    }
-  };
-
-  const copyPublicLink = async () => {
-    try {
-      await navigator.clipboard.writeText(publicLink);
-      snackbar.success("Link copied to clipboard!");
-    } catch (err) {
-      snackbar.error("Failed to copy link");
     }
   };
 
@@ -691,25 +684,26 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // Backend returns 422 + oauth_required when the planner has no
-        // GitHub OAuth connection. Drop into the connect flow so the user
-        // can retry without hitting a dead-end error.
+        // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          if (gitHubProvider?.id) {
-            snackbar.info("Connect GitHub to start planning this task.");
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+          const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+          if (oauthProvider?.id) {
+            snackbar.info(`Connect ${providerName} to start planning this task.`);
             startOAuthFlow({
-              providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              providerId: oauthProvider.id,
+              scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
               onSuccess: () => {
                 snackbar.success(
-                  "GitHub connected. Click Start Planning again to continue.",
+                  `${providerName} connected. Click Start Planning again to continue.`,
                 );
               },
               onError: (oauthError) => {
-                snackbar.error(`GitHub connection failed: ${oauthError}`);
+                snackbar.error(`${providerName} connection failed: ${oauthError}`);
               },
             });
           } else {
@@ -717,7 +711,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
             // error message is PR-centric and actionless for this user, so
             // override it with admin-direction guidance.
             snackbar.error(
-              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+              `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.`,
             );
           }
           return;
@@ -1095,6 +1089,25 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
   // Render the details content (used in both desktop left panel and mobile/no-session view)
   const renderDetailsContent = () => (
     <>
+      {/* Queued task block reason — explains why a queued task hasn't started yet
+          (WIP capacity / dependency). Recomputed server-side each read, so it
+          clears automatically as the queue drains. */}
+      {(task?.status === "queued_spec_generation" ||
+        task?.status === "queued_implementation") &&
+        task?.queue_reason && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Waiting to start
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", color: "text.secondary" }}
+            >
+              {task.queue_reason}
+            </Typography>
+          </Alert>
+        )}
+
       {/* Completed task message */}
       {isTaskCompleted && (
         <Alert severity="success" sx={{ mb: 3 }}>
@@ -1657,7 +1670,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Typography>
         )}
 
-        {/* Public Design Docs Toggle */}
+        {/* Share Design Docs */}
         <Divider sx={{ my: 2 }} />
         <Box
           sx={{
@@ -1670,48 +1683,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Box>
             <Typography variant="subtitle2">Share Design Docs</Typography>
             <Typography variant="caption" color="text.secondary">
-              Anyone with the link can view
+              {isPublicDesignDocs
+                ? "Anyone with the link can view"
+                : "Only people with project access can view"}
             </Typography>
           </Box>
-          <Switch
-            checked={isPublicDesignDocs}
-            onChange={handlePublicToggle}
-            disabled={updatingPublic}
+          <Button
             size="small"
-          />
-        </Box>
-        {isPublicDesignDocs && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mb: 1,
-              p: 1,
-              bgcolor: "action.hover",
-              borderRadius: 1,
-            }}
+            variant="outlined"
+            startIcon={<Share size={14} />}
+            onClick={() => setShareDialogOpen(true)}
           >
-            <Typography
-              variant="caption"
-              sx={{
-                flex: 1,
-                fontFamily: "monospace",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                color: "text.secondary",
-              }}
-            >
-              {publicLink}
-            </Typography>
-            <Tooltip title="Copy link">
-              <IconButton size="small" onClick={copyPublicLink}>
-                <Copy size={14} />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
+            Share
+          </Button>
+        </Box>
 
         {/* Move to Backlog button */}
         {canMoveToBacklog && (
@@ -1996,6 +1981,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box sx={{ p: 1.5, flexShrink: 0 }}>
                   <RobustPromptInput
@@ -2202,6 +2188,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           <Tooltip title="Edit task">
                             <IconButton size="small" onClick={handleEditToggle}>
                               <EditIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {task.design_docs_pushed_at && (
+                          <Tooltip title="Share design docs">
+                            <IconButton
+                              size="small"
+                              onClick={() => setShareDialogOpen(true)}
+                            >
+                              <Share size={16} />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -2623,6 +2619,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {task.design_docs_pushed_at && (
+                      <Tooltip title="Share design docs">
+                        <IconButton
+                          size="small"
+                          onClick={() => setShareDialogOpen(true)}
+                        >
+                          <Share size={16} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton
                           size="small"
@@ -2791,6 +2797,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                 <EmbeddedSessionView
                   ref={sessionViewRef}
                   sessionId={activeSessionId}
+                  enableInteractionDebugCopy
                 />
                 <Box
                   sx={{
@@ -2992,6 +2999,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         taskId={taskId}
         taskName={task?.name || ""}
         sourceProjectId={task?.project_id || ""}
+      />
+
+      <SpecTaskShareDialog
+        open={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        shareUrl={publicLink}
+        isPublic={isPublicDesignDocs}
+        updating={updatingPublic}
+        onToggle={handlePublicToggle}
       />
 
       {/* Clone Group Progress Dialog */}

@@ -209,8 +209,33 @@ func (s *Store) DeleteOrganization(ctx context.Context, id string) error {
 			return err
 		}
 
-		// Delete all spec tasks
+		// Delete spec tasks. Some children (work sessions, zed threads, the
+		// spec_task_dependencies join table) predate ON DELETE CASCADE and
+		// still carry NO ACTION FKs on existing databases (AutoMigrate does
+		// not retro-alter an existing constraint), so a bare spec_tasks delete
+		// fails with fk_spec_tasks_work_sessions. Clear those children first,
+		// scoped to this org's spec tasks. design_reviews / implementation_tasks
+		// already cascade.
+		var specTaskIDs []string
+		if err := tx.Model(&types.SpecTask{}).Where("organization_id = ?", id).Pluck("id", &specTaskIDs).Error; err != nil {
+			return err
+		}
+		if len(specTaskIDs) > 0 {
+			if err := tx.Where("spec_task_id IN ?", specTaskIDs).Delete(&types.SpecTaskZedThread{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("spec_task_id IN ?", specTaskIDs).Delete(&types.SpecTaskWorkSession{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec("DELETE FROM spec_task_dependencies WHERE spec_task_id IN ? OR depends_on_id IN ?", specTaskIDs, specTaskIDs).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Where("organization_id = ?", id).Delete(&types.SpecTask{}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("organization_id = ?", id).Delete(&types.ServiceConnection{}).Error; err != nil {
 			return err
 		}
 

@@ -27,6 +27,20 @@ describe('buildManifest', () => {
     const m = JSON.parse(buildManifest('rest', REDIRECT, EVENTS))
     expect(m.oauth_config.redirect_urls).toContain(REDIRECT)
     expect(m.oauth_config.scopes.bot).toContain('chat:write')
+    expect(m.oauth_config.scopes.bot).toContain('im:write')
+    expect(m.oauth_config.scopes.bot).toContain('users:read')
+    expect(m.oauth_config.scopes.bot).toContain('users:read.email')
+  })
+
+  it('defines a bot user and non-empty bot scopes', () => {
+    const m = JSON.parse(buildManifest('rest', REDIRECT, EVENTS))
+    expect(m.features.bot_user.display_name).toBeTruthy()
+    expect(m.features.app_home).toEqual({
+      home_tab_enabled: false,
+      messages_tab_enabled: true,
+      messages_tab_read_only_enabled: false,
+    })
+    expect(m.oauth_config.scopes.bot.length).toBeGreaterThan(0)
   })
 
   // Every subscribed message.* event must have its matching *:history scope

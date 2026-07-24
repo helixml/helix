@@ -12,8 +12,11 @@ import Typography from '@mui/material/Typography'
 import { TypesOrganization } from '../../api/api'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
+import useRouter from '../../hooks/useRouter'
 import useSnackbar from '../../hooks/useSnackbar'
-import BotRuntimeForm, { BotRuntimeValue } from '../helix-org/BotRuntimeForm'
+import AgentConfigForm, { AgentConfigValue } from '../helix-org/BotRuntimeForm'
+import { SELECTED_ORG_STORAGE_KEY } from '../../utils/localStorage'
+import { orgLandingRoute } from '../../utils/organizations'
 
 export interface EditOrgWindowProps {
   open: boolean
@@ -22,18 +25,12 @@ export interface EditOrgWindowProps {
   onSubmit: (org: TypesOrganization) => Promise<TypesOrganization | null | void>
 }
 
-const DEFAULT_BOT_RUNTIME: BotRuntimeValue = {
+const DEFAULT_AGENT_CONFIG: AgentConfigValue = {
   runtime: 'claude_code',
   credentials: 'subscription',
   provider: '',
   model: '',
 }
-
-// Identity for the starter Bot seeded into a new org so its chart isn't blank.
-// Created with owner=true so it can set up and coordinate other Bots.
-const STARTER_BOT_CONTENT = `# Chief of Staff
-
-You are the Chief of Staff for this organization - the owner's right hand, here to support them and the team. When you first meet the owner, ask what this organization is for and what they want to accomplish. Then set things up: bring in assistant bots for the concrete pieces of work, give each a clear purpose, connect who works with whom, and subscribe them to the topics they need. Coordinate and keep things organized, and delegate the hands-on work to the assistants you bring in rather than doing it all yourself.`
 
 const EditOrgWindow: FC<EditOrgWindowProps> = ({
   open,
@@ -43,6 +40,7 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
 }) => {
   const account = useAccount()
   const api = useApi()
+  const router = useRouter()
   const snackbar = useSnackbar()
   const helixOrgEnabled = account.user?.alpha_features?.includes('helix-org') ?? false
 
@@ -52,11 +50,11 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [errors, setErrors] = useState<{slug?: string, name?: string}>({})
 
-  // Default Bot Runtime is optional at creation: untouched means "write
-  // nothing, use the backend defaults" — so an org with no providers or Claude
+  // Default Agent Configuration is optional at creation: untouched means "write
+  // nothing, use the backend defaults" - so an org with no providers or Claude
   // subscription set up can still be created without picking anything.
-  const [botDefaults, setBotDefaults] = useState<BotRuntimeValue>(DEFAULT_BOT_RUNTIME)
-  const [botDirty, setBotDirty] = useState(false)
+  const [agentDefaults, setAgentDefaults] = useState<AgentConfigValue>(DEFAULT_AGENT_CONFIG)
+  const [agentDefaultsDirty, setAgentDefaultsDirty] = useState(false)
 
   // Reset state when modal opens/closes or org changes
   useEffect(() => {
@@ -69,8 +67,8 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
     }
     setSlugManuallyEdited(false)
     setErrors({})
-    setBotDefaults(DEFAULT_BOT_RUNTIME)
-    setBotDirty(false)
+    setAgentDefaults(DEFAULT_AGENT_CONFIG)
+    setAgentDefaultsDirty(false)
   }, [org, open])
 
   // Generate slug from name for new organizations
@@ -112,23 +110,18 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
     return Object.keys(newErrors).length === 0
   }
 
-  // Persist the chosen bot-runtime defaults to the freshly-created org. Only
+  // Persist the chosen default agent config to the freshly-created org. Only
   // called on create, only when the operator actually touched the form, and
-  // only writes non-empty keys. Best-effort: a failure here doesn't undo the
+  // writes the object once. Best-effort: a failure here doesn't undo the
   // (already-created) org, so we surface it as a soft warning.
-  const persistBotDefaults = async (createdSlug: string) => {
+  const persistAgentDefaults = async (createdSlug: string) => {
     const client = api.getApiClient()
-    const writes: Promise<unknown>[] = [
-      client.v1OrgsSettingsUpdate('worker.runtime', createdSlug, { value: JSON.stringify(botDefaults.runtime) }),
-      client.v1OrgsSettingsUpdate('worker.credentials', createdSlug, { value: JSON.stringify(botDefaults.credentials) }),
-    ]
-    if (botDefaults.provider) {
-      writes.push(client.v1OrgsSettingsUpdate('worker.provider', createdSlug, { value: JSON.stringify(botDefaults.provider) }))
-    }
-    if (botDefaults.model) {
-      writes.push(client.v1OrgsSettingsUpdate('worker.model', createdSlug, { value: JSON.stringify(botDefaults.model) }))
-    }
-    await Promise.all(writes)
+    await client.v1OrgsSettingsUpdate('agent.default', createdSlug, { value: JSON.stringify({
+      code_agent_runtime: agentDefaults.runtime,
+      code_agent_credential_type: agentDefaults.credentials,
+      provider: agentDefaults.provider,
+      model: agentDefaults.model,
+    }) })
   }
 
   const handleSubmit = async () => {
@@ -156,30 +149,25 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
 
       const created = await onSubmit(updatedOrg)
 
-      // New org + operator picked bot-runtime defaults → persist them against
+      // New org + operator picked a default agent config: persist it against
       // the real created slug (the backend may have suffixed it for uniqueness).
-      if (!org && botDirty && helixOrgEnabled && created && created.name) {
+      if (!org && agentDefaultsDirty && helixOrgEnabled && created && created.name) {
         try {
-          await persistBotDefaults(created.name)
+          await persistAgentDefaults(created.name)
         } catch (e) {
-          snackbar.error('Organization created, but saving the default bot runtime failed — set it in Settings.')
+          snackbar.error('Organization created, but saving the default agent configuration failed - set it in Settings.')
         }
       }
 
-      // New alpha org: seed a starter manager Bot so the org chart isn't
-      // blank. It gets the owner tool set (can hire + manage other Bots) and
-      // inherits the org's default runtime. Best-effort.
-      if (!org && helixOrgEnabled && created && created.name) {
-        try {
-          await api.getApiClient().v1OrgsBotsCreate(created.name, {
-            id: 'chief-of-staff',
-            name: 'Chief of Staff',
-            content: STARTER_BOT_CONTENT,
-            owner: true,
-          })
-        } catch (e) {
-          snackbar.error('Organization created, but seeding the starter bot failed - add one from the Org Chart.')
-        }
+      // Chief of Staff (+ the creator's human node) is now seeded by the
+      // backend on org create — see api/pkg/server/org_graph_seed.go. The
+      // frontend no longer creates it.
+
+      // Land the operator on the freshly created org: the org chart when
+      // helix-org is enabled, otherwise projects.
+      if (!org && created && created.name) {
+        localStorage.setItem(SELECTED_ORG_STORAGE_KEY, created.name)
+        router.navigate(orgLandingRoute(account.user), { org_id: created.name })
       }
 
       onClose()
@@ -226,23 +214,22 @@ const EditOrgWindow: FC<EditOrgWindowProps> = ({
             helperText={errors.slug || "Unique identifier for the organization (no spaces allowed)"}
           />
 
-          {/* Default Bot Runtime — only when creating, and only for helix-org
+          {/* Default Agent Configuration - only when creating, and only for helix-org
               alpha users. Optional: leave untouched to configure later. */}
           {!org && helixOrgEnabled && (
             <Box sx={{ mt: 3 }}>
               <Divider sx={{ mb: 2 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                Default Bot Runtime
+                Default Agent Configuration
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Optional — how Bots in this org run by default. Leave as-is to configure
-                later in Settings.
+                Optional agent settings copied to Bots when they are first provisioned.
               </Typography>
-              <BotRuntimeForm
-                value={botDefaults}
+              <AgentConfigForm
+                value={agentDefaults}
                 onChange={(patch) => {
-                  setBotDefaults((v) => ({ ...v, ...patch }))
-                  setBotDirty(true)
+                  setAgentDefaults((v) => ({ ...v, ...patch }))
+                  setAgentDefaultsDirty(true)
                 }}
               />
             </Box>

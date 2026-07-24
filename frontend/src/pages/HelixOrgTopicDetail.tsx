@@ -17,21 +17,28 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Container from '@mui/material/Container'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
-import CloseIcon from '@mui/icons-material/Close'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import { useQueryClient } from '@tanstack/react-query'
 
-import Page from '../components/system/Page'
+import HelixOrgShell from '../components/helix-org/HelixOrgShell'
+import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import CronScheduleFields from '../components/helix-org/CronScheduleFields'
 import { GitHubBranchesField } from '../components/helix-org/GitHubTopicConfigFields'
 import GitHubRepoPicker from '../components/helix-org/GitHubRepoPicker'
-import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import { GITHUB_REPO_PATTERN } from '../components/helix-org/githubTopicConstants'
+import CopyButtonWithCheck from '../components/session/CopyButtonWithCheck'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -39,10 +46,14 @@ import useSnackbar from '../hooks/useSnackbar'
 import {
   EventCard,
   InstallWebhookFailedError,
+  QUERY_KEYS,
   TopicDTO,
+  useClearHelixOrgTopicMessages,
   useHelixOrgTopic,
   useGitHubWebhookStatus,
+  useGitLabWebhookStatus,
   useInstallGitHubWebhook,
+  useInstallGitLabWebhook,
   useTopicMessageCount,
   useUpdateHelixOrgTopic,
 } from '../services/helixOrgService'
@@ -53,11 +64,11 @@ const HelixOrgTopicDetail: FC = () => {
   const snackbar = useSnackbar()
   const orgSlug = router.params.org_id as string | undefined
   const topicId = router.params.topic_id as string | undefined
-  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
 
   const { data: topic, isLoading } = useHelixOrgTopic(topicId)
   const { data: messageCount } = useTopicMessageCount(topicId)
   const updateTopic = useUpdateHelixOrgTopic()
+  const queryClient = useQueryClient()
 
   // Live event list. Seeded from the initial GET so the page renders
   // immediately; replaced wholesale on every SSE push from
@@ -74,6 +85,7 @@ const HelixOrgTopicDetail: FC = () => {
   // `event: message` frames with a JSON-array payload of up to 50
   // events newest-first; we replace state on each.
   const orgID = account.organizationTools.organization?.id || orgSlug || ''
+  const queryOrgID = orgSlug || orgID
   const sseUrlRef = useRef<string | null>(null)
   useEffect(() => {
     if (!orgID || !topicId) return
@@ -83,7 +95,10 @@ const HelixOrgTopicDetail: FC = () => {
     const onMessage = (ev: MessageEvent) => {
       try {
         const arr = JSON.parse(ev.data) as EventCard[]
-        if (Array.isArray(arr)) setLiveEvents(arr)
+        if (Array.isArray(arr)) {
+          setLiveEvents(arr)
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.topicMessageCount(queryOrgID, topicId) })
+        }
       } catch {
         // Malformed payload: drop, keep prior state. Next frame is
         // typically well-formed.
@@ -94,7 +109,7 @@ const HelixOrgTopicDetail: FC = () => {
       es.removeEventListener('message', onMessage)
       es.close()
     }
-  }, [orgID, topicId])
+  }, [orgID, queryOrgID, topicId])
 
   const subscribers = topic?.subscribers ?? []
 
@@ -105,12 +120,12 @@ const HelixOrgTopicDetail: FC = () => {
     return d.toLocaleString()
   }
 
+  const breadcrumbs = useHelixOrgBreadcrumbs({ title: 'Topics', routeName: 'helix_org_topics' })
+  const leafTitle = topic?.name || topic?.id || topicId || 'Topic'
+
   return (
-    <Page
-      breadcrumbTitle={topic?.name || topicId || 'Topic'}
-      breadcrumbs={breadcrumbs}
-      organizationId={account.organizationTools.organization?.id}
-    >
+    <HelixOrgShell showChat={false} breadcrumbs={breadcrumbs} breadcrumbTitle={leafTitle}>
+      <Box sx={{ height: '100%', overflow: 'auto' }}>
       <Container maxWidth="xl" sx={{ mb: 4, pt: 3 }}>
         <Stack spacing={2}>
           {isLoading ? (
@@ -122,6 +137,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Box>
                 <Stack direction="row" alignItems="baseline" spacing={2}>
                   <Typography variant="h5" sx={{ fontFamily: 'monospace' }}>{topic.id}</Typography>
+                  <CopyButtonWithCheck text={topic.id} />
                   <Chip label={topic.kind} size="small" sx={{ fontFamily: 'monospace' }} />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -148,6 +164,7 @@ const HelixOrgTopicDetail: FC = () => {
               <Divider />
 
               <TopicConfigSection
+                key={topic.id}
                 topic={topic}
                 onSave={async (payload) => {
                   try {
@@ -170,6 +187,8 @@ const HelixOrgTopicDetail: FC = () => {
                 />
               )}
 
+              {topic.kind === 'gitlab' && <GitLabWebhookStatus topic={topic} />}
+
               <Divider />
 
               <Box>
@@ -178,9 +197,16 @@ const HelixOrgTopicDetail: FC = () => {
                     <Typography variant="h6">Messages</Typography>
                     <MessageCountCard count={messageCount} />
                   </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                    newest first · up to 50 · live
-                  </Typography>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                      newest first · up to 50 · live
+                    </Typography>
+                    <ClearTopicMessagesButton
+                      topic={topic}
+                      messageCount={messageCount}
+                      onCleared={() => setLiveEvents([])}
+                    />
+                  </Stack>
                 </Stack>
                 {events.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
@@ -198,16 +224,13 @@ const HelixOrgTopicDetail: FC = () => {
           )}
         </Stack>
       </Container>
-    </Page>
+      </Box>
+    </HelixOrgShell>
   )
 }
 
-// TopicConfigSection renders the topic's mutable configuration —
-// name, description, transport config — in a read-only Paper that
-// flips into edit mode when the operator clicks Edit. The transport
-// kind itself is NOT editable here (changing transport mid-flight
-// would orphan webhook deliveries, GitHub installations etc); spin
-// up a new topic and delete the old one for that.
+// The transport kind itself is immutable here: changing it mid-flight would
+// orphan provider-side resources such as GitHub webhooks.
 interface TopicConfigSectionProps {
   topic: TopicDTO
   onSave: (payload: {
@@ -216,47 +239,49 @@ interface TopicConfigSectionProps {
     transport?: { config?: Record<string, unknown> }
   }) => Promise<boolean>
   saving: boolean
+  onCancel?: () => void
 }
 
-const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving }) => {
-  const snackbar = useSnackbar()
-  const [editing, setEditing] = useState(false)
+type TopicForm = {
+  name: string
+  description: string
+  configText: string
+  ghRepo: string
+  ghBranches: string[]
+  ghOriginalConfig: Record<string, unknown>
+  cronSchedule: string
+  cronMessage: string
+  slackChannel: string
+}
 
-  // Local edit-mode state. Seeded from the topic every time the
-  // user enters edit mode so cancel → re-edit starts from the
-  // current server state, not whatever the user last typed.
-  const [name, setName] = useState(topic.name)
-  const [description, setDescription] = useState(topic.description ?? '')
-  const [configText, setConfigText] = useState('')
-  const [ghRepo, setGhRepo] = useState('')
-  const [ghBranches, setGhBranches] = useState<string[]>([])
-  // The full github config as it was on the server when edit opened.
-  // We overlay only the operator-editable fields (repo, branches) on
-  // top of this at save time so server-managed fields — events (now
-  // owned by GitHub's webhook UI), webhook_id, webhook_html_url —
-  // survive the round-trip instead of being wiped.
-  const [ghOriginalConfig, setGhOriginalConfig] = useState<Record<string, unknown>>({})
-
-  const enterEdit = () => {
-    setName(topic.name)
-    setDescription(topic.description ?? '')
-    if (topic.kind === 'github') {
-      const cfg = (topic.config ?? {}) as Record<string, unknown>
-      setGhOriginalConfig(cfg)
-      setGhRepo(typeof cfg.repo === 'string' ? cfg.repo : '')
-      setGhBranches(Array.isArray(cfg.branches) && cfg.branches.length > 0 ? (cfg.branches as string[]) : ['*'])
-    } else if (topic.config) {
-      setConfigText(JSON.stringify(topic.config, null, 2))
-    } else {
-      setConfigText('')
-    }
-    setEditing(true)
+const topicForm = (topic: TopicDTO): TopicForm => {
+  const config = (topic.config ?? {}) as Record<string, unknown>
+  return {
+    name: topic.name,
+    description: topic.description ?? '',
+    configText: topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'cron'
+      ? JSON.stringify(config, null, 2)
+      : '',
+    ghRepo: topic.kind === 'github' && typeof config.repo === 'string' ? config.repo : '',
+    ghBranches: topic.kind === 'github' && Array.isArray(config.branches) && config.branches.length > 0
+      ? config.branches as string[]
+      : ['*'],
+    ghOriginalConfig: topic.kind === 'github' ? config : {},
+    cronSchedule: topic.kind === 'cron' && typeof config.schedule === 'string' ? config.schedule : '',
+    cronMessage: topic.kind === 'cron' && typeof config.message === 'string' ? config.message : '',
+    slackChannel: topic.kind === 'slack' && typeof config.channel_id === 'string' ? config.channel_id : '',
   }
+}
 
-  const cancelEdit = () => setEditing(false)
+export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving, onCancel }) => {
+  const snackbar = useSnackbar()
+  const initialForm = topicForm(topic)
+  const [form, setForm] = useState<TopicForm>(initialForm)
+  const [savedForm, setSavedForm] = useState<TopicForm>(initialForm)
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm)
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (!form.name.trim()) {
       snackbar.error('Name is required')
       return
     }
@@ -264,29 +289,43 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
       name: string
       description?: string
       transport?: { config?: Record<string, unknown> }
-    } = { name: name.trim(), description: description.trim() || undefined }
+    } = { name: form.name.trim(), description: form.description.trim() || undefined }
+
+    let saved = { ...form, name: form.name.trim(), description: form.description.trim() }
 
     if (topic.kind === 'github') {
-      if (!ghRepo.trim() || !GITHUB_REPO_PATTERN.test(ghRepo.trim())) {
+      if (!form.ghRepo.trim() || !GITHUB_REPO_PATTERN.test(form.ghRepo.trim())) {
         snackbar.error('GitHub repo is required and must be owner/name')
         return
       }
-      // Overlay the editable fields onto the original config so
-      // events (managed on GitHub now), webhook_id and webhook_html_url
-      // are preserved. The server's GitHubConfig.Validate requires a
-      // non-empty events list — dropping it here is what used to make
-      // the save silently fail.
-      const ghConfig: Record<string, unknown> = { ...ghOriginalConfig, repo: ghRepo.trim() }
-      const branches = ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
+      const ghConfig: Record<string, unknown> = { ...form.ghOriginalConfig, repo: form.ghRepo.trim() }
+      const branches = form.ghBranches.map((b) => b.trim()).filter((b) => b.length > 0)
       if (branches.length > 0) {
         ghConfig.branches = branches
       } else {
         delete ghConfig.branches
       }
       payload.transport = { config: ghConfig }
-    } else if (topic.kind !== 'local' && configText.trim()) {
+      saved = { ...saved, ghRepo: form.ghRepo.trim(), ghBranches: branches, ghOriginalConfig: ghConfig }
+    } else if (topic.kind === 'cron') {
+      const sched = form.cronSchedule.trim()
+      if (!sched) {
+        snackbar.error('Schedule is required')
+        return
+      }
+      const cronConfig: Record<string, unknown> = { schedule: sched }
+      if (form.cronMessage.trim()) {
+        cronConfig.message = form.cronMessage.trim()
+      }
+      payload.transport = { config: cronConfig }
+      saved = { ...saved, cronSchedule: sched, cronMessage: form.cronMessage.trim() }
+    } else if (topic.kind === 'slack') {
+      const config = (topic.config ?? {}) as Record<string, unknown>
+      payload.transport = { config: { ...config, channel_id: form.slackChannel.trim() } }
+      saved = { ...saved, slackChannel: form.slackChannel.trim() }
+    } else if (topic.kind !== 'local' && form.configText.trim()) {
       try {
-        const parsed = JSON.parse(configText)
+        const parsed = JSON.parse(form.configText)
         if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
           snackbar.error('Transport config must be a JSON object')
           return
@@ -301,63 +340,34 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
       payload.transport = { config: {} }
     }
     const ok = await onSave(payload)
-    if (ok) setEditing(false)
+    if (ok) {
+      setForm(saved)
+      setSavedForm(saved)
+    }
   }
 
-  const configPreview = useMemo(() => {
-    if (topic.kind === 'local') return null
-    if (!topic.config || Object.keys(topic.config).length === 0) return '(empty)'
-    return JSON.stringify(topic.config, null, 2)
-  }, [topic.kind, topic.config])
+  const handleCancel = () => {
+    setForm(savedForm)
+    onCancel?.()
+  }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="h6">Configuration</Typography>
-        {!editing && (
-          <Button size="small" startIcon={<EditIcon />} onClick={enterEdit}>
-            Edit
-          </Button>
-        )}
-      </Stack>
+    <Box>
+      <Typography variant="h6" sx={{ mb: 2 }}>Configuration</Typography>
 
-      {!editing ? (
-        <Stack spacing={1.5}>
-          <ReadOnlyRow label="Name" value={topic.name} />
-          <ReadOnlyRow label="Description" value={topic.description || '—'} />
-          <ReadOnlyRow label="Transport" value={topic.kind} mono />
-          {topic.kind !== 'local' && (
-            <Box>
-              <Typography variant="caption" color="text.secondary">Config</Typography>
-              <Typography
-                component="pre"
-                variant="body2"
-                sx={{
-                  mt: 0.5, mb: 0, p: 1, borderRadius: 1,
-                  backgroundColor: 'action.hover',
-                  fontFamily: 'monospace', fontSize: '0.75rem',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                }}
-              >
-                {configPreview}
-              </Typography>
-            </Box>
-          )}
-        </Stack>
-      ) : (
-        <Stack spacing={2}>
+      <Stack spacing={2}>
           <TextField
             label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={form.name}
+            onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
             size="small"
             fullWidth
             required
           />
           <TextField
             label="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            value={form.description}
+            onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
             multiline
             minRows={2}
             size="small"
@@ -365,19 +375,38 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
           />
           {topic.kind === 'github' && (
             <>
-              <GitHubRepoPicker value={ghRepo} onChange={setGhRepo} />
-              <GitHubBranchesField branches={ghBranches} onChange={setGhBranches} />
+              <GitHubRepoPicker value={form.ghRepo} onChange={(ghRepo) => setForm((current) => ({ ...current, ghRepo }))} />
+              <GitHubBranchesField branches={form.ghBranches} onChange={(ghBranches) => setForm((current) => ({ ...current, ghBranches }))} />
               <Typography variant="caption" color="text.secondary">
                 Which GitHub event types this webhook delivers is configured on GitHub,
                 not here — open the webhook on GitHub (below) to change it.
               </Typography>
             </>
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && (
+          {topic.kind === 'cron' && (
+            <CronScheduleFields
+              value={form.cronSchedule}
+              onChange={(cronSchedule) => setForm((current) => ({ ...current, cronSchedule }))}
+              message={form.cronMessage}
+              onMessageChange={(cronMessage) => setForm((current) => ({ ...current, cronMessage }))}
+            />
+          )}
+          {topic.kind === 'slack' && (
+            <TextField
+              label="Slack channel ID (optional)"
+              value={form.slackChannel}
+              onChange={(e) => setForm((current) => ({ ...current, slackChannel: e.target.value }))}
+              size="small"
+              fullWidth
+              placeholder="C012ABCDEF"
+              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended bots or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
+            />
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && topic.kind !== 'slack' && (
             <TextField
               label="Transport config (JSON)"
-              value={configText}
-              onChange={(e) => setConfigText(e.target.value)}
+              value={form.configText}
+              onChange={(e) => setForm((current) => ({ ...current, configText: e.target.value }))}
               multiline
               minRows={4}
               size="small"
@@ -391,22 +420,79 @@ const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave, saving
               local transport has no config — nothing to edit beyond name/description.
             </Typography>
           )}
-          <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button onClick={cancelEdit} startIcon={<CloseIcon />} disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </Stack>
+      </Stack>
+      {dirty && (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Button
+            color="secondary"
+            variant="contained"
+            size="small"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="text" size="small" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </Button>
         </Stack>
       )}
-    </Paper>
+    </Box>
+  )
+}
+
+export const ClearTopicMessagesButton: FC<{
+  topic: TopicDTO
+  messageCount?: number
+  onCleared?: () => void
+}> = ({ topic, messageCount, onCleared }) => {
+  const snackbar = useSnackbar()
+  const clearMessages = useClearHelixOrgTopicMessages()
+  const { data: queriedMessageCount } = useTopicMessageCount(topic.id)
+  const [confirming, setConfirming] = useState(false)
+  const count = messageCount ?? queriedMessageCount
+
+  const clear = async () => {
+    try {
+      await clearMessages.mutateAsync(topic.id)
+      onCleared?.()
+      setConfirming(false)
+      snackbar.success('topic messages cleared')
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error || e?.message || 'failed to clear topic messages')
+    }
+  }
+
+  return (
+    <>
+      <Button
+        color="error"
+        variant="outlined"
+        size="small"
+        startIcon={<DeleteSweepIcon />}
+        onClick={() => setConfirming(true)}
+        disabled={count === 0}
+      >
+        Clear messages
+      </Button>
+      <Dialog open={confirming} onClose={() => !clearMessages.isPending && setConfirming(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Clear all topic messages?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This permanently deletes all messages retained on “{topic.name || topic.id}”. The topic and its subscribers will remain active.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirming(false)} disabled={clearMessages.isPending}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={clear} disabled={clearMessages.isPending}>
+            {clearMessages.isPending ? 'Clearing…' : 'Clear messages'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   )
 }
 
@@ -428,10 +514,10 @@ interface GitHubWebhookStatusProps {
   orgSlug?: string
 }
 
-// SettingsLink is the actionable button on the loopback warning —
-// jumps the operator to the helix-org Settings page where
+// SettingsLink is the actionable button on the loopback warning.
+// It jumps the operator to Organization Settings where
 // `topics.public_url` can be set. Stops the user staring at
-// "what URL is wrong, where do I change it?" The Settings page
+// "what URL is wrong, where do I change it?" Organization Settings
 // has every per-org config including the new public_url override.
 const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
   const router = useRouter()
@@ -440,10 +526,10 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
     <Button
       size="small"
       variant="outlined"
-      onClick={() => router.navigate('helix_org_settings', { org_id: orgSlug })}
+      onClick={() => router.navigate('org_general', { org_id: orgSlug })}
       sx={{ color: 'warning.contrastText', borderColor: 'warning.contrastText' }}
     >
-      Open helix-org Settings →
+      Open Organization Settings
     </Button>
   )
 }
@@ -535,7 +621,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mb: 1 }}>
             GitHub's servers can't reach this URL, so webhook deliveries won't arrive. Fix by either:
-            (a) setting <code>topics.public_url</code> on the helix-org Settings page to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
+            (a) setting <code>topics.public_url</code> in Organization Settings to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
             (b) editing <code>SERVER_URL</code> in helix's .env and restarting the api container.
           </Typography>
           <SettingsLink orgSlug={orgSlug} />
@@ -614,7 +700,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
 }
 
 // MessageCountCard is the compact metric chip beside the Messages
-// header showing how many messages are waiting on the topic (meta.total
+// header showing how many messages are retained on the topic (meta.total
 // from the paginated messages endpoint). Undefined while the count query
 // is in flight — render an em-dash placeholder rather than 0 so a
 // loading state doesn't read as "empty topic".
@@ -635,21 +721,9 @@ const MessageCountCard: FC<{ count: number | undefined }> = ({ count }) => (
       {count === undefined ? '—' : count.toLocaleString()}
     </Typography>
     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-      waiting
+      retained
     </Typography>
   </Paper>
-)
-
-const ReadOnlyRow: FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
-  <Box>
-    <Typography variant="caption" color="text.secondary">{label}</Typography>
-    <Typography
-      variant="body2"
-      sx={{ mt: 0.25, fontFamily: mono ? 'monospace' : undefined }}
-    >
-      {value}
-    </Typography>
-  </Box>
 )
 
 const EventRow: FC<{ ev: EventCard; formatTs: (iso: string) => string }> = ({ ev, formatTs }) => {
@@ -693,6 +767,60 @@ const EventRow: FC<{ ev: EventCard; formatTs: (iso: string) => string }> = ({ ev
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontFamily: 'monospace', fontSize: '0.65rem' }}>
         {ev.id}
       </Typography>
+    </Paper>
+  )
+}
+
+const GitLabWebhookStatus: FC<{ topic: TopicDTO }> = ({ topic }) => {
+  const snackbar = useSnackbar()
+  const install = useInstallGitLabWebhook()
+  const status = useGitLabWebhookStatus(topic.id)
+  const config = (topic.config ?? {}) as { repo?: string }
+  const live = status.data
+
+  const reinstall = async () => {
+    try {
+      await install.mutateAsync(topic.id)
+      snackbar.success('Webhook installed on GitLab')
+    } catch (e: any) {
+      snackbar.error(e?.response?.data?.error ?? e?.message ?? 'install failed')
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="h6" sx={{ mb: 1 }}>Connect to GitLab</Typography>
+      {status.isLoading ? <CircularProgress size={16} /> : (
+        <Stack spacing={1.5}>
+          <Typography variant="body2">
+            {live?.state === 'installed'
+              ? <>Webhook registered on <strong>{config.repo}</strong>.{live.active === false ? ' It is disabled in GitLab.' : ''}</>
+              : live?.state === 'unknown'
+                ? <>Could not confirm the webhook on <strong>{config.repo || '(repo not set)'}</strong>.</>
+              : <>No webhook found on <strong>{config.repo || '(repo not set)'}</strong>.</>}
+          </Typography>
+          {live?.payload_url && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <TextField label="Webhook URL" value={live.payload_url} size="small" fullWidth InputProps={{ readOnly: true }} />
+              <CopyButtonWithCheck text={live.payload_url} />
+            </Stack>
+          )}
+          <Stack direction="row" spacing={1}>
+            {live?.webhook_html_url && (
+              <Button component="a" href={live.webhook_html_url} target="_blank" rel="noopener noreferrer" variant="outlined" size="small">
+                View on GitLab
+              </Button>
+            )}
+            <Button variant="contained" size="small" onClick={reinstall} disabled={install.isPending}>
+              {install.isPending ? 'Installing...' : live?.state === 'installed' ? 'Re-install' : 'Install webhook on GitLab'}
+            </Button>
+          </Stack>
+          {live?.detail && <Typography variant="caption" color="text.secondary">{live.detail}</Typography>}
+          <Typography variant="caption" color="text.secondary">
+            Helix configures GitLab Standard Webhooks signing automatically and verifies every delivery before publishing it to this topic.
+          </Typography>
+        </Stack>
+      )}
     </Paper>
   )
 }

@@ -1,122 +1,10 @@
 // Auto-wake worker for stuck `state=waiting` interactions.
 //
-// # Why this exists
-//
-// ACP (Agent Client Protocol) is request/response with streaming notifications
-// scoped to one user-driven turn. The protocol assumes that every agent
-// session_update notification is a downstream of the most recent
-// session/prompt — there is no first-class verb for "the agent has news that
-// didn't arise from a user prompt", no subscription channel, no long-poll
-// for unprompted events. See agentclientprotocol/agent-client-protocol#554.
-//
-// Modern Claude Code has many non-user-initiated triggers for agent activity:
-// background bash commands finishing, hooks firing, subagents completing,
-// compaction running, MCP servers emitting `tools/list_changed`, etc. The
-// `claude-agent-acp` wrapper has events the user needs to see and no
-// protocol-legal place to put them. So it buffers them on the outbound
-// JSON-RPC channel and only flushes them when the next session/prompt
-// arrives. The result, observed empirically: the user sends a prompt X,
-// nothing happens; the user types again; the *previous* turn's response
-// arrives attached to the new prompt's interaction (off-by-one delivery
-// via Helix's stale-request_id fallback in handleMessageCompleted). The
-// stuck interaction X never gets its own response.
-//
-// # What this worker does (in-place retry)
-//
-// Every ~10 s, scan for interactions matching:
-//
-//   - state = waiting
-//   - response_message = ''
-//   - response_entries IS NULL
-//   - created < now() - 30s
-//
-// For each candidate, IF the session has an active WebSocket connection
-// to the external agent, re-send X's own `prompt_message` over the wire
-// with a fresh request_id mapped back to X.ID, and bump X.auto_wake_count
-// via a targeted column UPDATE. We do *not* create a new interaction
-// for the wake-up. Two consequences:
-//
-//  1. The buffered head-of-queue at the wrapper drains under the kick
-//     of the new inbound RPC. Whatever arrives carries an old stale
-//     request_id; Helix's matcher fallback ("most recent waiting
-//     interaction") binds it to X — because X is still the only waiting
-//     interaction in the session. The off-by-one shift that would
-//     otherwise misroute the response is eliminated by not having
-//     a "next" interaction to be off by.
-//
-//  2. The wake-up does not pollute the user's chat history with extra
-//     "continue"/"retry" prompts. The frontend renders X with a
-//     "↻ Retried Nx" badge counted off `auto_wake_count`.
-//
-// After two unsuccessful retries (auto_wake_count >= 2 and X still in
-// state=waiting), X is marked state=error so subsequent scans don't
-// re-match it.
-//
-// # Why we re-send the original prompt content
-//
-// We tried "continue" first. User observation: "in the end only one
-// message ends up being sent to the agent" — the wrapper bounces or
-// drops most of our wake-ups. Whichever wake-up actually gets through
-// to Claude should carry the user's real intent, not "continue" (which
-// elicits "continue what?"). Re-sending X.prompt_message is idempotent
-// in intent: at worst the agent processes the same prompt twice.
-//
-// # Why we gate on WebSocket connection
-//
-// New sessions take "multiple minutes" to boot the desktop and bring the
-// claude-agent-acp wrapper up. During boot the spec planning prompt sits
-// in state=waiting because the agent hasn't connected yet. Without this
-// gate the worker fires every 10 s during the boot window — the
-// downstream sendCommandToExternalAgent would either trigger a redundant
-// auto-start of the dev container or fail with "no WebSocket connection
-// found", and either way wastes the retry budget on a non-issue. Skip
-// until the session has an active externalAgentWSManager connection.
-//
-// # Why we bypass sendChatMessageToExternalAgent
-//
-// Earlier versions of this worker called sendChatMessageToExternalAgent
-// (which creates a fresh interaction, then post-tagged it with
-// auto_wake_count via a separate UPDATE). The streaming path's
-// concurrent UpdateInteraction calls — which use GORM Save and so write
-// every column from their stale in-memory copy — raced against our
-// post-tag and overwrote auto_wake_count back to 0. The retry-cap
-// counter never engaged and the worker fired forever. Witnessed live on
-// spt_01kq2308n428ss3wrm67ta6mjd: 6 wake-ups in 70 seconds. Now we
-// inline the WS send and don't create a new interaction at all, so
-// there's no row for the streaming path to clobber.
-//
-// # Why we never set interrupt=true
-//
-// Routing through the queue's interrupt path triggers session/cancel,
-// which triggers claude-agent-acp#551 (cancel-then-prompt swallow): the
-// next 1-2 prompts return stopReason=end_turn immediately with 0 tokens.
-// Our wake-up itself would be one of the swallowed prompts. We send via
-// sendCommandToExternalAgent directly with a plain chat_message.
-//
-// # Coverage gap
-//
-// This worker only handles the case where Zed *did* relay the user
-// message to Helix but the response never came (interaction lands in
-// `state=waiting`). It does NOT cover the case where Zed accepts a
-// keystroke, displays it in its own UI, but never sends the
-// corresponding session/update to Helix at all. We have no signal to
-// detect that case from inside the API process. See the "A worse
-// failure mode: Zed-side silent drop" section of the design doc.
-//
-// # Expected lifetime
-//
-// Until either:
-//   - agentclientprotocol/agent-client-protocol#554 lands a turn-complete
-//     barrier, claude-agent-acp ships an honouring release, and Zed picks
-//     it up — at which point the wrapper's outbound buffer should drain
-//     deterministically and this worker becomes a no-op that we can
-//     feature-flag off; or
-//   - The protocol grows a real unparented event channel and the wrapper
-//     stops stuffing async events into the turn-scoped notification stream
-//     in the first place.
-//
-// Neither is imminent (see design doc "Where the ACP team is on this").
-// Plan to ship this with the codebase for months at least.
+// Sessions without an external-agent WebSocket may be stuck because the dev
+// container never started, so this worker retries the container auto-start.
+// Once an agent is connected, replaying the original prompt is unsafe because
+// the agent may already be processing it. The worker leaves connected
+// interactions waiting so a late completion can still settle them.
 
 package server
 
@@ -129,7 +17,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/hydra"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -218,35 +105,16 @@ const (
 	// in place, the SQL filter has nothing to match on a healthy
 	// session — this threshold only matters for genuinely stuck rows.
 	//
-	// False-positive cost: if the Anthropic API takes >180 s before
-	// the first chunk on a slow turn, we re-send the user's prompt.
-	// For idempotent prompts that's a cosmetic duplicate. For
-	// destructive ones (`rm`, `git push`) it's a real risk — but the
-	// auto-wake re-sends the *same prompt* the user already
-	// authorised, so worst case the agent runs the destructive op
-	// twice on its own work directory. Bounded by autoWakeMaxRetries.
+	// After this threshold, automatic replay remains suppressed for a
+	// connected interaction because the agent may still be processing it.
+	// The row stays waiting so a late completion can still settle it.
 	//
 	// Override at runtime with HELIX_AUTO_WAKE_STUCK_THRESHOLD_SECONDS.
 	defaultAutoWakeStuckThreshold = 180 * time.Second
 
-	// autoWakeMaxRetries caps how many wake-ups we attempt for a single
-	// stuck interaction before giving up and marking it state=error.
+	// autoWakeMaxRetries caps how many cold-start kicks we attempt for a
+	// session without a WebSocket before marking the interaction state=error.
 	autoWakeMaxRetries = 2
-
-	// defaultAutoWakeSessionWedgeThreshold is the session-scoped circuit
-	// breaker. The per-interaction autoWakeMaxRetries cap is defeated by a
-	// wedged ACP thread: each wake-up makes the wrapper echo the user message
-	// back, handleMessageAdded mints a FRESH waiting interaction (auto_wake_count
-	// reset to 0), and the worker re-targets it — re-sending to the same wedged
-	// thread forever (see design/2026-06-15-wedged-acp-thread-autowake-flood.md,
-	// witnessed on spt_01kv5q5rz4gstfks14ng1p6qqq). Once this many interactions
-	// have errored since the session's last genuine completion, the thread is
-	// wedged and re-sending cannot help — stop waking it. A genuine completion
-	// resets the count (it walks back only to the most recent complete), so this
-	// never engages on a healthy session that is completing turns.
-	//
-	// Override with HELIX_AUTO_WAKE_SESSION_WEDGE_THRESHOLD.
-	defaultAutoWakeSessionWedgeThreshold = 3
 
 	// defaultColdStartGracePeriod is how long we wait for an in-flight
 	// container boot to bring up the dev container + Zed + claude-agent-acp
@@ -298,47 +166,6 @@ func autoWakeStuckThreshold() time.Duration {
 		}
 	}
 	return defaultAutoWakeStuckThreshold
-}
-
-// autoWakeSessionWedgeThreshold returns the session-scoped breaker threshold.
-func autoWakeSessionWedgeThreshold() int {
-	if raw := os.Getenv("HELIX_AUTO_WAKE_SESSION_WEDGE_THRESHOLD"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			return n
-		}
-	}
-	return defaultAutoWakeSessionWedgeThreshold
-}
-
-// sessionWedgedByConsecutiveErrors reports whether the session has accumulated
-// at least autoWakeSessionWedgeThreshold() errored interactions since its most
-// recent genuine completion — the signature of an ACP thread that re-sending
-// cannot recover. Walks newest→oldest and stops at the first completed
-// interaction, so a healthy session that keeps completing turns never trips.
-// In-flight (waiting) rows are ignored. Returns the count for logging.
-func (apiServer *HelixAPIServer) sessionWedgedByConsecutiveErrors(ctx context.Context, session *types.Session) (bool, int) {
-	list, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    session.ID,
-		GenerationID: session.GenerationID,
-		PerPage:      40,
-		Order:        "id DESC",
-	})
-	if err != nil {
-		log.Warn().Err(err).Str("session_id", session.ID).Msg("[AUTO_WAKE] wedge check: ListInteractions failed")
-		return false, 0
-	}
-	count := 0
-	for _, it := range list { // newest first
-		switch it.State {
-		case types.InteractionStateComplete:
-			return count >= autoWakeSessionWedgeThreshold(), count
-		case types.InteractionStateError:
-			count++
-		default:
-			// waiting/other in-flight rows don't reset or advance the count
-		}
-	}
-	return count >= autoWakeSessionWedgeThreshold(), count
 }
 
 // coldStartGracePeriod returns how long an in-flight `StartDesktop` is
@@ -394,8 +221,7 @@ func (apiServer *HelixAPIServer) scanAndAutoWakeStuckInteractions(ctx context.Co
 	}
 }
 
-// maybeAutoWake fires an in-place retry for a single stuck interaction
-// if all gates pass. See the file header for the design rationale.
+// maybeAutoWake handles a single stuck interaction after the safety gates pass.
 func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types.Interaction) {
 	threshold := autoWakeStuckThreshold()
 
@@ -485,7 +311,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 	// Instead: skip only if the context exists AND its `lastPublish`
 	// (the most recent time we forwarded a chunk to the frontend) is
 	// within `threshold`. After `threshold` of in-context silence we
-	// treat the session as quiescent for wake-up purposes.
+	// treat the session as quiescent for replay-suppression logging.
 	//
 	// Caveat — this gate cannot see *inside* a long synchronous tool
 	// call. The agent emits ACP `session/update` events around tool
@@ -524,128 +350,10 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 		return
 	}
 
-	// Gate 1c — session-scoped wedge breaker. The per-interaction cap below
-	// is defeated when the ACP thread is wedged: every wake echoes the user
-	// message back, handleMessageAdded mints a fresh waiting interaction with
-	// auto_wake_count=0, and we re-target it forever. If the session has piled
-	// up wedge errors with no completion in between, stop waking entirely and
-	// mark this row terminal — re-sending to the wedged thread cannot help.
-	// The user's prompt is independently crash-marked (Restart surfaces) by
-	// handleThreadLoadError once the wedge recurs.
-	// Background for maintainers: design/2026-06-15-wedged-acp-thread-autowake-flood.md
-	// (claude-agent-acp cancel/prompt swallow). Kept out of the user-facing string.
-	if wedged, n := apiServer.sessionWedgedByConsecutiveErrors(ctx, session); wedged {
-		stuck.State = types.InteractionStateError
-		stuck.Error = "Agent unresponsive: automatic retries stopped. Click Restart to recover."
-		stuck.Updated = time.Now()
-		stuck.Completed = time.Now()
-		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
-			log.Warn().Err(err).Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Failed to mark wedged interaction as error")
-			return
-		}
-		log.Warn().
-			Str("session_id", stuck.SessionID).
-			Str("interaction_id", stuck.ID).
-			Int("consecutive_errors", n).
-			Int("threshold", autoWakeSessionWedgeThreshold()).
-			Msg("🧱 [AUTO_WAKE] Session wedge breaker tripped — stopped re-waking the wedged ACP thread")
-		return
-	}
-
-	// Gate 2 — retry cap. Read off the stuck row itself, atomically
-	// updated by IncrementInteractionAutoWakeCount on prior attempts.
-	// Background for maintainers: design/2026-04-25-zed-claude-async-event-flush-on-user-input.md
-	// (upstream ACP buffering). Kept out of the user-facing string.
-	if stuck.AutoWakeCount >= autoWakeMaxRetries {
-		stuck.State = types.InteractionStateError
-		stuck.Error = "Agent unresponsive: no response after automatic retries. Click Restart to recover."
-		stuck.Updated = time.Now()
-		stuck.Completed = time.Now()
-		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
-			log.Warn().Err(err).
-				Str("interaction_id", stuck.ID).
-				Msg("[AUTO_WAKE] Failed to mark exhausted interaction as error")
-			return
-		}
-		log.Warn().
-			Str("interaction_id", stuck.ID).
-			Str("session_id", stuck.SessionID).
-			Int("retries_attempted", stuck.AutoWakeCount).
-			Msg("⚠️ [AUTO_WAKE] Exhausted retries — marked stuck interaction as error")
-		return
-	}
-
-	// (`session` already loaded above for the activity-anchor check.)
-
-	// Skip if the stuck interaction has no prompt content to re-send.
-	// Pathological case (synthetic interactions, bad data) — don't try
-	// to invent a wake-up payload.
-	if stuck.PromptMessage == "" {
-		return
-	}
-
-	// Bump the counter *first* via a targeted column UPDATE. If the
-	// send below fails after this, the next scan tick will see the
-	// higher count and either retry once more or exhaust — strictly
-	// monotonic, no double-bump risk.
-	newCount, err := apiServer.Store.IncrementInteractionAutoWakeCount(ctx, stuck.ID)
-	if err != nil {
-		log.Warn().Err(err).
-			Str("interaction_id", stuck.ID).
-			Msg("[AUTO_WAKE] Failed to increment auto_wake_count; skipping send")
-		return
-	}
-
-	requestID := "autowake_" + system.GenerateUUID()
-
-	// Route any response that arrives for this request_id back to the
-	// stuck interaction (rather than letting Helix's fallback matcher
-	// invent some other binding). Note: even without this, the
-	// fallback would still find X as "most recent waiting" since we
-	// don't create a new interaction. This is belt-and-braces.
-	apiServer.contextMappingsMutex.Lock()
-	if apiServer.requestToInteractionMapping == nil {
-		apiServer.requestToInteractionMapping = make(map[string]string)
-	}
-	apiServer.requestToInteractionMapping[requestID] = stuck.ID
-	apiServer.contextMappingsMutex.Unlock()
-
-	var acpThreadID interface{} = nil
-	if session.Metadata.ZedThreadID != "" {
-		acpThreadID = session.Metadata.ZedThreadID
-	}
-	agentName := apiServer.getAgentNameForSession(ctx, session)
-
-	command := types.ExternalAgentCommand{
-		Type: "chat_message",
-		Data: map[string]interface{}{
-			"message":       stuck.PromptMessage,
-			"request_id":    requestID,
-			"acp_thread_id": acpThreadID,
-			"agent_name":    agentName,
-		},
-	}
-
-	log.Info().
-		Str("stuck_interaction_id", stuck.ID).
+	log.Debug().
+		Str("interaction_id", stuck.ID).
 		Str("session_id", stuck.SessionID).
-		Int("attempt", newCount).
-		Time("stuck_created_at", stuck.Created).
-		Str("request_id", requestID).
-		Msg("🔔 [AUTO_WAKE] Re-sending stuck interaction's prompt to unstick session — upstream ACP claude-agent-acp #551 / agent-client-protocol #554")
-
-	if err := apiServer.sendCommandToExternalAgent(stuck.SessionID, command); err != nil {
-		log.Warn().Err(err).
-			Str("stuck_interaction_id", stuck.ID).
-			Str("session_id", stuck.SessionID).
-			Msg("[AUTO_WAKE] sendCommandToExternalAgent failed (will retry on next tick if still stuck)")
-		return
-	}
-
-	log.Info().
-		Str("stuck_interaction_id", stuck.ID).
-		Int("attempt", newCount).
-		Msg("✅ [AUTO_WAKE] Wake-up sent in-place")
+		Msg("[AUTO_WAKE] Connected agent remained quiescent; automatic prompt replay suppressed")
 }
 
 // maybeKickColdStart handles stuck interactions on sessions with no live
@@ -658,8 +366,7 @@ func (apiServer *HelixAPIServer) maybeAutoWake(ctx context.Context, stuck *types
 // Why a column UPDATE instead of a Save: the streaming path concurrently
 // calls UpdateInteraction (which uses GORM Save and so writes every column
 // from its in-memory copy). A Save here would race-clobber AutoWakeCount
-// back to a stale value, and the cap would never engage. See the file
-// header at lines 75-86 for the original incident on spt_01kq2308n428ss3wrm67ta6mjd.
+// back to a stale value, and the cap would never engage.
 //
 // Container-state-aware retry budget: before bumping AutoWakeCount we look
 // at `session.Metadata.ExternalAgentStatus`. If the container is in any
@@ -707,12 +414,14 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 				OrganizationID: session.OrganizationID,
 				Resource:       types.ResourceDesktop,
 			}); qErr == nil && resp != nil && resp.LimitReached {
-				stuck.State = types.InteractionStateError
-				stuck.Error = fmt.Sprintf("Desktop limit reached (%d). Stop a running desktop session, or raise your organization's concurrent-desktop limit, then retry.", resp.Limit)
-				stuck.Updated = time.Now()
-				stuck.Completed = time.Now()
-				if _, uErr := apiServer.Store.UpdateInteraction(ctx, stuck); uErr != nil {
+				reason := fmt.Sprintf("Desktop limit reached (%d). Stop a running desktop session, or raise your organization's concurrent-desktop limit, then retry.", resp.Limit)
+				transitioned, uErr := apiServer.Store.MarkInteractionErrorIfWaiting(ctx, stuck.ID, stuck.GenerationID, reason)
+				if uErr != nil {
 					log.Warn().Err(uErr).Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Failed to mark interaction errored for desktop limit")
+					return
+				}
+				if !transitioned {
+					log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before desktop-limit error")
 					return
 				}
 				if _, clearErr := apiServer.Store.ClearSessionStartingStatus(ctx, stuck.SessionID); clearErr != nil {
@@ -745,8 +454,7 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	}
 
 	if stuck.AutoWakeCount >= autoWakeMaxRetries {
-		stuck.State = types.InteractionStateError
-		stuck.Error = "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
+		reason := "Agent never connected after auto-wake cold-start retries (no WebSocket — see helixml/helix#2397)"
 		// Before giving up with the generic banner, see if the dev
 		// container's workspace-setup script wrote a failure sentinel.
 		// If it did, the real cause is in there (e.g. a clone 403) and
@@ -764,20 +472,23 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 				if len(tail) > maxTail {
 					tail = "…" + tail[len(tail)-maxTail:]
 				}
-				stuck.Error = fmt.Sprintf("Workspace setup failed (exit code %d): %s", sentinel.ExitCode, tail)
+				reason = fmt.Sprintf("Workspace setup failed (exit code %d): %s", sentinel.ExitCode, tail)
 				log.Info().
 					Str("interaction_id", stuck.ID).
 					Str("session_id", stuck.SessionID).
 					Int("exit_code", sentinel.ExitCode).
-					Msg("[AUTO_WAKE] Surfaced workspace setup failure from sentinel")
+					Msg("[AUTO_WAKE] Found workspace setup failure sentinel")
 			}
 		}
-		stuck.Updated = time.Now()
-		stuck.Completed = time.Now()
-		if _, err := apiServer.Store.UpdateInteraction(ctx, stuck); err != nil {
+		transitioned, err := apiServer.Store.MarkInteractionErrorIfWaiting(ctx, stuck.ID, stuck.GenerationID, reason)
+		if err != nil {
 			log.Warn().Err(err).
 				Str("interaction_id", stuck.ID).
 				Msg("[AUTO_WAKE] Failed to mark cold-start-exhausted interaction as error")
+			return
+		}
+		if !transitioned {
+			log.Debug().Str("interaction_id", stuck.ID).Msg("[AUTO_WAKE] Interaction already transitioned before cold-start exhaustion")
 			return
 		}
 		// Revert any sync-time "starting" mark left behind by
@@ -805,7 +516,7 @@ func (apiServer *HelixAPIServer) maybeKickColdStart(ctx context.Context, stuck *
 	}
 
 	// Bump first via a targeted column UPDATE so the cap engages even
-	// if the auto-start fails. Same pattern as the in-place wake-up.
+	// if the auto-start fails.
 	newCount, err := apiServer.Store.IncrementInteractionAutoWakeCount(ctx, stuck.ID)
 	if err != nil {
 		log.Warn().Err(err).

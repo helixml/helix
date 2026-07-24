@@ -132,6 +132,90 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsPlanningLimit(
 	s.Require().NoError(err)
 }
 
+// Review capacity is now gated on the Review column's OWN limit
+// (reviewCount >= reviewLimit), not the sum of planning+review. A Review column
+// at its limit blocks backlog tasks from entering planning; one planning task in
+// flight no longer counts against the review limit.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_SkipsWhenReviewColumnFull() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+	latestTask := &types.SpecTask{
+		ID:        eventTask.ID,
+		ProjectID: eventTask.ProjectID,
+		Status:    types.TaskStatusBacklog,
+	}
+	project := &types.Project{
+		ID:                    eventTask.ProjectID,
+		AutoStartBacklogTasks: true,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	// Review column at its limit (2) → no review capacity → stay in backlog.
+	// No UpdateSpecTask expectation: gomock fails if the task is progressed.
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		{ID: "review-1", Status: types.TaskStatusSpecReview},
+		{ID: "review-2", Status: types.TaskStatusSpecRevision},
+		latestTask,
+	}, nil)
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusBacklog, latestTask.Status)
+}
+
+// Regression for Problem 2: previously a single planning task + empty Review
+// column tripped `planningCount+reviewCount >= reviewLimit` and wrongly blocked
+// the backlog task. With the fix (independent limits) it must progress into
+// queued_spec_generation.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_ProgressesWithPlanningInFlightAndReviewEmpty() {
+	ctx := context.Background()
+	eventTask := &types.SpecTask{
+		ID:        "task-123",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusBacklog,
+	}
+	latestTask := &types.SpecTask{
+		ID:        eventTask.ID,
+		ProjectID: eventTask.ProjectID,
+		Status:    types.TaskStatusBacklog,
+	}
+	project := &types.Project{
+		ID:                    eventTask.ProjectID,
+		AutoStartBacklogTasks: true,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, eventTask.ID).Return(latestTask, nil)
+	s.store.EXPECT().GetProject(ctx, eventTask.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID:     eventTask.ProjectID,
+		WithDependsOn: true,
+	}).Return([]*types.SpecTask{
+		{ID: "planning", Status: types.TaskStatusSpecGeneration},
+		latestTask,
+	}, nil)
+	s.store.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, task *types.SpecTask) error {
+		s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+		return nil
+	})
+
+	err := s.orchestrator.handleBacklog(ctx, eventTask)
+	s.Require().NoError(err)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleBacklog_RespectsImplementationLimitForJustDoIt() {
 	ctx := context.Background()
 	eventTask := &types.SpecTask{
@@ -315,6 +399,66 @@ func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_SkipsWhen
 	s.Require().NoError(err)
 }
 
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_RespectsReviewCapacity() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-queued",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+	project := &types.Project{
+		ID: task.ProjectID,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 3, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil)
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID}).Return([]*types.SpecTask{
+		{ID: "review-1", Status: types.TaskStatusSpecReview},
+		{ID: "review-2", Status: types.TaskStatusSpecReview},
+		task,
+	}, nil)
+
+	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+}
+
+// The planning limit is now effective (Problem 2): with the Planning column at
+// its limit, a queued task stays queued regardless of Review. Previously the
+// summed formula meant the review reservation always tripped first and this
+// limit was dead.
+func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedSpecGeneration_RespectsPlanningLimit() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:        "task-queued",
+		ProjectID: "project-123",
+		Status:    types.TaskStatusQueuedSpecGeneration,
+	}
+	project := &types.Project{
+		ID: task.ProjectID,
+		Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: 2, Review: 2},
+		}},
+	}
+
+	s.store.EXPECT().GetSpecTask(ctx, task.ID).Return(task, nil)
+	s.store.EXPECT().GetProject(ctx, task.ProjectID).Return(project, nil)
+	// 2 tasks generating specs == planning limit, empty Review → stay queued.
+	// No UpdateSpecTask expectation: gomock fails if the task is progressed.
+	s.store.EXPECT().ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: task.ProjectID}).Return([]*types.SpecTask{
+		{ID: "gen-1", Status: types.TaskStatusSpecGeneration},
+		{ID: "gen-2", Status: types.TaskStatusSpecGeneration},
+		task,
+	}, nil)
+
+	err := s.orchestrator.handleQueuedSpecGeneration(ctx, task)
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusQueuedSpecGeneration, task.Status)
+}
+
 func (s *SpecTaskOrchestratorTestSuite) TestHandleQueuedImplementation_SkipsWhenDependencyNotDone() {
 	ctx := context.Background()
 	task := &types.SpecTask{
@@ -406,6 +550,97 @@ func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
 	assert.Contains(t, prompt, "Add dark mode toggle")
 	assert.Contains(t, prompt, "helix-specs")
 	assert.Contains(t, prompt, "requirements.md")
+}
+
+// TestPlanningQueueReason is the table-driven test for the extracted pure gate
+// function. It is the single source of truth shared by the orchestrator and the
+// read handlers, so it must cover every block cause and the not-blocked case.
+func TestPlanningQueueReason(t *testing.T) {
+	proj := func(planning, review int) *types.Project {
+		return &types.Project{Metadata: types.ProjectMetadata{BoardSettings: &types.BoardSettings{
+			WIPLimits: types.WIPLimits{Planning: planning, Review: review},
+		}}}
+	}
+	queued := &types.SpecTask{ID: "t1", ProjectID: "p1", Status: types.TaskStatusQueuedSpecGeneration}
+
+	tests := []struct {
+		name         string
+		project      *types.Project
+		projectTasks []*types.SpecTask
+		task         *types.SpecTask
+		wantEmpty    bool
+		wantContains string
+	}{
+		{
+			name:    "not blocked - capacity available",
+			project: proj(3, 2),
+			projectTasks: []*types.SpecTask{
+				{ID: "a", Status: types.TaskStatusSpecGeneration},
+				{ID: "b", Status: types.TaskStatusSpecReview},
+				queued,
+			},
+			task:      queued,
+			wantEmpty: true,
+		},
+		{
+			name:    "planning full",
+			project: proj(3, 2),
+			projectTasks: []*types.SpecTask{
+				{ID: "a", Status: types.TaskStatusSpecGeneration},
+				{ID: "b", Status: types.TaskStatusSpecGeneration},
+				{ID: "c", Status: types.TaskStatusSpecGeneration},
+				queued,
+			},
+			task:         queued,
+			wantContains: "planning capacity",
+		},
+		{
+			name:    "review full",
+			project: proj(3, 2),
+			projectTasks: []*types.SpecTask{
+				{ID: "r1", Status: types.TaskStatusSpecReview},
+				{ID: "r2", Status: types.TaskStatusSpecRevision},
+				queued,
+			},
+			task:         queued,
+			wantContains: "review capacity",
+		},
+		{
+			name:    "dependency blocked names the blocking task",
+			project: proj(3, 2),
+			projectTasks: []*types.SpecTask{
+				{ID: "dep-1", Name: "Login flow", Status: types.TaskStatusImplementation},
+			},
+			task: &types.SpecTask{ID: "t2", ProjectID: "p1", Status: types.TaskStatusQueuedSpecGeneration,
+				DependsOn: []types.SpecTask{{ID: "dep-1", Status: types.TaskStatusImplementation}}},
+			wantContains: "Login flow",
+		},
+		{
+			// Problem 2 regression: 2 planning (< limit 3) + empty Review must NOT
+			// block. The old summed formula (planningCount+reviewCount >= reviewLimit)
+			// blocked here because 2 >= 2.
+			name:    "planning limit no longer dead",
+			project: proj(3, 2),
+			projectTasks: []*types.SpecTask{
+				{ID: "a", Status: types.TaskStatusSpecGeneration},
+				{ID: "b", Status: types.TaskStatusSpecGeneration},
+				queued,
+			},
+			task:      queued,
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PlanningQueueReason(tt.project, tt.projectTasks, tt.task)
+			if tt.wantEmpty {
+				assert.Empty(t, got)
+			} else {
+				assert.Contains(t, got, tt.wantContains)
+			}
+		})
+	}
 }
 
 func TestSanitizeForBranchName(t *testing.T) {
@@ -597,6 +832,34 @@ func (s *SpecTaskOrchestratorTestSuite) TestProcessExternalPullRequestStatus_All
 	assert.Equal(s.T(), types.TaskStatusDone, task.Status)
 	assert.True(s.T(), task.MergedToMain)
 	assert.NotNil(s.T(), task.MergedAt)
+}
+
+func (s *SpecTaskOrchestratorTestSuite) TestCheckTaskForExternalPRActivity_NoPRDoesNotTreatBranchAsMerged() {
+	ctx := context.Background()
+	task := &types.SpecTask{
+		ID:         "task-new-branch",
+		ProjectID:  "project-1",
+		BranchName: "feature/new-task",
+		Status:     types.TaskStatusImplementation,
+	}
+
+	s.store.EXPECT().GetProject(ctx, "project-1").Return(&types.Project{
+		ID:            "project-1",
+		DefaultRepoID: "repo-1",
+	}, nil)
+	s.store.EXPECT().ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: "project-1",
+	}).Return([]*types.GitRepository{{
+		ID:          "repo-1",
+		IsExternal:  true,
+		ExternalURL: "https://github.com/helixml/helix",
+	}}, nil)
+	s.gitService.EXPECT().ListPullRequests(ctx, "repo-1").Return(nil, nil)
+
+	err := s.orchestrator.checkTaskForExternalPRActivity(ctx, task, map[string][]*types.PullRequest{})
+	s.Require().NoError(err)
+	s.Equal(types.TaskStatusImplementation, task.Status)
+	s.False(task.MergedToMain)
 }
 
 // Production-realistic case: task has a BranchName set, all PRs error, so

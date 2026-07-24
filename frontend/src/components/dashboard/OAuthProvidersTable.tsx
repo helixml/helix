@@ -60,6 +60,14 @@ const PROVIDER_SETUP_GUIDE: Record<string, {
       'Copy the Client ID and generate a Client Secret',
     ],
   },
+  gitlab: {
+    setupUrl: 'https://gitlab.com/-/user_settings/applications',
+    steps: [
+      'Go to GitLab -> Preferences -> Applications',
+      'Create an OAuth application and add the Helix callback URL',
+      'Copy the Application ID and Secret',
+    ],
+  },
   google: {
     setupUrl: 'https://console.cloud.google.com/apis/credentials',
     steps: [
@@ -123,6 +131,12 @@ export const PROVIDER_DEFAULTS: Record<string, {
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
     type: 'github'
+  },
+  gitlab: {
+    auth_url: 'https://gitlab.com/oauth/authorize',
+    token_url: 'https://gitlab.com/oauth/token',
+    user_info_url: 'https://gitlab.com/api/v4/user',
+    type: 'gitlab'
   },
   google: {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -912,4 +926,4 @@ const OAuthProvidersTable: React.FC = () => {
   )
 }
 
-export default OAuthProvidersTable 
+export default OAuthProvidersTable

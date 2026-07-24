@@ -1567,8 +1567,9 @@ type AssistantConfig struct {
 	// "claude_code" and CodeAgentCredentialType is "subscription". It flows through
 	// CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
 	// which the claude-agent-acp package reads (resolveModelPreference) to pick the
-	// model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
-	// (resolveModelPreference resolves this to the latest Opus version).
+	// model — otherwise Claude Code defaults to Sonnet. Empty means "opus[1m]"
+	// (the 1M-context Opus; resolveModelPreference resolves the "[1m]" hint to the
+	// 1M row, while a bare "opus" resolves to the 200k sibling).
 	ClaudeSubscriptionModel string `json:"claude_subscription_model,omitempty" yaml:"claude_subscription_model,omitempty"`
 
 	// GooseRecipeRepoURL is the external git URL of the attached repository
@@ -2319,6 +2320,7 @@ type ZedConfigResponse struct {
 	Version                     int64                  `json:"version"`                                 // Unix timestamp of app config update
 	CodeAgentConfig             *CodeAgentConfig       `json:"code_agent_config,omitempty"`             // Code agent configuration for Zed agentic coding
 	ClaudeSubscriptionAvailable bool                   `json:"claude_subscription_available,omitempty"` // True if user has an active Claude subscription for credential sync
+	CodexSubscriptionAvailable  bool                   `json:"codex_subscription_available,omitempty"`  // True if user has active ChatGPT credentials for Codex CLI
 }
 
 // CodeAgentConfig contains configuration for Zed's code agent (agentic coding).
@@ -2336,6 +2338,9 @@ type CodeAgentConfig struct {
 	APIType string `json:"api_type"`
 	// Runtime specifies which code agent runtime to use: "zed_agent" or "qwen_code"
 	Runtime CodeAgentRuntime `json:"runtime"`
+	// ReasoningEffort controls the selected Claude Code or Codex model's reasoning effort.
+	// Empty means the runtime/model default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// MaxTokens is the model's context window size (max input tokens)
 	// Looked up from model_info.json, 0 if not found
 	MaxTokens int `json:"max_tokens,omitempty"`
@@ -2449,7 +2454,14 @@ type LLMCall struct {
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
-	PromptTokens     int64          `json:"prompt_tokens"`
+	// TimeToFirstTokenMs is the wall time from request start to the first
+	// streamed chunk. It isolates provider prefill / cold-start latency from
+	// generation time (a cold or overloaded provider shows a large TTFT while
+	// generation stays normal). 0 means no chunk was received (the call errored
+	// or was cut before the first token). For non-streaming calls it equals the
+	// time to the full response.
+	TimeToFirstTokenMs int64          `json:"time_to_first_token_ms"`
+	PromptTokens       int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
 	CacheReadTokens  int64          `json:"cache_read_tokens"`  // prompt tokens served from provider cache (subset of PromptTokens)
@@ -2499,7 +2511,7 @@ type CreateSecretRequest struct {
 	Name      string `json:"name"`
 	Value     string `json:"value"`
 	AppID     string `json:"app_id"`
-	ProjectID string `json:"project_id"` // optional, if set, the secret will be available to the specified project
+	ProjectID string `json:"project_id"`      // optional, if set, the secret will be available to the specified project
 	Scope     string `json:"scope,omitempty"` // optional, one of "dev", "prod", "both"; defaults to "dev"
 }
 
@@ -2638,31 +2650,41 @@ type ContextMenuAction struct {
 	Value       string `json:"value"`        // The value written to the text area when the action is selected
 }
 
+type UsageMetricSource string
+
+const (
+	UsageMetricSourceHelixProxy UsageMetricSource = "helix_proxy"
+	UsageMetricSourceACP        UsageMetricSource = "acp"
+)
+
 type UsageMetric struct {
-	ID                string    `json:"id" gorm:"primaryKey"`
-	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
-	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
-	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
-	OrganizationID    string    `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
-	InteractionID     string    `json:"interaction_id" gorm:"index"`
-	ProjectID         string    `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
-	SpecTaskID        string    `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
-	UserID            string    `json:"user_id" gorm:"index"`
-	Provider          string    `json:"provider"`
-	Model             string    `json:"model"`
-	PromptTokens      int       `json:"prompt_tokens"`
-	CompletionTokens  int       `json:"completion_tokens"`
-	TotalTokens       int       `json:"total_tokens"`
-	CacheReadTokens   int       `json:"cache_read_tokens"`
-	CacheWriteTokens  int       `json:"cache_write_tokens"`
-	PromptCost        float64   `json:"prompt_cost"`
-	CompletionCost    float64   `json:"completion_cost"`
-	CacheReadCost     float64   `json:"cache_read_cost"`
-	CacheWriteCost    float64   `json:"cache_write_cost"`
-	TotalCost         float64   `json:"total_cost"` // Prompt + completion + cache read + cache write
-	DurationMs        int       `json:"duration_ms"`
-	RequestSizeBytes  int       `json:"request_size_bytes"`
-	ResponseSizeBytes int       `json:"response_size_bytes"`
+	ID                string            `json:"id" gorm:"primaryKey"`
+	Created           time.Time         `json:"created" gorm:"index:idx_app_time,priority:2;index:idx_org_created,priority:2"`
+	Date              time.Time         `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
+	AppID             string            `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	OrganizationID    string            `json:"organization_id" gorm:"index:idx_org_created,priority:1"`
+	InteractionID     string            `json:"interaction_id" gorm:"index"`
+	ProjectID         string            `json:"project_id" gorm:"index:idx_project_spec_task,priority:1"`
+	SpecTaskID        string            `json:"spec_task_id" gorm:"index:idx_project_spec_task,priority:2"`
+	UserID            string            `json:"user_id" gorm:"index"`
+	Provider          string            `json:"provider"`
+	Model             string            `json:"model"`
+	Source            UsageMetricSource `json:"source" gorm:"index:idx_usage_source_id,unique,where:source_id <> '',priority:1"`
+	SourceID          string            `json:"source_id" gorm:"index:idx_usage_source_id,unique,where:source_id <> '',priority:2"`
+	UsageKnown        bool              `json:"usage_known"`
+	PromptTokens      int               `json:"prompt_tokens"`
+	CompletionTokens  int               `json:"completion_tokens"`
+	TotalTokens       int               `json:"total_tokens"`
+	CacheReadTokens   int               `json:"cache_read_tokens"`
+	CacheWriteTokens  int               `json:"cache_write_tokens"`
+	PromptCost        float64           `json:"prompt_cost"`
+	CompletionCost    float64           `json:"completion_cost"`
+	CacheReadCost     float64           `json:"cache_read_cost"`
+	CacheWriteCost    float64           `json:"cache_write_cost"`
+	TotalCost         float64           `json:"total_cost"` // Prompt + completion + cache read + cache write
+	DurationMs        int               `json:"duration_ms"`
+	RequestSizeBytes  int               `json:"request_size_bytes"`
+	ResponseSizeBytes int               `json:"response_size_bytes"`
 }
 
 type UsersAggregatedUsageMetric struct {
@@ -3103,10 +3125,11 @@ type OrgInvitationNotification struct {
 
 // SessionOutputResponse is returned by GET /sessions/{id}/output
 type SessionOutputResponse struct {
-	SessionID  string `json:"session_id"`
-	Status     string `json:"status"` // "waiting", "complete", "error"
-	Output     string `json:"output"` // Last interaction's response text
-	DurationMs int64  `json:"duration_ms"`
+	SessionID     string `json:"session_id"`
+	InteractionID string `json:"interaction_id,omitempty"`
+	Status        string `json:"status"` // "waiting", "complete", "error", "interrupted"
+	Output        string `json:"output"` // Last interaction's response text
+	DurationMs    int64  `json:"duration_ms"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

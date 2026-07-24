@@ -321,6 +321,27 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
+	// Seed the org graph: represent the creator as a human node and give the
+	// org a Chief of Staff bot. They are peers — no reporting line (humans
+	// stay out of the reporting graph). Best-effort: a failure must not block
+	// org creation (the graph re-converges on later bootstrap).
+	if apiServer.orgSeeder != nil {
+		if err := apiServer.orgSeeder.EnsureHumanNode(ctx, createdOrg.ID, user); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed creator human node failed")
+		}
+		if err := apiServer.orgSeeder.SeedChiefOfStaff(ctx, createdOrg.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed chief of staff failed")
+		}
+		// Tell the creator their Chief of Staff is coming online, so a brand-new
+		// org isn't a silent wait while the agent boots before it asks its first
+		// question. Informational (no reply) — best-effort.
+		if err := (humanInbox{store: apiServer.Store}).NotifyInfo(ctx, createdOrg.ID, user.ID, string(chiefOfStaffBotID),
+			"Chief of Staff is starting up",
+			"I'm coming online now and setting things up. I'll reach out with a few questions once I'm ready — no action needed yet."); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("notify chief-of-staff starting-up failed")
+		}
+	}
+
 	// Seed the roles
 	err = apiServer.seedOrganizationRoles(ctx, createdOrg)
 	if err != nil {
@@ -407,6 +428,14 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 		}
 	}
 
+	// Tear down any running spec-task desktops for this org before deleting
+	// the rows that track them. DeleteOrganization only removes DB rows; the
+	// containers are owned by the sessions (which it does not delete), so
+	// without this they linger until the desktop idle reaper stops them
+	// (HELIX_DESKTOP_IDLE_TIMEOUT, default 1h). Best-effort: the reaper is the
+	// backstop, so a teardown failure must not block the org delete.
+	apiServer.stopOrgDesktops(r.Context(), orgID)
+
 	err = apiServer.Store.DeleteOrganization(r.Context(), orgID)
 	if err != nil {
 		log.Err(err).Msg("error deleting organization")
@@ -415,6 +444,32 @@ func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *h
 	}
 
 	rw.WriteHeader(http.StatusOK)
+}
+
+// stopOrgDesktops stops and soft-deletes every running external-agent desktop
+// session in the org. Called on org delete so spec-task sandboxes are torn down
+// promptly instead of waiting for the idle reaper. Best-effort throughout —
+// every failure is logged and skipped; the idle reaper remains the backstop.
+func (apiServer *HelixAPIServer) stopOrgDesktops(ctx context.Context, orgID string) {
+	sessions, _, err := apiServer.Store.ListSessions(ctx, store.ListSessionsQuery{
+		OrganizationID:        orgID,
+		IncludeExternalAgents: true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("org_id", orgID).Msg("org delete: could not list sessions for desktop teardown; idle reaper will clean up")
+		return
+	}
+	for _, session := range sessions {
+		if session.Metadata.DevContainerID == "" {
+			continue
+		}
+		if err := apiServer.externalAgentExecutor.StopDesktop(ctx, session.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to stop desktop; idle reaper will clean up")
+		}
+		if _, err := apiServer.Store.DeleteSession(ctx, session.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", orgID).Str("session_id", session.ID).Msg("org delete: failed to soft-delete desktop session")
+		}
+	}
 }
 
 // updateOrganization godoc

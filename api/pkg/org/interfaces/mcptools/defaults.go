@@ -19,8 +19,10 @@ import (
 // Order matters: it is preserved when appending to a Bot's tool list, so
 // the reconciled output is deterministic.
 //
-// `mint_credential` is the sole non-read entry. It mints an external-
-// provider credential (it does not mutate the org graph), and without it
+// The baseline also includes two safe actions: mint_credential obtains an
+// org-scoped external-provider credential, and ask_human contacts a human
+// node through their configured route. Neither mutates the org graph. Without
+// mint_credential,
 // a Bot has nothing to authenticate gh/git/auth-curl with — there is no
 // boot-time env-var fallback. Every Bot needs this, so it sits in the
 // baseline.
@@ -35,15 +37,27 @@ var BaseReadTools = []tool.Name{
 	ReadEventsName,
 	BotLogName,
 	MintCredentialName,
+	AskHumanName,
+	// Every bot can read its own project secrets (its own project only) so
+	// it can export a secret added after boot — the read sibling of
+	// mint_credential, same reason it belongs in the baseline.
+	ListSecretsName,
+	// Processor introspection — safe reads so any bot can discover the
+	// transform/filter/js nodes feeding topics it may subscribe to.
+	ListProcessorsName,
+	GetProcessorName,
 }
 
 // OwnerBotTools is the canonical tool set the bootstrap owner Bot
-// receives: every mutation in the system plus the universal base read
-// set (via MergeBaseReadTools). It lives here — beside the tool name
-// constants and BaseReadTools — so the owner-seed policy references the
-// typed names directly and bootstrap (application) can be handed the
-// list without importing this package. mint_credential arrives through
-// BaseReadTools, so it is not repeated in the mutation list.
+// (Chief of Staff) receives: every mutation in the system plus the
+// universal base read set (via MergeBaseReadTools). It lives here —
+// beside the tool name constants and BaseReadTools — so the owner-seed
+// policy references the typed names directly and bootstrap can be handed
+// the list without importing this package. mint_credential arrives
+// through BaseReadTools, so it is not repeated in the mutation list.
+//
+// Repository tools (list/attach/detach) are here so CoS can equip the
+// bots it creates with the codebases they need to do real work.
 func OwnerBotTools() []tool.Name {
 	ownerMutations := []tool.Name{
 		CreateBotName,
@@ -57,6 +71,20 @@ func OwnerBotTools() []tool.Name {
 		UnsubscribeName,
 		PublishName,
 		DMName,
+		SetHumanContactName,
+		// Processors: define topic transforms/filters/js and rewire them.
+		CreateProcessorName,
+		UpdateProcessorName,
+		DeleteProcessorName,
+		// Git repositories: discover org repos and wire them onto bot projects.
+		ListRepositoriesName,
+		ListBotRepositoriesName,
+		AttachRepositoryName,
+		DetachRepositoryName,
+		// Agent desktop lifecycle (same as chart Start / Stop / Restart).
+		StartBotName,
+		StopBotName,
+		RestartBotName,
 	}
 	return MergeBaseReadTools(ownerMutations)
 }

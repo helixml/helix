@@ -129,9 +129,9 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 				GenerationModel:         "claude-sonnet-4-5",
 			}},
 			snapshot:         []ProviderRef{globalAnthropic},
-			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5"},
 			wantMisconfig:    false,
-			why:              "control case: env-baked global (no ID) resolves by canonical name; -latest normalization applies",
+			why:              "control case: env-baked global (no ID) resolves by canonical name; anthropic model id passes through verbatim to match Zed's /v1/models listing",
 		},
 		{
 			name: "legacy_name_match_still_works_for_unsaved_agents",
@@ -149,7 +149,7 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 			name:             "no_assistant_keeps_legacy_default_for_default_app",
 			assistants:       []types.AssistantConfig{},
 			snapshot:         []ProviderRef{globalAnthropic},
-			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5-latest"},
+			wantDefaultModel: &ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"},
 			wantMisconfig:    false,
 			why:              "default-app path (no parent app) keeps the SaaS-friendly default",
 		},
@@ -227,54 +227,35 @@ func TestGenerateZedMCPConfig_AgentDefaultModel(t *testing.T) {
 	}
 }
 
-func TestNormalizeModelIDForZed(t *testing.T) {
+// TestMapHelixToZedProvider guards the model id Helix writes into
+// agent.default_model. Zed resolves default_model by exact id against the
+// provider's /v1/models listing; the stored id already comes from that listing,
+// so anthropic models must pass through verbatim. Rewriting to a "-latest" alias
+// (the old behaviour) matches nothing in the listing and makes Zed silently fall
+// back to gpt-5-mini, which has no Helix route → empty agent responses.
+func TestMapHelixToZedProvider(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		expected string
+		name         string
+		provider     string
+		model        string
+		wantProvider string
+		wantModel    string
 	}{
-		// Already normalized — should pass through unchanged
-		{name: "already latest suffix", input: "claude-opus-4-6-latest", expected: "claude-opus-4-6-latest"},
-		{name: "already latest suffix sonnet", input: "claude-sonnet-4-5-latest", expected: "claude-sonnet-4-5-latest"},
+		// Anthropic — verbatim, NO -latest rewrite.
+		{name: "opus-4-8 verbatim", provider: "anthropic", model: "claude-opus-4-8", wantProvider: "anthropic", wantModel: "claude-opus-4-8"},
+		{name: "dated opus-4-5 verbatim", provider: "anthropic", model: "claude-opus-4-5-20251101", wantProvider: "anthropic", wantModel: "claude-opus-4-5-20251101"},
+		{name: "provider case-insensitive", provider: "Anthropic", model: "claude-sonnet-4-6", wantProvider: "anthropic", wantModel: "claude-sonnet-4-6"},
 
-		// Actual Anthropic API model IDs (from /v1/models with anthropic-version header)
-		{name: "claude-opus-4-8", input: "claude-opus-4-8", expected: "claude-opus-4-8-latest"},
-		{name: "claude-opus-4-7", input: "claude-opus-4-7", expected: "claude-opus-4-7-latest"},
-		{name: "claude-sonnet-4-6", input: "claude-sonnet-4-6", expected: "claude-sonnet-4-6-latest"},
-		{name: "claude-opus-4-6", input: "claude-opus-4-6", expected: "claude-opus-4-6-latest"},
-		{name: "claude-opus-4-5-20251101", input: "claude-opus-4-5-20251101", expected: "claude-opus-4-5-latest"},
-		{name: "claude-haiku-4-5-20251001", input: "claude-haiku-4-5-20251001", expected: "claude-haiku-4-5-latest"},
-		{name: "claude-sonnet-4-5-20250929", input: "claude-sonnet-4-5-20250929", expected: "claude-sonnet-4-5-latest"},
-		{name: "claude-opus-4-1-20250805", input: "claude-opus-4-1-20250805", expected: "claude-opus-4-1-latest"},
-		{name: "claude-opus-4-20250514", input: "claude-opus-4-20250514", expected: "claude-opus-4-latest"},
-		{name: "claude-sonnet-4-20250514", input: "claude-sonnet-4-20250514", expected: "claude-sonnet-4-latest"},
-		{name: "claude-3-haiku-20240307", input: "claude-3-haiku-20240307", expected: "claude-3-haiku-latest"},
-
-		// Bare model names (no date suffix)
-		{name: "bare claude-opus-4-1", input: "claude-opus-4-1", expected: "claude-opus-4-1-latest"},
-		{name: "bare claude-opus-4", input: "claude-opus-4", expected: "claude-opus-4-latest"},
-		{name: "bare claude-sonnet-4", input: "claude-sonnet-4", expected: "claude-sonnet-4-latest"},
-
-		// 3.x models
-		{name: "claude-3-5-sonnet date", input: "claude-3-5-sonnet-20241022", expected: "claude-3-5-sonnet-latest"},
-		{name: "claude-3-5-haiku date", input: "claude-3-5-haiku-20241022", expected: "claude-3-5-haiku-latest"},
-		{name: "claude-3-opus date", input: "claude-3-opus-20240229", expected: "claude-3-opus-latest"},
-		{name: "claude-3-7-sonnet date", input: "claude-3-7-sonnet-20250219", expected: "claude-3-7-sonnet-latest"},
-
-		// OpenAI models
-		{name: "gpt-4o with date", input: "gpt-4o-2024-11-20", expected: "gpt-4o"},
-		{name: "gpt-4o-mini with date", input: "gpt-4o-mini-2024-07-18", expected: "gpt-4o-mini"},
-		{name: "gpt-4o bare", input: "gpt-4o", expected: "gpt-4o"},
-
-		// Non-matching models pass through unchanged
-		{name: "qwen model", input: "helix/qwen3:8b", expected: "helix/qwen3:8b"},
-		{name: "gemini model", input: "gemini-2.0-flash", expected: "gemini-2.0-flash"},
+		// OpenAI-compatible providers — prefixed so Helix routes to the backend.
+		{name: "openai prefixed", provider: "openai", model: "gpt-4o", wantProvider: "openai", wantModel: "openai/gpt-4o"},
+		{name: "nebius prefixed", provider: "nebius", model: "Qwen/Qwen3-Coder", wantProvider: "openai", wantModel: "nebius/Qwen/Qwen3-Coder"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := normalizeModelIDForZed(tt.input)
-			assert.Equal(t, tt.expected, result)
+			gotProvider, gotModel := mapHelixToZedProvider(tt.provider, tt.model)
+			assert.Equal(t, tt.wantProvider, gotProvider)
+			assert.Equal(t, tt.wantModel, gotModel)
 		})
 	}
 }
@@ -421,7 +402,7 @@ func TestMergeContextServers(t *testing.T) {
 
 	t.Run("non-context_servers user keys are ignored", func(t *testing.T) {
 		got := MergeContextServers(helix, map[string]interface{}{
-			"agent":          map[string]interface{}{"default_model": "claude"},
+			"agent":           map[string]interface{}{"default_model": "claude"},
 			"language_models": map[string]interface{}{},
 		})
 		assert.NotContains(t, got, "agent")
@@ -544,6 +525,17 @@ func TestValidateAssistantModelConfig_SubscriptionBypass(t *testing.T) {
 			snapshot:  []ProviderRef{globalAnthropic},
 			wantValid: true,
 			why:       "even with stored fields, subscription bypass short-circuits validation",
+		},
+		{
+			name: "codex_subscription_empty_fields_ok",
+			assistant: types.AssistantConfig{
+				AgentType:               types.AgentTypeZedExternal,
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			snapshot:  []ProviderRef{globalAnthropic},
+			wantValid: true,
+			why:       "Codex CLI authenticates upstream with restored ChatGPT credentials",
 		},
 		{
 			name: "api_key_empty_fields_still_errors",

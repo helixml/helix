@@ -46,6 +46,8 @@ type fakeHelixClient struct {
 	// prior conversation ahead of dispatching the new prompt.
 	clearedBeforeSend bool
 	clearErr          error
+	outputErr         error
+	preserveEmptyIDs  bool
 	// startBlock, when non-nil, blocks StartSession until the channel
 	// closes or the caller's context is done — lets tests verify that
 	// the spawner's SessionStartupTimeout actually bounds session
@@ -96,13 +98,26 @@ func (f *fakeHelixClient) ClearSession(_ context.Context, sessionID string) erro
 }
 
 func (f *fakeHelixClient) GetOutput(_ context.Context, _ string) (types.SessionOutputResponse, error) {
+	if f.outputErr != nil {
+		return types.SessionOutputResponse{}, f.outputErr
+	}
 	i := int(atomic.AddInt32(&f.outputCalls, 1)) - 1
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var out types.SessionOutputResponse
 	if i >= len(f.outputs) {
-		return f.outputs[len(f.outputs)-1], nil
+		out = f.outputs[len(f.outputs)-1]
+	} else {
+		out = f.outputs[i]
 	}
-	return f.outputs[i], nil
+	if out.InteractionID == "" && !f.preserveEmptyIDs {
+		if atomic.LoadInt32(&f.sendCalls) == 0 {
+			out.InteractionID = "int-prior"
+		} else {
+			out.InteractionID = "int-current"
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeHelixClient) StopExternalAgent(_ context.Context, _ string) error { return nil }
@@ -200,6 +215,95 @@ func TestSpawnerStartsFreshAndPersistsSession(t *testing.T) {
 	}
 	if fc.lastStartParams.AppID != "app_test" {
 		t.Errorf("StartSession AppID = %q (want app_test)", fc.lastStartParams.AppID)
+	}
+}
+
+func TestSpawnerSpecsMandateRemainsFullOverride(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.SpecsMandate = "Operator policy: keep replies concise."
+	sp := Spawner(cfg)
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "Operator policy: keep replies concise.") {
+		t.Fatalf("prompt missing mandate override: %q", fc.lastStartParams.Prompt)
+	}
+	if strings.Contains(fc.lastStartParams.Prompt, "=== Current role ===") || strings.Contains(fc.lastStartParams.Prompt, "# Role: Engineer") {
+		t.Fatalf("explicit mandate must remain a full override: %q", fc.lastStartParams.Prompt)
+	}
+}
+
+func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	sp := Spawner(newHelixCfg(t, fc, s))
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn 1: %v", err)
+	}
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Principal Engineer")); err != nil {
+		t.Fatalf("update bot: %v", err)
+	}
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerEvent, EventID: "e-role"}}); err != nil {
+		t.Fatalf("spawn 2: %v", err)
+	}
+	fc.mu.Lock()
+	followUp := fc.lastSendBody
+	fc.mu.Unlock()
+	if !strings.Contains(followUp, "=== Current role ===\n# Role: Principal Engineer") {
+		t.Fatalf("follow-up prompt did not use fresh Bot.Content: %q", followUp)
+	}
+	for _, staleBootstrap := range []string{"agent.md", "git pull", "git worktree", "cat ~/work"} {
+		if strings.Contains(followUp, staleBootstrap) {
+			t.Errorf("follow-up prompt contains stale bootstrap %q: %q", staleBootstrap, followUp)
+		}
+	}
+}
+
+func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	project := cfg.ProjectService.(*fakeProjectService)
+	project.applyStarted = make(chan struct{}, 1)
+	project.applyContinue = make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
+	}()
+	<-project.applyStarted
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		close(project.applyContinue)
+		t.Fatalf("get bot: %v", err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithContent("# Role: Updated During Ensure")); err != nil {
+		close(project.applyContinue)
+		t.Fatalf("update bot: %v", err)
+	}
+	close(project.applyContinue)
+	if err := <-result; err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "# Role: Updated During Ensure") {
+		t.Fatalf("prompt used role read before project ensure: %q", fc.lastStartParams.Prompt)
 	}
 }
 
@@ -505,6 +609,75 @@ func TestSpawnerTimeoutEmitsExitError(t *testing.T) {
 	err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}})
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline error, got %v", err)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenRestartDeletesSession(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	fc := &fakeHelixClient{
+		startSessionID: "ses_deleted",
+		outputErr:      fmt.Errorf("poll: %w", ErrSessionNotFound),
+	}
+	cfg := newHelixCfg(t, fc, s)
+	sp := Spawner(cfg)
+
+	if err := sp(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("deleted session should end the superseded activation cleanly: %v", err)
+	}
+}
+
+func TestSpawnerIgnoresPreviousInterruptedInteraction(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses-existing",
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-old", Status: "interrupted"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "int-new", Status: "complete", Output: "ok"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 4 {
+		t.Fatalf("poll returned on the previous interrupted interaction; output calls = %d", got)
+	}
+}
+
+func TestSpawnerReleasesQueueWhenStoppedInteractionDisappears(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	if err := SaveProject(context.Background(), s, "org-test", wid, "prj-existing", "app-existing", "repo-existing"); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	if err := SaveSession(context.Background(), s, "org-test", wid, "ses-existing"); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID:   "ses-existing",
+		preserveEmptyIDs: true,
+		outputs: []types.SessionOutputResponse{
+			{InteractionID: "int-old", Status: "complete"},
+			{InteractionID: "int-new", Status: "waiting"},
+			{InteractionID: "", Status: "complete"},
+		},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerManual}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if got := atomic.LoadInt32(&fc.outputCalls); got < 3 {
+		t.Fatalf("poll did not observe the stopped interaction disappear; output calls = %d", got)
 	}
 }
 

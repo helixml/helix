@@ -14,9 +14,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	goslack "github.com/slack-go/slack"
 
 	"github.com/helixml/helix/api/pkg/crypto"
 	"github.com/helixml/helix/api/pkg/org/application/processors"
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
 	"github.com/helixml/helix/api/pkg/org/application/slackrouting"
 	"github.com/helixml/helix/api/pkg/org/domain/processor"
 	helixorgstore "github.com/helixml/helix/api/pkg/org/domain/store"
@@ -159,10 +161,13 @@ var defaultSlackBotScopes = []string{
 	"groups:history",
 	"groups:read",
 	"im:history",
+	"im:write",
 	"chat:write",
 	"chat:write.customize",
 	"reactions:write",
 	"files:write",
+	"users:read",
+	"users:read.email",
 }
 
 // slackWorkspaces implements slacktransport.Workspaces over the helix
@@ -172,6 +177,47 @@ var defaultSlackBotScopes = []string{
 type slackWorkspaces struct {
 	store  helixstore.Store
 	encKey func() ([]byte, error)
+}
+
+func (w *slackWorkspaces) byConnectionID(ctx context.Context, orgID, connectionID string) (slacktransport.Workspace, error) {
+	conn, err := w.store.GetServiceConnection(ctx, connectionID)
+	if err != nil {
+		return slacktransport.Workspace{}, err
+	}
+	if conn.OrganizationID != orgID || conn.Type != types.ServiceConnectionTypeSlackWorkspace {
+		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+	}
+	return w.toWorkspace(conn)
+}
+
+type slackTopicDeliverer struct {
+	workspaces *slackWorkspaces
+	client     func(string) slacktransport.MessageAPI
+}
+
+func (d slackTopicDeliverer) Deliver(ctx context.Context, topic streaming.Topic, msg streaming.Message) (publishing.DeliveryReceipt, error) {
+	cfg, err := topic.Transport.SlackConfig()
+	if err != nil {
+		return publishing.DeliveryReceipt{}, err
+	}
+	workspace, err := d.workspaces.byConnectionID(ctx, topic.OrganizationID, cfg.ServiceConnectionID)
+	if err != nil {
+		return publishing.DeliveryReceipt{}, fmt.Errorf("resolve Slack workspace: %w", err)
+	}
+	client := d.client
+	if client == nil {
+		client = func(token string) slacktransport.MessageAPI { return slackcore.New(token, "") }
+	}
+	receipt, err := slacktransport.DeliverText(ctx, client(workspace.BotToken), cfg.ChannelID, msg.Body, msg.ThreadID)
+	if err != nil {
+		return publishing.DeliveryReceipt{}, err
+	}
+	return publishing.DeliveryReceipt{
+		Status:      "delivered",
+		Provider:    "slack",
+		Destination: receipt.Destination,
+		MessageID:   receipt.MessageID,
+	}, nil
 }
 
 func newSlackWorkspaces(store helixstore.Store, encKey func() ([]byte, error)) *slackWorkspaces {
@@ -210,10 +256,17 @@ func (w *slackWorkspaces) ByTeamID(ctx context.Context, teamID string) (slacktra
 	if err != nil {
 		return slacktransport.Workspace{}, err
 	}
+	var match *types.ServiceConnection
 	for _, conn := range conns {
 		if conn.SlackTeamID == teamID {
-			return w.toWorkspace(conn)
+			if match != nil {
+				return slacktransport.Workspace{}, slacktransport.ErrAmbiguousWorkspace
+			}
+			match = conn
 		}
+	}
+	if match != nil {
+		return w.toWorkspace(match)
 	}
 	return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
 }
@@ -230,14 +283,31 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 	if err != nil {
 		return slacktransport.Workspace{}, err
 	}
+	chosen, err := selectSlackWorkspace(conns, teamID)
+	if err != nil {
+		return slacktransport.Workspace{}, err
+	}
+	return w.toWorkspace(chosen)
+}
+
+func selectSlackWorkspace(conns []*types.ServiceConnection, teamID string) (*types.ServiceConnection, error) {
 	var candidates []*types.ServiceConnection
+	workspaces := map[string]bool{}
 	for _, c := range conns {
 		if teamID == "" || c.SlackTeamID == teamID {
 			candidates = append(candidates, c)
+			key := c.SlackTeamID
+			if key == "" {
+				key = c.ID
+			}
+			workspaces[key] = true
 		}
 	}
 	if len(candidates) == 0 {
-		return slacktransport.Workspace{}, slacktransport.ErrNoWorkspace
+		return nil, slacktransport.ErrNoWorkspace
+	}
+	if teamID == "" && len(workspaces) > 1 {
+		return nil, slacktransport.ErrAmbiguousWorkspace
 	}
 	chosen := candidates[0]
 	for _, c := range candidates {
@@ -246,7 +316,7 @@ func (w *slackWorkspaces) resolveForOrg(ctx context.Context, orgID, teamID strin
 			break
 		}
 	}
-	return w.toWorkspace(chosen)
+	return chosen, nil
 }
 
 // kickSlackSocket asks the Socket Mode manager to re-reconcile its
@@ -385,7 +455,47 @@ func (s *HelixAPIServer) slackSigningSecrets(ctx context.Context) ([]string, err
 // after the admin approves the install. Must exactly match a Redirect
 // URL configured on the Slack app.
 func (s *HelixAPIServer) slackRedirectURI() string {
-	return s.Cfg.WebServer.URL + "/api/v1/slack/oauth/callback"
+	return strings.TrimRight(s.Cfg.WebServer.URL, "/") + "/api/v1/slack/oauth/callback"
+}
+
+func slackSettingsRedirectURL(orgID string, query url.Values) string {
+	return fmt.Sprintf("/orgs/%s/general?%s", url.PathEscape(orgID), query.Encode())
+}
+
+func redirectSlackSettings(w http.ResponseWriter, r *http.Request, orgID, key, message string) {
+	query := url.Values{key: []string{message}}
+	http.Redirect(w, r, slackSettingsRedirectURL(orgID, query), http.StatusFound)
+}
+
+func slackOAuthErrorMessage(code string) string {
+	if code == "access_denied" {
+		return "Slack authorization was cancelled. Try connecting the workspace again when you are ready."
+	}
+	return "Slack could not authorize the workspace. Try again or contact your Helix administrator."
+}
+
+func sanitizedSlackOAuthErrorCode(code string) string {
+	code = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		return -1
+	}, code)
+	if len(code) > 64 {
+		code = code[:64]
+	}
+	if code == "" {
+		return "unknown"
+	}
+	return code
+}
+
+func slackAuthTestError(err error) (int, string) {
+	var slackError goslack.SlackErrorResponse
+	if errors.As(err, &slackError) {
+		return http.StatusBadRequest, "Slack rejected the bot token. Check that it is an active xoxb- token for the workspace."
+	}
+	return http.StatusBadGateway, "Could not validate the bot token with Slack. Try again."
 }
 
 // listOrgSlackApps (GET /api/v1/orgs/{org}/slack/apps) lists the
@@ -494,8 +604,8 @@ func (s *HelixAPIServer) slackOAuthStart(w http.ResponseWriter, r *http.Request)
 func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
-	if code == "" || state == "" {
-		http.Error(w, "missing code or state", http.StatusBadRequest)
+	if state == "" {
+		http.Error(w, "missing state", http.StatusBadRequest)
 		return
 	}
 
@@ -510,37 +620,54 @@ func (s *HelixAPIServer) slackOAuthCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	orgID, appConnID, _ := strings.Cut(string(stateBytes), "|")
+	if orgID == "" || appConnID == "" {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	if slackError := r.URL.Query().Get("error"); slackError != "" {
+		log.Warn().Str("org", orgID).Str("error_code", sanitizedSlackOAuthErrorCode(slackError)).Msg("slack oauth: authorization failed")
+		redirectSlackSettings(w, r, orgID, "slack_error", slackOAuthErrorMessage(slackError))
+		return
+	}
+	if code == "" {
+		redirectSlackSettings(w, r, orgID, "slack_error", "Slack did not return an authorization code. Try connecting the workspace again.")
+		return
+	}
 
 	app, err := s.resolveSlackApp(r.Context(), appConnID)
 	if err != nil {
-		http.Error(w, "Slack app not configured", http.StatusServiceUnavailable)
+		redirectSlackSettings(w, r, orgID, "slack_error", "The Slack app is not configured. Contact your Helix administrator.")
 		return
 	}
 	if app.SlackClientID == "" || app.SlackClientSecret == "" {
-		http.Error(w, "Slack app is missing client credentials", http.StatusServiceUnavailable)
+		redirectSlackSettings(w, r, orgID, "slack_error", "The Slack app is missing OAuth credentials. Contact your Helix administrator.")
 		return
 	}
 	clientSecret, err := crypto.DecryptAES256GCM(app.SlackClientSecret, key)
 	if err != nil {
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		log.Error().Err(err).Str("org", orgID).Msg("slack oauth: decrypt client secret")
+		redirectSlackSettings(w, r, orgID, "slack_error", "Helix could not read the Slack app credentials. Contact your Helix administrator.")
 		return
 	}
 
 	install, err := slackcore.CodeExchanger{}.ExchangeCode(r.Context(), app.SlackClientID, string(clientSecret), code, s.slackRedirectURI())
 	if err != nil {
 		log.Error().Err(err).Str("org", orgID).Msg("slack oauth: code exchange failed")
-		http.Error(w, "Slack install failed: "+err.Error(), http.StatusBadGateway)
+		redirectSlackSettings(w, r, orgID, "slack_error", "Slack could not complete the workspace connection. Try again.")
 		return
 	}
 
 	if err := s.upsertSlackWorkspace(r.Context(), orgID, install, app.ID); err != nil {
 		log.Error().Err(err).Str("org", orgID).Msg("slack oauth: persist workspace failed")
-		http.Error(w, "Failed to save Slack install", http.StatusInternalServerError)
+		if errors.Is(err, errSlackWorkspaceConflict) {
+			redirectSlackSettings(w, r, orgID, "slack_error", err.Error())
+			return
+		}
+		redirectSlackSettings(w, r, orgID, "slack_error", "Helix could not save the Slack workspace connection. Try again.")
 		return
 	}
 
-	// Redirect back to the org's integrations UI.
-	http.Redirect(w, r, fmt.Sprintf("/orgs/%s?slack_installed=1", url.PathEscape(orgID)), http.StatusFound)
+	redirectSlackSettings(w, r, orgID, "slack_installed", "1")
 }
 
 // connectSlackWorkspaceRequest is the body of the manual
@@ -599,7 +726,8 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 	// Verify the token and derive the workspace identity.
 	id, err := slackcore.AuthTest(r.Context(), slackcore.New(req.BotToken, ""))
 	if err != nil {
-		http.Error(w, "Bot token rejected by Slack: "+err.Error(), http.StatusBadGateway)
+		status, message := slackAuthTestError(err)
+		http.Error(w, message, status)
 		return
 	}
 
@@ -610,6 +738,10 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 		BotUserID: id.UserID,
 	}
 	if err := s.upsertSlackWorkspace(r.Context(), org.ID, install, req.AppConnectionID); err != nil {
+		if errors.Is(err, errSlackWorkspaceConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "Failed to save workspace: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -625,6 +757,8 @@ func (s *HelixAPIServer) connectSlackWorkspace(w http.ResponseWriter, r *http.Re
 	}
 	w.WriteHeader(http.StatusCreated)
 }
+
+var errSlackWorkspaceConflict = errors.New("This Slack workspace is already connected to another Helix organization")
 
 // upsertSlackWorkspace creates or updates the org's slack_workspace
 // ServiceConnection for the installed team. Re-installing the same
@@ -648,29 +782,38 @@ func (s *HelixAPIServer) upsertSlackWorkspace(ctx context.Context, orgID string,
 		}
 	}
 
-	// Reuse an existing row for the same team in this org if present.
-	existing, _ := s.Store.ListServiceConnectionsByType(ctx, orgID, types.ServiceConnectionTypeSlackWorkspace)
+	existing, err := s.Store.ListServiceConnectionsByType(ctx, "", types.ServiceConnectionTypeSlackWorkspace)
+	if err != nil {
+		return err
+	}
+	var match *types.ServiceConnection
 	for _, conn := range existing {
-		if conn.SlackTeamID == install.TeamID {
-			conn.SlackTeamName = install.TeamName
-			conn.SlackBotUserID = install.BotUserID
-			conn.SlackAppID = install.AppID
-			conn.SlackBotToken = encToken
-			conn.Name = slackWorkspaceName(install)
-			if appConnID != "" {
-				conn.SlackAppConnectionID = appConnID
-			}
-			if err := s.Store.UpdateServiceConnection(ctx, conn); err != nil {
-				return err
-			}
-			s.helixOrg.slackTopics.ensure(ctx, orgID, conn.ID, conn.Name, appName)
-			// Re-install of an existing workspace: do NOT (re)create the
-			// router — a user-deleted router must stay deleted. Just reconcile
-			// routes (no-op if the router was deleted; picks up new Workers if
-			// it still exists).
-			s.helixOrg.slackAutoRouter.reconcile(ctx, orgID)
-			return nil
+		if conn.SlackTeamID != install.TeamID {
+			continue
 		}
+		if conn.OrganizationID != orgID {
+			return errSlackWorkspaceConflict
+		}
+		if match != nil {
+			return slacktransport.ErrAmbiguousWorkspace
+		}
+		match = conn
+	}
+	if match != nil {
+		match.SlackTeamName = install.TeamName
+		match.SlackBotUserID = install.BotUserID
+		match.SlackAppID = install.AppID
+		match.SlackBotToken = encToken
+		match.Name = slackWorkspaceName(install)
+		if appConnID != "" {
+			match.SlackAppConnectionID = appConnID
+		}
+		if err := s.Store.UpdateServiceConnection(ctx, match); err != nil {
+			return err
+		}
+		s.helixOrg.slackTopics.ensure(ctx, orgID, match.ID, match.Name, appName)
+		s.helixOrg.slackAutoRouter.reconcile(ctx, orgID)
+		return nil
 	}
 
 	conn := &types.ServiceConnection{
@@ -824,7 +967,7 @@ func (s *HelixAPIServer) cascadeDeleteSlackAppWorkspaces(ctx context.Context, ap
 }
 
 // reactToServiceConnectionChange is the post-mutation hook helix-org
-// registers on the core service-connection handlers (in mountHelixOrg).
+// registers on the core service-connection handlers (in registerHelixOrgRoutes).
 // It reacts only to the type helix-org owns: a slack_app create/edit
 // reconciles Socket Mode, and a slack_app delete also cascade-removes the
 // workspace installs (and their Topics) made from it. Every other

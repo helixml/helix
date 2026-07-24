@@ -9,6 +9,7 @@ import BuildIcon from "@mui/icons-material/Build";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import { preserveDisclosureExpansion } from "./disclosureScroll";
 
 /**
  * Represents a parsed segment of a response message.
@@ -147,7 +148,10 @@ export const CollapsibleToolCall: FC<CollapsibleToolCallProps> = ({
     >
       {/* Collapsed header — always visible */}
       <Box
-        onClick={() => setExpanded(!expanded)}
+        onClick={(event) => {
+          if (!expanded) preserveDisclosureExpansion(event.currentTarget)
+          setExpanded(!expanded)
+        }}
         sx={{
           display: "flex",
           alignItems: "center",

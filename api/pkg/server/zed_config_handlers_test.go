@@ -42,14 +42,16 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				GenerationModelProvider: "openai",
 				GenerationModel:         "gpt-4o",
 				CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+				ReasoningEffort:         types.ReasoningEffortNone,
 			},
 			want: &types.CodeAgentConfig{
-				Provider:  "openai",
-				Model:     "openai/gpt-4o",
-				AgentName: "zed-agent",
-				BaseURL:   "http://localhost:8080/v1",
-				APIType:   "openai",
-				Runtime:   types.CodeAgentRuntimeZedAgent,
+				Provider:        "openai",
+				Model:           "openai/gpt-4o",
+				AgentName:       "zed-agent",
+				BaseURL:         "http://localhost:8080/v1",
+				APIType:         "openai",
+				Runtime:         types.CodeAgentRuntimeZedAgent,
+				ReasoningEffort: types.ReasoningEffortNone,
 			},
 		},
 		{
@@ -133,14 +135,14 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "claude_code subscription mode - defaults to Opus",
+			name: "claude_code subscription mode - defaults to 1M-context Opus",
 			assistant: &types.AssistantConfig{
 				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "opus",
+				Model:     "opus[1m]",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
@@ -167,7 +169,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "opus",
+				Model:     "opus[1m]",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
@@ -203,6 +205,41 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 				BaseURL:   "http://localhost:8080",
 				APIType:   "anthropic",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
+			},
+		},
+		{
+			name: "codex_cli subscription mode",
+			assistant: &types.AssistantConfig{
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+			},
+			want: &types.CodeAgentConfig{AgentName: "codex", Runtime: types.CodeAgentRuntimeCodexCLI},
+		},
+		{
+			name: "codex_cli api key mode",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "openai",
+				GenerationModel:         "gpt-5.3-codex",
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+				ReasoningEffort:         "high",
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "gpt-5.3-codex", AgentName: "codex", ReasoningEffort: "high",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeCodexCLI,
+			},
+		},
+		{
+			name: "codex_cli omits none reasoning effort",
+			assistant: &types.AssistantConfig{
+				GenerationModelProvider: "openai",
+				GenerationModel:         "gpt-5.3-codex",
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				ReasoningEffort:         types.ReasoningEffortNone,
+			},
+			want: &types.CodeAgentConfig{
+				Provider: "openai", Model: "gpt-5.3-codex", AgentName: "codex",
+				BaseURL: "http://localhost:8080/v1", APIType: "openai", Runtime: types.CodeAgentRuntimeCodexCLI,
 			},
 		},
 	}

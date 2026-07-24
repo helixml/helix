@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip, Divider, Alert } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -17,7 +17,10 @@ import CustomLogo from '../components/providers/logos/custom';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
 import AnthropicLogo from '../components/providers/logos/anthropic';
+import OpenAILogo from '../components/providers/logos/openai';
 import ClaudeSubscriptionConnect, { useClaudeSubscriptions } from '../components/account/ClaudeSubscriptionConnect';
+import CodexSubscriptionConnect from '../components/account/CodexSubscriptionConnect';
+import { useCodexSubscriptions } from '../services/codexSubscriptionsService';
 import { getTokenExpiryStatus } from '../components/account/claudeSubscriptionUtils';
 import LMStudioModels from '../components/providers/LMStudioModels';
 
@@ -58,11 +61,25 @@ const Providers: React.FC = () => {
     ? getTokenExpiryStatus(claudeSubscriptions![0].access_token_expires_at)
     : null
   const claudeIsExpired = claudeExpiry?.isExpired ?? false
+  const { data: codexSubscriptions } = useCodexSubscriptions()
+  const hasCodexSubscription = (codexSubscriptions?.length ?? 0) > 0
+
+  const pageProps = {
+    breadcrumbTitle: 'AI providers',
+    breadcrumbParent: {
+      title: 'Organizations',
+      routeName: 'orgs',
+      useOrgRouter: false,
+    },
+    breadcrumbShowHome: true,
+    orgBreadcrumbs: true,
+    topbarContent: null,
+  }
 
   // If providers management is disabled and user is not admin, show message
   if (!providersManagementEnabled && !account.admin) {
     return (
-      <Page breadcrumbTitle="Providers" topbarContent={null}>
+      <Page {...pageProps}>
         <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
             AI Providers
@@ -144,7 +161,7 @@ const Providers: React.FC = () => {
   };
 
   return (
-    <Page breadcrumbTitle="Providers" topbarContent={null}>
+    <Page {...pageProps}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
         <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
           AI Providers
@@ -192,15 +209,14 @@ const Providers: React.FC = () => {
           </Box>
         )}
 
-        {/* Claude Subscription Section */}
         <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Claude Subscription
+          Subscriptions
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Sign in with your Claude account to use Claude Code as the coding agent in desktop sessions.
+          Connect an Anthropic or ChatGPT subscription for coding agents in desktop sessions.
         </Typography>
         <Grid container spacing={3} justifyContent="left" sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={4} display="flex" justifyContent="center">
+          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
             <Card
               sx={{
                 width: 320,
@@ -230,7 +246,7 @@ const Providers: React.FC = () => {
                     <AnthropicLogo style={{ width: 40, height: 40 }} />
                   </Avatar>
                 }
-                title="Claude Subscription"
+                title="Anthropic"
                 titleTypographyProps={{ variant: 'h6', align: 'center' }}
               />
               <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
@@ -238,8 +254,25 @@ const Providers: React.FC = () => {
                   Use your Claude account with Claude Code inside desktop agents. Not an API key provider.
                 </Typography>
               </CardContent>
-              <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
                 <ClaudeSubscriptionConnect variant="button" />
+              </CardActions>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} display="flex" justifyContent="center">
+            <Card sx={{ width: 320, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: 2, borderStyle: 'dashed', borderWidth: 1, borderColor: hasCodexSubscription ? 'success.main' : 'divider' }}>
+              <CardHeader
+                avatar={<Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}><OpenAILogo style={{ width: 40, height: 40 }} /></Avatar>}
+                title="ChatGPT"
+                titleTypographyProps={{ variant: 'h6', align: 'center' }}
+              />
+              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  Use your ChatGPT account with Codex CLI inside desktop agents. Not an API key provider.
+                </Typography>
+              </CardContent>
+              <CardActions sx={{ justifyContent: 'center', pb: 2, minHeight: 52, '& .MuiButton-root': { minWidth: 104, height: 36 } }}>
+                <CodexSubscriptionConnect orgId={org?.id} />
               </CardActions>
             </Card>
           </Grid>
@@ -276,7 +309,7 @@ const Providers: React.FC = () => {
         <Divider sx={{ mb: 3 }} />
 
         <Typography variant="h6" sx={{ mb: 1.5 }}>
-          API Key Providers
+          AI Providers
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Add API keys for chat, Zed Agent, Qwen Code, and other AI features.
@@ -285,8 +318,13 @@ const Providers: React.FC = () => {
           {PROVIDERS.map((provider) => {
             // The custom provider tile always opens a fresh "Add" dialog — many custom
             // providers can coexist, and each existing one is shown as its own card below.
-            const isConfigured = !provider.is_custom && allEndpoints.some(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
-            const existingProvider = provider.is_custom ? undefined : allEndpoints.find(endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', ''));
+            // This section manages keys owned by the current user or organization.
+            // Synthetic global providers have id "-" and are configured by the server
+            // environment, so they cannot be disconnected from this dialog.
+            const existingProvider = provider.is_custom ? undefined : userEndpoints.find(
+              endpoint => endpoint.name === provider.id || endpoint.name === provider.id.replace('user/', '')
+            );
+            const isConfigured = !!existingProvider;
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">          
                 <Card
@@ -447,7 +485,10 @@ const Providers: React.FC = () => {
             open={dialogOpen}
             onClose={handleCloseDialog}
             provider={selectedProvider}
-            existingProvider={userEndpoints.find(endpoint => endpoint.name === selectedProvider.id)}
+            existingProvider={userEndpoints.find(endpoint =>
+              endpoint.name === selectedProvider.id ||
+              endpoint.name === selectedProvider.id.replace('user/', '')
+            )}
           />
         )}
       </Container>
@@ -455,4 +496,4 @@ const Providers: React.FC = () => {
   );
 };
 
-export default Providers; 
+export default Providers;

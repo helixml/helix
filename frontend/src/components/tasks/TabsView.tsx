@@ -54,7 +54,7 @@ import useSnackbar from "../../hooks/useSnackbar";
 import useApi from "../../hooks/useApi";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import { useUpdateSpecTask, useSpecTask } from "../../services/specTaskService";
 import { useQuery } from "@tanstack/react-query";
 import { getBrowserLocale } from "../../hooks/useBrowserLocale";
@@ -770,12 +770,9 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   const account = useAccount();
   const streaming = useStreaming();
 
-  // OAuth flow — planner without GitHub OAuth gets 422 oauth_required from
-  // start-planning; open the connect flow instead of surfacing the raw
-  // string.
+  // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [taskSearchQuery, setTaskSearchQuery] = useState("");
@@ -868,18 +865,21 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          if (gitHubProvider?.id) {
-            snackbar.info("Connect GitHub to start planning this task.");
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+          const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+          if (oauthProvider?.id) {
+            snackbar.info(`Connect ${providerName} to start planning this task.`);
             startOAuthFlow({
-              providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              providerId: oauthProvider.id,
+              scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
               onSuccess: () => {
                 snackbar.success(
-                  "GitHub connected. Click Start Planning again to continue.",
+                  `${providerName} connected. Click Start Planning again to continue.`,
                 );
               },
               onError: (oauthError) => {
-                snackbar.error(`GitHub connection failed: ${oauthError}`);
+                snackbar.error(`${providerName} connection failed: ${oauthError}`);
               },
             });
           } else {
@@ -887,7 +887,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             // error message is PR-centric and actionless for this user, so
             // override it with admin-direction guidance.
             snackbar.error(
-              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+              `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.`,
             );
           }
           return;

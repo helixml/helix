@@ -28,6 +28,7 @@ import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import TextField from "@mui/material/TextField";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
+import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import ToolStepsWidget from "./ToolStepsWidget";
 
 import { ThumbsUp, ThumbsDown, Download } from "lucide-react";
@@ -182,6 +183,7 @@ export const InteractionInference: FC<{
   handleSave?: () => void;
   isLastInteraction?: boolean;
   sessionSteps?: any[];
+  enableDebugCopy?: boolean;
 }> = ({
   imageURLs = [],
   message,
@@ -199,6 +201,7 @@ export const InteractionInference: FC<{
   handleSave: externalHandleSave,
   isLastInteraction,
   sessionSteps = [],
+  enableDebugCopy = false,
 }) => {
   const account = useAccount();
   const router = useRouter();
@@ -400,6 +403,15 @@ export const InteractionInference: FC<{
                         },
                       }}
                     >
+                      {enableDebugCopy && (
+                        <InteractionDebugCopyButton
+                          interaction={interaction}
+                          session={session}
+                          sessionSteps={sessionSteps}
+                          serverConfig={serverConfig}
+                        />
+                      )}
+
                       <Tooltip title="Regenerate this response">
                         <IconButton
                           onClick={() =>

@@ -300,6 +300,27 @@ func (m *MemoryStore) MarkInteractionCompleteIfWaiting(_ context.Context, intera
 	return true, nil
 }
 
+func (m *MemoryStore) MarkInteractionErrorIfWaiting(_ context.Context, interactionID string, generationID int, reason string) (bool, error) {
+	m.mu.Lock()
+	existing, ok := m.interactions[interactionID]
+	if !ok || existing.GenerationID != generationID || existing.State != types.InteractionStateWaiting {
+		m.mu.Unlock()
+		return false, nil
+	}
+	existing.State = types.InteractionStateError
+	existing.Error = reason
+	existing.Completed = time.Now()
+	existing.Updated = time.Now()
+	cp := *existing
+	cb := m.OnInteractionUpdated
+	m.mu.Unlock()
+
+	if cb != nil {
+		cb(&cp)
+	}
+	return true, nil
+}
+
 func (m *MemoryStore) ListInteractions(_ context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

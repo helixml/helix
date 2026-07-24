@@ -84,12 +84,9 @@ func TestAttachHelixOrgMCPUpsertReplacesExisting(t *testing.T) {
 	}
 }
 
-// TestAttachHelixOrgMCPBearerFromContextOverridesFallback pins the
-// per-activation user-attribution path: when a bearer is on ctx
-// (via WithBearerToken / HelixIdentity), it wins over the fallback
-// service api_key. Used by the Spawner so per-Worker projects are
-// owned by the hiring user, not the service account.
-func TestAttachHelixOrgMCPBearerFromContextOverridesFallback(t *testing.T) {
+// TestAttachHelixOrgMCPIgnoresRequestBearer pins that a short-lived
+// activation/session token is never persisted on the long-lived app.
+func TestAttachHelixOrgMCPIgnoresRequestBearer(t *testing.T) {
 	t.Parallel()
 	svc := newFakeProjectService()
 	ctx := WithBearerToken(context.Background(), "k_user")
@@ -99,8 +96,8 @@ func TestAttachHelixOrgMCPBearerFromContextOverridesFallback(t *testing.T) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	mcp := findMCP(svc.updateAppLastCfg, HelixOrgMCPName)
-	if mcp == nil || mcp.Headers["Authorization"] != "Bearer k_user" {
-		t.Errorf("ctx bearer must override fallback; got %+v", mcp)
+	if mcp == nil || mcp.Headers["Authorization"] != "Bearer k_service" {
+		t.Errorf("service bearer must be persisted; got %+v", mcp)
 	}
 }
 
@@ -210,9 +207,16 @@ func (noopProjectService) UpdateProject(_ context.Context, _ string, _ types.Pro
 	return types.Project{}, nil
 }
 func (noopProjectService) PutProjectSecret(_ context.Context, _, _, _ string) error { return nil }
+func (noopProjectService) ListProjectSecrets(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
 func (noopProjectService) CreateGitRepo(_ context.Context, _ types.GitRepositoryCreateRequest) (types.GitRepository, error) {
 	return types.GitRepository{}, nil
 }
+func (noopProjectService) GetGitRepo(_ context.Context, repoID string) (types.GitRepository, error) {
+	return types.GitRepository{ID: repoID, Name: repoID}, nil
+}
+func (noopProjectService) DeleteGitRepo(_ context.Context, _ string) error { return nil }
 func (noopProjectService) AttachRepoToProject(_ context.Context, _, _ string, _ bool) error {
 	return nil
 }

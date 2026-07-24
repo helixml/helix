@@ -99,7 +99,7 @@ import { useGetProject, useUpdateProject } from "../../services/projectService";
 import useSnackbar from "../../hooks/useSnackbar";
 import { useOAuthFlow } from "../../hooks/useOAuthFlow";
 import { useListOAuthProviders } from "../../services/oauthProvidersService";
-import { findOAuthProviderForType } from "../../utils/oauthProviders";
+import { findOAuthProviderForType, vcsScopesForProvider } from "../../utils/oauthProviders";
 import BacklogTableView from "./BacklogTableView";
 import VCSConnectionLozenges from "./VCSConnectionLozenges";
 import { useCreateSampleRepository } from "../../services/gitRepositoryService";
@@ -685,12 +685,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  // OAuth flow — if the planner has no GitHub OAuth, the start-planning
-  // endpoint returns 422 with error=oauth_required. Drop into the connect
-  // flow rather than surfacing the raw error string.
+  // Open the matching repository provider when planning requires OAuth.
   const { startOAuthFlow } = useOAuthFlow();
   const { data: oauthProviders } = useListOAuthProviders();
-  const gitHubProvider = findOAuthProviderForType(oauthProviders, "github");
 
   // Track initial load to avoid showing loading spinner on refreshes
   const hasLoadedOnceRef = React.useRef(false);
@@ -1510,24 +1507,26 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // 422 + oauth_required → the planner has no GitHub OAuth. Open the
-        // connect flow instead of throwing the raw error string.
+        // Open the matching provider connection flow on OAuth enforcement.
         if (
           response.status === 422 &&
           errorData?.error === "oauth_required"
         ) {
-          if (gitHubProvider?.id) {
-            snackbar.info("Connect GitHub to start planning this task.");
+          const providerType = errorData?.provider_type === "gitlab" ? "gitlab" : "github";
+          const providerName = providerType === "gitlab" ? "GitLab" : "GitHub";
+          const oauthProvider = findOAuthProviderForType(oauthProviders, providerType);
+          if (oauthProvider?.id) {
+            snackbar.info(`Connect ${providerName} to start planning this task.`);
             startOAuthFlow({
-              providerId: gitHubProvider.id,
-              scopes: ["repo"],
+              providerId: oauthProvider.id,
+              scopes: vcsScopesForProvider(oauthProvider.type, oauthProvider.name),
               onSuccess: () => {
                 snackbar.success(
-                  "GitHub connected. Click Start Planning again to continue.",
+                  `${providerName} connected. Click Start Planning again to continue.`,
                 );
               },
               onError: (oauthError) => {
-                snackbar.error(`GitHub connection failed: ${oauthError}`);
+                snackbar.error(`${providerName} connection failed: ${oauthError}`);
               },
             });
           } else {
@@ -1535,7 +1534,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             // error message is PR-centric and actionless for this user, so
             // override it with admin-direction guidance.
             snackbar.error(
-              "GitHub OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.",
+              `${providerName} OAuth is not configured on this Helix instance. Ask your administrator to set it up before starting planning.`,
             );
           }
           return;

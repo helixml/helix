@@ -99,6 +99,10 @@ func TestCreateBotUnionWithCallerTools(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		AskHumanName,
+		ListSecretsName,
+		ListProcessorsName,
+		GetProcessorName,
 	}
 	if !reflect.DeepEqual(bot.Tools, want) {
 		t.Fatalf("create_bot union drifted.\n got: %v\nwant: %v", bot.Tools, want)

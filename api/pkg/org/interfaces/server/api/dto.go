@@ -7,6 +7,8 @@
 // client-side.
 package api
 
+import "github.com/helixml/helix/api/pkg/org/application/publishing"
+
 // BotBadge is a compact reference to a Bot on the org overview.
 type BotBadge struct {
 	ID string `json:"id"`
@@ -41,14 +43,28 @@ type BotDTO struct {
 	Name           string   `json:"name,omitempty"`
 	Content        string   `json:"content"`
 	Tools          []string `json:"tools,omitempty"`
+	ProjectIDs     []string `json:"project_ids,omitempty"`
 	ParentIDs      []string `json:"parent_ids,omitempty"`
 	OrganizationID string   `json:"organization_id,omitempty"`
 	// PreserveContext, when true, stops the runtime from wiping this
 	// Bot's chat session before each re-activation, so it accumulates
 	// context across triggers (e.g. Slack). Defaults to false.
-	PreserveContext bool   `json:"preserve_context"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
+	PreserveContext bool `json:"preserve_context"`
+	// Kind is "" (agent) or "human". A human node is a person placeholder,
+	// never activated; Identity holds their cross-system handles and
+	// HelixUserID optionally links them to a Helix org member. Identity is
+	// omitted for agent bots.
+	Kind        string            `json:"kind,omitempty"`
+	HelixUserID string            `json:"helix_user_id,omitempty"`
+	Identity    map[string]string `json:"identity,omitempty"`
+	// AgentStatus is "running" when the bot's desktop sandbox is online,
+	// "stopped" otherwise (no session, paused, never activated). Drives
+	// the green/grey presence dot on the org chart.
+	AgentStatus  string `json:"agent_status,omitempty"`
+	AgentRuntime string `json:"agent_runtime,omitempty"`
+	AgentModel   string `json:"agent_model,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 // BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
@@ -117,7 +133,12 @@ type UpdateBotRequest struct {
 	Name            *string  `json:"name,omitempty"`
 	Content         *string  `json:"content,omitempty"`
 	Tools           []string `json:"tools,omitempty"`
+	ProjectIDs      []string `json:"project_ids,omitempty"`
 	PreserveContext *bool    `json:"preserve_context,omitempty"`
+	// Identity is the per-channel handle map for a human node (slack/github/
+	// email/…). When present it replaces the stored map; absent leaves it
+	// unchanged. Only meaningful for kind=human bots.
+	Identity map[string]string `json:"identity,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID
@@ -280,9 +301,10 @@ type SubscribeBotRequest struct {
 
 // PublishRequest is the body of POST /topics/{id}/publish.
 type PublishRequest struct {
-	Body    string   `json:"body"`
-	Subject string   `json:"subject,omitempty"`
-	To      []string `json:"to,omitempty"`
+	Body     string   `json:"body"`
+	Subject  string   `json:"subject,omitempty"`
+	To       []string `json:"to,omitempty"`
+	ThreadID string   `json:"threadId,omitempty"`
 	// As is the Bot the message is sent as — the bot whose chat the
 	// human is in. Empty means human/system-origin (the dispatcher treats
 	// it as such). There is no global "owner" sender any more.
@@ -291,7 +313,8 @@ type PublishRequest struct {
 
 // PublishResponse is the body of POST /topics/{id}/publish on success.
 type PublishResponse struct {
-	EventID string `json:"event_id"`
+	EventID  string                      `json:"event_id"`
+	Delivery *publishing.DeliveryReceipt `json:"delivery,omitempty"`
 }
 
 // ErrorResponse is the envelope for non-2xx responses.

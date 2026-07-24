@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,14 @@ func isAgentCrashError(errMsg string) bool {
 	return false
 }
 
+func isMissingCodexRolloutError(errMsg string) bool {
+	return strings.Contains(errMsg, "no rollout found for thread id")
+}
+
+func isAuthoritativeMissingThreadError(errMsg string) bool {
+	return isMissingCodexRolloutError(errMsg) || strings.Contains(errMsg, `no thread found with ID: SessionId("`)
+}
+
 // acpWedgeCrashThreshold is how many prior retries a prompt must already have
 // accumulated before a recurring thread_load_error is treated as terminal
 // (crash-marked, surfacing Restart) rather than retried again. A thread_load_error
@@ -85,6 +94,11 @@ type streamingContext struct {
 	// Trailing-edge flush timer: fires after publishInterval to drain any
 	// patches that were skipped by the throttle when no new event arrived.
 	flushTimer *time.Timer
+	// Trailing-edge DB flush timer: mirrors flushTimer for the throttled DB
+	// write. Fires after dbTrailingFlushInterval so the persisted interaction
+	// (read by the 3s poll fallback and page-reload snapshots) never sits
+	// more than ~dbTrailingFlushInterval behind the live stream during a pause.
+	dbFlushTimer *time.Timer
 	// Per-entry delta tracking: tracks entries sent to frontend so we can compute per-entry diffs
 	previousEntries []wsprotocol.ResponseEntry
 	// Message accumulator: persists across handleMessageAdded calls so that
@@ -116,6 +130,13 @@ const (
 	// publishInterval is the minimum time between frontend pubsub events during streaming.
 	// Frontend batches to requestAnimationFrame (~16ms), so faster is wasted work.
 	publishInterval = 50 * time.Millisecond
+
+	// dbTrailingFlushInterval is the delay after the last streamed chunk before
+	// the trailing-edge DB flush fires. Kept small enough that a fallback/reload
+	// read is never badly stale, but large enough that continuous streaming
+	// (which keeps resetting the timer) still writes at the dbWriteInterval
+	// cadence rather than on every chunk — bounding TOAST churn.
+	dbTrailingFlushInterval = 500 * time.Millisecond
 )
 
 // External agent WebSocket connections
@@ -420,7 +441,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			apiServer.flushAndClearStreamingContext(ctx, helixSessionID)
 
 			// Find and queue the waiting interaction for the agent
-			apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
+			requestID := apiServer.pickupWaitingInteraction(ctx, helixSessionID, helixSession, agentID)
 
 			// Send open_thread BEFORE the agent_ready gate so Zed re-establishes its
 			// thread subscription immediately on connect. If we wait until after
@@ -461,6 +482,9 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 					"acp_thread_id": targetThreadID,
 					"session_id":    helixSessionID,
 				}
+				if requestID != "" {
+					data["request_id"] = requestID
+				}
 				if agentNameForOpen != "" {
 					data["agent_name"] = agentNameForOpen
 				}
@@ -499,14 +523,14 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 // requestToSessionMapping entry exists (e.g. session created via session handler
 // rather than sendMessageToSpecTaskAgent), it falls back to using the interaction
 // ID as request_id — the same convention sendMessageToSpecTaskAgent uses.
-func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) {
+func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, helixSessionID string, helixSession *types.Session, agentID string) string {
 	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    helixSessionID,
 		GenerationID: helixSession.GenerationID,
 		PerPage:      1000,
 	})
 	if err != nil || len(interactions) == 0 {
-		return
+		return ""
 	}
 
 	// Find the OLDEST waiting interaction (FIFO). This is the genuine first
@@ -600,8 +624,9 @@ func (apiServer *HelixAPIServer) pickupWaitingInteraction(ctx context.Context, h
 				Str("agent_session_id", agentID).
 				Msg("⚠️ [HELIX] Failed to queue initial message")
 		}
-		return
+		return requestID
 	}
+	return ""
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -668,11 +693,13 @@ func (apiServer *HelixAPIServer) handleExternalAgentSender(ctx context.Context, 
 
 // processExternalAgentSyncMessage processes incoming sync messages from external agents
 func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID string, syncMsg *types.SyncMessage) error {
-	log.Trace().
+	event := log.Trace().
 		Str("agent_session_id", sessionID).
-		Str("event_type", syncMsg.EventType).
-		Interface("data", syncMsg.Data).
-		Msg("[HELIX] Processing message from external agent")
+		Str("event_type", syncMsg.EventType)
+	if syncMsg.EventType != "message_added" {
+		event = event.Interface("data", syncMsg.Data)
+	}
+	event.Msg("[HELIX] Processing message from external agent")
 
 	// Process sync message directly
 	var err error
@@ -1234,6 +1261,10 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		}
 
 		helixSession := sctx.session
+		content = apiServer.redactCredentials(helixSession.OrganizationID, content)
+		toolName = apiServer.redactCredentials(helixSession.OrganizationID, toolName)
+		syncMsg.Data["content"] = content
+		syncMsg.Data["tool_name"] = toolName
 		targetInteraction := sctx.interaction
 
 		if targetInteraction != nil {
@@ -1333,28 +1364,41 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			// serializing multi-MB JSON on every message.
 			now := time.Now()
 			if now.Sub(sctx.lastDBWrite) >= dbWriteInterval {
-				acc.Rebuild()
-				targetInteraction.ResponseMessage = acc.Content
-				targetInteraction.LastZedMessageOffset = acc.Offset
-				if entriesJSON, entErr := json.Marshal(acc.Entries()); entErr == nil {
-					_ = json.Unmarshal(entriesJSON, &targetInteraction.ResponseEntries)
+				// Leading-edge DB write; cancel any pending trailing flush since
+				// we're persisting the latest state right now.
+				if sctx.dbFlushTimer != nil {
+					sctx.dbFlushTimer.Stop()
+					sctx.dbFlushTimer = nil
 				}
-				// Column-scoped write: never touch state/completed/error here,
-				// so that a concurrent handleTurnCancelled / handleMessageCompleted
-				// transition can't be clobbered by this in-flight streaming flush.
-				if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
-					context.Background(),
-					targetInteraction.ID,
-					targetInteraction.GenerationID,
-					targetInteraction.ResponseMessage,
-					targetInteraction.ResponseEntries,
-					targetInteraction.LastZedMessageOffset,
-					targetInteraction.LastZedMessageID,
-				); err != nil {
+				if err := apiServer.flushStreamingFieldsToDB(sctx); err != nil {
 					return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 				}
-				sctx.lastDBWrite = now
-				sctx.dirty = false
+			} else {
+				// Trailing-edge DB flush: mirror the frontend publish flushTimer
+				// so the persisted interaction (used by the 3s poll fallback and
+				// page-reload snapshots) is never more than dbTrailingFlushInterval
+				// behind the live stream during a pause. Without this the DB sits
+				// up to dbWriteInterval (5s) stale whenever the agent pauses
+				// mid-turn (e.g. before a tool call). Each new chunk resets the
+				// timer, so continuous streaming still writes at the dbWriteInterval
+				// cadence via the leading-edge branch above.
+				if sctx.dbFlushTimer != nil {
+					sctx.dbFlushTimer.Stop()
+				}
+				trailingInteractionID := targetInteraction.ID
+				sctx.dbFlushTimer = time.AfterFunc(dbTrailingFlushInterval, func() {
+					sctx.mu.Lock()
+					defer sctx.mu.Unlock()
+					sctx.dbFlushTimer = nil
+					if !sctx.dirty {
+						return
+					}
+					if err := apiServer.flushStreamingFieldsToDB(sctx); err != nil {
+						log.Error().Err(err).
+							Str("interaction_id", trailingInteractionID).
+							Msg("Failed to write interaction in trailing DB flush")
+					}
+				})
 			}
 
 			log.Debug().
@@ -1508,6 +1552,34 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	return nil
 }
 
+func (apiServer *HelixAPIServer) recordCredential(orgID, _ string, token string) {
+	if orgID == "" || token == "" {
+		return
+	}
+	apiServer.credentialTokensMu.Lock()
+	defer apiServer.credentialTokensMu.Unlock()
+	if apiServer.credentialTokens == nil {
+		apiServer.credentialTokens = make(map[string]map[string]struct{})
+	}
+	if apiServer.credentialTokens[orgID] == nil {
+		apiServer.credentialTokens[orgID] = make(map[string]struct{})
+	}
+	apiServer.credentialTokens[orgID][token] = struct{}{}
+}
+
+func (apiServer *HelixAPIServer) redactCredentials(orgID, content string) string {
+	apiServer.credentialTokensMu.RLock()
+	tokens := make([]string, 0, len(apiServer.credentialTokens[orgID]))
+	for token := range apiServer.credentialTokens[orgID] {
+		tokens = append(tokens, token)
+	}
+	apiServer.credentialTokensMu.RUnlock()
+	for _, token := range tokens {
+		content = strings.ReplaceAll(content, token, "<redacted>")
+	}
+	return content
+}
+
 // getOrCreateStreamingContext returns a cached streaming context for the given
 // helix session, or creates one by querying the DB on the first call. This avoids
 // redundant GetSession + ListInteractions queries on every streaming token.
@@ -1623,6 +1695,10 @@ func (apiServer *HelixAPIServer) getOrCreateStreamingContext(ctx context.Context
 			if sctx.flushTimer != nil {
 				sctx.flushTimer.Stop()
 				sctx.flushTimer = nil
+			}
+			if sctx.dbFlushTimer != nil {
+				sctx.dbFlushTimer.Stop()
+				sctx.dbFlushTimer = nil
 			}
 		}
 		sctx.mu.Unlock()
@@ -1856,6 +1932,10 @@ func (apiServer *HelixAPIServer) flushAndClearStreamingContext(ctx context.Conte
 	if sctx.flushTimer != nil {
 		sctx.flushTimer.Stop()
 		sctx.flushTimer = nil
+	}
+	if sctx.dbFlushTimer != nil {
+		sctx.dbFlushTimer.Stop()
+		sctx.dbFlushTimer = nil
 	}
 
 	if sctx.interaction != nil {
@@ -2681,8 +2761,24 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 			Str("helix_session_id", helixSessionID).
 			Str("request_id", messageRequestID).
 			Msg("⚠️ [HELIX] No matching interaction found for message_completed — skipping")
+		// Still unblock any waiter registered under this request_id so the
+		// HTTP path cannot hang until the 180s timeout.
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
 		return nil
 	}
+
+	// Always unblock waitForExternalAgentResponse for this turn, even on early
+	// returns below (already-complete, interrupted, empty-response bounce).
+	// Missing this signal is what left the /sessions/chat waiter blocked for
+	// 180s after a successful stream and then clobbered the reply.
+	// Signal under both the event's request_id and the interaction id — they
+	// are usually the same after the fix, but may differ for in-flight turns.
+	defer func() {
+		apiServer.signalExternalAgentResponseDone(helixSessionID, messageRequestID)
+		if targetInteractionID != "" && targetInteractionID != messageRequestID {
+			apiServer.signalExternalAgentResponseDone(helixSessionID, targetInteractionID)
+		}
+	}()
 
 	// Now that we have the target, flush the streaming context to DB.
 	// This ensures the latest streamed content is persisted before we reload.
@@ -2788,6 +2884,11 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	} else {
 		targetInteraction.State = types.InteractionStateComplete
 	}
+	// Clear a premature waiter timeout (or any non-fatal error stamp) once the
+	// agent actually finishes. The HTTP/SSE waiter used to mark
+	// "External agent response timeout" at 180s while the WS path kept
+	// streaming for many more minutes — leaving Error set on a complete row.
+	targetInteraction.Error = ""
 	targetInteraction.Completed = time.Now()
 	targetInteraction.Updated = time.Now()
 
@@ -3022,25 +3123,15 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
-	// Signal the waiting HTTP handler that this interaction is complete.
-	// This is needed for non-streaming (blocking) requests that call waitForExternalAgentResponse.
-	// In the normal case, chat_response_done sends the signal. But for Stopped/cancelled turns,
-	// Zed sends message_completed without chat_response_done, so we must signal here.
-	// The doneChan is buffered(1) so a double-send (normal case) is harmless.
-	if messageRequestID != "" {
-		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, messageRequestID)
-		if exists {
-			select {
-			case doneChan <- true:
-				log.Debug().Str("request_id", messageRequestID).Msg("✅ [HELIX] Sent done signal from message_completed")
-			default:
-				log.Debug().Str("request_id", messageRequestID).Msg("Done channel already full (normal for streaming case)")
-			}
-		}
-	}
+	// doneChan is signaled via the defer above (covers this success path and
+	// every early return after targetInteractionID is resolved).
 
 	// Process next non-interrupt prompt from queue (if any)
 	go apiServer.processPromptQueue(context.Background(), helixSessionID)
+
+	if err := apiServer.recordACPUsage(context.Background(), helixSession, targetInteraction, syncMsg); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -3525,6 +3616,80 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// recoverMissingThread clears an authoritative stale ACP thread and replays
+// its existing waiting interaction as the first message of a replacement
+// thread. The persisted thread ID prevents duplicate errors from replaying it.
+func (apiServer *HelixAPIServer) recoverMissingThread(ctx context.Context, sessionID, acpThreadID, requestID string) (bool, error) {
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return false, fmt.Errorf("load session for stale thread recovery: %w", err)
+	}
+	if session == nil || session.Metadata.ZedThreadID != acpThreadID {
+		return true, nil
+	}
+	session.Metadata.ZedThreadID = ""
+	if err := apiServer.Controller.Options.Store.UpdateSessionMetadata(ctx, sessionID, session.Metadata); err != nil {
+		return false, fmt.Errorf("clear stale ACP thread: %w", err)
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	delete(apiServer.contextMappings, acpThreadID)
+	interactionID := apiServer.requestToInteractionMapping[requestID]
+	apiServer.contextMappingsMutex.Unlock()
+	if interactionID == "" {
+		interactionID = requestID
+	}
+	if interactionID == "" {
+		return true, nil
+	}
+
+	interaction, err := apiServer.Controller.Options.Store.GetInteraction(ctx, interactionID)
+	if err != nil {
+		return false, fmt.Errorf("load interaction for stale thread recovery: %w", err)
+	}
+	if interaction == nil || interaction.State != types.InteractionStateWaiting || (interaction.SessionID != "" && interaction.SessionID != sessionID) {
+		return true, nil
+	}
+
+	apiServer.contextMappingsMutex.Lock()
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	apiServer.requestToInteractionMapping[requestID] = interaction.ID
+	apiServer.contextMappingsMutex.Unlock()
+
+	apiServer.externalAgentWSManager.readinessMu.Lock()
+	if state := apiServer.externalAgentWSManager.readinessState[sessionID]; state != nil {
+		state.PendingQueue = slices.DeleteFunc(state.PendingQueue, func(command types.ExternalAgentCommand) bool {
+			return command.Type == "chat_message" && command.Data["request_id"] == requestID
+		})
+	}
+	apiServer.externalAgentWSManager.readinessMu.Unlock()
+
+	message := interaction.PromptMessage
+	if interaction.SystemPrompt != "" {
+		message = interaction.SystemPrompt + "\n\n**User Request:**\n" + interaction.PromptMessage
+	}
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":    message,
+			"request_id": requestID,
+			"agent_name": apiServer.getAgentNameForSession(ctx, session),
+		},
+	}
+	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
+		if errors.Is(err, ErrNoExternalAgentWS) {
+			return true, nil
+		}
+		log.Warn().Err(err).Str("session_id", sessionID).Str("interaction_id", interaction.ID).
+			Msg("Failed to replay interaction after clearing stale ACP thread")
+		return false, fmt.Errorf("replay interaction after clearing stale ACP thread: %w", err)
+	}
+	log.Info().Str("session_id", sessionID).Str("stale_thread_id", acpThreadID).
+		Str("interaction_id", interaction.ID).Str("request_id", requestID).
+		Msg("Replayed interaction as first message after clearing stale ACP thread")
+	return true, nil
+}
+
 // handleThreadLoadError handles thread load failures from Zed
 // This happens when Zed tries to load an existing thread but fails (e.g., session already active via UI)
 // We need to treat this like a completion so the UI clears the text box and shows an error
@@ -3552,6 +3717,20 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 		apiServer.contextMappingsMutex.RLock()
 		helixSessionID = apiServer.contextMappings[acpThreadID]
 		apiServer.contextMappingsMutex.RUnlock()
+	}
+	if isAuthoritativeMissingThreadError(errorMsg) && acpThreadID != "" {
+		recoverySessionID := helixSessionID
+		if recoverySessionID == "" {
+			recoverySessionID = sessionID
+		}
+		helixSessionID = recoverySessionID
+		handled, err := apiServer.recoverMissingThread(context.Background(), recoverySessionID, acpThreadID, requestID)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
 	}
 
 	// If we have a request_id, try to send error to the done channel
@@ -3704,6 +3883,54 @@ func (apiServer *HelixAPIServer) handleThreadLoadError(sessionID string, syncMsg
 // legacy HTTP-stream response channel. Missing mappings degrade
 // silently — chat_response_error for an unknown request_id is a no-op
 // (e.g. desktop replay during reconnect).
+// genericACPAbortMarker identifies the generic mid-turn abort string that Zed
+// emits when an ACP turn errors without a cause (see
+// zed/crates/external_websocket_sync/src/thread_service.rs). It is the only
+// message we attempt to reclassify — specific errors are left untouched.
+const genericACPAbortMarker = "exited mid-turn or hit max tokens"
+
+// maybeReclassifySubscriptionAuthError rewrites the generic ACP mid-turn abort
+// message into a legible Claude-subscription auth error when (a) the message is
+// the generic one, (b) the session's agent runs Claude Code in subscription
+// mode, and (c) the session owner's subscription is missing or fails a fresh
+// liveness probe. Otherwise it returns errorMsg unchanged.
+func (apiServer *HelixAPIServer) maybeReclassifySubscriptionAuthError(ctx context.Context, helixSessionID, errorMsg string) string {
+	if !strings.Contains(errorMsg, genericACPAbortMarker) {
+		return errorMsg
+	}
+	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
+	if err != nil || session == nil || session.ParentApp == "" {
+		return errorMsg
+	}
+	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+	if err != nil || len(app.Config.Helix.Assistants) == 0 {
+		return errorMsg
+	}
+	asst := app.Config.Helix.Assistants[0]
+	if asst.CodeAgentRuntime != types.CodeAgentRuntimeClaudeCode || !asst.CodeAgentCredentialType.IsSubscription() {
+		return errorMsg
+	}
+
+	owner := apiServer.displayNameForUser(ctx, session.Owner)
+	sub, err := apiServer.Store.GetEffectiveClaudeSubscription(ctx, session.Owner, session.OrganizationID)
+	if errors.Is(err, store.ErrNotFound) || sub == nil {
+		return fmt.Sprintf("Claude subscription authentication failed: %s has no Claude subscription connected. "+
+			"Connect one in Settings, or switch the agent to API-key mode.", owner)
+	}
+	if err != nil {
+		return errorMsg
+	}
+
+	// Confirm it's really an auth problem before rewriting. revalidate persists
+	// the fresh Status/LastError so Settings reflects it too.
+	sub = apiServer.revalidateClaudeSubscription(ctx, sub)
+	if sub.Status == "error" {
+		return fmt.Sprintf("Claude subscription authentication failed for %s (invalid or expired token). "+
+			"Reconnect the subscription in Settings.", owner)
+	}
+	return errorMsg
+}
+
 func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
@@ -3725,6 +3952,14 @@ func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncM
 			log.Warn().Err(err).Str("session_id", sessionID).Str("request_id", requestID).
 				Str("interaction_id", interactionID).Msg("chat_response_error: load interaction failed")
 		} else if interaction != nil {
+			// When a subscription-mode Claude Code session aborts with the
+			// generic ACP mid-turn message, the real cause is often an invalid
+			// subscription token (401) that Zed only logs. Re-probe the owner's
+			// subscription and, if it's genuinely bad, replace the useless
+			// generic string with a legible auth error. interaction.SessionID is
+			// the helix session id (the handler's sessionID param can be the
+			// agent session id, which differs).
+			errorMsg = apiServer.maybeReclassifySubscriptionAuthError(context.Background(), interaction.SessionID, errorMsg)
 			interaction.State = types.InteractionStateError
 			interaction.Error = errorMsg
 			interaction.Updated = time.Now()
@@ -4057,6 +4292,42 @@ func computePatch(previousContent, newContent string) (patchOffset int, patch st
 	}
 
 	return utf16Off, newContent[byteOff:], totalLength
+}
+
+// flushStreamingFieldsToDB rebuilds the accumulator content for the current
+// interaction and persists the streaming columns (response_message,
+// response_entries, offset, last message id). It is a column-scoped write: it
+// never touches state/completed/error, so a concurrent
+// handleTurnCancelled / handleMessageCompleted transition can't be clobbered by
+// an in-flight streaming flush. The caller must hold sctx.mu. It is a no-op if
+// there is no interaction or accumulator to flush. On success it updates
+// lastDBWrite and clears the dirty flag.
+func (apiServer *HelixAPIServer) flushStreamingFieldsToDB(sctx *streamingContext) error {
+	if sctx.accumulator == nil || sctx.interaction == nil {
+		return nil
+	}
+	acc := sctx.accumulator
+	it := sctx.interaction
+	acc.Rebuild()
+	it.ResponseMessage = acc.Content
+	it.LastZedMessageOffset = acc.Offset
+	if entriesJSON, err := json.Marshal(acc.Entries()); err == nil {
+		_ = json.Unmarshal(entriesJSON, &it.ResponseEntries)
+	}
+	if err := apiServer.Controller.Options.Store.UpdateInteractionStreamingFields(
+		context.Background(),
+		it.ID,
+		it.GenerationID,
+		it.ResponseMessage,
+		it.ResponseEntries,
+		it.LastZedMessageOffset,
+		it.LastZedMessageID,
+	); err != nil {
+		return err
+	}
+	sctx.lastDBWrite = time.Now()
+	sctx.dirty = false
+	return nil
 }
 
 // publishEntryPatchesToFrontend sends per-entry delta patches for structured streaming.

@@ -33,3 +33,10 @@ func (w specTaskWorkflow) RequestChanges(ctx context.Context, task *types.SpecTa
 	message := services.BuildRevisionInstructionPrompt(task, comment)
 	return w.apiServer.enqueueSpecTaskAgentMessage(ctx, task, message, true, userID)
 }
+
+func (w specTaskWorkflow) StopAgent(ctx context.Context, task *types.SpecTask) error {
+	if task.PlanningSessionID == "" || w.apiServer.externalAgentExecutor == nil {
+		return nil
+	}
+	return w.apiServer.externalAgentExecutor.StopDesktop(ctx, task.PlanningSessionID)
+}

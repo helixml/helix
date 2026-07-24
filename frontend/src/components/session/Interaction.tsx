@@ -7,6 +7,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import EditIcon from "@mui/icons-material/Edit";
 import CopyButtonWithCheck from "./CopyButtonWithCheck";
+import InteractionDebugCopyButton from "./InteractionDebugCopyButton";
 import CollapsibleSystemPrefix, {
   splitSystemPrefix,
 } from "./CollapsibleSystemPrefix";
@@ -110,6 +111,22 @@ const ForkSeedDivider: FC<{ interaction: TypesInteraction }> = ({
 
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
+  if (prevProps.enableDebugCopy !== nextProps.enableDebugCopy) {
+    return false;
+  }
+
+  // Debug-enabled surfaces must keep the raw objects current because the
+  // copied bundle includes fields the transcript itself does not render
+  // (usage, runner, structured tool calls, model and routing metadata).
+  if (
+    nextProps.enableDebugCopy &&
+    (prevProps.interaction !== nextProps.interaction ||
+      prevProps.session !== nextProps.session ||
+      prevProps.sessionSteps !== nextProps.sessionSteps)
+  ) {
+    return false;
+  }
+
   // Compare serverConfig
   if (
     prevProps.serverConfig?.filestore_prefix !==
@@ -181,6 +198,7 @@ interface InteractionProps {
   session_id: string;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps?: any[];
+  enableDebugCopy?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -193,6 +211,7 @@ export const Interaction: FC<InteractionProps> = ({
   isLastInteraction,
   onRegenerate,
   sessionSteps = [],
+  enableDebugCopy = false,
 }) => {
   // Memoize computed values
   const displayData = useMemo(() => {
@@ -277,6 +296,9 @@ export const Interaction: FC<InteractionProps> = ({
 
   const isLive =
     interaction.state == TypesInteractionState.InteractionStateWaiting;
+  const hasAgentReply =
+    !!assistantMessage ||
+    ((interaction as any)?.response_entries?.length ?? 0) > 0;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
@@ -394,6 +416,7 @@ export const Interaction: FC<InteractionProps> = ({
                   handleSave={handleSave}
                   isLastInteraction={isLastInteraction}
                   sessionSteps={sessionSteps}
+                  enableDebugCopy={false}
                 />
               </InteractionContainer>
               {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
@@ -410,6 +433,14 @@ export const Interaction: FC<InteractionProps> = ({
                     transition: "opacity 0.2s ease-in-out",
                   }}
                 >
+                  {enableDebugCopy && !hasAgentReply && (
+                    <InteractionDebugCopyButton
+                      interaction={interaction}
+                      session={session}
+                      sessionSteps={sessionSteps}
+                      serverConfig={serverConfig}
+                    />
+                  )}
                   <CopyButtonWithCheck
                     text={systemPrefix ? userMessageBody : userMessage}
                     alwaysVisible={isHovering}
@@ -481,6 +512,7 @@ export const Interaction: FC<InteractionProps> = ({
                   handleSave={() => {}}
                   isLastInteraction={isLastInteraction}
                   sessionSteps={sessionSteps}
+                  enableDebugCopy={enableDebugCopy}
                 />
                 {/* Show incomplete warning for waiting interactions that aren't actively streaming */}
                 {isLive && !children && !isLastInteraction && (

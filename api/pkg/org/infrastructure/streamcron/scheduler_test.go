@@ -57,8 +57,12 @@ func newTestScheduler(t *testing.T) (*Scheduler, *recordingDispatcher) {
 }
 
 func makeCronTopic(t *testing.T, s *Scheduler, orgID string, topicID streaming.TopicID, schedule string) {
+	makeCronTopicWithMessage(t, s, orgID, topicID, schedule, "")
+}
+
+func makeCronTopicWithMessage(t *testing.T, s *Scheduler, orgID string, topicID streaming.TopicID, schedule, message string) {
 	t.Helper()
-	cfg, err := json.Marshal(transport.CronConfig{Schedule: schedule})
+	cfg, err := json.Marshal(transport.CronConfig{Schedule: schedule, Message: message})
 	if err != nil {
 		t.Fatalf("marshal cron config: %v", err)
 	}
@@ -71,6 +75,37 @@ func makeCronTopic(t *testing.T, s *Scheduler, orgID string, topicID streaming.T
 	}
 	if err := s.store.Topics.Create(context.Background(), topic); err != nil {
 		t.Fatalf("Topics.Create: %v", err)
+	}
+}
+
+func TestFireUsesConfiguredMessage(t *testing.T) {
+	t.Parallel()
+
+	s, disp := newTestScheduler(t)
+	makeCronTopicWithMessage(t, s, "org-test", "s-cron", "@daily", "Prepare the daily status report")
+
+	if err := s.fire(context.Background(), "org-test", "s-cron"); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	events, err := s.store.Events.ListForTopic(context.Background(), "org-test", "s-cron", 10)
+	if err != nil {
+		t.Fatalf("ListForTopic: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events on topic = %d, want 1", len(events))
+	}
+	msg, err := events[0].Message()
+	if err != nil {
+		t.Fatalf("Message: %v", err)
+	}
+	if msg.Body != "Prepare the daily status report" {
+		t.Fatalf("Body = %q, want configured message", msg.Body)
+	}
+	if msg.BodyContentType != "text/plain" {
+		t.Fatalf("BodyContentType = %q, want text/plain", msg.BodyContentType)
+	}
+	if len(disp.snapshot()) != 1 {
+		t.Fatalf("dispatched events = %d, want 1", len(disp.snapshot()))
 	}
 }
 

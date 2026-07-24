@@ -19,6 +19,61 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// populateQueueReasons fills task.QueueReason for any tasks in the slice that are
+// in a queued state (queued_spec_generation / queued_implementation), explaining
+// why the orchestrator is holding them queued. The reason is transient and
+// recomputed on every read (it changes as the WIP queue drains), so it is never
+// persisted. It shares the exact gate logic used by the orchestrator via
+// services.PlanningQueueReason / services.ImplementationQueueReason.
+func (s *HelixAPIServer) populateQueueReasons(ctx context.Context, projectID string, tasks []*types.SpecTask) {
+	if projectID == "" {
+		return
+	}
+
+	// Fast path: only do the extra loads if something is actually queued.
+	hasQueued := false
+	for _, t := range tasks {
+		if t.Status == types.TaskStatusQueuedSpecGeneration || t.Status == types.TaskStatusQueuedImplementation {
+			hasQueued = true
+			break
+		}
+	}
+	if !hasQueued {
+		return
+	}
+
+	project, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to load project for queue reason")
+		return
+	}
+	// Load the full project task list with dependencies: it is both the WIP-count
+	// basis and the source of each task's DependsOn (the incoming slice may not
+	// have dependencies loaded).
+	projectTasks, err := s.Store.ListSpecTasks(ctx, &types.SpecTaskFilters{ProjectID: projectID, WithDependsOn: true})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to list tasks for queue reason")
+		return
+	}
+	depsByID := make(map[string][]types.SpecTask, len(projectTasks))
+	for _, t := range projectTasks {
+		depsByID[t.ID] = t.DependsOn
+	}
+
+	for _, t := range tasks {
+		switch t.Status {
+		case types.TaskStatusQueuedSpecGeneration:
+			probe := *t
+			probe.DependsOn = depsByID[t.ID]
+			t.QueueReason = services.PlanningQueueReason(project, projectTasks, &probe)
+		case types.TaskStatusQueuedImplementation:
+			probe := *t
+			probe.DependsOn = depsByID[t.ID]
+			t.QueueReason = services.ImplementationQueueReason(projectTasks, &probe)
+		}
+	}
+}
+
 // validateAssigneeIsOrgMember returns nil if assigneeID is empty (unassigned is valid)
 // or if the assignee is a member of the given organization. Returns the underlying
 // store error otherwise — callers are responsible for logging context (task_id /
@@ -180,6 +235,10 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Surface why a queued task hasn't started yet. getTask does not run the
+	// listTasks enrichment, so compute it explicitly here for the detail page.
+	s.populateQueueReasons(ctx, task.ProjectID, []*types.SpecTask{task})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
 }
@@ -289,6 +348,10 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Surface why any queued task hasn't started yet (WIP capacity / dependency).
+	// Recomputed each read so it clears as the queue drains.
+	s.populateQueueReasons(ctx, projectID, tasks)
 
 	// Populate SessionUpdatedAt and AgentWorkState for agent activity detection
 	// Collect all session IDs and batch query for efficiency
@@ -443,7 +506,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// When approving specs, validate the approver has GitHub OAuth so their
+	// When approving specs, validate the approver has provider OAuth so their
 	// credentials can be used for commits and push during implementation.
 	if req.Approved {
 		project, err := s.Store.GetProject(ctx, existingTask.ProjectID)
@@ -457,7 +520,7 @@ func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to get repository: %v", err), http.StatusInternalServerError)
 				return
 			}
-			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -885,12 +948,12 @@ func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The user who starts planning becomes the actor for planning-phase
-	// commits/pushes, so their GitHub OAuth must be connected up front.
+	// commits/pushes, so their provider OAuth must be connected up front.
 	// Otherwise the agent would push specs using either no credentials or
 	// the task creator's token — both are wrong.
 	if project, projErr := s.Store.GetProject(ctx, task.ProjectID); projErr == nil && project.DefaultRepoID != "" {
 		if repo, repoErr := s.Store.GetGitRepository(ctx, project.DefaultRepoID); repoErr == nil {
-			if err := s.gitRepositoryService.ValidateUserGitHubOAuth(ctx, repo, user.ID); err != nil {
+			if err := s.gitRepositoryService.ValidateUserOAuth(ctx, repo, user.ID); err != nil {
 				var oauthErr *services.OAuthRequiredError
 				if errors.As(err, &oauthErr) {
 					writeResponse(w, map[string]interface{}{
@@ -1004,10 +1067,17 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 
 	// Update fields if provided
 	if updateReq.Status != "" {
+		previousStatus := task.Status
 		task.Status = updateReq.Status
 		// Update StatusUpdatedAt so task appears at top of new column in Kanban
 		now := time.Now()
 		task.StatusUpdatedAt = &now
+		if previousStatus == types.TaskStatusDone && updateReq.Status != types.TaskStatusDone {
+			task.CompletedAt = nil
+			task.MergedToMain = false
+			task.MergedAt = nil
+			task.MergeCommitHash = ""
+		}
 
 		// When moving back to backlog, clear lifecycle fields so the task
 		// starts fresh. Without this, the orchestrator sees old specs and
@@ -1036,6 +1106,7 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 			task.MergeCommitHash = ""
 			task.RepoPullRequests = nil
 			task.BranchName = "" // Force fresh branch so orchestrator doesn't see the old merged branch
+			task.BranchMode = types.BranchModeNew
 			task.KeepAlive = false
 		}
 	}
