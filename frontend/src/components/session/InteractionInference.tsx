@@ -536,7 +536,16 @@ export const InteractionInference: FC<{
           </Box>
         </Box>
       )}
-      {error && (
+      {/*
+        Render the error alert + Retry once, on the assistant bubble only.
+        `error` is passed to both the user-side and assistant-side
+        InteractionInference; anchoring to `isFromAssistant` de-duplicates the
+        alert and places it where the response would have been. The Retry gate
+        is just `onRegenerate` (not `onRegenerate && !message`) so a failed turn
+        is always retryable — including in the spec task / ACP view where
+        partial text or tool calls may have streamed before the error.
+      */}
+      {error && isFromAssistant && (
         <Row
           sx={{
             mt: 3,
@@ -559,7 +568,7 @@ export const InteractionInference: FC<{
               to view the details.
             </Alert>
           </Cell>
-          {onRegenerate && !message && (
+          {onRegenerate && (
             <Cell
               sx={{
                 ml: 2,

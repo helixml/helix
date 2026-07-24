@@ -437,7 +437,14 @@ export const Interaction: FC<InteractionProps> = ({
       )}
 
       {/* Assistant Response Container */}
-      {(assistantMessage || (interaction as any)?.response_entries?.length > 0 || isLive) && (
+      {/*
+        Also mount the assistant bubble when the interaction has an error, even
+        with no response content. The error alert + Retry button live on the
+        assistant-side InteractionInference; without this an agent that fails
+        before producing any output (common in the spec task / ACP view) would
+        render no assistant bubble at all, so the Retry button never appears.
+      */}
+      {(assistantMessage || (interaction as any)?.response_entries?.length > 0 || isLive || interaction.error) && (
         <Box
           sx={{
             display: "flex",
