@@ -182,3 +182,38 @@ Two sub-fixes:
 - Note the retry cap (`retry_count < ?`) also exists in `GetNextInterruptPrompt`, so an interrupt
   that genuinely fails 20× is still dropped — but that is the same accepted behavior as every other
   interrupt control signal, and the busy-defer failure mode (the real cause here) no longer applies.
+
+## Implementation Notes (Commit 3 — bug c, landed)
+
+- **Routing root cause (frontend).** `usePromptHistory`'s immediate-sync path is consistent
+  (entry + specTaskId captured in the same render), but the debounced `syncToBackend` re-syncs
+  `history.filter(!syncedToBackend)` under the hook's *current* `specTaskId`/`projectId`. Each entry
+  carries its own `sessionId`. If the user switches tasks while an entry is still unsynced (immediate
+  sync offline/failed), the debounced sync files it under the NEW task while keeping the OLD
+  `session_id` → the row's `session_id` and `spec_task_id` disagree, i.e. a comment for task A lands
+  in task B's session queue. Fix: both sync paths now skip entries whose `sessionId !== sessionId`
+  (the current view). `sessionId` and `specTaskId` are a consistent pair per view, so every synced
+  row is internally consistent. Minimal + low-risk; tsc clean.
+- **Orphan reaper (backend).** `ReconcileStuckSendingPrompts` previously only marked orphaned
+  `sending` rows as `sent` (paths 1/2, requiring evidence of processing). A misrouted/never-delivered
+  prompt has no such evidence, so it stayed `sending` forever (never re-selected by
+  `GetNextPendingPrompt`). New Path 3 flips to `failed` (retryable) when: `status='sending'`,
+  `created_at < NOW()-5min`, no interaction links it (`prompt_id`), and no interaction in its session
+  exists at/after its creation. Conservative guards avoid racing a genuinely in-flight dispatch.
+- **Live validation (real Postgres, helix-postgres-1).** Crafted four rows: `test_orphan` (old,
+  no activity) → flipped to `failed` with the message; `test_live` (interaction created after it),
+  `test_recent` (<5min old), `test_linked` (interaction with `prompt_id`) all correctly stayed
+  `sending`. The deployed scheduled reaper independently flipped `test_orphan` too, confirming the
+  new code path is live. Rows cleaned up afterwards.
+
+## Deployment / testing status
+
+- Stack came up mid-implementation (`localhost:8080` → 200, api/frontend/postgres healthy). Air
+  hot-reloaded the Go changes (proven by the live reaper flipping `test_orphan`); Vite HMR serves the
+  frontend changes.
+- Verified: Go builds (`pkg/store`, `pkg/server`, `pkg/services`), frontend `tsc --noEmit` clean,
+  Go unit tests pass (authz 403s + no-scope 400; approval-kickoff interrupt), bug (c) reaper
+  validated against live Postgres.
+- NOT yet run: the full two-user org-global browser e2e (register → onboard → create task → second
+  user/service-account comment → different authorized member sees it → non-member 403). This is the
+  brief's mandated Story-1 live test and remains to be driven through the inner-Helix UI.

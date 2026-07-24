@@ -16,9 +16,9 @@
 - [ ] Live: approve spec while agent mid-interrupt; assert interaction with `## CURRENT PHASE: IMPLEMENTATION` reaches `waiting`
 
 ## Commit 3 — Bug (c): routing fix + orphaned-`sending` handling
-- [ ] Trace frontend optimistic send (`RobustPromptInput.tsx`, `usePromptHistory.ts`, `promptHistoryService.ts`, `optimisticSessionStarting.ts`) for stale/misrouted session/task id; fix so prompts enqueue against the active session only
-- [ ] Verify/extend the `sending`-orphan reaper so client-optimistic-id rows stuck in `sending` are cleared and don't wedge `queue_position`
-- [ ] Test: comment for one task never lands in another task's queue; wedged `sending` prompt is recovered
+- [x] Root-caused routing: `usePromptHistory` syncs unsynced entries under the hook's *current* `specTaskId`/`projectId`, but each entry carries its own `sessionId`; a task switch mid-sync files a row whose `session_id` and `spec_task_id` disagree. Fix: sync only entries where `entry.sessionId === sessionId` (both sync paths). Typechecked (tsc clean).
+- [x] Extended `ReconcileStuckSendingPrompts` Path 3: old `sending` prompt with no linked interaction and no session activity after it → `failed` (retryable). Validated against live Postgres: flips only the orphan; live/recent/linked controls untouched.
+- [x] Validated reaper live (crafted rows in helix-postgres-1: orphan→failed, negative controls stay sending)
 
 ## Live end-to-end testing (localhost:8080)
 - [ ] Register/login (`test@helix.ml` / `helixtest`), onboard, create a spec task, drive spec-review + approve
