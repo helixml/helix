@@ -3,9 +3,9 @@
 ## Commit 1 — Org-global queue (primary)
 - [x] Remove the `WHERE user_id = viewer` filter in `ListPromptHistory` (`api/pkg/store/store_prompt_history.go` ~517); keep scope filters; add fail-closed guard rejecting empty scope
 - [x] Keep `userID` param for signature stability (do not filter on it); update/verify callers, interface (`store.go:853`), and mocks compile
-- [~] Add task/session authorization to `listPromptHistory` (`api/pkg/server/prompt_history_handlers.go` ~605): `spec_task_id` → `GetSpecTask` + creator bypass + `authorizeUserToProjectByID(..., ActionGet)`
-- [ ] For `session_id` path, load session + `authorizeUserToSession(ctx, user, session, ActionGet)`; fail closed (403), never leave unauthenticated
-- [ ] Enrich prompt-history list response server-side with author fields (name/email/avatar + system/service flag); add swagger annotations + `./stack update_openapi`
+- [x] Add task/session authorization to `listPromptHistory` (`api/pkg/server/prompt_history_handlers.go` ~605): `spec_task_id` → `GetSpecTask` + creator bypass + `authorizeUserToProjectByID(..., ActionGet)`
+- [x] For `session_id` path, load session + `authorizeUserToSession(ctx, user, session, ActionGet)`; fail closed (403), never leave unauthenticated
+- [~] Enrich prompt-history list response server-side with author fields (name/email/avatar + system/service flag); add swagger annotations + `./stack update_openapi`
 - [ ] Display prompt author + avatar per entry in `SessionPromptQueue.tsx` via the generated API client (no raw fetch); render service account as a "system" label
 - [ ] Go unit test: authorized non-owner org member sees owner's prompts; non-member gets 403 (both `spec_task_id` and `session_id` paths)
 
