@@ -1,32 +1,32 @@
 # Implementation Tasks: Default to 1M-Context Opus 4.8 on Anthropic Subscription
 
-## Decisions to confirm (small)
-- [ ] Default vs. opt-in and UI shape (requirements Open Questions 1 & 2):
-      change default only, map "Opus" category → 1M, or add an explicit
-      "Opus (1M)" category.
-- [ ] Sonnet 1M in scope or Opus-only (Open Question 3).
+## Decisions (finalized during implementation)
+- **Approach 2b**: add an explicit "Opus (1M)" option (`opus[1m]`), make it the
+  default, and keep the 200k "Opus" option selectable. Discoverable + reversible.
+- **Opus-only** for now (no Sonnet 1M) — matches the user's request.
+- Three places define the tier list/default and must stay in sync: frontend
+  `CodingAgentForm.tsx`, backend `listClaudeModels`, backend subscription-branch
+  default in `zed_config_handlers.go`.
 
-## Primary implementation (Helix)
-- [ ] In `api/pkg/server/zed_config_handlers.go` (subscription branch ~685-687),
-      change the empty-model default from `"opus"` to `"opus[1m]"`.
+## Implementation (Helix)
+- [ ] Frontend: in `frontend/src/components/agent/CodingAgentForm.tsx`, add an
+      `opus[1m]` entry to `CLAUDE_SUBSCRIPTION_MODELS` and set
+      `DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus[1m]'` (consumed by AppSettings).
+- [ ] Backend: add the `opus[1m]` category to `listClaudeModels`
+      (`api/pkg/server/claude_subscription_handlers.go`).
+- [ ] Backend: change the subscription-branch empty-default in
+      `api/pkg/server/zed_config_handlers.go` (~685-687) from `"opus"` to
+      `"opus[1m]"`.
 
-## Companion (discoverability, per decision above)
-- [ ] Option 2a: map the existing `opus` category to `"opus[1m]"`, OR
-- [ ] Option 2b: add `{ id: "opus[1m]", name: "Claude Opus (1M)" }` to
-      `listClaudeModels` in `api/pkg/server/claude_subscription_handlers.go` and
-      make it the default; retain a 200k "Opus" option.
-- [ ] Update the frontend agent-settings model picker
-      (`frontend/src/...`) to show/select the 1M Opus option consistently with
-      the backend category list.
-
-## Tests
-- [ ] Assert the subscription-mode default resolves to `"opus[1m]"`.
-- [ ] If a category is added/changed, assert `listClaudeModels` output.
+## Tests / build
+- [ ] `go build ./...` (or targeted) for the API; frontend typecheck/build.
 - [ ] Confirm existing subscription-mode tests still pass.
 
-## Verification
-- [ ] Connect a Claude subscription; start a subscription-mode spec task with no
-      explicit model; confirm Claude Code runs the `[1m]` Opus (~1M context).
-- [ ] Confirm Sonnet / Haiku selections still resolve correctly.
-- [ ] Confirm a subscription lacking a 1M Opus row still starts (graceful
-      fallback to 200k Opus, no error).
+## Wrap-up
+- [ ] Update design.md implementation notes; PR description files.
+
+## Verification (manual, later)
+- [ ] Connect a Claude subscription; new subscription-mode task defaults to the
+      `[1m]` Opus (~1M context).
+- [ ] Sonnet / Haiku still resolve; 200k "Opus" still selectable.
+- [ ] Subscription lacking a 1M Opus row still starts (graceful fallback).
