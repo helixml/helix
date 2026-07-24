@@ -400,8 +400,9 @@ func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
 		if gerr != nil {
 			// Log error with full debug info - helps diagnose pipeline failures
 			errMsg := gerr.Error()
+			debugStr := gerr.DebugString()
 			fmt.Printf("[GST_PIPELINE] Error: %s\n", errMsg)
-			if debugStr := gerr.DebugString(); debugStr != "" {
+			if debugStr != "" {
 				fmt.Printf("[GST_PIPELINE] Debug: %s\n", debugStr)
 			}
 			// Log the element that produced the error
@@ -410,8 +411,9 @@ func (g *GstPipeline) handleBusMessage(msg *gst.Message) {
 				fmt.Printf("[GST_PIPELINE] Source: %s\n", srcName)
 			}
 
-			// Create a user-friendly error message for common failures
-			userErr := g.createUserFriendlyError(errMsg, srcName)
+			// Create a user-friendly error message for common failures, with the
+			// raw technical detail appended so it can be surfaced in the UI.
+			userErr := g.createUserFriendlyError(errMsg, debugStr, srcName)
 			// Non-blocking send to error channel (only first error matters)
 			select {
 			case g.errorCh <- userErr:
@@ -505,31 +507,57 @@ func (g *GstPipeline) Errors() <-chan error {
 	return g.errorCh
 }
 
-// createUserFriendlyError converts GStreamer error messages into user-friendly text.
-// Common errors like "NV_ENC_ERR_OUT_OF_MEMORY" become actionable messages.
-func (g *GstPipeline) createUserFriendlyError(errMsg, srcElement string) error {
-	// Map common GStreamer/NVENC errors to user-friendly messages
+// createUserFriendlyError converts GStreamer error messages into user-friendly
+// text, then appends a compact technical-detail block after a blank-line
+// delimiter ("\n\n"). The frontend renders the first paragraph prominently and
+// everything after the delimiter as smaller, monospaced technical detail, so the
+// underlying failure (element, raw error, GStreamer debug string) is diagnosable
+// from the UI instead of being flattened to a generic sentence.
+func (g *GstPipeline) createUserFriendlyError(errMsg, debugStr, srcElement string) error {
+	friendly := friendlyVideoError(errMsg)
+
+	// Assemble the technical detail: source element + raw error, plus the
+	// GStreamer debug string, which carries the element path and reason code
+	// (e.g. "gst_base_src_loop (): ... reason error (-5)") or — once the
+	// zero-copy source posts a descriptive error — the concrete cause such as a
+	// first-frame timeout.
+	tech := strings.TrimSpace(errMsg)
+	if srcElement != "" {
+		tech = srcElement + ": " + tech
+	}
+	if d := strings.TrimSpace(debugStr); d != "" {
+		tech = tech + "\n" + d
+	}
+	const maxTech = 600
+	if len(tech) > maxTech {
+		tech = tech[:maxTech] + "…"
+	}
+	if tech == "" {
+		return fmt.Errorf("%s", friendly)
+	}
+	return fmt.Errorf("%s\n\n%s", friendly, tech)
+}
+
+// friendlyVideoError maps common GStreamer/NVENC errors to a short human-readable
+// sentence. The technical detail is appended separately by createUserFriendlyError.
+func friendlyVideoError(errMsg string) string {
 	switch {
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR_OUT_OF_MEMORY") || containsIgnoreCase(errMsg, "out of memory"):
-		return fmt.Errorf("GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions.")
+		return "GPU out of memory - too many sessions running. Please close some browser tabs or stop unused sessions."
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR_NO_ENCODE_DEVICE"):
-		return fmt.Errorf("No GPU encoder available. The GPU may be in use by another process.")
+		return "No GPU encoder available. The GPU may be in use by another process."
 	case containsIgnoreCase(errMsg, "NV_ENC_ERR"):
-		return fmt.Errorf("GPU encoder error: %s. Try closing other sessions.", errMsg)
+		return "GPU encoder error. Try closing other sessions."
 	case containsIgnoreCase(errMsg, "Could not get EOS"):
-		return fmt.Errorf("Video pipeline stopped unexpectedly. Please try reconnecting.")
+		return "Video pipeline stopped unexpectedly. Please try reconnecting."
 	case containsIgnoreCase(errMsg, "Resource not found"):
-		return fmt.Errorf("Video source not available. The session may have ended.")
+		return "Video source not available. The session may have ended."
 	case containsIgnoreCase(errMsg, "Permission denied"):
-		return fmt.Errorf("Permission denied accessing video source.")
-	case containsIgnoreCase(errMsg, "Internal data stream error"):
-		return fmt.Errorf("Video streaming error. Please try reconnecting.")
+		return "Permission denied accessing video source."
 	default:
-		// For unknown errors, include the source element for debugging
-		if srcElement != "" {
-			return fmt.Errorf("Video error from %s: %s", srcElement, errMsg)
-		}
-		return fmt.Errorf("Video error: %s", errMsg)
+		// Includes the first-frame-timeout case and the generic "Internal data
+		// stream error" — the specific cause rides along in the technical detail.
+		return "Video streaming error. Please try reconnecting."
 	}
 }
 

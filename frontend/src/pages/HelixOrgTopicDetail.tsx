@@ -251,6 +251,7 @@ type TopicForm = {
   ghOriginalConfig: Record<string, unknown>
   cronSchedule: string
   cronMessage: string
+  slackChannel: string
 }
 
 const topicForm = (topic: TopicDTO): TopicForm => {
@@ -268,6 +269,7 @@ const topicForm = (topic: TopicDTO): TopicForm => {
     ghOriginalConfig: topic.kind === 'github' ? config : {},
     cronSchedule: topic.kind === 'cron' && typeof config.schedule === 'string' ? config.schedule : '',
     cronMessage: topic.kind === 'cron' && typeof config.message === 'string' ? config.message : '',
+    slackChannel: topic.kind === 'slack' && typeof config.channel_id === 'string' ? config.channel_id : '',
   }
 }
 
@@ -317,6 +319,10 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
       }
       payload.transport = { config: cronConfig }
       saved = { ...saved, cronSchedule: sched, cronMessage: form.cronMessage.trim() }
+    } else if (topic.kind === 'slack') {
+      const config = (topic.config ?? {}) as Record<string, unknown>
+      payload.transport = { config: { ...config, channel_id: form.slackChannel.trim() } }
+      saved = { ...saved, slackChannel: form.slackChannel.trim() }
     } else if (topic.kind !== 'local' && form.configText.trim()) {
       try {
         const parsed = JSON.parse(form.configText)
@@ -385,7 +391,18 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
               onMessageChange={(cronMessage) => setForm((current) => ({ ...current, cronMessage }))}
             />
           )}
-          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && (
+          {topic.kind === 'slack' && (
+            <TextField
+              label="Slack channel ID (optional)"
+              value={form.slackChannel}
+              onChange={(e) => setForm((current) => ({ ...current, slackChannel: e.target.value }))}
+              size="small"
+              fullWidth
+              placeholder="C012ABCDEF"
+              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended bots or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
+            />
+          )}
+          {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && topic.kind !== 'slack' && (
             <TextField
               label="Transport config (JSON)"
               value={form.configText}
@@ -497,10 +514,10 @@ interface GitHubWebhookStatusProps {
   orgSlug?: string
 }
 
-// SettingsLink is the actionable button on the loopback warning —
-// jumps the operator to the helix-org Settings page where
+// SettingsLink is the actionable button on the loopback warning.
+// It jumps the operator to Organization Settings where
 // `topics.public_url` can be set. Stops the user staring at
-// "what URL is wrong, where do I change it?" The Settings page
+// "what URL is wrong, where do I change it?" Organization Settings
 // has every per-org config including the new public_url override.
 const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
   const router = useRouter()
@@ -509,10 +526,10 @@ const SettingsLink: FC<{ orgSlug?: string }> = ({ orgSlug }) => {
     <Button
       size="small"
       variant="outlined"
-      onClick={() => router.navigate('helix_org_settings', { org_id: orgSlug })}
+      onClick={() => router.navigate('org_general', { org_id: orgSlug })}
       sx={{ color: 'warning.contrastText', borderColor: 'warning.contrastText' }}
     >
-      Open helix-org Settings →
+      Open Organization Settings
     </Button>
   )
 }
@@ -604,7 +621,7 @@ const GitHubWebhookStatus: FC<GitHubWebhookStatusProps> = ({ topic, orgSlug }) =
           </Typography>
           <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mb: 1 }}>
             GitHub's servers can't reach this URL, so webhook deliveries won't arrive. Fix by either:
-            (a) setting <code>topics.public_url</code> on the helix-org Settings page to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
+            (a) setting <code>topics.public_url</code> in Organization Settings to a publicly reachable host (cloudflared / ngrok / reverse proxy), or
             (b) editing <code>SERVER_URL</code> in helix's .env and restarting the api container.
           </Typography>
           <SettingsLink orgSlug={orgSlug} />

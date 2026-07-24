@@ -33,7 +33,7 @@ var createTopicSchema = func() *jsonschema.Schema {
 		object.Type = "object"
 		object.Types = nil // pointer field arrived as Types:["object","null"]; Type+Types together is a marshal error
 		s.Properties["transport"] = &jsonschema.Schema{
-			Description: "Transport for the new Topic. Either a bare string naming the kind (\"local\" / \"webhook\" / \"email\" / \"github\") or an object with kind and optional config.",
+			Description: "Transport for the new Topic. Either a bare transport kind or an object with kind and optional config.",
 			OneOf: []*jsonschema.Schema{
 				enumSchema(transport.KindValues(), "Transport kind shorthand."),
 				&object,
@@ -48,12 +48,14 @@ func (t *CreateTopic) Description() string {
 	return "Create a new named Topic. The caller becomes the creator. Topic names are unique. " +
 		"Optional `transport` describes how events on the Topic move to/from the outside world; " +
 		"omit it to use the default `local` transport (in-process pub/sub only). " +
-		"Valid transport.kind values: \"local\", \"webhook\", \"email\", \"github\". " +
+		"Valid transport.kind values include \"local\", \"webhook\", \"email\", \"github\", and \"slack\". " +
 		"Example for an inbound HTTP webhook: " +
 		`{"transport":{"kind":"webhook"}}` +
 		". Example for a bidirectional webhook with an outbound URL: " +
 		`{"transport":{"kind":"webhook","config":{"outbound_url":"https://example.com/in"}}}` +
-		"."
+		`. For Slack basic text delivery, configure exactly one destination: ` +
+		`{"transport":{"kind":"slack","config":{"service_connection_id":"...","channel_id":"C123"}}}. ` +
+		"Use mint_credential and the Slack API for reactions, uploads, edits, and other rich actions."
 }
 func (t *CreateTopic) InputSchema() *jsonschema.Schema { return createTopicSchema }
 

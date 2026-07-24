@@ -99,6 +99,7 @@ func TestCreateBotUnionWithCallerTools(t *testing.T) {
 		ReadEventsName,
 		BotLogName,
 		MintCredentialName,
+		AskHumanName,
 		ListSecretsName,
 		ListProcessorsName,
 		GetProcessorName,

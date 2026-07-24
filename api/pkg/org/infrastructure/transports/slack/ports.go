@@ -1,10 +1,9 @@
 // Package slack is the org-graph wiring for the Slack transport. It
 // turns the generic Slack protocol layer (api/pkg/serviceconnection/slack)
 // into a KindSlack Topic transport: inbound events publish onto the
-// workspace's org Topic. Egress is the agent's job — a Worker mints the
-// workspace bot token (mint_credential provider=slack) and drives the
-// Slack Web API directly, guided by the transport-provided reply hint on
-// the inbound Message.
+// workspace's org Topic. Helix uses the workspace bot token for basic
+// outbound Topic text. Agents mint a credential and drive the Slack API
+// for rich actions.
 //
 // All multi-tenancy lives here. The generic layer knows nothing about
 // orgs; this package resolves a Slack team_id to the org that installed

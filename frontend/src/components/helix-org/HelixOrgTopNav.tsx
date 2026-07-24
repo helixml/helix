@@ -1,4 +1,4 @@
-// Elegant top-bar nav for helix-org (Chart / Bots / Topics / Settings).
+// Elegant top-bar nav for helix-org (Chart / Bots / Topics).
 // Renders next to theme + notifications on the Page AppBar.
 
 import { FC } from 'react'
@@ -6,7 +6,7 @@ import Box from '@mui/material/Box'
 import ButtonBase from '@mui/material/ButtonBase'
 import Tooltip from '@mui/material/Tooltip'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
-import { Bot, Network, Settings } from 'lucide-react'
+import { Bot, Network } from 'lucide-react'
 
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -42,13 +42,6 @@ const ITEMS: NavItem[] = [
     // Same hub glyph as topic cards on the org chart.
     icon: <HubOutlinedIcon sx={{ fontSize: 16 }} />,
     isActive: (n) => n === 'helix_org_topics' || n === 'helix_org_topic_detail',
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    route: 'helix_org_settings',
-    icon: <Settings size={16} />,
-    isActive: (n) => n === 'helix_org_settings',
   },
 ]
 

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -561,6 +562,124 @@ func TestPublishGitLabTopicReturnsConflict(t *testing.T) {
 	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-gitlab-publish/publish", map[string]any{"body": "nope"})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+type failingTopicDeliverer struct{}
+
+func (failingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	return publishing.DeliveryReceipt{Provider: "slack", Destination: "C1"}, errors.New("not_in_channel")
+}
+
+type countingTopicDeliverer struct{ calls int }
+
+func (d *countingTopicDeliverer) Deliver(context.Context, streaming.Topic, streaming.Message) (publishing.DeliveryReceipt, error) {
+	d.calls++
+	return publishing.DeliveryReceipt{}, nil
+}
+
+type countingTopicDispatcher struct{ calls int }
+
+func (d *countingTopicDispatcher) Dispatch(context.Context, streaming.Event) {
+	d.calls++
+}
+
+func TestPublishSlackWithoutChannelReturnsConflictBeforeSideEffects(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1"})
+	topic, err := streaming.NewTopic(
+		"s-slack-inbound", "slack inbound", "", "b-owner", time.Now(),
+		transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	deliverer := &countingTopicDeliverer{}
+	dispatcher := &countingTopicDispatcher{}
+	deps.Publishing = publishing.New(publishing.Deps{
+		Topics: st.Topics, Events: st.Events, Dispatcher: dispatcher,
+		Now: time.Now, NewID: func() string { return "should-not-run" },
+		Deliverers: map[transport.Kind]publishing.Deliverer{transport.KindSlack: deliverer},
+	})
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-inbound/publish", orgapi.PublishRequest{Body: "hello"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-slack-inbound", 10)
+	if len(events) != 0 || deliverer.calls != 0 || dispatcher.calls != 0 {
+		t.Fatalf("events=%d delivery calls=%d dispatches=%d", len(events), deliverer.calls, dispatcher.calls)
+	}
+}
+
+func TestPublishSlackDeliveryFailureReturnsCreatedPartialSuccess(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: "C1"})
+	topic, err := streaming.NewTopic(
+		"s-slack-partial", "slack partial", "", "b-owner", time.Now(),
+		transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Topics.Create(context.Background(), topic); err != nil {
+		t.Fatal(err)
+	}
+	deps.Publishing.RegisterDeliverer(transport.KindSlack, failingTopicDeliverer{})
+
+	rec := do(t, orgapi.Handler(deps), http.MethodPost, "/topics/s-slack-partial/publish", orgapi.PublishRequest{Body: "hello"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got orgapi.PublishResponse
+	decode(t, rec, &got)
+	if got.EventID == "" || got.Delivery == nil || got.Delivery.Status != "failed" || !strings.Contains(got.Delivery.Error, "do not retry publish: not_in_channel") {
+		t.Fatalf("response = %#v", got)
+	}
+	events, _ := st.Events.ListForTopic(context.Background(), "org-test", "s-slack-partial", 10)
+	if len(events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(events))
+	}
+}
+
+func TestGetSlackTopicCanPublishRequiresChannelID(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	for _, tc := range []struct {
+		id            string
+		channelID     string
+		canPublish    bool
+		disableReason string
+	}{
+		{"s-slack-workspace", "", false, "slack transport is inbound only until channel_id is configured"},
+		{"s-slack-channel", "C1", true, ""},
+	} {
+		cfg, _ := json.Marshal(transport.SlackConfig{ServiceConnectionID: "sc-1", ChannelID: tc.channelID})
+		topic, err := streaming.NewTopic(
+			streaming.TopicID(tc.id), tc.id, "", "b-owner", time.Now(),
+			transport.Transport{Kind: transport.KindSlack, Config: cfg}, "org-test",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Topics.Create(context.Background(), topic); err != nil {
+			t.Fatal(err)
+		}
+
+		rec := do(t, orgapi.Handler(deps), http.MethodGet, "/topics/"+tc.id, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", tc.id, rec.Code, rec.Body.String())
+		}
+		var got orgapi.TopicDTO
+		decode(t, rec, &got)
+		if got.CanPublish != tc.canPublish || got.DisableReason != tc.disableReason {
+			t.Fatalf("%s: can_publish=%v disable_reason=%q", tc.id, got.CanPublish, got.DisableReason)
+		}
+		if got.EffectivePublicURL != "" {
+			t.Fatalf("%s: effective_public_url=%q, want empty", tc.id, got.EffectivePublicURL)
+		}
 	}
 }
 

@@ -95,6 +95,7 @@ import {
 import { useMoveToBacklog } from "../../services/specTaskWorkflowService";
 import { getUserById } from "../../services/userService";
 import CloneTaskDialog from "../specTask/CloneTaskDialog";
+import SpecTaskShareDialog from "./SpecTaskShareDialog";
 import AgentDropdown from "../agent/AgentDropdown";
 import CloneGroupProgressFull from "../specTask/CloneGroupProgress";
 import ArchiveConfirmDialog from "./ArchiveConfirmDialog";
@@ -120,7 +121,7 @@ import {
   GitCompare,
   MonitorPlay,
   Wand2,
-  Copy,
+  Share,
 } from "lucide-react";
 
 import { getAutoOpenedSpecTasks, addAutoOpenedSpecTask } from "../../lib/specTaskAutoOpen";
@@ -391,6 +392,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     task?.public_design_docs ?? false,
   );
   const [updatingPublic, setUpdatingPublic] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // Sync public state when task data changes
   useEffect(() => {
@@ -399,7 +401,10 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     }
   }, [task?.public_design_docs]);
 
-  const publicLink = `${window.location.origin}/spec-tasks/${taskId}/view`;
+  // Points at the unauthenticated, server-rendered public viewer
+  // (subRouter route GET /api/v1/spec-tasks/{id}/view). The /api/v1 prefix is
+  // required — without it the URL hits the SPA and forces an OIDC login.
+  const publicLink = `${window.location.origin}/api/v1/spec-tasks/${taskId}/view`;
 
   const handlePublicToggle = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -407,7 +412,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
     const newValue = event.target.checked;
     setUpdatingPublic(true);
     try {
-      await api.put(`/api/v1/spec-tasks/${taskId}`, {
+      await api.getApiClient().v1SpecTasksUpdate(taskId, {
         public_design_docs: newValue,
       });
       setIsPublicDesignDocs(newValue);
@@ -418,15 +423,6 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
       snackbar.error(err.message || "Failed to update visibility");
     } finally {
       setUpdatingPublic(false);
-    }
-  };
-
-  const copyPublicLink = async () => {
-    try {
-      await navigator.clipboard.writeText(publicLink);
-      snackbar.success("Link copied to clipboard!");
-    } catch (err) {
-      snackbar.error("Failed to copy link");
     }
   };
 
@@ -1674,7 +1670,7 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           </Typography>
         )}
 
-        {/* Public Design Docs Toggle */}
+        {/* Share Design Docs */}
         <Divider sx={{ my: 2 }} />
         <Box
           sx={{
@@ -1687,48 +1683,20 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
           <Box>
             <Typography variant="subtitle2">Share Design Docs</Typography>
             <Typography variant="caption" color="text.secondary">
-              Anyone with the link can view
+              {isPublicDesignDocs
+                ? "Anyone with the link can view"
+                : "Only people with project access can view"}
             </Typography>
           </Box>
-          <Switch
-            checked={isPublicDesignDocs}
-            onChange={handlePublicToggle}
-            disabled={updatingPublic}
+          <Button
             size="small"
-          />
-        </Box>
-        {isPublicDesignDocs && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              mb: 1,
-              p: 1,
-              bgcolor: "action.hover",
-              borderRadius: 1,
-            }}
+            variant="outlined"
+            startIcon={<Share size={14} />}
+            onClick={() => setShareDialogOpen(true)}
           >
-            <Typography
-              variant="caption"
-              sx={{
-                flex: 1,
-                fontFamily: "monospace",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                color: "text.secondary",
-              }}
-            >
-              {publicLink}
-            </Typography>
-            <Tooltip title="Copy link">
-              <IconButton size="small" onClick={copyPublicLink}>
-                <Copy size={14} />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
+            Share
+          </Button>
+        </Box>
 
         {/* Move to Backlog button */}
         {canMoveToBacklog && (
@@ -2224,6 +2192,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                           </Tooltip>
                         )}
                         {task.design_docs_pushed_at && (
+                          <Tooltip title="Share design docs">
+                            <IconButton
+                              size="small"
+                              onClick={() => setShareDialogOpen(true)}
+                            >
+                              <Share size={16} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {task.design_docs_pushed_at && (
                           <Tooltip title="Clone task to other projects">
                             <IconButton
                               size="small"
@@ -2641,6 +2619,16 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
                       </Tooltip>
                     )}
                     {task.design_docs_pushed_at && (
+                      <Tooltip title="Share design docs">
+                        <IconButton
+                          size="small"
+                          onClick={() => setShareDialogOpen(true)}
+                        >
+                          <Share size={16} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {task.design_docs_pushed_at && (
                       <Tooltip title="Clone task to other projects">
                         <IconButton
                           size="small"
@@ -3011,6 +2999,15 @@ const SpecTaskDetailContent: FC<SpecTaskDetailContentProps> = ({
         taskId={taskId}
         taskName={task?.name || ""}
         sourceProjectId={task?.project_id || ""}
+      />
+
+      <SpecTaskShareDialog
+        open={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        shareUrl={publicLink}
+        isPublic={isPublicDesignDocs}
+        updating={updatingPublic}
+        onToggle={handlePublicToggle}
       />
 
       {/* Clone Group Progress Dialog */}

@@ -165,6 +165,7 @@ type Config struct {
 	// processor tools. Built at the composition root (needs topics
 	// provisioners). nil → Build() constructs one from Store when possible.
 	Processors *processors.Processors
+	Publishing *publishing.Publishing
 	// HumanDelivery sends ask_human messages through the person's configured route.
 	HumanDelivery HumanDelivery
 }
@@ -177,7 +178,7 @@ func (c Config) Build() Deps {
 		Bots:                c.botsService(),
 		Topics:              c.topicsService(),
 		Subscriptions:       c.subscriptionsService(),
-		Publishing:          c.publishingService(),
+		Publishing:          c.Publishing,
 		Lifecycle:           c.lifecycleService(),
 		Activations:         c.Activations,
 		Processors:          c.processorsService(),
@@ -263,26 +264,6 @@ func (c Config) subscriptionsService() *subscriptions.Subscriptions {
 		Bots:          c.Store.Bots,
 		Now:           c.Now,
 	})
-}
-
-// publishingService builds the publish application service. Hub/Dispatcher
-// are assigned only when non-nil to avoid wrapping a typed-nil in the
-// Notifier interface (which would make the nil check inside the service
-// pass and then panic).
-func (c Config) publishingService() *publishing.Publishing {
-	pd := publishing.Deps{
-		Topics: c.Store.Topics,
-		Events: c.Store.Events,
-		Now:    c.Now,
-		NewID:  c.NewID,
-	}
-	if c.Hub != nil {
-		pd.Hub = c.Hub
-	}
-	if c.Dispatcher != nil {
-		pd.Dispatcher = c.Dispatcher
-	}
-	return publishing.New(pd)
 }
 
 // lifecycleService builds the bot-lifecycle service (Create/Delete) for
@@ -373,6 +354,9 @@ func DefaultDeps(s *store.Store) Config {
 func RegisterBuiltins(reg *Registry, deps Deps) error {
 	if deps.Workspace == nil {
 		return fmt.Errorf("tools.RegisterBuiltins: deps.Workspace is required (use runtime.NoopWorkspaceSync{} for tests)")
+	}
+	if deps.Publishing == nil {
+		return fmt.Errorf("tools.RegisterBuiltins: deps.Publishing is required")
 	}
 	// Wire the tool-name catalogue from the live registry so the
 	// create_bot/attach_tool/detach_tool `tools` enums always reflect the

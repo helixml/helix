@@ -12,12 +12,16 @@ export type ClaudeCodeMode = 'subscription' | 'api_key'
 
 // Tier-level shorthand IDs for Claude subscription mode. Claude Code's
 // resolveModelPreference() resolves these to the latest version of each tier.
+// The "[1m]" context hint selects the 1M-context row of a tier (Claude Code
+// canonicalizes "opus[1m]" / "opus-1m" / "claude-opus-*-1m" to the same model);
+// a bare "opus" resolves to the 200k row.
 export const CLAUDE_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
-  { id: 'opus', label: 'Claude Opus (recommended)' },
+  { id: 'opus[1m]', label: 'Claude Opus (1M context, recommended)' },
+  { id: 'opus', label: 'Claude Opus (200k context)' },
   { id: 'sonnet', label: 'Claude Sonnet' },
   { id: 'haiku', label: 'Claude Haiku' },
 ]
-export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus'
+export const DEFAULT_CLAUDE_SUBSCRIPTION_MODEL = 'opus[1m]'
 
 export const CODEX_SUBSCRIPTION_MODELS: { id: string; label: string }[] = [
   { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
