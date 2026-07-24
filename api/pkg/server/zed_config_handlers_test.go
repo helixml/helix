@@ -135,14 +135,14 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "claude_code subscription mode - defaults to Opus",
+			name: "claude_code subscription mode - defaults to 1M-context Opus",
 			assistant: &types.AssistantConfig{
 				CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
 				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "opus",
+				Model:     "opus[1m]",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
@@ -169,7 +169,7 @@ func TestBuildCodeAgentConfigFromAssistant(t *testing.T) {
 			},
 			want: &types.CodeAgentConfig{
 				AgentName: "claude",
-				Model:     "opus",
+				Model:     "opus[1m]",
 				Runtime:   types.CodeAgentRuntimeClaudeCode,
 			},
 		},
