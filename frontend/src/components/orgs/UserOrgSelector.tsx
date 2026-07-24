@@ -617,7 +617,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         sx={{
           width: 48,
           height: 48,
-          bgcolor: compactExpanded ? 'primary.dark' : '#1a1a1a',
+          bgcolor: compactExpanded ? 'primary.dark' : 'transparent',
           color: '#fff',
           fontWeight: 'bold',
           fontSize: '1.5rem',
