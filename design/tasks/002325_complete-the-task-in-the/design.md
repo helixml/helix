@@ -217,3 +217,26 @@ Two sub-fixes:
 - NOT yet run: the full two-user org-global browser e2e (register → onboard → create task → second
   user/service-account comment → different authorized member sees it → non-member 403). This is the
   brief's mandated Story-1 live test and remains to be driven through the inner-Helix UI.
+
+## Live E2E Results (primary fix — the reported bug)
+
+Verified in the inner Helix at localhost:8080 against the REAL list endpoint (fetched with each
+user's own browser session, so the full auth + store path runs):
+
+- Setup: registered user A (`test@helix.ml`), org `testorg`; inserted a project/spec-task/session
+  owned by A and a `prompt_history_entries` row owned by a DIFFERENT user (`usr_service_acct`,
+  simulating the HelixOS service account) with `notify_user_id = A`.
+- **A (creator/owner) → HTTP 200, total 1**, sees the service-account prompt; `author` resolved as
+  `{is_system: true}` (unresolvable service owner → "System" label). Pre-fix, the store's
+  `user_id = A` filter returned 0 rows — the exact empty-queue bug.
+- **B (non-admin, non-member) → HTTP 403 "not authorized"** (fail-closed). Required overriding the
+  dev default `ADMIN_USER_IDS=all` (which makes every registered user a global admin that bypasses
+  authz via `orgstore/authz.go` AuthorizeOrgMember) to `ADMIN_USER_IDS=<A only>`, then B is a genuine
+  non-admin. Reverted afterwards + recreated api.
+- **B added to `testorg` as a plain member + project `org_members_access=true` → HTTP 200**, sees the
+  differently-owned prompt. This is the precise "org-global" requirement: any authorized org member
+  sees prompts authored by anyone (including the service account).
+
+Note: a plain org member still needs the project's normal access (`org_members_access` or a grant) —
+my handler defers to the same `authorizeUserToProjectByID(..., ActionGet)` the sibling design-review
+handler uses, so "global" means org/project-authorized, not world-readable. Confirmed by the 403.

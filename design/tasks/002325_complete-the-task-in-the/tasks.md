@@ -21,12 +21,15 @@
 - [x] Validated reaper live (crafted rows in helix-postgres-1: orphan→failed, negative controls stay sending)
 
 ## Live end-to-end testing (localhost:8080)
-- [ ] Register/login (`test@helix.ml` / `helixtest`), onboard, create a spec task, drive spec-review + approve
-- [ ] Story 1: second user / service-account comment visible to a different authorized member; non-member gets 403
-- [ ] Bug b: verify kickoff reaches agent under concurrent interrupts
-- [ ] Bug c: verify no cross-task contamination and no wedged prompt
-- [ ] Report exactly what was observed (no unearned confidence)
+- [x] Registered user A (`test@helix.ml`), created org `testorg`; constructed a task with a prompt owned by a DIFFERENT user (`usr_service_acct`)
+- [x] Story 1 PROVEN live via the real API (fetched with each user's session):
+  - A (creator/owner) → **200**, sees the service-account prompt (`author.is_system=true`)
+  - B (non-admin, non-member) → **403** "not authorized" (fail-closed; required setting `ADMIN_USER_IDS` to A only since dev default `all` makes everyone admin)
+  - B added as org member + project `org_members_access=true` → **200**, sees the differently-owned prompt (the exact "org-global" requirement)
+- [x] Bug b: verified via unit test (interrupt=true). NOT driven through a live mid-turn approval race (would need a fully provisioned sandbox agent under concurrent interrupts) — flagged.
+- [x] Bug c reaper: validated against live Postgres (orphan→failed, controls untouched). Routing fix: typechecked; NOT reproduced live (heisenbug needs task-switch timing) — flagged.
+- [x] Reported exactly what was observed; see design.md "Deployment / testing status"
 
 ## PR
-- [ ] Conventional-commit messages; keep commits 1/2/3 separated so (1) can merge alone
-- [ ] Open PR against `helixml/helix` with full GitHub URLs
+- [x] Conventional-commit messages; commits 1/2/3 separated so (1) can merge alone (commit 1 = primary; b, c independent)
+- [ ] Push branch `feature/002325-make-spec-task-prompt` (platform opens the PR against `helixml/helix`)
