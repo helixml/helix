@@ -868,6 +868,22 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_MissingProjectID(
 		},
 	}
 
+	// A misconfigured trigger must still leave a failed execution behind — a fire
+	// that records nothing looks identical to a scheduler that never fired.
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Contains(execution.Error, "project_id is required")
+			return execution, nil
+		},
+	)
+
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, mockCreator, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.Error(err)
 	suite.Empty(result)
@@ -887,10 +903,98 @@ func (suite *CronTestSuite) TestExecuteCronTask_SpecTaskAction_NilCreator() {
 		ProjectID: "proj-456",
 	}
 
+	// The nil creator is the bug that silently killed every scheduled spec_task
+	// for months. It must now surface as a recorded, errored execution.
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(types.EventCronTriggerFailed, n.Event)
+			return nil
+		},
+	)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusError, execution.Status)
+			suite.Contains(execution.Error, "spec task creator not configured")
+			return execution, nil
+		},
+	)
+
 	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, nil, nil, app, "test-user", "trigger-123", trigger, "test-session")
 	suite.Error(err)
 	suite.Empty(result)
 	suite.Contains(err.Error(), "spec task creator not configured")
+}
+
+// TestCronResolvesSpecTaskCreatorLate is the regression test for the bug where
+// every scheduled spec_task silently no-opped: the scheduler was constructed
+// during startup, BEFORE the API server built the SpecDrivenTaskService, so it
+// captured a nil creator forever. The provider must be called when the job fires,
+// not when the Cron is built.
+func (suite *CronTestSuite) TestCronResolvesSpecTaskCreatorLate() {
+	var wired SpecTaskCreator // nil at construction, exactly like real startup
+
+	c, err := New(
+		&config.ServerConfig{},
+		suite.store,
+		suite.notifier,
+		suite.controller,
+		func() SpecTaskCreator { return wired },
+		func() ExternalAgentStarter { return nil },
+	)
+	suite.NoError(err)
+
+	created := false
+	wired = &mockSpecTaskCreator{
+		createFunc: func(_ context.Context, req *types.CreateTaskRequest) (*types.SpecTask, error) {
+			created = true
+			suite.Equal("proj-456", req.ProjectID)
+			return &types.SpecTask{ID: "task-789", Name: "Scheduled run"}, nil
+		},
+	}
+
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			return execution, nil
+		},
+	)
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).Return(nil)
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusSuccess, execution.Status)
+			return execution, nil
+		},
+	)
+
+	c.runCronApp(suite.ctx, &cronApp{
+		ID:     "trigger-123",
+		UserID: "test-user",
+		Name:   "Scheduled run",
+		App:    &types.App{ID: "app-123", Owner: "test-user", OwnerType: types.OwnerTypeUser},
+		Trigger: &types.CronTrigger{
+			Enabled:   true,
+			Schedule:  "CRON_TZ=America/New_York 0 9 * * 1-5",
+			Input:     "Do the scheduled work",
+			Action:    "spec_task",
+			ProjectID: "proj-456",
+		},
+	})
+
+	suite.True(created, "cron job must resolve the spec task creator at fire time, not at construction")
+}
+
+// New must reject nil providers — the whole point is that the value can be nil
+// while the provider itself never is.
+func (suite *CronTestSuite) TestNewRequiresProviders() {
+	_, err := New(&config.ServerConfig{}, suite.store, suite.notifier, suite.controller, nil, func() ExternalAgentStarter { return nil })
+	suite.Error(err)
+
+	_, err = New(&config.ServerConfig{}, suite.store, suite.notifier, suite.controller, func() SpecTaskCreator { return nil }, nil)
+	suite.Error(err)
 }
 
 func TestExtractTimezoneFromCron(t *testing.T) {
