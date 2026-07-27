@@ -321,17 +321,17 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 		return
 	}
 
-	// Seed the org graph: represent the creator as a human node and give the
-	// org a Chief of Staff bot. They are peers — no reporting line (humans
-	// stay out of the reporting graph). Best-effort: a failure must not block
-	// org creation (the graph re-converges on later bootstrap).
-	if apiServer.orgSeeder != nil {
-		if err := apiServer.orgSeeder.EnsureHumanNode(ctx, createdOrg.ID, user); err != nil {
-			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed creator human node failed")
+	// Bootstrap after membership exists so the org service API key is
+	// provisioned before the Chief of Staff is seeded and activated.
+	bootstrapped := false
+	if apiServer.helixOrg != nil && apiServer.helixOrg.scope != nil {
+		if err := apiServer.helixOrg.scope.ensureBootstrap(ctx, createdOrg.ID); err != nil {
+			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("bootstrap new org graph failed")
+		} else {
+			bootstrapped = true
 		}
-		if err := apiServer.orgSeeder.SeedChiefOfStaff(ctx, createdOrg.ID); err != nil {
-			log.Warn().Err(err).Str("org_id", createdOrg.ID).Msg("seed chief of staff failed")
-		}
+	}
+	if bootstrapped {
 		// Tell the creator their Chief of Staff is coming online, so a brand-new
 		// org isn't a silent wait while the agent boots before it asks its first
 		// question. Informational (no reply) — best-effort.

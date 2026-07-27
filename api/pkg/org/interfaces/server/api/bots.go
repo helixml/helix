@@ -119,14 +119,6 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
-	// Defer provisioning when the org has no runtime configured yet, so the
-	// Bot is never brought up on the seed-time default (claude_code /
-	// subscription / no model, which Zed renders as gpt). It provisions with
-	// the correct config once the operator sets the default agent configuration - see
-	// reapplyBotsAfterRuntimeChange. When a runtime IS already configured
-	// (e.g. picked in the create-org dialog before seeding), the Bot
-	// provisions immediately with that config, correct from the first boot.
-	deferActivation := a.deps.Configs != nil && !a.deps.Configs.IsDefaultAgentConfigured(ctx, orgID)
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
@@ -137,7 +129,6 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		Topics:          toTopicIDs(req.Topics),
 		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
-		DeferActivation: deferActivation,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)

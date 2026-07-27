@@ -152,19 +152,14 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("check chief of staff: %w", err)
 	}
-	// DeferActivation: a brand-new org has no bot runtime configured yet.
-	// Activating now would provision CoS on the seed-time default
-	// (claude_code/subscription/no-model → renders as gpt). The deferred bot
-	// shows on the chart and is provisioned correctly once the operator sets
-	// the default agent configuration. The id is used
-	// exactly (`chief-of-staff`); a collision means already-seeded.
+	// The id is used exactly (`chief-of-staff`); a collision means
+	// already-seeded.
 	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              string(chiefOfStaffBotID),
 		Name:            "Chief of Staff",
 		Content:         chiefOfStaffContent,
 		Tools:           mcptools.OwnerBotTools(),
 		PreserveContext: true,
-		DeferActivation: true,
 	}); err != nil {
 		if _, getErr := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); getErr == nil {
 			return nil // lost a seed race; CoS exists — fine

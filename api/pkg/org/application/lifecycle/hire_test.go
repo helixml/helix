@@ -147,38 +147,9 @@ func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.Bot
 	r.hires++
 }
 
-// TestCreate_DeferActivation: DeferActivation creates the bot row (and its
-// topology) but skips the hire — no activation row, no dispatch, empty
-// ActivationID. This is the "org has no runtime configured yet" path that
-// keeps a seeded bot from being provisioned on the gpt default.
-func TestCreate_DeferActivation(t *testing.T) {
-	t.Parallel()
-	st := memory.New()
-	svc := newHireService(st)
-	disp := &recordingDispatcher{}
-	svc.Dispatcher = disp
-	ctx := context.Background()
-
-	res, err := svc.Create(ctx, "org-test", lifecycle.CreateParams{
-		ID: "w-new", Content: "x", DeferActivation: true,
-	})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if _, err := st.Bots.Get(ctx, "org-test", "w-new"); err != nil {
-		t.Fatalf("bot row should still exist when deferred: %v", err)
-	}
-	if res.ActivationID != "" {
-		t.Fatalf("deferred create should return empty ActivationID, got %q", res.ActivationID)
-	}
-	if disp.hires != 0 {
-		t.Fatalf("deferred create must not dispatch a hire, got %d", disp.hires)
-	}
-}
-
-// TestCreate_DispatchesWhenNotDeferred: the default path (runtime already
-// configured) still dispatches the hire so the bot provisions immediately.
-func TestCreate_DispatchesWhenNotDeferred(t *testing.T) {
+// TestCreate_AlwaysDispatchesActivation pins the creation contract: every
+// newly-created agent bot gets an activation row and an immediate hire.
+func TestCreate_AlwaysDispatchesActivation(t *testing.T) {
 	t.Parallel()
 	st := memory.New()
 	svc := newHireService(st)
@@ -192,9 +163,9 @@ func TestCreate_DispatchesWhenNotDeferred(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	if res.ActivationID == "" {
-		t.Fatal("non-deferred create should return an ActivationID")
+		t.Fatal("create should return an ActivationID")
 	}
 	if disp.hires != 1 {
-		t.Fatalf("non-deferred create should dispatch exactly one hire, got %d", disp.hires)
+		t.Fatalf("create should dispatch exactly one hire, got %d", disp.hires)
 	}
 }
