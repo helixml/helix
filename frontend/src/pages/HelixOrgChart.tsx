@@ -1861,7 +1861,7 @@ const ChartCanvas: FC<{
         }}
       >
         <Background gap={20} size={1} />
-        <Controls showInteractive={false} position="top-left">
+        <Controls showInteractive={false} position="bottom-left">
           <ControlButton
             onClick={onResetLayout}
             disabled={resetLayoutPending}
@@ -1871,7 +1871,7 @@ const ChartCanvas: FC<{
             <RestartAltIcon />
           </ControlButton>
         </Controls>
-        <Panel position="top-left" style={{ marginTop: 131 }}>
+        <Panel position="bottom-left" style={{ marginLeft: 49 }}>
           <Button
             size="small"
             variant={showTopics ? 'contained' : 'outlined'}
@@ -1882,7 +1882,7 @@ const ChartCanvas: FC<{
             aria-pressed={showTopics}
             title={showTopics ? 'Hide topics from chart' : 'Show topics on chart'}
           >
-            Filter topics
+            Topics
           </Button>
         </Panel>
       </ReactFlow>
