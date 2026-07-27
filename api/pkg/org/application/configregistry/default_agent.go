@@ -22,7 +22,3 @@ func (r *Registry) GetDefaultAgentConfig(ctx context.Context, orgID string) (typ
 	cfg.Model, _ = r.GetString(ctx, orgID, "worker.model")
 	return cfg, nil
 }
-
-func (r *Registry) IsDefaultAgentConfigured(ctx context.Context, orgID string) bool {
-	return r.IsConfigured(ctx, orgID, DefaultAgentConfigKey) || r.IsConfigured(ctx, orgID, "worker.runtime")
-}
