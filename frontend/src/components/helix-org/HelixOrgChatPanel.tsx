@@ -363,7 +363,6 @@ const HelixOrgChatPanel: FC = () => {
           ['chat', 'Chat'],
           ['desktop', 'Desktop'],
           ['topics', 'Topics'],
-          ['transcripts', 'Transcripts'],
           ['tasks', 'Tasks'],
         ] as const).map(([value, label]) => (
           <Button
@@ -394,7 +393,7 @@ const HelixOrgChatPanel: FC = () => {
               Create a bot on the chart to start chatting.
             </Typography>
           </Box>
-        ) : view === 'topics' || view === 'transcripts' || view === 'tasks' ? (
+        ) : view === 'topics' || view === 'tasks' ? (
           <HelixOrgBotPanelTab
             botID={selectedBotId}
             projectID={projectID}

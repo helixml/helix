@@ -22,7 +22,7 @@ import { SpecTask, useSpecTasks } from '../../services/specTaskService'
 import SpecTaskStatusBadge, { formatSpecTaskStatus } from './SpecTaskStatusBadge'
 import { isTranscriptTopic, transcriptTopicID } from './helixOrgTopics'
 
-export type HelixOrgBotPanelView = 'chat' | 'desktop' | 'topics' | 'transcripts' | 'tasks'
+export type HelixOrgBotPanelView = 'chat' | 'desktop' | 'topics' | 'tasks'
 
 type Props = {
   botID: string
@@ -40,7 +40,8 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID, view }) => {
   const router = useRouter()
   const topicsQuery = useListHelixOrgTopics({ enabled: view === 'topics' })
   const subscriptionsQuery = useListBotSubscriptions(botID, { enabled: view === 'topics' })
-  const transcriptQuery = useTopicMessages(transcriptTopicID(botID), { enabled: view === 'transcripts' })
+  const transcriptID = transcriptTopicID(botID)
+  const transcriptQuery = useTopicMessages(transcriptID, { enabled: view === 'topics' })
   const tasksQuery = useSpecTasks({
     projectId: projectID,
     enabled: view === 'tasks' && !!projectID,
@@ -73,18 +74,22 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID, view }) => {
   )
 
   if (view === 'topics') {
-    if (topicsQuery.isLoading || subscriptionsQuery.isLoading) {
+    if (topicsQuery.isLoading || subscriptionsQuery.isLoading || transcriptQuery.isLoading) {
       return <Box sx={{ m: 'auto' }}><CircularProgress size={24} /></Box>
     }
     if (topicsQuery.isError || subscriptionsQuery.isError) {
       return <EmptyState>Could not load this bot's topics.</EmptyState>
     }
-    if (subscribedTopics.length === 0) {
-      return <EmptyState>This bot is not subscribed to any topics.</EmptyState>
+    if (transcriptQuery.isError) {
+      return <EmptyState>Could not load this bot's transcript topic.</EmptyState>
     }
     return (
       <Stack spacing={1} sx={{ flex: 1, minHeight: 0, p: 1.5, overflow: 'auto' }}>
-        {subscribedTopics.map((topic) => (
+        {subscribedTopics.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 1, textAlign: 'center' }}>
+            This bot is not subscribed to any other topics.
+          </Typography>
+        ) : subscribedTopics.map((topic) => (
           <Paper key={topic.id} variant="outlined" sx={{ p: 1.25 }}>
             <Stack direction="row" spacing={1} alignItems="flex-start">
               <HubOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.25 }} />
@@ -104,23 +109,22 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID, view }) => {
             </Stack>
           </Paper>
         ))}
-      </Stack>
-    )
-  }
-
-  if (view === 'transcripts') {
-    if (transcriptQuery.isLoading) {
-      return <Box sx={{ m: 'auto' }}><CircularProgress size={24} /></Box>
-    }
-    if (transcriptQuery.isError) {
-      return <EmptyState>Could not load this bot's transcript.</EmptyState>
-    }
-    if ((transcriptQuery.data ?? []).length === 0) {
-      return <EmptyState>This bot has no transcript messages yet.</EmptyState>
-    }
-    return (
-      <Stack spacing={1} sx={{ flex: 1, minHeight: 0, p: 1.5, overflow: 'auto' }}>
-        {(transcriptQuery.data ?? []).map((message) => {
+        <Paper variant="outlined" sx={{ p: 1.25 }}>
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <HubOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.25 }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>Transcript</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {transcriptID}
+              </Typography>
+            </Box>
+          </Stack>
+        </Paper>
+        {(transcriptQuery.data ?? []).length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 1, textAlign: 'center' }}>
+            This bot has no transcript messages yet.
+          </Typography>
+        ) : (transcriptQuery.data ?? []).map((message) => {
           const attributes = message.attributes
           const sender = attributes?.from || attributes?.source || 'Unknown sender'
           const recipients = attributes?.to?.length ? ` -> ${attributes.to.join(', ')}` : ''
