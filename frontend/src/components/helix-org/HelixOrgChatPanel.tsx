@@ -51,6 +51,9 @@ import {
   isValidBotId,
   loadFocusedBotId,
 } from './chatBotFocus'
+import HelixOrgBotPanelTab from './HelixOrgBotPanelTab'
+
+type HelixOrgBotPanelView = 'chat' | 'desktop' | 'tasks'
 
 const HelixOrgChatPanel: FC = () => {
   const lightTheme = useLightTheme()
@@ -67,6 +70,7 @@ const HelixOrgChatPanel: FC = () => {
   )
 
   const [selectedBotId, setSelectedBotId] = useState<string>('')
+  const [view, setView] = useState<HelixOrgBotPanelView>('chat')
   // Persist only bot ids that exist in this org's agent list and match the
   // chart-handle charset (CodeQL: no free-form / secret-like localStorage).
   const persistSelection = useCallback((botId: string) => {
@@ -102,6 +106,7 @@ const HelixOrgChatPanel: FC = () => {
       // Only focus bots that exist in the current list (ignore stale events).
       if (agents.length > 0 && !agents.some((b) => b.id === detail.botId)) return
       setSelectedBotId(detail.botId)
+      setView('chat')
     }
     window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
     return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
@@ -120,7 +125,6 @@ const HelixOrgChatPanel: FC = () => {
   const restartAgent = useRestartBotAgent()
 
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
-  const [view, setView] = useState<'chat' | 'desktop'>('chat')
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
   const sessionViewRef = useRef<EmbeddedSessionViewHandle>(null)
 
@@ -215,6 +219,7 @@ const HelixOrgChatPanel: FC = () => {
   // Selecting in the dropdown also broadcasts so other surfaces stay in sync.
   const handleSelectChange = (botId: string) => {
     setSelectedBotId(botId)
+    setView('chat')
     persistSelection(botId)
   }
 
@@ -350,28 +355,27 @@ const HelixOrgChatPanel: FC = () => {
         </Stack>
       </Box>
 
-      {/* Mini Chat / Desktop toggle */}
+      {/* Bot workspace tabs */}
       <Stack
         direction="row"
         spacing={0.5}
-        sx={{ px: 1.5, py: 0.75, borderBottom: `1px solid ${border}`, flexShrink: 0 }}
+        sx={{ px: 1.5, py: 0.75, borderBottom: `1px solid ${border}`, flexShrink: 0, overflowX: 'auto' }}
       >
-        <Button
-          size="small"
-          variant={view === 'chat' ? 'contained' : 'text'}
-          onClick={() => setView('chat')}
-          sx={{ textTransform: 'none', minWidth: 0, px: 1.25 }}
-        >
-          Chat
-        </Button>
-        <Button
-          size="small"
-          variant={view === 'desktop' ? 'contained' : 'text'}
-          onClick={() => setView('desktop')}
-          sx={{ textTransform: 'none', minWidth: 0, px: 1.25 }}
-        >
-          Desktop
-        </Button>
+        {([
+          ['chat', 'Chat'],
+          ['desktop', 'Desktop'],
+          ['tasks', 'Tasks'],
+        ] as const).map(([value, label]) => (
+          <Button
+            key={value}
+            size="small"
+            variant={view === value ? 'contained' : 'text'}
+            onClick={() => setView(value)}
+            sx={{ textTransform: 'none', minWidth: 0, px: 1, flexShrink: 0 }}
+          >
+            {label}
+          </Button>
+        ))}
       </Stack>
 
       {/* Body — must flex-fill remaining height so EmbeddedSessionView scrolls inside. */}
@@ -390,6 +394,11 @@ const HelixOrgChatPanel: FC = () => {
               Create a bot on the chart to start chatting.
             </Typography>
           </Box>
+        ) : view === 'tasks' ? (
+          <HelixOrgBotPanelTab
+            botID={selectedBotId}
+            projectID={projectID}
+          />
         ) : !chatSessionId ? (
           <Box sx={{ p: 3, textAlign: 'center', m: 'auto' }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
