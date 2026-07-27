@@ -398,6 +398,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Org Chart",
       }] : []),
       {
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View projects",
+        isActive: isActive(['spec-tasks', 'projects', 'project']),
+        onClick: handleProjectsClick,
+        label: "Projects",
+      },
+      {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive(['agents', 'agent']),
@@ -410,13 +417,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('chat'),
         onClick: () => orgNavigateTo('chat'),
         label: "Chat",
-      },
-      {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
-        isActive: isActive(['spec-tasks', 'projects', 'project']),
-        onClick: handleProjectsClick,
-        label: "Projects",
       },
       // Q&A now lives in the org Settings sub-nav (OrgSidebar -> Agent Q&A);
       // no longer a top-level rail entry.
