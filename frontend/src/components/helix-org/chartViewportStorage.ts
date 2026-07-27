@@ -54,3 +54,12 @@ export const saveChartViewport = (
     // Quota / private mode — ignore; chart still works without persistence.
   }
 }
+
+export const clearChartViewport = (userId: string, orgId: string): void => {
+  if (!userId || !orgId) return
+  try {
+    window.localStorage.removeItem(keyFor(userId, orgId))
+  } catch {
+    // Private mode — ignore; reset still fits the current graph.
+  }
+}

@@ -51,7 +51,9 @@ import {
   isValidBotId,
   loadFocusedBotId,
 } from './chatBotFocus'
-import HelixOrgBotPanelTab, { type HelixOrgBotPanelView } from './HelixOrgBotPanelTab'
+import HelixOrgBotPanelTab from './HelixOrgBotPanelTab'
+
+type HelixOrgBotPanelView = 'chat' | 'desktop' | 'tasks'
 
 const HelixOrgChatPanel: FC = () => {
   const lightTheme = useLightTheme()
@@ -362,7 +364,6 @@ const HelixOrgChatPanel: FC = () => {
         {([
           ['chat', 'Chat'],
           ['desktop', 'Desktop'],
-          ['topics', 'Topics'],
           ['tasks', 'Tasks'],
         ] as const).map(([value, label]) => (
           <Button
@@ -393,11 +394,10 @@ const HelixOrgChatPanel: FC = () => {
               Create a bot on the chart to start chatting.
             </Typography>
           </Box>
-        ) : view === 'topics' || view === 'tasks' ? (
+        ) : view === 'tasks' ? (
           <HelixOrgBotPanelTab
             botID={selectedBotId}
             projectID={projectID}
-            view={view}
           />
         ) : !chatSessionId ? (
           <Box sx={{ p: 3, textAlign: 'center', m: 'auto' }}>

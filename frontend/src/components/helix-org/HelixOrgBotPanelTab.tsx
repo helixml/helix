@@ -4,30 +4,19 @@ import CircularProgress from '@mui/material/CircularProgress'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
-import Paper from '@mui/material/Paper'
 import Select from '@mui/material/Select'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
-import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import PendingOutlinedIcon from '@mui/icons-material/PendingOutlined'
 
 import useRouter from '../../hooks/useRouter'
-import {
-  useListBotSubscriptions,
-  useListHelixOrgTopics,
-  useTopicMessages,
-} from '../../services/helixOrgService'
 import { SpecTask, useSpecTasks } from '../../services/specTaskService'
 import SpecTaskStatusBadge, { formatSpecTaskStatus } from './SpecTaskStatusBadge'
-import { isTranscriptTopic, transcriptTopicID } from './helixOrgTopics'
-
-export type HelixOrgBotPanelView = 'chat' | 'desktop' | 'topics' | 'tasks'
 
 type Props = {
   botID: string
   projectID?: string
-  view: Exclude<HelixOrgBotPanelView, 'chat' | 'desktop'>
 }
 
 const EmptyState: FC<{ children: string }> = ({ children }) => (
@@ -36,29 +25,16 @@ const EmptyState: FC<{ children: string }> = ({ children }) => (
   </Box>
 )
 
-const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID, view }) => {
+const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID }) => {
   const router = useRouter()
-  const topicsQuery = useListHelixOrgTopics({ enabled: view === 'topics' })
-  const subscriptionsQuery = useListBotSubscriptions(botID, { enabled: view === 'topics' })
-  const transcriptID = transcriptTopicID(botID)
-  const transcriptQuery = useTopicMessages(transcriptID, { enabled: view === 'topics' })
   const tasksQuery = useSpecTasks({
     projectId: projectID,
-    enabled: view === 'tasks' && !!projectID,
+    enabled: !!projectID,
     refetchInterval: 5000,
   })
   const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => setStatusFilter('all'), [botID])
-
-  const subscribedTopics = useMemo(() => {
-    const subscribed = new Set(
-      (subscriptionsQuery.data?.subscriptions ?? [])
-        .map((subscription) => subscription.topic_id)
-        .filter((id): id is string => !!id && !isTranscriptTopic(id)),
-    )
-    return (topicsQuery.data?.topics ?? []).filter((topic) => topic.id && subscribed.has(topic.id))
-  }, [subscriptionsQuery.data, topicsQuery.data])
 
   const tasks = (tasksQuery.data ?? []) as SpecTask[]
   const statusOptions = useMemo(
@@ -72,88 +48,6 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID, view }) => {
       : tasks.filter((task) => String(task.status ?? 'unknown') === statusFilter),
     [statusFilter, tasks],
   )
-
-  if (view === 'topics') {
-    if (topicsQuery.isLoading || subscriptionsQuery.isLoading || transcriptQuery.isLoading) {
-      return <Box sx={{ m: 'auto' }}><CircularProgress size={24} /></Box>
-    }
-    if (topicsQuery.isError || subscriptionsQuery.isError) {
-      return <EmptyState>Could not load this bot's topics.</EmptyState>
-    }
-    if (transcriptQuery.isError) {
-      return <EmptyState>Could not load this bot's transcript topic.</EmptyState>
-    }
-    return (
-      <Stack spacing={1} sx={{ flex: 1, minHeight: 0, p: 1.5, overflow: 'auto' }}>
-        {subscribedTopics.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 1, textAlign: 'center' }}>
-            This bot is not subscribed to any other topics.
-          </Typography>
-        ) : subscribedTopics.map((topic) => (
-          <Paper key={topic.id} variant="outlined" sx={{ p: 1.25 }}>
-            <Stack direction="row" spacing={1} alignItems="flex-start">
-              <HubOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.25 }} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {topic.name || topic.id}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                  {topic.id}
-                </Typography>
-                {topic.description && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    {topic.description}
-                  </Typography>
-                )}
-              </Box>
-            </Stack>
-          </Paper>
-        ))}
-        <Paper variant="outlined" sx={{ p: 1.25 }}>
-          <Stack direction="row" spacing={1} alignItems="flex-start">
-            <HubOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.25 }} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>Transcript</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                {transcriptID}
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
-        {(transcriptQuery.data ?? []).length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 1, textAlign: 'center' }}>
-            This bot has no transcript messages yet.
-          </Typography>
-        ) : (transcriptQuery.data ?? []).map((message) => {
-          const attributes = message.attributes
-          const sender = attributes?.from || attributes?.source || 'Unknown sender'
-          const recipients = attributes?.to?.length ? ` -> ${attributes.to.join(', ')}` : ''
-          return (
-            <Paper key={message.id} variant="outlined" sx={{ p: 1.25 }}>
-              <Stack direction="row" justifyContent="space-between" spacing={1}>
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                  {sender}{recipients}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                  {attributes?.created_at ? new Date(attributes.created_at).toLocaleString() : ''}
-                </Typography>
-              </Stack>
-              {attributes?.subject && (
-                <Typography variant="subtitle2" sx={{ mt: 0.5 }}>{attributes.subject}</Typography>
-              )}
-              <Typography
-                component="pre"
-                variant="body2"
-                sx={{ mt: 1, mb: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.8rem' }}
-              >
-                {attributes?.body || '(empty message)'}
-              </Typography>
-            </Paper>
-          )
-        })}
-      </Stack>
-    )
-  }
 
   if (!projectID) {
     return <EmptyState>This bot has no project for spec tasks.</EmptyState>

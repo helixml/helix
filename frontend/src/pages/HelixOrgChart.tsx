@@ -58,6 +58,7 @@ import '@xyflow/react/dist/style.css'
 
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import {
+  clearChartViewport,
   loadChartViewport,
   saveChartViewport,
 } from '../components/helix-org/chartViewportStorage'
@@ -833,6 +834,7 @@ const buildGraph = (
   topics: TopicSummary[],
   messageCounts: Record<string, number>,
   processors: ProcessorSummary[],
+  showTopics: boolean,
   // Saved free-placed coordinates keyed by `${kind}:${id}`. Missing
   // entries keep the auto-layout position for that node.
   savedPositions: ChartPositionMap = {},
@@ -982,7 +984,7 @@ const buildGraph = (
   if (!isFinite(minTop)) minTop = 0
   if (!isFinite(maxBottom)) maxBottom = 0
 
-  if (topics.length > 0) {
+  if (showTopics && topics.length > 0) {
     const STREAM_GAP_X = 32
     const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
@@ -1557,9 +1559,11 @@ const ChartCanvas: FC<{
   messageCounts: Record<string, number>
   processors: ProcessorSummary[]
   savedPositions: ChartPositionMap
+  showTopics: boolean
+  fitViewRequest: number
   /** Bot id currently focused in the left chat rail. */
   selectedBotId: string
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions, selectedBotId }) => {
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions, showTopics, fitViewRequest, selectedBotId }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
@@ -1573,10 +1577,11 @@ const ChartCanvas: FC<{
   // Track which user+org the init applied to so a mid-session org switch
   // re-loads that org's camera.
   const viewportScopeRef = useRef('')
+  const fitViewRequestRef = useRef(fitViewRequest)
 
   const { nodes: computedNodes, edges: computedEdges } = useMemo(
-    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions, selectedBotId),
-    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, savedPositions, selectedBotId],
+    () => buildGraph(flat, handlers, lightTheme.isLight, topics, messageCounts, processors, showTopics, savedPositions, selectedBotId),
+    [flat, handlers, lightTheme.isLight, topics, messageCounts, processors, showTopics, savedPositions, selectedBotId],
   )
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges)
@@ -1595,6 +1600,11 @@ const ChartCanvas: FC<{
   useEffect(() => {
     setNodes(computedNodes)
     setEdges(computedEdges)
+    if (fitViewRequest !== fitViewRequestRef.current) {
+      fitViewRequestRef.current = fitViewRequest
+      requestAnimationFrame(() => fitView({ padding: 0.2, duration: 250 }))
+      return
+    }
     const scope = userId && orgId ? `${userId}:${orgId}` : ''
     if (scope && scope !== viewportScopeRef.current) {
       viewportScopeRef.current = scope
@@ -1610,7 +1620,7 @@ const ChartCanvas: FC<{
         fitView({ padding: 0.2, duration: 250 })
       }
     })
-  }, [computedNodes, computedEdges, fitView, setViewport, setNodes, setEdges, userId, orgId])
+  }, [computedNodes, computedEdges, fitView, fitViewRequest, setViewport, setNodes, setEdges, userId, orgId])
 
   // Personal camera: pan/zoom only — node layout is server-side shared.
   const onMoveEnd = useCallback(
@@ -1932,6 +1942,7 @@ const HelixOrgChart: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const orgID = account.organizationTools.organization?.id ?? ''
+  const userID = account.user?.id ?? ''
   // Chart is the org root of helix-org — breadcrumb is just the org name.
   const breadcrumbs = useHelixOrgBreadcrumbs()
   // Poll bots so agent_status (green/grey sandbox dots) stays fresh while
@@ -2083,7 +2094,9 @@ const HelixOrgChart: FC = () => {
   // fan-out only re-subscribes when the set of topics changes, not on
   // every render.
   const topicIds = useMemo(() => topics.map((s) => s.id), [topics])
-  const messageCounts = useTopicMessageCounts(topicIds)
+  const [showTopics, setShowTopics] = useState(false)
+  const [fitViewRequest, setFitViewRequest] = useState(0)
+  const messageCounts = useTopicMessageCounts(topicIds, { enabled: showTopics })
 
   const processorSummaries = useMemo<ProcessorSummary[]>(
     () => (processorsData ?? []).map((p: ProcessorDTO) => ({
@@ -2306,13 +2319,16 @@ const HelixOrgChart: FC = () => {
   )
 
   const onResetLayout = useCallback(async () => {
+    clearChartViewport(userID, orgID)
+    setFitViewRequest((request) => request + 1)
     try {
       await clearPositions.mutateAsync()
+      setFitViewRequest((request) => request + 1)
       snackbar.success('layout reset to auto')
     } catch (err: any) {
       snackbar.error(err?.response?.data?.error ?? err?.message ?? 'reset layout failed')
     }
-  }, [clearPositions, snackbar])
+  }, [clearPositions, orgID, snackbar, userID])
 
   const handleConfirmDelete = async () => {
     if (!confirmDelete) return
@@ -2396,9 +2412,21 @@ const HelixOrgChart: FC = () => {
           <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <Button
               size="small"
+              variant={showTopics ? 'contained' : 'outlined'}
+              color="secondary"
+              startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setShowTopics((visible) => !visible)}
+              aria-label={showTopics ? 'Hide topics layer' : 'Show topics layer'}
+              aria-pressed={showTopics}
+              title={showTopics ? 'Hide topics layer' : 'Show topics layer'}
+            >
+              Topics
+            </Button>
+            <Button
+              size="small"
               variant="outlined"
               onClick={onResetLayout}
-              disabled={clearPositions.isPending || Object.keys(savedPositions).length === 0}
+              disabled={clearPositions.isPending}
             >
               Reset layout
             </Button>
@@ -2459,6 +2487,8 @@ const HelixOrgChart: FC = () => {
                 messageCounts={messageCounts}
                 processors={processorSummaries}
                 savedPositions={savedPositions}
+                showTopics={showTopics}
+                fitViewRequest={fitViewRequest}
                 selectedBotId={selectedBotId}
               />
             </ReactFlowProvider>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 
-import { loadChartViewport, saveChartViewport } from './chartViewportStorage'
+import { clearChartViewport, loadChartViewport, saveChartViewport } from './chartViewportStorage'
 
 describe('chartViewportStorage', () => {
   const userId = 'usr_test'
@@ -35,6 +35,14 @@ describe('chartViewportStorage', () => {
     saveChartViewport(userId, orgId, { x: 1, y: 2, zoom: 1 })
     expect(loadChartViewport('other_user', orgId)).toBeNull()
     expect(loadChartViewport(userId, 'other_org')).toBeNull()
+  })
+
+  it('clears only the scoped viewport', () => {
+    saveChartViewport(userId, orgId, { x: 1, y: 2, zoom: 1 })
+    saveChartViewport('other_user', orgId, { x: 3, y: 4, zoom: 1 })
+    clearChartViewport(userId, orgId)
+    expect(loadChartViewport(userId, orgId)).toBeNull()
+    expect(loadChartViewport('other_user', orgId)).toEqual({ x: 3, y: 4, zoom: 1 })
   })
 
   it('rejects invalid stored payloads', () => {
