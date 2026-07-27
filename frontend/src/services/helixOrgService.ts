@@ -21,6 +21,7 @@ import {
   ApiGitHubWebhookStatusResponse,
   ApiGitLabWebhookStatusResponse,
   ApiInstallGitLabWebhookResponse,
+  ApiMessageResource,
   ApiOrgOverview,
   ApiSettingsResponse,
   ApiSettingsSpecDTO,
@@ -82,6 +83,7 @@ export const QUERY_KEYS = {
   topic: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id] as const,
   webhookStatus: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'webhook-status'] as const,
   topicMessageCount: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'message-count'] as const,
+  topicMessages: (orgID: string, id: string) => ['helix-org', orgID, 'topics', id, 'messages'] as const,
   botSubs: (orgID: string, botID: string) => ['helix-org', orgID, 'bots', botID, 'subscriptions'] as const,
   processors: (orgID: string) => ['helix-org', orgID, 'processors'] as const,
   processor: (orgID: string, id: string) => ['helix-org', orgID, 'processors', id] as const,
@@ -664,6 +666,24 @@ export function useTopicMessageCount(topicId: string | undefined, options?: { en
       return res.data?.meta?.total ?? 0
     },
     enabled: !!orgID && !!topicId && (options?.enabled ?? true),
+  })
+}
+
+export function useTopicMessages(topicId: string | undefined, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const { orgID } = useHelixOrgBase()
+  return useQuery({
+    queryKey: QUERY_KEYS.topicMessages(orgID, topicId ?? ''),
+    queryFn: async () => {
+      if (!topicId) return [] as ApiMessageResource[]
+      const res = await api.getApiClient().v1OrgsTopicsMessagesDetail(topicId, orgID, {
+        'page[number]': 1,
+        'page[size]': 200,
+      })
+      return res.data?.data ?? []
+    },
+    enabled: !!orgID && !!topicId && (options?.enabled ?? true),
+    refetchInterval: 5000,
   })
 }
 

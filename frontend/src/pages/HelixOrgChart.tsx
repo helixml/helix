@@ -71,11 +71,11 @@ import {
 import HelixOrgShell from '../components/helix-org/HelixOrgShell'
 import useHelixOrgBreadcrumbs from '../components/helix-org/useHelixOrgBreadcrumbs'
 import NewBotDialog from '../components/helix-org/NewBotDialog'
-import BotDetailDrawer from '../components/helix-org/BotDetailDrawer'
 import NewTopicDrawer from '../components/helix-org/NewTopicDrawer'
 import ProcessorConfigDrawer from '../components/helix-org/ProcessorConfigDrawer'
 import TopicDetailDrawer from '../components/helix-org/TopicDetailDrawer'
 import ProcessorNode, { ProcessorNodeData, PROC_W, procNodeHeight } from '../components/helix-org/ProcessorNode'
+import { isTranscriptTopic } from '../components/helix-org/helixOrgTopics'
 import { BotTaskStats, summarizeBotTasks } from '../components/helix-org/botTaskStats'
 import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
@@ -185,7 +185,7 @@ type BotNodeData = {
   taskStats: BotTaskStats
   /** True when the left chat rail is focused on this bot. */
   selected: boolean
-  /** Card body click — focus the left chat rail and open the bot drawer. */
+  /** Card body click — focus the left chat rail on Chat. */
   onSelectBot: (botId: string) => void
   /** ⋮ → Details — open the bot detail page. */
   onOpenBotDetails: (botId: string) => void
@@ -948,9 +948,8 @@ const buildGraph = (
   //    one solid edge per subscribed Bot, drawn topic → bot so the pulse
   //    animates in the consume direction. Topics sit in column(s) to the
   //    right of the org tree. Each topic is vertically anchored to the
-  //    "subject" Bot: for transcripts (`s-transcript-<id>`) that's the
-  //    encoded bot; otherwise created_by. Topics whose subject isn't on
-  //    the chart park in an orphan strip below.
+  //    creator Bot when available. Topics whose creator isn't on the
+  //    chart park in an orphan strip below.
   //
   //    Processor-owned output topics are collapsed into their processor
   //    node (rendered as labelled branch ports), so they are not drawn as
@@ -984,7 +983,6 @@ const buildGraph = (
   if (!isFinite(maxBottom)) maxBottom = 0
 
   if (topics.length > 0) {
-    const TRANSCRIPT_PREFIX = 's-transcript-'
     const STREAM_GAP_X = 32
     const STREAM_COLUMN_GAP = 120
     const ORPHAN_VERTICAL_GAP = 120
@@ -992,12 +990,7 @@ const buildGraph = (
     const resolved: { topic: TopicSummary; subjectBot: string | null }[] = []
     for (const s of topics) {
       if (ownedOutputTopicIds.has(s.id)) continue // collapsed into its processor's branch ports
-      let subjectBot: string | undefined
-      if (s.id.startsWith(TRANSCRIPT_PREFIX)) {
-        subjectBot = s.id.slice(TRANSCRIPT_PREFIX.length)
-      } else if (s.created_by) {
-        subjectBot = s.created_by
-      }
+      const subjectBot = s.created_by
       const onChart = subjectBot && botAutoAbs.has(subjectBot) ? subjectBot : null
       resolved.push({ topic: s, subjectBot: onChart })
     }
@@ -2049,19 +2042,21 @@ const HelixOrgChart: FC = () => {
   }, [processorsData])
 
   const topics = useMemo<TopicSummary[]>(
-    () => (streamsData?.topics ?? []).map((s) => {
-      const cfg = (s.config ?? {}) as Record<string, unknown>
-      const schedule = typeof cfg.schedule === 'string' ? cfg.schedule : undefined
-      return {
-        id: s.id ?? '',
-        name: s.name ?? '',
-        kind: s.kind ?? '',
-        created_by: s.created_by,
-        subscribers: s.subscribers,
-        schedule,
-        ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
-      }
-    }),
+    () => (streamsData?.topics ?? [])
+      .filter((topic) => !isTranscriptTopic(topic.id))
+      .map((s) => {
+        const cfg = (s.config ?? {}) as Record<string, unknown>
+        const schedule = typeof cfg.schedule === 'string' ? cfg.schedule : undefined
+        return {
+          id: s.id ?? '',
+          name: s.name ?? '',
+          kind: s.kind ?? '',
+          created_by: s.created_by,
+          subscribers: s.subscribers,
+          schedule,
+          ownedByProcessor: ownedOutputTopics.get(s.id ?? ''),
+        }
+      }),
     [streamsData, ownedOutputTopics],
   )
 
@@ -2108,7 +2103,6 @@ const HelixOrgChart: FC = () => {
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [botDialogOpen, setBotDialogOpen] = useState(false)
-  const [botDrawerBotId, setBotDrawerBotId] = useState<string>()
   const [topicDrawerOpen, setTopicDrawerOpen] = useState(false)
   const [selectedTopicId, setSelectedTopicId] = useState<string>()
   // Processor drawer: { open, processor } — processor null = create mode.
@@ -2155,27 +2149,11 @@ const HelixOrgChart: FC = () => {
     window.addEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
     return () => window.removeEventListener(CHAT_BOT_FOCUS_EVENT, onFocus)
   }, [orgSlug])
-  const botDetailsByID = useMemo(
-    () => new Map(botIds.map((botId, index) => [botId, botDetails[index]])),
-    [botDetails, botIds],
-  )
-  const selectedBot = useMemo(
-    () => (botsData ?? []).find((bot) => bot.id === botDrawerBotId),
-    [botDrawerBotId, botsData],
-  )
-  const selectedBotDetail = botDrawerBotId ? botDetailsByID.get(botDrawerBotId) : undefined
-  const selectedBotProject = useMemo(
-    () => projects.find((project) => project.id === selectedBotDetail?.project_id),
-    [projects, selectedBotDetail?.project_id],
-  )
-  const selectedBotTasks = botDrawerBotId ? tasksByBotId.get(botDrawerBotId) ?? [] : []
-
-  // Card body click → focus the left chat rail and open the bot drawer.
+  // Card body click → focus the left chat rail directly on Chat.
   const onSelectBot = useCallback(
     (botId: string) => {
       if (!orgSlug) return
       setSelectedBotId(botId)
-      setBotDrawerBotId(botId)
       focusChatBot(orgSlug, botId)
     },
     [orgSlug],
@@ -2537,13 +2515,6 @@ const HelixOrgChart: FC = () => {
         open={botDialogOpen || selection.kind === 'newBot'}
         onClose={() => { setBotDialogOpen(false); setSelection({ kind: 'none' }) }}
         presetParentId={selection.kind === 'newBot' ? selection.parentBotId : undefined}
-      />
-      <BotDetailDrawer
-        botId={botDrawerBotId}
-        bot={selectedBot}
-        project={selectedBotProject}
-        tasks={selectedBotTasks}
-        onClose={() => setBotDrawerBotId(undefined)}
       />
       <NewTopicDrawer
         open={topicDrawerOpen}
