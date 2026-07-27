@@ -399,7 +399,7 @@ export const TopicConfigSection: FC<TopicConfigSectionProps> = ({ topic, onSave,
               size="small"
               fullWidth
               placeholder="C012ABCDEF"
-              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended bots or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
+              helperText="When set, this exact-channel topic owns inbound for that channel and basic publish messages go back to it. Subscribe the intended agents or wire processors to this topic. Leave empty for a workspace-wide inbound fallback used only when no exact-channel topic exists; Slack publishing is disabled."
             />
           )}
           {topic.kind !== 'local' && topic.kind !== 'github' && topic.kind !== 'gitlab' && topic.kind !== 'cron' && topic.kind !== 'slack' && (

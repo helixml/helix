@@ -2860,11 +2860,29 @@ func (s *HelixAPIServer) applyProject(_ http.ResponseWriter, r *http.Request) (*
 		}
 
 		var agentApp *types.App
-		if project.DefaultHelixAppID != "" {
+		if req.AgentAppID != "" {
+			linkedAgentApp, getErr := s.Store.GetApp(r.Context(), req.AgentAppID)
+			if getErr != nil {
+				return nil, system.NewHTTPError400(fmt.Sprintf("failed to get linked agent app: %v", getErr))
+			}
+			agentApp = linkedAgentApp
+			if agentApp.OrganizationID != orgID {
+				return nil, system.NewHTTPError400("linked agent app belongs to another organization")
+			}
+			if len(agentApp.Config.Helix.Assistants) != 1 {
+				return nil, system.NewHTTPError400("org-linked agent app must contain exactly one assistant")
+			}
+			project.DefaultHelixAppID = agentApp.ID
+			if err := s.Store.UpdateProject(r.Context(), project); err != nil {
+				return nil, system.NewHTTPError500(fmt.Sprintf("failed to link agent app to project: %v", err))
+			}
+		} else if project.DefaultHelixAppID != "" {
 			agentApp, _ = s.Store.GetApp(r.Context(), project.DefaultHelixAppID)
 		}
 
-		if agentApp != nil {
+		if req.AgentAppID != "" {
+			agentAppID = agentApp.ID
+		} else if agentApp != nil {
 			// Apply only owns name/runtime/provider/model/credentials/tools/
 			// display/goose. User-edited skill config (MCPs, APIs, Zapier, …)
 			// lives on the agent app via the Skills UI and must survive

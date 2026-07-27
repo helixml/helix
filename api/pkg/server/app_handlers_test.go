@@ -1,12 +1,18 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
+	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +20,55 @@ import (
 
 	"go.uber.org/mock/gomock"
 )
+
+func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+
+	bot, err := orgchart.NewBot("b-linked", "# Linked", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Bots.Create(context.Background(), bot.WithAgentAppID("app-linked")))
+
+	existing := &types.App{
+		ID:             "app-linked",
+		Owner:          "user-test",
+		OrganizationID: "org-test",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{Name: "Linked"}},
+		}},
+	}
+	helixStore.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil)
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID:         existing.Owner,
+		OrganizationID: existing.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}, nil)
+
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+		},
+	}
+	body, err := json.Marshal(types.App{
+		ID: existing.ID,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: nil,
+		}},
+	})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, "/api/v1/apps/"+existing.ID, bytes.NewReader(body))
+	require.NoError(t, err)
+	req = req.WithContext(setRequestUser(req.Context(), types.User{ID: existing.Owner}))
+
+	updated, httpErr := server.updateApp(nil, req)
+
+	require.Nil(t, updated)
+	require.NotNil(t, httpErr)
+	require.Equal(t, http.StatusBadRequest, httpErr.StatusCode)
+	require.Contains(t, httpErr.Message, "exactly one assistant")
+}
 
 // markHelixOrgAgents must be a no-op on a non-Postgres store: no app is
 // flagged and the database is never touched (the mock store does not

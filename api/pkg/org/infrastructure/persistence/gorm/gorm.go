@@ -110,6 +110,9 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 	if err := installReportingLineFKs(db); err != nil {
 		return nil, fmt.Errorf("install reporting-line FKs: %w", err)
 	}
+	if err := installAgentAppLinks(db); err != nil {
+		return nil, fmt.Errorf("install agent app links: %w", err)
+	}
 
 	bots := newBotsRepo(db)
 	return &store.Store{
@@ -125,6 +128,114 @@ func OpenWithDB(db *gorm.DB, opts Options) (*store.Store, error) {
 		ChartPositions:  newChartPositionsRepo(db),
 		DomainEvents:    newDomainEventsRepo(db),
 	}, nil
+}
+
+func installAgentAppLinks(db *gorm.DB) error {
+	if !db.Migrator().HasTable("org_bots") || !db.Migrator().HasTable("apps") {
+		return nil
+	}
+	if db.Migrator().HasTable("org_bot_runtime_state") {
+		if err := backfillAgentAppLinks(db); err != nil {
+			return err
+		}
+	}
+	if err := db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_org_bots_agent_app
+		ON org_bots (org_id, agent_app_id)
+		WHERE agent_app_id IS NOT NULL
+	`).Error; err != nil {
+		return fmt.Errorf("add unique index: %w", err)
+	}
+	if err := db.Exec(`
+		DO $$ BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint WHERE conname = 'fk_org_bots_agent_app'
+			) THEN
+				ALTER TABLE org_bots
+					ADD CONSTRAINT fk_org_bots_agent_app
+					FOREIGN KEY (agent_app_id)
+					REFERENCES apps(id)
+					ON DELETE RESTRICT;
+			END IF;
+		END $$;
+	`).Error; err != nil {
+		return fmt.Errorf("add foreign key: %w", err)
+	}
+	if err := backfillProjectAgentApps(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func backfillAgentAppLinks(db *gorm.DB) error {
+	if err := db.Exec(`
+		UPDATE org_bots AS b
+		SET agent_app_id = state.value
+		FROM org_bot_runtime_state AS state
+		JOIN apps AS a
+		  ON a.id = state.value
+		 AND a.organization_id = state.org_id
+		WHERE b.org_id = state.org_id
+		  AND b.id = state.bot_id
+		  AND b.kind <> 'human'
+		  AND b.agent_app_id IS NULL
+		  AND state.backend = 'helix'
+		  AND state.key = 'agent_app_id'
+		  AND state.value <> ''
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM org_bot_runtime_state AS other
+			WHERE other.org_id = state.org_id
+			  AND other.backend = state.backend
+			  AND other.key = state.key
+			  AND other.value = state.value
+			  AND other.bot_id <> state.bot_id
+		  )
+	`).Error; err != nil {
+		return fmt.Errorf("backfill links: %w", err)
+	}
+	return nil
+}
+
+func backfillProjectAgentApps(db *gorm.DB) error {
+	if !db.Migrator().HasTable("projects") ||
+		!db.Migrator().HasTable("org_bot_runtime_state") ||
+		!db.Migrator().HasTable("org_bots") ||
+		!db.Migrator().HasTable("apps") {
+		return nil
+	}
+	if err := db.Exec(`
+		WITH candidates AS (
+			SELECT project.id AS project_id,
+			       project.organization_id,
+			       MIN(bot.agent_app_id) AS agent_app_id
+			FROM projects AS project
+			JOIN org_bot_runtime_state AS state
+			  ON state.value = project.id
+			 AND state.backend = 'helix'
+			 AND state.key = 'project_id'
+			JOIN org_bots AS bot
+			  ON bot.org_id = state.org_id
+			 AND bot.id = state.bot_id
+			JOIN apps AS app
+			  ON app.id = bot.agent_app_id
+			 AND app.organization_id = bot.org_id
+			WHERE project.organization_id = bot.org_id
+			  AND project.deleted_at IS NULL
+			  AND bot.agent_app_id IS NOT NULL
+			GROUP BY project.id, project.organization_id
+			HAVING COUNT(DISTINCT bot.agent_app_id) = 1
+		)
+		UPDATE projects AS project
+		SET default_helix_app_id = candidates.agent_app_id
+		FROM candidates
+		WHERE project.id = candidates.project_id
+		  AND project.organization_id = candidates.organization_id
+		  AND project.default_helix_app_id IS DISTINCT FROM candidates.agent_app_id
+	`).Error; err != nil {
+		return fmt.Errorf("backfill project agent apps: %w", err)
+	}
+	return nil
 }
 
 // renamedTables maps an old table name to its current name for

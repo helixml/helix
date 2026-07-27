@@ -7,7 +7,10 @@
 // client-side.
 package api
 
-import "github.com/helixml/helix/api/pkg/org/application/publishing"
+import (
+	"github.com/helixml/helix/api/pkg/org/application/publishing"
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 // BotBadge is a compact reference to a Bot on the org overview.
 type BotBadge struct {
@@ -37,7 +40,8 @@ type ToolDTO struct {
 // report to several managers. A Bot's subscriptions are not on the bot —
 // they live as (bot, topic) rows.
 type BotDTO struct {
-	ID string `json:"id"`
+	ID         string `json:"id"`
+	AgentAppID string `json:"agent_app_id,omitempty"`
 	// Name is the human-readable display label; empty means the UI falls
 	// back to ID. Distinct from ID, which is the immutable handle.
 	Name           string   `json:"name,omitempty"`
@@ -60,11 +64,16 @@ type BotDTO struct {
 	// AgentStatus is "running" when the bot's desktop sandbox is online,
 	// "stopped" otherwise (no session, paused, never activated). Drives
 	// the green/grey presence dot on the org chart.
-	AgentStatus  string `json:"agent_status,omitempty"`
-	AgentRuntime string `json:"agent_runtime,omitempty"`
-	AgentModel   string `json:"agent_model,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
+	AgentStatus             string                        `json:"agent_status,omitempty"`
+	AgentRuntime            string                        `json:"agent_runtime,omitempty"`
+	AgentModel              string                        `json:"agent_model,omitempty"`
+	CodeAgentRuntime        types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
+	Provider                string                        `json:"provider,omitempty"`
+	Model                   string                        `json:"model,omitempty"`
+	ReasoningEffort         string                        `json:"reasoning_effort,omitempty"`
+	CreatedAt               string                        `json:"created_at,omitempty"`
+	UpdatedAt               string                        `json:"updated_at,omitempty"`
 }
 
 // BotChatDTO is the POST /bots/{id}/chat response. AgentAppID is the
@@ -93,6 +102,11 @@ type BotDetailDTO struct {
 	// AgentAppID + ProjectID — see BotChatDTO comments.
 	AgentAppID string `json:"agent_app_id,omitempty"`
 	ProjectID  string `json:"project_id,omitempty"`
+}
+
+type AgentDetailDTO struct {
+	BotDTO
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // CreateBotRequest is the body of POST /bots. Mirrors the MCP
@@ -138,7 +152,12 @@ type UpdateBotRequest struct {
 	// Identity is the per-channel handle map for a human node (slack/github/
 	// email/…). When present it replaces the stored map; absent leaves it
 	// unchanged. Only meaningful for kind=human bots.
-	Identity map[string]string `json:"identity,omitempty"`
+	Identity                map[string]string              `json:"identity,omitempty"`
+	CodeAgentRuntime        *types.CodeAgentRuntime        `json:"code_agent_runtime,omitempty"`
+	CodeAgentCredentialType *types.CodeAgentCredentialType `json:"code_agent_credential_type,omitempty"`
+	Provider                *string                        `json:"provider,omitempty"`
+	Model                   *string                        `json:"model,omitempty"`
+	ReasoningEffort         *string                        `json:"reasoning_effort,omitempty"`
 }
 
 // AddBotParentRequest is the body of POST /bots/{id}/parents. ParentID

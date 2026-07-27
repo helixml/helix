@@ -4,6 +4,7 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import {
   ApiBotActivateDTO,
+  ApiAgentDetailDTO,
   ApiBotBadge,
   ApiBotChatDTO,
   ApiBotDTO,
@@ -37,6 +38,7 @@ import {
 export type BotBadge = ApiBotBadge
 export type BotDTO = ApiBotDTO
 export type BotDetailDTO = Omit<ApiBotDetailDTO, 'bot'> & { bot?: BotDTO }
+export type AgentDetailDTO = ApiAgentDetailDTO
 export type BotActivateDTO = ApiBotActivateDTO
 export type BotChatDTO = ApiBotChatDTO
 export type ToolDTO = ApiToolDTO
@@ -228,7 +230,7 @@ export function useEnsureBotChat() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsBotsChatCreate(botId, orgID)
+      const res = await api.getApiClient().v1OrgsAgentsChatCreate(orgID, botId)
       return res.data as BotChatDTO
     },
     onSuccess: (_data, botId) => {
@@ -246,7 +248,7 @@ export function useActivateBot(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsBotsActivateCreate(botId, orgID)
+      const res = await api.getApiClient().v1OrgsAgentsActivateCreate(orgID, botId)
       return res.data as BotActivateDTO
     },
     onSuccess: (_data, botId) => {
@@ -260,16 +262,11 @@ export function useActivateBot(orgIDOverride?: string) {
 export function useStopBotAgent(orgIDOverride?: string) {
   const api = useApi()
   const qc = useQueryClient()
-  const { base, orgID: baseOrgID } = useHelixOrgBase()
+  const { orgID: baseOrgID } = useHelixOrgBase()
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      // Not yet on the generated OpenAPI client.
-      await axios.post(
-        `${base || `/api/v1/orgs/${encodeURIComponent(orgID)}`}/bots/${encodeURIComponent(botId)}/stop-agent`,
-        null,
-        { withCredentials: true },
-      )
+      await api.getApiClient().v1OrgsAgentsStopAgentCreate(orgID, botId)
     },
     onSuccess: (_data, botId) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.bots(orgID) })
@@ -288,7 +285,7 @@ export function useRestartBotAgent(orgIDOverride?: string) {
   const orgID = orgIDOverride ?? baseOrgID
   return useMutation({
     mutationFn: async (botId: string) => {
-      const res = await api.getApiClient().v1OrgsBotsRestartAgentCreate(botId, orgID)
+      const res = await api.getApiClient().v1OrgsAgentsRestartAgentCreate(orgID, botId)
       return res.data as BotActivateDTO
     },
     onSuccess: (_data, botId) => {
@@ -304,7 +301,7 @@ export function useListHelixOrgBots(options?: { enabled?: boolean; refetchInterv
   return useQuery({
     queryKey: QUERY_KEYS.bots(orgID),
     queryFn: async () => {
-      const res = await api.getApiClient().v1OrgsBotsDetail(orgID)
+      const res = await api.getApiClient().v1OrgsAgentsDetail(orgID)
       return (res.data ?? []) as BotDTO[]
     },
     enabled: !!orgID && (options?.enabled ?? true),
@@ -319,8 +316,13 @@ export function useHelixOrgBot(botId: string | undefined, options?: { enabled?: 
     queryKey: QUERY_KEYS.bot(orgID, botId ?? ''),
     queryFn: async () => {
       if (!botId) return null
-      const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
-      return res.data as BotDetailDTO
+      const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
+      const agent = res.data as AgentDetailDTO
+      return {
+        bot: agent as BotDTO,
+        agent_app_id: agent.agent_app_id,
+        project_id: agent.project_id,
+      } as BotDetailDTO
     },
     enabled: !!orgID && !!botId && (options?.enabled ?? true),
   })
@@ -340,8 +342,13 @@ export function useListHelixOrgBotDetails(
     queries: botIds.map((botId) => ({
       queryKey: QUERY_KEYS.bot(orgID, botId),
       queryFn: async () => {
-        const res = await api.getApiClient().v1OrgsBotsDetail2(botId, orgID)
-        return res.data as BotDetailDTO
+        const res = await api.getApiClient().v1OrgsAgentsDetail2(orgID, botId)
+        const agent = res.data as AgentDetailDTO
+        return {
+          bot: agent as BotDTO,
+          agent_app_id: agent.agent_app_id,
+          project_id: agent.project_id,
+        } as BotDetailDTO
       },
       enabled: enabled && !!botId,
       refetchInterval: options?.refetchInterval,
@@ -370,7 +377,7 @@ export function useCreateBot() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (payload: CreateBotRequest) => {
-      const res = await api.getApiClient().v1OrgsBotsCreate(orgID, payload)
+      const res = await api.getApiClient().v1OrgsAgentsCreate(orgID, payload)
       return res.data as CreateBotResponse
     },
     onSuccess: () => {
@@ -394,7 +401,7 @@ export function useUpdateBot() {
   return useMutation({
     mutationFn: async (payload: { id: string } & UpdateBotRequest) => {
       const { id, ...body } = payload
-      const res = await api.getApiClient().v1OrgsBotsPartialUpdate(orgID, id, body)
+      const res = await api.getApiClient().v1OrgsAgentsPartialUpdate(orgID, id, body)
       return res.data as BotDTO
     },
     onSuccess: (_data, payload) => {
@@ -419,7 +426,7 @@ export function useAddBotParent() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsBotsParentsCreate(botID, orgID, { parent_id: parentID })
+      await api.getApiClient().v1OrgsAgentsParentsCreate(orgID, botID, { parent_id: parentID })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
@@ -441,7 +448,7 @@ export function useRemoveBotParent() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, parentID }: { botID: string; parentID: string }) => {
-      await api.getApiClient().v1OrgsBotsParentsDelete(botID, parentID, orgID)
+      await api.getApiClient().v1OrgsAgentsParentsDelete(orgID, botID, parentID)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.overview(orgID) })
@@ -461,7 +468,7 @@ export function useSubscribeBotAtChart() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, topicID }: { botID: string; topicID: string }) => {
-      await api.getApiClient().v1OrgsBotsSubscriptionsCreate(botID, orgID, { topic_id: topicID })
+      await api.getApiClient().v1OrgsAgentsSubscriptionsCreate(orgID, botID, { topic_id: topicID })
     },
     onSuccess: (_data, { botID }) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
@@ -480,7 +487,7 @@ export function useUnsubscribeBotAtChart() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async ({ botID, topicID }: { botID: string; topicID: string }) => {
-      await api.getApiClient().v1OrgsBotsSubscriptionsDelete(botID, topicID, orgID)
+      await api.getApiClient().v1OrgsAgentsSubscriptionsDelete(orgID, botID, topicID)
     },
     onSuccess: (_data, { botID }) => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.botSubs(orgID, botID) })
@@ -496,7 +503,7 @@ export function useDeleteBot() {
   const { orgID } = useHelixOrgBase()
   return useMutation({
     mutationFn: async (botId: string) => {
-      await api.getApiClient().v1OrgsBotsDelete(botId, orgID)
+      await api.getApiClient().v1OrgsAgentsDelete(orgID, botId)
     },
     onSuccess: (_data, botId) => {
       // Evict the deleted bot's own queries (the bot key prefix-matches
@@ -882,7 +889,7 @@ export function useListBotSubscriptions(botID: string | undefined, options?: { e
     queryKey: QUERY_KEYS.botSubs(orgID, botID ?? ''),
     queryFn: async () => {
       if (!botID) return null
-      const res = await api.getApiClient().v1OrgsBotsSubscriptionsDetail(botID, orgID)
+      const res = await api.getApiClient().v1OrgsAgentsSubscriptionsDetail(orgID, botID)
       return res.data as BotSubscriptionsResponse
     },
     enabled: !!orgID && !!botID && (options?.enabled ?? true),
@@ -896,7 +903,7 @@ export function useSubscribeBot(botID: string | undefined) {
   return useMutation({
     mutationFn: async (topicID: string) => {
       if (!botID) throw new Error('botID is required to subscribe')
-      const res = await api.getApiClient().v1OrgsBotsSubscriptionsCreate(botID, orgID, { topic_id: topicID })
+      const res = await api.getApiClient().v1OrgsAgentsSubscriptionsCreate(orgID, botID, { topic_id: topicID })
       return res.data as BotSubscription
     },
     onSuccess: () => {
@@ -916,7 +923,7 @@ export function useUnsubscribeBot(botID: string | undefined) {
   return useMutation({
     mutationFn: async (topicID: string) => {
       if (!botID) throw new Error('botID is required to unsubscribe')
-      await api.getApiClient().v1OrgsBotsSubscriptionsDelete(botID, topicID, orgID)
+      await api.getApiClient().v1OrgsAgentsSubscriptionsDelete(orgID, botID, topicID)
     },
     onSuccess: () => {
       if (botID) {

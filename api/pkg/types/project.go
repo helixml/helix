@@ -185,6 +185,7 @@ type ProjectApplyRequest struct {
 	OrganizationID string      `json:"organization_id"`
 	Name           string      `json:"name"`
 	Spec           ProjectSpec `json:"spec"`
+	AgentAppID     string      `json:"agent_app_id,omitempty"`
 }
 
 // ProjectApplyResponse is the response for PUT /api/v1/projects/apply.

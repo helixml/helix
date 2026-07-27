@@ -386,15 +386,12 @@ func (s *HelixAPIServer) markHelixOrgAgents(ctx context.Context, orgID string, a
 		return nil
 	}
 
-	// org_bot_runtime_state holds one row per (org, bot, backend, key).
-	// The "helix" backend's "agent_app_id" value is the App backing that
-	// Bot — see api/pkg/org/infrastructure/runtime/helix/state.go.
 	var agentAppIDs []string
 	if err := accessor.GormDB().WithContext(ctx).
-		Table("org_bot_runtime_state").
-		Where("org_id = ? AND backend = ? AND key = ? AND value <> ?", orgID, "helix", "agent_app_id", "").
-		Distinct("value").
-		Pluck("value", &agentAppIDs).Error; err != nil {
+		Table("org_bots").
+		Where("org_id = ? AND agent_app_id IS NOT NULL", orgID).
+		Distinct("agent_app_id").
+		Pluck("agent_app_id", &agentAppIDs).Error; err != nil {
 		return system.NewHTTPError500(fmt.Sprintf("failed to list helix-org agent apps: %s", err))
 	}
 
@@ -1111,6 +1108,21 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	if s.helixOrg != nil && s.helixOrg.store != nil && existing.OrganizationID != "" {
+		bots, listErr := s.helixOrg.store.Bots.List(r.Context(), existing.OrganizationID)
+		if listErr != nil {
+			return nil, system.NewHTTPError500(listErr.Error())
+		}
+		for _, bot := range bots {
+			if bot.AgentAppID == existing.ID {
+				if len(update.Config.Helix.Assistants) != 1 {
+					return nil, system.NewHTTPError400("org-linked agent must contain exactly one assistant")
+				}
+				update.Config.Helix.Assistants[0].Name = update.Config.Helix.Name
+			}
+		}
+	}
+
 	normalizeHelixAgentAssistantSpecs(&update)
 
 	err = s.validateProvidersAndModels(r.Context(), user, &update)
@@ -1206,29 +1218,47 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	if err != nil {
 		return nil, system.NewHTTPError403(err.Error())
 	}
+	if s.helixOrg != nil && s.helixOrg.store != nil && s.helixOrg.lifecycle != nil && existing.OrganizationID != "" {
+		bots, listErr := s.helixOrg.store.Bots.List(r.Context(), existing.OrganizationID)
+		if listErr != nil {
+			return nil, system.NewHTTPError500(listErr.Error())
+		}
+		for _, bot := range bots {
+			if bot.AgentAppID == id {
+				if keepKnowledge {
+					return nil, system.NewHTTPError400("keep_knowledge is not supported when deleting an org-linked agent")
+				}
+				if deleteErr := s.helixOrg.lifecycle.Delete(r.Context(), existing.OrganizationID, bot.ID); deleteErr != nil {
+					return nil, system.NewHTTPError500(deleteErr.Error())
+				}
+				return existing, nil
+			}
+		}
+	}
+	if err := s.deleteAppData(r.Context(), id, keepKnowledge); err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	return existing, nil
+}
 
+func (s *HelixAPIServer) deleteAppData(ctx context.Context, id string, keepKnowledge bool) error {
 	if !keepKnowledge {
-		knowledge, err := s.Store.ListKnowledge(r.Context(), &store.ListKnowledgeQuery{
+		knowledge, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 			AppID: id,
 		})
 		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
+			return err
 		}
 
 		for _, k := range knowledge {
-			err = s.Store.DeleteKnowledge(r.Context(), k.ID)
+			err = s.Store.DeleteKnowledge(ctx, k.ID)
 			if err != nil {
-				return nil, system.NewHTTPError500(err.Error())
+				return err
 			}
 		}
 	}
 
-	err = s.Store.DeleteApp(r.Context(), id)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	return existing, nil
+	return s.Store.DeleteApp(ctx, id)
 }
 
 // getAppOAuthTokenEnv retrieves OAuth tokens for the app

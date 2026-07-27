@@ -221,6 +221,21 @@ func (r *botsRepo) Update(_ context.Context, b orgchart.Bot) error {
 	return nil
 }
 
+func (r *botsRepo) ClaimAgentApp(_ context.Context, orgID string, id orgchart.BotID, appID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := orgKey{OrgID: orgID, ID: string(id)}
+	b, ok := r.rows[k]
+	if !ok {
+		return false, fmt.Errorf("bot %q in org %q: %w", id, orgID, store.ErrNotFound)
+	}
+	if b.AgentAppID != "" {
+		return false, nil
+	}
+	r.rows[k] = b.WithAgentAppID(appID)
+	return true, nil
+}
+
 // Delete removes the bot and cascades the rows that reference it,
 // matching the gorm store: the bot's own subscriptions and every
 // reporting line where it is the manager or the report are dropped.

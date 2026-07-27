@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 type botRow struct {
 	ID              string   `gorm:"primaryKey;type:text"`
 	OrgID           string   `gorm:"primaryKey;type:text;index"`
+	AgentAppID      *string  `gorm:"type:text;index"`
 	Name            string   `gorm:"not null;default:''"`
 	Content         string   `gorm:"not null"`
 	Tools           []string `gorm:"serializer:json"`
@@ -53,9 +55,14 @@ func (botMapper) ToRow(b orgchart.Bot) (botRow, error) {
 	if len(tools) == 0 {
 		tools = nil
 	}
+	var agentAppID *string
+	if b.AgentAppID != "" {
+		agentAppID = &b.AgentAppID
+	}
 	return botRow{
 		ID:              string(b.ID),
 		OrgID:           b.OrganizationID,
+		AgentAppID:      agentAppID,
 		Name:            b.Name,
 		Content:         b.Content,
 		Tools:           tools,
@@ -77,9 +84,14 @@ func (botMapper) ToDomain(row botRow) (orgchart.Bot, error) {
 			tools = append(tools, tool.Name(t))
 		}
 	}
+	var agentAppID string
+	if row.AgentAppID != nil {
+		agentAppID = *row.AgentAppID
+	}
 	return orgchart.Bot{
 		ID:              orgchart.BotID(row.ID),
 		OrganizationID:  row.OrgID,
+		AgentAppID:      agentAppID,
 		Name:            row.Name,
 		Content:         row.Content,
 		Tools:           tools,
@@ -103,6 +115,17 @@ func newBotsRepo(db *gorm.DB) *botsRepo {
 		Repository: NewRepository[orgchart.Bot, botRow](db, botMapper{}, "bot"),
 		db:         db,
 	}
+}
+
+func (r *botsRepo) Create(ctx context.Context, b orgchart.Bot) error {
+	if b.IsHuman() {
+		if b.AgentAppID != "" {
+			return errors.New("create bot: human node cannot reference an agent app")
+		}
+	} else if b.AgentAppID == "" {
+		return errors.New("create bot: agent app id is required")
+	}
+	return r.Repository.Create(ctx, b)
 }
 
 func (r *botsRepo) Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error) {
@@ -142,6 +165,7 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 		store.WithID(row.ID),
 		store.WithUpdates(map[string]any{
 			"name":             row.Name,
+			"agent_app_id":     row.AgentAppID,
 			"content":          row.Content,
 			"tools":            string(toolsJSON),
 			"project_ids":      string(projectIDsJSON),
@@ -152,6 +176,17 @@ func (r *botsRepo) Update(ctx context.Context, b orgchart.Bot) error {
 			"updated_at":       row.UpdatedAt,
 		}),
 	)
+}
+
+func (r *botsRepo) ClaimAgentApp(ctx context.Context, orgID string, id orgchart.BotID, appID string) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Model(&botRow{}).
+		Where("org_id = ? AND id = ? AND agent_app_id IS NULL", orgID, string(id)).
+		Update("agent_app_id", appID)
+	if res.Error != nil {
+		return false, fmt.Errorf("claim agent app: %w", res.Error)
+	}
+	return res.RowsAffected == 1, nil
 }
 
 // Delete removes the bot row and drops its bot-anchored subscriptions

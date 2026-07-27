@@ -37,6 +37,26 @@ func injectTestPublishing(cfg *mcptools.Config) {
 	cfg.Publishing = publishing.New(deps)
 }
 
+type recordingAgentContentUpdater struct {
+	appID   string
+	name    string
+	content string
+	err     error
+}
+
+func (u *recordingAgentContentUpdater) UpdateAgentContent(_ context.Context, appID, content string) error {
+	u.appID = appID
+	u.content = content
+	return u.err
+}
+
+func (u *recordingAgentContentUpdater) AgentProfile(_ context.Context, appID string) (string, string, error) {
+	if appID != u.appID {
+		return "", "", fmt.Errorf("unexpected app %s", appID)
+	}
+	return u.name, u.content, nil
+}
+
 // TestDemoOwnerCreatesCEO walks the "manager does the orchestration"
 // story over MCP: each tool does one primitive thing, and the test
 // drives the create ritual step by step.
@@ -122,11 +142,9 @@ func TestDemoOwnerCreatesCEO(t *testing.T) {
 	}
 }
 
-// TestSetBotContentIsDomainWrite pins the post-refactor contract:
-// set_bot_content is a pure DB mutation. The spawner is the only thing
-// that projects state into envs, so after a tool call the on-disk files
-// (if any) are stale and only the DB row reflects the change. Editing
-// content preserves the bot's tools.
+// TestSetBotContentIsDomainWrite pins content synchronization between the
+// org row and its canonical linked Agent App. Editing content preserves tools,
+// and an App update failure rolls the org row back.
 func TestSetBotContentIsDomainWrite(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +152,9 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 
 	reg := mcptools.NewRegistry()
 	deps := mcptools.DefaultDeps(s)
+	agentUpdater := &recordingAgentContentUpdater{name: "Canonical Engineer"}
+	deps.AgentContentUpdater = agentUpdater
+	deps.AgentProfileReader = agentUpdater
 	injectTestPublishing(&deps)
 	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
 		t.Fatalf("register builtins: %v", err)
@@ -150,6 +171,8 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		[]tool.Name{
 			mcptools.CreateBotName,
 			mcptools.SetBotContentName,
+			mcptools.ListBotsName,
+			mcptools.GetBotName,
 		},
 		now,
 		"org-test",
@@ -172,6 +195,7 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 		t.Fatalf("get b-eng: %v", err)
 	}
 	toolsBefore := append([]tool.Name(nil), created.Tools...)
+	mustCreate(t, s.Bots.Update(ctx, created.WithAgentAppID("app-eng")))
 
 	// set_bot_content rewrites Content and preserves Tools.
 	invokeExpectID(t, ownerSession, mcptools.SetBotContentName, map[string]any{
@@ -188,6 +212,94 @@ func TestSetBotContentIsDomainWrite(t *testing.T) {
 	}
 	if len(got.Tools) != len(toolsBefore) {
 		t.Fatalf("content-only update changed tools: before %v after %v", toolsBefore, got.Tools)
+	}
+	if agentUpdater.appID != "app-eng" || agentUpdater.content != "# Engineer v2\nBuild better stuff." {
+		t.Fatalf("agent update = (%q, %q)", agentUpdater.appID, agentUpdater.content)
+	}
+	listRaw, err := invokeTool(t, ownerSession, mcptools.ListBotsName, map[string]any{})
+	if err != nil {
+		t.Fatalf("list_bots after App update: %v", err)
+	}
+	var listResult struct {
+		Bots []struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"bots"`
+	}
+	if err := json.Unmarshal(listRaw, &listResult); err != nil {
+		t.Fatalf("decode list_bots: %v", err)
+	}
+	var listedName, listedContent string
+	for _, listed := range listResult.Bots {
+		if listed.ID == "b-eng" {
+			listedName, listedContent = listed.Name, listed.Content
+		}
+	}
+	if listedName != agentUpdater.name || listedContent != agentUpdater.content {
+		t.Fatalf("list_bots canonical profile = (%q, %q)", listedName, listedContent)
+	}
+	getRaw, err := invokeTool(t, ownerSession, mcptools.GetBotName, map[string]any{"id": "b-eng"})
+	if err != nil {
+		t.Fatalf("get_bot after App update: %v", err)
+	}
+	var gotProfile struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(getRaw, &gotProfile); err != nil {
+		t.Fatalf("decode get_bot: %v", err)
+	}
+	if gotProfile.Name != agentUpdater.name || gotProfile.Content != agentUpdater.content {
+		t.Fatalf("get_bot canonical profile = (%q, %q)", gotProfile.Name, gotProfile.Content)
+	}
+
+	agentUpdater.err = fmt.Errorf("app update failed")
+	if _, err := invokeTool(t, ownerSession, mcptools.SetBotContentName, map[string]any{
+		"botId":   "b-eng",
+		"content": "# Engineer v3\nMust not persist.",
+	}); err == nil {
+		t.Fatal("set_bot_content succeeded after App update failed")
+	}
+	got, err = s.Bots.Get(ctx, "org-test", "b-eng")
+	if err != nil {
+		t.Fatalf("get b-eng after rollback: %v", err)
+	}
+	if got.Content != "# Engineer v2\nBuild better stuff." {
+		t.Fatalf("rollback content = %q", got.Content)
+	}
+}
+
+func TestSetBotContentPreflightsLinkedAgentUpdater(t *testing.T) {
+	s := orggorm.GetOrgTestDB(t)
+	reg := mcptools.NewRegistry()
+	deps := mcptools.DefaultDeps(s)
+	injectTestPublishing(&deps)
+	if err := mcptools.RegisterBuiltins(reg, deps.Build()); err != nil {
+		t.Fatalf("register builtins: %v", err)
+	}
+	srv := httptest.NewServer(server.NewFromStore(s, reg, nil, nil, nil).Handler())
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	owner, _ := orgchart.NewBot("b-owner", "owner", []tool.Name{mcptools.SetBotContentName}, time.Now().UTC(), "org-test")
+	target, _ := orgchart.NewBot("b-agent", "original", nil, time.Now().UTC(), "org-test")
+	target = target.WithAgentAppID("app-agent")
+	mustCreate(t, s.Bots.Create(ctx, owner))
+	mustCreate(t, s.Bots.Create(ctx, target))
+
+	session := connectMCP(t, srv.URL, "b-owner")
+	if _, err := invokeTool(t, session, mcptools.SetBotContentName, map[string]any{
+		"botId": "b-agent", "content": "must not persist",
+	}); err == nil {
+		t.Fatal("set_bot_content succeeded without linked Agent updater")
+	}
+	got, err := s.Bots.Get(ctx, "org-test", target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "original" {
+		t.Fatalf("content mutated before updater preflight: %q", got.Content)
 	}
 }
 

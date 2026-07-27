@@ -64,8 +64,10 @@ import (
 // mounted under /api/v1/orgs/{org}/. The React UI at
 // /orgs/:org_id/helix-org/* consumes those endpoints.
 type helixOrgHandlers struct {
-	api   http.Handler
-	scope *helixOrgScope
+	api       http.Handler
+	scope     *helixOrgScope
+	store     *helixorgstore.Store
+	lifecycle *lifecycle.Service
 	// seeder creates the membership-driven human nodes + the per-org Chief
 	// of Staff bot. Copied onto HelixAPIServer by mountHelixOrg so the
 	// org-lifecycle handlers (org create, membership add/remove) can drive it.
@@ -491,7 +493,9 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	//
 	// Request-scoped calls run as the authenticated user. Background calls
 	// resolve the owner of their organization in the adapter.
-	inProcClient := NewInProcHelixClient(cfg.APIServer)
+	inProcClient := NewInProcHelixClient(cfg.APIServer, configReg)
+	deps.AgentContentUpdater = inProcClient
+	deps.AgentProfileReader = inProcClient
 
 	// Build the single Workspace shared by the WorkerProject (for
 	// first-apply file pushes — agent.md / role.md / identity.md)
@@ -738,6 +742,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 	lifecycleSvc := &lifecycle.Service{
 		Store:  st,
 		Helix:  inProcClient,
+		Agents: inProcClient,
 		Logger: logger,
 		// Bot-scoped reconcilers: the single topology reconciler (one owner
 		// of activation/team Topic lifecycle across create, reparent, and delete).
@@ -943,13 +948,16 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 			}
 			return t.HandleInbound()
 		},
-		Configs:        configReg,
-		Hub:            bc,
-		Dispatcher:     dispatcher,
-		DBPath:         orgRoot,
-		Lifecycle:      lifecycleSvc,
-		Tools:          reg,
-		ProjectEnsurer: projectApplier,
+		Configs:             configReg,
+		Hub:                 bc,
+		Dispatcher:          dispatcher,
+		DBPath:              orgRoot,
+		Lifecycle:           lifecycleSvc,
+		AgentUpdater:        inProcClient,
+		AgentReader:         inProcClient,
+		AgentDefaultApplier: inProcClient,
+		Tools:               reg,
+		ProjectEnsurer:      projectApplier,
 		// Production: the github topic transport's Token() falls
 		// back to whatever GitHub OAuth connection the org members
 		// have already authorised, so operators don't have to paste a
@@ -1109,12 +1117,17 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		if err := seeder.ReconcileHumans(ctx, orgID, members); err != nil {
 			return err
 		}
-		return seeder.SeedChiefOfStaff(ctx, orgID)
+		if err := seeder.SeedChiefOfStaff(ctx, orgID); err != nil {
+			return err
+		}
+		return lifecycleSvc.ReconcileAgentLinks(ctx, orgID)
 	}
 
 	return &helixOrgHandlers{
 		api:                          orgServer.Handler(extras...),
 		scope:                        scope,
+		store:                        st,
+		lifecycle:                    lifecycleSvc,
 		seeder:                       seeder,
 		streamCron:                   streamCronScheduler,
 		publicGitHubWebhook:          publicGitHubWebhook,

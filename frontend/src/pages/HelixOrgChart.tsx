@@ -477,7 +477,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
           <IconButton
             className={NO_DRAG_NO_PAN}
             size="small"
-            aria-label="Bot actions"
+            aria-label="Agent actions"
             onClick={(e) => {
               e.stopPropagation()
               setMenuEl(e.currentTarget)
@@ -543,7 +543,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
               }}
             >
               <PersonAddOutlinedIcon sx={{ mr: 1, fontSize: 20 }} />
-              New bot reporting here
+              New agent reporting here
             </MenuItem>
             <MenuItem
               onClick={() => {
@@ -552,7 +552,7 @@ const BotNode: FC<NodeProps<Node<BotNodeData>>> = ({ data }) => {
               }}
             >
               <DeleteOutlineIcon sx={{ mr: 1, fontSize: 20 }} />
-              Delete bot
+              Delete agent
             </MenuItem>
           </Menu>
         </Stack>
@@ -2364,7 +2364,7 @@ const HelixOrgChart: FC = () => {
     try {
       if (confirmDelete.kind === 'bot') {
         await deleteBot.mutateAsync(confirmDelete.id)
-        snackbar.success(`deleted bot ${confirmDelete.id}`)
+        snackbar.success(`deleted agent ${confirmDelete.id}`)
       } else if (confirmDelete.kind === 'topic') {
         await deleteTopic.mutateAsync(confirmDelete.id)
         snackbar.success(`deleted topic ${confirmDelete.id}`)
@@ -2413,8 +2413,8 @@ const HelixOrgChart: FC = () => {
     }
     const reports = flat.filter((b) => b.parentIds.includes(confirmDelete.id)).map((b) => b.id)
     return [
-      `Deleting bot ${confirmDelete.id} will cascade:`,
-      `  • stops sessions, deletes its project + agent app, drops its subscriptions`,
+      `Deleting agent ${confirmDelete.id} will cascade:`,
+      `  • stops sessions, deletes its project, canonical Agent configuration, knowledge sources, and subscriptions`,
       reports.length > 0
         ? `  • ${reports.length} direct report${reports.length === 1 ? '' : 's'} (${reports.join(', ')}) lose their manager`
         : `  • no direct reports`,
@@ -2462,7 +2462,7 @@ const HelixOrgChart: FC = () => {
               startIcon={<AddIcon />}
               onClick={() => setBotDialogOpen(true)}
             >
-              New bot
+              New agent
             </Button>
           </Stack>
 
@@ -2477,7 +2477,7 @@ const HelixOrgChart: FC = () => {
               }}
             >
               <Typography variant="body1" sx={{ color: subtitleColor }}>
-                No bots yet. Right-click the canvas or click <strong>New bot</strong> to get started.
+                No agents yet. Right-click the canvas or click <strong>New agent</strong> to get started.
               </Typography>
             </Box>
           ) : (
@@ -2531,7 +2531,7 @@ const HelixOrgChart: FC = () => {
           }}
         >
           <ListItemIcon><SmartToyOutlinedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>New bot</ListItemText>
+          <ListItemText>New agent</ListItemText>
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -2575,7 +2575,7 @@ const HelixOrgChart: FC = () => {
         title={
           confirmDelete?.kind === 'topic' ? 'Delete topic?' :
           confirmDelete?.kind === 'processor' ? 'Delete processor?' :
-          'Delete bot?'
+          'Delete agent?'
         }
         body={confirmBody}
         onConfirm={handleConfirmDelete}

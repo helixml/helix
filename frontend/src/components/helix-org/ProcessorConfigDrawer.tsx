@@ -500,7 +500,7 @@ const ProcessorConfigDrawer: FC<ProcessorConfigDrawerProps> = ({ open, onClose, 
                 label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Keep people in the thread</Typography>}
               />
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                After a bot is pulled into a Slack thread (for example because they were named),
+                After an agent is pulled into a Slack thread (for example because they were named),
                 later messages in that same thread also go to them — even if they are not named again.
               </Typography>
             </Box>

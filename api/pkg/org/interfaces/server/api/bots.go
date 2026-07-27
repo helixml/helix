@@ -57,6 +57,10 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
+		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		// Humans never run an agent sandbox — always "stopped". Agents
 		// get status from the runtime sidecar + session metadata.
 		dto.AgentStatus = "stopped"
@@ -166,6 +170,10 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := botDTO(b, a.managerIDs(ctx, orgID, id))
+	if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	dto.AgentStatus = "stopped"
 	// Populate the agent app id + project id from the helix-runtime
 	// sidecar so the chart UI can deep-link "chat with bot" to the
@@ -175,17 +183,43 @@ func (a *apiHandler) getBot(w http.ResponseWriter, r *http.Request) {
 	// presence control on the bot detail page.
 	if a.deps.BotRuntime != nil {
 		if info, err := a.deps.BotRuntime.State(ctx, orgID, id); err == nil {
-			detail := BotDetailDTO{Bot: dto, AgentAppID: info.AgentAppID, ProjectID: info.ProjectID}
+			agentAppID := b.AgentAppID
+			if agentAppID == "" {
+				agentAppID = info.AgentAppID
+			}
+			detail := BotDetailDTO{Bot: dto, AgentAppID: agentAppID, ProjectID: info.ProjectID}
 			if info.AgentStatus != "" {
 				detail.Bot.AgentStatus = info.AgentStatus
 			}
 			detail.Bot.AgentRuntime = info.Runtime
 			detail.Bot.AgentModel = info.Model
-			writeJSON(w, http.StatusOK, detail)
+			if strings.Contains(r.URL.Path, "/agents/") {
+				writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: detail.Bot, ProjectID: detail.ProjectID})
+			} else {
+				writeJSON(w, http.StatusOK, detail)
+			}
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto})
+	if strings.Contains(r.URL.Path, "/agents/") {
+		writeJSON(w, http.StatusOK, AgentDetailDTO{BotDTO: dto})
+	} else {
+		writeJSON(w, http.StatusOK, BotDetailDTO{Bot: dto, AgentAppID: b.AgentAppID})
+	}
+}
+
+// @Summary Helix-org: get agent detail
+// @Description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
+// @Tags HelixOrg
+// @Produce json
+// @Param org path string true "Organization slug or ID"
+// @Param id path string true "Agent ID"
+// @Success 200 {object} api.AgentDetailDTO
+// @Failure 404 {object} api.ErrorResponse
+// @Security ApiKeyAuth
+// @Router /api/v1/orgs/{org}/agents/{id} [get]
+func (a *apiHandler) getAgent(w http.ResponseWriter, r *http.Request) {
+	a.getBot(w, r)
 }
 
 // updateBot rewrites a Bot's content / tools / topics. A nil field is
@@ -242,9 +276,28 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		}
 		identityPatch = &req.Identity
 	}
+	namePatch := req.Name
+	contentPatch := req.Content
+	configPatch := AgentConfigPatch{
+		CodeAgentRuntime:        req.CodeAgentRuntime,
+		CodeAgentCredentialType: req.CodeAgentCredentialType,
+		Provider:                req.Provider,
+		Model:                   req.Model,
+		ReasoningEffort:         req.ReasoningEffort,
+	}
+	existing, err := a.deps.Queries.GetBot(ctx, orgID, id)
+	if err != nil {
+		writeError(w, errStatus(err), fmt.Errorf("get bot for update: %w", err))
+		return
+	}
+	canonicalChange := !configPatch.Empty() || namePatch != nil || contentPatch != nil
+	if !existing.IsHuman() && existing.AgentAppID != "" && canonicalChange && a.deps.AgentUpdater == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("canonical agent updater is not available"))
+		return
+	}
 	updated, err := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
-		Name:            req.Name,
-		Content:         req.Content,
+		Name:            namePatch,
+		Content:         contentPatch,
 		Tools:           toolsPatch,
 		ProjectIDs:      stringSlicePatch(req.ProjectIDs),
 		PreserveContext: req.PreserveContext,
@@ -254,7 +307,37 @@ func (a *apiHandler) updateBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errStatus(err), fmt.Errorf("update bot: %w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, botDTO(updated, a.managerIDs(ctx, orgID, id)))
+	if !updated.IsHuman() && updated.AgentAppID != "" && canonicalChange {
+		if err := a.deps.AgentUpdater.UpdateAgent(ctx, updated.AgentAppID, configPatch, namePatch, contentPatch); err != nil {
+			tools := append([]tool.Name(nil), existing.Tools...)
+			projectIDs := append([]string(nil), existing.ProjectIDs...)
+			identity := make(map[string]string, len(existing.Identity))
+			for key, value := range existing.Identity {
+				identity[key] = value
+			}
+			preserveContext := existing.PreserveContext
+			_, rollbackErr := a.deps.Bots.Update(ctx, orgID, id, bots.UpdateParams{
+				Name:            &existing.Name,
+				Content:         &existing.Content,
+				Tools:           &tools,
+				ProjectIDs:      &projectIDs,
+				PreserveContext: &preserveContext,
+				Identity:        &identity,
+			})
+			if rollbackErr != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Errorf("update agent: %v; rollback org profile: %w", err, rollbackErr))
+				return
+			}
+			writeError(w, errStatus(err), fmt.Errorf("update agent: %w", err))
+			return
+		}
+	}
+	dto := botDTO(updated, a.managerIDs(ctx, orgID, id))
+	if err := a.canonicalAgentProfile(ctx, updated, &dto); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // deleteBot tears down a Bot via the lifecycle service. Cascades the
@@ -613,6 +696,7 @@ func (a *apiHandler) managerIDs(ctx context.Context, orgID string, id orgchart.B
 func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	dto := BotDTO{
 		ID:              string(b.ID),
+		AgentAppID:      b.AgentAppID,
 		Name:            b.Name,
 		Content:         b.Content,
 		ProjectIDs:      b.ProjectIDs,
@@ -636,6 +720,24 @@ func botDTO(b orgchart.Bot, parentIDs []string) BotDTO {
 	sort.Strings(tools)
 	dto.Tools = tools
 	return dto
+}
+
+func (a *apiHandler) canonicalAgentProfile(ctx context.Context, bot orgchart.Bot, dto *BotDTO) error {
+	if dto == nil || bot.IsHuman() || bot.AgentAppID == "" || a.deps.AgentReader == nil {
+		return nil
+	}
+	profile, err := a.deps.AgentReader.ReadAgent(ctx, bot.AgentAppID)
+	if err != nil {
+		return fmt.Errorf("read canonical agent %s for bot %s: %w", bot.AgentAppID, bot.ID, err)
+	}
+	dto.Name = profile.Name
+	dto.Content = profile.Instructions
+	dto.CodeAgentRuntime = profile.CodeAgentRuntime
+	dto.CodeAgentCredentialType = profile.CodeAgentCredentialType
+	dto.Provider = profile.Provider
+	dto.Model = profile.Model
+	dto.ReasoningEffort = profile.ReasoningEffort
+	return nil
 }
 
 func stringSlicePatch(in []string) *[]string {

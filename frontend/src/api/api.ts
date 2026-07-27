@@ -13,6 +13,52 @@ export interface ApiAddBotParentRequest {
   parent_id?: string;
 }
 
+export interface ApiAgentDetailDTO {
+  agent_app_id?: string;
+  agent_model?: string;
+  agent_runtime?: string;
+  /**
+   * AgentStatus is "running" when the bot's desktop sandbox is online,
+   * "stopped" otherwise (no session, paused, never activated). Drives
+   * the green/grey presence dot on the org chart.
+   */
+  agent_status?: string;
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
+  content?: string;
+  created_at?: string;
+  helix_user_id?: string;
+  id?: string;
+  identity?: Record<string, string>;
+  /**
+   * Kind is "" (agent) or "human". A human node is a person placeholder,
+   * never activated; Identity holds their cross-system handles and
+   * HelixUserID optionally links them to a Helix org member. Identity is
+   * omitted for agent bots.
+   */
+  kind?: string;
+  model?: string;
+  /**
+   * Name is the human-readable display label; empty means the UI falls
+   * back to ID. Distinct from ID, which is the immutable handle.
+   */
+  name?: string;
+  organization_id?: string;
+  parent_ids?: string[];
+  /**
+   * PreserveContext, when true, stops the runtime from wiping this
+   * Bot's chat session before each re-activation, so it accumulates
+   * context across triggers (e.g. Slack). Defaults to false.
+   */
+  preserve_context?: boolean;
+  project_id?: string;
+  project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
+  tools?: string[];
+  updated_at?: string;
+}
+
 export interface ApiBotActivateDTO {
   activation_id?: string;
   agent_app_id?: string;
@@ -30,6 +76,7 @@ export interface ApiBotChatDTO {
 }
 
 export interface ApiBotDTO {
+  agent_app_id?: string;
   agent_model?: string;
   agent_runtime?: string;
   /**
@@ -38,6 +85,8 @@ export interface ApiBotDTO {
    * the green/grey presence dot on the org chart.
    */
   agent_status?: string;
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   created_at?: string;
   helix_user_id?: string;
@@ -50,6 +99,7 @@ export interface ApiBotDTO {
    * omitted for agent bots.
    */
   kind?: string;
+  model?: string;
   /**
    * Name is the human-readable display label; empty means the UI falls
    * back to ID. Distinct from ID, which is the immutable handle.
@@ -64,6 +114,8 @@ export interface ApiBotDTO {
    */
   preserve_context?: boolean;
   project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
   tools?: string[];
   updated_at?: string;
 }
@@ -387,6 +439,8 @@ export interface ApiTransportRequestField {
 }
 
 export interface ApiUpdateBotRequest {
+  code_agent_credential_type?: TypesCodeAgentCredentialType;
+  code_agent_runtime?: TypesCodeAgentRuntime;
   content?: string;
   /**
    * Identity is the per-channel handle map for a human node (slack/github/
@@ -394,9 +448,12 @@ export interface ApiUpdateBotRequest {
    * unchanged. Only meaningful for kind=human bots.
    */
   identity?: Record<string, string>;
+  model?: string;
   name?: string;
   preserve_context?: boolean;
   project_ids?: string[];
+  provider?: string;
+  reasoning_effort?: string;
   tools?: string[];
 }
 
@@ -2276,8 +2333,9 @@ export interface TypesAssistantConfig {
    * "claude_code" and CodeAgentCredentialType is "subscription". It flows through
    * CodeAgentConfig.Model into the container's /etc/claude-code/managed-settings.json,
    * which the claude-agent-acp package reads (resolveModelPreference) to pick the
-   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus"
-   * (resolveModelPreference resolves this to the latest Opus version).
+   * model — otherwise Claude Code defaults to Sonnet. Empty means "opus[1m]"
+   * (the 1M-context Opus; resolveModelPreference resolves the "[1m]" hint to the
+   * 1M row, while a bare "opus" resolves to the 200k sibling).
    */
   claude_subscription_model?: string;
   /**
@@ -4682,6 +4740,7 @@ export interface TypesProjectAgentTools {
 }
 
 export interface TypesProjectApplyRequest {
+  agent_app_id?: string;
   name?: string;
   organization_id?: string;
   spec?: TypesProjectSpec;
@@ -12441,6 +12500,262 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List the canonical Agents in an organization, including their instructions, tools, runtime, model configuration, and reporting lines.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDetail
+     * @summary Helix-org: list agents
+     * @request GET:/api/v1/orgs/{org}/agents
+     * @secure
+     */
+    v1OrgsAgentsDetail: (org: string, params: RequestParams = {}) =>
+      this.request<ApiBotDTO[], any>({
+        path: `/api/v1/orgs/${org}/agents`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a canonical Agent with its org-chart position, communication topics, tools, and Agent App configuration.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsCreate
+     * @summary Helix-org: create an agent
+     * @request POST:/api/v1/orgs/{org}/agents
+     * @secure
+     */
+    v1OrgsAgentsCreate: (org: string, payload: ApiCreateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiCreateBotResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an Agent after stopping its sessions and project, then atomically remove its Agent App, knowledge, runtime state, subscriptions, reporting lines, and org-chart row.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDelete
+     * @summary Helix-org: delete an agent
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}
+     * @secure
+     */
+    v1OrgsAgentsDelete: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get one canonical Agent with its instructions, tools, runtime, model configuration, project, and reporting lines.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsDetail2
+     * @summary Helix-org: get agent detail
+     * @request GET:/api/v1/orgs/{org}/agents/{id}
+     * @originalName v1OrgsAgentsDetail
+     * @duplicate
+     * @secure
+     */
+    v1OrgsAgentsDetail2: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiAgentDetailDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the canonical Agent instructions, tools, project access, runtime, provider, model, or reasoning configuration.
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsPartialUpdate
+     * @summary Helix-org: update an agent
+     * @request PATCH:/api/v1/orgs/{org}/agents/{id}
+     * @secure
+     */
+    v1OrgsAgentsPartialUpdate: (org: string, id: string, payload: ApiUpdateBotRequest, params: RequestParams = {}) =>
+      this.request<ApiBotDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}`,
+        method: "PATCH",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsActivateCreate
+     * @summary Helix-org: activate an agent
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/activate
+     * @secure
+     */
+    v1OrgsAgentsActivateCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/activate`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsChatCreate
+     * @summary Helix-org: provision an agent chat
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/chat
+     * @secure
+     */
+    v1OrgsAgentsChatCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotChatDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/chat`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsParentsCreate
+     * @summary Helix-org: add an agent manager
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/parents
+     * @secure
+     */
+    v1OrgsAgentsParentsCreate: (org: string, id: string, payload: ApiAddBotParentRequest, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/parents`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsParentsDelete
+     * @summary Helix-org: remove an agent manager
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/parents/{parent_id}
+     * @secure
+     */
+    v1OrgsAgentsParentsDelete: (org: string, id: string, parentId: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/parents/${parentId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsRestartAgentCreate
+     * @summary Helix-org: restart an agent session
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/restart-agent
+     * @secure
+     */
+    v1OrgsAgentsRestartAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotActivateDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/restart-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsStopAgentCreate
+     * @summary Helix-org: stop an agent desktop
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/stop-agent
+     * @secure
+     */
+    v1OrgsAgentsStopAgentCreate: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/stop-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsDetail
+     * @summary Helix-org: list an agent's subscriptions
+     * @request GET:/api/v1/orgs/{org}/agents/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsDetail: (org: string, id: string, params: RequestParams = {}) =>
+      this.request<ApiBotSubscriptionsResponse, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsCreate
+     * @summary Helix-org: subscribe an agent to a topic
+     * @request POST:/api/v1/orgs/{org}/agents/{id}/subscriptions
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsCreate: (
+      org: string,
+      id: string,
+      payload: ApiSubscribeBotRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiBotSubscriptionDTO, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions`,
+        method: "POST",
+        body: payload,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags HelixOrg
+     * @name V1OrgsAgentsSubscriptionsDelete
+     * @summary Helix-org: unsubscribe an agent from a topic
+     * @request DELETE:/api/v1/orgs/{org}/agents/{id}/subscriptions/{topic_id}
+     * @secure
+     */
+    v1OrgsAgentsSubscriptionsDelete: (org: string, id: string, topicId: string, params: RequestParams = {}) =>
+      this.request<void, ApiErrorResponse>({
+        path: `/api/v1/orgs/${org}/agents/${id}/subscriptions/${topicId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 

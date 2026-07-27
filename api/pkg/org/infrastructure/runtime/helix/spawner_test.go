@@ -273,6 +273,39 @@ func TestSpawnerEmbedsFreshBotContentByDefault(t *testing.T) {
 	}
 }
 
+func TestSpawnerUsesLinkedAgentInstructions(t *testing.T) {
+	t.Parallel()
+	s, wid := newHelixTestStore(t)
+	bot, err := s.Bots.Get(context.Background(), "org-test", wid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Bots.Update(context.Background(), bot.WithAgentAppID("app_test")); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeHelixClient{
+		startSessionID: "ses_new",
+		outputs:        []types.SessionOutputResponse{{Status: "complete", Output: "ok"}},
+	}
+	cfg := newHelixCfg(t, fc, s)
+	cfg.ProjectService.(*fakeProjectService).appConfig = types.AppConfig{Helix: types.AppHelixConfig{
+		Name: "Engineer",
+		Assistants: []types.AssistantConfig{{
+			Name:         "Engineer",
+			SystemPrompt: "# Canonical agent instructions",
+		}},
+	}}
+	if err := Spawner(cfg)(context.Background(), "org-test", wid, []activation.Trigger{{Kind: activation.TriggerHire}}); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !strings.Contains(fc.lastStartParams.Prompt, "=== Current role ===\n# Canonical agent instructions") {
+		t.Fatalf("prompt did not use linked Agent instructions: %q", fc.lastStartParams.Prompt)
+	}
+	if strings.Contains(fc.lastStartParams.Prompt, "# Role: Engineer") {
+		t.Fatalf("prompt used legacy Bot.Content: %q", fc.lastStartParams.Prompt)
+	}
+}
+
 func TestSpawnerReadsBotAfterProjectEnsure(t *testing.T) {
 	t.Parallel()
 	s, wid := newHelixTestStore(t)

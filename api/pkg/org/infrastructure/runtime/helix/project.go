@@ -208,10 +208,24 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	if err != nil {
 		return "", "", "", err
 	}
-	// The Bot IS the role: its Content is the prompt that lands in
-	// role.md, and its ID names the agent app.
 	roleContent := bot.Content
 	roleName := string(bot.ID)
+	botLabel := bot.Name
+	if bot.AgentAppID != "" {
+		cfg, err := a.Service.GetAppConfig(ctx, bot.AgentAppID)
+		if err != nil {
+			return "", "", "", fmt.Errorf("get linked agent app %s: %w", bot.AgentAppID, err)
+		}
+		if len(cfg.Helix.Assistants) != 1 {
+			return "", "", "", fmt.Errorf("linked agent app %s must contain exactly one assistant", bot.AgentAppID)
+		}
+		roleName = cfg.Helix.Assistants[0].Name
+		if roleName == "" {
+			roleName = cfg.Helix.Name
+		}
+		roleContent = cfg.Helix.Assistants[0].SystemPrompt
+		botLabel = roleName
+	}
 	runtime := a.Runtime
 	if runtime == "" {
 		runtime = Runtime
@@ -220,7 +234,6 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 	// rather than the bare slug. bot.Name may be empty (fall back to the
 	// ID); OrgDisplayName may be empty in bare/test wirings (fall back to
 	// just the bot label). Deterministic so upsert-by-name stays idempotent.
-	botLabel := bot.Name
 	if botLabel == "" {
 		botLabel = string(bot.ID)
 	}
@@ -236,8 +249,9 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 		// into another — the org parameter is the authority here.
 		OrganizationID: orgID,
 		Name:           projectName,
+		AgentAppID:     bot.AgentAppID,
 		Spec: types.ProjectSpec{
-			Description: bot.Content,
+			Description: roleContent,
 			Agent: &types.ProjectAgentSpec{
 				Name:        roleName,
 				Runtime:     runtime,
@@ -262,6 +276,18 @@ func (a *WorkerProject) Ensure(ctx context.Context, orgID string, workerID orgch
 				return "", "", "", fmt.Errorf("verify project %s for %s: %w", state.ProjectID, workerID, err)
 			}
 		} else {
+			if bot.AgentAppID != "" && existing.DefaultHelixAppID != bot.AgentAppID {
+				linkedAppID := bot.AgentAppID
+				updatedProject, err := a.Service.UpdateProject(ctx, state.ProjectID, types.ProjectUpdateRequest{DefaultHelixAppID: &linkedAppID})
+				if err != nil {
+					return "", "", "", fmt.Errorf("link canonical agent app %s to project %s: %w", linkedAppID, state.ProjectID, err)
+				}
+				existing = updatedProject
+				state.AgentAppID = linkedAppID
+				if err := SaveProject(ctx, a.Store, orgID, workerID, state.ProjectID, linkedAppID, state.RepoID); err != nil {
+					return "", "", "", fmt.Errorf("persist canonical agent app for %s: %w", workerID, err)
+				}
+			}
 			// Project already exists — fast path.
 			//
 			// The project is tracked by ID (state.ProjectID) but ApplyProject

@@ -250,7 +250,7 @@ const HelixOrgChatPanel: FC = () => {
           <SmartToyOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', flexShrink: 0 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             {agents.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">No bots yet</Typography>
+              <Typography variant="body2" color="text.secondary">No agents yet</Typography>
             ) : (
               <Select
                 size="small"
@@ -289,7 +289,7 @@ const HelixOrgChatPanel: FC = () => {
             <>
               <IconButton
                 size="small"
-                aria-label="Bot actions"
+                aria-label="Agent actions"
                 onClick={openMenu}
                 disabled={!selectedBotId}
                 sx={{ flexShrink: 0 }}
@@ -391,7 +391,7 @@ const HelixOrgChatPanel: FC = () => {
         {!selectedBotId ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">
-              Create a bot on the chart to start chatting.
+              Create an agent on the chart to start chatting.
             </Typography>
           </Box>
         ) : view === 'tasks' ? (

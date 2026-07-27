@@ -50,6 +50,7 @@ type Bots interface {
 	Get(ctx context.Context, orgID string, id orgchart.BotID) (orgchart.Bot, error)
 	List(ctx context.Context, orgID string) ([]orgchart.Bot, error)
 	Update(ctx context.Context, bot orgchart.Bot) error
+	ClaimAgentApp(ctx context.Context, orgID string, id orgchart.BotID, appID string) (bool, error)
 	Delete(ctx context.Context, orgID string, id orgchart.BotID) error
 }
 
