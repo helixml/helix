@@ -17,6 +17,7 @@ import Typography from '@mui/material/Typography'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import FilterListIcon from '@mui/icons-material/FilterList'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -34,6 +35,7 @@ import dagre from 'dagre'
 import {
   Background,
   BaseEdge,
+  ControlButton,
   Controls,
   Edge,
   EdgeChange,
@@ -47,6 +49,7 @@ import {
   NodeProps,
   ConnectionMode,
   Position as RFPosition,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   Viewport,
@@ -1560,10 +1563,13 @@ const ChartCanvas: FC<{
   processors: ProcessorSummary[]
   savedPositions: ChartPositionMap
   showTopics: boolean
+  onToggleTopics: () => void
+  onResetLayout: () => void
+  resetLayoutPending: boolean
   fitViewRequest: number
   /** Bot id currently focused in the left chat rail. */
   selectedBotId: string
-}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions, showTopics, fitViewRequest, selectedBotId }) => {
+}> = ({ flat, handlers, onAddParent, onRemoveParent, onSubscribeBot, onUnsubscribeBot, onSetProcessorInput, onLayoutSnapshot, onCanvasContextMenu, topics, messageCounts, processors, savedPositions, showTopics, onToggleTopics, onResetLayout, resetLayoutPending, fitViewRequest, selectedBotId }) => {
   const lightTheme = useLightTheme()
   const account = useAccount()
   const userId = account.user?.id ?? ''
@@ -1855,7 +1861,30 @@ const ChartCanvas: FC<{
         }}
       >
         <Background gap={20} size={1} />
-        <Controls showInteractive={false} position="top-left" />
+        <Controls showInteractive={false} position="top-left">
+          <ControlButton
+            onClick={onResetLayout}
+            disabled={resetLayoutPending}
+            aria-label="Reset layout"
+            title="Reset layout"
+          >
+            <RestartAltIcon />
+          </ControlButton>
+        </Controls>
+        <Panel position="top-left" style={{ marginTop: 131 }}>
+          <Button
+            size="small"
+            variant={showTopics ? 'contained' : 'outlined'}
+            color="secondary"
+            startIcon={<FilterListIcon />}
+            onClick={onToggleTopics}
+            aria-label={showTopics ? 'Hide topics from chart' : 'Show topics on chart'}
+            aria-pressed={showTopics}
+            title={showTopics ? 'Hide topics from chart' : 'Show topics on chart'}
+          >
+            Filter topics
+          </Button>
+        </Panel>
       </ReactFlow>
       <ConfirmDeleteDialog
         open={!!pendingEdgeDelete}
@@ -2412,26 +2441,6 @@ const HelixOrgChart: FC = () => {
           <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 12, right: 12, zIndex: 5 }}>
             <Button
               size="small"
-              variant={showTopics ? 'contained' : 'outlined'}
-              color="secondary"
-              startIcon={<HubOutlinedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setShowTopics((visible) => !visible)}
-              aria-label={showTopics ? 'Hide topics layer' : 'Show topics layer'}
-              aria-pressed={showTopics}
-              title={showTopics ? 'Hide topics layer' : 'Show topics layer'}
-            >
-              Topics
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={onResetLayout}
-              disabled={clearPositions.isPending}
-            >
-              Reset layout
-            </Button>
-            <Button
-              size="small"
               variant="outlined"
               startIcon={<TransformIcon />}
               onClick={() => setProcessorDrawer({ open: true, processor: null })}
@@ -2488,6 +2497,9 @@ const HelixOrgChart: FC = () => {
                 processors={processorSummaries}
                 savedPositions={savedPositions}
                 showTopics={showTopics}
+                onToggleTopics={() => setShowTopics((visible) => !visible)}
+                onResetLayout={onResetLayout}
+                resetLayoutPending={clearPositions.isPending}
                 fitViewRequest={fitViewRequest}
                 selectedBotId={selectedBotId}
               />
