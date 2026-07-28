@@ -2870,6 +2870,24 @@ func (s *HelixAPIServer) StartExternalAgentSession(ctx context.Context, req *typ
 		session.Metadata.AutoRestartOnCrash = true
 	}
 
+	if req.AppID != "" {
+		app, err := s.Store.GetApp(ctx, req.AppID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get session app: %w", err)
+		}
+		assistant := data.GetAssistant(app, req.AssistantID)
+		if assistant == nil {
+			return nil, fmt.Errorf("assistant %q not found in app %s", req.AssistantID, req.AppID)
+		}
+		runtime := assistant.CodeAgentRuntime
+		if runtime == "" {
+			runtime = types.CodeAgentRuntimeZedAgent
+		}
+		session.Metadata.AssistantID = req.AssistantID
+		session.Metadata.CodeAgentRuntime = runtime
+		session.Metadata.ZedAgentName = runtime.ZedAgentName()
+	}
+
 	session, err = appendOrOverwrite(session, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process session messages: %w", err)
