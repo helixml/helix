@@ -11,6 +11,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	orgbots "github.com/helixml/helix/api/pkg/org/application/bots"
+	"github.com/helixml/helix/api/pkg/org/application/lifecycle"
 	"github.com/helixml/helix/api/pkg/org/domain/orgchart"
 	orgmemory "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/memory"
 	"github.com/helixml/helix/api/pkg/store"
@@ -20,6 +22,14 @@ import (
 
 	"go.uber.org/mock/gomock"
 )
+
+type listingAgentCreator struct {
+	appID string
+}
+
+func (c listingAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+	return c.appID, nil
+}
 
 func TestUpdateAppRejectsInvalidLinkedOrgAgentShape(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -112,6 +122,46 @@ func Test_markHelixOrgAgents_NoOrg_NoOp(t *testing.T) {
 	httpErr := server.markHelixOrgAgents(context.Background(), "", apps)
 	require.Nil(t, httpErr)
 	assert.False(t, apps[0].IsHelixOrgAgent)
+}
+
+func TestListOrganizationAppsReconcilesUnlinkedAgentsBeforeQuery(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	helixStore := store.NewMockStore(ctrl)
+	orgStore := orgmemory.New()
+	ctx := context.Background()
+
+	bot, err := orgchart.NewBot("b-legacy", "Legacy instructions", nil, time.Now().UTC(), "org-test")
+	require.NoError(t, err)
+	require.NoError(t, orgStore.Bots.Create(ctx, bot))
+
+	user := &types.User{ID: "user-owner"}
+	helixStore.EXPECT().GetOrganizationMembership(gomock.Any(), gomock.Any()).Return(&types.OrganizationMembership{
+		UserID: user.ID, OrganizationID: "org-test", Role: types.OrganizationRoleOwner,
+	}, nil)
+	helixStore.EXPECT().ListApps(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *store.ListAppsQuery) ([]*types.App, error) {
+			linked, err := orgStore.Bots.Get(ctx, "org-test", bot.ID)
+			require.NoError(t, err)
+			require.Equal(t, "app-reconciled", linked.AgentAppID)
+			return []*types.App{{ID: linked.AgentAppID, OrganizationID: "org-test"}}, nil
+		},
+	)
+
+	botService := orgbots.New(orgbots.Deps{Bots: orgStore.Bots})
+	server := &HelixAPIServer{
+		Store: helixStore,
+		helixOrg: &helixOrgHandlers{
+			store: orgStore,
+			lifecycle: &lifecycle.Service{
+				Store: orgStore, Bots: botService, Agents: listingAgentCreator{appID: "app-reconciled"},
+			},
+		},
+	}
+
+	apps, httpErr := server.listOrganizationApps(ctx, user, "org-test")
+	require.Nil(t, httpErr)
+	require.Len(t, apps, 1)
+	require.Equal(t, "app-reconciled", apps[0].ID)
 }
 
 func Test_populateAppOwner_PopulateUser(t *testing.T) {

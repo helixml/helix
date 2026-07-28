@@ -28,6 +28,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+var ErrInvalidAgentProfile = errors.New("invalid agent profile")
+
 // resolveOrgID returns the orgID stashed on ctx by the helix-org
 // middleware (withHelixOrgScope in api/pkg/server). Empty orgID
 // means no scope was set — handlers respond 400 and bail rather

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +30,21 @@ func (failingAgentUpdater) UpdateAgent(context.Context, string, orgapi.AgentConf
 type recordingAgentPort struct {
 	profile orgapi.AgentProfile
 	patch   orgapi.AgentConfigPatch
+}
+
+type partialAgentReader struct{}
+
+func (partialAgentReader) ReadAgent(_ context.Context, appID string) (orgapi.AgentProfile, error) {
+	if appID == "app-invalid" {
+		return orgapi.AgentProfile{}, fmt.Errorf("%w: linked App must contain exactly one assistant", orgapi.ErrInvalidAgentProfile)
+	}
+	return orgapi.AgentProfile{Name: "Canonical valid", Instructions: "Valid instructions"}, nil
+}
+
+type failingAgentReader struct{}
+
+func (failingAgentReader) ReadAgent(context.Context, string) (orgapi.AgentProfile, error) {
+	return orgapi.AgentProfile{}, errors.New("database unavailable")
 }
 
 func (p *recordingAgentPort) ReadAgent(context.Context, string) (orgapi.AgentProfile, error) {
@@ -103,6 +120,64 @@ func TestRESTAgentResourceIsFlat(t *testing.T) {
 	if port.patch.CodeAgentRuntime == nil || *port.patch.CodeAgentRuntime != runtime ||
 		port.patch.Model == nil || *port.patch.Model != model {
 		t.Fatalf("flat patch = %#v", port.patch)
+	}
+}
+
+func TestRESTAgentListKeepsOtherAgentsWhenOneLinkedAppIsInvalid(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	for _, fixture := range []struct {
+		id, appID, content string
+	}{
+		{id: "b-invalid", appID: "app-invalid", content: "Bot fallback"},
+		{id: "b-valid", appID: "app-valid", content: "Stale"},
+	} {
+		bot, err := orgchart.NewBot(orgchart.BotID(fixture.id), fixture.content, nil, time.Now().UTC(), "org-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Bots.Create(ctx, bot.WithAgentAppID(fixture.appID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deps.AgentReader = partialAgentReader{}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d; body=%s", rec.Code, rec.Body)
+	}
+	var got []orgapi.BotDTO
+	decode(t, rec, &got)
+	if len(got) != 2 {
+		t.Fatalf("agents = %+v", got)
+	}
+	byID := map[string]orgapi.BotDTO{got[0].ID: got[0], got[1].ID: got[1]}
+	if byID["b-invalid"].Content != "Bot fallback" {
+		t.Fatalf("invalid fallback = %+v", byID["b-invalid"])
+	}
+	if byID["b-valid"].Name != "Canonical valid" || byID["b-valid"].Content != "Valid instructions" {
+		t.Fatalf("valid canonical profile = %+v", byID["b-valid"])
+	}
+}
+
+func TestRESTAgentListReportsOperationalAgentReadFailure(t *testing.T) {
+	deps, st, _ := newDeps(t)
+	ctx := context.Background()
+	bot, err := orgchart.NewBot("b-agent", "Fallback", nil, time.Now().UTC(), "org-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Bots.Create(ctx, bot.WithAgentAppID("app-agent")); err != nil {
+		t.Fatal(err)
+	}
+	deps.AgentReader = failingAgentReader{}
+
+	rec := do(t, orgapi.Handler(deps), http.MethodGet, "/agents", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("list status = %d, want 500; body=%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "database unavailable") {
+		t.Fatalf("list error = %s", rec.Body)
 	}
 }
 

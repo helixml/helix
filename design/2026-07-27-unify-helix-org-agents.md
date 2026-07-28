@@ -43,7 +43,8 @@ Startup migration adds nullable `org_bots.agent_app_id`.
 
 Existing links are backfilled from `org_bot_runtime_state` only when:
 
-- the runtime value references an existing App
+- the runtime value references an existing same-org App with exactly one
+  Assistant
 - the row is an Agent, not a human placeholder
 - no second Bot claims the same runtime App
 
@@ -56,22 +57,19 @@ row that still has no link, then writes `agent_app_id`. New Agent row creation
 is rejected by the repository when no App link is present. Human row creation
 is rejected when an App link is present.
 
-The same startup migration eagerly converges existing org-owned projects. It
-joins each Helix runtime `project_id` row to the Bot's canonical
-`agent_app_id`, then updates `projects.default_helix_app_id` in place. It does
-not recreate or change the project, repository, session, or runtime-state rows,
+Startup then converges each non-deleted same-org project associated with exactly
+one Bot. A valid, same-org, one-Assistant project default that is not claimed by
+another Bot has precedence: it is preserved and becomes the canonical App.
+Otherwise the migration uses the valid Bot App, including a link adopted from
+runtime state. The chosen App is written to the project default, Bot link, and
+runtime link in one database transaction. Projects associated with multiple
+Bots are ambiguous and skipped.
+
+Convergence is idempotent. The first org bootstrap creates Apps for remaining
+unlinked non-human rows; repeated startup and bootstrap runs leave established
+links unchanged. Missing, invalid, cross-org, and ambiguous candidates are not
+adopted. The migration does not recreate the project, repository, or session,
 so their IDs remain stable.
-
-A project is eligible only when:
-
-- the project exists, is not soft-deleted, and belongs to the Bot's org
-- the canonical App exists and belongs to the same org
-- every Bot runtime row naming that project resolves to one distinct canonical
-  App
-
-Cross-org, deleted, missing, ambiguous, and conflicting candidate rows are left
-unchanged. A stale existing `default_helix_app_id` is not treated as a conflict:
-it is the legacy value the unambiguous canonical link replaces.
 
 The runtime project path keeps the same in-place update as a safety fallback
 for rows skipped or missed at startup. Activation is therefore not required for
@@ -194,10 +192,10 @@ and thread-switch seam therefore remains unverified.
   session, and runtime IDs remain unchanged. Ambiguous Bot links deliberately
   remain unlinked and reconciliation creates new Apps; old runtime Apps may
   then require orphan cleanup.
-- Deploy the schema and transactional linked-delete path together. Rolling old
-  application code back while retaining `ON DELETE RESTRICT` can break the old
-  App-first deletion path. A rollback must retain graph-before-App deletion or
-  remove the foreign key.
+- Upgrade every backend API instance together before publishing the new
+  frontend. Mixed-version API deployment and downgrade are unsupported for
+  this migration because old instances use App-first deletion while the new
+  schema enforces graph-before-App deletion with `ON DELETE RESTRICT`.
 - Inject failures after graph-row creation, during App update, and during App
   deletion to verify compensation and surfaced errors.
 - Verify create, edit, and delete from both the Helix Org Agent page and the

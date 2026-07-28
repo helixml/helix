@@ -339,6 +339,12 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
+	if s.helixOrg != nil && s.helixOrg.lifecycle != nil {
+		if err := s.helixOrg.lifecycle.ReconcileAgentLinks(ctx, orgID); err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to reconcile organization agents: %s", err))
+		}
+	}
+
 	apps, err := s.Store.ListApps(ctx, &store.ListAppsQuery{
 		OrganizationID: orgID,
 	})

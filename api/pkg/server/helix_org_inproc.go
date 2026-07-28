@@ -242,7 +242,7 @@ func (c *inProcHelixClient) ReadAgent(ctx context.Context, appID string) (orgapi
 		return orgapi.AgentProfile{}, err
 	}
 	if len(app.Config.Helix.Assistants) != 1 {
-		return orgapi.AgentProfile{}, errors.New("org-linked agent app must contain exactly one assistant")
+		return orgapi.AgentProfile{}, fmt.Errorf("%w: org-linked agent app must contain exactly one assistant", orgapi.ErrInvalidAgentProfile)
 	}
 	assistant := app.Config.Helix.Assistants[0]
 	name := assistant.Name
@@ -637,6 +637,10 @@ func (c *inProcHelixClient) GetAppConfig(ctx context.Context, id string) (types.
 		return types.AppConfig{}, fmt.Errorf("get app %s: nil response", id)
 	}
 	return app.Config, nil
+}
+
+func (c *inProcHelixClient) GetApp(ctx context.Context, id string) (*types.App, error) {
+	return c.server.Store.GetApp(ctx, id)
 }
 
 // UpdateAppConfig persists a mutated app config.

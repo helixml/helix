@@ -224,6 +224,9 @@ func (noopProjectService) CreateBranch(_ context.Context, _, _, _ string) error 
 func (noopProjectService) GetAppConfig(_ context.Context, _ string) (types.AppConfig, error) {
 	return types.AppConfig{}, nil
 }
+func (noopProjectService) GetApp(_ context.Context, id string) (*types.App, error) {
+	return &types.App{ID: id}, nil
+}
 func (noopProjectService) UpdateAppConfig(_ context.Context, _ string, _ types.AppConfig) error {
 	return nil
 }

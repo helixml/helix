@@ -57,7 +57,7 @@ func (a *apiHandler) listBots(w http.ResponseWriter, r *http.Request) {
 	out := make([]BotDTO, 0, len(bs))
 	for _, b := range bs {
 		dto := botDTO(b, managersByReport[b.ID])
-		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil {
+		if err := a.canonicalAgentProfile(ctx, b, &dto); err != nil && !errors.Is(err, ErrInvalidAgentProfile) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
