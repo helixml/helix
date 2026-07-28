@@ -40,11 +40,15 @@ func TestSeedChiefOfStaffPreservesContextForNewBotOnly(t *testing.T) {
 	if !created.PreserveContext {
 		t.Fatal("new chief of staff must preserve conversation context")
 	}
-	if len(dispatcher.ids) != 1 || dispatcher.ids[0] != chiefOfStaffBotID {
-		t.Fatalf("seed dispatched bots = %v, want [chief-of-staff]", dispatcher.ids)
+	if len(dispatcher.ids) != 0 {
+		t.Fatalf("seed dispatched bots = %v, want none before runtime selection", dispatcher.ids)
 	}
-	if len(dispatcher.activationIDs) != 1 || dispatcher.activationIDs[0] == "" {
-		t.Fatalf("seed activation ids = %v, want one non-empty id", dispatcher.activationIDs)
+	activations, err := st.Activations.ListForWorker(ctx, "org-new", chiefOfStaffBotID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activations) != 0 {
+		t.Fatalf("seed activations = %v, want none before runtime selection", activations)
 	}
 
 	if _, err := deps.Bots.Create(ctx, "org-existing", bots.CreateParams{

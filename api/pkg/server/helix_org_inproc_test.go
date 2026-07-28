@@ -129,6 +129,7 @@ func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T)
 			Assistants: []types.AssistantConfig{{
 				Name: "Agent", AgentType: types.AgentTypeZedExternal,
 				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+				ReasoningEffort:  types.ReasoningEffortNone,
 			}},
 		}},
 	}
@@ -137,13 +138,16 @@ func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T)
 	st.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
 	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
 	defaults := types.AssistantConfig{
-		CodeAgentRuntime:        types.CodeAgentRuntimeClaudeCode,
-		CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+		CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+		Provider:                "anthropic",
+		Model:                   "claude-opus-4-6",
 		ReasoningEffort:         "high",
 	}
 
 	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
-	require.Equal(t, types.CodeAgentRuntimeClaudeCode, app.Config.Helix.Assistants[0].CodeAgentRuntime)
+	require.Equal(t, "anthropic", app.Config.Helix.Assistants[0].Provider)
+	require.Equal(t, "claude-opus-4-6", app.Config.Helix.Assistants[0].Model)
 
 	app.Config.Helix.Assistants[0].CodeAgentRuntime = types.CodeAgentRuntimeCodexCLI
 	app.Config.Helix.Assistants[0].Model = "user-selected"

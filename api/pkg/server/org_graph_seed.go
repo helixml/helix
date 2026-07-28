@@ -152,14 +152,16 @@ func (s *orgGraphSeeder) SeedChiefOfStaff(ctx context.Context, orgID string) err
 	if !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("check chief of staff: %w", err)
 	}
-	// The id is used exactly (`chief-of-staff`); a collision means
-	// already-seeded.
+	// Bootstrap has already provisioned the org service key, but activation
+	// waits for the operator's runtime selection so the scaffold App is
+	// configured before its first project/session.
 	if _, err := s.lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
 		ID:              string(chiefOfStaffBotID),
 		Name:            "Chief of Staff",
 		Content:         chiefOfStaffContent,
 		Tools:           mcptools.OwnerBotTools(),
 		PreserveContext: true,
+		DeferActivation: true,
 	}); err != nil {
 		if _, getErr := s.botStore.Get(ctx, orgID, chiefOfStaffBotID); getErr == nil {
 			return nil // lost a seed race; CoS exists — fine

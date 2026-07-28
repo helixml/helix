@@ -25,6 +25,7 @@ import (
 	helixorgserver "github.com/helixml/helix/api/pkg/org/interfaces/server"
 	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // helixOrgScope bundles the per-org state the middleware needs to pass
@@ -184,9 +185,17 @@ func (s *helixOrgScope) ensureBootstrap(ctx context.Context, orgID string) error
 	return err
 }
 
-func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgstore.Store, dispatcher lifecycle.CreateDispatcher) error {
-	if st == nil || dispatcher == nil {
+type repairAgentDefaultApplier interface {
+	ApplyAgentDefaults(ctx context.Context, appID string, defaults types.AssistantConfig) error
+}
+
+func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgstore.Store, dispatcher lifecycle.CreateDispatcher, configs *configregistry.Registry, applier repairAgentDefaultApplier) error {
+	if st == nil || dispatcher == nil || configs == nil || !configs.IsDefaultAgentConfigComplete(ctx, orgID) {
 		return nil
+	}
+	defaults, err := configs.GetDefaultAgentConfig(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("read default agent config: %w", err)
 	}
 	bs, err := st.Bots.List(ctx, orgID)
 	if err != nil {
@@ -202,6 +211,14 @@ func repairNeverActivatedBots(ctx context.Context, orgID string, st *helixorgsto
 		}
 		if len(acts) > 0 {
 			continue
+		}
+		if b.AgentAppID != "" {
+			if applier == nil {
+				return fmt.Errorf("apply defaults to never-activated bot %s: applier is not wired", b.ID)
+			}
+			if err := applier.ApplyAgentDefaults(ctx, b.AgentAppID, defaults); err != nil {
+				return fmt.Errorf("apply defaults to never-activated bot %s: %w", b.ID, err)
+			}
 		}
 		actID := activation.ID("a-repair-" + string(b.ID))
 		act, err := activation.New(actID, b.ID, []activation.Trigger{{Kind: activation.TriggerHire}}, time.Now().UTC(), orgID)

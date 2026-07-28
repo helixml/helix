@@ -202,3 +202,31 @@ func TestCreate_AlwaysDispatchesActivation(t *testing.T) {
 		t.Fatalf("create should dispatch exactly one hire, got %d", disp.hires)
 	}
 }
+
+func TestCreate_DeferredDoesNotCreateOrDispatchActivation(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	disp := &recordingDispatcher{}
+	svc.Dispatcher = disp
+
+	res, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "x", DeferActivation: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.ActivationID != "" {
+		t.Fatalf("deferred create activation = %q, want empty", res.ActivationID)
+	}
+	if disp.hires != 0 {
+		t.Fatalf("deferred create dispatched %d hires", disp.hires)
+	}
+	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", res.Bot.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("deferred activation rows = %v, want none", rows)
+	}
+}

@@ -1006,7 +1006,7 @@ func initHelixOrgHandler(cfg helixOrgConfig, helixStore helixstore.Store) (*heli
 		Msg("helix-org mounted at /api/v1/orgs/{org}/helix-org/")
 	scope := newHelixOrgScope(configReg, st, helixStore, mirror, slackRouteReconciler, helixEventsReconciler)
 	scope.botRepair = func(ctx context.Context, orgID string) error {
-		return repairNeverActivatedBots(ctx, orgID, st, dispatcher)
+		return repairNeverActivatedBots(ctx, orgID, st, dispatcher, configReg, inProcClient)
 	}
 
 	// Public github webhook handler — mounted on the insecure router

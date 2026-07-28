@@ -152,6 +152,10 @@ type CreateParams struct {
 	Topics          []streaming.TopicID
 	ParentID        orgchart.BotID
 	PreserveContext bool
+	// DeferActivation creates the Agent and org topology without starting
+	// its runtime. Settings activation provisions it after the org default
+	// runtime is configured.
+	DeferActivation bool
 }
 
 // CreateResult carries the new Bot and the pre-allocated
@@ -291,6 +295,10 @@ func (s *Service) Create(ctx context.Context, orgID string, p CreateParams) (Cre
 		if err := s.HireHook.OnHire(ctx, orgID, id, uid); err != nil {
 			return rollback(fmt.Errorf("create handler: %w", err))
 		}
+	}
+
+	if p.DeferActivation {
+		return CreateResult{Bot: bot}, nil
 	}
 
 	// Pre-create the create-Activation audit row so Create can return the

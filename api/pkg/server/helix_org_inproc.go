@@ -127,7 +127,7 @@ func isDeferredAgentScaffold(assistant types.AssistantConfig) bool {
 		assistant.CodeAgentCredentialType == "" &&
 		assistant.Provider == "" &&
 		assistant.Model == "" &&
-		assistant.ReasoningEffort == "" &&
+		(assistant.ReasoningEffort == "" || assistant.ReasoningEffort == types.ReasoningEffortNone) &&
 		assistant.GenerationModelProvider == "" &&
 		assistant.GenerationModel == ""
 }

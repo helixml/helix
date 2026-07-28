@@ -123,6 +123,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 	if req.Owner {
 		tools = mcptools.OwnerBotTools()
 	}
+	deferActivation := a.deps.Configs != nil && !a.deps.Configs.IsDefaultAgentConfigured(ctx, orgID)
 	// REST and chat-driven creates share lifecycle.Create — one
 	// implementation.
 	res, err := a.deps.Lifecycle.Create(ctx, orgID, lifecycle.CreateParams{
@@ -133,6 +134,7 @@ func (a *apiHandler) createBot(w http.ResponseWriter, r *http.Request) {
 		Topics:          toTopicIDs(req.Topics),
 		ParentID:        orgchart.BotID(strings.TrimSpace(req.ParentID)),
 		PreserveContext: req.PreserveContext,
+		DeferActivation: deferActivation,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
