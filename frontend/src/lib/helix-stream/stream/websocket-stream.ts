@@ -89,8 +89,28 @@ export class WebSocketStream {
 
   // Connection stability tracking - for diagnosing reconnect loops
   private lastOpenTime = 0  // Timestamp when connection was established
-  private connectionStabilityTimer: ReturnType<typeof setTimeout> | null = null
-  private connectionStabilized = false  // True after connection has been stable for 2s
+  private connectionStabilized = false  // True once video has actually been seen
+
+  // True once this connection has delivered a decodable video frame. This — not a
+  // WebSocket that merely opened — is what "the stream works" means, and it is the
+  // ONLY thing allowed to reset the retry budget.
+  //
+  // The 2026-07-28 incident: a finished task's tab was left open for 45 hours and
+  // produced 2383 WebSocket connections, driving 324 GStreamer pipeline
+  // create/destroy cycles, each of which leaked GPU memory. The backoff and the
+  // maxReconnectAttempts give-up below were already here and never fired, because
+  // the socket kept opening successfully — the failure was downstream, in the
+  // video. A 2s "connection stabilized" timer zeroed the counter on every cycle,
+  // so the budget never accumulated and the give-up branch was unreachable.
+  private receivedVideoThisConnection = false
+
+  // Gives up entirely once the retry budget is spent, until the user explicitly
+  // retries. Distinct from `closed`, which means "we were told to stop".
+  private gaveUp = false
+
+  // Set when a reconnect was skipped because the page was hidden; the
+  // visibilitychange handler picks it up when the tab comes back.
+  private reconnectWhenVisible = false
 
   // Page visibility tracking - prevents false stale detection on iOS when page is backgrounded
   private pageVisible = true
@@ -462,24 +482,14 @@ export class WebSocketStream {
     this.lastMessageTime = Date.now()
     this.streamConnectedTime = performance.now() // Track when stream connected for frame drift warmup
     this.connectionStabilized = false
+    this.receivedVideoThisConnection = false
 
     // Clear connection timeout - we connected successfully
     this.clearConnectionTimeout()
 
-    // Don't reset reconnectAttempts immediately - wait for connection to stabilize
-    // This prevents rapid connect/disconnect loops from resetting the counter
-    if (this.connectionStabilityTimer) {
-      clearTimeout(this.connectionStabilityTimer)
-    }
-    this.connectionStabilityTimer = setTimeout(() => {
-      this.connectionStabilityTimer = null
-      if (this.connected) {
-        const prevAttempts = this.reconnectAttempts
-        this.reconnectAttempts = 0
-        this.connectionStabilized = true
-        console.log(`[WebSocketStream] Connection stabilized after 2s, reset reconnect counter (was ${prevAttempts})`)
-      }
-    }, 2000)
+    // NOTE: reconnectAttempts is deliberately NOT reset here. An open socket is
+    // not a working stream — see receivedVideoThisConnection. It is reset in
+    // onFirstKeyframe, once video has actually arrived.
 
     this.dispatchInfoEvent({ type: "connected" })
 
@@ -522,11 +532,8 @@ export class WebSocketStream {
       this.closed = true
     }
 
-    // Clear connection stability timer if connection drops before stabilizing
-    if (this.connectionStabilityTimer) {
-      clearTimeout(this.connectionStabilityTimer)
-      this.connectionStabilityTimer = null
-      console.log("[WebSocketStream] Connection dropped before stabilizing (< 2s)")
+    if (!this.receivedVideoThisConnection) {
+      console.log("[WebSocketStream] Connection dropped without ever delivering video")
     }
 
     // Clear connection timeout if it's still running
@@ -550,6 +557,17 @@ export class WebSocketStream {
       // Dispatch event so DesktopStreamViewer knows reconnection was skipped
       // This prevents the UI from getting stuck on "Reconnecting..." forever
       this.dispatchInfoEvent({ type: "reconnectAborted", reason: abortReason, superseded: isSuperseded })
+      return
+    }
+
+    // Don't burn the retry budget while nobody is looking. The incident tab was
+    // a *finished* task left open in a background tab; every retry cost a
+    // GStreamer pipeline create/destroy on the server. Reconnection resumes on
+    // visibilitychange.
+    if (!this.pageVisible) {
+      console.log("[WebSocketStream] Page hidden, deferring reconnect until visible")
+      this.dispatchInfoEvent({ type: "reconnectDeferred", reason: "page hidden" })
+      this.reconnectWhenVisible = true
       return
     }
 
@@ -584,9 +602,23 @@ export class WebSocketStream {
         this.connect()
       }, delay)
     } else {
+      // Terminal state. Stop connecting entirely and tell the user, rather than
+      // retrying silently forever — every attempt costs a pipeline on the server.
       console.error(`[WebSocketStream] Max reconnection attempts (${this.maxReconnectAttempts}) reached, giving up`)
-      this.dispatchInfoEvent({ type: "error", message: "Connection lost - max reconnection attempts reached" })
+      this.gaveUp = true
+      this.closed = true
+      this.dispatchInfoEvent({ type: "gaveUp", attempts: this.reconnectAttempts })
+      this.dispatchInfoEvent({
+        type: "error",
+        message: `Could not start the video stream after ${this.maxReconnectAttempts} attempts. ` +
+          `The desktop may be out of GPU capacity or still starting up. Click Retry to try again.`,
+      })
     }
+  }
+
+  /** True once the retry budget is spent and only an explicit retry will reconnect. */
+  public hasGivenUp(): boolean {
+    return this.gaveUp
   }
 
   private onError(event: Event) {
@@ -1305,6 +1337,18 @@ export class WebSocketStream {
       }
       console.log(`[WebSocketStream] First keyframe received (${frameData.length} bytes)`)
       this.receivedFirstKeyframe = true
+
+      // Video is flowing: this is the one and only proof that the stream works,
+      // so this is where the retry budget is refunded.
+      if (!this.receivedVideoThisConnection) {
+        this.receivedVideoThisConnection = true
+        this.connectionStabilized = true
+        if (this.reconnectAttempts > 0) {
+          console.log(`[WebSocketStream] Video flowing, reset reconnect counter (was ${this.reconnectAttempts})`)
+        }
+        this.reconnectAttempts = 0
+      }
+
       // Notify that video is starting (first frame is being decoded)
       this.dispatchInfoEvent({ type: "videoStarted" })
     }
@@ -2267,6 +2311,13 @@ export class WebSocketStream {
         console.log("[WebSocketStream] Page became visible, resetting heartbeat timer")
         this.dispatchInfoEvent({ type: "visibility", visible: true })
         this.lastMessageTime = Date.now()
+
+        // Resume a reconnect we deferred while the tab was in the background.
+        if (this.reconnectWhenVisible && !this.closed && !this.connected) {
+          this.reconnectWhenVisible = false
+          console.log("[WebSocketStream] Page visible again, resuming deferred reconnect")
+          this.connect()
+        }
       } else if (!this.pageVisible && !wasHidden) {
         this.dispatchInfoEvent({ type: "visibility", visible: false })
       }
@@ -2383,8 +2434,11 @@ export class WebSocketStream {
   reconnect() {
     console.log("[WebSocketStream] Manual reconnect requested")
 
-    // Reset state for fresh connection
+    // Reset state for fresh connection. A user-driven retry is the only thing
+    // that clears the give-up state.
     this.closed = false
+    this.gaveUp = false
+    this.reconnectWhenVisible = false
     this.reconnectAttempts = 0
 
     // Cancel any pending reconnection
