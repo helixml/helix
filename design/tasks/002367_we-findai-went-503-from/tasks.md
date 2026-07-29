@@ -24,16 +24,16 @@
 - [x] Drain in `webservice.Controller.deployInPlace` before running `deployScript` (keep the existing pidfile/process-group kill)
 - [x] ~~Drain in `webservice.Controller.RecoverWebService`~~ — **not needed**: the recreate branch calls `sandboxes.Delete`, which now drains web-service sandboxes itself. A second call site would be duplicate logic (see design.md Implementation Notes)
 - [x] Drain in `sandbox.Controller.Delete` when `Purpose == types.SandboxPurposeWebService`, before `hydraClient.DeleteDevContainer`; leave other purposes on the fast 2s path
-- [~] Add hydra `POST /api/v1/drain?grace=<seconds>` — drains all containers labelled `helix.persistent=true` in parallel, bounded, idempotent
-- [ ] Call the drain from hydra's existing SIGTERM handler (`api/cmd/hydra/main.go`)
-- [ ] Replace `exec tail -f /dev/null` in `sandbox/startup-app.sh` with backgrounded `tail` + `wait` + a SIGTERM trap that POSTs the hydra drain endpoint before exiting
-- [ ] Set `stop_grace_period: 120s` on the sandbox services in `docker-compose.yaml` and `docker-compose.dev.yaml`
+- [x] Add hydra `POST /api/v1/drain?grace=<seconds>` — drains all containers labelled `helix.persistent=true` in parallel, bounded, idempotent
+- [x] Call the drain from hydra's existing SIGTERM handler (`api/cmd/hydra/main.go`)
+- [x] Replace `exec tail -f /dev/null` in `sandbox/startup-app.sh` with backgrounded `tail` + `wait` + a SIGTERM trap that POSTs the hydra drain endpoint before exiting
+- [x] Set `stop_grace_period: 120s` on the sandbox services in `docker-compose.yaml` and `docker-compose.dev.yaml`
 - [ ] Document the matching prod-runner compose change (`/opt/HelixML`, outside this repo) in the PR description
-- [ ] Unit-test each call site: drain runs before teardown; dockerd-unresponsive branch skips it
+- [x] Unit-test each call site: drain runs before teardown; dockerd-unresponsive branch skips it
 
 ## Gap 1 follow-on — actionable deploy error
 
-- [ ] Add `classifyDeployFailure(logTail)` with signatures for corrupt checkpoint / invalid resource manager ID, `PANIC:`, `dependency failed to start`, `container ... is unhealthy`
+- [~] Add `classifyDeployFailure(logTail)` with signatures for corrupt checkpoint / invalid resource manager ID, `PANIC:`, `dependency failed to start`, `container ... is unhealthy`
 - [ ] Call it on readiness failure, store the specific error on the deploy row, fall back to the existing generic error on no match
 - [ ] Include the classified error in the AdminAlerter payload
 - [ ] Table-test the classifier including the no-match case
