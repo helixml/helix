@@ -172,6 +172,11 @@ type DevContainer struct {
 	// Golden build fields
 	IsGoldenBuild bool   `json:"is_golden_build,omitempty"` // This is a golden cache build session
 	ProjectID     string `json:"project_id,omitempty"`      // Project ID for golden promotion
+
+	// Persistent marks a long-lived (web-service) container. These host the
+	// customer's own nested container stack, so they must be drained gracefully
+	// before this sandbox host goes away — see drain.go.
+	Persistent bool `json:"persistent,omitempty"`
 }
 
 // ListDevContainersResponse is the response listing all dev containers

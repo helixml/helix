@@ -98,6 +98,16 @@ func run(cmd *cobra.Command, args []string) {
 	go func() {
 		sig := <-sigChan
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
+		// Stop the customer container stacks nested inside persistent
+		// (web-service) dev containers BEFORE we let go. If we just exit, the
+		// host container follows, its dockerd dies, and every nested database is
+		// SIGKILLed mid-write — which is how we-find.ai's Postgres ended up with
+		// a corrupt checkpoint record. Bounded so a wedged container cannot stop
+		// the host from shutting down.
+		drainCtx, drainCancel := context.WithTimeout(context.Background(),
+			time.Duration(hydra.DefaultDrainGraceSeconds+30)*time.Second)
+		server.DrainPersistentDevContainers(drainCtx, hydra.DefaultDrainGraceSeconds)
+		drainCancel()
 		cancel()
 	}()
 

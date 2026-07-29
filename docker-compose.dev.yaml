@@ -211,6 +211,12 @@ services:
   # NOTE: For Helix-in-Helix development, set HYDRA_PRIVILEGED_MODE_ENABLED=true
   sandbox-nvidia:
     profiles: [code-nvidia] # NVIDIA GPU sandbox
+    # Give the container time to drain nested customer container stacks on
+    # SIGTERM before Docker SIGKILLs it. startup-app.sh traps TERM and asks hydra
+    # to stop nested stacks cleanly; without a grace period longer than that
+    # drain, a hosted web service's Postgres is killed mid-write and can come
+    # back with a corrupt checkpoint (see we-find.ai, 2026-07-23).
+    stop_grace_period: 120s
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       - default
@@ -309,6 +315,12 @@ services:
   # Uses device pass-through instead of nvidia runtime
   sandbox-amd-intel:
     profiles: [code-amd-intel]
+    # Give the container time to drain nested customer container stacks on
+    # SIGTERM before Docker SIGKILLs it. startup-app.sh traps TERM and asks hydra
+    # to stop nested stacks cleanly; without a grace period longer than that
+    # drain, a hosted web service's Postgres is killed mid-write and can come
+    # back with a corrupt checkpoint (see we-find.ai, 2026-07-23).
+    stop_grace_period: 120s
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       - default
@@ -401,6 +413,12 @@ services:
   # and no nvidia runtime - you can't just set GPU_VENDOR=none on regular sandbox
   sandbox-software:
     profiles: [code-software]
+    # Give the container time to drain nested customer container stacks on
+    # SIGTERM before Docker SIGKILLs it. startup-app.sh traps TERM and asks hydra
+    # to stop nested stacks cleanly; without a grace period longer than that
+    # drain, a hosted web service's Postgres is killed mid-write and can come
+    # back with a corrupt checkpoint (see we-find.ai, 2026-07-23).
+    stop_grace_period: 120s
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       - default
@@ -493,6 +511,12 @@ services:
   # For macOS hosts running UTM VMs with virtio-gpu
   sandbox-macos:
     profiles: [code-macos]
+    # Give the container time to drain nested customer container stacks on
+    # SIGTERM before Docker SIGKILLs it. startup-app.sh traps TERM and asks hydra
+    # to stop nested stacks cleanly; without a grace period longer than that
+    # drain, a hosted web service's Postgres is killed mid-write and can come
+    # back with a corrupt checkpoint (see we-find.ai, 2026-07-23).
+    stop_grace_period: 120s
     image: ${SANDBOX_IMAGE:-helix-sandbox:latest}
     networks:
       - default

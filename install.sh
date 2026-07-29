@@ -2813,6 +2813,12 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS $PRIVILEGED_DOCKER_FLAGS $VIRTIO_FLAGS \
     --privileged \
     --restart=always -d \
     --name helix-sandbox \
+    `# Give startup-app.sh's SIGTERM trap time to drain nested customer` \
+    `# container stacks (hosted web services run their own compose stack,` \
+    `# databases included) before Docker SIGKILLs us. Without this, a host` \
+    `# reboot or SANDBOX_TAG bump kills a live Postgres mid-write and it can` \
+    `# come back with a corrupt checkpoint. See sandbox/startup-app.sh.` \
+    --stop-timeout 120 \
     --network="helix_default" \
     -e HELIX_API_URL="$HELIX_API_URL" \
     -e SANDBOX_INSTANCE_ID="$SANDBOX_INSTANCE_ID" \

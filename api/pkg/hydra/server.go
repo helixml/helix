@@ -219,6 +219,10 @@ func (s *Server) registerRoutes(router *mux.Router) {
 	// Postgres and posts it here; hydra reconciles on-disk zvols + workspace dirs.
 	api.HandleFunc("/gc/reconcile", s.handleGCReconcile).Methods("POST")
 
+	// Graceful drain of nested container stacks before this host goes down.
+	// Called by the container's PID 1 SIGTERM trap (sandbox/startup-app.sh).
+	api.HandleFunc("/drain", s.handleDrain).Methods("POST")
+
 	// System stats (GPU info, active sessions)
 	api.HandleFunc("/system/stats", s.handleSystemStats).Methods("GET")
 

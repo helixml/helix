@@ -741,6 +741,7 @@ func (dm *DevContainerManager) CreateDevContainer(ctx context.Context, req *Crea
 		DockerSocket:  req.DockerSocket,
 		IsGoldenBuild: req.GoldenBuild,
 		ProjectID:     req.ProjectID,
+		Persistent:    req.Persistent,
 	}
 	dm.mu.Lock()
 	dm.containers[req.SessionID] = dc
