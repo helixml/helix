@@ -37,6 +37,30 @@ already does.
 - 4 unit tests covering the option-selection preference order and the
   no-matching-kind case.
 
+## Testing
+
+- **Live e2e in a real Helix sandbox:** a Qwen Code spec task ran to
+  `spec_review` with no permission prompt, writing and committing
+  `requirements.md` / `design.md` / `tasks.md` — the exact operation that stalled
+  before. Verified the sandbox was running the image built from this branch, that
+  Zed was live (`zed_thread_id` set), and that the container's Zed settings had
+  `agent.tool_permissions = {"default": "allow"}`.
+- **Unit tests:** 4/4 pass (`cargo test -p agent_servers --lib`).
+- **Zed WebSocket-sync e2e:** all 17 `zed-agent` phases PASSED. The `claude`
+  round fails at Phase 1 with 0 events — reproduced identically on unmodified
+  `origin/main` with a rebuilt baseline binary, so it is pre-existing in this
+  environment and not caused by this change.
+- **Not separately exercised live:** the `confirm` case. That arm returns `None`,
+  leaving the interactive path unchanged by construction; reproducing it live
+  would require defeating Helix's settings daemon, which rewrites the setting to
+  `allow` on every sync.
+
+## Screenshots
+
+![Qwen task reaches Spec Review with no permission stall](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002346_so-qwen-code-still-gets/screenshots/01-qwen-task-completed-no-permission-stall.png)
+
+![Zed thread completes with no Awaiting Confirmation prompt](https://github.com/helixml/helix/raw/helix-specs/design/tasks/002346_so-qwen-code-still-gets/screenshots/02-qwen-tool-calls-auto-approved.png)
+
 ## Notes for reviewers
 
 - **Only the global `tool_permissions.default` is consulted.** Per-tool rules are
@@ -48,3 +72,7 @@ already does.
 - The helper could not reuse `agent::tool_permissions::decide_permission_from_settings`:
   `crates/agent` already depends on `agent_servers`, so importing it would be a
   dependency cycle. Reading the setting from `agent_settings` avoids that.
+
+Release Notes:
+
+- Fixed external ACP agents (Qwen Code, Gemini, custom agent servers) ignoring the `agent.tool_permissions` setting and always prompting for tool permission, which stalled headless sessions.
