@@ -7,12 +7,12 @@
 ## Gap 2 — make the alert reach a human and stay fired
 
 - [~] Add `helix_webservice_unhealthy_since_seconds{project_id}` to `webservice/metrics.go` and to `forgetProjectMetrics`
-- [~] Maintain it in `HealthMonitor`: set once on the first failed probe of a streak, never refreshed while down, cleared only by a successful probe, NOT cleared by an in-flight deploy
+- [x] Maintain it in `HealthMonitor`: set once on the first failed probe of a streak, never refreshed while down, cleared only by a successful probe, NOT cleared by an in-flight deploy
 - [ ] Add `helix_webservice_upstream_errors_total{project_id}` and increment it in the `vhost_proxy.go` error handler (metric only — no change to the holding page)
-- [ ] Wire `notification.AdminAlerter` into `HealthMonitor`; send one alert per down-streak once past the 15-minute threshold, plus one recovery message; no-op with a warn log when neither Slack nor admin email is configured
-- [ ] Alert payload: project id/name, hosted domains, down duration, consecutive recovery failures, classified deploy error, deploy-log URL
-- [ ] Unit-test: down-since set once and not refreshed; not cleared by an in-flight deploy; cleared on success; alert sent exactly once per streak
-- [ ] Create `deploy/monitoring/helix-webservice.rules.yml` with `HelixWebServiceDown`, `HelixWebServiceRecoveryLooping`, `HelixWebServiceServing503s`, and the `HelixWebServiceMetricsMissing` dead-man rule, each with `keep_firing_for`
+- [x] Wire `notification.AdminAlerter` into `HealthMonitor`; send one alert per down-streak once past the 15-minute threshold, plus one recovery message; no-op with a warn log when neither Slack nor admin email is configured
+- [x] Alert payload: project id/name, hosted domains, down duration, consecutive recovery failures, classified deploy error, deploy-log URL
+- [x] Unit-test: down-since set once and not refreshed; not cleared by an in-flight deploy; cleared on success; alert sent exactly once per streak
+- [~] Create `deploy/monitoring/helix-webservice.rules.yml` with `HelixWebServiceDown`, `HelixWebServiceRecoveryLooping`, `HelixWebServiceServing503s`, and the `HelixWebServiceMetricsMissing` dead-man rule, each with `keep_firing_for`
 - [ ] Create `deploy/monitoring/helix-webservice.rules.test.yml`: replay the find-ai square wave and assert the down alert fires and never resolves; assert a naive `up == 0` rule would have resolved; slow-first-deploy produces no page; looping and dead-man rules fire
 - [ ] Wire `promtool test rules` into CI
 - [ ] Write `deploy/monitoring/README.md`: where the rules must be installed, the label set that routes to the pager, and that `HELIX_METRICS_LISTEN` must be set on the prod controlplane and scraped or every rule is inert
