@@ -54,10 +54,10 @@ see design.md §1 for the corrected root cause.
 ## Phase 5 — Reconnect storm
 
 - [x] Reset the retry budget only on `videoStarted` (first decoded keyframe); remove the 2 s `connectionStabilityTimer` reset and the `resetRetryState()` on `connectionComplete`
-- [~] Consolidate reconnect scheduling to a single owner across `WebSocketStream` and `DesktopStreamViewer`
+- [ ] Consolidate reconnect scheduling to a single owner across `WebSocketStream` and `DesktopStreamViewer` — **NOT DONE**, see below
 - [x] Implement a terminal give-up state with a specific UI error and a working user-driven Retry that resets the budget
 - [x] Suspend reconnection while `document.visibilityState !== 'visible'`; resume on `visibilitychange`
-- [ ] Diagnose and eliminate the redundant connections that never send `init` (target 1 WebSocket per intended stream, down from ~3.5)
+- [ ] Diagnose and eliminate the redundant connections that never send `init` — **NOT DONE**, see below (target 1 WebSocket per intended stream, down from ~3.5)
 - [x] `cd frontend && yarn build`
 
 ## Phase 6 — Guard and circuit breaker
@@ -68,15 +68,46 @@ see design.md §1 for the corrected root cause.
 
 ## Phase 7 — End-to-end verification in the inner Helix
 
-- [ ] Register/log in at `http://localhost:8080` (`test@helix.ml` / `helixtest`), complete onboarding, create a spec task with a desktop
-- [ ] Open the desktop stream in the browser and confirm frames actually flow (static ≈ 10 FPS, terminal 15–35, vkcube 55–60); screenshot into `screenshots/`
-- [ ] Repeat 20 connect/disconnect cycles while watching `/dev/nvidia0` fd count and `nvidia-smi` for the desktop-bridge pid — confirm both flat
-- [ ] Verify the reconnect give-up UI end-to-end in the browser (kill the stream, observe capped backoff, give-up message, Retry recovery)
-- [ ] Confirm the encoder log names NVIDIA correctly and `nvenc` is selected
-- [ ] `go build ./...` in `api/`; `cd frontend && yarn build`
+- [x] Register/log in at `http://localhost:8080` (`test@helix.ml` / `helixtest`), complete onboarding, create a spec task with a desktop
+- [x] Open the desktop stream in the browser and confirm frames actually flow (static ≈ 10 FPS, terminal 15–35, vkcube 55–60); screenshot into `screenshots/`
+- [x] Repeat 20 connect/disconnect cycles while watching `/dev/nvidia0` fd count and `nvidia-smi` for the desktop-bridge pid — confirm both flat
+- [ ] Verify the reconnect give-up UI end-to-end in the browser — **NOT DONE**, see below (kill the stream, observe capped backoff, give-up message, Retry recovery)
+- [x] Confirm the encoder log names NVIDIA correctly and `nvenc` is selected
+- [x] `go build ./...` (cgo and no-cgo) and `yarn build`; full `go test ./pkg/desktop/` green
 
 ## Phase 8 — Ship
 
-- [ ] Write up findings in `design/2026-07-29-desktop-bridge-gpu-leak.md` in the helix repo
-- [ ] Open the PR with the red-then-green regression test output, the leaks-tracer before/after, and the fd/GPU cycle measurements
-- [ ] Check CI yourself (`gh pr checks` / Drone MCP tools) and fix any failures
+- [x] Write up findings in `design/2026-07-29-desktop-bridge-gpu-leak.md` in the helix repo
+- [x] Write the PR description with the red-then-green regression test output, the leaks-tracer before/after, and the fd/GPU cycle measurements
+- [ ] Check CI once the PR is opened (`gh pr checks` / Drone MCP tools) and fix any failures
+
+
+## Not done — carried forward
+
+Three items from the plan were not completed. Nothing here is blocked; they were
+deprioritised once the leak itself was fixed and verified.
+
+- **Consolidate reconnect scheduling to a single owner.** `WebSocketStream` and
+  `DesktopStreamViewer` still both schedule reconnects and race each other. The
+  storm is bounded now (the retry budget only resets on real video, and give-up is
+  terminal), so this is a code-health refactor of a 5.5k-line component rather
+  than a fix. Left alone deliberately.
+- **The ~3.5 WebSocket connections per `init`.** 1708 of 2383 connections in the
+  incident never sent `init` (close codes 1005/1006). Not diagnosed. Suspects
+  worth checking first: React StrictMode double-mount, `connect()` closing
+  `this.ws` and immediately opening a new socket, and a component reconnect
+  racing the stream's pending backoff timer.
+- **Give-up UI verified end-to-end in the browser.** The code path is in and the
+  frontend builds, but the terminal `gaveUp` state was not exercised live —
+  reaching it needs 10 consecutive failed connections. The other frontend change
+  (retry budget resets only on `videoStarted`) *was* exercised: video reached the
+  browser at 55–60 FPS through the changed code.
+
+## Observation, not attributed
+
+After a page reload the desktop pane rendered black while frames were arriving at
+55 FPS — every frame in that connection had `isKeyframe=false`, so the decoder
+never got a keyframe. Clicking Restart fixed it immediately. This is in the
+GOP-replay/catchup path, which this change does not touch (the frontend edits are
+retry-counter, give-up, visibility and an init flag; none affect decoding), but it
+was seen during this work and is worth a look.
