@@ -53,18 +53,18 @@ see design.md §1 for the corrected root cause.
 
 ## Phase 5 — Reconnect storm
 
-- [~] Reset the retry budget only on `videoStarted` (first decoded keyframe); remove the 2 s `connectionStabilityTimer` reset and the `resetRetryState()` on `connectionComplete`
-- [ ] Consolidate reconnect scheduling to a single owner across `WebSocketStream` and `DesktopStreamViewer`
-- [ ] Implement a terminal give-up state with a specific UI error and a working user-driven Retry that resets the budget
-- [ ] Suspend reconnection while `document.visibilityState !== 'visible'`; resume on `visibilitychange`
+- [x] Reset the retry budget only on `videoStarted` (first decoded keyframe); remove the 2 s `connectionStabilityTimer` reset and the `resetRetryState()` on `connectionComplete`
+- [~] Consolidate reconnect scheduling to a single owner across `WebSocketStream` and `DesktopStreamViewer`
+- [x] Implement a terminal give-up state with a specific UI error and a working user-driven Retry that resets the budget
+- [x] Suspend reconnection while `document.visibilityState !== 'visible'`; resume on `visibilitychange`
 - [ ] Diagnose and eliminate the redundant connections that never send `init` (target 1 WebSocket per intended stream, down from ~3.5)
-- [ ] `cd frontend && yarn build`
+- [x] `cd frontend && yarn build`
 
 ## Phase 6 — Guard and circuit breaker
 
 - [x] Add a 30 s self-check reading `/proc/self/fd` nvidia0 count and own GPU MiB; ERROR log above the warn threshold
 - [x] Refuse new pipeline instantiation above the hard ceiling with a clear client-facing error
-- [ ] Give the `SharedVideoSource` circuit breaker a terminal state that surfaces an error to the client instead of permitting one instantiation per cooldown indefinitely
+- [~] Give the `SharedVideoSource` circuit breaker a terminal state that surfaces an error to the client instead of permitting one instantiation per cooldown indefinitely
 
 ## Phase 7 — End-to-end verification in the inner Helix
 
