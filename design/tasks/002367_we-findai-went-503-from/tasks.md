@@ -6,9 +6,9 @@
 
 ## Gap 2 — make the alert reach a human and stay fired
 
-- [~] Add `helix_webservice_unhealthy_since_seconds{project_id}` to `webservice/metrics.go` and to `forgetProjectMetrics`
+- [x] Add `helix_webservice_unhealthy_since_seconds{project_id}` to `webservice/metrics.go` and to `forgetProjectMetrics`
 - [x] Maintain it in `HealthMonitor`: set once on the first failed probe of a streak, never refreshed while down, cleared only by a successful probe, NOT cleared by an in-flight deploy
-- [ ] Add `helix_webservice_upstream_errors_total{project_id}` and increment it in the `vhost_proxy.go` error handler (metric only — no change to the holding page)
+- [x] Add `helix_webservice_upstream_errors_total{project_id}` and increment it in the `vhost_proxy.go` error handler (metric only — no change to the holding page)
 - [x] Wire `notification.AdminAlerter` into `HealthMonitor`; send one alert per down-streak once past the 15-minute threshold, plus one recovery message; no-op with a warn log when neither Slack nor admin email is configured
 - [x] Alert payload: project id/name, hosted domains, down duration, consecutive recovery failures, classified deploy error, deploy-log URL
 - [x] Unit-test: down-since set once and not refreshed; not cleared by an in-flight deploy; cleared on success; alert sent exactly once per streak
