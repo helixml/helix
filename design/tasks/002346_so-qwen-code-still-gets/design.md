@@ -152,6 +152,41 @@ thread view with the correct `InProgress`/`Rejected` status via the existing
 status-transition logic (`acp_thread.rs:2695+`). This is the same mechanism
 Zed's own e2e tests use to simulate a click, so it is a well-trodden path.
 
+## Verification Results (live, inner Helix)
+
+Reproduced the original failure scenario end-to-end and confirmed it is fixed.
+
+**Setup:** registered `test@helix.ml` in the inner Helix at `localhost:8080`,
+created org `testorg` + project `testproj` with the **Qwen Code** runtime
+(agent "Opus 4 in Qwen Code"), then started a spec task via
+`helix spectask start`.
+
+**Environment confirmed correct before judging the result:**
+- Sandbox container ran image `helix-ubuntu:ae55ac` — the image built from this
+  branch's Zed binary (`docker inspect` matched
+  `sandbox-images/helix-ubuntu.version`).
+- Live Zed connection: `sessions.config->>'zed_thread_id'` was a non-empty UUID.
+- Live Zed settings inside the container:
+  `agent.tool_permissions = {"default": "allow"}` and qwen args
+  `["--yolo", "--experimental-acp", "--no-telemetry", "--include-directories", "/home/retro/work"]`.
+
+**Result:** the task ran to `spec_review` with **no permission prompt**. Qwen
+wrote `requirements.md`, `design.md` and `tasks.md` — the exact operation that
+stalled in the bug report screenshots ("Writing to …/requirements.md" →
+"Awaiting Confirmation") — and committed them (`helix-specs @ fc65046`). The
+Zed thread ends with "The design is ready for review ✅" and the notification
+feed shows "Agent finished working". Screenshots in `screenshots/`.
+
+**Unit tests:** 4/4 pass (`cargo test -p agent_servers --lib`), covering the
+option-preference order and the no-matching-kind fallthrough.
+
+**Negative case (confirm → still prompts) — NOT separately exercised live.** The
+`ToolPermissionMode::Confirm` arm returns `None`, which leaves the original
+interactive code path unchanged (no `authorize_tool_call` call), so behaviour is
+unchanged by construction rather than by measurement. Reproducing it live would
+require defeating the settings-sync daemon, which rewrites
+`tool_permissions.default` to `allow` on every sync.
+
 ## Testing plan
 
 - **Live e2e in inner Helix (mandatory).** Register/onboard at `localhost:8080`,

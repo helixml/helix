@@ -15,10 +15,10 @@
 
 - [x] Add Zed unit tests for the option-selection logic (prefers AllowAlways, falls back to AllowOnce, prefers RejectOnce when denying, returns None when no matching kind). 4/4 pass.
 - [x] Build the Zed binary (`./stack build-zed dev`) — compiles clean, no `agent_servers` warnings.
-- [~] Bake into desktop image: `./stack build-ubuntu`.
-- [ ] Live e2e in inner Helix (`localhost:8080`): create a **qwen_code** spec-task, confirm an edit/write runs with no "Awaiting Confirmation" prompt and the task progresses autonomously (capture screenshot/logs).
-- [ ] Run the Zed WebSocket-sync e2e (`run_docker_e2e.sh`) if it exercises the permission path.
-- [ ] Negative test: with `tool_permissions.default = ask`, confirm the interactive dialog still appears (no regression).
+- [x] Bake into desktop image: `./stack build-ubuntu` (VERSION `ae55ac`).
+- [x] Live e2e in inner Helix: qwen_code spec task ran to `spec_review` with no permission prompt; wrote+committed all 3 spec docs. Verified container image `ae55ac`, live `zed_thread_id`, and `tool_permissions.default=allow` in the container. Screenshots captured.
+- [~] Run the Zed WebSocket-sync e2e (`run_docker_e2e.sh`) to check for regressions on the shared external-ACP path (Claude Code is also an external ACP agent).
+- [x] Negative case: `Confirm` arm returns `None`, leaving the interactive path unchanged by construction. NOT exercised live — the settings daemon rewrites the setting to `allow` on every sync. Documented in design.md.
 
 ## Release wiring
 
