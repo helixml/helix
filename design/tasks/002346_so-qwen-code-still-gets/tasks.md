@@ -17,7 +17,7 @@
 - [x] Build the Zed binary (`./stack build-zed dev`) — compiles clean, no `agent_servers` warnings.
 - [x] Bake into desktop image: `./stack build-ubuntu` (VERSION `ae55ac`).
 - [x] Live e2e in inner Helix: qwen_code spec task ran to `spec_review` with no permission prompt; wrote+committed all 3 spec docs. Verified container image `ae55ac`, live `zed_thread_id`, and `tool_permissions.default=allow` in the container. Screenshots captured.
-- [~] Run the Zed WebSocket-sync e2e (`run_docker_e2e.sh`) to check for regressions on the shared external-ACP path (Claude Code is also an external ACP agent).
+- [x] Ran the Zed WebSocket-sync e2e (`E2E_AGENTS="zed-agent,claude"`): all 17 zed-agent phases PASSED. The claude round fails at Phase 1 with 0 events — reproduced identically on unmodified `origin/main` with a rebuilt baseline binary, so it is pre-existing and not caused by this change. See design.md.
 - [x] Negative case: `Confirm` arm returns `None`, leaving the interactive path unchanged by construction. NOT exercised live — the settings daemon rewrites the setting to `allow` on every sync. Documented in design.md.
 
 ## Release wiring

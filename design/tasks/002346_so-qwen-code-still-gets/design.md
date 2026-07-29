@@ -180,6 +180,22 @@ feed shows "Agent finished working". Screenshots in `screenshots/`.
 **Unit tests:** 4/4 pass (`cargo test -p agent_servers --lib`), covering the
 option-preference order and the no-matching-kind fallthrough.
 
+**Zed WebSocket-sync e2e (`run_docker_e2e.sh`, `E2E_AGENTS="zed-agent,claude"`):**
+all **17 zed-agent phases PASSED**. The **claude round failed at Phase 1** with
+`Events received: 0, Threads: 0` — the claude-acp agent never established a
+session at all.
+
+That failure is **pre-existing in this environment, not caused by this change** —
+verified empirically, not assumed: I checked out unmodified `origin/main`
+(`06e9ce8059`), rebuilt the Zed binary, and re-ran the e2e with
+`E2E_AGENTS="claude"`. It times out in exactly the same place on the baseline.
+(Consistent with this, the two most recent commits on `main` are
+`fix/zed-e2e-model-readiness` and `fix/e2e-phase16-deferred-message`, and
+`CLAUDE.md` documents that the local Anthropic proxy may reject the e2e's default
+model.) Mechanically it also could not be this change: with zero threads created,
+no tool call and therefore no `request_permission` ever occurs, so the modified
+handler is never entered.
+
 **Negative case (confirm → still prompts) — NOT separately exercised live.** The
 `ToolPermissionMode::Confirm` arm returns `None`, which leaves the original
 interactive code path unchanged (no `authorize_tool_call` call), so behaviour is
