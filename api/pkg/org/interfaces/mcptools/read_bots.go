@@ -55,6 +55,23 @@ func botViewOf(b orgchart.Bot, managers []orgchart.BotID) botView {
 	}
 }
 
+func canonicalBotView(ctx context.Context, deps Deps, b orgchart.Bot, managers []orgchart.BotID) (botView, error) {
+	view := botViewOf(b, managers)
+	if b.IsHuman() || b.AgentAppID == "" {
+		return view, nil
+	}
+	if deps.AgentProfileReader == nil {
+		return botView{}, fmt.Errorf("read canonical agent %s: profile reader is not wired", b.AgentAppID)
+	}
+	name, instructions, err := deps.AgentProfileReader.AgentProfile(ctx, b.AgentAppID)
+	if err != nil {
+		return botView{}, fmt.Errorf("read canonical agent %s: %w", b.AgentAppID, err)
+	}
+	view.Name = name
+	view.Content = instructions
+	return view, nil
+}
+
 // ListBots returns every Bot in the org.
 type ListBots struct {
 	deps Deps
@@ -97,7 +114,11 @@ func (t *ListBots) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMes
 	}
 	out := make([]botView, 0, len(all))
 	for _, b := range all {
-		out = append(out, botViewOf(b, managersByReport[b.ID]))
+		view, err := canonicalBotView(ctx, t.deps, b, managersByReport[b.ID])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, view)
 	}
 	return json.Marshal(map[string]any{"bots": out})
 }
@@ -148,7 +169,10 @@ func (t *GetBot) Invoke(ctx context.Context, inv tool.Invocation) (json.RawMessa
 			return nil, fmt.Errorf("list managers for %q: %w", args.ID, err)
 		}
 	}
-	view := botViewOf(b, managers)
+	view, err := canonicalBotView(ctx, t.deps, b, managers)
+	if err != nil {
+		return nil, err
+	}
 	// Best-effort: surface attached repos so callers don't have to know
 	// about list_bot_repositories. Humans never have a project.
 	if b.Kind != orgchart.BotKindHuman && t.deps.Repositories != nil {

@@ -7,7 +7,16 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	"github.com/rs/zerolog/log"
 )
+
+var agentProvisioningKeys = map[string]bool{
+	configregistry.DefaultAgentConfigKey: true,
+	"worker.runtime":                     true,
+	"worker.credentials":                 true,
+	"worker.provider":                    true,
+	"worker.model":                       true,
+}
 
 // ---- Settings -----------------------------------------------------------
 
@@ -92,7 +101,63 @@ func (a *apiHandler) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if agentProvisioningKeys[key] {
+		a.activateDeferredBotsAfterRuntimeChange(r.Context(), orgID)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *apiHandler) activateDeferredBotsAfterRuntimeChange(ctx context.Context, orgID string) {
+	if a.deps.Queries == nil || !a.runtimeConfigComplete(ctx, orgID) {
+		return
+	}
+	bs, err := a.deps.Queries.ListBots(ctx, orgID)
+	if err != nil {
+		log.Warn().Err(err).Str("org", orgID).Msg("activate deferred bots after runtime change: list bots failed")
+		return
+	}
+	for _, b := range bs {
+		if b.IsHuman() {
+			continue
+		}
+		provisioned := true
+		if a.deps.BotRuntime != nil {
+			info, err := a.deps.BotRuntime.State(ctx, orgID, b.ID)
+			provisioned = err == nil && info.ProjectID != ""
+		}
+		if provisioned {
+			continue
+		}
+		if b.AgentAppID != "" {
+			if a.deps.AgentDefaultApplier == nil {
+				log.Warn().Str("org", orgID).Str("bot", string(b.ID)).
+					Msg("apply deferred agent defaults skipped: applier is not wired")
+				continue
+			}
+			defaults, err := a.deps.Configs.GetDefaultAgentConfig(ctx, orgID)
+			if err != nil {
+				log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
+					Msg("read deferred agent defaults failed")
+				continue
+			}
+			if err := a.deps.AgentDefaultApplier.ApplyAgentDefaults(ctx, b.AgentAppID, defaults); err != nil {
+				log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
+					Msg("apply deferred agent defaults failed")
+				continue
+			}
+		}
+		if a.deps.Activations == nil {
+			continue
+		}
+		if _, err := a.deps.Activations.Activate(ctx, orgID, b.ID); err != nil {
+			log.Warn().Err(err).Str("org", orgID).Str("bot", string(b.ID)).
+				Msg("activate deferred bot after runtime change failed")
+		}
+	}
+}
+
+func (a *apiHandler) runtimeConfigComplete(ctx context.Context, orgID string) bool {
+	return a.deps.Configs != nil && a.deps.Configs.IsDefaultAgentConfigComplete(ctx, orgID)
 }
 
 // deleteSetting removes the config row for the given key, falling back to defaults.

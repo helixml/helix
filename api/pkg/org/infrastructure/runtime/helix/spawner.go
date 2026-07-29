@@ -290,7 +290,21 @@ func Spawner(cfg SpawnerConfig) runtime.Spawner {
 		}
 		mandate := cfg.SpecsMandate
 		if mandate == "" {
-			mandate = "=== Current role ===\n" + bot.Content
+			instructions := bot.Content
+			if bot.AgentAppID != "" {
+				if cfg.ProjectService == nil {
+					return errors.New("load canonical agent instructions: project service is nil")
+				}
+				appConfig, err := cfg.ProjectService.GetAppConfig(startupCtx, bot.AgentAppID)
+				if err != nil {
+					return fmt.Errorf("load canonical agent instructions: %w", err)
+				}
+				if len(appConfig.Helix.Assistants) != 1 {
+					return fmt.Errorf("linked agent app %s must contain exactly one assistant", bot.AgentAppID)
+				}
+				instructions = appConfig.Helix.Assistants[0].SystemPrompt
+			}
+			mandate = "=== Current role ===\n" + instructions
 		}
 		prompt := briefing.BuildPrompt(workerID, mandate, triggers)
 		sessionID, priorInteractionID, err := cfg.ensureSession(startupCtx, orgID, workerID, prompt, bot.PreserveContext, publish)

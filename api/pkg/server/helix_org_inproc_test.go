@@ -7,9 +7,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/org/application/configregistry"
+	orggorm "github.com/helixml/helix/api/pkg/org/infrastructure/persistence/gorm"
 	runtimehelix "github.com/helixml/helix/api/pkg/org/infrastructure/runtime/helix"
+	orgapi "github.com/helixml/helix/api/pkg/org/interfaces/server/api"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/helixorg"
 	helixstore "github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/store/memorystore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -55,6 +62,159 @@ func TestInProcClient_ResolvesOrganizationOwnerWithoutAdmin(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Same(t, owner, got)
+}
+
+func TestInProcClient_CreateAgentUsesOrganizationOwnerWithoutRequestUser(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	owner := &types.User{ID: "usr_owner"}
+	st.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{ID: "org_test"}).
+		Return(&types.Organization{ID: "org_test", Owner: owner.ID}, nil)
+	st.EXPECT().GetUser(gomock.Any(), &helixstore.GetUserQuery{ID: owner.ID}).Return(owner, nil)
+	st.EXPECT().CreateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			require.Equal(t, owner.ID, app.Owner)
+			require.Equal(t, "org_test", app.OrganizationID)
+			app.ID = "app_test"
+			return app, nil
+		},
+	)
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+	appID, err := client.CreateAgent(context.Background(), "org_test", "Chief of Staff", "Lead")
+
+	require.NoError(t, err)
+	require.Equal(t, "app_test", appID)
+}
+
+func TestInProcClient_CreateAgentUsesConfiguredOrgDefaults(t *testing.T) {
+	ctx := context.Background()
+	reg := configregistry.New(orggorm.GetOrgTestDB(t).Configs)
+	helixorg.RegisterConfigSpecs(reg)
+	err := reg.Set(ctx, "org-test", configregistry.DefaultAgentConfigKey,
+		`{"code_agent_runtime":"codex_cli","code_agent_credential_type":"subscription","model":"gpt-5.6","reasoning_effort":"high"}`)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	owner := &types.User{ID: "usr_owner"}
+	st.EXPECT().GetOrganization(gomock.Any(), &helixstore.GetOrganizationQuery{Name: "org-test"}).
+		Return(&types.Organization{ID: "org-test", Owner: owner.ID}, nil)
+	st.EXPECT().GetUser(gomock.Any(), &helixstore.GetUserQuery{ID: owner.ID}).Return(owner, nil)
+	st.EXPECT().CreateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			assistant := app.Config.Helix.Assistants[0]
+			require.Equal(t, types.CodeAgentRuntimeCodexCLI, assistant.CodeAgentRuntime)
+			require.Equal(t, types.CodeAgentCredentialTypeSubscription, assistant.CodeAgentCredentialType)
+			require.Equal(t, "gpt-5.6", assistant.Model)
+			require.Equal(t, "high", assistant.ReasoningEffort)
+			app.ID = "app_test"
+			return app, nil
+		},
+	)
+
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st}, reg)
+	_, err = client.CreateAgent(ctx, "org-test", "Engineer", "Build")
+	require.NoError(t, err)
+}
+
+func TestInProcClient_DeferredDefaultsApplyOnlyToUntouchedScaffold(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	ctx := context.Background()
+	app := &types.App{
+		ID:    "app-deferred",
+		Owner: "usr-owner",
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				Name: "Agent", AgentType: types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+				ReasoningEffort:  types.ReasoningEffortNone,
+			}},
+		}},
+	}
+	st.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	st.EXPECT().UpdateApp(gomock.Any(), app).Return(app, nil)
+	st.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+	defaults := types.AssistantConfig{
+		CodeAgentRuntime:        types.CodeAgentRuntimeZedAgent,
+		CodeAgentCredentialType: types.CodeAgentCredentialTypeAPIKey,
+		Provider:                "anthropic",
+		Model:                   "claude-opus-4-6",
+		ReasoningEffort:         "high",
+	}
+
+	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
+	require.Equal(t, "anthropic", app.Config.Helix.Assistants[0].Provider)
+	require.Equal(t, "claude-opus-4-6", app.Config.Helix.Assistants[0].Model)
+
+	app.Config.Helix.Assistants[0].CodeAgentRuntime = types.CodeAgentRuntimeCodexCLI
+	app.Config.Helix.Assistants[0].Model = "user-selected"
+	require.NoError(t, client.ApplyAgentDefaults(ctx, app.ID, defaults))
+	require.Equal(t, types.CodeAgentRuntimeCodexCLI, app.Config.Helix.Assistants[0].CodeAgentRuntime)
+	require.Equal(t, "user-selected", app.Config.Helix.Assistants[0].Model)
+}
+
+func TestInProcClient_DeleteProjectNormalizesGormNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	st.EXPECT().GetProject(gomock.Any(), "prj_deleted").Return(nil, gorm.ErrRecordNotFound)
+	client := NewInProcHelixClient(&HelixAPIServer{Store: st})
+
+	err := client.DeleteProject(context.Background(), "prj_deleted")
+
+	require.ErrorIs(t, err, runtimehelix.ErrProjectNotFound)
+}
+
+func TestInProcClient_UpdateAgentRestoresAppAfterPostSaveFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	st := helixstore.NewMockStore(ctrl)
+	user := &types.User{ID: "usr_owner", Type: types.OwnerTypeUser}
+	existing := &types.App{
+		ID:        "app_test",
+		Owner:     user.ID,
+		OwnerType: types.OwnerTypeUser,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name: "Agent",
+			Assistants: []types.AssistantConfig{{
+				Name:         "Agent",
+				SystemPrompt: "old instructions",
+			}},
+		}},
+	}
+	st.EXPECT().GetApp(gomock.Any(), existing.ID).Return(existing, nil).Times(2)
+	var savedPrompt, restoredPrompt string
+	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			savedPrompt = app.Config.Helix.Assistants[0].SystemPrompt
+			return app, nil
+		},
+	)
+	st.EXPECT().ListKnowledge(gomock.Any(), &helixstore.ListKnowledgeQuery{AppID: existing.ID}).
+		Return([]*types.Knowledge{}, nil)
+	st.EXPECT().ListTriggerConfigurations(gomock.Any(), &helixstore.ListTriggerConfigurationsQuery{AppID: existing.ID}).
+		Return(nil, errors.New("trigger reconciliation failed"))
+	st.EXPECT().UpdateApp(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, app *types.App) (*types.App, error) {
+			restoredPrompt = app.Config.Helix.Assistants[0].SystemPrompt
+			return app, nil
+		},
+	)
+
+	client := NewInProcHelixClient(&HelixAPIServer{
+		Store:      st,
+		Cfg:        &config.ServerConfig{},
+		Controller: &controller.Controller{},
+	})
+	ctx := runtimehelix.WithUser(context.Background(), user)
+	instructions := "new instructions"
+
+	err := client.UpdateAgent(ctx, existing.ID, orgapi.AgentConfigPatch{}, nil, &instructions)
+
+	require.ErrorContains(t, err, "trigger reconciliation failed")
+	require.Equal(t, instructions, savedPrompt)
+	require.Equal(t, "old instructions", restoredPrompt)
 }
 
 // TestInProcProjectService_GetProject_NotFound_ReturnsErrProjectNotFound

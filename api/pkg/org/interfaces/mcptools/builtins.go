@@ -34,6 +34,14 @@ type Clock func() time.Time
 // IDGen generates new unique string IDs. Tests override it.
 type IDGen func() string
 
+type AgentContentUpdater interface {
+	UpdateAgentContent(ctx context.Context, appID, content string) error
+}
+
+type AgentProfileReader interface {
+	AgentProfile(ctx context.Context, appID string) (name, instructions string, err error)
+}
+
 // EventDispatcher fans a freshly-published Event out to every subscribed
 // Bot as a separate Spawner activation. Tools call it after persisting
 // an Event. The interface keeps tools.Deps free of a dependency on the
@@ -83,7 +91,9 @@ type Deps struct {
 	// Workspace is the per-runtime file-mirror port: set_bot_content calls
 	// MirrorFile after the service persists, so the running session sees
 	// the change before the next activation.
-	Workspace runtime.WorkspaceSync
+	Workspace           runtime.WorkspaceSync
+	AgentContentUpdater AgentContentUpdater
+	AgentProfileReader  AgentProfileReader
 	// ProjectConfig backs get_bot_project + configure_bot_project
 	// (owner-only read/patch of a Bot's helix project config).
 	ProjectConfig runtime.ProjectConfig
@@ -127,15 +137,17 @@ type Deps struct {
 // Hub/Dispatcher are optional (nil → publish skips notify/dispatch).
 // Workspace defaults to a no-op for tests.
 type Config struct {
-	Store         *store.Store
-	Queries       *queries.Queries
-	Now           Clock
-	NewID         IDGen
-	Hub           *wakebus.Bus
-	Dispatcher    EventDispatcher
-	Workspace     runtime.WorkspaceSync
-	HireHook      runtime.HireHook
-	ProjectConfig runtime.ProjectConfig
+	Store               *store.Store
+	Queries             *queries.Queries
+	Now                 Clock
+	NewID               IDGen
+	Hub                 *wakebus.Bus
+	Dispatcher          EventDispatcher
+	Workspace           runtime.WorkspaceSync
+	AgentContentUpdater AgentContentUpdater
+	AgentProfileReader  AgentProfileReader
+	HireHook            runtime.HireHook
+	ProjectConfig       runtime.ProjectConfig
 	// SpecTasks is the runtime port the spec-task tools dispatch on. nil
 	// → Build defaults to runtime.NoopSpecTasks{} so the tools return a
 	// clear "not wired" error instead of nil-derefing.
@@ -183,6 +195,8 @@ func (c Config) Build() Deps {
 		Activations:         c.Activations,
 		Processors:          c.processorsService(),
 		Workspace:           c.Workspace,
+		AgentContentUpdater: c.AgentContentUpdater,
+		AgentProfileReader:  c.AgentProfileReader,
 		ProjectConfig:       c.ProjectConfig,
 		SpecTasks:           c.specTasksService(),
 		Projects:            c.projectsService(),

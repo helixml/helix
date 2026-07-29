@@ -50,13 +50,13 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID }) => {
   )
 
   if (!projectID) {
-    return <EmptyState>This bot has no project for spec tasks.</EmptyState>
+    return <EmptyState>This agent has no project for spec tasks.</EmptyState>
   }
   if (tasksQuery.isLoading) {
     return <Box sx={{ m: 'auto' }}><CircularProgress size={24} /></Box>
   }
   if (tasksQuery.isError) {
-    return <EmptyState>Could not load this bot's project tasks.</EmptyState>
+    return <EmptyState>Could not load this agent's project tasks.</EmptyState>
   }
 
   return (
@@ -79,7 +79,7 @@ const HelixOrgBotPanelTab: FC<Props> = ({ botID, projectID }) => {
         <Box sx={{ p: 2.5, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 1.5 }}>
           <PendingOutlinedIcon sx={{ color: 'text.disabled', mb: 0.5 }} />
           <Typography variant="body2" color="text.secondary">
-            {tasks.length === 0 ? 'No spec tasks are linked to this bot yet.' : 'No tasks match this status.'}
+            {tasks.length === 0 ? 'No spec tasks are linked to this agent yet.' : 'No tasks match this status.'}
           </Typography>
         </Box>
       ) : filteredTasks.map((task) => {

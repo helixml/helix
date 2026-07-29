@@ -2,6 +2,7 @@ package lifecycle_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,6 +16,18 @@ import (
 )
 
 func hireClock() time.Time { return time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC) }
+
+type fakeAgentCreator struct{}
+
+func (fakeAgentCreator) CreateAgent(context.Context, string, string, string) (string, error) {
+	return "app-agent", nil
+}
+
+type failingBotReconciler struct{}
+
+func (failingBotReconciler) Reconcile(context.Context, string, ...orgchart.BotID) error {
+	return errors.New("reconcile failed")
+}
 
 // newHireService builds a lifecycle.Service wired only for Create (the
 // create half) against the in-memory store. Delete-only collaborators
@@ -33,6 +46,7 @@ func newHireService(st *store.Store) *lifecycle.Service {
 	return &lifecycle.Service{
 		Store:          st,
 		Bots:           botSvc,
+		Agents:         fakeAgentCreator{},
 		BotReconcilers: []lifecycle.BotReconciler{rec},
 		Now:            hireClock,
 		NewID:          func() string { return "id" },
@@ -61,6 +75,9 @@ func TestCreate_CreatesBotAndReconciles(t *testing.T) {
 	}
 	if res.Bot.ID != "w-new" {
 		t.Fatalf("bot id = %q", res.Bot.ID)
+	}
+	if res.Bot.AgentAppID != "app-agent" {
+		t.Fatalf("agent app id = %q, want app-agent", res.Bot.AgentAppID)
 	}
 	if _, err := st.Bots.Get(ctx, "org-test", "w-new"); err != nil {
 		t.Fatalf("bot not persisted: %v", err)
@@ -141,6 +158,22 @@ func TestCreate_UnknownParent(t *testing.T) {
 	}
 }
 
+func TestCreate_RollsBackBotWhenReconcileFails(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	svc.BotReconcilers = []lifecycle.BotReconciler{failingBotReconciler{}}
+
+	_, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{ID: "w-new", Content: "x"})
+
+	if err == nil {
+		t.Fatal("Create: want error")
+	}
+	if _, err := st.Bots.Get(context.Background(), "org-test", "w-new"); err == nil {
+		t.Fatal("failed create left bot row")
+	}
+}
+
 type recordingDispatcher struct{ hires int }
 
 func (r *recordingDispatcher) DispatchHire(context.Context, string, orgchart.BotID, activation.ID) {
@@ -167,5 +200,33 @@ func TestCreate_AlwaysDispatchesActivation(t *testing.T) {
 	}
 	if disp.hires != 1 {
 		t.Fatalf("create should dispatch exactly one hire, got %d", disp.hires)
+	}
+}
+
+func TestCreate_DeferredDoesNotCreateOrDispatchActivation(t *testing.T) {
+	t.Parallel()
+	st := memory.New()
+	svc := newHireService(st)
+	disp := &recordingDispatcher{}
+	svc.Dispatcher = disp
+
+	res, err := svc.Create(context.Background(), "org-test", lifecycle.CreateParams{
+		ID: "w-new", Content: "x", DeferActivation: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if res.ActivationID != "" {
+		t.Fatalf("deferred create activation = %q, want empty", res.ActivationID)
+	}
+	if disp.hires != 0 {
+		t.Fatalf("deferred create dispatched %d hires", disp.hires)
+	}
+	rows, err := st.Activations.ListForWorker(context.Background(), "org-test", res.Bot.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("deferred activation rows = %v, want none", rows)
 	}
 }

@@ -309,6 +309,57 @@ func (s *ExploratorySessionActivationSuite) TestNoProjectStillMintsFreshSession(
 	s.Equal(got.ID, captured.SessionID)
 }
 
+func (s *ExploratorySessionActivationSuite) TestAppSessionPersistsAgentRuntimeBinding() {
+	ctx := context.Background()
+
+	const (
+		appID  = "app_agent"
+		userID = "user_op"
+	)
+
+	s.store.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:   userID,
+		Type: types.OwnerTypeUser,
+	}, nil)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(&types.App{
+		ID: appID,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Assistants: []types.AssistantConfig{{
+				ID:               "0",
+				AgentType:        types.AgentTypeZedExternal,
+				CodeAgentRuntime: types.CodeAgentRuntimeZedAgent,
+			}},
+		}},
+	}, nil)
+
+	var capturedSession *types.Session
+	s.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).Return(nil, store.ErrNotFound).AnyTimes()
+	s.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			capturedSession = &session
+			return &session, nil
+		},
+	)
+	s.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+	s.executor.EXPECT().StartDesktop(gomock.Any(), gomock.Any()).Return(
+		&types.DesktopAgentResponse{DevContainerID: "dev_agent"}, nil,
+	)
+
+	got, err := s.server.StartExternalAgentSession(ctx, &types.SessionChatRequest{
+		AppID:     appID,
+		AgentType: "zed_external",
+		Messages: []*types.Message{{
+			Role:    "user",
+			Content: types.MessageContent{Parts: []any{"activate"}},
+		}},
+	}, userID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got)
+	s.Require().NotNil(capturedSession)
+	s.Equal(types.CodeAgentRuntimeZedAgent, capturedSession.Metadata.CodeAgentRuntime)
+	s.Equal(types.CodeAgentRuntimeZedAgent.ZedAgentName(), capturedSession.Metadata.ZedAgentName)
+}
+
 // Case 4: different SessionRole → no reuse. The guard is gated on
 // SessionRole=="exploratory". A SessionRole="planning" request (or any
 // non-exploratory role) must mint a fresh id — GetProjectExploratorySession's

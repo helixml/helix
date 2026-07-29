@@ -56,6 +56,9 @@ const BotKindHuman BotKind = "human"
 type Bot struct {
 	ID             BotID
 	OrganizationID string
+	// AgentAppID is the canonical Helix Agent App backing this org node.
+	// It is required for agent nodes and empty for human placeholders.
+	AgentAppID string
 	// Name is the human-readable display label (e.g. "Chief of Staff").
 	// Free text, may be empty — the UI falls back to ID. Distinct from
 	// ID, which is the immutable handle.
@@ -120,6 +123,12 @@ func NewBot(id BotID, content string, tools []tool.Name, now time.Time, orgID st
 // replaced.
 func (b Bot) WithName(name string) Bot {
 	b.Name = name
+	return b
+}
+
+// WithAgentAppID returns a copy of the Bot linked to the canonical Agent App.
+func (b Bot) WithAgentAppID(agentAppID string) Bot {
+	b.AgentAppID = agentAppID
 	return b
 }
 

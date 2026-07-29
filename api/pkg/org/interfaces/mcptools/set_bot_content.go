@@ -53,9 +53,25 @@ func (t *SetBotContent) Invoke(ctx context.Context, inv tool.Invocation) (json.R
 		return nil, fmt.Errorf("set_bot_content: caller has no OrgID")
 	}
 	botID := orgchart.BotID(args.BotID)
+	existing, err := t.deps.Queries.GetBot(ctx, orgID, botID)
+	if err != nil {
+		return nil, fmt.Errorf("get bot: %w", err)
+	}
+	if existing.AgentAppID != "" && t.deps.AgentContentUpdater == nil {
+		return nil, fmt.Errorf("update linked agent content: updater is not wired")
+	}
 	updated, err := t.deps.Bots.Update(ctx, orgID, botID, bots.UpdateParams{Content: &args.Content})
 	if err != nil {
 		return nil, fmt.Errorf("set bot content: %w", err)
+	}
+	if updated.AgentAppID != "" {
+		if err := t.deps.AgentContentUpdater.UpdateAgentContent(ctx, updated.AgentAppID, args.Content); err != nil {
+			_, rollbackErr := t.deps.Bots.Update(ctx, orgID, botID, bots.UpdateParams{Content: &existing.Content})
+			if rollbackErr != nil {
+				return nil, fmt.Errorf("update linked agent content: %v; rollback bot content: %w", err, rollbackErr)
+			}
+			return nil, fmt.Errorf("update linked agent content: %w", err)
+		}
 	}
 	// Mirror the new content into the bot's Environment so a running
 	// session sees it without waiting for the next activation.

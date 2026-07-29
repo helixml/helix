@@ -568,6 +568,72 @@ func (s *ApplyProjectSuite) TestApply_PreservesExistingAgentSkills() {
 	s.Equal("1920x1080", updated.Config.Helix.ExternalAgentConfig.Resolution)
 }
 
+func (s *ApplyProjectSuite) TestApply_LinkedAgentPreservesCanonicalConfig() {
+	const appID = "app-linked"
+	existingProject := &types.Project{
+		ID:     "proj-linked",
+		Name:   "linked-project",
+		UserID: s.userID,
+	}
+	existingApp := &types.App{
+		ID: appID,
+		Config: types.AppConfig{Helix: types.AppHelixConfig{
+			Name:                 "Canonical",
+			DefaultAgentType:     types.AgentTypeZedExternal,
+			ExternalAgentEnabled: true,
+			ExternalAgentConfig: &types.ExternalAgentConfig{
+				Resolution:  "2560x1440",
+				DesktopType: "sway",
+			},
+			Assistants: []types.AssistantConfig{{
+				Name:                    "Canonical",
+				SystemPrompt:            "canonical instructions",
+				CodeAgentRuntime:        types.CodeAgentRuntimeCodexCLI,
+				CodeAgentCredentialType: types.CodeAgentCredentialTypeSubscription,
+				GenerationModelProvider: "openai",
+				GenerationModel:         "gpt-5.6-sol",
+				MCPs:                    []types.AssistantMCP{{Name: "custom", URL: "https://example.com/mcp"}},
+			}},
+		}},
+	}
+	before, err := json.Marshal(existingApp.Config)
+	s.Require().NoError(err)
+
+	req := types.ProjectApplyRequest{
+		Name:       existingProject.Name,
+		AgentAppID: appID,
+		Spec: types.ProjectSpec{Agent: &types.ProjectAgentSpec{
+			Name:        "ignored",
+			Runtime:     "zed_agent",
+			Provider:    "anthropic",
+			Model:       "claude-sonnet-4",
+			Credentials: "api_key",
+		}},
+	}
+
+	s.store.EXPECT().
+		ListProjects(gomock.Any(), &store.ListProjectsQuery{UserID: s.userID}).
+		Return([]*types.Project{existingProject}, nil)
+	s.store.EXPECT().
+		UpdateProject(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, project *types.Project) error {
+			if project.DefaultHelixAppID != "" {
+				s.Equal(appID, project.DefaultHelixAppID)
+			}
+			return nil
+		}).Times(2)
+	s.store.EXPECT().GetApp(gomock.Any(), appID).Return(existingApp, nil)
+
+	resp, httpErr := s.server.applyProject(httptest.NewRecorder(), s.applyRequest(req))
+
+	s.Nil(httpErr)
+	s.Require().NotNil(resp)
+	s.Equal(appID, resp.AgentAppID)
+	after, err := json.Marshal(existingApp.Config)
+	s.Require().NoError(err)
+	s.Equal(string(before), string(after))
+}
+
 // TestApply_ToolsFromSpecOverrideSkills: when the apply YAML sets tools.*,
 // those values win over previously-stored Browser/WebSearch/Calculator.
 func (s *ApplyProjectSuite) TestApply_ToolsFromSpecOverrideSkills() {

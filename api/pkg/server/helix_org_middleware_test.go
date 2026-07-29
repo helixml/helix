@@ -51,11 +51,29 @@ type helixOrgRouteTestStore struct {
 type bootstrapActivationDispatcher struct {
 	ids           []orgchart.BotID
 	activationIDs []activation.ID
+	defaults      *repairDefaultApplier
+	outOfOrder    bool
 }
 
 func (d *bootstrapActivationDispatcher) DispatchHire(_ context.Context, _ string, id orgchart.BotID, activationID activation.ID) {
+	if d.defaults != nil && !d.defaults.applied {
+		d.outOfOrder = true
+	}
 	d.ids = append(d.ids, id)
 	d.activationIDs = append(d.activationIDs, activationID)
+}
+
+type repairDefaultApplier struct {
+	applied bool
+	appID   string
+	config  types.AssistantConfig
+}
+
+func (a *repairDefaultApplier) ApplyAgentDefaults(_ context.Context, appID string, defaults types.AssistantConfig) error {
+	a.applied = true
+	a.appID = appID
+	a.config = defaults
+	return nil
 }
 
 func (s *helixOrgRouteTestStore) GetOrganization(_ context.Context, query *helixstore.GetOrganizationQuery) (*types.Organization, error) {
@@ -198,6 +216,33 @@ func TestEnsureBootstrapConcurrentCallsAllSucceed(t *testing.T) {
 	}
 }
 
+func TestEnsureBootstrapProvisionsServiceKeyBeforeGraphSeed(t *testing.T) {
+	t.Parallel()
+	orgStore := orgmemory.New()
+	configs := configregistry.New(orgStore.Configs)
+	configs.Register(configregistry.Spec{Key: "helix.api_key", Type: configregistry.TypeString})
+	scope := newHelixOrgScope(configs, orgStore, &bootstrapHelixStore{}, nil, nil, nil)
+	seeded := false
+	scope.humanReconcile = func(ctx context.Context, orgID string) error {
+		key, err := configs.GetString(ctx, orgID, "helix.api_key")
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return errors.New("graph seeded before service key")
+		}
+		seeded = true
+		return nil
+	}
+
+	if err := scope.ensureBootstrap(context.Background(), "org-race"); err != nil {
+		t.Fatalf("ensure bootstrap: %v", err)
+	}
+	if !seeded {
+		t.Fatal("graph seed hook was not called")
+	}
+}
+
 func TestEnsureBootstrapRetriesAfterServiceKeyFailure(t *testing.T) {
 	t.Parallel()
 	orgStore := orgmemory.New()
@@ -216,9 +261,11 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st := orgmemory.New()
+	configs := configregistry.New(st.Configs)
+	configs.Register(configregistry.Spec{Key: configregistry.DefaultAgentConfigKey, Type: configregistry.TypeObject})
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	for _, b := range []orgchart.Bot{
-		mustBot(t, "bot-legacy-a", "", now),
+		mustBot(t, "bot-legacy-a", "", now).WithAgentAppID("app-legacy-a"),
 		mustBot(t, "bot-legacy-b", "", now),
 		mustBot(t, "bot-created", "", now),
 		mustBot(t, "human-owner", orgchart.BotKindHuman, now),
@@ -236,8 +283,37 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	}
 
 	dispatcher := &bootstrapActivationDispatcher{}
-	if err := repairNeverActivatedBots(ctx, "org-test", st, dispatcher); err != nil {
+	if err := repairNeverActivatedBots(ctx, "org-test", st, dispatcher, configs, nil); err != nil {
+		t.Fatalf("repair without config: %v", err)
+	}
+	if len(dispatcher.ids) != 0 {
+		t.Fatalf("repair before config dispatched bots = %v", dispatcher.ids)
+	}
+	if err := configs.Set(ctx, "org-test", configregistry.DefaultAgentConfigKey,
+		`{"code_agent_runtime":"zed_agent","code_agent_credential_type":"api_key"}`); err != nil {
+		t.Fatalf("set incomplete default agent config: %v", err)
+	}
+	if err := repairNeverActivatedBots(ctx, "org-test", st, dispatcher, configs, nil); err != nil {
+		t.Fatalf("repair with incomplete config: %v", err)
+	}
+	if len(dispatcher.ids) != 0 {
+		t.Fatalf("repair before complete config dispatched bots = %v", dispatcher.ids)
+	}
+	if err := configs.Set(ctx, "org-test", configregistry.DefaultAgentConfigKey,
+		`{"code_agent_runtime":"zed_agent","code_agent_credential_type":"api_key","provider":"anthropic","model":"claude-opus-4-6"}`); err != nil {
+		t.Fatalf("set default agent config: %v", err)
+	}
+	applier := &repairDefaultApplier{}
+	dispatcher.defaults = applier
+	if err := repairNeverActivatedBots(ctx, "org-test", st, dispatcher, configs, applier); err != nil {
 		t.Fatalf("repair never-activated bots: %v", err)
+	}
+	if !applier.applied || applier.appID != "app-legacy-a" ||
+		applier.config.Provider != "anthropic" || applier.config.Model != "claude-opus-4-6" {
+		t.Fatalf("applied defaults = %+v", applier)
+	}
+	if dispatcher.outOfOrder {
+		t.Fatal("repair dispatched before applying Agent defaults")
 	}
 	if len(dispatcher.ids) != 2 || dispatcher.ids[0] != "bot-legacy-a" || dispatcher.ids[1] != "bot-legacy-b" {
 		t.Fatalf("activated bots = %v, want [bot-legacy-a bot-legacy-b]", dispatcher.ids)
@@ -256,7 +332,7 @@ func TestRepairNeverActivatedBotsSkipsHumansAndActivatedBots(t *testing.T) {
 	}
 
 	secondDispatcher := &bootstrapActivationDispatcher{}
-	if err := repairNeverActivatedBots(ctx, "org-test", st, secondDispatcher); err != nil {
+	if err := repairNeverActivatedBots(ctx, "org-test", st, secondDispatcher, configs, applier); err != nil {
 		t.Fatalf("repeat repair: %v", err)
 	}
 	if len(secondDispatcher.ids) != 0 {
