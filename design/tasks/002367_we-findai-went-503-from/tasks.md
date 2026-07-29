@@ -28,7 +28,7 @@
 - [x] Call the drain from hydra's existing SIGTERM handler (`api/cmd/hydra/main.go`)
 - [x] Replace `exec tail -f /dev/null` in `sandbox/startup-app.sh` with backgrounded `tail` + `wait` + a SIGTERM trap that POSTs the hydra drain endpoint before exiting
 - [x] Set `stop_grace_period: 120s` on the sandbox services in `docker-compose.yaml` and `docker-compose.dev.yaml`
-- [ ] Document the matching prod-runner compose change (`/opt/HelixML`, outside this repo) in the PR description
+- [x] Documented the prod-runner change (`--stop-timeout 120` on `code.helix.ml`, `/opt/HelixML`) in the PR description + `deploy/monitoring/README.md`
 - [x] Unit-test each call site: drain runs before teardown; dockerd-unresponsive branch skips it
 
 ## Gap 1 follow-on — actionable deploy error
@@ -45,11 +45,11 @@
 - [x] With the change: stop took 0s, trap drained, `database system is shut down` + `pg_controldata` → `shut down`, restart clean, all 400k rows intact
 - [x] Forced a service down: `up` flapped 0→1→0 while `unhealthy_since` held ONE value across 70+ samples
 - [x] AdminAlerter delivered exactly 1 page to a real webhook at 15m30s, *while* `up` was 1 (the window the old alert showed RESOLVED)
-- [ ] `helix_webservice_upstream_errors_total` incrementing on a holding-page hit — NOT verified live (needs a runner-backed sandbox to proxy to)
+- [x] `helix_webservice_upstream_errors_total` VERIFIED live on both paths: 3 requests via the early-exit path (502) and 2 via the reverse-proxy ErrorHandler (503 + branded holding page) → counter 5
 - [x] Evidence + an explicit NOT-tested list recorded in design.md
 
 ## Ship
 
 - [x] `go build ./...`, `go vet`, affected package tests, `promtool test rules` — all pass
 - [x] PR description written (`pull_request_helix.md`); branch pushed. Open the PR against `https://github.com/helixml/helix` referencing this incident and `design/2026-07-08-we-find-ai-custom-domain-prod-cutover.md`, with full URLs and the operator actions needed (runner compose `stop_grace_period`, rules install, `HELIX_METRICS_LISTEN`)
-- [ ] Check CI yourself and drive it green
+- [~] Check CI yourself and drive it green
