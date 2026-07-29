@@ -2,7 +2,7 @@
 
 ## Phase 1 — Reproduce and verify the root cause (before any fix)
 
-- [ ] Baseline the idle `desktop-bridge` in this sandbox: `ls -l /proc/$(pgrep -f /usr/local/bin/desktop-bridge)/fd | grep -c nvidia0` and `nvidia-smi --query-compute-apps=pid,used_memory --format=csv`
+- [~] Baseline the idle `desktop-bridge` in this sandbox: `ls -l /proc/$(pgrep -f /usr/local/bin/desktop-bridge)/fd | grep -c nvidia0` and `nvidia-smi --query-compute-apps=pid,used_memory --format=csv`
 - [ ] Drive N stream connect/disconnect cycles (browser at `localhost:8080`, or `helix spectask stream`/`benchmark`) and record the per-cycle `/dev/nvidia0` fd delta — confirm the ~4–5 fds/cycle ratchet on unmodified code
 - [ ] Re-run desktop-bridge with `GST_TRACERS="leaks(GstPipeline,GstElement,GstBus,GstSample,GstBuffer)"` and `GST_DEBUG=GST_TRACER:7`; after N cycles send `SIGUSR1`/`SIGUSR2` and capture the live-object dump
 - [ ] Temporarily log `GST_OBJECT_REFCOUNT(pipeline)` immediately before the `Unref()` in `GstPipeline.Stop()` and record the value
