@@ -105,6 +105,10 @@ func (apiServer *HelixAPIServer) proxyToContainer(
 			Str("hydra_container_id", hydraContainerID).
 			Int("port", port).
 			Msg("vhost proxy error")
+		// Count the failure a real customer just experienced. Every other
+		// web-service health signal is inferred from the platform's own state
+		// machine; this one cannot be masked by a bug in it.
+		webservice.RecordUpstreamError(projectID)
 		apiServer.serveHoldingPage(r.Context(), rw, projectID)
 	}
 

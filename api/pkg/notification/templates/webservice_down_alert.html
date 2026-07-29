@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Helix web service alert</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1a1a1a; line-height: 1.5;">
+  {{if .Down}}
+  <h2 style="color: #b00020;">🚨 Hosted web service is DOWN</h2>
+  <p><strong>{{.DisplayName}}</strong> has been unreachable for <strong>{{.DownForText}}</strong>.</p>
+  {{else}}
+  <h2 style="color: #0a7c2f;">✅ Hosted web service recovered</h2>
+  <p><strong>{{.DisplayName}}</strong> is serving again after <strong>{{.DownForText}}</strong> down.</p>
+  {{end}}
+
+  <table cellpadding="6" style="border-collapse: collapse; margin: 16px 0;">
+    <tr><td style="color:#666;">Project</td><td><code>{{.ProjectID}}</code></td></tr>
+    <tr><td style="color:#666;">Domains</td><td>{{if .DomainList}}{{.DomainList}}{{else}}(none configured){{end}}</td></tr>
+    {{if .ConsecutiveRecoveryFailures}}
+    <tr><td style="color:#666;">Failed auto-recoveries</td><td>{{.ConsecutiveRecoveryFailures}} in a row — auto-recovery cannot fix this on its own</td></tr>
+    {{end}}
+    {{if .DeployError}}
+    <tr><td style="color:#666;">Last deploy error</td><td>{{.DeployError}}</td></tr>
+    {{end}}
+  </table>
+
+  {{if .DeployLogURL}}
+  <p><a href="{{.DeployLogURL}}">Open the deploy log</a></p>
+  {{end}}
+
+  {{if .Down}}
+  <p style="color:#666; font-size: 13px;">
+    Auto-recovery redeploys the same commit. If the cause is a corrupt or unstartable database
+    inside the app's own compose stack, redeploying cannot fix it — check the deploy log before
+    forcing another deploy.
+  </p>
+  {{end}}
+</body>
+</html>

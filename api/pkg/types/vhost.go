@@ -76,6 +76,26 @@ const (
 	WebServiceDeployStatusSuperseded WebServiceDeployStatus = "superseded"
 )
 
+// WebServiceDownAlert is the payload of a hosted-web-service-down page. It
+// carries everything an operator needs to triage without SSHing to a runner:
+// which customer site is down, for how long, and why the last deploy failed.
+type WebServiceDownAlert struct {
+	ProjectID   string
+	ProjectName string
+	Domains     []string
+	DownFor     time.Duration
+	// ConsecutiveRecoveryFailures is how many auto-recoveries have failed in a
+	// row. A non-zero value means auto-recovery cannot fix this on its own.
+	ConsecutiveRecoveryFailures int
+	// DeployError is the last deploy's stored error, classified where possible
+	// (e.g. a corrupt nested-Postgres checkpoint) so the alert distinguishes a
+	// data problem from a code problem.
+	DeployError string
+	// DeployLogURL points at the project's Web Service tab, where the tail of
+	// the startup/deploy log is surfaced.
+	DeployLogURL string
+}
+
 // WebServiceDeploy records one deploy attempt for a project's web service.
 type WebServiceDeploy struct {
 	ID         string                 `gorm:"primaryKey" json:"id"`

@@ -748,8 +748,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	go apiServer.sandboxController.StartReaper(ctx, time.Minute)
 
 	// Probe live web services and auto-recover any that stop responding
-	// (crashed/hung stack heals without a human).
-	go webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController).Start(ctx)
+	// (crashed/hung stack heals without a human), and page an operator when
+	// recovery cannot fix it. The alerter is a delivery path that does not
+	// depend on Prometheus scraping this process — see
+	// deploy/monitoring/README.md for the metrics-based rules that complement it.
+	healthMonitor := webservice.NewHealthMonitor(apiServer.Store, apiServer.webServiceController)
+	healthMonitor.SetAlerter(apiServer.adminAlerter, apiServer.Cfg.WebServer.URL)
+	go healthMonitor.Start(ctx)
 
 	// Continuous delivery for agent-created apps: when a GitHub-hosted project's
 	// default branch advances (e.g. a PR is merged), redeploy its web service.
