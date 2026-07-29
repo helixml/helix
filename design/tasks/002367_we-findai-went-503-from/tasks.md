@@ -40,12 +40,13 @@
 
 ## End-to-end verification in the inner Helix
 
-- [~] Stand up a project web service whose compose runs a real `postgres:15` with its volume under `/data`
-- [ ] Control run on `main`: redeploy, capture the unclean shutdown and `pg_controldata` → `in production`
-- [ ] With the change: redeploy and delete, capture `database system is shut down` + `pg_controldata` → `shut down`, then restart and confirm no recovery/PANIC
-- [ ] Force the service down and capture `/metrics` showing `helix_webservice_unhealthy_since_seconds` pinned across a recovery redeploy while `helix_webservice_up` flaps
-- [ ] Capture the AdminAlerter firing once against a test webhook, and `helix_webservice_upstream_errors_total` incrementing on a holding-page hit
-- [ ] Record every result in the PR; mark anything not run as **NOT tested** with the reason
+- [x] Stand up a nested `postgres:15` compose stack in a faithful sandbox harness (PID 1 = tail + backgrounded dockerd — plain `dind` is NOT faithful, its PID 1 *is* dockerd and hides the bug)
+- [x] Control run: `docker stop` took the full 120s then SIGKILLed; `pg_controldata` → `in production` (unclean)
+- [x] With the change: stop took 0s, trap drained, `database system is shut down` + `pg_controldata` → `shut down`, restart clean, all 400k rows intact
+- [x] Forced a service down: `up` flapped 0→1→0 while `unhealthy_since` held ONE value across 70+ samples
+- [x] AdminAlerter delivered exactly 1 page to a real webhook at 15m30s, *while* `up` was 1 (the window the old alert showed RESOLVED)
+- [ ] `helix_webservice_upstream_errors_total` incrementing on a holding-page hit — NOT verified live (needs a runner-backed sandbox to proxy to)
+- [x] Evidence + an explicit NOT-tested list recorded in design.md
 
 ## Ship
 
