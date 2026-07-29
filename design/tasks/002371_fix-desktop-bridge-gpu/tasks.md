@@ -64,7 +64,7 @@ see design.md §1 for the corrected root cause.
 
 - [x] Add a 30 s self-check reading `/proc/self/fd` nvidia0 count and own GPU MiB; ERROR log above the warn threshold
 - [x] Refuse new pipeline instantiation above the hard ceiling with a clear client-facing error
-- [~] Give the `SharedVideoSource` circuit breaker a terminal state that surfaces an error to the client instead of permitting one instantiation per cooldown indefinitely
+- [x] Give the `SharedVideoSource` circuit breaker a terminal state that surfaces an error to the client instead of permitting one instantiation per cooldown indefinitely
 
 ## Phase 7 — End-to-end verification in the inner Helix
 
